@@ -7,7 +7,7 @@ import { loadConfig, loadProjects, KODO_DIR } from './config.js';
 import { PlaneClient } from './plane/client.js';
 import * as cmux from './cmux/client.js';
 import { colorForStatus } from './cmux/colors.js';
-import { addSession, listSessions } from './session/state.js';
+import { addSession, listSessions, removeSession } from './session/state.js';
 import { launchWorkItem } from './session/manager.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -68,7 +68,7 @@ async function handleWebhook(payload) {
 
   // Check if state changed to trigger state ("In Progress")
   const config = loadConfig();
-  const stateName = data.state_detail?.name || data.state__name;
+  const stateName = data.state?.name || data.state_detail?.name || data.state__name;
 
   if (action === 'updated' && stateName === config.plane.trigger_state) {
     await handleTriggerState(data, config);
@@ -80,7 +80,7 @@ async function handleWebhook(payload) {
  * @param {ReturnType<import('./config.js').loadConfig>} config
  */
 async function handleTriggerState(data, config) {
-  const projectId = data.project || data.project_detail?.id;
+  const projectId = (typeof data.project === 'object' ? data.project?.id : data.project) || data.project_detail?.id;
   if (!projectId) {
     console.log('[kodo] No project ID in webhook data');
     return;
@@ -102,11 +102,22 @@ async function handleTriggerState(data, config) {
     return;
   }
 
-  // Check if already running
+  // Check if already running — but verify workspace still exists
   const active = listSessions();
-  if (active.some((s) => s.plane_id === data.id)) {
-    console.log(`[kodo] Session already running for ${identifier}`);
-    return;
+  const existing = active.find((s) => s.plane_id === data.id);
+  if (existing) {
+    try {
+      const workspaces = await cmux.listWorkspaces();
+      if (workspaces.includes(existing.workspace_ref)) {
+        console.log(`[kodo] Session already running for ${identifier}`);
+        return;
+      }
+      // Workspace gone — clean up stale session
+      console.log(`[kodo] Stale session for ${identifier} — workspace gone, relaunching`);
+      removeSession(data.id);
+    } catch {
+      removeSession(data.id);
+    }
   }
 
   console.log(`[kodo] Launching session for ${identifier}: ${data.name}`);

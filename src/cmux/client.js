@@ -40,7 +40,7 @@ export async function newWorkspace(opts) {
  * @param {{ workspace: string, text: string }} opts
  */
 export async function send(opts) {
-  return run(['send', '--workspace', opts.workspace, opts.text]);
+  return run(['send', '--workspace', opts.workspace, opts.text + '\\n']);
 }
 
 /**

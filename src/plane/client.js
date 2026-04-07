@@ -47,7 +47,8 @@ export class PlaneClient {
 
   /** @param {string} projectId */
   async listStates(projectId) {
-    return this.request(`/projects/${projectId}/states/`);
+    const data = await this.request(`/projects/${projectId}/states/`);
+    return data.results || data;
   }
 
   /**

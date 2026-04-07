@@ -1,4 +1,5 @@
 // @ts-check
+import { randomUUID } from 'node:crypto';
 import { loadConfig, loadProjects } from '../config.js';
 import { PlaneClient } from '../plane/client.js';
 import * as cmux from '../cmux/client.js';
@@ -46,7 +47,7 @@ export async function launchWorkItem(identifier) {
   await cmux.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
   // Build Claude command
-  const sessionId = `kodo-${identifier.toLowerCase()}`;
+  const sessionId = randomUUID();
   const claudeCmd = buildClaudeCommand(config, sessionId, workItem);
 
   // Send Claude command to workspace
@@ -86,7 +87,7 @@ function buildClaudeCommand(config, sessionId, workItem) {
   const model = config.claude.default_model;
   const prompt = `Trabaja en: ${workItem.name}. ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
 
-  return `${config.claude.binary} --model ${model} --session-id ${sessionId} ${flags} '${escapeShell(prompt)}'`;
+  return `claude --model ${model} --session-id ${sessionId} ${flags} '${escapeShell(prompt)}'`;
 }
 
 /** @param {string} html */
