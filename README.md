@@ -100,6 +100,29 @@ kodo install   # registra SessionStart y Stop hooks en ~/.claude/settings.json
 kodo start   # arranca el servidor webhook en :9090
 ```
 
+## Configuración
+
+### Slots paralelos
+
+El número máximo de sesiones simultáneas de Claude (por defecto 3):
+
+```bash
+kodo config --set claude.max_parallel=5
+```
+
+### Thresholds
+
+```bash
+kodo config --set server.idle_threshold_min=5     # minutos para considerar idle
+kodo config --set server.stuck_threshold_min=30    # minutos para considerar stuck
+```
+
+### Ver configuración actual
+
+```bash
+kodo config --show
+```
+
 ## Uso
 
 ### Automático (webhook)
@@ -144,6 +167,66 @@ Backlog → Todo → In Progress → [Claude trabaja] → In Review → Done
 - **In Review**: la sesión terminó, esperando validación
 - **Done**: alguien (tú o el orquestador) confirmó que el trabajo está correcto
 
+## Visibilidad del progreso
+
+Todo el progreso se documenta en Plane como comentarios, sin necesidad de abrir cmux:
+
+**Durante la sesión** — Claude recibe instrucciones de documentar en Plane:
+- Al empezar: plan de acción
+- Tras cada hito (feature, bug fix, decisión): comentario breve
+- Al terminar: resumen de lo hecho y pendientes
+
+**Al cerrar la sesión** — el stop hook automáticamente:
+- Lee las últimas 30 líneas del screen de cmux
+- Posta un comentario de cierre con duración y output final
+- Mueve la tarea a "In Review"
+
+**Con el orquestador activo** — rondas de supervisión cada ~5 minutos:
+- Lee el screen de cada sesión activa
+- Evalúa progreso y documenta el estado observado en Plane
+- Si detecta problemas, actúa (nudge, desbloqueo, escalado)
+
+Resultado: abres cualquier tarea en Plane y ves el historial completo de lo que hizo Claude.
+
+## Orquestador
+
+El orquestador (`kodo orchestrate`) es una sesión de Claude Code dedicada a supervisar las demás.
+
+### Qué hace
+
+Mientras está activo, ejecuta un ciclo continuo:
+
+```
+┌─→ Leer state.json (sesiones activas)
+│   Leer screens de cada sesión (cmux read-screen)
+│   Evaluar: ¿progresa? ¿idle? ¿errores?
+│   Documentar estado en Plane (comentarios)
+│   Actuar si necesario (nudge, desbloquear)
+│   Revisar tareas en "In Review" → mover a Done si OK
+│   Lanzar nuevas tareas si hay slots disponibles
+│   Esperar ~5 minutos
+└───────────────────┘
+```
+
+Se activa automáticamente cuando:
+- El health checker detecta una sesión stuck (>30min)
+- Una sesión termina y le envía mensaje → ronda inmediata
+
+### Skill con autoaprendizaje
+
+El orquestador tiene un skill en `skills/kodo-orchestrate/skill.md` que acumula conocimiento:
+
+- Quirks de la API de Plane (ej: filtros que devuelven 403)
+- Mapeo de proyectos y paths descubiertos
+- Decisiones de diseño y procesos validados
+
+Antes de terminar cada sesión, el orquestador actualiza el skill con lo aprendido. El stop hook detecta cambios en `skills/` y los auto-commitea. La próxima sesión arranca con todo el contexto previo.
+
+```
+Sesión N: descubre quirk → actualiza skill.md → cierra → auto-commit
+Sesión N+1: lee skill.md → ya conoce el quirk → no repite el error
+```
+
 ## Componentes
 
 ### Server (`src/server.js`)
@@ -176,30 +259,7 @@ Cada 60s verifica sesiones activas:
 Parsea labels de Plane (`kodo`, `kodo:sonnet`, `kodo:yolo`) para configurar modelo y permisos.
 
 ### Orquestador (`src/orchestrator/` + `skills/kodo-orchestrate/`)
-
-Sesión de Claude Code dedicada que actúa como supervisor. Se lanza con `kodo orchestrate` o automáticamente cuando el health checker detecta una sesión stuck.
-
-**Qué hace:**
-- Lee tareas con label `kodo` en Plane via MCP y decide cuáles lanzar
-- Supervisa sesiones activas leyendo screens via cmux
-- Desbloquea sesiones stuck enviando mensajes via cmux
-- Revisa sesiones en "In Review" y decide si pasan a "Done"
-- Respeta el límite de 3 sesiones paralelas
-
-**Skill con autoaprendizaje:**
-
-El orquestador tiene un skill propio en `skills/kodo-orchestrate/skill.md` que documenta:
-- Quirks de la API de Plane (ej: filtros que devuelven 403)
-- Mapeo de proyectos y paths
-- Decisiones de diseño y procesos validados
-
-Antes de terminar cada sesión, el orquestador actualiza el skill con lo que aprendió. El **stop hook detecta cambios** en `skills/` y los auto-commitea al cerrar la sesión. Así, la próxima vez que el orquestador arranque, tiene todo el contexto acumulado.
-
-```
-Sesión orquestador → aprende quirk de API → actualiza skill.md → cierra sesión
-    → stop hook detecta cambios en skills/ → git commit automático
-    → próxima sesión → lee skill.md → ya sabe el quirk
-```
+Sesión supervisora de Claude Code. Ver sección [Orquestador](#orquestador) más arriba.
 
 ## Archivos de configuración
 
