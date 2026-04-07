@@ -39,7 +39,8 @@ async function main() {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
 
-    // Find the tracked session by cwd or session_id pattern
+    // Find the tracked session by cwd or session_id
+    console.error(`[kodo:stop] Looking for session: cwd=${cwd}, sessionId=${sessionId}`);
     let result = findSession({ cwd });
     if (!result && sessionId) {
       // Try to find by session_id prefix match (kodo-kl-42)
@@ -54,6 +55,7 @@ async function main() {
     }
 
     if (!result) {
+      console.error(`[kodo:stop] No matching session found`);
       // Check if this is the orchestrator session (cwd = kodo repo)
       const isOrchestratorSession = cwd && (
         cwd === KODO_ROOT ||
