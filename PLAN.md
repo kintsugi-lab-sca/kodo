@@ -312,6 +312,7 @@ Se configura una vez con `kodo config` y se reutiliza.
 - Trigger automático cuando hay sesiones stuck
 
 ### Fase 5: Polish
+- `kodo config` interactivo — wizard que lista proyectos, pide paths, valida que existen
 - `kodo install` — instala hooks y MCP server automáticamente
 - Tests
 - README

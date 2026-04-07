@@ -62,6 +62,25 @@ program
     await interactiveConfig();
   });
 
+// --- kodo start ---
+program
+  .command('start')
+  .description('Start the webhook server')
+  .option('-p, --port <port>', 'Port to listen on')
+  .action(async (opts) => {
+    const { startServer } = await import('./server.js');
+    startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined });
+  });
+
+// --- kodo stop ---
+program
+  .command('stop')
+  .description('Stop the webhook server')
+  .action(async () => {
+    const { stopServer } = await import('./server.js');
+    stopServer();
+  });
+
 // --- kodo launch ---
 program
   .command('launch <identifier>')

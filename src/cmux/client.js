@@ -31,8 +31,9 @@ export async function newWorkspace(opts) {
   if (opts.cwd) args.push('--cwd', opts.cwd);
   if (opts.command) args.push('--command', opts.command);
   const output = await run(args);
-  // cmux returns the workspace ref in stdout
-  return output;
+  // cmux returns "OK workspace:N" — extract the ref
+  const match = output.match(/(workspace:\d+)/);
+  return match ? match[1] : output;
 }
 
 /**

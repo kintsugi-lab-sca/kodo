@@ -11,7 +11,7 @@ const DEFAULT_CONFIG = {
   plane: {
     base_url: 'https://tasks.kintsugi-lab.com',
     api_key_env: 'PLANE_API_KEY',
-    workspace_slug: 'klab',
+    workspace_slug: 'k-lab',
     projects: [],
     trigger_state: 'In Progress',
     done_state: 'Done',
