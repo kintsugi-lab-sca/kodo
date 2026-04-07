@@ -9,6 +9,7 @@ import * as cmux from './cmux/client.js';
 import { colorForStatus } from './cmux/colors.js';
 import { addSession, listSessions, removeSession } from './session/state.js';
 import { launchWorkItem } from './session/manager.js';
+import { startHealthLoop, stopHealthLoop, checkHealth } from './session/health.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
 
@@ -158,8 +159,9 @@ export function startServer(opts = {}) {
     }
 
     if (req.method === 'GET' && req.url === '/health') {
+      const reports = await checkHealth().catch(() => []);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), sessions: reports }));
       return;
     }
 
@@ -208,10 +210,14 @@ export function startServer(opts = {}) {
 
     // Write PID file for stop command
     writeFileSync(PID_PATH, String(process.pid));
+
+    // Start health check loop
+    startHealthLoop();
   });
 
   // Cleanup on exit
   const cleanup = () => {
+    stopHealthLoop();
     try { unlinkSync(PID_PATH); } catch {}
     process.exit(0);
   };
