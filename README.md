@@ -20,10 +20,17 @@ Tarea → In Progress ──webhook──→ kodo server
                                                      │
                                                    Claude trabaja
                                                      │
-                        stop hook ←──────────────── sesión cierra
+                                                   sesión se cierra
+                                                   (Ctrl+C, /exit, cerrar)
+                                                     │
+                        stop hook ←──────────────────┘
                           │                        
                         Plane → In Review          TENDERIO-42 [Blue]
                         notifica orquestador       
+                          │
+                        humano/orquestador revisa
+                          │
+                        Plane → Done               TENDERIO-42 [Green]
 ```
 
 ## Setup
@@ -100,7 +107,9 @@ kodo start   # arranca el servidor webhook en :9090
 1. Añade label `kodo` a una tarea en Plane
 2. Muévela a "In Progress"
 3. kodo crea workspace cmux + lanza Claude
-4. Al terminar → tarea pasa a "In Review" automáticamente
+4. Claude trabaja en su workspace
+5. Al cerrar la sesión (Ctrl+C, `/exit`, cerrar pestaña) → tarea pasa a "In Review"
+6. Tú o el orquestador revisáis y movéis a "Done"
 
 ### Manual
 
@@ -166,8 +175,31 @@ Cada 60s verifica sesiones activas:
 ### Labels (`src/labels.js`)
 Parsea labels de Plane (`kodo`, `kodo:sonnet`, `kodo:yolo`) para configurar modelo y permisos.
 
-### Orquestador (`src/orchestrator/`)
-Sesión Claude supervisora que monitorea sesiones, desbloquea stuck, y coordina prioridades.
+### Orquestador (`src/orchestrator/` + `skills/kodo-orchestrate/`)
+
+Sesión de Claude Code dedicada que actúa como supervisor. Se lanza con `kodo orchestrate` o automáticamente cuando el health checker detecta una sesión stuck.
+
+**Qué hace:**
+- Lee tareas con label `kodo` en Plane via MCP y decide cuáles lanzar
+- Supervisa sesiones activas leyendo screens via cmux
+- Desbloquea sesiones stuck enviando mensajes via cmux
+- Revisa sesiones en "In Review" y decide si pasan a "Done"
+- Respeta el límite de 3 sesiones paralelas
+
+**Skill con autoaprendizaje:**
+
+El orquestador tiene un skill propio en `skills/kodo-orchestrate/skill.md` que documenta:
+- Quirks de la API de Plane (ej: filtros que devuelven 403)
+- Mapeo de proyectos y paths
+- Decisiones de diseño y procesos validados
+
+Antes de terminar cada sesión, el orquestador actualiza el skill con lo que aprendió. El **stop hook detecta cambios** en `skills/` y los auto-commitea al cerrar la sesión. Así, la próxima vez que el orquestador arranque, tiene todo el contexto acumulado.
+
+```
+Sesión orquestador → aprende quirk de API → actualiza skill.md → cierra sesión
+    → stop hook detecta cambios en skills/ → git commit automático
+    → próxima sesión → lee skill.md → ya sabe el quirk
+```
 
 ## Archivos de configuración
 
