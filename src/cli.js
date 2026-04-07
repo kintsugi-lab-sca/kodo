@@ -81,6 +81,25 @@ program
     stopServer();
   });
 
+// --- kodo orchestrate ---
+program
+  .command('orchestrate')
+  .description('Launch the orchestrator Claude session')
+  .action(async () => {
+    try {
+      const { launchOrchestrator } = await import('./orchestrator/launch.js');
+      const result = await launchOrchestrator();
+      if (result.existing) {
+        console.log(`Orchestrator already running at ${result.workspace}`);
+      } else {
+        console.log(`✓ Orchestrator launched at ${result.workspace}`);
+      }
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo launch ---
 program
   .command('launch <identifier>')
