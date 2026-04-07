@@ -96,6 +96,31 @@ export class PlaneClient {
     });
   }
 
+  /** @param {string} projectId */
+  async listModules(projectId) {
+    const data = await this.request(`/projects/${projectId}/modules/`);
+    return data.results || data;
+  }
+
+  /**
+   * Find which module a work item belongs to
+   * @param {string} projectId
+   * @param {string} workItemId
+   * @returns {Promise<string|null>} module name or null
+   */
+  async getWorkItemModule(projectId, workItemId) {
+    const modules = await this.listModules(projectId);
+    for (const mod of modules) {
+      if (mod.total_issues === 0) continue;
+      const items = await this.request(`/projects/${projectId}/modules/${mod.id}/module-issues/`);
+      const results = items.results || items;
+      if (results.some((item) => item.id === workItemId)) {
+        return mod.name;
+      }
+    }
+    return null;
+  }
+
   /**
    * @param {string} projectId
    * @param {string} workItemId

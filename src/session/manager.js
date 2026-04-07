@@ -37,8 +37,15 @@ export async function launchWorkItem(identifier, opts = {}) {
     );
   }
 
+  // Resolve module name
+  let moduleName = null;
+  try {
+    moduleName = await plane.getWorkItemModule(project.id, workItem.id);
+  } catch {}
+
   // Create cmux workspace
-  const workspaceName = `${identifier}: ${truncate(workItem.name, 40)}`;
+  const prefix = moduleName ? `${identifier} [${moduleName}]` : identifier;
+  const workspaceName = `${prefix}: ${truncate(workItem.name, 40)}`;
   const workspaceRef = await cmux.newWorkspace({
     name: workspaceName,
     cwd: projectPath,
@@ -49,7 +56,7 @@ export async function launchWorkItem(identifier, opts = {}) {
 
   // Build Claude command
   const sessionId = randomUUID();
-  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model, opts.flags);
+  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model, opts.flags, moduleName);
 
   // Send Claude command to workspace
   await cmux.send({ workspace: workspaceRef, text: claudeCmd });
@@ -96,10 +103,12 @@ export async function launchWorkItem(identifier, opts = {}) {
  * @param {object} workItem
  * @param {string|null} [modelOverride]
  * @param {string[]} [kodoFlags]
+ * @param {string|null} [moduleName]
  */
-function buildClaudeCommand(config, sessionId, workItem, modelOverride, kodoFlags = []) {
+function buildClaudeCommand(config, sessionId, workItem, modelOverride, kodoFlags = [], moduleName = null) {
   const model = modelOverride || config.claude.default_model;
-  const prompt = `Trabaja en: ${workItem.name}. ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
+  const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
+  const prompt = `Trabaja en: ${workItem.name}.${moduleCtx} ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
 
   // Only add --dangerously-skip-permissions if kodo:yolo label is present
   const cliFlags = kodoFlags.includes('yolo') ? '--dangerously-skip-permissions' : '';
