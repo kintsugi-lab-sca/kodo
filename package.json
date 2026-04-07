@@ -1,0 +1,19 @@
+{
+  "name": "kodo",
+  "version": "0.1.0",
+  "description": "Plane-cmux bridge — automated Claude Code sessions from kanban tasks",
+  "type": "module",
+  "bin": {
+    "kodo": "./bin/kodo"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "commander": "^13.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}
