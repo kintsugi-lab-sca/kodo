@@ -81,6 +81,25 @@ program
     stopServer();
   });
 
+// --- kodo check ---
+program
+  .command('check')
+  .description('Quick health check — launches orchestrator if action needed (no LLM, no tokens)')
+  .option('--dry-run', 'Only report, don\'t launch orchestrator')
+  .action(async (opts) => {
+    if (opts.dryRun) {
+      const { runCheck } = await import('./check.js');
+      const result = await runCheck();
+      console.log(result.summary);
+      if (result.needsOrchestrator) {
+        console.log(`Would launch orchestrator: ${result.reasons.join('; ')}`);
+      }
+    } else {
+      const { runCheckAndAct } = await import('./check.js');
+      await runCheckAndAct();
+    }
+  });
+
 // --- kodo install ---
 program
   .command('install')

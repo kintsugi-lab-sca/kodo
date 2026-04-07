@@ -109,15 +109,8 @@ export async function actOnHealth(reports) {
         console.log(`[kodo:health] ${report.identifier} — stuck (${report.elapsed_min}min)`);
         await cmux.notify({
           title: `kodo: ${report.identifier} stuck`,
-          body: `Lleva ${report.elapsed_min}min sin progreso. Lanzando orquestador.`,
+          body: `Lleva ${report.elapsed_min}min sin progreso`,
         }).catch(() => {});
-        // Auto-launch orchestrator to investigate
-        try {
-          const { launchOrchestrator } = await import('../orchestrator/launch.js');
-          await launchOrchestrator();
-        } catch (err) {
-          console.error(`[kodo:health] Error launching orchestrator: ${err.message}`);
-        }
         break;
 
       case 'idle':
