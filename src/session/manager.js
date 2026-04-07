@@ -75,6 +75,18 @@ export async function launchWorkItem(identifier, opts = {}) {
     workspace: workspaceRef,
   });
 
+  // Notify orchestrator if running
+  try {
+    const workspaces = await cmux.listWorkspaces();
+    const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
+    if (orchMatch) {
+      await cmux.send({
+        workspace: orchMatch[1],
+        text: `Nueva sesión lanzada: ${identifier} (${workItem.name}) en ${workspaceRef}. Path: ${projectPath}\\n`,
+      });
+    }
+  } catch {}
+
   return session;
 }
 
