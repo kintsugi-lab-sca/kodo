@@ -81,6 +81,24 @@ program
     stopServer();
   });
 
+// --- kodo install ---
+program
+  .command('install')
+  .description('Install kodo hooks into Claude Code settings')
+  .action(async () => {
+    const { installHooks } = await import('./hooks/install.js');
+    installHooks();
+  });
+
+// --- kodo uninstall ---
+program
+  .command('uninstall')
+  .description('Remove kodo hooks from Claude Code settings')
+  .action(async () => {
+    const { uninstallHooks } = await import('./hooks/install.js');
+    uninstallHooks();
+  });
+
 // --- kodo orchestrate ---
 program
   .command('orchestrate')
@@ -170,36 +188,70 @@ function timeSince(isoDate) {
 }
 
 async function interactiveConfig() {
+  const { createInterface } = await import('node:readline');
+  const { existsSync } = await import('node:fs');
   const { loadConfig, saveConfig, loadProjects, saveProjects, getPlaneApiKey } = await import('./config.js');
   const config = loadConfig();
 
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  console.log('\n  kodo config\n');
+
+  // Step 1: API key
   const apiKey = getPlaneApiKey();
   if (!apiKey) {
-    console.log(`Set ${config.plane.api_key_env} env var first, then re-run kodo config.`);
-    console.log(`  export ${config.plane.api_key_env}=your-api-key`);
+    console.log(`  ✗ ${config.plane.api_key_env} no está configurada.\n`);
+    console.log(`  Genera un token en: ${config.plane.base_url}/profile/api-tokens/`);
+    console.log(`  Luego: export ${config.plane.api_key_env}=tu-token\n`);
+    rl.close();
     return;
   }
+  console.log(`  ✓ API key configurada\n`);
 
-  console.log('Fetching Plane projects...');
+  // Step 2: Workspace slug
+  const slug = await ask(`  Workspace slug [${config.plane.workspace_slug}]: `);
+  if (slug.trim()) {
+    config.plane.workspace_slug = slug.trim();
+  }
+
+  // Step 3: Fetch projects and map paths
+  console.log('\n  Conectando con Plane...');
   try {
     const { PlaneClient } = await import('./plane/client.js');
-    const plane = new PlaneClient();
+    const plane = new PlaneClient({ workspaceSlug: config.plane.workspace_slug });
     const planeProjects = await plane.listProjects();
     const projects = loadProjects();
 
-    console.log(`\nFound ${planeProjects.length} projects:\n`);
+    console.log(`  Encontrados ${planeProjects.length} proyectos:\n`);
+
     for (const p of planeProjects) {
-      const mapped = projects[p.id] ? ` → ${projects[p.id]}` : ' (not mapped)';
-      console.log(`  ${p.identifier}  ${p.name}  [${p.id}]${mapped}`);
+      const current = projects[p.id];
+      const label = current ? `[${current}]` : '[sin mapear]';
+      console.log(`  ${p.identifier} — ${p.name} ${label}`);
+
+      const path = await ask(`    Path local (Enter para ${current ? 'mantener' : 'saltar'}): `);
+      if (path.trim()) {
+        if (existsSync(path.trim())) {
+          projects[p.id] = path.trim();
+          console.log(`    ✓ Mapeado\n`);
+        } else {
+          console.log(`    ✗ "${path.trim()}" no existe, ignorado\n`);
+        }
+      } else {
+        console.log('');
+      }
     }
 
-    console.log('\nMap projects with:');
-    console.log('  kodo config --map-project <projectId>:/local/path');
+    saveProjects(projects);
 
     // Save project IDs to config
     config.plane.projects = planeProjects.map((p) => p.id);
     saveConfig(config);
+    console.log('  ✓ Configuración guardada en ~/.kodo/\n');
   } catch (err) {
-    console.error(`Error connecting to Plane: ${err.message}`);
+    console.error(`  ✗ Error conectando con Plane: ${err.message}`);
   }
+
+  rl.close();
 }
