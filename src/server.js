@@ -143,7 +143,7 @@ async function handleTriggerState(data, config) {
   console.log(`[kodo] Launching session for ${identifier}: ${data.name} (model: ${kodoConfig.model || config.claude.default_model})`);
 
   try {
-    const session = await launchWorkItem(identifier, { model: kodoConfig.model });
+    const session = await launchWorkItem(identifier, { model: kodoConfig.model, flags: kodoConfig.flags });
     console.log(`[kodo] ✓ Launched ${identifier} → ${session.workspace_ref}`);
   } catch (err) {
     console.error(`[kodo] Error launching ${identifier}: ${err.message}`);

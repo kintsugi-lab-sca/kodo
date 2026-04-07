@@ -52,7 +52,7 @@ const DEFAULT_CONFIG = {
     binary: '/Applications/cmux.app/Contents/Resources/bin/claude',
     default_model: 'opus',
     max_parallel: 3,
-    flags: ['--dangerously-skip-permissions'],
+    flags: [],
   },
   server: {
     port: 9090,

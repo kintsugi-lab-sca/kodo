@@ -9,7 +9,7 @@ import { addSession, listSessions } from './state.js';
 /**
  * Launch a Claude Code session for a Plane work item
  * @param {string} identifier e.g. "KL-42"
- * @param {{ model?: string|null }} [opts]
+ * @param {{ model?: string|null, flags?: string[] }} [opts]
  */
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
@@ -49,7 +49,7 @@ export async function launchWorkItem(identifier, opts = {}) {
 
   // Build Claude command
   const sessionId = randomUUID();
-  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model);
+  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model, opts.flags);
 
   // Send Claude command to workspace
   await cmux.send({ workspace: workspaceRef, text: claudeCmd });
@@ -83,13 +83,16 @@ export async function launchWorkItem(identifier, opts = {}) {
  * @param {string} sessionId
  * @param {object} workItem
  * @param {string|null} [modelOverride]
+ * @param {string[]} [kodoFlags]
  */
-function buildClaudeCommand(config, sessionId, workItem, modelOverride) {
-  const flags = config.claude.flags.join(' ');
+function buildClaudeCommand(config, sessionId, workItem, modelOverride, kodoFlags = []) {
   const model = modelOverride || config.claude.default_model;
   const prompt = `Trabaja en: ${workItem.name}. ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
 
-  return `claude --model ${model} --session-id ${sessionId} ${flags} '${escapeShell(prompt)}'`;
+  // Only add --dangerously-skip-permissions if kodo:yolo label is present
+  const cliFlags = kodoFlags.includes('yolo') ? '--dangerously-skip-permissions' : '';
+
+  return `claude --model ${model} --session-id ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
 }
 
 /** @param {string} html */
