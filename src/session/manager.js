@@ -9,8 +9,9 @@ import { addSession, listSessions } from './state.js';
 /**
  * Launch a Claude Code session for a Plane work item
  * @param {string} identifier e.g. "KL-42"
+ * @param {{ model?: string|null }} [opts]
  */
-export async function launchWorkItem(identifier) {
+export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
   const plane = new PlaneClient();
 
@@ -48,7 +49,7 @@ export async function launchWorkItem(identifier) {
 
   // Build Claude command
   const sessionId = randomUUID();
-  const claudeCmd = buildClaudeCommand(config, sessionId, workItem);
+  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model);
 
   // Send Claude command to workspace
   await cmux.send({ workspace: workspaceRef, text: claudeCmd });
@@ -81,10 +82,11 @@ export async function launchWorkItem(identifier) {
  * @param {ReturnType<import('../config.js').loadConfig>} config
  * @param {string} sessionId
  * @param {object} workItem
+ * @param {string|null} [modelOverride]
  */
-function buildClaudeCommand(config, sessionId, workItem) {
+function buildClaudeCommand(config, sessionId, workItem, modelOverride) {
   const flags = config.claude.flags.join(' ');
-  const model = config.claude.default_model;
+  const model = modelOverride || config.claude.default_model;
   const prompt = `Trabaja en: ${workItem.name}. ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
 
   return `claude --model ${model} --session-id ${sessionId} ${flags} '${escapeShell(prompt)}'`;

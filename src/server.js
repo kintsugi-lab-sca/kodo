@@ -10,6 +10,7 @@ import { colorForStatus } from './cmux/colors.js';
 import { addSession, listSessions, removeSession } from './session/state.js';
 import { launchWorkItem } from './session/manager.js';
 import { startHealthLoop, stopHealthLoop, checkHealth } from './session/health.js';
+import { parseKodoLabels, resolveLabels } from './labels.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
 
@@ -87,10 +88,28 @@ async function handleTriggerState(data, config) {
     return;
   }
 
+  // Check kodo labels — only launch if "kodo" label is present
+  const plane = new PlaneClient();
+  let labels = data.labels || [];
+
+  // Resolve label IDs to objects if needed
+  if (labels.length > 0 && typeof labels[0] === 'string') {
+    try {
+      labels = await resolveLabels(plane, projectId, labels);
+    } catch (err) {
+      console.error(`[kodo] Error resolving labels: ${err.message}`);
+    }
+  }
+
+  const kodoConfig = parseKodoLabels(labels);
+  if (!kodoConfig.isKodo) {
+    console.log(`[kodo] Ignored: ${data.name} — no kodo label`);
+    return;
+  }
+
   // Find project identifier to build the KL-42 style reference
   let identifier;
   try {
-    const plane = new PlaneClient();
     const projects = await plane.listProjects();
     const project = projects.find((p) => p.id === projectId);
     if (!project) {
@@ -121,10 +140,10 @@ async function handleTriggerState(data, config) {
     }
   }
 
-  console.log(`[kodo] Launching session for ${identifier}: ${data.name}`);
+  console.log(`[kodo] Launching session for ${identifier}: ${data.name} (model: ${kodoConfig.model || config.claude.default_model})`);
 
   try {
-    const session = await launchWorkItem(identifier);
+    const session = await launchWorkItem(identifier, { model: kodoConfig.model });
     console.log(`[kodo] ✓ Launched ${identifier} → ${session.workspace_ref}`);
   } catch (err) {
     console.error(`[kodo] Error launching ${identifier}: ${err.message}`);
