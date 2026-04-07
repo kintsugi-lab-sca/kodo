@@ -37,7 +37,7 @@ const DEFAULT_CONFIG = {
     projects: [],
     trigger_state: 'In Progress',
     done_state: 'Done',
-    review_state: 'In Review',
+    review_state: 'In review',
   },
   cmux: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/cmux',

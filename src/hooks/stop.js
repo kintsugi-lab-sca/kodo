@@ -95,7 +95,7 @@ async function main() {
     // Update Plane work item to "In Review" (not Done — requires human/orchestrator approval)
     try {
       const states = await plane.listStates(session.project_id);
-      const reviewState = states.find((s) => s.name === config.plane.review_state);
+      const reviewState = states.find((s) => s.name.toLowerCase() === config.plane.review_state.toLowerCase());
 
       if (reviewState) {
         await plane.updateWorkItem(session.project_id, session.plane_id, {

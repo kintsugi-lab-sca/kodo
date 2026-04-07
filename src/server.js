@@ -72,7 +72,7 @@ async function handleWebhook(payload) {
   const config = loadConfig();
   const stateName = data.state?.name || data.state_detail?.name || data.state__name;
 
-  if (action === 'updated' && stateName === config.plane.trigger_state) {
+  if (action === 'updated' && stateName?.toLowerCase() === config.plane.trigger_state.toLowerCase()) {
     await handleTriggerState(data, config);
   }
 }
