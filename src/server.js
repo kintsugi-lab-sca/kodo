@@ -230,6 +230,12 @@ export function startServer(opts = {}) {
     // Write PID file for stop command
     writeFileSync(PID_PATH, String(process.pid));
 
+    // Rename current workspace to identify the kodo service
+    if (process.env.CMUX_WORKSPACE_ID) {
+      cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '心動 kodo service' }).catch(() => {});
+      cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
+    }
+
     // Start health check loop
     startHealthLoop();
   });

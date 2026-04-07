@@ -61,6 +61,13 @@ export async function setColor(opts) {
 }
 
 /**
+ * @param {{ workspace: string, title: string }} opts
+ */
+export async function rename(opts) {
+  return run(['workspace-action', '--action', 'set-title', '--workspace', opts.workspace, '--title', opts.title]);
+}
+
+/**
  * @returns {Promise<string>}
  */
 export async function listWorkspaces() {
