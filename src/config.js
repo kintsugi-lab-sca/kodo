@@ -28,7 +28,7 @@ const DEFAULT_CONFIG = {
   },
   claude: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/claude',
-    default_model: 'sonnet',
+    default_model: 'opus',
     max_parallel: 3,
     flags: ['--dangerously-skip-permissions'],
   },
