@@ -4,12 +4,20 @@
 // Claude Code Stop hook for kodo
 // When a kodo-tracked Claude session ends, updates Plane work item
 // state and cmux workspace color.
+// Also detects when the orchestrator session ends without [kodo:idle]
+// and sends a reminder to update the skill.
 
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { findSession, updateSession, removeSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { PlaneClient } from '../plane/client.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const KODO_ROOT = join(__dirname, '..', '..');
+const SKILL_PATH = join(KODO_ROOT, 'skills', 'kodo-orchestrate', 'skill.md');
 
 const STDIN_TIMEOUT = 3000;
 
@@ -46,7 +54,14 @@ async function main() {
     }
 
     if (!result) {
-      // Not a kodo session — silent exit
+      // Check if this is the orchestrator session (cwd = kodo repo)
+      const isOrchestratorSession = cwd && (
+        cwd === KODO_ROOT ||
+        cwd.startsWith(KODO_ROOT + '/')
+      );
+      if (isOrchestratorSession) {
+        await handleOrchestratorStop();
+      }
       process.exit(0);
     }
 
@@ -88,10 +103,59 @@ async function main() {
       });
     } catch {}
 
+    // Notify orchestrator if running
+    try {
+      const workspaces = await cmux.listWorkspaces();
+      const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
+      if (orchMatch) {
+        await cmux.send({
+          workspace: orchMatch[1],
+          text: `La sesión ${session.plane_identifier} (${session.summary}) ha terminado. Revisa si hay tareas pendientes por lanzar.\\n`,
+        });
+      }
+    } catch {}
+
     // Remove session from state
     removeSession(id);
   } catch (err) {
     console.error(`[kodo] Stop hook error: ${err.message}`);
+  }
+}
+
+/**
+ * Called when the orchestrator session ends.
+ * Auto-commits any pending changes in skills/ to preserve learnings.
+ */
+async function handleOrchestratorStop() {
+  const { execSync } = await import('node:child_process');
+
+  try {
+    // Check if there are uncommitted changes in skills/
+    const status = execSync('git status --porcelain skills/', {
+      cwd: KODO_ROOT,
+      encoding: 'utf-8',
+    }).trim();
+
+    if (!status) {
+      console.error('[kodo] Orchestrator session ended — no skill changes to commit');
+      return;
+    }
+
+    // Auto-commit skill changes
+    const date = new Date().toISOString().slice(0, 10);
+    execSync(`git add skills/ && git commit -m "skill: orchestrator learnings ${date}"`, {
+      cwd: KODO_ROOT,
+      encoding: 'utf-8',
+    });
+
+    console.error('[kodo] Orchestrator skill changes auto-committed');
+
+    await cmux.notify({
+      title: 'kodo: skill actualizado',
+      body: `Aprendizajes del orquestador guardados (${date})`,
+    });
+  } catch (err) {
+    console.error(`[kodo] Error auto-committing skill: ${err.message}`);
   }
 }
 
