@@ -40,7 +40,17 @@ async function main() {
       `Proyecto path: ${session.project_path}`,
       `Session ID: ${session.session_id}`,
       '',
-      'Al terminar, el hook de Stop actualizará Plane automáticamente.',
+      '## Documentación de progreso',
+      '',
+      'IMPORTANTE: Debes documentar tu progreso en Plane para que sea visible sin entrar en esta sesión.',
+      '',
+      '1. **Al empezar**: añade un comentario en Plane con tu plan de acción',
+      '2. **Tras cada hito importante** (feature completada, bug encontrado, decisión tomada): añade un comentario breve en Plane',
+      '3. **Al terminar**: añade un comentario final con resumen de lo hecho, archivos modificados, y cualquier pendiente',
+      '',
+      `Para comentar usa el MCP de Plane: work item ID = ${session.plane_id} | project ID = ${session.project_id}`,
+      '',
+      'Al cerrar la sesión, el hook de Stop moverá la tarea a "In Review" automáticamente.',
     ].join('\n');
 
     // Output context for Claude Code to inject

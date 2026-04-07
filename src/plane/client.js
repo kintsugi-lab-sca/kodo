@@ -96,6 +96,18 @@ export class PlaneClient {
     });
   }
 
+  /**
+   * @param {string} projectId
+   * @param {string} workItemId
+   * @param {string} commentHtml
+   */
+  async createComment(projectId, workItemId, commentHtml) {
+    return this.request(`/projects/${projectId}/work-items/${workItemId}/comments/`, {
+      method: 'POST',
+      body: { comment_html: commentHtml },
+    });
+  }
+
   async listProjects() {
     const data = await this.request('/projects/');
     return data.results || data;

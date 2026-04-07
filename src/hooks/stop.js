@@ -68,9 +68,32 @@ async function main() {
     const { id, session } = result;
     const config = loadConfig();
 
+    const plane = new PlaneClient();
+
+    // Read last screen content for closing comment
+    let screenSummary = '';
+    try {
+      const screen = await cmux.readScreen({ workspace: session.workspace_ref, lines: 30 });
+      screenSummary = screen.trim();
+    } catch {}
+
+    // Post closing comment to Plane
+    try {
+      const elapsed = Math.floor((Date.now() - new Date(session.started_at).getTime()) / 60_000);
+      const comment = [
+        `<h3>🤖 kodo: sesión finalizada (${elapsed}min)</h3>`,
+        `<p><strong>Workspace:</strong> ${session.workspace_ref}</p>`,
+        screenSummary ? `<h4>Últimas líneas de la sesión:</h4><pre>${escapeHtml(screenSummary)}</pre>` : '',
+      ].filter(Boolean).join('\n');
+
+      await plane.createComment(session.project_id, session.plane_id, comment);
+      console.error(`[kodo] Closing comment posted for ${session.plane_identifier}`);
+    } catch (err) {
+      console.error(`[kodo] Error posting comment: ${err.message}`);
+    }
+
     // Update Plane work item to "In Review" (not Done — requires human/orchestrator approval)
     try {
-      const plane = new PlaneClient();
       const states = await plane.listStates(session.project_id);
       const reviewState = states.find((s) => s.name === config.plane.review_state);
 
@@ -122,6 +145,11 @@ async function main() {
   } catch (err) {
     console.error(`[kodo] Stop hook error: ${err.message}`);
   }
+}
+
+/** @param {string} str */
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**
