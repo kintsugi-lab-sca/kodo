@@ -6,6 +6,28 @@ import { homedir } from 'node:os';
 const KODO_DIR = join(homedir(), '.kodo');
 const CONFIG_PATH = join(KODO_DIR, 'config.json');
 const PROJECTS_PATH = join(KODO_DIR, 'projects.json');
+const ENV_PATH = join(KODO_DIR, '.env');
+
+// Load ~/.kodo/.env into process.env (simple KEY=VALUE parser)
+function loadEnvFile() {
+  if (!existsSync(ENV_PATH)) return;
+  try {
+    const content = readFileSync(ENV_PATH, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const value = trimmed.slice(eq + 1).trim();
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {}
+}
+
+loadEnvFile();
 
 const DEFAULT_CONFIG = {
   plane: {
