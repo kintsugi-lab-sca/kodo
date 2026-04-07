@@ -148,9 +148,11 @@ kodo orchestrate          # lanza sesión supervisora
 kodo config              # wizard de configuración
 kodo start               # arranca webhook server (:9090)
 kodo stop                # para el server
+kodo check               # vigilante: revisa estado y lanza orquestador si necesario (0 tokens)
+kodo check --dry-run     # solo reporta, no actúa
 kodo launch <ID>         # lanza tarea manualmente (ej: KL-42)
 kodo status              # sesiones activas
-kodo orchestrate         # lanza sesión orquestadora
+kodo orchestrate         # lanza sesión orquestadora (usa tokens)
 kodo install             # registra hooks en Claude Code
 kodo uninstall           # elimina hooks
 ```
@@ -188,29 +190,44 @@ Todo el progreso se documenta en Plane como comentarios, sin necesidad de abrir 
 
 Resultado: abres cualquier tarea en Plane y ves el historial completo de lo que hizo Claude.
 
-## Orquestador
+## Supervisión: vigilante + orquestador
 
-El orquestador (`kodo orchestrate`) es una sesión de Claude Code dedicada a supervisar las demás.
+Dos niveles separados: mecánico (0 tokens) y cognitivo (LLM).
 
-### Qué hace
+### Vigilante (`kodo check`)
 
-Mientras está activo, ejecuta un ciclo continuo:
+Script Node.js puro que revisa el estado del sistema:
 
-```
-┌─→ Leer state.json (sesiones activas)
-│   Leer screens de cada sesión (cmux read-screen)
-│   Evaluar: ¿progresa? ¿idle? ¿errores?
-│   Documentar estado en Plane (comentarios)
-│   Actuar si necesario (nudge, desbloquear)
-│   Revisar tareas en "In Review" → mover a Done si OK
-│   Lanzar nuevas tareas si hay slots disponibles
-│   Esperar ~5 minutos
-└───────────────────┘
+```bash
+kodo check              # revisa y actúa
+kodo check --dry-run    # solo reporta
 ```
 
-Se activa automáticamente cuando:
-- El health checker detecta una sesión stuck (>30min)
-- Una sesión termina y le envía mensaje → ronda inmediata
+Comprueba:
+- Sesiones stuck (>30min sin progreso)
+- Tareas en "In Review" esperando aprobación
+- Tareas pendientes con label `kodo` y slots disponibles
+
+Si detecta algo que requiere juicio → lanza el orquestador automáticamente.
+
+Para supervisión continua:
+```bash
+/loop 5m kodo check     # cada 5 minutos, 0 tokens
+```
+
+### Orquestador (`kodo orchestrate`)
+
+Sesión de Claude Code que se lanza **solo cuando hay trabajo real**:
+
+- Revisa sesiones activas leyendo screens via cmux
+- Evalúa tareas en "In Review" y decide si pasan a "Done"
+- Desbloquea sesiones stuck
+- Lanza nuevas tareas si hay slots
+- Documenta decisiones en Plane
+
+Se activa:
+- Automáticamente por `kodo check` cuando detecta algo
+- Manualmente con `kodo orchestrate`
 
 ### Skill con autoaprendizaje
 
