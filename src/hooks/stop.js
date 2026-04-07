@@ -68,27 +68,27 @@ async function main() {
     const { id, session } = result;
     const config = loadConfig();
 
-    // Update Plane work item to "Done"
+    // Update Plane work item to "In Review" (not Done — requires human/orchestrator approval)
     try {
       const plane = new PlaneClient();
       const states = await plane.listStates(session.project_id);
-      const doneState = states.find((s) => s.name === config.plane.done_state);
+      const reviewState = states.find((s) => s.name === config.plane.review_state);
 
-      if (doneState) {
+      if (reviewState) {
         await plane.updateWorkItem(session.project_id, session.plane_id, {
-          state: doneState.id,
+          state: reviewState.id,
         });
-        console.error(`[kodo] ${session.plane_identifier} → ${config.plane.done_state}`);
+        console.error(`[kodo] ${session.plane_identifier} → ${config.plane.review_state}`);
       }
     } catch (err) {
       console.error(`[kodo] Error updating Plane: ${err.message}`);
     }
 
-    // Update cmux workspace color to "done"
+    // Update cmux workspace color to "review" (blue)
     try {
       await cmux.setColor({
         workspace: session.workspace_ref,
-        color: colorForStatus('done'),
+        color: colorForStatus('review'),
       });
     } catch (err) {
       console.error(`[kodo] Error setting color: ${err.message}`);
@@ -103,6 +103,9 @@ async function main() {
       });
     } catch {}
 
+    // Update session status to review (keep in state for orchestrator visibility)
+    updateSession(id, { status: 'review' });
+
     // Notify orchestrator if running
     try {
       const workspaces = await cmux.listWorkspaces();
@@ -110,13 +113,12 @@ async function main() {
       if (orchMatch) {
         await cmux.send({
           workspace: orchMatch[1],
-          text: `La sesión ${session.plane_identifier} (${session.summary}) ha terminado. Revisa si hay tareas pendientes por lanzar.\\n`,
+          text: `La sesión ${session.plane_identifier} (${session.summary}) ha terminado y está en Review. Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`,
         });
       }
     } catch {}
 
-    // Remove session from state
-    removeSession(id);
+    // Session stays in state with status "review" — orchestrator or human removes it after approval
   } catch (err) {
     console.error(`[kodo] Stop hook error: ${err.message}`);
   }
