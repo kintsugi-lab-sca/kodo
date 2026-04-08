@@ -1,0 +1,45 @@
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Fix login redirect after session timeout",
+  "description_html": "<p>When a user's session expires, the <strong>redirect</strong> should go to <code>/login</code> instead of <code>/home</code>.</p>\n<ul><li>Check token expiry logic</li><li>Update middleware</li></ul>",
+  "description_stripped": "When a user's session expires, the redirect should go to /login instead of /home. Check token expiry logic Update middleware",
+  "state": "d1e2f3a4-b5c6-7890-1234-567890abcdef",
+  "state_detail": {
+    "id": "d1e2f3a4-b5c6-7890-1234-567890abcdef",
+    "name": "In Progress",
+    "group": "started",
+    "color": "#f59e0b"
+  },
+  "priority": "medium",
+  "labels": [
+    "11111111-aaaa-bbbb-cccc-000000000001",
+    "22222222-aaaa-bbbb-cccc-000000000002"
+  ],
+  "project": "p0p0p0p0-1111-2222-3333-444444444444",
+  "project_detail": {
+    "id": "p0p0p0p0-1111-2222-3333-444444444444",
+    "name": "Kodo Lab",
+    "identifier": "KL"
+  },
+  "sequence_id": 42,
+  "workspace": "w0w0w0w0-1111-2222-3333-444444444444",
+  "workspace_detail": {
+    "id": "w0w0w0w0-1111-2222-3333-444444444444",
+    "name": "klab",
+    "slug": "klab"
+  },
+  "created_at": "2026-04-01T10:00:00.000Z",
+  "updated_at": "2026-04-08T14:30:00.000Z",
+  "created_by": "u0u0u0u0-1111-2222-3333-444444444444",
+  "assignees": ["u0u0u0u0-1111-2222-3333-444444444444"],
+  "start_date": "2026-04-08",
+  "target_date": "2026-04-10",
+  "completed_at": null,
+  "archived_at": null,
+  "is_draft": false,
+  "sort_order": 65535,
+  "estimate_point": null,
+  "sub_issues_count": 0,
+  "link_count": 0,
+  "attachment_count": 0
+}

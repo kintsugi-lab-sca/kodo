@@ -1,0 +1,26 @@
+[
+  {
+    "id": "11111111-aaaa-bbbb-cccc-000000000001",
+    "name": "kodo",
+    "color": "#3b82f6",
+    "project": "p0p0p0p0-1111-2222-3333-444444444444"
+  },
+  {
+    "id": "22222222-aaaa-bbbb-cccc-000000000002",
+    "name": "kodo:sonnet",
+    "color": "#8b5cf6",
+    "project": "p0p0p0p0-1111-2222-3333-444444444444"
+  },
+  {
+    "id": "33333333-aaaa-bbbb-cccc-000000000003",
+    "name": "bug",
+    "color": "#ef4444",
+    "project": "p0p0p0p0-1111-2222-3333-444444444444"
+  },
+  {
+    "id": "44444444-aaaa-bbbb-cccc-000000000004",
+    "name": "feature",
+    "color": "#22c55e",
+    "project": "p0p0p0p0-1111-2222-3333-444444444444"
+  }
+]

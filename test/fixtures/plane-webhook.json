@@ -1,0 +1,33 @@
+{
+  "event": "issue",
+  "action": "updated",
+  "webhook_id": "wh-aabbccdd-1234-5678-9012-eeff00112233",
+  "workspace_id": "w0w0w0w0-1111-2222-3333-444444444444",
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Fix login redirect after session timeout",
+    "description_html": "<p>When a user's session expires, the <strong>redirect</strong> should go to <code>/login</code> instead of <code>/home</code>.</p>\n<ul><li>Check token expiry logic</li><li>Update middleware</li></ul>",
+    "state": "d1e2f3a4-b5c6-7890-1234-567890abcdef",
+    "state_detail": {
+      "id": "d1e2f3a4-b5c6-7890-1234-567890abcdef",
+      "name": "In Progress",
+      "group": "started"
+    },
+    "priority": "medium",
+    "labels": [
+      "11111111-aaaa-bbbb-cccc-000000000001",
+      "22222222-aaaa-bbbb-cccc-000000000002"
+    ],
+    "project": "p0p0p0p0-1111-2222-3333-444444444444",
+    "project_detail": {
+      "id": "p0p0p0p0-1111-2222-3333-444444444444",
+      "name": "Kodo Lab",
+      "identifier": "KL"
+    },
+    "sequence_id": 42,
+    "workspace": "w0w0w0w0-1111-2222-3333-444444444444",
+    "assignees": ["u0u0u0u0-1111-2222-3333-444444444444"],
+    "created_at": "2026-04-01T10:00:00.000Z",
+    "updated_at": "2026-04-08T14:30:00.000Z"
+  }
+}
