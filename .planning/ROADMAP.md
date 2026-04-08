@@ -38,11 +38,11 @@ Plans:
   2. Una respuesta cruda de la API de Plane se convierte a `TaskItem` canónico: description en plain text, labels como strings, sin fugas de UUIDs
   3. Un payload webhook de Plane parsea correctamente a `TriggerEvent` y la verificación HMAC funciona sin depender de código externo al adapter
   4. Los tests de normalización de TaskItem y label parsing pasan con fixtures reales de Plane
-**Plans**: TBD
+**Plans:** 2 planes
 
 Plans:
-- [ ] 02-01: Implementar PlaneProvider con normalizer y registro de factory
-- [ ] 02-02: Tests para normalización y label parsing
+- [ ] 02-01-PLAN.md — Normalizer: fixtures, tests y funciones puras para convertir respuestas Plane a TaskItem/TriggerEvent
+- [ ] 02-02-PLAN.md — PlaneProvider factory, HMAC verification y registry con singleton caching
 
 ### Phase 3: Consumer Rewiring
 **Goal**: Todos los consumidores internos usan TaskProvider — ninguno instancia PlaneClient directamente
