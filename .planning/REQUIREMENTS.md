@@ -10,14 +10,14 @@
 - [x] **INTF-01**: `TaskProvider` interfaz definida con 7 métodos via JSDoc `@typedef`
 - [x] **INTF-02**: `TaskItem` shape canónica definida (id, ref, title, description plain text, labels string[], projectId, group, url)
 - [x] **INTF-03**: `TriggerEvent` shape normalizada definida (taskRef, action, provider, raw)
-- [ ] **INTF-04**: Registry estático de providers con factory functions (`getProvider()`)
+- [x] **INTF-04**: Registry estático de providers con factory functions (`getProvider()`)
 
 ### Plane Adapter
 
-- [ ] **PLAN-01**: `PlaneProvider` implementa `TaskProvider` envolviendo `PlaneClient` existente
+- [x] **PLAN-01**: `PlaneProvider` implementa `TaskProvider` envolviendo `PlaneClient` existente
 - [x] **PLAN-02**: Normalizer convierte respuestas Plane API → `TaskItem` canónico (description HTML → plain text dentro del adapter)
 - [x] **PLAN-03**: `parseTriggerEvent` parsea payload webhook de Plane → `TriggerEvent`
-- [ ] **PLAN-04**: `verifySignature` con HMAC-SHA256 dentro del adapter
+- [x] **PLAN-04**: `verifySignature` con HMAC-SHA256 dentro del adapter
 - [x] **PLAN-05**: Labels resueltos dentro del adapter (UUIDs → nombres)
 
 ### State Migration
@@ -90,11 +90,11 @@
 | INTF-01 | Phase 1 | Complete |
 | INTF-02 | Phase 1 | Complete |
 | INTF-03 | Phase 1 | Complete |
-| INTF-04 | Phase 2 | Pending |
-| PLAN-01 | Phase 2 | Pending |
+| INTF-04 | Phase 2 | Complete |
+| PLAN-01 | Phase 2 | Complete |
 | PLAN-02 | Phase 2 | Complete |
 | PLAN-03 | Phase 2 | Complete |
-| PLAN-04 | Phase 2 | Pending |
+| PLAN-04 | Phase 2 | Complete |
 | PLAN-05 | Phase 2 | Complete |
 | STAT-01 | Phase 1 | Complete |
 | STAT-02 | Phase 1 | Complete |
