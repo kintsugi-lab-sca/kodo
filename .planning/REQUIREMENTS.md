@@ -22,10 +22,10 @@
 
 ### State Migration
 
-- [ ] **STAT-01**: Campos renombrados: `plane_id` → `task_id`, `plane_identifier` → `task_ref`
-- [ ] **STAT-02**: Campo `provider` añadido a cada sesión en state.json
-- [ ] **STAT-03**: `schema_version` en state.json para migraciones futuras
-- [ ] **STAT-04**: Migración automática de state.json existente al nuevo schema
+- [x] **STAT-01**: Campos renombrados: `plane_id` → `task_id`, `plane_identifier` → `task_ref`
+- [x] **STAT-02**: Campo `provider` añadido a cada sesión en state.json
+- [x] **STAT-03**: `schema_version` en state.json para migraciones futuras
+- [x] **STAT-04**: Migración automática de state.json existente al nuevo schema
 
 ### Consumer Rewiring
 
@@ -52,7 +52,7 @@
 
 - [ ] **TEST-01**: Tests para TaskItem normalization (Plane response → canonical shape)
 - [ ] **TEST-02**: Tests para label parsing con la nueva interfaz
-- [ ] **TEST-03**: Tests para state migration (old schema → new schema)
+- [x] **TEST-03**: Tests para state migration (old schema → new schema)
 
 ## v2 Requirements
 
@@ -96,10 +96,10 @@
 | PLAN-03 | Phase 2 | Pending |
 | PLAN-04 | Phase 2 | Pending |
 | PLAN-05 | Phase 2 | Pending |
-| STAT-01 | Phase 1 | Pending |
-| STAT-02 | Phase 1 | Pending |
-| STAT-03 | Phase 1 | Pending |
-| STAT-04 | Phase 1 | Pending |
+| STAT-01 | Phase 1 | Complete |
+| STAT-02 | Phase 1 | Complete |
+| STAT-03 | Phase 1 | Complete |
+| STAT-04 | Phase 1 | Complete |
 | REWI-01 | Phase 3 | Pending |
 | REWI-02 | Phase 3 | Pending |
 | REWI-03 | Phase 3 | Pending |
@@ -114,7 +114,7 @@
 | CONF-04 | Phase 5 | Pending |
 | TEST-01 | Phase 2 | Pending |
 | TEST-02 | Phase 2 | Pending |
-| TEST-03 | Phase 1 | Pending |
+| TEST-03 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 28 total
