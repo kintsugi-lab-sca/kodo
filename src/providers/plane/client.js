@@ -1,5 +1,5 @@
 // @ts-check
-import { loadConfig, getPlaneApiKey } from '../config.js';
+import { loadConfig, getPlaneApiKey } from '../../config.js';
 
 export class PlaneClient {
   /** @param {{ baseUrl?: string, apiKey?: string, workspaceSlug?: string }} [opts] */
