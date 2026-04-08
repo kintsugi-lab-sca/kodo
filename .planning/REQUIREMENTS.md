@@ -7,9 +7,9 @@
 
 ### Interface
 
-- [ ] **INTF-01**: `TaskProvider` interfaz definida con 7 métodos via JSDoc `@typedef`
-- [ ] **INTF-02**: `TaskItem` shape canónica definida (id, ref, title, description plain text, labels string[], projectId, group, url)
-- [ ] **INTF-03**: `TriggerEvent` shape normalizada definida (taskRef, action, provider, raw)
+- [x] **INTF-01**: `TaskProvider` interfaz definida con 7 métodos via JSDoc `@typedef`
+- [x] **INTF-02**: `TaskItem` shape canónica definida (id, ref, title, description plain text, labels string[], projectId, group, url)
+- [x] **INTF-03**: `TriggerEvent` shape normalizada definida (taskRef, action, provider, raw)
 - [ ] **INTF-04**: Registry estático de providers con factory functions (`getProvider()`)
 
 ### Plane Adapter
@@ -87,9 +87,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INTF-01 | Phase 1 | Pending |
-| INTF-02 | Phase 1 | Pending |
-| INTF-03 | Phase 1 | Pending |
+| INTF-01 | Phase 1 | Complete |
+| INTF-02 | Phase 1 | Complete |
+| INTF-03 | Phase 1 | Complete |
 | INTF-04 | Phase 2 | Pending |
 | PLAN-01 | Phase 2 | Pending |
 | PLAN-02 | Phase 2 | Pending |
