@@ -9,8 +9,9 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  * @typedef {{
  *   workspace_ref: string,
  *   session_id: string,
- *   plane_id: string,
- *   plane_identifier: string,
+ *   task_id: string,           // UUID del task en el provider activo
+ *   task_ref: string,          // Referencia humana: "KL-42", "#42"
+ *   provider: string,          // "plane", "github", etc.
  *   project_id: string,
  *   summary: string,
  *   status: 'running'|'done'|'error'|'review',
@@ -18,7 +19,7 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   project_path: string,
  * }} Session
  *
- * @typedef {{ sessions: Record<string, Session> }} State
+ * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
  */
 
 /** @returns {State} */
