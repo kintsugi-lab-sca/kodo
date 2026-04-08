@@ -23,11 +23,11 @@ kodo v0.2 abstrae el proveedor de tareas detrás de una interfaz genérica. Part
   2. `TaskItem` y `TriggerEvent` tienen shapes documentadas que no contienen ningún campo específico de Plane (sin `plane_id`, sin `description_html`)
   3. Un state.json antiguo con `plane_id`/`plane_identifier` se convierte automáticamente al nuevo schema con `task_id`/`task_ref`/`provider` al arrancar kodo
   4. `schema_version` aparece en state.json tras la migración y los tests de migración pasan
-**Plans**: TBD
+**Plans**: 2 planes
 
 Plans:
-- [ ] 01-01: Definir JSDoc typedefs para TaskProvider, TaskItem y TriggerEvent
-- [ ] 01-02: Implementar migración de state.json y tests de migración
+- [ ] 01-01-PLAN.md — Definir JSDoc typedefs (TaskProvider, TaskItem, TriggerEvent) y actualizar typedef Session
+- [ ] 01-02-PLAN.md — Implementar migración automática de state.json y config.json con tests
 
 ### Phase 2: Plane Adapter + Registry
 **Goal**: PlaneProvider funciona como adaptador de referencia validado por tests, y el registry sabe elegirlo
