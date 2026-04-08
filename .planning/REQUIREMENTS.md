@@ -15,10 +15,10 @@
 ### Plane Adapter
 
 - [ ] **PLAN-01**: `PlaneProvider` implementa `TaskProvider` envolviendo `PlaneClient` existente
-- [ ] **PLAN-02**: Normalizer convierte respuestas Plane API → `TaskItem` canónico (description HTML → plain text dentro del adapter)
-- [ ] **PLAN-03**: `parseTriggerEvent` parsea payload webhook de Plane → `TriggerEvent`
+- [x] **PLAN-02**: Normalizer convierte respuestas Plane API → `TaskItem` canónico (description HTML → plain text dentro del adapter)
+- [x] **PLAN-03**: `parseTriggerEvent` parsea payload webhook de Plane → `TriggerEvent`
 - [ ] **PLAN-04**: `verifySignature` con HMAC-SHA256 dentro del adapter
-- [ ] **PLAN-05**: Labels resueltos dentro del adapter (UUIDs → nombres)
+- [x] **PLAN-05**: Labels resueltos dentro del adapter (UUIDs → nombres)
 
 ### State Migration
 
@@ -50,8 +50,8 @@
 
 ### Testing
 
-- [ ] **TEST-01**: Tests para TaskItem normalization (Plane response → canonical shape)
-- [ ] **TEST-02**: Tests para label parsing con la nueva interfaz
+- [x] **TEST-01**: Tests para TaskItem normalization (Plane response → canonical shape)
+- [x] **TEST-02**: Tests para label parsing con la nueva interfaz
 - [x] **TEST-03**: Tests para state migration (old schema → new schema)
 
 ## v2 Requirements
@@ -92,10 +92,10 @@
 | INTF-03 | Phase 1 | Complete |
 | INTF-04 | Phase 2 | Pending |
 | PLAN-01 | Phase 2 | Pending |
-| PLAN-02 | Phase 2 | Pending |
-| PLAN-03 | Phase 2 | Pending |
+| PLAN-02 | Phase 2 | Complete |
+| PLAN-03 | Phase 2 | Complete |
 | PLAN-04 | Phase 2 | Pending |
-| PLAN-05 | Phase 2 | Pending |
+| PLAN-05 | Phase 2 | Complete |
 | STAT-01 | Phase 1 | Complete |
 | STAT-02 | Phase 1 | Complete |
 | STAT-03 | Phase 1 | Complete |
@@ -112,8 +112,8 @@
 | CONF-02 | Phase 5 | Pending |
 | CONF-03 | Phase 5 | Pending |
 | CONF-04 | Phase 5 | Pending |
-| TEST-01 | Phase 2 | Pending |
-| TEST-02 | Phase 2 | Pending |
+| TEST-01 | Phase 2 | Complete |
+| TEST-02 | Phase 2 | Complete |
 | TEST-03 | Phase 1 | Complete |
 
 **Coverage:**

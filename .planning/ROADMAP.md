@@ -38,7 +38,7 @@ Plans:
   2. Una respuesta cruda de la API de Plane se convierte a `TaskItem` canónico: description en plain text, labels como strings, sin fugas de UUIDs
   3. Un payload webhook de Plane parsea correctamente a `TriggerEvent` y la verificación HMAC funciona sin depender de código externo al adapter
   4. Los tests de normalización de TaskItem y label parsing pasan con fixtures reales de Plane
-**Plans:** 2 planes
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 02-01-PLAN.md — Normalizer: fixtures, tests y funciones puras para convertir respuestas Plane a TaskItem/TriggerEvent
@@ -95,7 +95,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Interface + State Schema | 1/2 | In Progress|  |
-| 2. Plane Adapter + Registry | 0/2 | Not started | - |
+| 2. Plane Adapter + Registry | 1/2 | In Progress|  |
 | 3. Consumer Rewiring | 0/2 | Not started | - |
 | 4. Server + Trigger Abstraction | 0/1 | Not started | - |
 | 5. Config + Cleanup | 0/1 | Not started | - |
