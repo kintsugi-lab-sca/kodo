@@ -22,13 +22,48 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
  */
 
+/**
+ * Migra un state object del schema v1 al v2.
+ * Función pura — no hace I/O.
+ *
+ * @param {object} rawState
+ * @returns {State}
+ */
+export function migrateState(rawState) {
+  if (rawState.schema_version === 2) return rawState;
+  return {
+    schema_version: 2,
+    sessions: {},
+  };
+}
+
+/**
+ * Lee el state.json del disco; si es schema v1, crea backup y migra.
+ * @private
+ */
+function migrateStateIfNeeded() {
+  if (!existsSync(STATE_PATH)) return;
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
+  } catch {
+    return;
+  }
+  if (raw.schema_version === 2) return;
+  writeFileSync(STATE_PATH + '.bak', JSON.stringify(raw, null, 2) + '\n');
+  const newState = migrateState(raw);
+  writeFileSync(STATE_PATH, JSON.stringify(newState, null, 2) + '\n');
+  console.log('[kodo] State migrado a schema_version 2 (backup: state.json.bak)');
+}
+
 /** @returns {State} */
 export function loadState() {
-  if (!existsSync(STATE_PATH)) return { sessions: {} };
+  migrateStateIfNeeded();
+  if (!existsSync(STATE_PATH)) return { schema_version: 2, sessions: {} };
   try {
     return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
   } catch {
-    return { sessions: {} };
+    return { schema_version: 2, sessions: {} };
   }
 }
 

@@ -30,14 +30,19 @@ function loadEnvFile() {
 loadEnvFile();
 
 const DEFAULT_CONFIG = {
-  plane: {
-    base_url: 'https://tasks.kintsugi-lab.com',
-    api_key_env: 'PLANE_API_KEY',
-    workspace_slug: 'k-lab',
-    projects: [],
-    trigger_state: 'In Progress',
-    done_state: 'Done',
-    review_state: 'In review',
+  provider: 'plane',
+  providers: {
+    plane: {
+      base_url: 'https://tasks.kintsugi-lab.com',
+      api_key_env: 'PLANE_API_KEY',
+      workspace_slug: 'k-lab',
+      projects: [],
+      states: {
+        trigger: 'In Progress',
+        review: 'In review',
+        done: 'Done',
+      },
+    },
   },
   cmux: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/cmux',
@@ -67,12 +72,57 @@ function ensureDir() {
   }
 }
 
+/**
+ * Migra un config object del schema v1 (plane.*) al v2 (providers.plane.*).
+ * Función pura — no hace I/O.
+ *
+ * @param {object} rawConfig
+ * @returns {object}
+ */
+export function migrateConfig(rawConfig) {
+  if (rawConfig.providers) return rawConfig;
+  const { plane: planeOld = {}, ...rest } = rawConfig;
+  return {
+    ...rest,
+    provider: 'plane',
+    providers: {
+      plane: {
+        base_url: planeOld.base_url,
+        api_key_env: planeOld.api_key_env,
+        workspace_slug: planeOld.workspace_slug,
+        projects: planeOld.projects || [],
+        states: {
+          trigger: planeOld.trigger_state || 'In Progress',
+          review: planeOld.review_state || 'In review',
+          done: planeOld.done_state || 'Done',
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Si el config cargado usa el schema v1, crea backup y migra.
+ * @private
+ * @param {object} rawConfig
+ * @returns {object}
+ */
+function migrateConfigIfNeeded(rawConfig) {
+  if (rawConfig.providers) return rawConfig;
+  writeFileSync(CONFIG_PATH + '.bak', JSON.stringify(rawConfig, null, 2) + '\n');
+  const newConfig = migrateConfig(rawConfig);
+  writeFileSync(CONFIG_PATH, JSON.stringify(newConfig, null, 2) + '\n');
+  console.log('[kodo] Config migrada al nuevo schema (backup: config.json.bak)');
+  return newConfig;
+}
+
 /** @returns {typeof DEFAULT_CONFIG} */
 export function loadConfig() {
   ensureDir();
   if (!existsSync(CONFIG_PATH)) return { ...DEFAULT_CONFIG };
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    const parsed = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
+    return migrateConfigIfNeeded(parsed);
   } catch {
     return { ...DEFAULT_CONFIG };
   }
@@ -104,7 +154,7 @@ export function saveProjects(projects) {
 /** @returns {string|undefined} */
 export function getPlaneApiKey() {
   const config = loadConfig();
-  return process.env[config.plane.api_key_env];
+  return process.env[config.providers?.plane?.api_key_env];
 }
 
 export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG };
