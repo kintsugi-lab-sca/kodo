@@ -53,11 +53,11 @@ Plans:
   2. El stop hook lee `session.provider` del state y obtiene el adapter correcto del registry para actualizar el estado de la tarea
   3. `manager.js` resuelve una ref humana (ej. "TENDERIO-42") usando `TaskProvider.resolveRef()` sin saber nada de Plane
   4. `session-start.js` lee solo campos genéricos del state (`task_id`, `task_ref`) sin referencias a campos de Plane
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 03-01: Rewire check.js y session-start.js a TaskProvider
-- [ ] 03-02: Rewire stop.js y manager.js a TaskProvider
+- [ ] 03-01-PLAN.md — Rewire check.js y session-start.js a TaskProvider (REWI-01, REWI-05)
+- [ ] 03-02-PLAN.md — Rewire stop.js y manager.js a TaskProvider (REWI-02, REWI-03)
 
 ### Phase 4: Server + Trigger Abstraction
 **Goal**: El server no sabe qué proveedor generó el evento y los triggers convergen en un punto central
@@ -68,7 +68,7 @@ Plans:
   2. `server.js` delega el parsing del payload y la verificación de firma al adapter activo; el handler del webhook no contiene lógica específica de Plane
   3. Un evento de Plane procesado end-to-end (webhook → parse → dispatch → session) funciona igual que antes del refactor
   4. `kodo launch <ref>` (trigger manual) sigue creando la sesión correctamente usando la nueva abstracción
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
 - [ ] 04-01: Extraer dispatchTrigger() y rewire server.js al adapter
@@ -82,7 +82,7 @@ Plans:
   2. Una config v0.1 con solo sección `plane.*` se migra transparentemente: kodo arranca sin error y el provider es `"plane"`
   3. `kodo config` pregunta al usuario qué provider quiere usar y escribe el campo `provider` correctamente
   4. El prompt del orchestrator no contiene referencias a Plane, Plane MCP ni identificadores de Plane
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
 - [ ] 05-01: Config migration, wizard update y orchestrator prompt cleanup
