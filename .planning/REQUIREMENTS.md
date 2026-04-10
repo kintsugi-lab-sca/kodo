@@ -29,11 +29,11 @@
 
 ### Consumer Rewiring
 
-- [ ] **REWI-01**: `check.js` usa `TaskProvider` en vez de `PlaneClient`
-- [ ] **REWI-02**: `stop.js` lee `session.provider` y usa el adapter correcto
-- [ ] **REWI-03**: `manager.js` usa `TaskProvider` para resolver refs y obtener tasks
+- [x] **REWI-01**: `check.js` usa `TaskProvider` en vez de `PlaneClient`
+- [x] **REWI-02**: `stop.js` lee `session.provider` y usa el adapter correcto
+- [x] **REWI-03**: `manager.js` usa `TaskProvider` para resolver refs y obtener tasks
 - [ ] **REWI-04**: `server.js` delega parsing de webhook y verificación de firma al adapter
-- [ ] **REWI-05**: `session-start.js` usa campos genéricos del state (task_id, task_ref)
+- [x] **REWI-05**: `session-start.js` usa campos genéricos del state (task_id, task_ref)
 
 ### Trigger Abstraction
 
@@ -100,11 +100,11 @@
 | STAT-02 | Phase 1 | Complete |
 | STAT-03 | Phase 1 | Complete |
 | STAT-04 | Phase 1 | Complete |
-| REWI-01 | Phase 3 | Pending |
-| REWI-02 | Phase 3 | Pending |
-| REWI-03 | Phase 3 | Pending |
+| REWI-01 | Phase 3 | Complete |
+| REWI-02 | Phase 3 | Complete |
+| REWI-03 | Phase 3 | Complete |
 | REWI-04 | Phase 4 | Pending |
-| REWI-05 | Phase 3 | Pending |
+| REWI-05 | Phase 3 | Complete |
 | TRIG-01 | Phase 4 | Pending |
 | TRIG-02 | Phase 4 | Pending |
 | TRIG-03 | Phase 4 | Pending |

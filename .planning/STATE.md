@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.2
 milestone_name: milestone
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-04-09T15:33:31.977Z"
-last_activity: 2026-04-08 — Completed 02-01 Plane normalizer module
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-04-10T07:46:23.316Z"
+last_activity: 2026-04-10 — Completed 03-01 check.js & session-start.js rewiring
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
-  percent: 75
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-07)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones.
-**Current focus:** Phase 2 — Plane Adapter + Registry
+**Current focus:** Phase 3 — Consumer Rewiring
 
 ## Current Position
 
-Phase: 2 of 5 (Plane Adapter + Registry)
+Phase: 3 of 5 (Consumer Rewiring)
 Plan: 2 of 2 in current phase
 Status: Executing
-Last activity: 2026-04-08 — Completed 02-01 Plane normalizer module
+Last activity: 2026-04-10 — Completed 03-02 stop.js & manager.js rewiring
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -54,6 +54,8 @@ Progress: [████████░░] 75%
 | Phase 01 P02 | 3min | 2 tasks | 3 files |
 | Phase 02 P01 | 2min | 2 tasks | 5 files |
 | Phase 02 P02 | 2min | 2 tasks | 5 files |
+| Phase 03 P02 | 4 min | 2 tasks | 5 files |
+| Phase 03 P01 | 6min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -74,6 +76,12 @@ Recent decisions affecting current work:
 - [Phase 02]: resolveWorkItemLabels handles both UUID arrays and object arrays for API/webhook flexibility
 - [Phase 02]: Registry uses lazy default registration to avoid config reads during test imports
 - [Phase 02]: Provider factory receives explicit config object — no internal config.js coupling
+- [Phase 03]: Extract postClosingActions from stop.js main() so provider interaction is unit-testable
+- [Phase 03]: Build minimal TaskItem in stop.js from session state (no provider.getTask round-trip) — hook runs inside dying Claude process
+- [Phase 03]: Markdown-only comments across providers; HTML translation lives in each adapter (escapeHtml removed from stop.js)
+- [Phase 03]: Pure-helper extraction pattern for manager.js tests (mock.module unavailable in Node 24 test runner)
+- [Phase 03]: Pure helper extraction (checkPendingTasks, buildSessionContext) with dependency injection for testability — avoids experimental node:test mock.module flag
+- [Phase 03]: Guard hook main() behind import.meta.url === file://process.argv[1] to make session-start.js importable in tests without triggering stdin read
 
 ### Pending Todos
 
@@ -86,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-09T15:33:31.964Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-consumer-rewiring/03-CONTEXT.md
+Last session: 2026-04-10T07:46:23.313Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
