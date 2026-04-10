@@ -6,13 +6,50 @@
 // human-level judgment, launches the orchestrator.
 //
 
-import { loadConfig, getPlaneApiKey } from './config.js';
-import { loadState, removeSession } from './session/state.js';
+import { loadConfig } from './config.js';
+import { loadState } from './session/state.js';
 import { checkHealth, actOnHealth } from './session/health.js';
-import { PlaneClient } from './plane/client.js';
-import { parseKodoLabels, resolveLabels } from './labels.js';
-import * as cmux from './cmux/client.js';
+import { initRegistry, getProvider } from './providers/registry.js';
 import { launchOrchestrator } from './orchestrator/launch.js';
+
+const ANSI_YELLOW = '\x1b[33m';
+const ANSI_RED = '\x1b[31m';
+const ANSI_RESET = '\x1b[0m';
+
+/**
+ * Pure helper: queries the configured provider for pending tasks and returns
+ * the lines/reasons to append to runCheck() output. Receives `getProviderFn`
+ * for dependency injection in tests.
+ *
+ * @param {{
+ *   config: { provider: string, claude: { max_parallel: number } },
+ *   runningCount: number,
+ *   getProviderFn: (name: string) => import('./interface.js').TaskProvider,
+ * }} params
+ * @returns {Promise<{ lines: string[], reasons: string[] }>}
+ */
+export async function checkPendingTasks({ config, runningCount, getProviderFn }) {
+  const lines = [];
+  const reasons = [];
+
+  try {
+    const provider = getProviderFn(config.provider);
+    const pending = await provider.listPendingTasks();
+    const available = config.claude.max_parallel - runningCount;
+    if (pending.length > 0 && available > 0) {
+      lines.push(
+        `${ANSI_YELLOW}[kodo:check] ${pending.length} pending kodo task(s), ${available} slot(s) available${ANSI_RESET}`,
+      );
+      reasons.push(`${pending.length} tarea(s) pendientes con slots disponibles`);
+    }
+  } catch (err) {
+    lines.push(
+      `${ANSI_RED}[kodo:check] Error checking tasks: ${err.message}${ANSI_RESET}`,
+    );
+  }
+
+  return { lines, reasons };
+}
 
 /**
  * Run a single check cycle. Returns a summary of findings.
@@ -47,23 +84,20 @@ export async function runCheck() {
 
   // 2. Sessions in review — need orchestrator to evaluate
   if (inReview.length > 0) {
-    const ids = inReview.map((s) => s.plane_identifier).join(', ');
+    const ids = inReview.map((s) => s.task_ref).join(', ');
     lines.push(`[kodo:check] In review: ${ids}`);
     reasons.push(`Tareas en review: ${ids}`);
   }
 
-  // 3. Check for pending kodo tasks in Plane (if API key available)
-  if (getPlaneApiKey()) {
-    try {
-      const pendingCount = await countPendingKodoTasks(config);
-      if (pendingCount > 0 && running.length < config.claude.max_parallel) {
-        lines.push(`[kodo:check] ${pendingCount} pending kodo task(s), ${config.claude.max_parallel - running.length} slot(s) available`);
-        reasons.push(`${pendingCount} tarea(s) pendientes con slots disponibles`);
-      }
-    } catch (err) {
-      lines.push(`[kodo:check] Error checking Plane: ${err.message}`);
-    }
-  }
+  // 3. Check for pending tasks via the configured provider
+  await initRegistry();
+  const pendingResult = await checkPendingTasks({
+    config,
+    runningCount: running.length,
+    getProviderFn: getProvider,
+  });
+  lines.push(...pendingResult.lines);
+  reasons.push(...pendingResult.reasons);
 
   // 4. Summary
   if (reasons.length === 0) {
@@ -89,53 +123,4 @@ export async function runCheckAndAct() {
       console.error(`[kodo:check] Error launching orchestrator: ${err.message}`);
     }
   }
-}
-
-/**
- * Count kodo-labeled tasks in Todo/Backlog states
- * @param {ReturnType<import('./config.js').loadConfig>} config
- * @returns {Promise<number>}
- */
-async function countPendingKodoTasks(config) {
-  const plane = new PlaneClient();
-  let count = 0;
-
-  for (const projectId of config.plane.projects) {
-    try {
-      const [workItems, states, allLabels] = await Promise.all([
-        plane.listWorkItems(projectId),
-        plane.listStates(projectId),
-        plane.request(`/projects/${projectId}/labels/`).then((d) => d.results || d),
-      ]);
-
-      // Find kodo label IDs for this project
-      const kodoLabelIds = new Set(
-        allLabels.filter((l) => l.name.toLowerCase().startsWith('kodo')).map((l) => l.id)
-      );
-
-      if (kodoLabelIds.size === 0) continue;
-
-      // Find pending state IDs (Backlog, Todo)
-      const pendingStateIds = new Set(
-        states
-          .filter((s) => ['backlog', 'unstarted'].includes(s.group))
-          .map((s) => s.id)
-      );
-
-      // Count work items with kodo label in pending states
-      for (const item of workItems) {
-        const stateId = typeof item.state === 'object' ? item.state.id : item.state;
-        if (!pendingStateIds.has(stateId)) continue;
-
-        const itemLabelIds = (item.labels || []).map((l) => (typeof l === 'object' ? l.id : l));
-        if (itemLabelIds.some((id) => kodoLabelIds.has(id))) {
-          count++;
-        }
-      }
-    } catch {
-      // Skip projects we can't access
-    }
-  }
-
-  return count;
 }
