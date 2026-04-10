@@ -2,16 +2,16 @@
 // @ts-check
 //
 // Claude Code Stop hook for kodo
-// When a kodo-tracked Claude session ends, updates Plane work item
+// When a kodo-tracked Claude session ends, updates task provider
 // state and cmux workspace color.
 // Also detects when the orchestrator session ends without [kodo:idle]
 // and sends a reminder to update the skill.
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findSession, updateSession, removeSession } from '../session/state.js';
+import { findSession, updateSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
-import { PlaneClient } from '../plane/client.js';
+import { initRegistry, getProvider } from '../providers/registry.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
 
@@ -31,6 +31,61 @@ async function readStdin() {
       resolve(Buffer.concat(chunks).toString());
     });
   });
+}
+
+/**
+ * Post closing actions to the task provider: comment + state transition.
+ * Extracted for testability. Each provider call is wrapped in its own
+ * try-catch so a failure in one operation never blocks the other.
+ *
+ * @param {import('../session/state.js').Session | any} session
+ * @param {any} config
+ * @param {Pick<import('../interface.js').TaskProvider, 'addComment' | 'updateTaskState'>} provider
+ * @param {string} screenSummary
+ */
+export async function postClosingActions(session, config, provider, screenSummary) {
+  /** @type {import('../interface.js').TaskItem} */
+  const task = {
+    id: session.task_id,
+    ref: session.task_ref,
+    title: session.summary,
+    description: '',
+    labels: [],
+    projectId: session.project_id,
+    projectName: '',
+    groups: [],
+    url: '',
+    priority: null,
+  };
+
+  // 1. Post closing comment (Markdown format)
+  try {
+    const elapsed = Math.floor((Date.now() - new Date(session.started_at).getTime()) / 60_000);
+    const comment = [
+      `### 🤖 kodo: sesión finalizada (${elapsed}min)`,
+      `**Workspace:** ${session.workspace_ref}`,
+      screenSummary ? `#### Últimas líneas de la sesión:\n\`\`\`\n${screenSummary}\n\`\`\`` : '',
+    ].filter(Boolean).join('\n\n');
+
+    await provider.addComment(task, comment);
+    console.error(`[kodo] Closing comment posted for ${session.task_ref}`);
+  } catch (err) {
+    console.error(`[kodo] Error posting comment: ${err.message}`);
+  }
+
+  // 2. Transition task to review state — independent try-catch
+  try {
+    const providerName = session.provider || config.provider;
+    const providerConfig = config.providers[providerName];
+    if (!providerConfig || !providerConfig.states || !providerConfig.states.review) {
+      throw new Error(`No review state configured for provider "${providerName}"`);
+    }
+    const reviewState = providerConfig.states.review;
+    await provider.updateTaskState(task, reviewState);
+    console.error(`[kodo] ${session.task_ref} → ${reviewState}`);
+  } catch (err) {
+    console.error(`[kodo] Error updating state: ${err.message}`);
+  }
 }
 
 async function main() {
@@ -70,7 +125,9 @@ async function main() {
     const { id, session } = result;
     const config = loadConfig();
 
-    const plane = new PlaneClient();
+    // Resolve provider via registry — fall back to config default
+    await initRegistry();
+    const provider = getProvider(session.provider || config.provider);
 
     // Read last screen content for closing comment
     let screenSummary = '';
@@ -79,35 +136,8 @@ async function main() {
       screenSummary = screen.trim();
     } catch {}
 
-    // Post closing comment to Plane
-    try {
-      const elapsed = Math.floor((Date.now() - new Date(session.started_at).getTime()) / 60_000);
-      const comment = [
-        `<h3>🤖 kodo: sesión finalizada (${elapsed}min)</h3>`,
-        `<p><strong>Workspace:</strong> ${session.workspace_ref}</p>`,
-        screenSummary ? `<h4>Últimas líneas de la sesión:</h4><pre>${escapeHtml(screenSummary)}</pre>` : '',
-      ].filter(Boolean).join('\n');
-
-      await plane.createComment(session.project_id, session.plane_id, comment);
-      console.error(`[kodo] Closing comment posted for ${session.plane_identifier}`);
-    } catch (err) {
-      console.error(`[kodo] Error posting comment: ${err.message}`);
-    }
-
-    // Update Plane work item to "In Review" (not Done — requires human/orchestrator approval)
-    try {
-      const states = await plane.listStates(session.project_id);
-      const reviewState = states.find((s) => s.name.toLowerCase() === config.plane.review_state.toLowerCase());
-
-      if (reviewState) {
-        await plane.updateWorkItem(session.project_id, session.plane_id, {
-          state: reviewState.id,
-        });
-        console.error(`[kodo] ${session.plane_identifier} → ${config.plane.review_state}`);
-      }
-    } catch (err) {
-      console.error(`[kodo] Error updating Plane: ${err.message}`);
-    }
+    // Post comment + transition state (defensive, independent try-catch)
+    await postClosingActions(session, config, provider, screenSummary);
 
     // Update cmux workspace color to "review" (blue)
     try {
@@ -122,7 +152,7 @@ async function main() {
     // Notify
     try {
       await cmux.notify({
-        title: `kodo: ${session.plane_identifier} completada`,
+        title: `kodo: ${session.task_ref} completada`,
         body: session.summary,
         workspace: session.workspace_ref,
       });
@@ -138,7 +168,7 @@ async function main() {
       if (orchMatch) {
         await cmux.send({
           workspace: orchMatch[1],
-          text: `La sesión ${session.plane_identifier} (${session.summary}) ha terminado y está en Review. Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`,
+          text: `La sesión ${session.task_ref} (${session.summary}) ha terminado y está en Review. Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`,
         });
       }
     } catch {}
@@ -147,11 +177,6 @@ async function main() {
   } catch (err) {
     console.error(`[kodo] Stop hook error: ${err.message}`);
   }
-}
-
-/** @param {string} str */
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**
@@ -191,4 +216,8 @@ async function handleOrchestratorStop() {
   }
 }
 
-main();
+// Only run main() when invoked as CLI (not when imported for testing)
+const isMainEntry = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMainEntry) {
+  main();
+}
