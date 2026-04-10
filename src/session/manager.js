@@ -1,51 +1,135 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
 import { loadConfig, loadProjects } from '../config.js';
-import { PlaneClient } from '../plane/client.js';
+import { initRegistry, getProvider } from '../providers/registry.js';
+import { parseKodoLabels } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions } from './state.js';
 
 /**
- * Launch a Claude Code session for a Plane work item
+ * Build the session record saved to state from a resolved TaskItem.
+ * Pure function — no I/O.
+ *
+ * @param {{
+ *   task: import('../interface.js').TaskItem,
+ *   providerName: string,
+ *   projectPath: string,
+ *   workspaceRef: string,
+ *   sessionId: string,
+ * }} params
+ * @returns {import('./state.js').Session}
+ */
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId }) {
+  return {
+    workspace_ref: workspaceRef,
+    session_id: sessionId,
+    task_id: task.id,
+    task_ref: task.ref,
+    provider: providerName,
+    project_id: task.projectId,
+    summary: task.title,
+    status: /** @type {const} */ ('running'),
+    started_at: new Date().toISOString(),
+    project_path: projectPath,
+  };
+}
+
+/**
+ * Resolve the local project path for a task.
+ * Pure function — accepts the projects map as argument.
+ *
+ * @param {import('../interface.js').TaskItem} task
+ * @param {Record<string, string>} projects
+ * @returns {string}
+ */
+export function resolveProjectPath(task, projects) {
+  const projectPath = projects[task.projectId];
+  if (!projectPath) {
+    throw new Error(
+      `No local path mapped for project "${task.projectName || task.projectId}" (${task.projectId}). ` +
+      `Run: kodo config --map-project`,
+    );
+  }
+  return projectPath;
+}
+
+/**
+ * Derive the module name from a TaskItem's groups array.
+ * Pure function.
+ *
+ * @param {import('../interface.js').TaskItem} task
+ * @returns {string|null}
+ */
+export function deriveModuleName(task) {
+  return task.groups && task.groups.length > 0 ? task.groups[0] : null;
+}
+
+/**
+ * Resolve a human ref into the launch context: task, project path, module,
+ * labels, and derived model/flags. Does not touch cmux or state — returns
+ * everything the caller needs to launch a session.
+ *
+ * @param {{
+ *   provider: Pick<import('../interface.js').TaskProvider, 'init' | 'getTask'>,
+ *   identifier: string,
+ *   projects: Record<string, string>,
+ * }} params
+ */
+export async function resolveTaskAndLaunchContext({ provider, identifier, projects }) {
+  await provider.init();
+  const task = await provider.getTask(identifier);
+
+  const projectPath = resolveProjectPath(task, projects);
+  const moduleName = deriveModuleName(task);
+
+  // parseKodoLabels expects objects with .name — wrap string labels
+  const { model, flags } = parseKodoLabels(task.labels.map((name) => ({ name })));
+
+  return {
+    task,
+    projectPath,
+    moduleName,
+    description: task.description,
+    model,
+    flags,
+  };
+}
+
+/**
+ * Launch a Claude Code session for a provider-backed task.
  * @param {string} identifier e.g. "KL-42"
  * @param {{ model?: string|null, flags?: string[] }} [opts]
  */
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
-  const plane = new PlaneClient();
 
-  // Resolve identifier to project + work item
-  const { project, workItem } = await plane.resolveIdentifier(identifier);
+  await initRegistry();
+  const provider = getProvider(config.provider);
 
   // Check max parallel sessions
   const active = listSessions().filter((s) => s.status === 'running');
   if (active.length >= config.claude.max_parallel) {
     throw new Error(
       `Max parallel sessions (${config.claude.max_parallel}) reached. ` +
-      `Active: ${active.map((s) => s.plane_identifier).join(', ')}`
+      `Active: ${active.map((s) => s.task_ref).join(', ')}`,
     );
   }
 
-  // Resolve local project path
+  // Resolve task + launch context via provider
   const projects = loadProjects();
-  const projectPath = projects[project.id];
-  if (!projectPath) {
-    throw new Error(
-      `No local path mapped for project "${project.name}" (${project.id}). ` +
-      `Run: kodo config --map-project`
-    );
-  }
-
-  // Resolve module name
-  let moduleName = null;
-  try {
-    moduleName = await plane.getWorkItemModule(project.id, workItem.id);
-  } catch {}
+  const {
+    task,
+    projectPath,
+    moduleName,
+    description,
+    model: labelModel,
+    flags: labelFlags,
+  } = await resolveTaskAndLaunchContext({ provider, identifier, projects });
 
   // Create cmux workspace
-  const prefix = moduleName ? `${identifier} [${moduleName}]` : identifier;
-  const workspaceName = `${prefix}: ${truncate(workItem.name, 40)}`;
+  const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
+  const workspaceName = `${prefix}: ${truncate(task.title, 40)}`;
   const workspaceRef = await cmux.newWorkspace({
     name: workspaceName,
     cwd: projectPath,
@@ -54,31 +138,29 @@ export async function launchWorkItem(identifier, opts = {}) {
   // Set color to "running"
   await cmux.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
-  // Build Claude command
+  // Build Claude command — prefer opts overrides, fall back to label parsing
   const sessionId = randomUUID();
-  const claudeCmd = buildClaudeCommand(config, sessionId, workItem, opts.model, opts.flags, moduleName);
+  const modelOverride = opts.model ?? labelModel;
+  const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
+  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName);
 
   // Send Claude command to workspace
   await cmux.send({ workspace: workspaceRef, text: claudeCmd });
 
-  // Track session in state
-  const session = {
-    workspace_ref: workspaceRef,
-    session_id: sessionId,
-    plane_id: workItem.id,
-    plane_identifier: identifier,
-    project_id: project.id,
-    summary: workItem.name,
-    status: /** @type {const} */ ('running'),
-    started_at: new Date().toISOString(),
-    project_path: projectPath,
-  };
-  addSession(workItem.id, session);
+  // Track session in state with generic task fields
+  const session = buildSessionFromTask({
+    task,
+    providerName: config.provider,
+    projectPath,
+    workspaceRef,
+    sessionId,
+  });
+  addSession(task.id, session);
 
   // Notify
   await cmux.notify({
-    title: `kodo: ${identifier}`,
-    body: `Lanzada sesión para: ${workItem.name}`,
+    title: `kodo: ${task.ref}`,
+    body: `Lanzada sesión para: ${task.title}`,
     workspace: workspaceRef,
   });
 
@@ -89,7 +171,7 @@ export async function launchWorkItem(identifier, opts = {}) {
     if (orchMatch) {
       await cmux.send({
         workspace: orchMatch[1],
-        text: `Nueva sesión lanzada: ${identifier} (${workItem.name}) en ${workspaceRef}. Path: ${projectPath}\\n`,
+        text: `Nueva sesión lanzada: ${task.ref} (${task.title}) en ${workspaceRef}. Path: ${projectPath}\\n`,
       });
     }
   } catch {}
@@ -100,25 +182,21 @@ export async function launchWorkItem(identifier, opts = {}) {
 /**
  * @param {ReturnType<import('../config.js').loadConfig>} config
  * @param {string} sessionId
- * @param {object} workItem
- * @param {string|null} [modelOverride]
+ * @param {import('../interface.js').TaskItem} task
+ * @param {string} description
+ * @param {string|null|undefined} modelOverride
  * @param {string[]} [kodoFlags]
  * @param {string|null} [moduleName]
  */
-function buildClaudeCommand(config, sessionId, workItem, modelOverride, kodoFlags = [], moduleName = null) {
+function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null) {
   const model = modelOverride || config.claude.default_model;
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
-  const prompt = `Trabaja en: ${workItem.name}.${moduleCtx} ${workItem.description_html ? 'Descripción: ' + stripHtml(workItem.description_html) : ''}`.trim();
+  const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
 
   // Only add --dangerously-skip-permissions if kodo:yolo label is present
   const cliFlags = kodoFlags.includes('yolo') ? '--dangerously-skip-permissions' : '';
 
   return `claude --model ${model} --session-id ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
-}
-
-/** @param {string} html */
-function stripHtml(html) {
-  return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
 /** @param {string} str */
