@@ -71,7 +71,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 04-01: Extraer dispatchTrigger() y rewire server.js al adapter
+- [ ] 04-01-PLAN.md — Extract dispatcher.js + webhook.js with unit tests (TRIG-01, TRIG-02, REWI-04)
+- [ ] 04-02-PLAN.md — Rewire server.js as slim HTTP shell + cli.js launch to dispatchTrigger (TRIG-03)
 
 ### Phase 5: Config + Cleanup
 **Goal**: La configuración es provider-agnostic y el sistema opera sin mencionar Plane en sitios genéricos
