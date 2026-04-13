@@ -1,8 +1,8 @@
-# kodo v0.2 — Provider Abstraction
+# kodo
 
 ## What This Is
 
-kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code via cmux. Actualmente funciona solo con Plane CE. Este milestone abstrae el proveedor de tareas detrás de una interfaz genérica, refactorizando Plane como el primer adaptador y preparando la arquitectura para soportar GitHub Issues, ClickUp y un modo local sin servicio externo.
+kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code via cmux. La arquitectura es provider-agnostic: cualquier sistema de tareas (Plane, GitHub Issues, ClickUp, local) se integra implementando la interfaz `TaskProvider` de 9 métodos. Plane CE es el primer adaptador implementado y validado.
 
 ## Core Value
 
@@ -12,61 +12,57 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ### Validated
 
-Capacidades existentes del sistema actual (v0.1):
-
-- ✓ Webhook server recibe eventos y lanza sesiones — existing
-- ✓ cmux client crea workspaces, envía comandos, lee screens — existing
-- ✓ Session manager trackea sesiones en state.json — existing
-- ✓ Labels (kodo, kodo:sonnet, kodo:haiku, kodo:yolo) controlan comportamiento — existing
-- ✓ Health checker detecta sesiones gone/stuck/idle — existing
-- ✓ Stop hook actualiza proveedor y notifica orquestador — existing
-- ✓ SessionStart hook inyecta contexto — existing
-- ✓ kodo check como vigilante sin tokens — existing
-- ✓ Orquestador con skill de autoaprendizaje — existing
-- ✓ Comentarios de progreso en tareas — existing
-- ✓ Config wizard interactivo — existing
+- ✓ TaskProvider interface genérica con 9 métodos (init + 7 negocio + listProjects) — v0.2
+- ✓ TaskItem/TriggerEvent shapes canónicas provider-agnostic — v0.2
+- ✓ PlaneProvider adaptador completo (normalizer, HMAC, labels) — v0.2
+- ✓ Provider registry con factory functions y singleton caching — v0.2
+- ✓ Todos los consumidores internos rewired a TaskProvider — v0.2
+- ✓ Server como HTTP shell delegando a handleWebhookRequest — v0.2
+- ✓ dispatchTrigger centralizado para webhook y CLI manual — v0.2
+- ✓ Config wizard provider-agnostic con ensureConfig guard — v0.2
+- ✓ Orchestrator prompt neutral con {{provider}} placeholders — v0.2
+- ✓ State migration automática v1→v2 con schema_version — v0.2
+- ✓ 122 tests cubriendo contratos, normalización, rewiring, triggers y config — v0.2
 
 ### Active
 
-- [ ] Definir interfaz genérica `TaskProvider` con operaciones comunes
-- [ ] Refactorizar `PlaneClient` como adaptador que implementa `TaskProvider`
-- [ ] Desacoplar el server de Plane — usa `TaskProvider` en vez de `PlaneClient` directamente
-- [ ] Desacoplar hooks de Plane — usan `TaskProvider`
-- [ ] Desacoplar session manager de Plane — usa `TaskProvider`
-- [ ] Desacoplar kodo check de Plane — usa `TaskProvider`
-- [ ] Sistema de registro de proveedores (config selecciona cuál usar)
-- [ ] Soporte para múltiples mecanismos de trigger (webhook, polling, manual)
-- [ ] Mejorar error handling y logging en todo el sistema
-- [ ] Mejorar UX del CLI: output más claro, feedback visual
-- [ ] Refactorizar arquitectura interna para extensibilidad
+- [ ] Adapter de GitHub Issues que implementa TaskProvider
+- [ ] Adapter de ClickUp que implementa TaskProvider
+- [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
+- [ ] Polling trigger channel para providers sin webhook
+- [ ] File watcher trigger para provider local
+- [ ] Output del CLI con colores y formato mejorado
+- [ ] Logging estructurado con niveles (debug, info, warn, error)
 
 ### Out of Scope
 
-- Adaptador de GitHub Issues — milestone futuro, primero la interfaz
-- Adaptador de ClickUp — milestone futuro
-- Adaptador local/archivo — milestone futuro
-- Dashboard web — no necesario, el CLI es suficiente
-- Multi-tenant / multi-usuario — es una herramienta personal
-- Persistencia en base de datos — JSON files son suficientes para el uso actual
+- Dashboard web — CLI es suficiente para uso personal
+- Multi-tenant / multi-usuario — herramienta personal
+- Persistencia en base de datos — JSON files suficientes para el volumen actual
+- TypeScript migration — JSDoc + @ts-check cubre las necesidades sin build step
+- Retry/backoff en la interfaz — responsabilidad de cada adapter internamente
+- CRUD completo de tareas — kodo no crea ni elimina tareas, solo las lee y actualiza
 
 ## Context
 
-El sistema actual (v0.1) fue construido en una sesión y funciona end-to-end con Plane CE. El código tiene ~1500 líneas en 14 archivos JS. Usa Node.js 20+ con una sola dependencia externa (commander).
+**Current state (post v0.2):** 4,650 LOC JavaScript (1,868 LOC tests) across ~29 files. Node.js 20+ con una sola dependencia externa (commander). 122 tests passing.
 
-El acoplamiento a Plane está en:
-- `src/plane/client.js` — API REST client
-- `src/server.js` — webhook handler asume payload de Plane
-- `src/hooks/stop.js` — actualiza estados de Plane directamente
-- `src/hooks/session-start.js` — lee IDs de Plane
-- `src/session/manager.js` — resuelve identifiers tipo "TENDERIO-42"
-- `src/check.js` — cuenta tareas pendientes via Plane API
-- `src/labels.js` — parsea labels de Plane
-- `src/orchestrator/` — prompt referencia Plane MCP
+**Architecture:**
+- `src/interface.js` — TaskProvider/TaskItem/TriggerEvent typedefs + constants
+- `src/providers/registry.js` — Provider registry (getProvider, initRegistry)
+- `src/providers/plane/` — Plane adapter (provider, normalize, client, labels)
+- `src/triggers/` — dispatcher.js (central dispatch) + webhook.js (HTTP-free handler)
+- `src/session/` — state.js + manager.js + health.js (all provider-agnostic)
+- `src/hooks/` — stop.js + session-start.js (use TaskProvider)
+- `src/orchestrator/` — prompt.md ({{provider}} placeholders) + launch.js (resolvePromptTemplate)
+- `src/server.js` — Slim HTTP shell (~130 lines)
+- `src/cli.js` — Commander-based CLI with provider-agnostic wizard
+- `src/config.js` — Config management with migration + getProviderApiKey
 
-Proveedores futuros previstos: GitHub Issues, ClickUp, modo local (JSON/Markdown).
-Mecanismos de trigger: webhook (Plane, GitHub), polling (ClickUp, otros), CLI manual.
-
-Codebase map disponible en `.planning/codebase/`.
+**Adding a new provider requires only:**
+1. Create `src/providers/<name>/provider.js` implementing 9 TaskProvider methods
+2. Register in `src/providers/registry.js`
+3. No changes to generic modules needed
 
 ## Constraints
 
@@ -79,10 +75,14 @@ Codebase map disponible en `.planning/codebase/`.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Interfaz en JS puro, no TypeScript | Consistente con el stack actual, JSDoc para tipos | — Pending |
-| Plane como primer adaptador de referencia | Es el que funciona, valida la interfaz con uso real | — Pending |
-| Labels como mecanismo de config inline | Funciona cross-provider (Plane labels, GitHub labels, ClickUp tags) | — Pending |
-| Webhook + polling + manual como triggers | Cada proveedor tiene capacidades distintas | — Pending |
+| Interfaz en JS puro con JSDoc @typedef | Consistente con el stack, sin build step | ✓ Good — 122 tests validate contracts |
+| Plane como primer adaptador de referencia | Valida la interfaz con uso real | ✓ Good — all 9 methods exercised |
+| Labels como mecanismo cross-provider | Funciona en Plane labels, GitHub labels, ClickUp tags | ✓ Good — parseKodoLabels is generic |
+| Webhook + polling + manual como triggers | Cada proveedor tiene capacidades distintas | ✓ Good — webhook + manual validated |
+| Pure helper extraction + DI for testability | Node 24 test runner lacks mock.module | ✓ Good — all consumers testable without mocking |
+| Fire-and-forget dispatch in webhook handler | Fast HTTP response, session launch is async | ✓ Good — server responds 200 before dispatch |
+| State migration clears active sessions | v1 schema incompatible with v2 fields | ✓ Good — clean break, no corruption |
+| ensureConfig guards commands needing provider | First-run UX, auto-launches wizard | ✓ Good — clean onboarding flow |
 
 ---
-*Last updated: 2026-04-07 after initialization*
+*Last updated: 2026-04-13 after v0.2 milestone*
