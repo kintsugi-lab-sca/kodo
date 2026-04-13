@@ -11,7 +11,7 @@ const program = new Command();
 
 program
   .name('kodo')
-  .description('Plane-cmux bridge — automated Claude Code sessions from kanban tasks')
+  .description('kodo — automated Claude Code sessions from task management systems')
   .version(pkg.version);
 
 // --- kodo config ---
@@ -67,9 +67,10 @@ program
   .command('start')
   .description('Start the webhook server')
   .option('-p, --port <port>', 'Port to listen on')
+  .option('--insecure', 'Skip webhook secret verification (development only)')
   .action(async (opts) => {
     const { startServer } = await import('./server.js');
-    startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined });
+    await startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined, insecure: opts.insecure });
   });
 
 // --- kodo stop ---
@@ -139,16 +140,43 @@ program
 
 // --- kodo launch ---
 program
-  .command('launch <identifier>')
-  .description('Launch a Claude Code session for a Plane work item (e.g. KL-42)')
-  .action(async (identifier) => {
+  .command('launch <ref>')
+  .description('Launch a Claude Code session for a task (e.g. KL-42)')
+  .option('--model <model>', 'Override Claude model')
+  .option('--yolo', 'Skip confirmation prompts')
+  .option('--force', 'Skip kodo label requirement')
+  .action(async (ref, opts) => {
     try {
-      const { launchWorkItem } = await import('./session/manager.js');
-      const session = await launchWorkItem(identifier.toUpperCase());
-      console.log(`✓ Launched session for ${session.plane_identifier}`);
-      console.log(`  Workspace: ${session.workspace_ref}`);
-      console.log(`  Session ID: ${session.session_id}`);
-      console.log(`  Path: ${session.project_path}`);
+      const { initRegistry, getProvider } = await import('./providers/registry.js');
+      const { loadConfig } = await import('./config.js');
+      const { dispatchTrigger } = await import('./triggers/dispatcher.js');
+
+      const config = loadConfig();
+      await initRegistry();
+
+      const event = {
+        taskRef: ref.toUpperCase(),
+        action: 'manual',
+        provider: config.provider,
+        raw: { source: 'cli', model: opts.model, yolo: opts.yolo },
+      };
+
+      const result = await dispatchTrigger(event, {
+        model: opts.model || null,
+        flags: opts.yolo ? ['yolo'] : [],
+        force: opts.force || false,
+      });
+
+      if (result.action === 'launched' || result.action === 'stale_relaunch') {
+        console.log(`\u2713 Launched session for ${ref.toUpperCase()}`);
+        console.log(`  Workspace: ${result.session.workspace_ref}`);
+        console.log(`  Session ID: ${result.session.session_id}`);
+        console.log(`  Path: ${result.session.project_path}`);
+      } else if (result.action === 'ignored') {
+        console.log(`Ignored: ${ref.toUpperCase()} \u2014 no kodo label (use --force to override)`);
+      } else if (result.action === 'already_active') {
+        console.log(`Session already active for ${ref.toUpperCase()}`);
+      }
     } catch (err) {
       console.error(`Error: ${err.message}`);
       process.exit(1);
@@ -171,7 +199,7 @@ program
     console.log(`Active sessions (${sessions.length}):\n`);
     for (const s of sessions) {
       const elapsed = timeSince(s.started_at);
-      console.log(`  ${s.plane_identifier}  ${s.summary}`);
+      console.log(`  ${s.task_ref}  ${s.summary}`);
       console.log(`    Status: ${s.status}  |  Workspace: ${s.workspace_ref}  |  ${elapsed}`);
       console.log(`    Path: ${s.project_path}`);
       console.log();
