@@ -32,13 +32,13 @@
 - [x] **REWI-01**: `check.js` usa `TaskProvider` en vez de `PlaneClient`
 - [x] **REWI-02**: `stop.js` lee `session.provider` y usa el adapter correcto
 - [x] **REWI-03**: `manager.js` usa `TaskProvider` para resolver refs y obtener tasks
-- [ ] **REWI-04**: `server.js` delega parsing de webhook y verificación de firma al adapter
+- [x] **REWI-04**: `server.js` delega parsing de webhook y verificación de firma al adapter
 - [x] **REWI-05**: `session-start.js` usa campos genéricos del state (task_id, task_ref)
 
 ### Trigger Abstraction
 
-- [ ] **TRIG-01**: `dispatchTrigger()` extraído de `server.js` como función central
-- [ ] **TRIG-02**: Webhook channel funcional (usado por Plane adapter)
+- [x] **TRIG-01**: `dispatchTrigger()` extraído de `server.js` como función central
+- [x] **TRIG-02**: Webhook channel funcional (usado por Plane adapter)
 - [ ] **TRIG-03**: CLI manual (`kodo launch`) sigue funcionando con la nueva abstracción
 
 ### Config & UX
@@ -103,10 +103,10 @@
 | REWI-01 | Phase 3 | Complete |
 | REWI-02 | Phase 3 | Complete |
 | REWI-03 | Phase 3 | Complete |
-| REWI-04 | Phase 4 | Pending |
+| REWI-04 | Phase 4 | Complete |
 | REWI-05 | Phase 3 | Complete |
-| TRIG-01 | Phase 4 | Pending |
-| TRIG-02 | Phase 4 | Pending |
+| TRIG-01 | Phase 4 | Complete |
+| TRIG-02 | Phase 4 | Complete |
 | TRIG-03 | Phase 4 | Pending |
 | CONF-01 | Phase 5 | Pending |
 | CONF-02 | Phase 5 | Pending |
