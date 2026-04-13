@@ -86,8 +86,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 05-01: Config migration, wizard update y orchestrator prompt cleanup
-
+- [ ] 05-01-PLAN.md — Provider-agnostic config wizard, listProjects interface, getProviderApiKey
+- [ ] 05-02-PLAN.md — Orchestrator prompt neutralization, planeId rename, legacy cleanup
 ## Progress
 
 **Execution Order:**
