@@ -1,37 +1,17 @@
 // @ts-check
 import { createServer } from 'node:http';
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig, loadProjects, KODO_DIR } from './config.js';
-import { PlaneClient } from './plane/client.js';
+import { loadConfig, KODO_DIR } from './config.js';
+import { initRegistry, getProvider } from './providers/registry.js';
+import { listSessions } from './session/state.js';
+import { handleWebhookRequest } from './triggers/webhook.js';
 import * as cmux from './cmux/client.js';
-import { colorForStatus } from './cmux/colors.js';
-import { addSession, listSessions, removeSession } from './session/state.js';
-import { launchWorkItem } from './session/manager.js';
-import { parseKodoLabels, resolveLabels } from './labels.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
 
 /**
- * Verify HMAC-SHA256 signature from Plane webhook
- * @param {string} payload
- * @param {string} signature
- * @param {string} secret
- * @returns {boolean}
- */
-function verifySignature(payload, signature, secret) {
-  if (!secret || !signature) return false;
-  const expected = createHmac('sha256', secret).update(payload).digest('hex');
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Parse JSON body from incoming request
+ * Read raw body from incoming HTTP request
  * @param {import('http').IncomingMessage} req
  * @returns {Promise<string>}
  */
@@ -45,130 +25,37 @@ function readBody(req) {
 }
 
 /**
- * Handle incoming Plane webhook
- * @param {object} payload
- */
-async function handleWebhook(payload) {
-  const event = payload.event;
-
-  // We care about work item state changes
-  if (event !== 'issue' && event !== 'work_item') {
-    console.log(`[kodo] Ignored event: ${event}`);
-    return;
-  }
-
-  const action = payload.action; // "created", "updated"
-  const data = payload.data || payload.issue || payload.work_item;
-
-  if (!data) {
-    console.log('[kodo] No data in webhook payload');
-    return;
-  }
-
-  console.log(`[kodo] Received: ${event}.${action} — ${data.name || data.id}`);
-
-  // Check if state changed to trigger state ("In Progress")
-  const config = loadConfig();
-  const stateName = data.state?.name || data.state_detail?.name || data.state__name;
-
-  if (action === 'updated' && stateName?.toLowerCase() === config.plane.trigger_state.toLowerCase()) {
-    await handleTriggerState(data, config);
-  }
-}
-
-/**
- * @param {object} data
- * @param {ReturnType<import('./config.js').loadConfig>} config
- */
-async function handleTriggerState(data, config) {
-  const projectId = (typeof data.project === 'object' ? data.project?.id : data.project) || data.project_detail?.id;
-  if (!projectId) {
-    console.log('[kodo] No project ID in webhook data');
-    return;
-  }
-
-  // Check kodo labels — only launch if "kodo" label is present
-  const plane = new PlaneClient();
-  let labels = data.labels || [];
-
-  // Resolve label IDs to objects if needed
-  if (labels.length > 0 && typeof labels[0] === 'string') {
-    try {
-      labels = await resolveLabels(plane, projectId, labels);
-    } catch (err) {
-      console.error(`[kodo] Error resolving labels: ${err.message}`);
-    }
-  }
-
-  const kodoConfig = parseKodoLabels(labels);
-  if (!kodoConfig.isKodo) {
-    console.log(`[kodo] Ignored: ${data.name} — no kodo label`);
-    return;
-  }
-
-  // Find project identifier to build the KL-42 style reference
-  let identifier;
-  try {
-    const projects = await plane.listProjects();
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) {
-      console.log(`[kodo] Unknown project: ${projectId}`);
-      return;
-    }
-    identifier = `${project.identifier}-${data.sequence_id}`;
-  } catch (err) {
-    console.error(`[kodo] Error resolving project: ${err.message}`);
-    return;
-  }
-
-  // Check if already running — but verify workspace still exists
-  const active = listSessions();
-  const existing = active.find((s) => s.plane_id === data.id);
-  if (existing) {
-    try {
-      const workspaces = await cmux.listWorkspaces();
-      if (workspaces.includes(existing.workspace_ref)) {
-        console.log(`[kodo] Session already running for ${identifier}`);
-        return;
-      }
-      // Workspace gone — clean up stale session
-      console.log(`[kodo] Stale session for ${identifier} — workspace gone, relaunching`);
-      removeSession(data.id);
-    } catch {
-      removeSession(data.id);
-    }
-  }
-
-  console.log(`[kodo] Launching session for ${identifier}: ${data.name} (model: ${kodoConfig.model || config.claude.default_model})`);
-
-  try {
-    const session = await launchWorkItem(identifier, { model: kodoConfig.model, flags: kodoConfig.flags });
-    console.log(`[kodo] ✓ Launched ${identifier} → ${session.workspace_ref}`);
-  } catch (err) {
-    console.error(`[kodo] Error launching ${identifier}: ${err.message}`);
-
-    await cmux.notify({
-      title: `kodo: Error`,
-      body: `Failed to launch ${identifier}: ${err.message}`,
-    }).catch(() => {});
-  }
-}
-
-/**
  * Start the webhook server
- * @param {{ port?: number }} [opts]
+ * @param {{ port?: number, insecure?: boolean }} [opts]
  */
-export function startServer(opts = {}) {
+export async function startServer(opts = {}) {
   const config = loadConfig();
   const port = opts.port || config.server.port;
-  const webhookSecret = process.env.PLANE_WEBHOOK_SECRET;
 
-  if (!webhookSecret) {
-    console.warn('[kodo] Warning: PLANE_WEBHOOK_SECRET not set — signature verification disabled');
+  await initRegistry();
+  const provider = getProvider(config.provider);
+  await provider.init();
+
+  // Webhook secret check — provider-specific env var with legacy fallback
+  const secretEnv = `KODO_WEBHOOK_SECRET_${config.provider.toUpperCase()}`;
+  const webhookSecret = process.env[secretEnv] || process.env.PLANE_WEBHOOK_SECRET;
+
+  if (process.env.PLANE_WEBHOOK_SECRET && !process.env[secretEnv]) {
+    console.warn(`[kodo] Deprecation: use ${secretEnv} instead of PLANE_WEBHOOK_SECRET`);
+  }
+
+  if (!webhookSecret && !opts.insecure && !process.env.KODO_DEV) {
+    console.error(`[kodo] Missing webhook secret. Set ${secretEnv} or use --insecure / KODO_DEV=1`);
+    process.exit(1);
   }
 
   const server = createServer(async (req, res) => {
-    // CORS / health
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/status') {
       const sessions = listSessions();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -176,38 +63,12 @@ export function startServer(opts = {}) {
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
-      return;
-    }
-
     if (req.method === 'POST' && req.url === '/webhook') {
       try {
-        const body = await readBody(req);
-
-        // Verify signature if secret is configured
-        if (webhookSecret) {
-          const signature = /** @type {string} */ (
-            req.headers['x-plane-signature'] || req.headers['x-webhook-signature'] || ''
-          );
-          if (!verifySignature(body, signature, webhookSecret)) {
-            console.warn('[kodo] Invalid webhook signature');
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Invalid signature' }));
-            return;
-          }
-        }
-
-        const payload = JSON.parse(body);
-        // Respond immediately, process async
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
-
-        // Process webhook asynchronously
-        handleWebhook(payload).catch((err) => {
-          console.error(`[kodo] Webhook handler error: ${err.message}`);
-        });
+        const rawBody = await readBody(req);
+        const result = await handleWebhookRequest(rawBody, req.headers, provider);
+        res.writeHead(result.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result.body));
       } catch (err) {
         console.error(`[kodo] Bad request: ${err.message}`);
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -225,18 +86,14 @@ export function startServer(opts = {}) {
     console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
     console.log(`[kodo] Status URL: http://localhost:${port}/status`);
 
-    // Write PID file for stop command
     writeFileSync(PID_PATH, String(process.pid));
 
-    // Rename current workspace to identify the kodo service
     if (process.env.CMUX_WORKSPACE_ID) {
-      cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '心動 kodo service' }).catch(() => {});
+      cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
       cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
     }
-
   });
 
-  // Cleanup on exit
   const cleanup = () => {
     try { unlinkSync(PID_PATH); } catch {}
     process.exit(0);
