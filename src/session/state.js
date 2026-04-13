@@ -73,37 +73,37 @@ export function saveState(state) {
 }
 
 /**
- * @param {string} planeId
+ * @param {string} taskId
  * @param {Session} session
  */
-export function addSession(planeId, session) {
+export function addSession(taskId, session) {
   const state = loadState();
-  state.sessions[planeId] = session;
+  state.sessions[taskId] = session;
   saveState(state);
 }
 
-/** @param {string} planeId */
-export function removeSession(planeId) {
+/** @param {string} taskId */
+export function removeSession(taskId) {
   const state = loadState();
-  delete state.sessions[planeId];
+  delete state.sessions[taskId];
   saveState(state);
 }
 
 /**
- * @param {string} planeId
+ * @param {string} taskId
  * @param {Partial<Session>} updates
  */
-export function updateSession(planeId, updates) {
+export function updateSession(taskId, updates) {
   const state = loadState();
-  if (state.sessions[planeId]) {
-    Object.assign(state.sessions[planeId], updates);
+  if (state.sessions[taskId]) {
+    Object.assign(state.sessions[taskId], updates);
     saveState(state);
   }
 }
 
-/** @param {string} planeId */
-export function getSession(planeId) {
-  return loadState().sessions[planeId] || null;
+/** @param {string} taskId */
+export function getSession(taskId) {
+  return loadState().sessions[taskId] || null;
 }
 
 /** @returns {Session[]} */

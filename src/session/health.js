@@ -8,8 +8,8 @@ import { colorForStatus } from '../cmux/colors.js';
  * @typedef {'healthy'|'idle'|'stuck'|'gone'} SessionHealth
  *
  * @typedef {{
- *   planeId: string,
- *   identifier: string,
+ *   taskId: string,
+ *   ref: string,
  *   health: SessionHealth,
  *   elapsed_min: number,
  *   last_screen?: string,
@@ -38,15 +38,15 @@ export async function checkHealth() {
 
   const reports = [];
 
-  for (const [planeId, session] of sessions) {
+  for (const [taskId, session] of sessions) {
     const elapsedMs = Date.now() - new Date(session.started_at).getTime();
     const elapsedMin = Math.floor(elapsedMs / 60_000);
 
     // Check if workspace still exists
     if (!workspaceList.includes(session.workspace_ref)) {
       reports.push({
-        planeId,
-        identifier: session.plane_identifier,
+        taskId,
+        ref: session.task_ref,
         health: /** @type {const} */ ('gone'),
         elapsed_min: elapsedMin,
       });
@@ -60,8 +60,8 @@ export async function checkHealth() {
     } catch {
       // Can't read screen — workspace might be closing
       reports.push({
-        planeId,
-        identifier: session.plane_identifier,
+        taskId,
+        ref: session.task_ref,
         health: /** @type {const} */ ('gone'),
         elapsed_min: elapsedMin,
       });
@@ -82,8 +82,8 @@ export async function checkHealth() {
     }
 
     reports.push({
-      planeId,
-      identifier: session.plane_identifier,
+      taskId,
+      ref: session.task_ref,
       health,
       elapsed_min: elapsedMin,
       last_screen: lastScreen,
@@ -101,20 +101,20 @@ export async function actOnHealth(reports) {
   for (const report of reports) {
     switch (report.health) {
       case 'gone':
-        console.log(`[kodo:health] ${report.identifier} — workspace gone, cleaning up`);
-        removeSession(report.planeId);
+        console.log(`[kodo:health] ${report.ref} — workspace gone, cleaning up`);
+        removeSession(report.taskId);
         break;
 
       case 'stuck':
-        console.log(`[kodo:health] ${report.identifier} — stuck (${report.elapsed_min}min)`);
+        console.log(`[kodo:health] ${report.ref} — stuck (${report.elapsed_min}min)`);
         await cmux.notify({
-          title: `kodo: ${report.identifier} stuck`,
+          title: `kodo: ${report.ref} stuck`,
           body: `Lleva ${report.elapsed_min}min sin progreso`,
         }).catch(() => {});
         break;
 
       case 'idle':
-        console.log(`[kodo:health] ${report.identifier} — idle (${report.elapsed_min}min)`);
+        console.log(`[kodo:health] ${report.ref} — idle (${report.elapsed_min}min)`);
         break;
     }
   }

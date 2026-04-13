@@ -26,7 +26,7 @@ describe('state store', () => {
       workspace_ref: 'workspace:1',
       session_id: 'test-uuid',
       plane_id: 'plane-123',
-      plane_identifier: 'KL-42',
+      task_ref: 'KL-42',
       project_id: 'proj-1',
       summary: 'Test task',
       status: 'running',
@@ -39,15 +39,15 @@ describe('state store', () => {
     writeState(state);
 
     const loaded = readState();
-    assert.equal(loaded.sessions['plane-123'].plane_identifier, 'KL-42');
+    assert.equal(loaded.sessions['plane-123'].task_ref, 'KL-42');
     assert.equal(loaded.sessions['plane-123'].status, 'running');
   });
 
   it('removes session', () => {
     writeState({
       sessions: {
-        'plane-123': { plane_identifier: 'KL-42', status: 'running' },
-        'plane-456': { plane_identifier: 'KL-55', status: 'running' },
+        'plane-123': { task_ref: 'KL-42', status: 'running' },
+        'plane-456': { task_ref: 'KL-55', status: 'running' },
       },
     });
 
@@ -57,14 +57,14 @@ describe('state store', () => {
 
     const loaded = readState();
     assert.equal(Object.keys(loaded.sessions).length, 1);
-    assert.equal(loaded.sessions['plane-456'].plane_identifier, 'KL-55');
+    assert.equal(loaded.sessions['plane-456'].task_ref, 'KL-55');
   });
 
   it('finds session by field', () => {
     writeState({
       sessions: {
-        'p1': { plane_identifier: 'KL-42', project_path: '/dev/foo', workspace_ref: 'workspace:1' },
-        'p2': { plane_identifier: 'KL-55', project_path: '/dev/bar', workspace_ref: 'workspace:2' },
+        'p1': { task_ref: 'KL-42', project_path: '/dev/foo', workspace_ref: 'workspace:1' },
+        'p2': { task_ref: 'KL-55', project_path: '/dev/bar', workspace_ref: 'workspace:2' },
       },
     });
 
@@ -73,7 +73,7 @@ describe('state store', () => {
       ([, s]) => s.project_path === '/dev/bar'
     );
     assert.ok(found);
-    assert.equal(found[1].plane_identifier, 'KL-55');
+    assert.equal(found[1].task_ref, 'KL-55');
   });
 
   // Cleanup
