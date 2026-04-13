@@ -69,6 +69,7 @@ program
   .option('-p, --port <port>', 'Port to listen on')
   .option('--insecure', 'Skip webhook secret verification (development only)')
   .action(async (opts) => {
+    await ensureConfig();
     const { startServer } = await import('./server.js');
     await startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined, insecure: opts.insecure });
   });
@@ -88,6 +89,7 @@ program
   .description('Quick health check — launches orchestrator if action needed (no LLM, no tokens)')
   .option('--dry-run', 'Only report, don\'t launch orchestrator')
   .action(async (opts) => {
+    await ensureConfig();
     if (opts.dryRun) {
       const { runCheck } = await import('./check.js');
       const result = await runCheck();
@@ -146,6 +148,7 @@ program
   .option('--yolo', 'Skip confirmation prompts')
   .option('--force', 'Skip kodo label requirement')
   .action(async (ref, opts) => {
+    await ensureConfig();
     try {
       const { initRegistry, getProvider } = await import('./providers/registry.js');
       const { loadConfig } = await import('./config.js');
@@ -188,6 +191,7 @@ program
   .command('status')
   .description('Show active sessions')
   .action(async () => {
+    await ensureConfig();
     const { listSessions } = await import('./session/state.js');
     const sessions = listSessions();
 
@@ -234,10 +238,29 @@ function timeSince(isoDate) {
   return `${hrs}h ${min % 60}m ago`;
 }
 
+/**
+ * Checks if config.json exists. If not, launches the interactive wizard.
+ * Used as a guard at the top of commands that need a provider.
+ */
+async function ensureConfig() {
+  const { existsSync } = await import('node:fs');
+  const { CONFIG_PATH } = await import('./config.js');
+
+  if (!existsSync(CONFIG_PATH)) {
+    console.log('Primera vez? Vamos a configurar kodo.\n');
+    await interactiveConfig();
+
+    if (!existsSync(CONFIG_PATH)) {
+      console.error('Config requerida.');
+      process.exit(1);
+    }
+  }
+}
+
 async function interactiveConfig() {
   const { createInterface } = await import('node:readline');
   const { existsSync } = await import('node:fs');
-  const { loadConfig, saveConfig, loadProjects, saveProjects, getPlaneApiKey } = await import('./config.js');
+  const { loadConfig, saveConfig, loadProjects, saveProjects, getProviderApiKey } = await import('./config.js');
   const config = loadConfig();
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -245,39 +268,95 @@ async function interactiveConfig() {
 
   console.log('\n  kodo config\n');
 
-  // Step 1: API key
-  const apiKey = getPlaneApiKey();
+  // Step 1: Select provider
+  const availableProviders = ['plane'];
+  console.log('  Proveedores disponibles:');
+  for (let i = 0; i < availableProviders.length; i++) {
+    console.log(`    ${i + 1}. ${availableProviders[i]}`);
+  }
+  const providerChoice = await ask(`\n  Selecciona proveedor [1]: `);
+  const providerIndex = parseInt(providerChoice.trim() || '1', 10) - 1;
+  const selectedProvider = availableProviders[providerIndex] || availableProviders[0];
+  config.provider = selectedProvider;
+
+  console.log(`\n  Proveedor: ${selectedProvider}\n`);
+
+  // Step 2: Provider-specific config
+  if (!config.providers) config.providers = {};
+  if (!config.providers[selectedProvider]) {
+    config.providers[selectedProvider] = {};
+  }
+  const providerConfig = config.providers[selectedProvider];
+
+  // API key env var
+  const defaultEnvVar = providerConfig.api_key_env || `${selectedProvider.toUpperCase()}_API_KEY`;
+  const envVarName = await ask(`  Variable de entorno para API key [${defaultEnvVar}]: `);
+  providerConfig.api_key_env = envVarName.trim() || defaultEnvVar;
+
+  // Check API key is set
+  const apiKey = getProviderApiKey(selectedProvider);
   if (!apiKey) {
-    console.log(`  ✗ ${config.plane.api_key_env} no está configurada.\n`);
-    console.log(`  Genera un token en: ${config.plane.base_url}/profile/api-tokens/`);
-    console.log(`  Luego: export ${config.plane.api_key_env}=tu-token\n`);
+    console.log(`\n  ✗ ${providerConfig.api_key_env} no esta configurada.`);
+    console.log(`  Configura la variable y vuelve a ejecutar kodo config.\n`);
     rl.close();
     return;
   }
   console.log(`  ✓ API key configurada\n`);
 
-  // Step 2: Workspace slug
-  const slug = await ask(`  Workspace slug [${config.plane.workspace_slug}]: `);
-  if (slug.trim()) {
-    config.plane.workspace_slug = slug.trim();
+  // Workspace slug (provider-specific)
+  if (selectedProvider === 'plane') {
+    const defaultSlug = providerConfig.workspace_slug || '';
+    const slug = await ask(`  Workspace slug [${defaultSlug}]: `);
+    providerConfig.workspace_slug = slug.trim() || defaultSlug;
+
+    // Base URL
+    const defaultUrl = providerConfig.base_url || 'https://tasks.kintsugi-lab.com';
+    const baseUrl = await ask(`  Base URL [${defaultUrl}]: `);
+    providerConfig.base_url = baseUrl.trim() || defaultUrl;
   }
 
-  // Step 3: Fetch projects and map paths
-  console.log('\n  Conectando con Plane...');
+  // States config (defaults)
+  if (!providerConfig.states) {
+    providerConfig.states = { trigger: 'In Progress', review: 'In review', done: 'Done' };
+  }
+
+  // Step 3: Validate connection
+  console.log('\n  Validando conexion...');
   try {
-    const { PlaneClient } = await import('./plane/client.js');
-    const plane = new PlaneClient({ workspaceSlug: config.plane.workspace_slug });
-    const planeProjects = await plane.listProjects();
+    const { initRegistry, getProvider } = await import('./providers/registry.js');
+    await initRegistry();
+    const provider = getProvider(selectedProvider);
+    await provider.init();
+    console.log('  ✓ Conexion validada\n');
+
+    // Step 4: List projects
+    const remoteProjects = await provider.listProjects();
     const projects = loadProjects();
 
-    console.log(`  Encontrados ${planeProjects.length} proyectos:\n`);
+    console.log(`  Encontrados ${remoteProjects.length} proyectos:\n`);
 
-    for (const p of planeProjects) {
+    for (let i = 0; i < remoteProjects.length; i++) {
+      const p = remoteProjects[i];
       const current = projects[p.id];
       const label = current ? `[${current}]` : '[sin mapear]';
-      console.log(`  ${p.identifier} — ${p.name} ${label}`);
+      console.log(`    ${i + 1}. ${p.identifier} — ${p.name} ${label}`);
+    }
 
-      const path = await ask(`    Path local (Enter para ${current ? 'mantener' : 'saltar'}): `);
+    const selection = await ask(`\n  Proyectos a seguir (numeros separados por coma, Enter para todos): `);
+    let selectedProjects;
+    if (selection.trim()) {
+      const indices = selection.split(',').map((s) => parseInt(s.trim(), 10) - 1);
+      selectedProjects = indices
+        .filter((i) => i >= 0 && i < remoteProjects.length)
+        .map((i) => remoteProjects[i]);
+    } else {
+      selectedProjects = remoteProjects;
+    }
+
+    // Map project paths
+    for (const p of selectedProjects) {
+      const current = projects[p.id];
+      const path = await ask(`    Path local para ${p.identifier} (Enter para ${current ? 'mantener' : 'saltar'}): `);
       if (path.trim()) {
         if (existsSync(path.trim())) {
           projects[p.id] = path.trim();
@@ -292,12 +371,17 @@ async function interactiveConfig() {
 
     saveProjects(projects);
 
-    // Save project IDs to config
-    config.plane.projects = planeProjects.map((p) => p.id);
+    // Save selected projects to provider config
+    providerConfig.projects = selectedProjects.map((p) => ({ id: p.id, identifier: p.identifier, name: p.name }));
     saveConfig(config);
-    console.log('  ✓ Configuración guardada en ~/.kodo/\n');
+    console.log('  ✓ Configuracion guardada en ~/.kodo/\n');
   } catch (err) {
-    console.error(`  ✗ Error conectando con Plane: ${err.message}`);
+    console.error(`\n  ✗ Error validando conexion: ${err.message}`);
+    const retry = await ask('  Reintentar? (s/N): ');
+    if (retry.trim().toLowerCase() === 's') {
+      rl.close();
+      return interactiveConfig();
+    }
   }
 
   rl.close();
