@@ -12,6 +12,23 @@ const PROMPT_PATH = join(__dirname, 'prompt.md');
 const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
 
 /**
+ * Resolve {{placeholder}} tokens in the orchestrator prompt template.
+ *
+ * @param {string} template  Raw prompt.md content
+ * @param {{ provider: string }} config  Active provider config
+ * @returns {string} Prompt with all placeholders replaced
+ */
+export function resolvePromptTemplate(template, config) {
+  const providerName = config.provider.charAt(0).toUpperCase() + config.provider.slice(1);
+  const mcpTool = `${providerName} MCP server`;
+
+  return template
+    .replaceAll('{{provider_name}}', providerName)
+    .replaceAll('{{provider}}', config.provider)
+    .replaceAll('{{mcp_tool}}', mcpTool);
+}
+
+/**
  * Launch the orchestrator Claude session in a dedicated cmux workspace
  */
 export async function launchOrchestrator() {
@@ -40,8 +57,9 @@ export async function launchOrchestrator() {
   const sessions = listSessions();
   const contextSummary = buildContextSummary(sessions, config);
 
-  // Read orchestrator prompt
-  const basePrompt = readFileSync(PROMPT_PATH, 'utf-8');
+  // Read orchestrator prompt and resolve provider placeholders
+  const rawPrompt = readFileSync(PROMPT_PATH, 'utf-8');
+  const basePrompt = resolvePromptTemplate(rawPrompt, { provider: config.provider || 'plane' });
 
   // Create workspace
   const workspaceRef = await cmux.newWorkspace({
@@ -95,7 +113,7 @@ function buildContextSummary(sessions, config) {
     lines.push('');
     for (const s of running) {
       const elapsed = Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60_000);
-      lines.push(`- **${s.plane_identifier}**: ${s.summary}`);
+      lines.push(`- **${s.task_ref}**: ${s.summary}`);
       lines.push(`  Workspace: ${s.workspace_ref} | ${elapsed}min | ${s.project_path}`);
     }
   }
