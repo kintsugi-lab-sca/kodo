@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.2
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-04-13T08:19:53.809Z"
-last_activity: 2026-04-13 — Completed 04-01 trigger extraction (dispatcher + webhook)
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-04-13T08:23:40.122Z"
+last_activity: 2026-04-13 — Completed 04-02 server + CLI rewiring (Phase 4 done)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
-  percent: 88
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 
 ## Current Position
 
-Phase: 4 of 5 (Server Trigger Abstraction)
-Plan: 1 of 2 in current phase (04-01 complete)
+Phase: 4 of 5 (Server Trigger Abstraction — Complete)
+Plan: 2 of 2 in current phase (all complete)
 Status: Executing
-Last activity: 2026-04-13 — Completed 04-01 trigger extraction (dispatcher + webhook)
+Last activity: 2026-04-13 — Completed 04-02 server + CLI rewiring (Phase 4 done)
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [█████████░] 88%
 | Phase 03 P02 | 4 min | 2 tasks | 5 files |
 | Phase 03 P01 | 6min | 2 tasks | 4 files |
 | Phase 04 P01 | 2min | 2 tasks | 4 files |
+| Phase 04 P02 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Guard hook main() behind import.meta.url === file://process.argv[1] to make session-start.js importable in tests without triggering stdin read
 - [Phase 04]: DI deps parameter pattern for trigger modules (consistent with Phase 03 approach)
 - [Phase 04]: Fire-and-forget dispatch in webhook handler — does not await dispatchTrigger for fast response
+- [Phase 04]: Webhook secret uses provider-specific env var (KODO_WEBHOOK_SECRET_PLANE) with legacy fallback + deprecation warning
+- [Phase 04]: startServer is now async — awaits initRegistry + provider.init for fail-fast behavior
 
 ### Pending Todos
 
@@ -97,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T08:19:53.806Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-04-13T08:23:40.118Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

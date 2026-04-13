@@ -39,7 +39,7 @@
 
 - [x] **TRIG-01**: `dispatchTrigger()` extraído de `server.js` como función central
 - [x] **TRIG-02**: Webhook channel funcional (usado por Plane adapter)
-- [ ] **TRIG-03**: CLI manual (`kodo launch`) sigue funcionando con la nueva abstracción
+- [x] **TRIG-03**: CLI manual (`kodo launch`) sigue funcionando con la nueva abstracción
 
 ### Config & UX
 
@@ -107,7 +107,7 @@
 | REWI-05 | Phase 3 | Complete |
 | TRIG-01 | Phase 4 | Complete |
 | TRIG-02 | Phase 4 | Complete |
-| TRIG-03 | Phase 4 | Pending |
+| TRIG-03 | Phase 4 | Complete |
 | CONF-01 | Phase 5 | Pending |
 | CONF-02 | Phase 5 | Pending |
 | CONF-03 | Phase 5 | Pending |

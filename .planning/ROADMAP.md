@@ -9,7 +9,7 @@ kodo v0.2 abstrae el proveedor de tareas detrás de una interfaz genérica. Part
 - [ ] **Phase 1: Interface + State Schema** - Define contratos de datos y migra el schema de state.json
 - [ ] **Phase 2: Plane Adapter + Registry** - PlaneProvider como implementación de referencia con registry y tests
 - [ ] **Phase 3: Consumer Rewiring** - Reconectar check, stop, manager y session-start a TaskProvider
-- [ ] **Phase 4: Server + Trigger Abstraction** - Desacoplar server de Plane y centralizar el dispatch de triggers
+- [x] **Phase 4: Server + Trigger Abstraction** - Desacoplar server de Plane y centralizar el dispatch de triggers (completed 2026-04-13)
 - [ ] **Phase 5: Config + Cleanup** - Migración de config, wizard actualizado, orchestrator neutral
 
 ## Phase Details
@@ -68,7 +68,7 @@ Plans:
   2. `server.js` delega el parsing del payload y la verificación de firma al adapter activo; el handler del webhook no contiene lógica específica de Plane
   3. Un evento de Plane procesado end-to-end (webhook → parse → dispatch → session) funciona igual que antes del refactor
   4. `kodo launch <ref>` (trigger manual) sigue creando la sesión correctamente usando la nueva abstracción
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md — Extract dispatcher.js + webhook.js with unit tests (TRIG-01, TRIG-02, REWI-04)
@@ -98,5 +98,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Interface + State Schema | 1/2 | In Progress|  |
 | 2. Plane Adapter + Registry | 1/2 | In Progress|  |
 | 3. Consumer Rewiring | 0/2 | Not started | - |
-| 4. Server + Trigger Abstraction | 0/1 | Not started | - |
+| 4. Server + Trigger Abstraction | 2/2 | Complete   | 2026-04-13 |
 | 5. Config + Cleanup | 0/1 | Not started | - |
