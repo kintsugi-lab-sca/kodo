@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.2
 milestone_name: milestone
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-04-13T10:44:40.012Z"
-last_activity: 2026-04-13 — Completed 04-02 server + CLI rewiring (Phase 4 done)
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-04-13T11:24:01.425Z"
+last_activity: 2026-04-13 — Completed 05-01 config wizard + API key abstraction
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_plans: 10
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-07)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones.
-**Current focus:** Phase 4 — Server Trigger Abstraction
+**Current focus:** Phase 5 — Config Cleanup
 
 ## Current Position
 
-Phase: 4 of 5 (Server Trigger Abstraction — Complete)
-Plan: 2 of 2 in current phase (all complete)
+Phase: 5 of 5 (Config Cleanup)
+Plan: 1 of 2 in current phase (05-01 complete)
 Status: Executing
-Last activity: 2026-04-13 — Completed 04-02 server + CLI rewiring (Phase 4 done)
+Last activity: 2026-04-13 — Completed 05-01 config wizard + API key abstraction
 
-Progress: [██████████] 100%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100%
 | Phase 03 P01 | 6min | 2 tasks | 4 files |
 | Phase 04 P01 | 2min | 2 tasks | 4 files |
 | Phase 04 P02 | 2min | 2 tasks | 2 files |
+| Phase 05 P01 | 3min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,10 @@ Recent decisions affecting current work:
 - [Phase 04]: Fire-and-forget dispatch in webhook handler — does not await dispatchTrigger for fast response
 - [Phase 04]: Webhook secret uses provider-specific env var (KODO_WEBHOOK_SECRET_PLANE) with legacy fallback + deprecation warning
 - [Phase 04]: startServer is now async — awaits initRegistry + provider.init for fail-fast behavior
+- [Phase 05]: Provider selection as first wizard step — extensible to future providers
+- [Phase 05]: getProviderApiKey reads api_key_env from config.providers[name] — no hardcoded env var names
+- [Phase 05]: ensureConfig guards check/launch/start/status but not help/version/config
+- [Phase 05]: Deprecated getPlaneApiKey as thin wrapper for backward compat
 
 ### Pending Todos
 
@@ -100,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T10:44:39.989Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-config-cleanup/05-CONTEXT.md
+Last session: 2026-04-13T11:24:01.422Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None

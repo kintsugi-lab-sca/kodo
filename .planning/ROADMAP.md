@@ -83,7 +83,7 @@ Plans:
   2. Una config v0.1 con solo sección `plane.*` se migra transparentemente: kodo arranca sin error y el provider es `"plane"`
   3. `kodo config` pregunta al usuario qué provider quiere usar y escribe el campo `provider` correctamente
   4. El prompt del orchestrator no contiene referencias a Plane, Plane MCP ni identificadores de Plane
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 05-01-PLAN.md — Provider-agnostic config wizard, listProjects interface, getProviderApiKey
@@ -99,4 +99,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Plane Adapter + Registry | 1/2 | In Progress|  |
 | 3. Consumer Rewiring | 0/2 | Not started | - |
 | 4. Server + Trigger Abstraction | 2/2 | Complete   | 2026-04-13 |
-| 5. Config + Cleanup | 0/1 | Not started | - |
+| 5. Config + Cleanup | 1/2 | In Progress|  |

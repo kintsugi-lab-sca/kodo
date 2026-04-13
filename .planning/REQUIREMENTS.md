@@ -43,9 +43,9 @@
 
 ### Config & UX
 
-- [ ] **CONF-01**: Campo `provider` en config.json selecciona el adapter activo
-- [ ] **CONF-02**: Config existente (`plane.*`) migra transparentemente al nuevo schema
-- [ ] **CONF-03**: `kodo config` wizard actualizado para soportar selección de provider
+- [x] **CONF-01**: Campo `provider` en config.json selecciona el adapter activo
+- [x] **CONF-02**: Config existente (`plane.*`) migra transparentemente al nuevo schema
+- [x] **CONF-03**: `kodo config` wizard actualizado para soportar selección de provider
 - [ ] **CONF-04**: Orchestrator prompt neutral (sin referencias directas a Plane)
 
 ### Testing
@@ -108,9 +108,9 @@
 | TRIG-01 | Phase 4 | Complete |
 | TRIG-02 | Phase 4 | Complete |
 | TRIG-03 | Phase 4 | Complete |
-| CONF-01 | Phase 5 | Pending |
-| CONF-02 | Phase 5 | Pending |
-| CONF-03 | Phase 5 | Pending |
+| CONF-01 | Phase 5 | Complete |
+| CONF-02 | Phase 5 | Complete |
+| CONF-03 | Phase 5 | Complete |
 | CONF-04 | Phase 5 | Pending |
 | TEST-01 | Phase 2 | Complete |
 | TEST-02 | Phase 2 | Complete |
