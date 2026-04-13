@@ -7,7 +7,7 @@
 
 ### Interface
 
-- [x] **INTF-01**: `TaskProvider` interfaz definida con 7 métodos via JSDoc `@typedef`
+- [x] **INTF-01**: `TaskProvider` interfaz definida con 8 métodos (init + 7 de negocio) via JSDoc `@typedef`
 - [x] **INTF-02**: `TaskItem` shape canónica definida (id, ref, title, description plain text, labels string[], projectId, group, url)
 - [x] **INTF-03**: `TriggerEvent` shape normalizada definida (taskRef, action, provider, raw)
 - [x] **INTF-04**: Registry estático de providers con factory functions (`getProvider()`)

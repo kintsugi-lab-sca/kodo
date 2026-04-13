@@ -17,7 +17,7 @@ program
 // --- kodo config ---
 program
   .command('config')
-  .description('Configure Plane API key, workspace, and project mappings')
+  .description('Configure provider API key, workspace, and project mappings')
   .option('--show', 'Show current config')
   .option('--set <key=value>', 'Set a config value (dot notation: plane.workspace_slug=klab)')
   .option('--map-project <projectId:path>', 'Map a Plane project ID to a local path')
