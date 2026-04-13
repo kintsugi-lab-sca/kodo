@@ -148,6 +148,15 @@ export function createPlaneProvider(config) {
       }
     },
 
+    async listProjects() {
+      const rawProjects = await client.listProjects();
+      return rawProjects.map((p) => ({
+        id: p.id,
+        identifier: p.identifier,
+        name: p.name,
+      }));
+    },
+
     async resolveRef(humanRef) {
       const { prefix, sequenceId } = parseRef(humanRef);
       const proj = findProject(prefix);

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { migrateState } from '../src/session/state.js';
-import { migrateConfig } from '../src/config.js';
+import { migrateConfig, getProviderApiKey } from '../src/config.js';
 
 // ── State migration tests ──────────────────────────────────────────
 
@@ -139,5 +139,40 @@ describe('config migration', () => {
     // Non-plane sections preserved
     assert.deepEqual(migrated.cmux, { binary: '/usr/bin/cmux' });
     assert.deepEqual(migrated.claude, { default_model: 'opus' });
+  });
+});
+
+// ── getProviderApiKey tests ─────────────────────────────────────────
+
+describe('getProviderApiKey', () => {
+  it('returns env var value for explicit provider name', () => {
+    const testKey = 'TEST_PLANE_KEY_' + Date.now();
+    process.env[testKey] = 'my-secret-key';
+    try {
+      // getProviderApiKey reads from loadConfig(), so we test with the default config
+      // which has providers.plane.api_key_env = 'PLANE_API_KEY'
+      process.env.PLANE_API_KEY = 'test-plane-key-value';
+      const result = getProviderApiKey('plane');
+      assert.equal(result, 'test-plane-key-value');
+    } finally {
+      delete process.env[testKey];
+      delete process.env.PLANE_API_KEY;
+    }
+  });
+
+  it('uses config.provider as default when no arg provided', () => {
+    process.env.PLANE_API_KEY = 'default-provider-key';
+    try {
+      // Default config has provider: 'plane'
+      const result = getProviderApiKey();
+      assert.equal(result, 'default-provider-key');
+    } finally {
+      delete process.env.PLANE_API_KEY;
+    }
+  });
+
+  it('returns undefined when provider not configured', () => {
+    const result = getProviderApiKey('nonexistent');
+    assert.equal(result, undefined);
   });
 });

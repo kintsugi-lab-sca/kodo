@@ -41,6 +41,7 @@
  *   parseTriggerEvent: (rawPayload: object) => TriggerEvent|null,
  *   verifySignature: (rawBody: string, headers: object) => boolean,
  *   resolveRef: (humanRef: string) => Promise<string>,
+ *   listProjects: () => Promise<Array<{id: string, identifier: string, name: string}>>,
  * }} TaskProvider
  */
 
@@ -54,6 +55,7 @@ export const TASK_PROVIDER_METHODS = Object.freeze([
   'parseTriggerEvent',
   'verifySignature',
   'resolveRef',
+  'listProjects',
 ]);
 
 /** @type {readonly string[]} */

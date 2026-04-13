@@ -151,10 +151,26 @@ export function saveProjects(projects) {
   writeFileSync(PROJECTS_PATH, JSON.stringify(projects, null, 2) + '\n');
 }
 
-/** @returns {string|undefined} */
-export function getPlaneApiKey() {
+/**
+ * Returns the API key for a given provider by reading the env var name from config.
+ *
+ * @param {string} [providerName] - Provider name. Defaults to config.provider.
+ * @returns {string|undefined}
+ */
+export function getProviderApiKey(providerName) {
   const config = loadConfig();
-  return process.env[config.providers?.plane?.api_key_env];
+  const name = providerName || config.provider;
+  const envVarName = config.providers?.[name]?.api_key_env;
+  if (!envVarName) return undefined;
+  return process.env[envVarName];
+}
+
+/**
+ * @deprecated Use getProviderApiKey('plane') instead.
+ * @returns {string|undefined}
+ */
+export function getPlaneApiKey() {
+  return getProviderApiKey('plane');
 }
 
 export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG };

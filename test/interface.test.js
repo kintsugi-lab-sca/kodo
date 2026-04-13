@@ -8,10 +8,12 @@ describe('interface contracts', () => {
     assert.ok(VALID_PRIORITIES);
   });
 
-  it('TASK_PROVIDER_METHODS has the 8 exact methods', () => {
+  it('TASK_PROVIDER_METHODS has the 9 exact methods', () => {
     const expected = ['init', 'getTask', 'updateTaskState', 'addComment',
-      'listPendingTasks', 'parseTriggerEvent', 'verifySignature', 'resolveRef'];
+      'listPendingTasks', 'parseTriggerEvent', 'verifySignature', 'resolveRef',
+      'listProjects'];
     assert.deepEqual(TASK_PROVIDER_METHODS, expected);
+    assert.equal(TASK_PROVIDER_METHODS.length, 9);
   });
 
   it('VALID_PRIORITIES has the 5 normalized values', () => {
