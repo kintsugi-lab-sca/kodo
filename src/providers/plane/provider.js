@@ -142,7 +142,7 @@ export function createPlaneProvider(config) {
     },
 
     parseTriggerEvent(rawPayload) {
-      return parseTriggerEvent(rawPayload, labelCache);
+      return parseTriggerEvent(rawPayload, labelCache, config.projects);
     },
 
     verifySignature(rawBody, headers) {

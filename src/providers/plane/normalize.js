@@ -85,15 +85,22 @@ export function normalizeWorkItem(workItem, context) {
  *
  * @param {object} rawPayload - The webhook body object
  * @param {Array<{id: string, name: string}>} labelCache - Cached project labels
+ * @param {Array<{id: string, identifier: string, name: string}>} [projects] - Configured projects for identifier lookup
  * @returns {import('../../interface.js').TriggerEvent|null}
  */
-export function parseTriggerEvent(rawPayload, labelCache) {
+export function parseTriggerEvent(rawPayload, labelCache, projects = []) {
   if (rawPayload.event !== 'issue' && rawPayload.event !== 'work_item') {
     return null;
   }
 
   const data = rawPayload.data;
-  const taskRef = `${data.project_detail?.identifier}-${data.sequence_id}`;
+  // Resolve project identifier: prefer project_detail (API), fall back to projects config (webhook)
+  let projectIdentifier = data.project_detail?.identifier;
+  if (!projectIdentifier && data.project && projects.length > 0) {
+    const proj = projects.find((p) => p.id === data.project);
+    projectIdentifier = proj?.identifier;
+  }
+  const taskRef = `${projectIdentifier || 'UNKNOWN'}-${data.sequence_id}`;
 
   // Resolve labels and extract kodo configuration
   const resolvedNames = resolveWorkItemLabels(data.labels, labelCache);
