@@ -9,7 +9,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findSession, updateSession } from '../session/state.js';
+import { findSession, updateSession, removeSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import * as cmux from '../cmux/client.js';
@@ -94,20 +94,9 @@ async function main() {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
 
-    // Find the tracked session by cwd or session_id
-    console.error(`[kodo:stop] Looking for session: cwd=${cwd}, sessionId=${sessionId}`);
-    let result = findSession({ cwd });
-    if (!result && sessionId) {
-      // Try to find by session_id prefix match (kodo-kl-42)
-      const { loadState } = await import('../session/state.js');
-      const state = loadState();
-      for (const [id, session] of Object.entries(state.sessions)) {
-        if (session.session_id === sessionId) {
-          result = { id, session };
-          break;
-        }
-      }
-    }
+    // Find the tracked session — prefer session_id (unique), fall back to cwd
+    console.error(`[kodo:stop] Looking for session: sessionId=${sessionId}, cwd=${cwd}`);
+    let result = findSession({ sessionId, cwd });
 
     if (!result) {
       console.error(`[kodo:stop] No matching session found`);
@@ -158,8 +147,9 @@ async function main() {
       });
     } catch {}
 
-    // Update session status to review (keep in state for orchestrator visibility)
-    updateSession(id, { status: 'review' });
+    // Remove session from state — task was moved to review in Plane already
+    removeSession(id);
+    console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
 
     // Notify orchestrator if running
     try {
