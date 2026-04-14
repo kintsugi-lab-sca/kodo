@@ -29,6 +29,8 @@ export function createPlaneProvider(config) {
 
   /** @type {Array<{id: string, name: string}>} */
   let labelCache = [];
+  /** @type {Map<string, string>} state UUID → state name */
+  const stateCache = new Map();
 
   /**
    * Parse a human-readable ref like "KL-42" into identifier prefix and sequence number.
@@ -76,6 +78,14 @@ export function createPlaneProvider(config) {
         allLabels.push(...labels);
       }
       labelCache = allLabels;
+
+      // Cache states for each project (UUID → name)
+      for (const proj of config.projects) {
+        const states = await client.listStates(proj.id);
+        for (const s of states) {
+          stateCache.set(s.id, s.name);
+        }
+      }
     },
 
     async getTask(ref) {
@@ -90,6 +100,7 @@ export function createPlaneProvider(config) {
         projectIdentifier: proj.identifier,
         baseUrl: config.baseUrl,
         workspaceSlug: config.workspaceSlug,
+        stateMap: stateCache,
       };
 
       const task = normalizeWorkItem(workItem, context);
@@ -124,15 +135,17 @@ export function createPlaneProvider(config) {
         const items = await client.listWorkItems(proj.id, {
           expand: 'state_detail,project_detail',
         });
-        // Filter by trigger state name
-        const pending = items.filter(
-          (item) => item.state_detail?.name === config.states.trigger,
-        );
+        // Filter by trigger state name (resolve UUID via stateCache if state_detail missing)
+        const pending = items.filter((item) => {
+          const stateName = item.state_detail?.name || stateCache.get(item.state);
+          return stateName === config.states.trigger;
+        });
         const context = {
           labels: labelCache,
           projectIdentifier: proj.identifier,
           baseUrl: config.baseUrl,
           workspaceSlug: config.workspaceSlug,
+          stateMap: stateCache,
         };
         for (const item of pending) {
           allTasks.push(normalizeWorkItem(item, context));

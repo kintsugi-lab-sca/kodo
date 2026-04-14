@@ -8,6 +8,7 @@ import { parseKodoLabels } from '../../labels.js';
  *   projectIdentifier: string,
  *   baseUrl: string,
  *   workspaceSlug: string,
+ *   stateMap?: Map<string, string>,
  * }} NormalizeContext
  */
 
@@ -74,7 +75,7 @@ export function normalizeWorkItem(workItem, context) {
     groups: [],
     url: `${context.baseUrl}/${context.workspaceSlug}/browse/${ref}`,
     priority: VALID_PRIORITIES.includes(workItem.priority) ? workItem.priority : null,
-    state: workItem.state_detail?.name || undefined,
+    state: workItem.state_detail?.name || context.stateMap?.get(workItem.state) || undefined,
   };
 }
 
