@@ -95,6 +95,33 @@ describe('manager — pure helpers', () => {
         { message: /No local path mapped/ },
       );
     });
+
+    it('resolves module path from object entry', () => {
+      const task = makeTask({ projectId: 'proj-uuid', groups: ['FVF'] });
+      const projects = { 'proj-uuid': { default: '/tmp/proj', modules: { FVF: '/tmp/proj/fvf' } } };
+      assert.equal(resolveProjectPath(task, projects), '/tmp/proj/fvf');
+    });
+
+    it('falls back to default when module not in map', () => {
+      const task = makeTask({ projectId: 'proj-uuid', groups: ['unknown-mod'] });
+      const projects = { 'proj-uuid': { default: '/tmp/proj', modules: { FVF: '/tmp/proj/fvf' } } };
+      assert.equal(resolveProjectPath(task, projects), '/tmp/proj');
+    });
+
+    it('falls back to default when task has no module', () => {
+      const task = makeTask({ projectId: 'proj-uuid', groups: [] });
+      const projects = { 'proj-uuid': { default: '/tmp/proj', modules: { FVF: '/tmp/proj/fvf' } } };
+      assert.equal(resolveProjectPath(task, projects), '/tmp/proj');
+    });
+
+    it('throws when object entry has no default and module not found', () => {
+      const task = makeTask({ projectId: 'proj-uuid', groups: ['unknown'] });
+      const projects = { 'proj-uuid': { modules: { FVF: '/tmp/proj/fvf' } } };
+      assert.throws(
+        () => resolveProjectPath(task, projects),
+        { message: /No path for module/ },
+      );
+    });
   });
 
   describe('deriveModuleName', () => {

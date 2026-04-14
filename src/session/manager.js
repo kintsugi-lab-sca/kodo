@@ -37,21 +37,38 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
 
 /**
  * Resolve the local project path for a task.
+ * Supports both flat strings and module-aware objects in projects map.
  * Pure function — accepts the projects map as argument.
  *
  * @param {import('../interface.js').TaskItem} task
- * @param {Record<string, string>} projects
+ * @param {Record<string, string | {default?: string, modules?: Record<string, string>}>} projects
  * @returns {string}
  */
 export function resolveProjectPath(task, projects) {
-  const projectPath = projects[task.projectId];
-  if (!projectPath) {
+  const entry = projects[task.projectId];
+  if (!entry) {
     throw new Error(
       `No local path mapped for project "${task.projectName || task.projectId}" (${task.projectId}). ` +
       `Run: kodo config --map-project`,
     );
   }
-  return projectPath;
+
+  // Flat string — legacy format, no module support
+  if (typeof entry === 'string') return entry;
+
+  // Object format — check module mapping first
+  const moduleName = deriveModuleName(task);
+  if (moduleName && entry.modules?.[moduleName]) {
+    return entry.modules[moduleName];
+  }
+
+  // Fall back to default path
+  if (entry.default) return entry.default;
+
+  throw new Error(
+    `No path for module "${moduleName || '(none)'}" in project "${task.projectName || task.projectId}". ` +
+    `Run: kodo config to map modules.`,
+  );
 }
 
 /**

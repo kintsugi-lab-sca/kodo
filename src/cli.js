@@ -353,16 +353,68 @@ async function interactiveConfig() {
       selectedProjects = remoteProjects;
     }
 
-    // Map project paths
+    // Map project paths (with optional module support)
     for (const p of selectedProjects) {
       const current = projects[p.id];
-      const path = await ask(`    Path local para ${p.identifier} (Enter para ${current ? 'mantener' : 'saltar'}): `);
+      const currentDisplay = typeof current === 'string' ? current : current?.default || null;
+      const path = await ask(`    Path local para ${p.identifier} (Enter para ${currentDisplay ? 'mantener' : 'saltar'}): `);
+
       if (path.trim()) {
-        if (existsSync(path.trim())) {
-          projects[p.id] = path.trim();
-          console.log(`    ✓ Mapeado\n`);
-        } else {
+        if (!existsSync(path.trim())) {
           console.log(`    ✗ "${path.trim()}" no existe, ignorado\n`);
+          continue;
+        }
+        projects[p.id] = path.trim();
+        console.log(`    ✓ Mapeado`);
+      } else if (!currentDisplay) {
+        console.log('');
+        continue;
+      }
+
+      // Ask about modules
+      const mapModules = await ask(`    ¿Tiene módulos con carpetas independientes? (s/N): `);
+      if (mapModules.trim().toLowerCase() === 's') {
+        try {
+          const { PlaneClient } = await import('./providers/plane/client.js');
+          const planeClient = new PlaneClient({
+            baseUrl: providerConfig.base_url,
+            apiKey: process.env[providerConfig.api_key_env],
+            workspaceSlug: providerConfig.workspace_slug,
+          });
+          const modules = await planeClient.listModules(p.id);
+          if (modules.length === 0) {
+            console.log(`    No se encontraron módulos en ${p.identifier}\n`);
+            continue;
+          }
+
+          console.log(`\n    Módulos de ${p.identifier}:`);
+          for (let j = 0; j < modules.length; j++) {
+            console.log(`      ${j + 1}. ${modules[j].name}`);
+          }
+
+          const defaultPath = typeof projects[p.id] === 'string' ? projects[p.id] : projects[p.id]?.default || path.trim();
+          const moduleMap = {};
+
+          for (const mod of modules) {
+            const modPath = await ask(`      Path para ${mod.name} (Enter para saltar): `);
+            if (modPath.trim()) {
+              if (existsSync(modPath.trim())) {
+                moduleMap[mod.name] = modPath.trim();
+                console.log(`      ✓ ${mod.name} mapeado`);
+              } else {
+                console.log(`      ✗ "${modPath.trim()}" no existe, ignorado`);
+              }
+            }
+          }
+
+          if (Object.keys(moduleMap).length > 0) {
+            projects[p.id] = { default: defaultPath, modules: moduleMap };
+            console.log(`    ✓ ${Object.keys(moduleMap).length} módulo(s) mapeados\n`);
+          } else {
+            console.log('');
+          }
+        } catch (err) {
+          console.log(`    ✗ Error listando módulos: ${err.message}\n`);
         }
       } else {
         console.log('');
