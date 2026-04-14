@@ -52,12 +52,13 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // Parse labels for model/flags regardless of force (needed for launch opts)
   const kodoConfig = parseKodoLabels(task.labels.map((name) => ({ name })));
 
-  // 2b. Check task is in trigger state (skip if force=true)
+  // 2b. Ignore tasks in inactive states (skip if force=true)
   if (!opts.force && task.state) {
     const config = loadConfig();
-    const triggerState = config.providers?.[event.provider]?.states?.trigger;
-    if (triggerState && task.state !== triggerState) {
-      console.log(`[kodo:dispatch] Ignored — state "${task.state}" !== trigger "${triggerState}"`);
+    const providerStates = config.providers?.[event.provider]?.states || {};
+    const ignoreStates = providerStates.ignore || ['Backlog', 'Cancelled'];
+    if (ignoreStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
+      console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
       return { action: 'ignored' };
     }
   }
