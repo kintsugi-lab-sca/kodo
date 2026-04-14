@@ -35,7 +35,9 @@ function dashboardHtml() {
   .badge-running { background: #1a1a0a; color: #f59e0b; border: 1px solid #3d3200; }
   .badge-review { background: #0a0a1a; color: #60a5fa; border: 1px solid #002a5c; }
   .badge-stuck { background: #1a0a0a; color: #ef4444; border: 1px solid #5c0000; }
-  .badge-gone { background: #111; color: #555; border: 1px solid #333; }
+  .badge-gone { background: #1a0a0a; color: #ef4444; border: 1px solid #5c0000; }
+  .badge-idle { background: #111; color: #888; border: 1px solid #333; }
+  .badge-dead { background: #1a0a0a; color: #666; border: 1px solid #333; text-decoration: line-through; }
   .empty { color: #333; font-size: 12px; padding: 12px 0; }
   .pending-item { padding: 8px 0; border-bottom: 1px solid #1a1a1a; }
   .pending-item:last-child { border-bottom: none; }
@@ -96,11 +98,15 @@ async function refresh() {
       document.getElementById('sessions').innerHTML = '<div class="empty">Sin sesiones activas</div>';
     } else {
       document.getElementById('sessions').innerHTML = data.sessions.map(function(s) {
+        var displayStatus = s.status;
+        if (!s.alive && s.status === 'running') displayStatus = 'dead';
+        if (s.alive && s.status === 'running' && s.elapsed_min > 30) displayStatus = 'idle';
         return '<div class="session">' +
           '<span class="ref">' + s.task_ref + '</span> ' +
-          '<span class="badge badge-' + s.status + '">' + s.status + '</span>' +
+          '<span class="badge badge-' + displayStatus + '">' + displayStatus + '</span>' +
+          (s.elapsed_min ? '<span class="meta" style="float:right">' + s.elapsed_min + 'min</span>' : '') +
           '<div class="title">' + s.summary + '</div>' +
-          '<div class="meta">' + ago(s.started_at) + ' · ' + (s.project_path || '').split('/').slice(-2).join('/') + '</div>' +
+          '<div class="meta">' + (s.project_path || '').split('/').slice(-2).join('/') + '</div>' +
           '</div>';
       }).join('');
     }
@@ -111,6 +117,7 @@ async function refresh() {
       document.getElementById('pending').innerHTML = data.pending.map(function(t) {
         return '<div class="pending-item">' +
           '<a href="' + t.url + '" target="_blank">' + t.ref + '</a>' +
+          (t.state ? ' <span class="meta">' + t.state + '</span>' : '') +
           '<div class="title">' + t.title + '</div>' +
           '</div>';
       }).join('');
@@ -179,11 +186,21 @@ export async function startServer(opts = {}) {
       const sessions = listSessions();
       let pending = [];
       try { pending = await provider.listPendingTasks(); } catch {}
+
+      // Enrich sessions with live workspace health
+      let workspaceList = '';
+      try { workspaceList = await cmux.listWorkspaces(); } catch {}
+      const enriched = sessions.map((s) => ({
+        ...s,
+        alive: workspaceList.includes(s.workspace_ref),
+        elapsed_min: Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60000),
+      }));
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        sessions,
-        count: sessions.length,
-        pending: pending.map((t) => ({ ref: t.ref, title: t.title, url: t.url })),
+        sessions: enriched,
+        count: enriched.length,
+        pending: pending.map((t) => ({ ref: t.ref, title: t.title, url: t.url, state: t.state })),
         pending_count: pending.length,
         uptime: process.uptime(),
       }));

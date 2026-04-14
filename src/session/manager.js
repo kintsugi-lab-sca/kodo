@@ -145,6 +145,17 @@ export async function launchWorkItem(identifier, opts = {}) {
   } = await resolveTaskAndLaunchContext({ provider, identifier, projects });
 
   // Create cmux workspace
+  // Move task to "In Progress" in the provider
+  try {
+    const providerStates = config.providers?.[config.provider]?.states;
+    if (providerStates?.trigger && task.state !== providerStates.trigger) {
+      await provider.updateTaskState(task, providerStates.trigger);
+      console.log(`[kodo] ${task.ref} → ${providerStates.trigger}`);
+    }
+  } catch (err) {
+    console.error(`[kodo] Error moving to In Progress: ${err.message}`);
+  }
+
   const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
   const workspaceName = `${prefix}: ${truncate(task.title, 40)}`;
   const workspaceRef = await cmux.newWorkspace({
