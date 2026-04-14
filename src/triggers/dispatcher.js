@@ -24,7 +24,7 @@ import * as cmux from '../cmux/client.js';
  * @param {import('../interface.js').TriggerEvent} event
  * @param {{ model?: string|null, flags?: string[], force?: boolean }} [opts]
  * @param {DispatchDeps} [deps] - Injectable dependencies for testing
- * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch', session?: object }>}
+ * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned', session?: object }>}
  */
 export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
@@ -52,14 +52,29 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // Parse labels for model/flags regardless of force (needed for launch opts)
   const kodoConfig = parseKodoLabels(task.labels.map((name) => ({ name })));
 
-  // 2b. Ignore tasks in inactive states (skip if force=true)
-  if (!opts.force && task.state) {
+  // 2b. Handle terminal states — clean up session if task moved to Done/Cancelled
+  if (task.state) {
     const config = loadConfig();
     const providerStates = config.providers?.[event.provider]?.states || {};
-    const ignoreStates = providerStates.ignore || ['Backlog', 'Cancelled'];
-    if (ignoreStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
-      console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
+    const terminalStates = [providerStates.done, 'Cancelled'].filter(Boolean);
+    if (terminalStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
+      const existing = listSessionsFn().find((s) => s.task_id === task.id);
+      if (existing) {
+        removeSessionFn(task.id);
+        console.log(`[kodo:dispatch] Cleaned session for ${task.ref} — moved to "${task.state}"`);
+        return { action: 'cleaned' };
+      }
+      console.log(`[kodo:dispatch] Ignored — state "${task.state}" is terminal`);
       return { action: 'ignored' };
+    }
+
+    // Ignore inactive states (skip if force=true)
+    if (!opts.force) {
+      const ignoreStates = providerStates.ignore || ['Backlog'];
+      if (ignoreStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
+        console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
+        return { action: 'ignored' };
+      }
     }
   }
 
