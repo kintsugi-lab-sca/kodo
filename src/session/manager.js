@@ -32,6 +32,8 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     status: /** @type {const} */ ('running'),
     started_at: new Date().toISOString(),
     project_path: projectPath,
+    task_url: task.url,
+    project_name: task.projectName,
   };
 }
 

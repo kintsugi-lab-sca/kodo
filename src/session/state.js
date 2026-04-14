@@ -85,8 +85,23 @@ export function addSession(taskId, session) {
 /** @param {string} taskId */
 export function removeSession(taskId) {
   const state = loadState();
+  const removed = state.sessions[taskId];
+  if (removed) {
+    if (!Array.isArray(state.history)) state.history = [];
+    state.history.unshift({
+      ...removed,
+      ended_at: new Date().toISOString(),
+    });
+    state.history = state.history.slice(0, 50);
+  }
   delete state.sessions[taskId];
   saveState(state);
+}
+
+/** @returns {Array<Session & { ended_at: string }>} */
+export function listHistory() {
+  const state = loadState();
+  return Array.isArray(state.history) ? state.history : [];
 }
 
 /**
