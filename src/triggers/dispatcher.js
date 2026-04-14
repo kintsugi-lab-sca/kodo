@@ -1,5 +1,6 @@
 // @ts-check
 import { getProvider } from '../providers/registry.js';
+import { loadConfig } from '../config.js';
 import { parseKodoLabels } from '../labels.js';
 import { listSessions, removeSession } from '../session/state.js';
 import { launchWorkItem } from '../session/manager.js';
@@ -34,18 +35,32 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
 
   // 1. Resolve task via provider
   const provider = getProviderFn(event.provider);
+  console.log(`[kodo:dispatch] Resolving taskRef: ${event.taskRef}`);
   const task = await provider.getTask(event.taskRef);
+  console.log(`[kodo:dispatch] Task: ${task.ref} — labels: [${task.labels.join(', ')}]`);
 
   // 2. Check kodo labels (skip if force=true)
   if (!opts.force) {
     const kodoConfig = parseKodoLabels(task.labels.map((name) => ({ name })));
+    console.log(`[kodo:dispatch] isKodo: ${kodoConfig.isKodo}, model: ${kodoConfig.model}`);
     if (!kodoConfig.isKodo) {
+      console.log(`[kodo:dispatch] Ignored — no kodo label`);
       return { action: 'ignored' };
     }
   }
 
   // Parse labels for model/flags regardless of force (needed for launch opts)
   const kodoConfig = parseKodoLabels(task.labels.map((name) => ({ name })));
+
+  // 2b. Check task is in trigger state (skip if force=true)
+  if (!opts.force && task.state) {
+    const config = loadConfig();
+    const triggerState = config.providers?.[event.provider]?.states?.trigger;
+    if (triggerState && task.state !== triggerState) {
+      console.log(`[kodo:dispatch] Ignored — state "${task.state}" !== trigger "${triggerState}"`);
+      return { action: 'ignored' };
+    }
+  }
 
   // 3. Session-already-active guard
   const active = listSessionsFn();

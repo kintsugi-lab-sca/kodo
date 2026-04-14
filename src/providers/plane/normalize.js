@@ -74,6 +74,7 @@ export function normalizeWorkItem(workItem, context) {
     groups: [],
     url: `${context.baseUrl}/${context.workspaceSlug}/browse/${ref}`,
     priority: VALID_PRIORITIES.includes(workItem.priority) ? workItem.priority : null,
+    state: workItem.state_detail?.name || undefined,
   };
 }
 

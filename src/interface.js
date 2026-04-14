@@ -19,6 +19,7 @@
  *   groups: string[],
  *   url: string,
  *   priority: 'urgent'|'high'|'medium'|'low'|'none'|null,
+ *   state?: string,
  * }} TaskItem
  */
 
