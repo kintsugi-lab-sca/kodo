@@ -10,6 +10,31 @@ import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
 
+// Ring buffer for recent server logs (last 200 lines)
+const LOG_BUFFER_SIZE = 200;
+const logBuffer = [];
+
+function pushLog(level, args) {
+  const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  logBuffer.push({ ts: new Date().toISOString(), level, msg });
+  if (logBuffer.length > LOG_BUFFER_SIZE) logBuffer.shift();
+}
+
+function getLogBuffer() {
+  return logBuffer.slice().reverse();
+}
+
+// Patch console to capture logs (only if not already patched)
+if (!console.log.__kodo_patched) {
+  const origLog = console.log.bind(console);
+  const origError = console.error.bind(console);
+  const origWarn = console.warn.bind(console);
+  console.log = (...args) => { pushLog('info', args); origLog(...args); };
+  console.error = (...args) => { pushLog('error', args); origError(...args); };
+  console.warn = (...args) => { pushLog('warn', args); origWarn(...args); };
+  console.log.__kodo_patched = true;
+}
+
 function dashboardHtml() {
   return `<!DOCTYPE html>
 <html lang="es">
@@ -58,6 +83,17 @@ function dashboardHtml() {
   .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
   .update-time { font-size: 10px; color: #333; text-align: right; margin-top: 16px; max-width: 1200px; }
+  .log-line { font-size: 11px; padding: 3px 0; color: #888; font-family: inherit; white-space: pre-wrap; word-break: break-all; }
+  .log-line.error { color: #ef4444; }
+  .log-line.warn { color: #f59e0b; }
+  .log-ts { color: #444; margin-right: 8px; }
+  .logs-box { max-height: 280px; overflow-y: auto; background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 4px; padding: 8px; }
+  .comments-box { margin-top: 8px; padding: 8px; background: #0a0a0a; border-left: 2px solid #222; font-size: 11px; max-height: 200px; overflow-y: auto; }
+  .comment { padding: 4px 0; border-bottom: 1px dashed #1a1a1a; }
+  .comment:last-child { border-bottom: none; }
+  .comment-actor { color: #f59e0b; font-weight: 600; }
+  .comment-time { color: #444; font-size: 10px; margin-left: 6px; }
+  .comment-text { color: #999; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -78,6 +114,11 @@ function dashboardHtml() {
     <h2>Historial</h2>
     <div class="subtitle">Últimas 10 sesiones cerradas</div>
     <div id="history"><div class="empty">Cargando...</div></div>
+  </div>
+  <div class="card full">
+    <h2>Logs del servidor</h2>
+    <div class="subtitle">Últimas 200 entradas (más recientes arriba)</div>
+    <div id="logs" class="logs-box"><div class="empty">Cargando...</div></div>
   </div>
 </div>
 <div class="update-time" id="updated"></div>
@@ -119,6 +160,36 @@ async function deleteSession(taskId, ref) {
   refresh();
 }
 
+async function toggleComments(taskId, btnEl) {
+  const boxId = 'comments-' + taskId;
+  let box = document.getElementById(boxId);
+  if (box) { box.remove(); btnEl.textContent = 'Comentarios'; return; }
+  btnEl.textContent = 'Cargando...';
+  try {
+    const res = await fetch('/comments/' + encodeURIComponent(taskId));
+    const data = await res.json();
+    const comments = data.comments || [];
+    box = document.createElement('div');
+    box.id = boxId;
+    box.className = 'comments-box';
+    if (!comments.length) {
+      box.innerHTML = '<div class="empty">Sin comentarios</div>';
+    } else {
+      box.innerHTML = comments.map((c) => (
+        '<div class="comment">' +
+          '<span class="comment-actor">' + escapeHtml(c.actor) + '</span>' +
+          '<span class="comment-time">' + ago(c.created_at) + '</span>' +
+          '<div class="comment-text">' + escapeHtml(c.text).slice(0, 500) + '</div>' +
+        '</div>'
+      )).join('');
+    }
+    btnEl.closest('.session, .history-item').appendChild(box);
+    btnEl.textContent = 'Ocultar';
+  } catch (e) {
+    btnEl.textContent = 'Error';
+  }
+}
+
 function renderSession(s) {
   var displayStatus = s.status;
   if (!s.alive && s.status === 'running') displayStatus = 'dead';
@@ -133,9 +204,26 @@ function renderSession(s) {
     '</div>' +
     '<div class="title">' + escapeHtml(s.summary) + '</div>' +
     '<div class="actions">' +
+      '<button class="btn" onclick="toggleComments(\\''+ escapeHtml(s.task_id) +'\\', this)">Comentarios</button>' +
       '<button class="btn btn-danger" onclick="deleteSession(\\''+ escapeHtml(s.task_id) +'\\', \\''+ escapeHtml(s.task_ref) +'\\')">Eliminar</button>' +
     '</div>' +
   '</div>';
+}
+
+function renderLogs(logs) {
+  if (!logs.length) return '<div class="empty">Sin logs</div>';
+  return logs.map((l) => {
+    const ts = new Date(l.ts).toLocaleTimeString();
+    return '<div class="log-line ' + l.level + '"><span class="log-ts">' + ts + '</span>' + escapeHtml(l.msg) + '</div>';
+  }).join('');
+}
+
+async function refreshLogs() {
+  try {
+    const res = await fetch('/logs');
+    const data = await res.json();
+    document.getElementById('logs').innerHTML = renderLogs(data.logs || []);
+  } catch {}
 }
 
 function renderGroupedSessions(sessions) {
@@ -181,6 +269,9 @@ function renderHistory(items) {
         '<span class="meta">' + durMin + 'min · ' + ago(s.ended_at || s.started_at) + '</span>' +
       '</div>' +
       '<div class="title">' + escapeHtml(s.summary) + '</div>' +
+      '<div class="actions">' +
+        '<button class="btn" onclick="toggleComments(\\''+ escapeHtml(s.task_id) +'\\', this)">Comentarios</button>' +
+      '</div>' +
     '</div>';
   }).join('');
 }
@@ -190,10 +281,13 @@ async function refresh() {
     const res = await fetch('/status');
     const data = await res.json();
 
+    const m = data.metrics || {};
     document.getElementById('stats').innerHTML =
       '<div class="stat"><div class="stat-val">' + data.count + '</div><div class="stat-label">Activas</div></div>' +
       '<div class="stat"><div class="stat-val">' + data.pending_count + '</div><div class="stat-label">Candidatas</div></div>' +
-      '<div class="stat"><div class="stat-val">' + (data.history || []).length + '</div><div class="stat-label">Historial</div></div>' +
+      '<div class="stat"><div class="stat-val">' + (m.closed_24h || 0) + '</div><div class="stat-label">Hoy</div></div>' +
+      '<div class="stat"><div class="stat-val">' + (m.closed_7d || 0) + '</div><div class="stat-label">7 días</div></div>' +
+      '<div class="stat"><div class="stat-val">' + (m.avg_duration_min || 0) + 'm</div><div class="stat-label">Duración media</div></div>' +
       '<div class="stat"><div class="stat-val">' + uptime(data.uptime) + '</div><div class="stat-label">Uptime</div></div>';
 
     document.getElementById('sessions').innerHTML = renderGroupedSessions(data.sessions);
@@ -206,7 +300,9 @@ async function refresh() {
 }
 
 refresh();
+refreshLogs();
 setInterval(refresh, 5000);
+setInterval(refreshLogs, 5000);
 </script>
 </body>
 </html>`;
@@ -272,15 +368,61 @@ export async function startServer(opts = {}) {
         elapsed_min: Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60000),
       }));
 
+      const fullHistory = listHistory();
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      const last24h = fullHistory.filter((s) => s.ended_at && now - new Date(s.ended_at).getTime() < dayMs);
+      const last7d = fullHistory.filter((s) => s.ended_at && now - new Date(s.ended_at).getTime() < 7 * dayMs);
+      const durations = fullHistory
+        .filter((s) => s.ended_at && s.started_at)
+        .map((s) => (new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60000);
+      const avgMin = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+      const totalMin = Math.round(durations.reduce((a, b) => a + b, 0));
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         sessions: enriched,
         count: enriched.length,
         pending: pending.map((t) => ({ ref: t.ref, title: t.title, url: t.url, state: t.state, projectName: t.projectName })),
         pending_count: pending.length,
-        history: listHistory().slice(0, 10),
+        history: fullHistory.slice(0, 10),
+        metrics: {
+          total_closed: fullHistory.length,
+          closed_24h: last24h.length,
+          closed_7d: last7d.length,
+          avg_duration_min: avgMin,
+          total_duration_min: totalMin,
+        },
         uptime: process.uptime(),
       }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/logs') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ logs: getLogBuffer() }));
+      return;
+    }
+
+    if (req.method === 'GET' && req.url?.startsWith('/comments/')) {
+      const taskId = decodeURIComponent(req.url.slice('/comments/'.length));
+      try {
+        const session = listSessions().find((s) => s.task_id === taskId)
+          || listHistory().find((s) => s.task_id === taskId);
+        if (!session) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Session not found' }));
+          return;
+        }
+        const comments = typeof provider.listComments === 'function'
+          ? await provider.listComments({ id: session.task_id, projectId: session.project_id })
+          : [];
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ comments }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
       return;
     }
 

@@ -129,6 +129,16 @@ export function createPlaneProvider(config) {
       await client.createComment(task.projectId, task.id, html);
     },
 
+    async listComments(task) {
+      const raw = await client.listComments(task.projectId, task.id);
+      return raw.map((c) => ({
+        id: c.id,
+        actor: c.actor_detail?.display_name || c.actor || 'unknown',
+        text: (c.comment_html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(),
+        created_at: c.created_at,
+      }));
+    },
+
     async listPendingTasks() {
       const allTasks = [];
       for (const proj of config.projects) {

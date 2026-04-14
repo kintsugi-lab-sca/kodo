@@ -133,6 +133,11 @@ export class PlaneClient {
     });
   }
 
+  async listComments(projectId, workItemId) {
+    const data = await this.request(`/projects/${projectId}/work-items/${workItemId}/comments/`);
+    return data.results || data;
+  }
+
   async listProjects() {
     const data = await this.request('/projects/');
     return data.results || data;
