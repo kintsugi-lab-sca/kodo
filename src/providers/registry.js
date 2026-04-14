@@ -25,13 +25,15 @@ async function registerDefaults() {
     factories.set('plane', () => {
       const config = loadConfig();
       const plane = config.providers.plane;
+      const secretEnv = 'KODO_WEBHOOK_SECRET_PLANE';
+      const webhookSecret = process.env[secretEnv] || process.env.PLANE_WEBHOOK_SECRET || plane.webhook_secret;
       return createPlaneProvider({
         baseUrl: plane.base_url,
         apiKey: getPlaneApiKey(),
         workspaceSlug: plane.workspace_slug,
         projects: plane.projects || [],
         states: plane.states,
-        webhookSecret: plane.webhook_secret,
+        webhookSecret,
       });
     });
   } catch {
