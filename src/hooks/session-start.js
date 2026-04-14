@@ -61,8 +61,9 @@ async function main() {
   try {
     const input = JSON.parse(await readStdin());
     const cwd = input.cwd || process.cwd();
+    const sessionId = input.session_id;
 
-    const result = findSession({ cwd });
+    const result = findSession({ sessionId, cwd });
     if (!result) {
       // No tracked session for this directory — silent exit
       process.exit(0);

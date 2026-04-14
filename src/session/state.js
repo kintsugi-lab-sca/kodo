@@ -117,9 +117,16 @@ export function listSessions() {
  */
 export function findSession(query) {
   const sessions = loadState().sessions;
+  // Prefer exact session_id match (unique, no ambiguity)
+  if (query.sessionId) {
+    for (const [id, session] of Object.entries(sessions)) {
+      if (session.session_id === query.sessionId) return { id, session };
+    }
+  }
+  // Fall back to workspace ref or cwd
   for (const [id, session] of Object.entries(sessions)) {
-    if (query.cwd && session.project_path === query.cwd) return { id, session };
     if (query.workspaceRef && session.workspace_ref === query.workspaceRef) return { id, session };
+    if (query.cwd && session.project_path === query.cwd) return { id, session };
   }
   return null;
 }
