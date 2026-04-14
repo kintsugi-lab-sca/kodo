@@ -78,10 +78,10 @@ export class PlaneClient {
    */
   async getWorkItemBySequence(projectId, sequenceId) {
     const data = await this.request(`/projects/${projectId}/work-items/`, {
-      params: { sequence_id: String(sequenceId), expand: 'state_detail,project_detail' },
+      params: { expand: 'state_detail,project_detail' },
     });
     const results = data.results || data;
-    return results[0] || null;
+    return results.find((item) => item.sequence_id === sequenceId) || null;
   }
 
   /**
