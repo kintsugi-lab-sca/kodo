@@ -55,6 +55,19 @@ export function createPlaneProvider(config) {
   /** @type {import('../../interface.js').TaskProvider} */
   const provider = {
     async init() {
+      // Resolve project entries: if config has plain UUID strings, enrich
+      // them with { id, identifier, name } from the API so that all other
+      // methods can rely on the object shape.
+      if (config.projects.length > 0 && typeof config.projects[0] === 'string') {
+        const allProjects = await client.listProjects();
+        config.projects = config.projects.map((entry) => {
+          const id = typeof entry === 'string' ? entry : entry.id;
+          const found = allProjects.find((p) => p.id === id);
+          if (found) return { id: found.id, identifier: found.identifier, name: found.name };
+          return { id, identifier: 'UNKNOWN', name: id };
+        });
+      }
+
       // Fetch labels for each configured project
       const allLabels = [];
       for (const proj of config.projects) {
@@ -63,9 +76,6 @@ export function createPlaneProvider(config) {
         allLabels.push(...labels);
       }
       labelCache = allLabels;
-
-      // Verify connection
-      await client.request('/');
     },
 
     async getTask(ref) {

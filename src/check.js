@@ -34,6 +34,7 @@ export async function checkPendingTasks({ config, runningCount, getProviderFn })
 
   try {
     const provider = getProviderFn(config.provider);
+    await provider.init();
     const pending = await provider.listPendingTasks();
     const available = config.claude.max_parallel - runningCount;
     if (pending.length > 0 && available > 0) {
