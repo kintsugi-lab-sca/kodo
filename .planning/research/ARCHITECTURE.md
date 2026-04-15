@@ -1,520 +1,411 @@
-# Architecture Patterns: Provider Abstraction
+# Architecture Research — kodo v0.3 (GSD Integration + Structured Logging)
 
-**Domain:** Task provider abstraction for an event-driven bridge
-**Researched:** 2026-04-07
-**Confidence:** HIGH (based on direct codebase analysis)
+**Domain:** Task-dispatch automation for Claude Code sessions (Node.js CLI + HTTP webhook service)
+**Researched:** 2026-04-15
+**Confidence:** HIGH (based on direct reading of existing v0.2 codebase; all integration points verified against current module layout)
 
----
+## Standard Architecture
 
-## Current State: Where Plane Leaks Through
-
-The coupling is not uniform. Some components are deeply coupled; others are almost
-provider-agnostic already. Understanding the gradient determines refactoring order.
-
-### Coupling Gradient (tightest → loosest)
-
-| File | Coupling Level | What It Does with Plane |
-|------|---------------|------------------------|
-| `src/plane/client.js` | Definition layer — not a leak | IS the Plane adapter |
-| `src/check.js` | TIGHT | Instantiates PlaneClient, calls listWorkItems/listStates/labels — Plane-specific pagination and state group names (`'backlog'`, `'unstarted'`) |
-| `src/hooks/stop.js` | TIGHT | Instantiates PlaneClient, calls listStates, updateWorkItem, createComment; references `config.plane.review_state` |
-| `src/server.js` | TIGHT | Instantiates PlaneClient, interprets Plane-specific payload fields (`sequence_id`, `state_detail`, `state__name`, `x-plane-signature` header), calls listProjects to build identifier |
-| `src/session/manager.js` | MEDIUM | Instantiates PlaneClient, calls resolveIdentifier + getWorkItemModule; uses `plane_id` and `plane_identifier` as session record keys |
-| `src/hooks/session-start.js` | LOW | Only reads from `state.json`; Plane references are already stored strings (`plane_id`, `plane_identifier`) — no direct API calls |
-| `src/session/state.js` | SCHEMA | The session schema uses `plane_id` and `plane_identifier` field names — a naming concern, not a behavior concern |
-| `src/labels.js` | CONCEPTUAL | Logic is pure/generic but named after Plane; the label format is cross-provider compatible |
-
----
-
-## Recommended Architecture
-
-### The Adapter Boundary
-
-The boundary sits between the provider's API surface and the normalized domain objects
-that the rest of kodo operates on. Everything inside the adapter knows about Plane (or
-GitHub, or ClickUp). Everything outside operates on `TaskItem`, `TaskState`, and
-`TriggerEvent`.
+### System Overview (v0.3 after integration)
 
 ```
-External World                   kodo Core
-─────────────────────────────────────────────────────────────
-Plane webhook POST  ──►  ProviderAdapter.parseTriggerEvent()
-                                    │
-                              TriggerEvent
-                                    │
-                         server.js handleTrigger()
-                                    │
-                    ProviderAdapter.getTaskItem(ref)
-                                    │
-                               TaskItem
-                                    │
-                         manager.js launchTask()
-                                    │
-                    ProviderAdapter.postComment()
-                    ProviderAdapter.updateState()
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              ENTRY POINTS                                    │
+│  ┌────────────┐   ┌────────────────┐   ┌──────────────┐   ┌──────────────┐  │
+│  │ server.js  │   │ hooks/stop.js  │   │ hooks/       │   │ cli.js       │  │
+│  │ (webhook)  │   │                │   │ session-start│   │ (logs/launch)│  │
+│  └──────┬─────┘   └────────┬───────┘   └──────┬───────┘   └──────┬───────┘  │
+├─────────┼──────────────────┼──────────────────┼──────────────────┼──────────┤
+│         │          ORCHESTRATION / CONTROL PLANE                 │          │
+│  ┌──────▼──────────┐   ┌───▼───────────┐   ┌──▼──────────────┐   │          │
+│  │ triggers/       │   │ session/      │   │ session-start   │   │          │
+│  │ dispatcher      │──▶│ manager       │   │ (injects GSD    │   │          │
+│  │ (webhook route) │   │ (spawn Claude)│   │  instructions)  │   │          │
+│  └─────────┬───────┘   └───┬─────┬─────┘   └──────┬──────────┘   │          │
+│            │               │     │                │              │          │
+│            │      ┌────────▼─────▼──┐   ┌─────────▼──────────┐   │          │
+│            │      │ session/state   │   │ gsd/phase-resolver │   │          │
+│            │      │ (active map)    │   │ (reads ROADMAP.md) │◀──┘          │
+│            │      └─────────────────┘   └────────────────────┘   NEW        │
+├────────────┼─────────────────────────────────────────────────────────────────┤
+│            │                DOMAIN / ABSTRACTIONS                            │
+│  ┌─────────▼──────┐   ┌──────────────┐   ┌──────────────┐   ┌─────────────┐ │
+│  │ providers/     │   │ labels.js    │   │ interface.js │   │ orchestrator│ │
+│  │ registry       │   │ (+ gsd flag) │   │ (typedefs)   │   │ launch/prompt│ │
+│  │  ├─plane/      │   │  MODIFIED    │   │              │   │  MODIFIED   │ │
+│  │  └─(future)    │   └──────────────┘   └──────────────┘   └─────────────┘ │
+│  └────────────────┘                                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                         CROSS-CUTTING (NEW)                                  │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │ logger.js — createLogger({ sessionId? }) → { info, warn, error, child }│ │
+│  │  ├─ stdout transport (JSON, always)                                    │ │
+│  │  └─ file transport (~/.kodo/logs/<session-id>.log, when sessionId set) │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                              PERSISTENCE                                     │
+│  ┌──────────────────┐   ┌────────────────────┐   ┌──────────────────────┐   │
+│  │ ~/.kodo/         │   │ ~/.kodo/logs/      │   │ Target repo          │   │
+│  │  sessions.json   │   │  <session>.log NEW │   │  .planning/ROADMAP.md│   │
+│  └──────────────────┘   └────────────────────┘   └──────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The `ProviderAdapter` interface is the single seam. Everything to the left of it is
-provider-specific; everything to the right is generic.
+### Component Responsibilities
 
-### The `TaskProvider` Interface
+| Component | Responsibility | Status in v0.3 |
+|-----------|----------------|----------------|
+| `server.js` | HTTP shell; forwards requests to `triggers/webhook` | UNCHANGED (modulo logger) |
+| `triggers/dispatcher.js` | Decide if a task event should spawn a session; dedup; call `session/manager` | MODIFIED — emit structured logs, pass `gsd` flag into session record |
+| `session/manager.js` | Spawn Claude Code CLI, persist session, own lifecycle | MODIFIED — writes `gsd` flag into session record; attaches per-session logger |
+| `session/state.js` | Read/write `~/.kodo/sessions.json` | MODIFIED — session schema gains optional `gsd` boolean |
+| `hooks/session-start.js` | Called by Claude Code at boot; injects system context | MODIFIED — if `session.gsd`, resolve phase and inject GSD instructions |
+| `hooks/stop.js` | Called by Claude Code at exit; owns task lifecycle | MODIFIED — structured logs only (behavior unchanged) |
+| `labels.js` | Parse `kodo:*` labels → `{ isKodo, model, flags }` | MODIFIED — `flags` includes `'gsd'` when `kodo:gsd` present |
+| `providers/*` | Provider-agnostic task access | UNCHANGED — GSD must NOT leak here |
+| `orchestrator/prompt.md` | Supervisor session prompt template | MODIFIED — GSD supervision guidance |
+| `orchestrator/launch.js` | Spawn supervisor session | UNCHANGED (modulo logger) |
+| `cli.js` | Commander entry; subcommands | MODIFIED — add `kodo logs <id>` |
+| `gsd/phase-resolver.js` | Read target repo's `.planning/ROADMAP.md`; return current/next phase | **NEW** |
+| `logger.js` | Structured logging primitive used everywhere | **NEW** |
 
-```javascript
-/**
- * @typedef {Object} TaskItem
- * @property {string} id           — Provider-internal ID (opaque to kodo core)
- * @property {string} ref          — Human-readable reference ("KL-42", "#123", etc.)
- * @property {string} title        — Task title
- * @property {string} [description] — Plain text description
- * @property {string[]} labels     — Label names (not IDs)
- * @property {string} projectId    — Provider-internal project ID
- * @property {string} projectRef   — Human-readable project reference
- */
-
-/**
- * @typedef {Object} TriggerEvent
- * @property {'task_started'|'task_updated'|'manual'} type
- * @property {string} taskRef      — e.g. "KL-42", "#123"
- * @property {object} raw          — Original provider payload (for debugging)
- */
-
-/**
- * Minimal interface every provider adapter must implement.
- * Methods are async; throw on unrecoverable errors.
- */
-class TaskProvider {
-  /** @returns {string} Provider slug, e.g. "plane", "github" */
-  get name() { throw new Error('not implemented'); }
-
-  /**
-   * Parse an incoming event payload into a normalized TriggerEvent.
-   * Return null if the event should be ignored.
-   * @param {object} rawPayload
-   * @returns {Promise<TriggerEvent|null>}
-   */
-  async parseTriggerEvent(rawPayload) {}
-
-  /**
-   * Verify an incoming webhook signature.
-   * Return true if no secret is configured (treat as valid).
-   * @param {string} rawBody
-   * @param {object} headers
-   * @returns {boolean}
-   */
-  verifySignature(rawBody, headers) {}
-
-  /**
-   * Resolve a task reference to a full TaskItem.
-   * @param {string} ref  e.g. "KL-42"
-   * @returns {Promise<TaskItem>}
-   */
-  async getTask(ref) {}
-
-  /**
-   * Resolve a local filesystem path for the project containing this task.
-   * Returns null if no mapping is configured.
-   * @param {TaskItem} task
-   * @returns {Promise<string|null>}
-   */
-  async resolveProjectPath(task) {}
-
-  /**
-   * Fetch all tasks eligible for auto-launch (pending + kodo-labeled).
-   * Used by kodo check. Return empty array if not supported.
-   * @returns {Promise<TaskItem[]>}
-   */
-  async listPendingTasks() {}
-
-  /**
-   * Mark a task as in review (session completed).
-   * @param {TaskItem} task
-   */
-  async markInReview(task) {}
-
-  /**
-   * Mark a task as done.
-   * @param {TaskItem} task
-   */
-  async markDone(task) {}
-
-  /**
-   * Post a progress or completion comment.
-   * @param {TaskItem} task
-   * @param {string} body   — Plain text or HTML depending on provider capability
-   */
-  async postComment(task, body) {}
-}
-```
-
-This interface is deliberately minimal. Advanced Plane capabilities (`getWorkItemModule`,
-listing states by group) live inside the Plane adapter, not in the interface.
-
-### Session Record Schema
-
-The current `plane_id` / `plane_identifier` naming is a debt item but not a blocker.
-Rename to `task_id` and `task_ref` during the refactor. The session record becomes:
-
-```javascript
-{
-  workspace_ref: "workspace:42",
-  session_id: "uuid",
-  task_id: "abc-123",          // was plane_id
-  task_ref: "KL-42",           // was plane_identifier
-  provider: "plane",           // NEW: which adapter owns this session
-  project_id: "proj-uuid",
-  summary: "Fix auth bug",
-  status: "running",
-  started_at: "2026-04-07T...",
-  project_path: "/Users/alex/dev/myproject"
-}
-```
-
-Adding `provider` to the session record allows multi-provider operation: the stop hook
-and orchestrator can instantiate the correct adapter for each session.
-
----
-
-## Event Model Abstraction: Webhook vs Polling
-
-The challenge is that `server.js` currently IS the Plane webhook handler. For providers
-that use polling (ClickUp) or manual triggers, there is no incoming HTTP event.
-
-### Recommended: Trigger Channels alongside the server
-
-Introduce a `TriggerChannel` concept that abstracts how events enter the system. The HTTP
-server becomes one channel; polling becomes another.
+## Recommended Project Structure (v0.3)
 
 ```
 src/
-  triggers/
-    webhook.js      — HTTP server, provider-agnostic routing
-    polling.js      — interval-based poll loop
-    manual.js       — direct invocation (kodo launch KL-42)
+├── interface.js              # typedefs (TaskProvider, TaskItem, TriggerEvent, SessionRecord)
+├── config.js                 # config + getProviderApiKey                  MODIFIED (logger)
+├── labels.js                 # parseKodoLabels (+ gsd flag)                 MODIFIED
+├── logger.js                 # createLogger, transports                    NEW
+├── server.js                 # HTTP shell                                   MODIFIED (logger)
+├── cli.js                    # Commander CLI                                MODIFIED (logs cmd)
+│
+├── gsd/                      # GSD-specific concerns (isolated)            NEW FOLDER
+│   └── phase-resolver.js     # reads .planning/ROADMAP.md
+│
+├── providers/                # provider-agnostic abstraction — DO NOT TOUCH
+│   ├── registry.js
+│   └── plane/*
+│
+├── triggers/
+│   ├── dispatcher.js         # MODIFIED — structured logs, carry gsd flag
+│   └── webhook.js            # MODIFIED — logger
+│
+├── session/
+│   ├── state.js              # MODIFIED — schema adds optional gsd:boolean
+│   ├── manager.js            # MODIFIED — passes gsd to session record
+│   └── health.js             # MODIFIED — logger
+│
+├── hooks/
+│   ├── session-start.js      # MODIFIED — consumes gsd + calls phase-resolver
+│   ├── stop.js               # MODIFIED — logger
+│   └── install.js            # UNCHANGED
+│
+└── orchestrator/
+    ├── prompt.md             # MODIFIED — GSD supervision section
+    └── launch.js             # MODIFIED — logger
+
+test/
+├── gsd/phase-resolver.test.js     NEW
+├── logger.test.js                 NEW
+├── labels.test.js                 MODIFIED (gsd flag)
+└── hooks/session-start.test.js    MODIFIED (GSD injection path)
 ```
 
-**`webhook.js`** keeps the HTTP server structure but delegates to the registered adapter:
+### Structure Rationale
 
-```javascript
-async function handleRequest(req, res, adapter) {
-  const body = await readBody(req);
-  
-  // Each adapter verifies its own signature format
-  if (!adapter.verifySignature(body, req.headers)) {
-    res.writeHead(401); return;
+- **`src/gsd/` as its own folder:** GSD is a vertical feature that sits *above* the provider abstraction. Keeping it outside `providers/`, `session/`, and `triggers/` preserves the provider-agnostic invariant earned in v0.2 — a future GitHub Issues or Linear provider must not touch GSD, and GSD must not assume Plane.
+- **`logger.js` at `src/` root:** Cross-cutting concern imported by nearly every module. Placing it at the root avoids awkward relative paths and signals its universality.
+- **No `src/utils/` dumping ground:** logger earns a named module; phase-resolver is domain logic, not utility.
+- **Tests mirror `src/`:** existing v0.2 convention — maintained.
+
+## Architectural Patterns
+
+### Pattern 1: Cross-cutting Logger via Factory + Child Loggers
+
+**What:** A single `createLogger({ sessionId, module })` factory returns a logger that writes JSON lines to stdout and (optionally) to a per-session file. `logger.child({ module: 'dispatcher' })` adds contextual fields without re-opening transports.
+
+**When to use:** Every module that currently calls `console.log`/`console.error`. Non-negotiable for dispatcher, manager, hooks, server.
+
+**Trade-offs:**
+- Pro: One format, one place to change output; greppable; enables `kodo logs <id>` tail.
+- Pro: Zero dependencies (`fs.createWriteStream` + `JSON.stringify` is enough); avoids pino/winston weight.
+- Con: Must pass `sessionId` at the boundary — solved by passing a logger argument through constructors rather than importing a global.
+
+**Example:**
+```js
+// src/logger.js
+import { createWriteStream } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+
+export function sessionLogPath(id) {
+  return path.join(os.homedir(), '.kodo', 'logs', `${id}.log`);
+}
+
+export function createLogger({ sessionId = null, module = null } = {}) {
+  const base = { sessionId, module };
+  let fileStream = null;
+  if (sessionId) {
+    mkdirSync(path.dirname(sessionLogPath(sessionId)), { recursive: true });
+    fileStream = createWriteStream(sessionLogPath(sessionId), { flags: 'a' });
   }
-  
-  const event = await adapter.parseTriggerEvent(JSON.parse(body));
-  if (event) dispatchTrigger(event, adapter);
-  
-  res.writeHead(200);
-  res.end(JSON.stringify({ ok: true }));
+
+  function emit(level, msg, fields = {}) {
+    const line = JSON.stringify({
+      ts: new Date().toISOString(), level, msg, ...base, ...fields,
+    });
+    process.stdout.write(line + '\n');
+    if (fileStream) fileStream.write(line + '\n');
+  }
+
+  return {
+    info:  (msg, f) => emit('info',  msg, f),
+    warn:  (msg, f) => emit('warn',  msg, f),
+    error: (msg, f) => emit('error', msg, f),
+    child: (extra) => createLogger({ sessionId, module: extra.module ?? module }),
+  };
 }
 ```
 
-**`polling.js`** drives the same `dispatchTrigger` path:
+### Pattern 2: Feature Flag on Session Record (not on Provider)
 
-```javascript
-async function pollLoop(adapter, intervalMs) {
-  const pending = await adapter.listPendingTasks();
-  for (const task of pending) {
-    dispatchTrigger({ type: 'task_started', taskRef: task.ref, raw: task }, adapter);
-  }
-}
-```
+**What:** The `gsd` boolean lives on the `SessionRecord` in `~/.kodo/sessions.json`, decided at dispatch time from labels. Providers never know GSD exists.
 
-**`dispatchTrigger(event, adapter)`** is the shared entry point: checks capacity, checks
-for existing session, calls `launchTask()`. This is currently spread between
-`handleTriggerState()` in `server.js` and `launchWorkItem()` in `manager.js` — extract
-it into `src/core/dispatch.js`.
+**When to use:** Any feature that depends on *how Claude runs*, not on *where the task came from*.
 
-### How `kodo start` selects the right channel
+**Trade-offs:**
+- Pro: Preserves provider-agnostic design (the hard-won v0.2 invariant).
+- Pro: `hooks/session-start.js` reads one field to decide injection — no provider round-trip.
+- Con: Session schema migration. Low risk: additive optional boolean, defaults to false.
 
-Config drives channel selection:
-
-```yaml
-# ~/.kodo/config.json
-provider: "plane"
-providers:
-  plane:
-    trigger: "webhook"          # "webhook" | "polling" | "manual"
-    poll_interval_sec: 60       # only relevant when trigger = polling
-    base_url: "https://..."
-    workspace_slug: "..."
-    api_key_env: "PLANE_API_KEY"
-    webhook_secret_env: "PLANE_WEBHOOK_SECRET"
-    trigger_state: "In Progress"
-    review_state: "In Review"
-```
-
-`kodo start` reads `provider` + `providers[provider].trigger`, then starts the
-appropriate channel. No special-casing in the server code.
-
----
-
-## Component Boundaries After Refactor
-
-```
-src/
-  providers/
-    base.js               — Abstract TaskProvider class (JSDoc interface)
-    plane/
-      index.js            — PlaneProvider (implements TaskProvider)
-      client.js           — Raw REST client (moved from src/plane/client.js)
-    github/               — Future: GitHubProvider
-    local/                — Future: LocalProvider
-  
-  triggers/
-    webhook.js            — HTTP server, provider-agnostic
-    polling.js            — Poll loop
-    manual.js             — CLI manual trigger
-  
-  core/
-    dispatch.js           — dispatchTrigger(), capacity checks, duplicate detection
-    labels.js             — parseKodoLabels() — already provider-agnostic
-  
-  session/
-    manager.js            — launchTask(taskItem, adapter, opts) — no Plane import
-    state.js              — renamed fields: task_id, task_ref, provider
-    health.js             — unchanged (cmux-only)
-  
-  hooks/
-    session-start.js      — reads state.json only — minimal change needed
-    stop.js               — uses adapter from session.provider — main change
-    install.js            — unchanged
-  
-  orchestrator/
-    launch.js             — unchanged (cmux-only)
-    prompt.md             — remove Plane-specific MCP references
-  
-  config.js               — extended for multi-provider config schema
-  check.js                — uses provider.listPendingTasks() — simplified
-  cli.js                  — add provider selection, trigger type display
-```
-
-### How `stop.js` finds its adapter
-
-```javascript
-// In stop.js, after finding the session record:
-const { getProvider } = await import('../providers/index.js');
-const adapter = getProvider(session.provider);  // "plane" → PlaneProvider instance
-
-await adapter.markInReview(taskItem);
-await adapter.postComment(taskItem, closingComment);
-```
-
-`getProvider(name)` is a simple registry:
-
-```javascript
-// src/providers/index.js
-import { PlaneProvider } from './plane/index.js';
-
-const registry = {
-  plane: PlaneProvider,
+**Example:**
+```js
+// session/manager.js — at session creation
+const { isKodo, model, flags } = parseKodoLabels(task.labels);
+const record = {
+  id: sessionId,
+  taskId: task.id,
+  providerName: task.providerName,
+  model,
+  gsd: flags.includes('gsd'),   // <-- the only new line
+  startedAt: Date.now(),
 };
+await state.upsert(record);
+```
 
-export function getProvider(name) {
-  const Cls = registry[name];
-  if (!Cls) throw new Error(`Unknown provider: ${name}`);
-  return new Cls();
+### Pattern 3: Lazy Phase Resolution at Hook Time (not at Dispatch Time)
+
+**What:** `phase-resolver.js` is called by `hooks/session-start.js`, not by the dispatcher. The dispatcher only records `gsd: true`; actually reading `.planning/ROADMAP.md` happens inside the Claude session's cwd.
+
+**When to use:** When context depends on the target repo's filesystem state, which may change between dispatch and session start.
+
+**Trade-offs:**
+- Pro: Always sees current ROADMAP.md (user may have edited it between webhook and session start).
+- Pro: Dispatcher stays fast and stateless about repo contents.
+- Pro: Bootstrap detection (no `.planning/` yet) is naturally handled — resolver returns `{ bootstrap: true }` and the hook injects "run `/gsd:new-project`" instead.
+- Con: Slightly more work inside the hook, but it's already reading session state.
+
+**Example:**
+```js
+// src/gsd/phase-resolver.js
+import { readFile, access } from 'node:fs/promises';
+import path from 'node:path';
+
+export async function resolvePhase({ cwd }) {
+  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  try { await access(roadmapPath); }
+  catch { return { bootstrap: true, roadmapPath }; }
+
+  const md = await readFile(roadmapPath, 'utf8');
+  return {
+    bootstrap: false,
+    roadmapPath,
+    current: parseCurrentPhase(md),
+    next: parseNextPhase(md),
+  };
 }
 ```
 
----
+### Pattern 4: Hook-Time Context Injection (existing pattern, extended)
 
-## Refactoring Order (dependency analysis)
+**What:** `hooks/session-start.js` already returns additional system context to Claude Code. Extend it to conditionally append a GSD block when `session.gsd === true`.
 
-The dependency graph determines the safe refactoring sequence. Build bottom-up: define
-the interface first, then adapt the existing implementation, then rewire consumers one
-by one.
+**When to use:** Whenever per-session behavior must shape Claude's prompt without touching the orchestrator or provider layers.
 
-### Phase 1: Interface + Schema (no behavior change)
+**Trade-offs:**
+- Pro: Single, testable decision point.
+- Pro: No change to Claude Code invocation in `session/manager.js`.
+- Con: session-start.js accumulates feature-flag branches over time — acceptable until there are 3+ flags, then extract `hooks/context-builders/`.
 
-1. Create `src/providers/base.js` — JSDoc `TaskProvider` interface and JSDoc typedefs
-   for `TaskItem`, `TriggerEvent`
-2. Rename `state.js` fields: `plane_id` → `task_id`, `plane_identifier` → `task_ref`,
-   add `provider` field. Update all callers in the same commit.
-3. Add `provider` key to `config.json` schema and `config.js` loader.
+## Data Flow
 
-**Risk:** Low. The rename is mechanical. No behavior changes.
+### Flow A — `kodo:gsd`-labeled task, webhook to session exit
 
-### Phase 2: Wrap PlaneClient into PlaneProvider
-
-4. Move `src/plane/client.js` → `src/providers/plane/client.js`
-5. Create `src/providers/plane/index.js` that extends/wraps PlaneClient and implements
-   `TaskProvider`: `parseTriggerEvent`, `verifySignature`, `getTask`, `resolveProjectPath`,
-   `listPendingTasks`, `markInReview`, `markDone`, `postComment`
-6. Create `src/providers/index.js` registry
-
-**Risk:** Medium. PlaneProvider must pass the same behavior as the raw client calls.
-Write tests against PlaneProvider directly using recorded fixtures from the real API.
-
-### Phase 3: Rewire check.js (safest consumer to migrate first)
-
-7. Replace `const plane = new PlaneClient()` + manual loops in `check.js` with
-   `provider.listPendingTasks()`. `check.js` becomes ~60 lines.
-
-**Risk:** Low. `check.js` is standalone, easy to test manually with `kodo check`.
-
-### Phase 4: Rewire stop.js
-
-8. Replace PlaneClient instantiation in `stop.js` with `getProvider(session.provider)`.
-   Replace `listStates` + `updateWorkItem` calls with `adapter.markInReview(task)`.
-   Replace `createComment` with `adapter.postComment(task, body)`.
-
-**Risk:** Medium-High. Stop hook runs inside Claude Code's process and must not crash.
-Test with a real session termination before declaring done.
-
-### Phase 5: Rewire manager.js
-
-9. Change `launchWorkItem(identifier, opts)` signature to
-   `launchTask(taskItem, adapter, opts)`. The caller (dispatch.js) passes the already-
-   resolved TaskItem.
-10. Remove PlaneClient import from manager.js entirely.
-
-**Risk:** Medium. manager.js is called from server.js, CLI, and orchestrator — all three
-callers must be updated in the same change.
-
-### Phase 6: Extract dispatch.js + rewire server.js
-
-11. Extract `handleTriggerState` from server.js into `src/core/dispatch.js`.
-12. Rewrite server.js webhook handler to call `adapter.parseTriggerEvent()` +
-    `adapter.verifySignature()`, then call `dispatchTrigger()`.
-13. server.js no longer imports PlaneClient.
-
-**Risk:** Medium. The existing signature verification logic moves into PlaneProvider.
-Test with a real Plane webhook before and after.
-
-### Phase 7: Add polling trigger channel
-
-14. Create `src/triggers/polling.js` — drives the same `dispatchTrigger()` path.
-15. Update `kodo start` in cli.js to read `trigger` from config and start the
-    appropriate channel.
-
-**Risk:** Low for the structural change; Medium for correctness of the poll loop
-(debounce, duplicate detection, backoff on errors).
-
-### Phase 8: Cleanup
-
-16. Remove Plane-specific references from `orchestrator/prompt.md`
-17. Update `session-start.js` context template to use provider-neutral language
-18. Update `kodo config` wizard to support multi-provider configuration
-
----
-
-## Anti-Patterns to Avoid
-
-### Anti-Pattern 1: Interface Creep from Day One
-**What:** Adding methods to `TaskProvider` for every Plane capability during initial
-abstraction (modules, sprints, estimates, sub-tasks).
-**Why bad:** The interface becomes Plane-shaped, making other providers impossible to
-implement cleanly. GitHub Issues has no modules; a local JSON provider has no states.
-**Instead:** Keep the interface at the lowest common denominator. Provider-specific
-capabilities stay inside the adapter and are invoked via optional duck-typing checks
-(`if (typeof adapter.getModule === 'function')`), or simply not used when the provider
-doesn't support them.
-
-### Anti-Pattern 2: Provider-Aware Session Schema
-**What:** Storing Plane-specific fields (e.g. `plane_module_id`, `plane_state_id`) in
-the session record.
-**Why bad:** Every provider would need its own schema fields; state.js becomes a union
-type.
-**Instead:** Session records store only the normalized fields. Provider-specific context
-lives inside the adapter's own optional metadata or is re-fetched from the API when
-needed.
-
-### Anti-Pattern 3: God Registry
-**What:** Putting all provider logic (instantiation, config validation, credential
-loading) into `src/providers/index.js`.
-**Why bad:** Adding a new provider requires modifying the registry file.
-**Instead:** The registry is a simple name → class map. Each provider's `index.js`
-handles its own config loading via the standard `loadConfig()`. The registry stays dumb.
-
-### Anti-Pattern 4: Parallel Webhook Routes per Provider
-**What:** Adding `/webhook/plane`, `/webhook/github` routes as providers multiply.
-**Why bad:** External webhook URLs need to change when providers are added; impossible
-to run two providers on the same URL pattern.
-**Instead:** Keep a single `/webhook` endpoint. The registered adapter (one per `kodo
-start` invocation) handles the route. If multi-provider webhook reception is needed in
-the future, a routing layer reads a `X-Provider` header or uses path-based routing — but
-that is out of scope for this milestone.
-
-### Anti-Pattern 5: Async Interface Methods for Signature Verification
-**What:** Making `verifySignature` return a Promise.
-**Why bad:** The HTTP handler must respond within milliseconds; the signature check is
-synchronous crypto. Async adds overhead and complicates error handling in the request
-pipeline.
-**Instead:** `verifySignature(rawBody, headers): boolean` is always synchronous. HMAC
-is CPU-bound and cheap.
-
----
-
-## Config Structure for Multi-Provider Support
-
-The config grows to accommodate provider selection and per-provider credentials. The
-structure below avoids breaking the existing flat `plane.*` keys by introducing a
-`providers` namespace while keeping `provider` as a top-level selector.
-
-```json
-{
-  "provider": "plane",
-  "server": {
-    "port": 9090
-  },
-  "claude": {
-    "default_model": "claude-opus-4-5",
-    "max_parallel": 3
-  },
-  "providers": {
-    "plane": {
-      "trigger": "webhook",
-      "base_url": "https://plane.example.com",
-      "workspace_slug": "myworkspace",
-      "api_key_env": "PLANE_API_KEY",
-      "webhook_secret_env": "PLANE_WEBHOOK_SECRET",
-      "trigger_state": "In Progress",
-      "review_state": "In Review",
-      "projects": []
-    },
-    "github": {
-      "trigger": "webhook",
-      "org": "myorg",
-      "token_env": "GITHUB_TOKEN",
-      "webhook_secret_env": "GITHUB_WEBHOOK_SECRET",
-      "trigger_label": "kodo",
-      "repos": []
-    },
-    "local": {
-      "trigger": "manual",
-      "tasks_file": "~/.kodo/tasks.json"
-    }
-  }
-}
+```
+Plane webhook
+    │
+    ▼
+server.js  ──────── logger.info("webhook received")
+    │
+    ▼
+triggers/webhook.js  (validate, normalize TriggerEvent)
+    │
+    ▼
+triggers/dispatcher.js
+    │   1. provider.getTask(event.taskId)    → TaskItem { labels, ... }
+    │   2. parseKodoLabels(task.labels)      → { isKodo:true, model, flags:['gsd'] }
+    │   3. dedup check (state.findActive)
+    │   4. logger.info("dispatching", { gsd: true })
+    ▼
+session/manager.js
+    │   1. create SessionRecord { ..., gsd: true }
+    │   2. state.upsert(record)
+    │   3. spawn `claude` CLI with cwd = repo, env = { KODO_SESSION_ID }
+    ▼
+Claude Code starts
+    │
+    ▼
+hooks/session-start.js    (invoked by Claude)
+    │   1. session = state.get(KODO_SESSION_ID)
+    │   2. if (session.gsd):
+    │        phase = await resolvePhase({ cwd: process.cwd() })
+    │        if (phase.bootstrap)  inject "run /gsd:new-project ..."
+    │        else                  inject "current phase: X, next: Y, use /gsd:* ..."
+    │   3. logger.info("context injected", { gsd, bootstrap })
+    ▼
+[Claude session runs — user work happens — all log calls route through logger]
+    │
+    ▼
+hooks/stop.js  (existing behavior: task lifecycle transitions via provider)
+    │   logger.info("session stopped")
+    ▼
+End — ~/.kodo/logs/<session-id>.log is closed
 ```
 
-Migration path: `config.js` reads the old flat `plane.*` keys and promotes them to
-`providers.plane.*` on first load, then writes the new format. This makes the migration
-transparent for existing installs.
+Key invariant: **the `gsd` flag crosses exactly two boundaries** — labels → session record (at dispatcher) and session record → hook (at session-start). Providers never see it.
 
----
+### Flow B — A log line from any module to disk + CLI tail
 
-## Scalability Considerations
+```
+[any module]
+  const log = createLogger({ sessionId, module: 'dispatcher' })
+  log.info("dispatching", { taskId, gsd: true })
+        │
+        ▼
+  logger.js emit()
+        │   JSON.stringify({ ts, level:'info', msg:'dispatching',
+        │                    sessionId, module:'dispatcher', taskId, gsd:true })
+        │
+        ├──▶ process.stdout   (always — visible in server console / PM2)
+        │
+        └──▶ fs.WriteStream for ~/.kodo/logs/<session-id>.log   (if sessionId)
+                         │
+                         ▼
+              File persists after session exit
+                         │
+                         ▼
+              kodo logs <session-id>        (new CLI command)
+                  │
+                  ├─ default: `tail -n 200` equivalent + pretty-print JSON
+                  ├─ --follow: fs.watch + stream
+                  └─ --raw:    emit JSON unchanged (pipe to jq)
+```
 
-kodo is a personal tool. Scalability concerns are about code complexity, not load.
+Backpressure / rotation: out of scope for v0.3. File is append-only per session; total volume bounded by session count. A future `kodo logs --prune` can handle cleanup.
 
-| Concern | Current | After Refactor |
-|---------|---------|----------------|
-| Adding a new provider | Requires modifying 6 files | Add one file in `src/providers/` + update registry |
-| Adding a new trigger channel | No concept exists | Add one file in `src/triggers/`, wire in `kodo start` |
-| Session schema changes | One file to update | Same — state.js is already centralized |
-| Running two providers simultaneously | Not supported | Not in scope; single `provider` config key is explicit |
-| Config migration | N/A | Handled in config.js loader transparently |
+### Key Data Flows
 
----
+1. **Label → behavior flag:** `parseKodoLabels(task.labels).flags` contains `'gsd'` → dispatcher stores `session.gsd = true` → session-start hook reads and injects GSD prompt.
+2. **Session ID propagation for logging:** dispatcher generates `sessionId` → passes to `createLogger({ sessionId })` for its own logs AND into spawn env `KODO_SESSION_ID` → hooks reconstruct the same logger and write to the same file.
+3. **ROADMAP read:** only `gsd/phase-resolver.js` reads `.planning/ROADMAP.md`; all other modules stay filesystem-ignorant about project state.
+
+## Build Order (respects dependencies)
+
+1. **`src/logger.js` + tests** — zero internal deps; everything else will import it. Build first so subsequent modules can adopt it as they are touched.
+2. **`labels.js` — surface `gsd` flag + tests** — trivial change; unblocks dispatcher/manager schema work. `parseKodoLabels` already puts unknown tags into `flags`, so `'gsd'` will land there naturally; add an explicit test asserting that.
+3. **`session/state.js` — schema extension** (`gsd?: boolean`) — additive, backward-compatible.
+4. **`session/manager.js` — write `gsd` into record** — depends on (2) and (3).
+5. **`triggers/dispatcher.js` — adopt logger + pass label parse through** — depends on (1), (2), (4).
+6. **`src/gsd/phase-resolver.js` + tests** — standalone pure function over filesystem; no runtime deps on other new code.
+7. **`hooks/session-start.js` — GSD injection branch** — depends on (3), (6).
+8. **`orchestrator/prompt.md` — GSD supervision section** — doc-only; any time after (7).
+9. **`cli.js` — `kodo logs <id>` command** — depends on (1)'s `sessionLogPath()` convention being stable.
+10. **Adopt logger in remaining modules** (`server.js`, `hooks/stop.js`, `session/health.js`, `orchestrator/launch.js`, `triggers/webhook.js`, `config.js`) — parallelizable, mechanical migration.
+
+Rationale: logger is foundational (1). Labels must expose `gsd` before session code decides on it (2→4). Phase resolver is pure and can be built in parallel but must exist before session-start consumes it (6→7). CLI logs command (9) only needs the file path contract from (1).
+
+## Scaling Considerations
+
+Kodo is single-user / single-host by design; "scale" here means feature scale, not traffic.
+
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| 1 provider, 1 behavior flag | Current design is correct. |
+| 2+ providers | No change — GSD is provider-agnostic. |
+| 3+ behavior flags (`gsd`, `review`, `design`, …) | Promote `hooks/session-start.js` branches into `hooks/context-builders/*.js`. |
+| Multi-machine dispatch | Logger needs remote transport (syslog/vector). Out of scope. |
+
+### Scaling Priorities
+
+1. **First bottleneck (feature):** `hooks/session-start.js` bloats with flag branches. Fix by extracting per-flag context builders.
+2. **Second bottleneck (ops):** log file directory grows unbounded. Fix with `kodo logs --prune --older-than 30d`.
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Pushing GSD awareness into providers
+
+**What people do:** Add a `provider.getRoadmap()` or special-case `kodo:gsd` inside `providers/plane/*`.
+**Why it's wrong:** Violates the v0.2 provider abstraction — GSD is a Claude-session behavior, not a task-provider concept. Recouples consumers to Plane-like providers.
+**Do this instead:** Keep GSD logic inside `src/gsd/` and `hooks/session-start.js`. Providers only return labels.
+
+### Anti-Pattern 2: Global logger singleton imported everywhere
+
+**What people do:** `export const logger = createLogger(); import logger from '../logger.js'`
+**Why it's wrong:** Logger needs per-session context (sessionId) not known at import time; a global forces either no session context or mutable global state.
+**Do this instead:** Instantiate `createLogger({ sessionId, module })` at entry points (dispatcher, hook, CLI command) and pass it down. Leaf utilities with no sessionId get a module-scoped logger without the file transport.
+
+### Anti-Pattern 3: Resolving phase at dispatch time
+
+**What people do:** Have `triggers/dispatcher.js` read `.planning/ROADMAP.md` and stuff the phase into the session record.
+**Why it's wrong:** Captures a stale snapshot (user may edit ROADMAP.md between webhook and session start). Pushes filesystem concerns into the dispatcher.
+**Do this instead:** Store only `gsd: true` at dispatch time; resolve phase lazily in `hooks/session-start.js`.
+
+### Anti-Pattern 4: Mixing `console.*` with the new logger
+
+**What people do:** Add the new logger in some places, keep `console.log` elsewhere "to avoid churn."
+**Why it's wrong:** Split-brain output formats defeat structured logging and break `kodo logs <id>` (console output bypasses the file transport).
+**Do this instead:** Complete step (10) in the build order. Lint-level grep for `console\.(log|warn|error)` outside `logger.js` and `cli.js` user-facing prints.
+
+## Integration Points
+
+### External Services
+
+| Service | Integration Pattern | Notes |
+|---------|---------------------|-------|
+| Claude Code CLI | spawn subprocess from `session/manager.js`; pass `KODO_SESSION_ID` via env | Hooks receive this env; used to reconstruct per-session logger |
+| Target repo filesystem | read-only, scoped to `<cwd>/.planning/ROADMAP.md` | Only accessed from `src/gsd/phase-resolver.js` |
+| Plane API | via `providers/plane/*` only | Untouched by v0.3 work |
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| dispatcher ↔ manager | direct call; `TriggerEvent` + parsed labels | `gsd` flag crosses here |
+| manager ↔ Claude Code | subprocess spawn + env vars | `KODO_SESSION_ID` is the only env contract |
+| hooks ↔ session state | `session/state.js` read | Single source of truth for `gsd` flag |
+| hooks ↔ gsd/phase-resolver | direct call in session-start only | phase-resolver has no reverse dependency |
+| any module ↔ logger | constructor/arg injection of logger instance | No global import |
+| cli.js `logs` ↔ log files | direct fs read of `~/.kodo/logs/<id>.log` | Path convention owned by `logger.js` (export `sessionLogPath(id)`) |
 
 ## Sources
 
-- Direct codebase analysis: `src/server.js`, `src/session/manager.js`, `src/hooks/stop.js`,
-  `src/check.js`, `src/plane/client.js`, `src/hooks/session-start.js`
-- Project context: `.planning/PROJECT.md`, `.planning/codebase/ARCHITECTURE.md`
-- Adapter pattern and interface segregation principle: standard OOP, no external source needed
-- Confidence: HIGH — all findings are based on direct code reading, not inference
+- Direct read of `/Users/alex/dev/klab/kodo/src/labels.js` (current shape of `parseKodoLabels`)
+- Hook-observation outlines for `src/session/manager.js`, `src/hooks/session-start.js`, `src/triggers/dispatcher.js`, `src/cli.js` (v0.2 provider abstraction complete; dispatcher has in-flight dedup lock; CLI wizard already has Plane-neutralization debt noted)
+- `.planning/PROJECT.md` timeline — v0.2 provider abstraction complete (obs 16110), PROJECT.md updated post-v0.2 (obs 16315), v0.3 research phase initiated (obs 16976)
+- Recent commits (`dab86bc feat: Claude session owns Plane lifecycle`, `8e1bcd3 in-memory lock`) — confirm current dispatcher/session-start contracts
+
+---
+*Architecture research for: kodo v0.3 — GSD integration + structured logging*
+*Researched: 2026-04-15*
