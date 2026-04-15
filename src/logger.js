@@ -13,7 +13,7 @@
 // test/check-isolation.test.js.
 //
 
-import { appendFileSync, mkdirSync, writeSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { KODO_DIR } from './config.js';
 
@@ -127,7 +127,7 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
     } catch (err) {
       if (!writeFailedWarned) {
         const msg = err instanceof Error ? err.message : String(err);
-        writeSync(2, `${ANSI_RED}[kodo:logger] write failed: ${msg}${ANSI_RESET}\n`);
+        process.stderr.write(`${ANSI_RED}[kodo:logger] write failed: ${msg}${ANSI_RESET}\n`);
         writeFailedWarned = true;
       }
     }
@@ -151,7 +151,7 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
     const r = useColor ? ANSI_RESET : '';
     const comp = /** @type {any} */ (record).component ? ` ${/** @type {any} */ (record).component}` : '';
     const ctxStr = formatCtxInline(record);
-    writeSync(2, `${time} ${c}${level.toUpperCase()}${r}${comp} ${/** @type {any} */ (record).msg}${ctxStr}\n`);
+    process.stderr.write(`${time} ${c}${level.toUpperCase()}${r}${comp} ${/** @type {any} */ (record).msg}${ctxStr}\n`);
   }
 
   /**
