@@ -8,6 +8,19 @@ kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code
 
 Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación.
 
+## Current Milestone: v0.3 GSD Integration + Structured Logging
+
+**Goal:** Que una tarea Plane con label `kodo:gsd` arranque una sesión Claude que opera bajo el workflow GSD (1 tarea = 1 fase), con bootstrap automático si el repo no está inicializado, y que todo el sistema emita logs estructurados inspeccionables desde el CLI.
+
+**Target features:**
+- Tag `kodo:gsd` que dispara modo GSD en la sesión
+- Resolver de fase: detecta bootstrap (`.planning/PROJECT.md`) y deriva número de fase desde ROADMAP.md
+- Inyección de contexto GSD en `session-start` hook con instrucciones `/gsd:new-project` o `/gsd:plan-phase <n>`
+- Skill del orquestador extendido para reconocer y supervisar tareas GSD
+- Logger estructurado (niveles debug/info/warn/error, salida JSON)
+- Archivo de log por sesión en `~/.kodo/logs/<session-id>.log`
+- Comando `kodo logs <session-id>` para tail/inspección
+
 ## Requirements
 
 ### Validated
@@ -85,4 +98,4 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 | ensureConfig guards commands needing provider | First-run UX, auto-launches wizard | ✓ Good — clean onboarding flow |
 
 ---
-*Last updated: 2026-04-13 after v0.2 milestone*
+*Last updated: 2026-04-15 — milestone v0.3 started (GSD Integration + Structured Logging)*
