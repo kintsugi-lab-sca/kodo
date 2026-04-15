@@ -6,6 +6,9 @@ import { listSessions, removeSession } from '../session/state.js';
 import { launchWorkItem } from '../session/manager.js';
 import * as cmux from '../cmux/client.js';
 
+/** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
+const inFlight = new Set();
+
 /**
  * @typedef {{
  *   getProviderFn?: (name?: string) => import('../interface.js').TaskProvider,
@@ -81,7 +84,15 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     }
   }
 
-  // 3. Session-already-active guard
+  // 3. In-flight guard — prevents duplicate dispatches for the same task
+  //    when webhooks arrive in rapid succession (state.json is written
+  //    only after launchWorkItem finishes, which can take seconds).
+  if (inFlight.has(task.id)) {
+    console.log(`[kodo:dispatch] Ignored — ${task.ref} already dispatching`);
+    return { action: 'already_active' };
+  }
+
+  // 4. Session-already-active guard (checks persisted state)
   const active = listSessionsFn();
   const existing = active.find((s) => s.task_id === task.id);
 
@@ -98,19 +109,29 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     }
 
     // Relaunch after stale cleanup
+    inFlight.add(task.id);
+    try {
+      const launchOpts = {
+        model: opts.model ?? kodoConfig.model,
+        flags: [...(opts.flags || []), ...kodoConfig.flags],
+      };
+      const session = await launchWorkItemFn(event.taskRef, launchOpts);
+      return { action: 'stale_relaunch', session };
+    } finally {
+      inFlight.delete(task.id);
+    }
+  }
+
+  // 5. Launch
+  inFlight.add(task.id);
+  try {
     const launchOpts = {
       model: opts.model ?? kodoConfig.model,
       flags: [...(opts.flags || []), ...kodoConfig.flags],
     };
     const session = await launchWorkItemFn(event.taskRef, launchOpts);
-    return { action: 'stale_relaunch', session };
+    return { action: 'launched', session };
+  } finally {
+    inFlight.delete(task.id);
   }
-
-  // 4. Launch
-  const launchOpts = {
-    model: opts.model ?? kodoConfig.model,
-    flags: [...(opts.flags || []), ...kodoConfig.flags],
-  };
-  const session = await launchWorkItemFn(event.taskRef, launchOpts);
-  return { action: 'launched', session };
 }
