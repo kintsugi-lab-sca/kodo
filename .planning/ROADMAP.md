@@ -3,6 +3,7 @@
 ## Milestones
 
 - ✅ **v0.2 Provider Abstraction** — Phases 1-5 (shipped 2026-04-13)
+- 🔄 **v0.3 GSD Integration + Structured Logging** — Phases 6-10 (in planning, defined 2026-04-15)
 
 ## Phases
 
@@ -19,6 +20,71 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 
 </details>
 
+### v0.3 GSD Integration + Structured Logging
+
+**Core Value:** Una tarea Plane etiquetada `kodo:gsd` arranca una sesión Claude bajo el workflow GSD (1 tarea = 1 fase), con bootstrap automático si el repo no está inicializado, y el sistema completo emite logs estructurados inspeccionables desde el CLI.
+
+- [ ] **Phase 6: Structured Logger Foundation** — NDJSON logger, per-session file, redaction, vigilante isolation
+- [ ] **Phase 7: `kodo logs` CLI + Event Taxonomy** — subcommand with filters, structured lifecycle events, transcript correlation
+- [ ] **Phase 8: GSD Label + Session Plumbing** — label flag chain, SessionRecord schema, dispatcher wiring, per-repo lock
+- [ ] **Phase 9: Phase Resolver + Bootstrap** — `.planning/` presence detection, ROADMAP.md parser, title inference, Plane-body project brief
+- [ ] **Phase 10: Orchestrator Verification Gate** — orchestrator metadata, VERIFICATION.md inspection, Plane comment on review outcome
+
+## Phase Details
+
+### Phase 6: Structured Logger Foundation
+**Goal:** Todo el sistema emite logs estructurados inspeccionables a disco, sin comprometer el budget de arranque del vigilante.
+**Depends on:** Nothing (foundational for v0.3)
+**Requirements:** LOG-01, LOG-02, LOG-03, LOG-04, LOG-08, LOG-12
+**Success Criteria** (what must be TRUE):
+  1. Existe `src/logger.js` con factory `createLogger({ sessionId, minLevel })` que expone `debug/info/warn/error` y escribe NDJSON a `~/.kodo/logs/<session-id>.ndjson` con campos `timestamp` (ISO-8601), `level`, `component`, `msg` y contexto arbitrario.
+  2. El nivel se configura vía `KODO_LOG_LEVEL` y flag CLI; `warn`/`error` se espejan a stderr en pretty-print sin duplicar el JSON de disco.
+  3. Secretos conocidos (`PLANE_API_KEY`, firmas de webhook, headers `Authorization`) se redactan antes de cualquier escritura (disco o consola) — verificable con test unitario.
+  4. `kodo check` no carga el logger transitivamente: test de grafo de imports + presupuesto de arranque <50ms guardan la regresión.
+**Plans:** TBD
+
+### Phase 7: `kodo logs` CLI + Event Taxonomy
+**Goal:** El usuario puede localizar e inspeccionar el log de cualquier sesión (por session-id o plane-task-id) con filtros y tail en vivo; los eventos de ciclo de vida están tipados.
+**Depends on:** Phase 6
+**Requirements:** LOG-05, LOG-06, LOG-07, LOG-09, LOG-10, LOG-11
+**Success Criteria** (what must be TRUE):
+  1. `kodo logs <session-id>` imprime el log completo; `--follow` hace tail en vivo; `--level <n>` filtra por nivel mínimo al mostrar.
+  2. `kodo logs --session-of <plane-task-id>` localiza el log sin requerir el session-id.
+  3. Los callsites críticos emiten tipos fijos: `session.start`, `session.end`, `state.transition`, `orchestrator.review`, `gsd.phase.resolved`, `gsd.bootstrap`, `plane.api.call` — validable inspeccionando el NDJSON de una sesión de prueba.
+  4. Cada `session.start` incluye el path del transcript de Claude Code para pivotar entre la vista de kodo y la de Claude.
+**Plans:** TBD
+
+### Phase 8: GSD Label + Session Plumbing
+**Goal:** Una tarea Plane con label `kodo:gsd` atraviesa el dispatcher con el flag GSD propagado hasta la sesión, y dos tareas del mismo repo nunca arrancan sesiones GSD concurrentes.
+**Depends on:** Phase 6 (logger observa el nuevo código); Phase 7 recomendado pero no bloqueante.
+**Requirements:** GSD-01, GSD-04, GSD-10
+**Success Criteria** (what must be TRUE):
+  1. `parseKodoLabels` expone `'gsd'` en `flags` cuando la tarea trae label `kodo:gsd`; el dispatcher propaga el flag a `SessionRecord.gsd = true`.
+  2. Cuando `session.gsd === true`, el hook `SessionStart` inyecta la secuencia `/gsd:plan-phase <n>` → `/gsd:execute-phase <n>` → `/gsd:verify-work` en el `additionalContext`.
+  3. Dos webhooks Plane que resuelven al mismo realpath de repo no arrancan sesiones GSD concurrentes: existe lock por repo (no sólo por task_id) con sentinel en `.planning/.kodo.lock`, verificado por test de integración con dos tareas distintas en paralelo.
+**Plans:** TBD
+
+### Phase 9: Phase Resolver + Bootstrap
+**Goal:** kodo detecta si el repo destino ya tiene `.planning/`, bootstrapea cuando falta usando el cuerpo de la tarea Plane como brief, y resuelve la fase correspondiente a partir del título contra `ROADMAP.md`.
+**Depends on:** Phase 8
+**Requirements:** GSD-02, GSD-03, GSD-08, GSD-09
+**Success Criteria** (what must be TRUE):
+  1. El resolver devuelve `{ bootstrap: true }` cuando `.planning/PROJECT.md` está ausente y la sesión inyecta `/gsd:new-project` usando la descripción de la tarea Plane como project-brief; si `.planning/` ya existe, NO dispara bootstrap (guard por presencia estricto, nunca sobrescribe).
+  2. `src/gsd/roadmap.js` parsea `## Phase N: Title` de `ROADMAP.md` y `resolvePhase(roadmap, task)` hace match 1:1 estricto por título/heading — falla cerrado (error visible) si hay 0 o >1 matches.
+  3. Cuando el título de la tarea coincide con un heading de fase, kodo infiere `phase_id` sin configuración explícita, y `gsd.phase.resolved` registra qué fase y por qué match.
+  4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
+**Plans:** TBD
+
+### Phase 10: Orchestrator Verification Gate
+**Goal:** El orquestador recibe metadata GSD al spawnearse, carga los artefactos de la fase, bloquea la transición a In Review si `VERIFICATION.md` falta o está incompleto, y refleja el resultado en un comentario Plane.
+**Depends on:** Phase 9
+**Requirements:** GSD-05, GSD-06, GSD-07
+**Success Criteria** (what must be TRUE):
+  1. El orquestador se spawnea con metadata GSD (`phase_id`, `project_path`) y carga `PROJECT.md` + `ROADMAP.md` + `phases/<n>/PLAN.md` en su contexto.
+  2. Antes de aprobar In Review, el orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md`: si falta o su checklist no está completa, bloquea la transición con motivo estructurado.
+  3. Al finalizar el review, kodo comenta en la tarea Plane con el `phase_id` resuelto y el resultado (pasada/fallida con motivo); el evento `orchestrator.review` queda en el log de la sesión.
+**Plans:** TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -28,3 +94,42 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 3. Consumer Rewiring | v0.2 | 2/2 | Complete | 2026-04-10 |
 | 4. Server + Trigger Abstraction | v0.2 | 2/2 | Complete | 2026-04-13 |
 | 5. Config + Cleanup | v0.2 | 2/2 | Complete | 2026-04-13 |
+| 6. Structured Logger Foundation | v0.3 | 0/0 | Not started | - |
+| 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/0 | Not started | - |
+| 8. GSD Label + Session Plumbing | v0.3 | 0/0 | Not started | - |
+| 9. Phase Resolver + Bootstrap | v0.3 | 0/0 | Not started | - |
+| 10. Orchestrator Verification Gate | v0.3 | 0/0 | Not started | - |
+
+## Coverage (v0.3)
+
+- v0.3 requirements: 22 total
+- Mapped to phases: 22
+- Unmapped: 0
+
+| Requirement | Phase |
+|-------------|-------|
+| LOG-01 | Phase 6 |
+| LOG-02 | Phase 6 |
+| LOG-03 | Phase 6 |
+| LOG-04 | Phase 6 |
+| LOG-08 | Phase 6 |
+| LOG-12 | Phase 6 |
+| LOG-05 | Phase 7 |
+| LOG-06 | Phase 7 |
+| LOG-07 | Phase 7 |
+| LOG-09 | Phase 7 |
+| LOG-10 | Phase 7 |
+| LOG-11 | Phase 7 |
+| GSD-01 | Phase 8 |
+| GSD-04 | Phase 8 |
+| GSD-10 | Phase 8 |
+| GSD-02 | Phase 9 |
+| GSD-03 | Phase 9 |
+| GSD-08 | Phase 9 |
+| GSD-09 | Phase 9 |
+| GSD-05 | Phase 10 |
+| GSD-06 | Phase 10 |
+| GSD-07 | Phase 10 |
+
+---
+*v0.3 roadmap created: 2026-04-15*

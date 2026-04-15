@@ -73,16 +73,36 @@
 
 ## Traceability
 
-(Empty — populated during roadmap creation)
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| GSD-01 | Phase 8 | Pending |
+| GSD-02 | Phase 9 | Pending |
+| GSD-03 | Phase 9 | Pending |
+| GSD-04 | Phase 8 | Pending |
+| GSD-05 | Phase 10 | Pending |
+| GSD-06 | Phase 10 | Pending |
+| GSD-07 | Phase 10 | Pending |
+| GSD-08 | Phase 9 | Pending |
+| GSD-09 | Phase 9 | Pending |
+| GSD-10 | Phase 8 | Pending |
+| LOG-01 | Phase 6 | Pending |
+| LOG-02 | Phase 6 | Pending |
+| LOG-03 | Phase 6 | Pending |
+| LOG-04 | Phase 6 | Pending |
+| LOG-05 | Phase 7 | Pending |
+| LOG-06 | Phase 7 | Pending |
+| LOG-07 | Phase 7 | Pending |
+| LOG-08 | Phase 6 | Pending |
+| LOG-09 | Phase 7 | Pending |
+| LOG-10 | Phase 7 | Pending |
+| LOG-11 | Phase 7 | Pending |
+| LOG-12 | Phase 6 | Pending |
 
 **Coverage:**
 - v0.3 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22 ⚠️
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-04-15*
-*Last updated: 2026-04-15*
+*Traceability updated: 2026-04-15*
