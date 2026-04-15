@@ -51,6 +51,86 @@ const BASE_RECORD_KEYS = new Set([
   'phase_id',
 ]);
 
+// --- Redaction (LOG-08) ---------------------------------------------------
+
+/**
+ * Keys cuyo VALOR se redacta siempre (comparación case-insensitive).
+ * Lista cerrada y hardcodeada — cualquier typo aquí se detecta por el test
+ * grep-based sobre el archivo NDJSON persistido.
+ */
+const SENSITIVE_KEYS = new Set([
+  'plane_api_key',
+  'authorization',
+  'x-api-key',
+  'x-plane-signature',
+  'password',
+  'token',
+  'secret',
+  'cookie',
+  'set-cookie',
+]);
+
+/**
+ * JWT: `eyJ` (base64 de `{"`) + base64url con ≥2 puntos y ≥10 chars por segmento.
+ * Conservador: no matchea UUIDs, git SHAs, ni texto normal.
+ */
+const JWT_RE = /^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/;
+
+/** Bearer token o plane_api_key prefix. Requiere ≥20 chars tras el prefijo. */
+const BEARERY_RE = /^(Bearer\s+|plane_)[A-Za-z0-9_\-]{20,}$/i;
+
+const REDACTED = '[REDACTED]';
+const REDACTED_DEPTH = '[REDACTED:depth-exceeded]';
+const MAX_DEPTH = 4;
+const MAX_ARRAY_LEN = 100;
+
+/**
+ * Deep-walk redactor: reemplaza valores de keys sensibles y strings que
+ * matcheen patterns JWT/Bearer por `[REDACTED]`. Aplica límites de profundidad
+ * y longitud de array para proteger contra ctx gigantes.
+ *
+ * Pure function: no muta `value`. Idempotente.
+ *
+ * @param {unknown} value
+ * @param {number} [depth]
+ * @param {string} [keyHint]
+ * @returns {unknown}
+ */
+function redact(value, depth = 0, keyHint = '') {
+  if (depth > MAX_DEPTH) return REDACTED_DEPTH;
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    if (keyHint && SENSITIVE_KEYS.has(keyHint.toLowerCase())) return REDACTED;
+    if (JWT_RE.test(value) || BEARERY_RE.test(value)) return REDACTED;
+    return value;
+  }
+
+  if (typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    if (value.length > MAX_ARRAY_LEN) {
+      const kept = value.slice(0, MAX_ARRAY_LEN).map((v) => redact(v, depth + 1, keyHint));
+      kept.push(`[REDACTED:truncated-${value.length - MAX_ARRAY_LEN}]`);
+      return kept;
+    }
+    return value.map((v) => redact(v, depth + 1, keyHint));
+  }
+
+  // Objeto: iterar con Object.entries (omite __proto__ por diseño) y reconstruir
+  // en un objeto plano nuevo (defensa natural contra prototype pollution).
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+      out[k] = REDACTED;
+    } else {
+      out[k] = redact(v, depth + 1, k);
+    }
+  }
+  return out;
+}
+
 /**
  * @typedef {'debug'|'info'|'warn'|'error'} LogLevel
  * @typedef {{ sessionId: string, minLevel?: LogLevel }} LoggerOpts
@@ -109,13 +189,16 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
    */
   function emit(level, msg, ctx, boundFields) {
     if (LEVELS[level] < minLevelNum) return;
-    const record = {
+    const rawRecord = {
       timestamp: new Date().toISOString(),
       level,
       ...boundFields,
       msg: String(msg),
       ...(ctx ?? {}),
     };
+    // Redact ANTES de cualquier sink (disco + stderr) para que ambos canales
+    // queden limpios con una sola pasada. Idempotente.
+    const record = /** @type {Record<string, unknown>} */ (redact(rawRecord));
     writeNdjson(record);
     maybeMirrorToStderr(level, record);
   }
