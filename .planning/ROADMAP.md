@@ -24,7 +24,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 
 **Core Value:** Una tarea Plane etiquetada `kodo:gsd` arranca una sesión Claude bajo el workflow GSD (1 tarea = 1 fase), con bootstrap automático si el repo no está inicializado, y el sistema completo emite logs estructurados inspeccionables desde el CLI.
 
-- [ ] **Phase 6: Structured Logger Foundation** — NDJSON logger, per-session file, redaction, vigilante isolation
+- [x] **Phase 6: Structured Logger Foundation** — NDJSON logger, per-session file, redaction, vigilante isolation (completed 2026-04-15)
 - [ ] **Phase 7: `kodo logs` CLI + Event Taxonomy** — subcommand with filters, structured lifecycle events, transcript correlation
 - [ ] **Phase 8: GSD Label + Session Plumbing** — label flag chain, SessionRecord schema, dispatcher wiring, per-repo lock
 - [ ] **Phase 9: Phase Resolver + Bootstrap** — `.planning/` presence detection, ROADMAP.md parser, title inference, Plane-body project brief
@@ -42,10 +42,10 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   3. Secretos conocidos (`PLANE_API_KEY`, firmas de webhook, headers `Authorization`) se redactan antes de cualquier escritura (disco o consola) — verificable con test unitario.
   4. `kodo check` no carga el logger transitivamente: test de grafo de imports + presupuesto de arranque <50ms guardan la regresión.
 **Plans:** 4 plans
-  - [ ] 06-01-PLAN.md — Wave 0: baseline measurement + test stubs (fixtures, helpers, 4 test files, STARTUP-BASELINE.md)
-  - [ ] 06-02-PLAN.md — Wave 1: `src/logger-noop.js` + `src/logger.js` factory con NDJSON sink y pretty-print stderr (LOG-01..LOG-04)
-  - [ ] 06-03-PLAN.md — Wave 2: redactor deep-walk + key-set + JWT/bearer regex integrado en emit (LOG-08)
-  - [ ] 06-04-PLAN.md — Wave 3: endurecer tests de aislamiento + re-medir baseline post-phase (LOG-12)
+  - [x] 06-01-PLAN.md — Wave 0: baseline measurement + test stubs (fixtures, helpers, 4 test files, STARTUP-BASELINE.md)
+  - [x] 06-02-PLAN.md — Wave 1: `src/logger-noop.js` + `src/logger.js` factory con NDJSON sink y pretty-print stderr (LOG-01..LOG-04)
+  - [x] 06-03-PLAN.md — Wave 2: redactor deep-walk + key-set + JWT/bearer regex integrado en emit (LOG-08)
+  - [x] 06-04-PLAN.md — Wave 3: endurecer tests de aislamiento + demote startup-budget (Decisión B, LOG-12)
 
 ### Phase 7: `kodo logs` CLI + Event Taxonomy
 **Goal:** El usuario puede localizar e inspeccionar el log de cualquier sesión (por session-id o plane-task-id) con filtros y tail en vivo; los eventos de ciclo de vida están tipados.
