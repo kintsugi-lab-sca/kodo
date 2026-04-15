@@ -29,6 +29,17 @@ export class PlaneClient {
 
     const maxRetries = opts.maxRetries ?? 3;
     let attempt = 0;
+
+    // Proactive throttle: if the previous response left us with very few
+    // tokens, sleep until the bucket resets before issuing the next request.
+    if (this._rateRemaining !== undefined && this._rateRemaining < 5 && this._rateReset) {
+      const waitMs = this._rateReset * 1000 - Date.now();
+      if (waitMs > 0 && waitMs < 65_000) {
+        console.warn(`[kodo] Plane rate budget low (${this._rateRemaining} left), pausing ${waitMs}ms`);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+
     while (true) {
       const res = await fetch(url, {
         method: opts.method || 'GET',
@@ -39,6 +50,11 @@ export class PlaneClient {
         body: opts.body ? JSON.stringify(opts.body) : undefined,
         signal: AbortSignal.timeout(10_000),
       });
+
+      const remaining = res.headers.get('x-ratelimit-remaining');
+      const reset = res.headers.get('x-ratelimit-reset');
+      if (remaining !== null) this._rateRemaining = parseInt(remaining, 10);
+      if (reset !== null) this._rateReset = parseInt(reset, 10);
 
       if (res.status === 429 && attempt < maxRetries) {
         const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);

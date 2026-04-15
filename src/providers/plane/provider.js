@@ -31,6 +31,8 @@ export function createPlaneProvider(config) {
   let labelCache = [];
   /** @type {Map<string, string>} state UUID → state name */
   const stateCache = new Map();
+  /** @type {Map<string, Map<string, string>>} projectId → Map<stateName, stateId> */
+  const stateByName = new Map();
   /** @type {Map<string, string>} workItem UUID → module name */
   const moduleCache = new Map();
   let initTimestamp = 0;
@@ -86,12 +88,15 @@ export function createPlaneProvider(config) {
       }
       labelCache = allLabels;
 
-      // Cache states for each project (UUID → name)
+      // Cache states for each project (UUID ↔ name)
       for (const proj of config.projects) {
         const states = await client.listStates(proj.id);
+        const byName = new Map();
         for (const s of states) {
           stateCache.set(s.id, s.name);
+          byName.set(s.name, s.id);
         }
+        stateByName.set(proj.id, byName);
       }
 
       // Cache module membership per project (workItemId → moduleName)
@@ -131,8 +136,19 @@ export function createPlaneProvider(config) {
 
       const task = normalizeWorkItem(workItem, context);
 
-      // Try to resolve module (group)
-      const moduleName = moduleCache.get(workItem.id) || null;
+      // Try to resolve module (group). Fall back to on-demand lookup when the
+      // cache (built at init) does not yet know about this work item — e.g.
+      // tasks created after the last init. Populate the cache on hit so the
+      // slow path runs at most once per new task.
+      let moduleName = moduleCache.get(workItem.id) || null;
+      if (!moduleName) {
+        try {
+          moduleName = await client.getWorkItemModule(proj.id, workItem.id);
+          if (moduleName) moduleCache.set(workItem.id, moduleName);
+        } catch (err) {
+          console.warn(`[kodo] Module lookup failed for ${ref}: ${err.message}`);
+        }
+      }
       if (moduleName) {
         task.groups = [moduleName];
       }
@@ -141,13 +157,23 @@ export function createPlaneProvider(config) {
     },
 
     async updateTaskState(task, stateName) {
-      const states = await client.listStates(task.projectId);
-      const state = states.find((s) => s.name === stateName);
-      if (!state) {
-        const available = states.map((s) => s.name).join(', ');
-        throw new Error(`State "${stateName}" not found. Available: ${available}`);
+      let stateId = stateByName.get(task.projectId)?.get(stateName);
+      if (!stateId) {
+        // Cache miss: refresh just this project's states (could be a new state).
+        const states = await client.listStates(task.projectId);
+        const byName = new Map();
+        for (const s of states) {
+          stateCache.set(s.id, s.name);
+          byName.set(s.name, s.id);
+        }
+        stateByName.set(task.projectId, byName);
+        stateId = byName.get(stateName);
+        if (!stateId) {
+          const available = [...byName.keys()].join(', ');
+          throw new Error(`State "${stateName}" not found. Available: ${available}`);
+        }
       }
-      await client.updateWorkItem(task.projectId, task.id, { state: state.id });
+      await client.updateWorkItem(task.projectId, task.id, { state: stateId });
     },
 
     async addComment(task, markdownText) {
@@ -168,14 +194,9 @@ export function createPlaneProvider(config) {
     async listPendingTasks() {
       const allTasks = [];
       for (const proj of config.projects) {
-        const items = await client.listWorkItems(proj.id, {
-          expand: 'state_detail,project_detail',
-        });
-        // Filter by trigger state name (resolve UUID via stateCache if state_detail missing)
-        const pending = items.filter((item) => {
-          const stateName = item.state_detail?.name || stateCache.get(item.state);
-          return stateName === config.states.trigger;
-        });
+        // No expand — stateCache already maps UUID → name, project is known.
+        const items = await client.listWorkItems(proj.id);
+        const pending = items.filter((item) => stateCache.get(item.state) === config.states.trigger);
         const context = {
           labels: labelCache,
           projectIdentifier: proj.identifier,

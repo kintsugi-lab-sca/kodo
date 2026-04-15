@@ -123,6 +123,23 @@ kodo config --set server.stuck_threshold_min=30    # minutos para considerar stu
 kodo config --show
 ```
 
+### Rate limit de la API de Plane
+
+Plane limita por defecto a **60 requests/minuto** por API key. kodo cachea
+estados, labels y módulos al arrancar (TTL 5 min) y reintenta con backoff
+exponencial ante 429, pero si gestionas varios proyectos con webhooks
+concurrentes puedes agotar el cupo.
+
+En un Plane self-hosted, sube el límite editando el `.env` del contenedor
+`api` y reinicia:
+
+```env
+API_KEY_RATE_LIMIT=300/minute
+```
+
+Formato: `<número>/<unidad>`. Más detalles en
+[docs de Plane](https://developers.plane.so/self-hosting/govern/environment-variables).
+
 ## Uso
 
 ### Automático (webhook)
