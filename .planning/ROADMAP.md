@@ -41,7 +41,11 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   2. El nivel se configura vía `KODO_LOG_LEVEL` y flag CLI; `warn`/`error` se espejan a stderr en pretty-print sin duplicar el JSON de disco.
   3. Secretos conocidos (`PLANE_API_KEY`, firmas de webhook, headers `Authorization`) se redactan antes de cualquier escritura (disco o consola) — verificable con test unitario.
   4. `kodo check` no carga el logger transitivamente: test de grafo de imports + presupuesto de arranque <50ms guardan la regresión.
-**Plans:** TBD
+**Plans:** 4 plans
+  - [ ] 06-01-PLAN.md — Wave 0: baseline measurement + test stubs (fixtures, helpers, 4 test files, STARTUP-BASELINE.md)
+  - [ ] 06-02-PLAN.md — Wave 1: `src/logger-noop.js` + `src/logger.js` factory con NDJSON sink y pretty-print stderr (LOG-01..LOG-04)
+  - [ ] 06-03-PLAN.md — Wave 2: redactor deep-walk + key-set + JWT/bearer regex integrado en emit (LOG-08)
+  - [ ] 06-04-PLAN.md — Wave 3: endurecer tests de aislamiento + re-medir baseline post-phase (LOG-12)
 
 ### Phase 7: `kodo logs` CLI + Event Taxonomy
 **Goal:** El usuario puede localizar e inspeccionar el log de cualquier sesión (por session-id o plane-task-id) con filtros y tail en vivo; los eventos de ciclo de vida están tipados.
@@ -94,7 +98,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 3. Consumer Rewiring | v0.2 | 2/2 | Complete | 2026-04-10 |
 | 4. Server + Trigger Abstraction | v0.2 | 2/2 | Complete | 2026-04-13 |
 | 5. Config + Cleanup | v0.2 | 2/2 | Complete | 2026-04-13 |
-| 6. Structured Logger Foundation | v0.3 | 0/0 | Not started | - |
+| 6. Structured Logger Foundation | v0.3 | 0/4 | Planned | - |
 | 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/0 | Not started | - |
 | 8. GSD Label + Session Plumbing | v0.3 | 0/0 | Not started | - |
 | 9. Phase Resolver + Bootstrap | v0.3 | 0/0 | Not started | - |
@@ -133,3 +137,4 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 
 ---
 *v0.3 roadmap created: 2026-04-15*
+*Phase 6 plans created: 2026-04-15*
