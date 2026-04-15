@@ -31,6 +31,10 @@ export function createPlaneProvider(config) {
   let labelCache = [];
   /** @type {Map<string, string>} state UUID → state name */
   const stateCache = new Map();
+  /** @type {Map<string, string>} workItem UUID → module name */
+  const moduleCache = new Map();
+  let initTimestamp = 0;
+  const INIT_TTL_MS = 5 * 60 * 1000; // re-init every 5min
 
   /**
    * Parse a human-readable ref like "KL-42" into identifier prefix and sequence number.
@@ -57,6 +61,9 @@ export function createPlaneProvider(config) {
   /** @type {import('../../interface.js').TaskProvider} */
   const provider = {
     async init() {
+      // Skip re-init if recent
+      if (initTimestamp && Date.now() - initTimestamp < INIT_TTL_MS) return;
+
       // Resolve project entries: if config has plain UUID strings, enrich
       // them with { id, identifier, name } from the API so that all other
       // methods can rely on the object shape.
@@ -86,6 +93,25 @@ export function createPlaneProvider(config) {
           stateCache.set(s.id, s.name);
         }
       }
+
+      // Cache module membership per project (workItemId → moduleName)
+      for (const proj of config.projects) {
+        try {
+          const modules = await client.listModules(proj.id);
+          for (const mod of modules) {
+            if (mod.total_issues === 0) continue;
+            const items = await client.request(`/projects/${proj.id}/modules/${mod.id}/module-issues/`);
+            const results = items.results || items;
+            for (const item of results) {
+              moduleCache.set(item.id, mod.name);
+            }
+          }
+        } catch (err) {
+          console.warn(`[kodo] Could not cache modules for project ${proj.identifier}: ${err.message}`);
+        }
+      }
+
+      initTimestamp = Date.now();
     },
 
     async getTask(ref) {
@@ -106,7 +132,7 @@ export function createPlaneProvider(config) {
       const task = normalizeWorkItem(workItem, context);
 
       // Try to resolve module (group)
-      const moduleName = await client.getWorkItemModule(proj.id, workItem.id);
+      const moduleName = moduleCache.get(workItem.id) || null;
       if (moduleName) {
         task.groups = [moduleName];
       }

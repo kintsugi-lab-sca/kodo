@@ -14,6 +14,10 @@ const PID_PATH = join(KODO_DIR, 'server.pid');
 const LOG_BUFFER_SIZE = 200;
 const logBuffer = [];
 
+// Cache for pending tasks (avoid hitting Plane API every dashboard poll)
+const PENDING_CACHE_TTL_MS = 30 * 1000;
+let pendingCache = { data: [], ts: 0 };
+
 function pushLog(level, args) {
   const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
   logBuffer.push({ ts: new Date().toISOString(), level, msg });
@@ -357,7 +361,17 @@ export async function startServer(opts = {}) {
     if (req.method === 'GET' && req.url === '/status') {
       const sessions = listSessions();
       let pending = [];
-      try { pending = await provider.listPendingTasks(); } catch {}
+      if (Date.now() - pendingCache.ts < PENDING_CACHE_TTL_MS) {
+        pending = pendingCache.data;
+      } else {
+        try {
+          pending = await provider.listPendingTasks();
+          pendingCache = { data: pending, ts: Date.now() };
+        } catch (err) {
+          console.warn(`[kodo] listPendingTasks failed: ${err.message}`);
+          pending = pendingCache.data;
+        }
+      }
 
       // Enrich sessions with live workspace health
       let workspaceList = '';

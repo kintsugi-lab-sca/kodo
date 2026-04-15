@@ -27,22 +27,35 @@ export class PlaneClient {
       }
     }
 
-    const res = await fetch(url, {
-      method: opts.method || 'GET',
-      headers: {
-        'X-API-Key': this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-      signal: AbortSignal.timeout(10_000),
-    });
+    const maxRetries = opts.maxRetries ?? 3;
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, {
+        method: opts.method || 'GET',
+        headers: {
+          'X-API-Key': this.apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        signal: AbortSignal.timeout(10_000),
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Plane API ${res.status}: ${path} — ${text}`);
+      if (res.status === 429 && attempt < maxRetries) {
+        const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
+        const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(1000 * 2 ** attempt, 8000);
+        console.warn(`[kodo] Plane rate limit on ${path}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        attempt++;
+        continue;
+      }
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Plane API ${res.status}: ${path} — ${text}`);
+      }
+
+      return res.json();
     }
-
-    return res.json();
   }
 
   /** @param {string} projectId */
