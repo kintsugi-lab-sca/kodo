@@ -69,8 +69,11 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     }
 
     // Ignore inactive states (skip if force=true)
+    // Default: Backlog + configured review state (human turn, no re-dispatch)
     if (!opts.force) {
-      const ignoreStates = providerStates.ignore || ['Backlog'];
+      const defaultIgnore = ['Backlog'];
+      if (providerStates.review) defaultIgnore.push(providerStates.review);
+      const ignoreStates = providerStates.ignore || defaultIgnore;
       if (ignoreStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
         console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
         return { action: 'ignored' };
