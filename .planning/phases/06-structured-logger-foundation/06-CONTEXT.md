@@ -51,9 +51,9 @@ Crear `src/logger.js` — factory NDJSON con redacción de secretos, espejo stde
 
 ### Aislamiento del vigilante (LOG-12)
 - Convención: `src/check.js` no puede importar `logger.js` directa ni transitivamente.
-- Doble red de verificación:
-  1. Test de grafo de imports que parsea el árbol desde `src/check.js` (walk AST o análisis de require-graph) y asserta que `logger` no aparece.
-  2. Test de presupuesto de arranque: `node bin/kodo check` debe completar en <50ms (medición promediada de N runs).
+- Red de verificación (**revisada tras baseline de Wave 0, ver STARTUP-BASELINE.md**):
+  1. Test de grafo de imports que parsea el árbol desde `src/check.js` y asserta que `logger` no aparece — **canal primario y único fiable**.
+  2. ~~Test de presupuesto de arranque <50ms~~ — **descartado como guardián** (Decisión B, 2026-04-15). `kodo check` no es vigilante puro: invoca `provider.listPendingTasks()` (HTTP Plane) y potencialmente `launchOrchestrator()` (cmux spawn), con mediana de arranque 65.8s (min 6.2s, max 68s). Cualquier threshold mecánico sobre esta distribución sería ruido de red, no regresión de imports. Plan 06-04 debe dejar `test/startup-budget.test.js` como informativo (no bloqueante) o eliminarlo, manteniendo la señal real en `check-isolation.test.js`. Refactor de `check.js` separando snapshot/act queda fuera de alcance de Fase 6.
 - Si algún código que vive en el camino de `check.js` necesita loggear, usa el no-op fallback o se refactoriza fuera del path del vigilante.
 
 ### Claude's Discretion
