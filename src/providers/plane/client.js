@@ -2,12 +2,13 @@
 import { loadConfig, getPlaneApiKey } from '../../config.js';
 
 export class PlaneClient {
-  /** @param {{ baseUrl?: string, apiKey?: string, workspaceSlug?: string }} [opts] */
+  /** @param {{ baseUrl?: string, apiKey?: string, workspaceSlug?: string, logger?: import('../../logger.js').Logger }} [opts] */
   constructor(opts = {}) {
     const config = loadConfig();
     this.baseUrl = (opts.baseUrl || config.plane.base_url).replace(/\/$/, '');
     this.apiKey = opts.apiKey || getPlaneApiKey();
     this.workspaceSlug = opts.workspaceSlug || config.plane.workspace_slug;
+    this.logger = opts.logger; // undefined if not provided — emission uses optional chain
 
     if (!this.apiKey) {
       throw new Error(`Plane API key not found. Set ${config.plane.api_key_env} env var.`);
@@ -41,6 +42,7 @@ export class PlaneClient {
     }
 
     while (true) {
+      const started = Date.now();
       const res = await fetch(url, {
         method: opts.method || 'GET',
         headers: {
@@ -68,6 +70,21 @@ export class PlaneClient {
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`Plane API ${res.status}: ${path} — ${text}`);
+      }
+
+      // Emit typed plane.api.call event on successful response (best-effort)
+      if (this.logger) {
+        try {
+          const { planeApiCall } = await import('../../logger-events.js');
+          planeApiCall(this.logger, {
+            method: opts.method || 'GET',
+            path,
+            status: res.status,
+            duration_ms: Date.now() - started,
+          });
+        } catch {
+          // silent — never interfere with the actual API response flow
+        }
       }
 
       return res.json();

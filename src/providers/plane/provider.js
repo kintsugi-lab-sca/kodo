@@ -18,13 +18,16 @@ import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
  * Factory that creates a TaskProvider adapter for Plane.
  *
  * @param {PlaneProviderConfig} config
+ * @param {{ logger?: import('../../logger.js').Logger }} [opts]
  * @returns {import('../../interface.js').TaskProvider}
  */
-export function createPlaneProvider(config) {
+export function createPlaneProvider(config, opts = {}) {
+  const logger = opts.logger?.child({ component: 'plane' });
   const client = new PlaneClient({
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     workspaceSlug: config.workspaceSlug,
+    logger,
   });
 
   /** @type {Array<{id: string, name: string}>} */
