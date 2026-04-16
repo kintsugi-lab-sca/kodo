@@ -36,6 +36,11 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 - ✓ Orchestrator prompt neutral con {{provider}} placeholders — v0.2
 - ✓ State migration automática v1→v2 con schema_version — v0.2
 - ✓ 122 tests cubriendo contratos, normalización, rewiring, triggers y config — v0.2
+- ✓ Logger estructurado NDJSON con niveles (debug/info/warn/error) y redactor — v0.3 Phase 6
+- ✓ `kodo logs` CLI con filtros (--level, --component, --event-type, --json, --follow) — v0.3 Phase 7
+- ✓ Event taxonomy tipada (7 tipos: session.start/end, state.transition, orchestrator.review, gsd.phase.resolved, gsd.bootstrap, plane.api.call) — v0.3 Phase 7
+- ✓ Correlación con transcript de Claude Code vía `transcript_path` en `session.start` — v0.3 Phase 7
+- ✓ Resolver `kodo logs --session-of <plane-task-id>` (two-step: state.json → head-line scan) — v0.3 Phase 7
 
 ### Active
 
@@ -45,7 +50,6 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 - [ ] Polling trigger channel para providers sin webhook
 - [ ] File watcher trigger para provider local
 - [ ] Output del CLI con colores y formato mejorado
-- [ ] Logging estructurado con niveles (debug, info, warn, error)
 
 ### Out of Scope
 
@@ -98,4 +102,4 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 | ensureConfig guards commands needing provider | First-run UX, auto-launches wizard | ✓ Good — clean onboarding flow |
 
 ---
-*Last updated: 2026-04-15 — milestone v0.3 started (GSD Integration + Structured Logging)*
+*Last updated: 2026-04-16 — Phase 7 complete (kodo logs CLI + event taxonomy)*
