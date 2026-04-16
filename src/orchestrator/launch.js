@@ -29,10 +29,14 @@ export function resolvePromptTemplate(template, config) {
 }
 
 /**
- * Launch the orchestrator Claude session in a dedicated cmux workspace
+ * Launch the orchestrator Claude session in a dedicated cmux workspace.
+ *
+ * @param {{ logger?: import('../logger.js').Logger }} [opts]
  */
-export async function launchOrchestrator() {
+export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
+  const log = opts.logger?.child({ component: 'orchestrator' });
+  log?.info('orchestrator.launch.start', { provider: config.provider });
 
   // Check if orchestrator is already running
   let workspaceList;

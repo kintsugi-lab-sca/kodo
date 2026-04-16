@@ -5,7 +5,8 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
-import { addSession, listSessions } from './state.js';
+import { addSession, listSessions, updateSession } from './state.js';
+import { stateTransition } from '../logger-events.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.
@@ -240,4 +241,24 @@ function escapeShell(str) {
  */
 function truncate(str, max) {
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
+}
+
+/**
+ * Update a session's status and emit a typed state.transition event when a
+ * logger is provided. Retrocompatible: callers that do not pass a logger
+ * behave identically to a direct updateSession() call.
+ *
+ * @param {string} taskId
+ * @param {'running'|'done'|'error'|'review'|'interrupted'} nextStatus
+ * @param {string} reason
+ * @param {import('../logger.js').Logger} [logger]
+ */
+export function markSessionStatus(taskId, nextStatus, reason, logger) {
+  const current = listSessions().find((s) => s.task_id === taskId || s.task_ref === taskId);
+  const fromStatus = current?.status || 'unknown';
+  updateSession(taskId, { status: nextStatus });
+  if (logger) {
+    const log = logger.child({ component: 'session', plane_task_id: taskId });
+    stateTransition(log, { from: fromStatus, to: nextStatus, reason });
+  }
 }

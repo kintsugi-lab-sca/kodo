@@ -8,12 +8,15 @@ function getCmuxBinary() {
 
 /**
  * @param {string[]} args
+ * @param {import('../logger.js').Logger} [logger]
  * @returns {Promise<string>}
  */
-function run(args) {
+function run(args, logger) {
   return new Promise((resolve, reject) => {
+    logger?.debug('cmux.exec', { cmd: args[0], argc: args.length });
     execFile(getCmuxBinary(), args, { timeout: 15_000 }, (err, stdout, stderr) => {
       if (err) {
+        logger?.warn('cmux.fail', { cmd: args[0], stderr: String(stderr || '').slice(0, 200) });
         reject(new Error(`cmux ${args[0]} failed: ${stderr || err.message}`));
         return;
       }
