@@ -57,10 +57,10 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   3. Los callsites críticos emiten tipos fijos: `session.start`, `session.end`, `state.transition`, `orchestrator.review`, `gsd.phase.resolved`, `gsd.bootstrap`, `plane.api.call` — validable inspeccionando el NDJSON de una sesión de prueba.
   4. Cada `session.start` incluye el path del transcript de Claude Code para pivotar entre la vista de kodo y la de Claude.
 **Plans:** 6 plans
-  - [ ] 07-01-PLAN.md — Wave 0: test stubs (4 test files), golden fixture (7 eventos), logger-sink helper
-  - [ ] 07-02-PLAN.md — Wave 1: `src/logger-events.js` (EVENTS const + 7 helpers + resolveTranscriptPath) — LOG-09, LOG-10
-  - [ ] 07-03-PLAN.md — Wave 1: CLI reader — additive exports en `src/logger.js`, `src/logs/reader.js`, `src/logs/follow.js` — LOG-05, LOG-06, LOG-07
-  - [ ] 07-04-PLAN.md — Wave 1: `src/logs/session-lookup.js` + `src/logs/head-line.js` (two-step resolver) — LOG-11
+  - [x] 07-01-PLAN.md — Wave 0: test stubs (4 test files), golden fixture (7 eventos), logger-sink helper
+  - [x] 07-02-PLAN.md — Wave 1: `src/logger-events.js` (EVENTS const + 7 helpers + resolveTranscriptPath) — LOG-09, LOG-10
+  - [x] 07-03-PLAN.md — Wave 1: CLI reader — additive exports en `src/logger.js`, `src/logs/reader.js`, `src/logs/follow.js` — LOG-05, LOG-06, LOG-07
+  - [x] 07-04-PLAN.md — Wave 1: `src/logs/session-lookup.js` + `src/logs/head-line.js` (two-step resolver) — LOG-11
   - [ ] 07-05-PLAN.md — Wave 2: registrar `kodo logs [session-id]` en `src/cli.js` con 6 flags
   - [ ] 07-06-PLAN.md — Wave 2: DI logger + emisión tipada en 7 consumers (session/state, manager, hooks, plane/client+provider, cmux, orchestrator)
 
