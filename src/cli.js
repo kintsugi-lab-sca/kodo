@@ -210,6 +210,34 @@ program
     }
   });
 
+// --- kodo logs ---
+program
+  .command('logs [session-id]')
+  .description('Inspect a session log (dump, tail, filter)')
+  .option('-f, --follow', 'Tail live output (like tail -f)')
+  .option('-l, --level <level>', 'Min log level: debug|info|warn|error')
+  .option('-c, --component <name>', 'Filter by component')
+  .option('-e, --event-type <type...>', 'Filter by event type (repeatable)')
+  .option('--json', 'Emit raw NDJSON (pipe-friendly)')
+  .option('--session-of <task-id>', 'Resolve session-id from task id')
+  .action(async (sessionId, opts) => {
+    try {
+      const { runLogs } = await import('./logs/reader.js');
+      await runLogs({
+        sessionId,
+        follow: opts.follow || false,
+        level: opts.level,
+        component: opts.component,
+        eventType: opts.eventType,
+        json: opts.json || false,
+        sessionOf: opts.sessionOf,
+      });
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
