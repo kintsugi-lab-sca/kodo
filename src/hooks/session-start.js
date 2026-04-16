@@ -94,6 +94,28 @@ async function main() {
     const config = loadConfig();
     const context = buildSessionContext(session, config);
 
+    // Emit typed session.start event (best-effort; silent on failure so we
+    // never crash Claude Code startup — outer try/catch still catches but
+    // the inner try makes the intent explicit and isolates logger load).
+    try {
+      const { createLogger } = await import('../logger.js');
+      const { sessionStart } = await import('../logger-events.js');
+      const log = createLogger({
+        sessionId: session.session_id,
+        minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+      }).child({ component: 'hook', plane_task_id: session.task_id });
+      sessionStart(log, {
+        session_id: session.session_id,
+        plane_task_id: session.task_id,
+        provider: session.provider,
+        project_path: session.project_path,
+        transcript_path: input.transcript_path,
+        started_at: new Date().toISOString(),
+      });
+    } catch {
+      // silent — never crash Claude Code
+    }
+
     // Output context for Claude Code to inject
     const output = JSON.stringify({
       hookSpecificOutput: {
