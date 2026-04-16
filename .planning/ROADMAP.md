@@ -56,7 +56,13 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   2. `kodo logs --session-of <plane-task-id>` localiza el log sin requerir el session-id.
   3. Los callsites críticos emiten tipos fijos: `session.start`, `session.end`, `state.transition`, `orchestrator.review`, `gsd.phase.resolved`, `gsd.bootstrap`, `plane.api.call` — validable inspeccionando el NDJSON de una sesión de prueba.
   4. Cada `session.start` incluye el path del transcript de Claude Code para pivotar entre la vista de kodo y la de Claude.
-**Plans:** TBD
+**Plans:** 6 plans
+  - [ ] 07-01-PLAN.md — Wave 0: test stubs (4 test files), golden fixture (7 eventos), logger-sink helper
+  - [ ] 07-02-PLAN.md — Wave 1: `src/logger-events.js` (EVENTS const + 7 helpers + resolveTranscriptPath) — LOG-09, LOG-10
+  - [ ] 07-03-PLAN.md — Wave 1: CLI reader — additive exports en `src/logger.js`, `src/logs/reader.js`, `src/logs/follow.js` — LOG-05, LOG-06, LOG-07
+  - [ ] 07-04-PLAN.md — Wave 1: `src/logs/session-lookup.js` + `src/logs/head-line.js` (two-step resolver) — LOG-11
+  - [ ] 07-05-PLAN.md — Wave 2: registrar `kodo logs [session-id]` en `src/cli.js` con 6 flags
+  - [ ] 07-06-PLAN.md — Wave 2: DI logger + emisión tipada en 7 consumers (session/state, manager, hooks, plane/client+provider, cmux, orchestrator)
 
 ### Phase 8: GSD Label + Session Plumbing
 **Goal:** Una tarea Plane con label `kodo:gsd` atraviesa el dispatcher con el flag GSD propagado hasta la sesión, y dos tareas del mismo repo nunca arrancan sesiones GSD concurrentes.
@@ -98,8 +104,8 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 3. Consumer Rewiring | v0.2 | 2/2 | Complete | 2026-04-10 |
 | 4. Server + Trigger Abstraction | v0.2 | 2/2 | Complete | 2026-04-13 |
 | 5. Config + Cleanup | v0.2 | 2/2 | Complete | 2026-04-13 |
-| 6. Structured Logger Foundation | v0.3 | 0/4 | Planned | - |
-| 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/0 | Not started | - |
+| 6. Structured Logger Foundation | v0.3 | 4/4 | Complete | 2026-04-15 |
+| 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/6 | Planned | - |
 | 8. GSD Label + Session Plumbing | v0.3 | 0/0 | Not started | - |
 | 9. Phase Resolver + Bootstrap | v0.3 | 0/0 | Not started | - |
 | 10. Orchestrator Verification Gate | v0.3 | 0/0 | Not started | - |
@@ -138,3 +144,4 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 ---
 *v0.3 roadmap created: 2026-04-15*
 *Phase 6 plans created: 2026-04-15*
+*Phase 7 plans created: 2026-04-16*
