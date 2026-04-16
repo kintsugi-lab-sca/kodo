@@ -61,8 +61,8 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   - [x] 07-02-PLAN.md — Wave 1: `src/logger-events.js` (EVENTS const + 7 helpers + resolveTranscriptPath) — LOG-09, LOG-10
   - [x] 07-03-PLAN.md — Wave 1: CLI reader — additive exports en `src/logger.js`, `src/logs/reader.js`, `src/logs/follow.js` — LOG-05, LOG-06, LOG-07
   - [x] 07-04-PLAN.md — Wave 1: `src/logs/session-lookup.js` + `src/logs/head-line.js` (two-step resolver) — LOG-11
-  - [ ] 07-05-PLAN.md — Wave 2: registrar `kodo logs [session-id]` en `src/cli.js` con 6 flags
-  - [ ] 07-06-PLAN.md — Wave 2: DI logger + emisión tipada en 7 consumers (session/state, manager, hooks, plane/client+provider, cmux, orchestrator)
+  - [x] 07-05-PLAN.md — Wave 2: registrar `kodo logs [session-id]` en `src/cli.js` con 6 flags
+  - [x] 07-06-PLAN.md — Wave 2: DI logger + emisión tipada en 7 consumers (session/state, manager, hooks, plane/client+provider, cmux, orchestrator)
 
 ### Phase 8: GSD Label + Session Plumbing
 **Goal:** Una tarea Plane con label `kodo:gsd` atraviesa el dispatcher con el flag GSD propagado hasta la sesión, y dos tareas del mismo repo nunca arrancan sesiones GSD concurrentes.
