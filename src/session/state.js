@@ -2,6 +2,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { KODO_DIR } from '../config.js';
+// LOG-12: import only the zero-import noop logger, NEVER logger.js. The noop
+// is explicitly whitelisted in test/check-isolation.test.js.
+import { noopLogger } from '../logger-noop.js';
 
 const STATE_PATH = join(KODO_DIR, 'state.json');
 
@@ -75,15 +78,23 @@ export function saveState(state) {
 /**
  * @param {string} taskId
  * @param {Session} session
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
  */
-export function addSession(taskId, session) {
+export function addSession(taskId, session, logger = noopLogger) {
   const state = loadState();
   state.sessions[taskId] = session;
   saveState(state);
+  logger.info('state.session.added', {
+    task_id: taskId,
+    status: session.status,
+  });
 }
 
-/** @param {string} taskId */
-export function removeSession(taskId) {
+/**
+ * @param {string} taskId
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ */
+export function removeSession(taskId, logger = noopLogger) {
   const state = loadState();
   const removed = state.sessions[taskId];
   if (removed) {
@@ -96,6 +107,7 @@ export function removeSession(taskId) {
   }
   delete state.sessions[taskId];
   saveState(state);
+  logger.info('state.session.removed', { task_id: taskId });
 }
 
 /** @returns {Array<Session & { ended_at: string }>} */
@@ -107,12 +119,17 @@ export function listHistory() {
 /**
  * @param {string} taskId
  * @param {Partial<Session>} updates
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
  */
-export function updateSession(taskId, updates) {
+export function updateSession(taskId, updates, logger = noopLogger) {
   const state = loadState();
   if (state.sessions[taskId]) {
     Object.assign(state.sessions[taskId], updates);
     saveState(state);
+    logger.info('state.session.updated', {
+      task_id: taskId,
+      keys: Object.keys(updates),
+    });
   }
 }
 
