@@ -30,7 +30,7 @@ Antes de lanzar una tarea, verificar que el proyecto tiene path mapeado.
 Si no existe, preguntar al usuario antes de lanzar.
 
 IDs conocidos:
-- `612583ec-...` → LIKEN → `/Users/alex/dev/klab/s1s4_v2`
+- `612583ec-...` → LIKEN → `/Users/alex/dev/klab/liken`
 - `add88b2b-...` → ROMAN → `/Users/alex/dev/roman/fvf`
 - `98538548-...` → TENDERIO → `/Users/alex/dev/klab/tenderio`
 
