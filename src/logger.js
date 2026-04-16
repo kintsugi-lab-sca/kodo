@@ -28,13 +28,13 @@ export const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 }
 export const LEVEL_NAMES = Object.freeze(['debug', 'info', 'warn', 'error']);
 
 // ANSI escape codes (mismas convenciones que src/check.js).
-const ANSI_RESET = '\x1b[0m';
+export const ANSI_RESET = '\x1b[0m';
 const ANSI_GRAY = '\x1b[90m';
 const ANSI_CYAN = '\x1b[36m';
 const ANSI_YELLOW = '\x1b[33m';
 const ANSI_RED = '\x1b[31m';
 
-const COLOR_BY_LEVEL = Object.freeze({
+export const COLOR_BY_LEVEL = Object.freeze({
   debug: ANSI_GRAY,
   info: ANSI_CYAN,
   warn: ANSI_YELLOW,
@@ -50,6 +50,46 @@ const BASE_RECORD_KEYS = new Set([
   'plane_task_id',
   'phase_id',
 ]);
+
+/**
+ * Formatea campos extra de contexto inline como `+k=v k2=v2`.
+ * Excluye los base fields (timestamp, level, msg, session_id, component, plane_task_id, phase_id).
+ * Pure — no I/O, no side effects.
+ * @param {object} record
+ * @returns {string}
+ */
+function formatCtxInline(record) {
+  const parts = [];
+  for (const [k, v] of Object.entries(record)) {
+    if (BASE_RECORD_KEYS.has(k)) continue;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      parts.push(`${k}=${v}`);
+    } else {
+      parts.push(`${k}=${JSON.stringify(v)}`);
+    }
+  }
+  return parts.length ? ` +${parts.join(' ')}` : '';
+}
+
+/**
+ * Pretty-format a log record. Shared by stderr mirror AND `kodo logs` CLI.
+ * Output shape: `HH:MM:SS LEVEL [component ]msg[ +k=v ...]`.
+ * Pure — no I/O.
+ * @param {object} record
+ * @param {{ useColor: boolean }} opts
+ * @returns {string}
+ */
+export function formatLine(record, { useColor }) {
+  const time = String(/** @type {any} */ (record).timestamp).slice(11, 19);
+  const lvl = String(/** @type {any} */ (record).level).toUpperCase();
+  const c = useColor ? COLOR_BY_LEVEL[/** @type {any} */ (record).level] || '' : '';
+  const r = useColor ? ANSI_RESET : '';
+  const comp = /** @type {any} */ (record).component
+    ? ` ${/** @type {any} */ (record).component}`
+    : '';
+  const ctx = formatCtxInline(record);
+  return `${time} ${c}${lvl}${r}${comp} ${/** @type {any} */ (record).msg}${ctx}`;
+}
 
 // --- Redaction (LOG-08) ---------------------------------------------------
 
@@ -228,31 +268,6 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
       (level === 'info' && isTTY && minLevelNum <= LEVELS.info) ||
       (level === 'debug' && isTTY && minLevelNum <= LEVELS.debug);
     if (!mirror) return;
-
-    const time = /** @type {string} */ (/** @type {any} */ (record).timestamp).slice(11, 19);
-    const c = useColor ? COLOR_BY_LEVEL[level] : '';
-    const r = useColor ? ANSI_RESET : '';
-    const comp = /** @type {any} */ (record).component ? ` ${/** @type {any} */ (record).component}` : '';
-    const ctxStr = formatCtxInline(record);
-    process.stderr.write(`${time} ${c}${level.toUpperCase()}${r}${comp} ${/** @type {any} */ (record).msg}${ctxStr}\n`);
-  }
-
-  /**
-   * Formatea campos extra de contexto inline como `+k=v k2=v2`.
-   * Excluye los base fields (timestamp, level, msg, session_id, component, plane_task_id, phase_id).
-   * @param {object} record
-   * @returns {string}
-   */
-  function formatCtxInline(record) {
-    const parts = [];
-    for (const [k, v] of Object.entries(record)) {
-      if (BASE_RECORD_KEYS.has(k)) continue;
-      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-        parts.push(`${k}=${v}`);
-      } else {
-        parts.push(`${k}=${JSON.stringify(v)}`);
-      }
-    }
-    return parts.length ? ` +${parts.join(' ')}` : '';
+    process.stderr.write(formatLine(record, { useColor }) + '\n');
   }
 }
