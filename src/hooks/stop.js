@@ -79,6 +79,26 @@ async function main() {
       });
     } catch {}
 
+    // Emit typed session.end event BEFORE removeSession so the logger
+    // captures the transition while the session record still exists.
+    // Silent-failure: never crash Claude Code stop hook.
+    try {
+      const { createLogger } = await import('../logger.js');
+      const { sessionEnd } = await import('../logger-events.js');
+      const log = createLogger({
+        sessionId: session.session_id,
+        minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+      }).child({ component: 'hook', plane_task_id: session.task_id });
+      sessionEnd(log, {
+        session_id: session.session_id,
+        plane_task_id: session.task_id,
+        status: session.status,
+        ended_at: new Date().toISOString(),
+      });
+    } catch {
+      // silent — never crash Claude Code
+    }
+
     removeSession(id);
     console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
 
