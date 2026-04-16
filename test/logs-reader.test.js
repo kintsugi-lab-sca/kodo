@@ -10,8 +10,9 @@
  *  - D-02/D-03 `--json`: imprime NDJSON crudo (pipe-friendly para jq).
  *  - D-06: línea malformada NO crashea — imprime `[malformed] <raw>` y continúa.
  *
- * `../src/logs/reader.js` no existe todavía — Plan 07-03 lo crea. Hasta entonces
- * este test falla con ERR_MODULE_NOT_FOUND (Nyquist-expected).
+ * HOME se fija en un tmp ANTES de cualquier dynamic import (los módulos resuelven
+ * KODO_DIR en tiempo de load). Todas las tests comparten el mismo HOME; cada
+ * test usa un `session_id` distinto para aislar su archivo NDJSON.
  */
 
 import { describe, it, after } from 'node:test';
@@ -21,15 +22,19 @@ import { join } from 'node:path';
 import { makeTmpHome } from './helpers/logger-fixtures.js';
 import { captureStdout, captureStderr } from './helpers/logger-sink.js';
 
+// Fijar HOME ANTES de cargar reader.js. Shared HOME, per-test session_ids.
+const fixture = makeTmpHome({ sessionId: '_bootstrap', label: 'reader' });
+after(() => fixture.cleanup());
+
+const { runLogs } = await import('../src/logs/reader.js');
+
 /**
  * Semilla de un archivo `~/.kodo/logs/<sessionId>.ndjson` con las líneas dadas.
- * Cada entrada se serializa con `JSON.stringify` y se separa por `\n`.
- * @param {string} homeDir
  * @param {string} sessionId
  * @param {object[]} lines
  */
-function seedLog(homeDir, sessionId, lines) {
-  const dir = join(homeDir, '.kodo', 'logs');
+function seedLog(sessionId, lines) {
+  const dir = join(fixture.homeDir, '.kodo', 'logs');
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     join(dir, `${sessionId}.ndjson`),
@@ -39,30 +44,13 @@ function seedLog(homeDir, sessionId, lines) {
 
 describe('LOG-05: kodo logs <id> dumps full log to stdout', () => {
   it('prints every line (3 in → 3 out)', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-1', label: 'reader' });
-    after(() => fx.cleanup());
-    seedLog(fx.homeDir, 'sess-reader-1', [
-      {
-        timestamp: '2026-04-16T10:00:00.000Z',
-        level: 'info',
-        msg: 'one',
-        session_id: 'sess-reader-1',
-      },
-      {
-        timestamp: '2026-04-16T10:00:01.000Z',
-        level: 'warn',
-        msg: 'two',
-        session_id: 'sess-reader-1',
-      },
-      {
-        timestamp: '2026-04-16T10:00:02.000Z',
-        level: 'error',
-        msg: 'three',
-        session_id: 'sess-reader-1',
-      },
+    const sessionId = 'sess-reader-1';
+    seedLog(sessionId, [
+      { timestamp: '2026-04-16T10:00:00.000Z', level: 'info', msg: 'one', session_id: sessionId },
+      { timestamp: '2026-04-16T10:00:01.000Z', level: 'warn', msg: 'two', session_id: sessionId },
+      { timestamp: '2026-04-16T10:00:02.000Z', level: 'error', msg: 'three', session_id: sessionId },
     ]);
-    const { runLogs } = await import('../src/logs/reader.js');
-    const { captured } = await captureStdout(() => runLogs({ sessionId: 'sess-reader-1' }));
+    const { captured } = await captureStdout(() => runLogs({ sessionId }));
     const printedLines = captured.join('').split('\n').filter(Boolean);
     assert.equal(printedLines.length, 3);
   });
@@ -70,37 +58,15 @@ describe('LOG-05: kodo logs <id> dumps full log to stdout', () => {
 
 describe('LOG-07: --level filters min level client-side', () => {
   it('--level warn drops info and debug', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-lvl', label: 'reader-lvl' });
-    after(() => fx.cleanup());
-    seedLog(fx.homeDir, 'sess-reader-lvl', [
-      {
-        timestamp: '2026-04-16T10:00:00.000Z',
-        level: 'debug',
-        msg: 'd',
-        session_id: 'sess-reader-lvl',
-      },
-      {
-        timestamp: '2026-04-16T10:00:01.000Z',
-        level: 'info',
-        msg: 'i',
-        session_id: 'sess-reader-lvl',
-      },
-      {
-        timestamp: '2026-04-16T10:00:02.000Z',
-        level: 'warn',
-        msg: 'w',
-        session_id: 'sess-reader-lvl',
-      },
-      {
-        timestamp: '2026-04-16T10:00:03.000Z',
-        level: 'error',
-        msg: 'e',
-        session_id: 'sess-reader-lvl',
-      },
+    const sessionId = 'sess-reader-lvl';
+    seedLog(sessionId, [
+      { timestamp: '2026-04-16T10:00:00.000Z', level: 'debug', msg: 'd', session_id: sessionId },
+      { timestamp: '2026-04-16T10:00:01.000Z', level: 'info', msg: 'i', session_id: sessionId },
+      { timestamp: '2026-04-16T10:00:02.000Z', level: 'warn', msg: 'w', session_id: sessionId },
+      { timestamp: '2026-04-16T10:00:03.000Z', level: 'error', msg: 'e', session_id: sessionId },
     ]);
-    const { runLogs } = await import('../src/logs/reader.js');
     const { captured } = await captureStdout(() =>
-      runLogs({ sessionId: 'sess-reader-lvl', level: 'warn' }),
+      runLogs({ sessionId, level: 'warn' }),
     );
     const text = captured.join('');
     assert.ok(!text.includes(' d'), 'debug line should be filtered out');
@@ -112,18 +78,16 @@ describe('LOG-07: --level filters min level client-side', () => {
 
 describe('LOG-05: --json emits raw NDJSON (pipe-friendly)', () => {
   it('prints valid JSON lines unchanged', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-json', label: 'reader-json' });
-    after(() => fx.cleanup());
+    const sessionId = 'sess-reader-json';
     const rec = {
       timestamp: '2026-04-16T10:00:00.000Z',
       level: 'info',
       msg: 'hello',
-      session_id: 'sess-reader-json',
+      session_id: sessionId,
     };
-    seedLog(fx.homeDir, 'sess-reader-json', [rec]);
-    const { runLogs } = await import('../src/logs/reader.js');
+    seedLog(sessionId, [rec]);
     const { captured } = await captureStdout(() =>
-      runLogs({ sessionId: 'sess-reader-json', json: true }),
+      runLogs({ sessionId, json: true }),
     );
     const parsed = JSON.parse(captured.join('').trim());
     assert.equal(parsed.msg, 'hello');
@@ -132,27 +96,13 @@ describe('LOG-05: --json emits raw NDJSON (pipe-friendly)', () => {
 
 describe('D-02: --component filter', () => {
   it('keeps only matching component', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-comp', label: 'reader-comp' });
-    after(() => fx.cleanup());
-    seedLog(fx.homeDir, 'sess-reader-comp', [
-      {
-        timestamp: '2026-04-16T10:00:00.000Z',
-        level: 'info',
-        msg: 'a',
-        session_id: 'sess-reader-comp',
-        component: 'plane',
-      },
-      {
-        timestamp: '2026-04-16T10:00:01.000Z',
-        level: 'info',
-        msg: 'b',
-        session_id: 'sess-reader-comp',
-        component: 'session',
-      },
+    const sessionId = 'sess-reader-comp';
+    seedLog(sessionId, [
+      { timestamp: '2026-04-16T10:00:00.000Z', level: 'info', msg: 'a', session_id: sessionId, component: 'plane' },
+      { timestamp: '2026-04-16T10:00:01.000Z', level: 'info', msg: 'b', session_id: sessionId, component: 'session' },
     ]);
-    const { runLogs } = await import('../src/logs/reader.js');
     const { captured } = await captureStdout(() =>
-      runLogs({ sessionId: 'sess-reader-comp', component: 'plane' }),
+      runLogs({ sessionId, component: 'plane' }),
     );
     const text = captured.join('');
     assert.ok(text.includes(' a'));
@@ -162,35 +112,15 @@ describe('D-02: --component filter', () => {
 
 describe('D-02: --event-type filter (array, repeatable)', () => {
   it('keeps only lines with event in the array', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-et', label: 'reader-et' });
-    after(() => fx.cleanup());
-    seedLog(fx.homeDir, 'sess-reader-et', [
-      {
-        timestamp: '2026-04-16T10:00:00.000Z',
-        level: 'info',
-        msg: 's',
-        session_id: 'sess-reader-et',
-        event: 'session.start',
-      },
-      {
-        timestamp: '2026-04-16T10:00:01.000Z',
-        level: 'info',
-        msg: 'p',
-        session_id: 'sess-reader-et',
-        event: 'plane.api.call',
-      },
-      {
-        timestamp: '2026-04-16T10:00:02.000Z',
-        level: 'info',
-        msg: 'e',
-        session_id: 'sess-reader-et',
-        event: 'session.end',
-      },
+    const sessionId = 'sess-reader-et';
+    seedLog(sessionId, [
+      { timestamp: '2026-04-16T10:00:00.000Z', level: 'info', msg: 's', session_id: sessionId, event: 'session.start' },
+      { timestamp: '2026-04-16T10:00:01.000Z', level: 'info', msg: 'p', session_id: sessionId, event: 'plane.api.call' },
+      { timestamp: '2026-04-16T10:00:02.000Z', level: 'info', msg: 'e', session_id: sessionId, event: 'session.end' },
     ]);
-    const { runLogs } = await import('../src/logs/reader.js');
     const { captured } = await captureStdout(() =>
       runLogs({
-        sessionId: 'sess-reader-et',
+        sessionId,
         eventType: ['session.start', 'session.end'],
       }),
     );
@@ -203,32 +133,18 @@ describe('D-02: --event-type filter (array, repeatable)', () => {
 
 describe('D-06: malformed line does not crash reader', () => {
   it('prints [malformed] prefix and continues', async () => {
-    const fx = makeTmpHome({ sessionId: 'sess-reader-bad', label: 'reader-bad' });
-    after(() => fx.cleanup());
-    const dir = join(fx.homeDir, '.kodo', 'logs');
+    const sessionId = 'sess-reader-bad';
+    const dir = join(fixture.homeDir, '.kodo', 'logs');
     mkdirSync(dir, { recursive: true });
     writeFileSync(
-      join(dir, 'sess-reader-bad.ndjson'),
-      JSON.stringify({
-        timestamp: '2026-04-16T10:00:00.000Z',
-        level: 'info',
-        msg: 'ok',
-        session_id: 'sess-reader-bad',
-      }) +
+      join(dir, `${sessionId}.ndjson`),
+      JSON.stringify({ timestamp: '2026-04-16T10:00:00.000Z', level: 'info', msg: 'ok', session_id: sessionId }) +
         '\n' +
         '{not valid json\n' +
-        JSON.stringify({
-          timestamp: '2026-04-16T10:00:02.000Z',
-          level: 'info',
-          msg: 'after',
-          session_id: 'sess-reader-bad',
-        }) +
+        JSON.stringify({ timestamp: '2026-04-16T10:00:02.000Z', level: 'info', msg: 'after', session_id: sessionId }) +
         '\n',
     );
-    const { runLogs } = await import('../src/logs/reader.js');
-    const { captured } = await captureStdout(() =>
-      runLogs({ sessionId: 'sess-reader-bad' }),
-    );
+    const { captured } = await captureStdout(() => runLogs({ sessionId }));
     const text = captured.join('');
     assert.ok(text.includes('[malformed]'));
     assert.ok(text.includes('ok'));

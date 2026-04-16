@@ -10,8 +10,9 @@
  *    a stderr listando las descartadas.
  *  - No match ni en state ni en logs → devuelve `null`.
  *
- * `../src/logs/session-lookup.js` no existe todavía — Plan 07-04 lo crea. Hasta
- * entonces este test falla con ERR_MODULE_NOT_FOUND (Nyquist-expected).
+ * HOME se fija en un tmp ANTES de cualquier dynamic import (los módulos resuelven
+ * KODO_DIR en tiempo de load). Tests comparten HOME; cada uno sobrescribe
+ * state.json y usa sus propios archivos NDJSON con task_ids únicos.
  */
 
 import { describe, it, after } from 'node:test';
@@ -21,35 +22,27 @@ import { join } from 'node:path';
 import { makeTmpHome } from './helpers/logger-fixtures.js';
 import { captureStderr } from './helpers/logger-sink.js';
 
-/**
- * Escribe `~/.kodo/state.json` con el contenido dado.
- * @param {string} homeDir
- * @param {object} state
- */
-function seedState(homeDir, state) {
-  const dir = join(homeDir, '.kodo');
+// Fijar HOME ANTES de cargar session-lookup.js. Shared HOME, per-test state/logs.
+const fixture = makeTmpHome({ sessionId: '_bootstrap', label: 'so' });
+after(() => fixture.cleanup());
+
+const { resolveSessionIdFromTaskId } = await import('../src/logs/session-lookup.js');
+
+function seedState(state) {
+  const dir = join(fixture.homeDir, '.kodo');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'state.json'), JSON.stringify(state));
 }
 
-/**
- * Escribe `~/.kodo/logs/<sessionId>.ndjson` con una única línea NDJSON — la
- * cabecera `session.start` que el resolver paso 2 parsea head-line-only.
- * @param {string} homeDir
- * @param {string} sessionId
- * @param {object} firstLine
- */
-function seedLogLines(homeDir, sessionId, firstLine) {
-  const dir = join(homeDir, '.kodo', 'logs');
+function seedLogLines(sessionId, firstLine) {
+  const dir = join(fixture.homeDir, '.kodo', 'logs');
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${sessionId}.ndjson`), JSON.stringify(firstLine) + '\n');
 }
 
 describe('LOG-11: --session-of resolver — step 1 (state.json)', () => {
   it('returns session_id when task_id matches in state.json', async () => {
-    const fx = makeTmpHome({ sessionId: 'unused', label: 'so-step1' });
-    after(() => fx.cleanup());
-    seedState(fx.homeDir, {
+    seedState({
       schema_version: 2,
       sessions: {
         'KL-42': {
@@ -60,7 +53,6 @@ describe('LOG-11: --session-of resolver — step 1 (state.json)', () => {
         },
       },
     });
-    const { resolveSessionIdFromTaskId } = await import('../src/logs/session-lookup.js');
     const out = await resolveSessionIdFromTaskId('KL-42');
     assert.equal(out, 'sess-abc');
   });
@@ -68,10 +60,8 @@ describe('LOG-11: --session-of resolver — step 1 (state.json)', () => {
 
 describe('LOG-11: --session-of resolver — step 2 (head-line scan)', () => {
   it('scans logs/ and finds session.start with matching plane_task_id', async () => {
-    const fx = makeTmpHome({ sessionId: 'unused', label: 'so-step2' });
-    after(() => fx.cleanup());
-    seedState(fx.homeDir, { schema_version: 2, sessions: {} });
-    seedLogLines(fx.homeDir, 'sess-xyz', {
+    seedState({ schema_version: 2, sessions: {} });
+    seedLogLines('sess-xyz', {
       timestamp: '2026-04-16T10:00:00.000Z',
       level: 'info',
       session_id: 'sess-xyz',
@@ -83,7 +73,6 @@ describe('LOG-11: --session-of resolver — step 2 (head-line scan)', () => {
       transcript_path: '/tmp/t',
       started_at: '2026-04-16T10:00:00.000Z',
     });
-    const { resolveSessionIdFromTaskId } = await import('../src/logs/session-lookup.js');
     const out = await resolveSessionIdFromTaskId('KL-99');
     assert.equal(out, 'sess-xyz');
   });
@@ -91,10 +80,8 @@ describe('LOG-11: --session-of resolver — step 2 (head-line scan)', () => {
 
 describe('D-21: multi-match picks most recent + warns descarded', () => {
   it('returns latest by timestamp DESC and warns others to stderr', async () => {
-    const fx = makeTmpHome({ sessionId: 'unused', label: 'so-multi' });
-    after(() => fx.cleanup());
-    seedState(fx.homeDir, { schema_version: 2, sessions: {} });
-    seedLogLines(fx.homeDir, 'sess-old', {
+    seedState({ schema_version: 2, sessions: {} });
+    seedLogLines('sess-old', {
       timestamp: '2026-04-16T09:00:00.000Z',
       level: 'info',
       session_id: 'sess-old',
@@ -105,7 +92,7 @@ describe('D-21: multi-match picks most recent + warns descarded', () => {
       project_path: '/tmp',
       started_at: '2026-04-16T09:00:00.000Z',
     });
-    seedLogLines(fx.homeDir, 'sess-new', {
+    seedLogLines('sess-new', {
       timestamp: '2026-04-16T11:00:00.000Z',
       level: 'info',
       session_id: 'sess-new',
@@ -116,7 +103,6 @@ describe('D-21: multi-match picks most recent + warns descarded', () => {
       project_path: '/tmp',
       started_at: '2026-04-16T11:00:00.000Z',
     });
-    const { resolveSessionIdFromTaskId } = await import('../src/logs/session-lookup.js');
     const { captured, result } = await captureStderr(() =>
       resolveSessionIdFromTaskId('KL-DUP'),
     );
@@ -129,10 +115,7 @@ describe('D-21: multi-match picks most recent + warns descarded', () => {
 
 describe('LOG-11: no match → null', () => {
   it('returns null when neither state nor logs contain task_id', async () => {
-    const fx = makeTmpHome({ sessionId: 'unused', label: 'so-none' });
-    after(() => fx.cleanup());
-    seedState(fx.homeDir, { schema_version: 2, sessions: {} });
-    const { resolveSessionIdFromTaskId } = await import('../src/logs/session-lookup.js');
+    seedState({ schema_version: 2, sessions: {} });
     const out = await resolveSessionIdFromTaskId('KL-NONE');
     assert.equal(out, null);
   });
