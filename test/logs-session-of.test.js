@@ -5,7 +5,7 @@
  * Valida:
  *  - D-20 step 1: `loadState()` match directo por `task_id` en ~/.kodo/state.json.
  *  - D-20 step 2: si no hay match en state, escanea ~/.kodo/logs/*.ndjson leyendo
- *    sólo la primera línea y matcheando `plane_task_id` en `session.start`.
+ *    sólo la primera línea y matcheando `task_id` en `session.start`.
  *  - D-21: multi-match → devuelve la sesión más reciente (timestamp DESC) + warn
  *    a stderr listando las descartadas.
  *  - No match ni en state ni en logs → devuelve `null`.
@@ -59,7 +59,7 @@ describe('LOG-11: --session-of resolver — step 1 (state.json)', () => {
 });
 
 describe('LOG-11: --session-of resolver — step 2 (head-line scan)', () => {
-  it('scans logs/ and finds session.start with matching plane_task_id', async () => {
+  it('scans logs/ and finds session.start with matching task_id', async () => {
     seedState({ schema_version: 2, sessions: {} });
     seedLogLines('sess-xyz', {
       timestamp: '2026-04-16T10:00:00.000Z',
@@ -67,7 +67,7 @@ describe('LOG-11: --session-of resolver — step 2 (head-line scan)', () => {
       session_id: 'sess-xyz',
       msg: 'session.start',
       event: 'session.start',
-      plane_task_id: 'KL-99',
+      task_id: 'KL-99',
       provider: 'plane',
       project_path: '/tmp',
       transcript_path: '/tmp/t',
@@ -87,7 +87,7 @@ describe('D-21: multi-match picks most recent + warns descarded', () => {
       session_id: 'sess-old',
       msg: 'session.start',
       event: 'session.start',
-      plane_task_id: 'KL-DUP',
+      task_id: 'KL-DUP',
       provider: 'plane',
       project_path: '/tmp',
       started_at: '2026-04-16T09:00:00.000Z',
@@ -98,7 +98,7 @@ describe('D-21: multi-match picks most recent + warns descarded', () => {
       session_id: 'sess-new',
       msg: 'session.start',
       event: 'session.start',
-      plane_task_id: 'KL-DUP',
+      task_id: 'KL-DUP',
       provider: 'plane',
       project_path: '/tmp',
       started_at: '2026-04-16T11:00:00.000Z',

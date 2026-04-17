@@ -59,14 +59,14 @@ describe('LOG-03: per-session file + child bindings', () => {
     assert.equal(existsSync(fixture.logPath), true);
   });
 
-  it('child() merges plane_task_id and phase_id bindings into every line', () => {
+  it('child() merges task_id and phase_id bindings into every line', () => {
     const root = createLogger({ sessionId: 'sess-logger-unit', minLevel: 'debug' });
-    const child = root.child({ component: 'plane.client', plane_task_id: 'KL-42', phase_id: '06' });
+    const child = root.child({ component: 'plane.client', task_id: 'KL-42', phase_id: '06' });
     child.info('api call');
     const lines = readAllLines(fixture.logPath);
     const line = lines[lines.length - 1];
     assert.equal(line.component, 'plane.client');
-    assert.equal(line.plane_task_id, 'KL-42');
+    assert.equal(line.task_id, 'KL-42');
     assert.equal(line.phase_id, '06');
   });
 });

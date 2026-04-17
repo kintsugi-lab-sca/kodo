@@ -68,7 +68,7 @@ export function resolveTranscriptPath(projectPath, sessionId) {
  * @param {Logger} logger
  * @param {{
  *   session_id: string,
- *   plane_task_id: string | null,
+ *   task_id: string | null,
  *   provider: string,
  *   project_path: string,
  *   transcript_path?: string,
@@ -81,7 +81,7 @@ export function sessionStart(logger, fields) {
   logger.info(EVENTS.SESSION_START, {
     event: EVENTS.SESSION_START,
     session_id: fields.session_id,
-    plane_task_id: fields.plane_task_id,
+    task_id: fields.task_id,
     provider: fields.provider,
     project_path: fields.project_path,
     transcript_path,
@@ -93,7 +93,7 @@ export function sessionStart(logger, fields) {
  * @param {Logger} logger
  * @param {{
  *   session_id: string,
- *   plane_task_id: string | null,
+ *   task_id: string | null,
  *   status: 'done' | 'error' | 'review' | 'interrupted' | 'running',
  *   ended_at: string,
  * }} fields
@@ -102,7 +102,7 @@ export function sessionEnd(logger, fields) {
   logger.info(EVENTS.SESSION_END, {
     event: EVENTS.SESSION_END,
     session_id: fields.session_id,
-    plane_task_id: fields.plane_task_id,
+    task_id: fields.task_id,
     status: fields.status,
     ended_at: fields.ended_at,
   });

@@ -6,7 +6,7 @@
 //   1. loadState() — match rápido en ~/.kodo/state.json por task_id o task_ref.
 //   2. Fallback: scan de ~/.kodo/logs/*.ndjson.
 //      Para cada archivo: head-line-read (readFirstLine) → parse → match
-//      registro con event === 'session.start' y plane_task_id === taskId.
+//      registro con event === 'session.start' y task_id === taskId.
 //
 // Multi-match (D-21): ordenar por timestamp ISO-8601 DESC (comparación
 // lexicográfica === cronológica), devolver el más reciente, warn a stderr
@@ -65,7 +65,7 @@ export async function resolveSessionIdFromTaskId(taskId) {
       continue;
     }
 
-    if (rec && rec.event === 'session.start' && rec.plane_task_id === taskId) {
+    if (rec && rec.event === 'session.start' && rec.task_id === taskId) {
       matches.push({
         sessionId: fn.replace(/\.ndjson$/, ''),
         timestamp: String(rec.timestamp || ''),

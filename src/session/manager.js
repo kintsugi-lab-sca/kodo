@@ -258,7 +258,7 @@ export function markSessionStatus(taskId, nextStatus, reason, logger) {
   const fromStatus = current?.status || 'unknown';
   updateSession(taskId, { status: nextStatus });
   if (logger) {
-    const log = logger.child({ component: 'session', plane_task_id: taskId });
+    const log = logger.child({ component: 'session', task_id: taskId });
     stateTransition(log, { from: fromStatus, to: nextStatus, reason });
   }
 }

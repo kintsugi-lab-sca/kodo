@@ -47,13 +47,13 @@ const BASE_RECORD_KEYS = new Set([
   'msg',
   'session_id',
   'component',
-  'plane_task_id',
+  'task_id',
   'phase_id',
 ]);
 
 /**
  * Formatea campos extra de contexto inline como `+k=v k2=v2`.
- * Excluye los base fields (timestamp, level, msg, session_id, component, plane_task_id, phase_id).
+ * Excluye los base fields (timestamp, level, msg, session_id, component, task_id, phase_id).
  * Pure — no I/O, no side effects.
  * @param {object} record
  * @returns {string}

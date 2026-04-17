@@ -88,10 +88,10 @@ async function main() {
       const log = createLogger({
         sessionId: session.session_id,
         minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-      }).child({ component: 'hook', plane_task_id: session.task_id });
+      }).child({ component: 'hook', task_id: session.task_id });
       sessionEnd(log, {
         session_id: session.session_id,
-        plane_task_id: session.task_id,
+        task_id: session.task_id,
         status: session.status,
         ended_at: new Date().toISOString(),
       });

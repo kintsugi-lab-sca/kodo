@@ -60,7 +60,7 @@ describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
     const log = createLogger({ sessionId, minLevel: 'info' });
     sessionStart(log, {
       session_id: sessionId,
-      plane_task_id: 'KL-42',
+      task_id: 'KL-42',
       provider: 'plane',
       project_path: '/tmp/kodo-demo',
       transcript_path: '/tmp/fake.jsonl',
@@ -70,7 +70,7 @@ describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
     assert.equal(line.event, EVENTS.SESSION_START);
     for (const f of [
       'session_id',
-      'plane_task_id',
+      'task_id',
       'provider',
       'project_path',
       'transcript_path',
@@ -85,7 +85,7 @@ describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
     const log = createLogger({ sessionId, minLevel: 'info' });
     sessionStart(log, {
       session_id: sessionId,
-      plane_task_id: null,
+      task_id: null,
       provider: 'plane',
       project_path: '/tmp/kodo-demo',
       started_at: '2026-04-16T10:00:00.000Z',
