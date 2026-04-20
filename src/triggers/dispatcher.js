@@ -1,9 +1,10 @@
 // @ts-check
 import { getProvider } from '../providers/registry.js';
-import { loadConfig } from '../config.js';
+import { loadConfig, loadProjects } from '../config.js';
 import { parseKodoLabels } from '../labels.js';
 import { listSessions, removeSession } from '../session/state.js';
-import { launchWorkItem } from '../session/manager.js';
+import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
+import { acquireGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
@@ -16,6 +17,8 @@ const inFlight = new Set();
  *   listSessionsFn?: () => any[],
  *   listWorkspacesFn?: () => Promise<string>,
  *   removeSessionFn?: (id: string) => void,
+ *   acquireGsdLockFn?: (projectPath: string, sessionInfo: {session_id: string, task_id: string, task_ref: string}) => {acquired: boolean, holder?: object},
+ *   resolveProjectPathFn?: (task: import('../interface.js').TaskItem, projects: Record<string, any>) => string,
  * }} DispatchDeps
  */
 
@@ -27,7 +30,7 @@ const inFlight = new Set();
  * @param {import('../interface.js').TriggerEvent} event
  * @param {{ model?: string|null, flags?: string[], force?: boolean }} [opts]
  * @param {DispatchDeps} [deps] - Injectable dependencies for testing
- * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned', session?: object }>}
+ * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked', session?: object, holder?: object }>}
  */
 export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
@@ -35,6 +38,8 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const listSessionsFn = deps.listSessionsFn || listSessions;
   const listWorkspacesFn = deps.listWorkspacesFn || (() => cmux.listWorkspaces());
   const removeSessionFn = deps.removeSessionFn || removeSession;
+  const acquireGsdLockFn = deps.acquireGsdLockFn || acquireGsdLock;
+  const resolveProjectPathFn = deps.resolveProjectPathFn || ((task) => resolveProjectPath(task, loadProjects()));
 
   // 1. Resolve task via provider
   const provider = getProviderFn(event.provider);
@@ -90,6 +95,29 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   if (inFlight.has(task.id)) {
     console.log(`[kodo:dispatch] Ignored — ${task.ref} already dispatching`);
     return { action: 'already_active' };
+  }
+
+  // 3b. GSD repo lock guard — per D-08, only for GSD-flagged tasks.
+  // Prevents concurrent GSD sessions on the same repo (keyed by realpath).
+  if (kodoConfig.flags.includes('gsd')) {
+    let projectPath = null;
+    try {
+      projectPath = resolveProjectPathFn(task);
+    } catch {
+      // Cannot resolve path — skip lock guard (launch will fail later with same error)
+      projectPath = null;
+    }
+    if (projectPath) {
+      const lockResult = acquireGsdLockFn(projectPath, {
+        session_id: `pending-${task.id}`,
+        task_id: task.id,
+        task_ref: task.ref,
+      });
+      if (!lockResult.acquired) {
+        console.log(`[kodo:dispatch] gsd_locked — ${task.ref} blocked by lock on ${projectPath}`);
+        return { action: 'gsd_locked', holder: lockResult.holder };
+      }
+    }
   }
 
   // 4. Session-already-active guard (checks persisted state)

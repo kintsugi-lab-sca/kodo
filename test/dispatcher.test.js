@@ -298,3 +298,97 @@ describe('dispatchTrigger', () => {
     assert.equal(launchWorkItemCalls[0].opts.model, 'haiku');
   });
 });
+
+describe('dispatchTrigger — GSD lock guard (D-08)', () => {
+  beforeEach(() => {
+    launchWorkItemCalls = [];
+  });
+
+  it('returns gsd_locked when lock is held by another session', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const provider = createFakeProvider({
+      getTask: async () => ({
+        id: 'task-uuid-2',
+        ref: 'KL-99',
+        title: 'GSD task',
+        description: '',
+        labels: ['kodo', 'kodo:gsd'],
+        projectId: 'proj-1',
+        projectName: 'Test',
+        groups: [],
+        url: 'https://example.com/KL-99',
+        priority: 'medium',
+        state: 'Todo',
+      }),
+    });
+    const event = { taskRef: 'KL-99', action: 'state_change', provider: 'test', raw: {} };
+    const holder = { session_id: 'sess-other', task_ref: 'KL-50' };
+    const result = await dispatchTrigger(event, {}, {
+      getProviderFn: () => provider,
+      launchWorkItemFn: async () => { launchWorkItemCalls.push({}); return launchWorkItemResult; },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => ({ acquired: false, holder }),
+      resolveProjectPathFn: () => '/tmp/test-repo',
+    });
+    assert.equal(result.action, 'gsd_locked');
+    assert.deepEqual(result.holder, holder);
+    assert.equal(launchWorkItemCalls.length, 0, 'launch must not happen when locked');
+  });
+
+  it('proceeds to launch when lock is acquired', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const provider = createFakeProvider({
+      getTask: async () => ({
+        id: 'task-uuid-3',
+        ref: 'KL-100',
+        title: 'GSD task',
+        description: '',
+        labels: ['kodo', 'kodo:gsd'],
+        projectId: 'proj-1',
+        projectName: 'Test',
+        groups: [],
+        url: 'https://example.com/KL-100',
+        priority: 'medium',
+        state: 'Todo',
+      }),
+    });
+    const event = { taskRef: 'KL-100', action: 'state_change', provider: 'test', raw: {} };
+    const result = await dispatchTrigger(event, {}, {
+      getProviderFn: () => provider,
+      launchWorkItemFn: async (ref, opts) => {
+        launchWorkItemCalls.push({ ref, opts });
+        return launchWorkItemResult;
+      },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => ({ acquired: true }),
+      resolveProjectPathFn: () => '/tmp/test-repo',
+    });
+    assert.equal(result.action, 'launched');
+    assert.equal(launchWorkItemCalls.length, 1);
+  });
+
+  it('skips lock guard for non-GSD tasks', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let lockCalled = false;
+    const provider = createFakeProvider();
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+    const result = await dispatchTrigger(event, {}, {
+      getProviderFn: () => provider,
+      launchWorkItemFn: async (ref, opts) => {
+        launchWorkItemCalls.push({ ref, opts });
+        return launchWorkItemResult;
+      },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => { lockCalled = true; return { acquired: true }; },
+      resolveProjectPathFn: () => '/tmp/test-repo',
+    });
+    assert.equal(lockCalled, false, 'lock should not be called for non-GSD tasks');
+    assert.equal(result.action, 'launched');
+  });
+});
