@@ -26,7 +26,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 
 - [x] **Phase 6: Structured Logger Foundation** — NDJSON logger, per-session file, redaction, vigilante isolation (completed 2026-04-15)
 - [ ] **Phase 7: `kodo logs` CLI + Event Taxonomy** — subcommand with filters, structured lifecycle events, transcript correlation
-- [ ] **Phase 8: GSD Label + Session Plumbing** — label flag chain, SessionRecord schema, dispatcher wiring, per-repo lock
+- [x] **Phase 8: GSD Label + Session Plumbing** — label flag chain, SessionRecord schema, dispatcher wiring, per-repo lock (completed 2026-04-20)
 - [ ] **Phase 9: Phase Resolver + Bootstrap** — `.planning/` presence detection, ROADMAP.md parser, title inference, Plane-body project brief
 - [ ] **Phase 10: Orchestrator Verification Gate** — orchestrator metadata, VERIFICATION.md inspection, Plane comment on review outcome
 
@@ -72,12 +72,12 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   1. `parseKodoLabels` expone `'gsd'` en `flags` cuando la tarea trae label `kodo:gsd`; el dispatcher propaga el flag a `SessionRecord.gsd = true`.
   2. Cuando `session.gsd === true`, el hook `SessionStart` inyecta la secuencia `/gsd:plan-phase <n>` → `/gsd:execute-phase <n>` → `/gsd:verify-work` en el `additionalContext`.
   3. Dos webhooks Plane que resuelven al mismo realpath de repo no arrancan sesiones GSD concurrentes: existe lock por repo (no sólo por task_id) con sentinel en `.planning/.kodo.lock`, verificado por test de integración con dos tareas distintas en paralelo.
-**Plans:** 5 plans
+**Plans:** 5/5 plans complete
   - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
   - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
   - [x] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
   - [x] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
-  - [ ] 08-05-PLAN.md — Gap closure: fix CR-01 (sessionId identity end-to-end) + WR-01 (release on launch throw)
+  - [x] 08-05-PLAN.md — Gap closure: fix CR-01 (sessionId identity end-to-end) + WR-01 (release on launch throw)
 
 ### Phase 9: Phase Resolver + Bootstrap
 **Goal:** kodo detecta si el repo destino ya tiene `.planning/`, bootstrapea cuando falta usando el cuerpo de la tarea Plane como brief, y resuelve la fase correspondiente a partir del título contra `ROADMAP.md`.
@@ -105,8 +105,8 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 **Plans:** 4 plans
   - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
   - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
-  - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
-  - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
+  - [x] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
+  - [x] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
 
 ## Progress
 
@@ -119,7 +119,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 5. Config + Cleanup | v0.2 | 2/2 | Complete | 2026-04-13 |
 | 6. Structured Logger Foundation | v0.3 | 4/4 | Complete | 2026-04-15 |
 | 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/6 | Planned | - |
-| 8. GSD Label + Session Plumbing | v0.3 | 0/0 | Not started | - |
+| 8. GSD Label + Session Plumbing | v0.3 | 5/5 | Complete   | 2026-04-20 |
 | 9. Phase Resolver + Bootstrap | v0.3 | 0/0 | Not started | - |
 | 10. Orchestrator Verification Gate | v0.3 | 0/0 | Not started | - |
 
