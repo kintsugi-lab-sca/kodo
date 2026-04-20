@@ -74,7 +74,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   3. Dos webhooks Plane que resuelven al mismo realpath de repo no arrancan sesiones GSD concurrentes: existe lock por repo (no sólo por task_id) con sentinel en `.planning/.kodo.lock`, verificado por test de integración con dos tareas distintas en paralelo.
 **Plans:** 4 plans
   - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
-  - [ ] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
+  - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
   - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
   - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
 
@@ -88,7 +88,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   3. Cuando el título de la tarea coincide con un heading de fase, kodo infiere `phase_id` sin configuración explícita, y `gsd.phase.resolved` registra qué fase y por qué match.
   4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
 **Plans:** 4 plans
-  - [ ] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
+  - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
   - [ ] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
   - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
   - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
