@@ -116,6 +116,39 @@ describe('manager — pure helpers', () => {
         assert.equal(session.gsd, undefined);
       });
     });
+
+    // CR-01 regression guard: launchWorkItem threads opts.sessionId into
+    // buildSessionFromTask via the sessionId param. We validate the
+    // identity-preservation at the buildSessionFromTask seam because
+    // launchWorkItem itself performs real cmux/provider I/O (tested
+    // elsewhere via the dispatcher integration tests).
+    describe('launchWorkItem — opts.sessionId threading (CR-01 fix)', () => {
+      it('buildSessionFromTask persists the sessionId passed verbatim (even if it looks like a uuid)', () => {
+        const externalUuid = '01234567-89ab-4cde-8f01-23456789abcd';
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/r',
+          workspaceRef: 'w:1',
+          sessionId: externalUuid,
+          flags: ['gsd'],
+        });
+        assert.equal(
+          session.session_id,
+          externalUuid,
+          'session_id must be the externally-provided UUID, not regenerated',
+        );
+        assert.equal(session.gsd, true);
+      });
+
+      it('UUID shape check: randomUUID() output matches the v4 pattern used by the dispatcher', async () => {
+        // Defensive tripwire — if Node ever changes randomUUID output, the
+        // whole contract of "lock.session_id is a v4 UUID" breaks silently.
+        const uuidV4Re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const { randomUUID } = await import('node:crypto');
+        assert.match(randomUUID(), uuidV4Re);
+      });
+    });
   });
 
   describe('resolveProjectPath', () => {

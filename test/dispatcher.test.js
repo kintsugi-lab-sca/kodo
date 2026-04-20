@@ -392,3 +392,123 @@ describe('dispatchTrigger — GSD lock guard (D-08)', () => {
     assert.equal(result.action, 'launched');
   });
 });
+
+describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)', () => {
+  const uuidV4Re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function gsdProvider() {
+    return createFakeProvider({
+      getTask: async () => ({
+        id: 'task-uuid-CR01',
+        ref: 'KL-501',
+        title: 'GSD CR-01 test',
+        description: '',
+        labels: ['kodo', 'kodo:gsd'],
+        projectId: 'proj-1',
+        projectName: 'Test',
+        groups: [],
+        url: 'https://example.com/KL-501',
+        priority: 'medium',
+        state: 'Todo',
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    launchWorkItemCalls = [];
+  });
+
+  it('D-1: acquireGsdLockFn receives a UUID v4 session_id, never `pending-...`', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let capturedLockInfo = null;
+    const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
+    await dispatchTrigger(event, {}, {
+      getProviderFn: () => gsdProvider(),
+      launchWorkItemFn: async () => launchWorkItemResult,
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: (_path, info) => { capturedLockInfo = info; return { acquired: true }; },
+      resolveProjectPathFn: () => '/tmp/test-cr01',
+    });
+    assert.ok(capturedLockInfo, 'acquireGsdLockFn must be called');
+    assert.match(capturedLockInfo.session_id, uuidV4Re, 'lock session_id must be a UUID v4');
+    assert.ok(
+      !capturedLockInfo.session_id.startsWith('pending-'),
+      'synthetic pending-* ID must be gone',
+    );
+  });
+
+  it('D-2: sessionId passed to acquireGsdLockFn === opts.sessionId passed to launchWorkItemFn', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let lockSessionId = null;
+    let launchSessionId = null;
+    const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
+    await dispatchTrigger(event, {}, {
+      getProviderFn: () => gsdProvider(),
+      launchWorkItemFn: async (_ref, opts) => {
+        launchSessionId = opts.sessionId;
+        return launchWorkItemResult;
+      },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: (_path, info) => { lockSessionId = info.session_id; return { acquired: true }; },
+      resolveProjectPathFn: () => '/tmp/test-cr01',
+    });
+    assert.ok(lockSessionId, 'lock session_id captured');
+    assert.ok(launchSessionId, 'launch opts.sessionId captured');
+    assert.equal(
+      lockSessionId,
+      launchSessionId,
+      'acquire and launch must share the same sessionId (CR-01 fix)',
+    );
+  });
+
+  it('D-3 (WR-01): if launchWorkItemFn throws, releaseGsdLockFn is called with the acquire sessionId, error propagates', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let lockSessionId = null;
+    let releaseArgs = null;
+    const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
+    await assert.rejects(
+      () => dispatchTrigger(event, {}, {
+        getProviderFn: () => gsdProvider(),
+        launchWorkItemFn: async () => { throw new Error('launch boom'); },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: (_path, info) => { lockSessionId = info.session_id; return { acquired: true }; },
+        releaseGsdLockFn: (path, sid) => { releaseArgs = { path, sid }; },
+        resolveProjectPathFn: () => '/tmp/test-cr01',
+      }),
+      /launch boom/,
+    );
+    assert.ok(releaseArgs, 'releaseGsdLockFn must be called on launch error');
+    assert.equal(releaseArgs.path, '/tmp/test-cr01');
+    assert.equal(
+      releaseArgs.sid,
+      lockSessionId,
+      'release must use the same sessionId that was used to acquire',
+    );
+  });
+
+  it('D-4 (WR-01 negative): non-GSD task — releaseGsdLockFn is NOT called even if launch throws', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let releaseCalled = false;
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+    await assert.rejects(
+      () => dispatchTrigger(event, {}, {
+        getProviderFn: () => createFakeProvider(),  // labels: ['kodo'] only, no 'kodo:gsd'
+        launchWorkItemFn: async () => { throw new Error('launch boom'); },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: () => ({ acquired: true }),  // should not be called, but safe default
+        releaseGsdLockFn: () => { releaseCalled = true; },
+        resolveProjectPathFn: () => '/tmp/test-nonGSD',
+      }),
+      /launch boom/,
+    );
+    assert.equal(releaseCalled, false, 'non-GSD path must not touch releaseGsdLockFn');
+  });
+});
