@@ -99,6 +99,16 @@ async function main() {
       // silent — never crash Claude Code
     }
 
+    // Release GSD lock if applicable (D-09: idempotent, verifies session_id)
+    if (session.gsd) {
+      try {
+        const { releaseGsdLock } = await import('../gsd/lock.js');
+        releaseGsdLock(session.project_path, session.session_id);
+      } catch (err) {
+        console.error(`[kodo:stop] Error releasing GSD lock: ${err.message}`);
+      }
+    }
+
     removeSession(id);
     console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
 
