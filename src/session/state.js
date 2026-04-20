@@ -20,6 +20,10 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   status: 'running'|'done'|'error'|'review',
  *   started_at: string,
  *   project_path: string,
+ *   task_url?: string,         // Optional URL to the task in the provider UI
+ *   project_name?: string,     // Optional human-friendly project name
+ *   gsd?: boolean,             // Phase 8: GSD mode flag (D-10). Falsy/missing == non-GSD.
+ *   phase_id?: string,         // Phase 9 prep (D-11): resolved phase identifier (not populated in Phase 8).
  * }} Session
  *
  * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
