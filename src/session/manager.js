@@ -122,8 +122,12 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
 
 /**
  * Launch a Claude Code session for a provider-backed task.
+ *
  * @param {string} identifier e.g. "KL-42"
- * @param {{ model?: string|null, flags?: string[] }} [opts]
+ * @param {{ model?: string|null, flags?: string[], sessionId?: string }} [opts]
+ *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
+ *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
+ *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
  */
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
@@ -173,8 +177,11 @@ export async function launchWorkItem(identifier, opts = {}) {
   // Set color to "running"
   await cmux.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
-  // Build Claude command — prefer opts overrides, fall back to label parsing
-  const sessionId = randomUUID();
+  // Build Claude command — prefer opts overrides, fall back to label parsing.
+  // CR-01 fix: accept opts.sessionId so the GSD dispatcher can thread the same
+  // UUID it stamped into the lock file — acquire, persist and release share
+  // identity. Non-GSD paths (no sessionId in opts) keep the pre-existing behavior.
+  const sessionId = opts.sessionId || randomUUID();
   const modelOverride = opts.model ?? labelModel;
   const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
   const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName);

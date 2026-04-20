@@ -1,10 +1,11 @@
 // @ts-check
+import { randomUUID } from 'node:crypto';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects } from '../config.js';
 import { parseKodoLabels } from '../labels.js';
 import { listSessions, removeSession } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
-import { acquireGsdLock } from '../gsd/lock.js';
+import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
@@ -18,6 +19,7 @@ const inFlight = new Set();
  *   listWorkspacesFn?: () => Promise<string>,
  *   removeSessionFn?: (id: string) => void,
  *   acquireGsdLockFn?: (projectPath: string, sessionInfo: {session_id: string, task_id: string, task_ref: string}) => {acquired: boolean, holder?: object},
+ *   releaseGsdLockFn?: (projectPath: string, sessionId: string) => void,
  *   resolveProjectPathFn?: (task: import('../interface.js').TaskItem, projects: Record<string, any>) => string,
  * }} DispatchDeps
  */
@@ -39,6 +41,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const listWorkspacesFn = deps.listWorkspacesFn || (() => cmux.listWorkspaces());
   const removeSessionFn = deps.removeSessionFn || removeSession;
   const acquireGsdLockFn = deps.acquireGsdLockFn || acquireGsdLock;
+  const releaseGsdLockFn = deps.releaseGsdLockFn || releaseGsdLock;
   const resolveProjectPathFn = deps.resolveProjectPathFn || ((task) => resolveProjectPath(task, loadProjects()));
 
   // 1. Resolve task via provider
@@ -98,23 +101,28 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   }
 
   // 3b. GSD repo lock guard — per D-08, only for GSD-flagged tasks.
-  // Prevents concurrent GSD sessions on the same repo (keyed by realpath).
+  // Generate the sessionId BEFORE acquiring the lock (fix CR-01: acquire,
+  // persist, and release must share the same ownership identity). Thread it
+  // through to launchWorkItemFn via opts.sessionId so buildSessionFromTask
+  // persists the same value that the stop hook will later use to release.
+  let gsdSessionId = null;
+  let gsdProjectPath = null;
   if (kodoConfig.flags.includes('gsd')) {
-    let projectPath = null;
     try {
-      projectPath = resolveProjectPathFn(task);
+      gsdProjectPath = resolveProjectPathFn(task);
     } catch {
       // Cannot resolve path — skip lock guard (launch will fail later with same error)
-      projectPath = null;
+      gsdProjectPath = null;
     }
-    if (projectPath) {
-      const lockResult = acquireGsdLockFn(projectPath, {
-        session_id: `pending-${task.id}`,
+    if (gsdProjectPath) {
+      gsdSessionId = randomUUID();
+      const lockResult = acquireGsdLockFn(gsdProjectPath, {
+        session_id: gsdSessionId,
         task_id: task.id,
         task_ref: task.ref,
       });
       if (!lockResult.acquired) {
-        console.log(`[kodo:dispatch] gsd_locked — ${task.ref} blocked by lock on ${projectPath}`);
+        console.log(`[kodo:dispatch] gsd_locked — ${task.ref} blocked by lock on ${gsdProjectPath}`);
         return { action: 'gsd_locked', holder: lockResult.holder };
       }
     }
@@ -142,9 +150,22 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       const launchOpts = {
         model: opts.model ?? kodoConfig.model,
         flags: [...(opts.flags || []), ...kodoConfig.flags],
+        // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
+        // lock file (fix CR-01). Omitted for non-GSD paths.
+        ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
       };
       const session = await launchWorkItemFn(event.taskRef, launchOpts);
       return { action: 'stale_relaunch', session };
+    } catch (err) {
+      // WR-01: if launch throws after the GSD lock was acquired, release it
+      // so the repo does not stay locked until TTL. No session was ever
+      // persisted (addSession runs last), so the stop hook cannot recover.
+      if (gsdSessionId && gsdProjectPath) {
+        try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
+          // silent — best effort, never mask the original error
+        }
+      }
+      throw err;
     } finally {
       inFlight.delete(task.id);
     }
@@ -156,9 +177,22 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     const launchOpts = {
       model: opts.model ?? kodoConfig.model,
       flags: [...(opts.flags || []), ...kodoConfig.flags],
+      // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
+      // lock file (fix CR-01). Omitted for non-GSD paths.
+      ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
     };
     const session = await launchWorkItemFn(event.taskRef, launchOpts);
     return { action: 'launched', session };
+  } catch (err) {
+    // WR-01: if launch throws after the GSD lock was acquired, release it so
+    // the repo does not stay locked until TTL. The Stop hook cannot recover
+    // here because no session record was ever persisted (addSession runs last).
+    if (gsdSessionId && gsdProjectPath) {
+      try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
+        // silent — best effort, never mask the original error
+      }
+    }
+    throw err;
   } finally {
     inFlight.delete(task.id);
   }
