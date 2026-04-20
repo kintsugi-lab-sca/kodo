@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { acquireGsdLock, releaseGsdLock } from '../src/gsd/lock.js';
+import { acquireGsdLock, releaseGsdLock, readLock } from '../src/gsd/lock.js';
 
 /** Shared tmp dir simulating a repo with .planning/ */
 let repoDir;
@@ -110,38 +110,94 @@ describe('GSD concurrency — integration (Success Criterion 3)', () => {
     assert.equal(result2.holder.task_ref, 'KL-50', 'holder should be first task');
   });
 
-  it('after lock release, second task can acquire', async () => {
+  it('round-trip: dispatcher acquires with UUID → stop-hook-style release with that UUID → second dispatch launches (CR-01 regression)', async () => {
     const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
 
     const task1 = makeGsdTask('task-uuid-C', 'KL-60');
     const task2 = makeGsdTask('task-uuid-D', 'KL-61');
 
-    // First task acquires lock
+    // Capture the sessionId that the dispatcher uses with acquireGsdLock.
+    // In the FIXED dispatcher this is a randomUUID generated before acquire,
+    // and the SAME value is passed to launchWorkItemFn via opts.sessionId.
+    let capturedLockSessionId = null;
+    let capturedLaunchSessionId = null;
+
     const result1 = await dispatchTrigger(
       { taskRef: 'KL-60', action: 'state_change', provider: 'test', raw: {} },
       {},
       {
         getProviderFn: () => createFakeProvider(task1),
-        launchWorkItemFn: async () => ({ ...fakeLaunchResult, task_id: task1.id }),
+        launchWorkItemFn: async (_ref, opts) => {
+          capturedLaunchSessionId = opts.sessionId;
+          return {
+            ...fakeLaunchResult,
+            task_id: task1.id,
+            session_id: opts.sessionId,  // simulate manager.js persisting opts.sessionId
+          };
+        },
         listSessionsFn: () => [],
         listWorkspacesFn: async () => '',
         removeSessionFn: () => {},
-        acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+        acquireGsdLockFn: (path, info) => {
+          capturedLockSessionId = info.session_id;
+          return acquireGsdLock(path, info);
+        },
         resolveProjectPathFn: () => repoDir,
       },
     );
     assert.equal(result1.action, 'launched');
+    assert.ok(capturedLockSessionId, 'dispatcher must have called acquireGsdLockFn');
+    assert.ok(capturedLaunchSessionId, 'dispatcher must have called launchWorkItemFn with opts.sessionId');
+    assert.equal(
+      capturedLockSessionId,
+      capturedLaunchSessionId,
+      'CR-01 fix: acquire and launch must share the same sessionId',
+    );
 
-    // Release lock (simulating stop hook)
-    releaseGsdLock(repoDir, `pending-${task1.id}`);
+    // UUID v4 shape: acquire sessionId must be a UUID, never the old synthetic prefix.
+    const SYNTHETIC_PREFIX = 'pend' + 'ing-';
+    const uuidV4Re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    assert.match(
+      capturedLockSessionId,
+      uuidV4Re,
+      'lock session_id must be a UUID, not a synthetic prefix',
+    );
 
-    // Second task should now succeed
+    // The on-disk lock content must also carry the UUID (defensive — ensures
+    // acquireGsdLock persisted what the dispatcher passed).
+    const lockOnDisk = readLock(repoDir);
+    assert.ok(lockOnDisk, 'lock file must exist after dispatch');
+    assert.equal(lockOnDisk.session_id, capturedLockSessionId);
+    assert.match(lockOnDisk.session_id, uuidV4Re);
+    assert.ok(
+      !lockOnDisk.session_id.startsWith(SYNTHETIC_PREFIX),
+      'on-disk lock must not contain the old synthetic prefix',
+    );
+
+    // Simulate what src/hooks/stop.js does when the GSD session ends:
+    //   releaseGsdLock(session.project_path, session.session_id)
+    // session.session_id in production is the UUID returned by launchWorkItem.
+    // Here we use the same UUID the dispatcher threaded into opts.sessionId.
+    releaseGsdLock(repoDir, capturedLaunchSessionId);
+
+    // Lock file must be gone after the authentic release round-trip.
+    assert.equal(
+      readLock(repoDir),
+      null,
+      'lock file must be deleted by releaseGsdLock — if this fails, CR-01 is back',
+    );
+
+    // Second task should now succeed — no manual release, no TTL wait.
     const result2 = await dispatchTrigger(
       { taskRef: 'KL-61', action: 'state_change', provider: 'test', raw: {} },
       {},
       {
         getProviderFn: () => createFakeProvider(task2),
-        launchWorkItemFn: async () => ({ ...fakeLaunchResult, task_id: task2.id }),
+        launchWorkItemFn: async (_ref, opts) => ({
+          ...fakeLaunchResult,
+          task_id: task2.id,
+          session_id: opts.sessionId,
+        }),
         listSessionsFn: () => [],
         listWorkspacesFn: async () => '',
         removeSessionFn: () => {},
@@ -149,7 +205,11 @@ describe('GSD concurrency — integration (Success Criterion 3)', () => {
         resolveProjectPathFn: () => repoDir,
       },
     );
-    assert.equal(result2.action, 'launched', 'second task should launch after lock release');
+    assert.equal(
+      result2.action,
+      'launched',
+      'second task must launch after authentic round-trip',
+    );
   });
 
   it('non-GSD tasks on same repo are not affected by lock', async () => {
@@ -194,5 +254,58 @@ describe('GSD concurrency — integration (Success Criterion 3)', () => {
 
     assert.equal(lockCalled, false, 'lock guard should not fire for non-GSD tasks');
     assert.equal(result.action, 'launched');
+  });
+
+  it('WR-01: launchWorkItem throws after acquire → lock is released → second task can launch', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+
+    const task1 = makeGsdTask('task-uuid-WR01-A', 'KL-80');
+    const task2 = makeGsdTask('task-uuid-WR01-B', 'KL-81');
+
+    // First dispatch acquires the lock, then launchWorkItem explodes.
+    // The dispatcher must release the lock before re-throwing.
+    await assert.rejects(
+      () => dispatchTrigger(
+        { taskRef: 'KL-80', action: 'state_change', provider: 'test', raw: {} },
+        {},
+        {
+          getProviderFn: () => createFakeProvider(task1),
+          launchWorkItemFn: async () => { throw new Error('cmux unavailable'); },
+          listSessionsFn: () => [],
+          listWorkspacesFn: async () => '',
+          removeSessionFn: () => {},
+          acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+          resolveProjectPathFn: () => repoDir,
+        },
+      ),
+      /cmux unavailable/,
+    );
+
+    // Lock must be gone despite the launch failure.
+    assert.equal(
+      readLock(repoDir),
+      null,
+      'WR-01: lock must be released when launchWorkItem throws',
+    );
+
+    // Confirm the repo is dispatchable again.
+    const result2 = await dispatchTrigger(
+      { taskRef: 'KL-81', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task2),
+        launchWorkItemFn: async (_ref, opts) => ({
+          ...fakeLaunchResult,
+          task_id: task2.id,
+          session_id: opts.sessionId,
+        }),
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+        resolveProjectPathFn: () => repoDir,
+      },
+    );
+    assert.equal(result2.action, 'launched');
   });
 });
