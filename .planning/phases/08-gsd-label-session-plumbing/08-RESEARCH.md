@@ -424,16 +424,18 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
 | A1 | `writeFileSync` es suficiente (no necesita `O_EXCL` atomico) porque Node event loop serializa dentro del proceso y el lock file cubre entre procesos | Don't Hand-Roll | Si dos procesos kodo distintos corren simultaneamente, podrian tener una race condition de ~microsegundos al escribir el lock. Risk: bajo -- kodo tipicamente es un solo proceso server |
 | A2 | TTL de 4h es razonable para sesiones GSD tipicas | Code Examples | Si sesiones GSD toman mas de 4h, el lock se robaria prematuramente. Mitigable ajustando `DEFAULT_TTL_HOURS` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Posicion exacta del guard en el dispatcher**
    - What we know: Debe ir despues del inFlight check (D-08). Pero el dispatcher primero resuelve la tarea via provider, luego chequea labels, luego inFlight, luego session-already-active.
    - What's unclear: El guard GSD necesita el `projectPath` resuelto, que actualmente solo se resuelve dentro de `launchWorkItem`. El dispatcher no tiene acceso directo a `projects` map.
    - Recommendation: El guard necesita que el dispatcher resuelva el `projectPath` antes del launch. Opciones: (a) inyectar `resolveProjectPathFn` como dep del dispatcher, (b) mover la resolucion de path al dispatcher antes del launch. Opcion (a) es mas consistente con el patron DI existente.
+   - RESOLVED: Opción (a) — inyectar `resolveProjectPathFn` como dep adicional del dispatcher, consistente con el patrón DI existente (`DispatchDeps`).
 
 2. **Donde vive `buildGsdContext`**
    - What we know: Es discretion de Claude (CONTEXT.md). Puede vivir en `session-start.js` o en modulo aparte.
    - Recommendation: En el mismo archivo `session-start.js` por ahora -- es una funcion pura de ~30 lineas, y el archivo actual tiene 137 lineas. Si crece en Phase 9 (mas logica de bootstrap), extraer a `src/gsd/context.js`.
+   - RESOLVED: `buildGsdContext` vive en `session-start.js` como función pura. Se extrae a módulo aparte si crece en Phase 9.
 
 ## Validation Architecture
 
