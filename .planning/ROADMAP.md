@@ -75,8 +75,8 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 **Plans:** 4 plans
   - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
   - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
-  - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
-  - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
+  - [x] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
+  - [x] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
 
 ### Phase 9: Phase Resolver + Bootstrap
 **Goal:** kodo detecta si el repo destino ya tiene `.planning/`, bootstrapea cuando falta usando el cuerpo de la tarea Plane como brief, y resuelve la fase correspondiente a partir del título contra `ROADMAP.md`.
@@ -89,9 +89,9 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
 **Plans:** 4 plans
   - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
-  - [ ] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
-  - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
-  - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
+  - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
+  - [x] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
+  - [x] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
 
 ### Phase 10: Orchestrator Verification Gate
 **Goal:** El orquestador recibe metadata GSD al spawnearse, carga los artefactos de la fase, bloquea la transición a In Review si `VERIFICATION.md` falta o está incompleto, y refleja el resultado en un comentario Plane.
@@ -102,8 +102,8 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   2. Antes de aprobar In Review, el orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md`: si falta o su checklist no está completa, bloquea la transición con motivo estructurado.
   3. Al finalizar el review, kodo comenta en la tarea Plane con el `phase_id` resuelto y el resultado (pasada/fallida con motivo); el evento `orchestrator.review` queda en el log de la sesión.
 **Plans:** 4 plans
-  - [ ] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
-  - [ ] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
+  - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
+  - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
   - [ ] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
   - [ ] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
 
