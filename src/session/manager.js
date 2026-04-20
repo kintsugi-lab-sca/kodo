@@ -18,10 +18,11 @@ import { stateTransition } from '../logger-events.js';
  *   projectPath: string,
  *   workspaceRef: string,
  *   sessionId: string,
+ *   flags?: string[],
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags }) {
   return {
     workspace_ref: workspaceRef,
     session_id: sessionId,
@@ -35,6 +36,9 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     project_path: projectPath,
     task_url: task.url,
     project_name: task.projectName,
+    // D-12: GSD flag propagated from labels through dispatcher → launchWorkItem.
+    // Field is omitted entirely when flags do not include 'gsd' (treated as falsy/non-GSD).
+    ...(flags?.includes('gsd') ? { gsd: true } : {}),
   };
 }
 
@@ -185,6 +189,7 @@ export async function launchWorkItem(identifier, opts = {}) {
     projectPath,
     workspaceRef,
     sessionId,
+    flags: combinedFlags,
   });
   addSession(task.id, session);
 

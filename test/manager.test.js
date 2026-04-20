@@ -79,6 +79,43 @@ describe('manager — pure helpers', () => {
       assert.equal(/** @type {any} */ (session).plane_id, undefined);
       assert.equal(/** @type {any} */ (session).plane_identifier, undefined);
     });
+
+    describe('GSD flag propagation (D-12)', () => {
+      it('sets gsd: true when flags include gsd', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['gsd'],
+        });
+        assert.equal(session.gsd, true);
+      });
+
+      it('omits gsd field when flags do not include gsd', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['yolo'],
+        });
+        assert.equal(session.gsd, undefined);
+      });
+
+      it('omits gsd field when flags is undefined', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+        });
+        assert.equal(session.gsd, undefined);
+      });
+    });
   });
 
   describe('resolveProjectPath', () => {
