@@ -66,6 +66,56 @@ export function buildSessionContext(session, config) {
   ].join('\n');
 }
 
+/**
+ * Build GSD-mode context injected into Claude Code sessions.
+ * Replaces buildSessionContext entirely for GSD sessions (per D-03).
+ * Pure: no I/O, no globals — fully testable.
+ *
+ * @param {import('../session/state.js').Session} session
+ * @returns {string}
+ */
+export function buildGsdContext(session) {
+  const lines = [
+    `# kodo ${session.task_ref} — GSD Mode`,
+    '',
+    `You are working on **${session.task_ref}: ${session.summary}**`,
+    `- Project path: ${session.project_path}`,
+    `- Session ID: ${session.session_id}`,
+    `- Work item ID: ${session.task_id} | Project ID: ${session.project_id}`,
+    '',
+    '## GSD Workflow',
+    '',
+  ];
+
+  if (session.phase_id) {
+    // Phase known — inject plan/execute/verify sequence (D-01)
+    lines.push(
+      `This is a GSD session for **phase ${session.phase_id}**.`,
+      '',
+      'Execute the following commands in order:',
+      '',
+      `1. \`/gsd-plan-phase ${session.phase_id}\``,
+      `2. \`/gsd-execute-phase ${session.phase_id}\``,
+      `3. \`/gsd-verify-work\``,
+      '',
+      'Do NOT comment your plan manually or move the task state — GSD manages the full cycle.',
+    );
+  } else {
+    // No phase — bootstrap mode (D-01 fallback)
+    lines.push(
+      'No `.planning/` directory detected or no phase resolved for this task.',
+      '',
+      'Run the bootstrap command:',
+      '',
+      '1. `/gsd-new-project`',
+      '',
+      'This will initialize the project planning structure using the task description as brief.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -91,8 +141,9 @@ async function main() {
     }
 
     const { session } = result;
-    const config = loadConfig();
-    const context = buildSessionContext(session, config);
+    const context = session.gsd
+      ? buildGsdContext(session)
+      : buildSessionContext(session, loadConfig());
 
     // Emit typed session.start event (best-effort; silent on failure so we
     // never crash Claude Code startup — outer try/catch still catches but
@@ -114,6 +165,27 @@ async function main() {
       });
     } catch {
       // silent — never crash Claude Code
+    }
+
+    // Emit GSD-specific event (best-effort, silent on failure)
+    if (session.gsd) {
+      try {
+        const { createLogger } = await import('../logger.js');
+        const log = createLogger({
+          sessionId: session.session_id,
+          minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+        }).child({ component: 'hook', task_id: session.task_id });
+
+        if (session.phase_id) {
+          const { gsdPhaseResolved } = await import('../logger-events.js');
+          gsdPhaseResolved(log, { phase_id: session.phase_id, match_heading: session.summary });
+        } else {
+          const { gsdBootstrap } = await import('../logger-events.js');
+          gsdBootstrap(log, { project_path: session.project_path });
+        }
+      } catch {
+        // silent — never crash Claude Code
+      }
     }
 
     // Output context for Claude Code to inject
