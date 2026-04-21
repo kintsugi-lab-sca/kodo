@@ -88,11 +88,12 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   2. `src/gsd/roadmap.js` parsea `## Phase N: Title` de `ROADMAP.md` y `resolvePhase(roadmap, task)` hace match 1:1 estricto por título/heading — falla cerrado (error visible) si hay 0 o >1 matches.
   3. Cuando el título de la tarea coincide con un heading de fase, kodo infiere `phase_id` sin configuración explícita, y `gsd.phase.resolved` registra qué fase y por qué match.
   4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
-**Plans:** 4 plans
-  - [x] 08-01-PLAN.md — Lock module (acquireGsdLock/releaseGsdLock) + Session typedef extension
-  - [x] 08-02-PLAN.md — Flag propagation (buildSessionFromTask) + dispatcher GSD lock guard
-  - [x] 08-03-PLAN.md — Hook bifurcation (buildGsdContext) + lock release in stop.js
-  - [x] 08-04-PLAN.md — Integration test: concurrent GSD session prevention
+**Plans:** 5 plans
+  - [ ] 09-01-PLAN.md — Pure parser: src/gsd/roadmap.js (parseRoadmap + normalizeTitle) + unit tests
+  - [ ] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests
+  - [ ] 09-03-PLAN.md — src/gsd/resolver.js (discriminated union verdict) + integration tests with tmpDir
+  - [ ] 09-04-PLAN.md — Dispatcher wiring (resolver guard order, phase_id/brief threading) + buildGsdContext extension + hook cleanup
+  - [ ] 09-05-PLAN.md — kodo gsd inspect <task-id> CLI (dry-run, --json, exit codes) + anti-regression tests for D-04/D-18
 
 ### Phase 10: Orchestrator Verification Gate
 **Goal:** El orquestador recibe metadata GSD al spawnearse, carga los artefactos de la fase, bloquea la transición a In Review si `VERIFICATION.md` falta o está incompleto, y refleja el resultado en un comentario Plane.
@@ -120,7 +121,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 6. Structured Logger Foundation | v0.3 | 4/4 | Complete | 2026-04-15 |
 | 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/6 | Planned | - |
 | 8. GSD Label + Session Plumbing | v0.3 | 5/5 | Complete   | 2026-04-20 |
-| 9. Phase Resolver + Bootstrap | v0.3 | 0/0 | Not started | - |
+| 9. Phase Resolver + Bootstrap | v0.3 | 0/5 | Planned | - |
 | 10. Orchestrator Verification Gate | v0.3 | 0/0 | Not started | - |
 
 ## Coverage (v0.3)
