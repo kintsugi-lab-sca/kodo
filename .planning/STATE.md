@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: GSD Integration + Structured Logging
-status: executing
-stopped_at: Completed 09-04-PLAN.md
-last_updated: "2026-04-21T10:01:13.168Z"
+status: verifying
+stopped_at: Completed 09-05-PLAN.md — Phase 9 ready for verification
+last_updated: "2026-04-21T10:11:32.786Z"
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 20
-  completed_plans: 19
-  percent: 95
+  completed_plans: 20
+  percent: 100
 ---
 
 # Project State
@@ -32,8 +32,8 @@ Plan: 5 of 5 (09-01 completed 2026-04-21)
 
 - **Milestone:** v0.3 (Phases 6-10)
 - **Phase:** 9
-- **Status:** Ready to execute
-- **Progress:** [██████████] 95%
+- **Status:** Phase complete — ready for verification
+- **Progress:** [██████████] 100%
 
 ```
 [x] Phases 1-5  v0.2 Provider Abstraction (shipped 2026-04-13)
@@ -60,6 +60,7 @@ Plan: 5 of 5 (09-01 completed 2026-04-21)
 | Phase 09 P09-02 | 5min | 2 tasks | 3 files |
 | Phase 09 P03 | 2min | 2 tasks | 2 files |
 | Phase 09-phase-resolver-bootstrap P04 | 6min | 3 tasks | 6 files |
+| Phase 09 P05 | 3min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,8 @@ Plan: 5 of 5 (09-01 completed 2026-04-21)
 - [Phase 09-phase-resolver-bootstrap]: Plan 09-04: Dispatcher guard chain wires resolver AFTER lock / BEFORE session-active guard (pattern-mapper #2) — stale relaunches also receive phase_id+brief threaded
 - [Phase 09-phase-resolver-bootstrap]: Plan 09-04: gsd.phase.resolved emitted ONLY from dispatcher (single source of truth) — hook emit eliminated to avoid NDJSON double-count (pattern-mapper #3)
 - [Phase 09-phase-resolver-bootstrap]: Plan 09-04: brief persisted in Session record via opts threading (dispatcher → launchWorkItem → buildSessionFromTask) — hook reads via findSession() (pattern-mapper #4)
+- [Phase 09]: CLI kodo gsd inspect as dry-run forensic tool — uses same resolvePhase as dispatcher (D-04) with exit codes 0/1/2 and D-18 strict no-side-effects invariant protected by static grep tests
+- [Phase 09]: Dedicated src/cli/gsd-inspect.js handler module (thin cli.js + runGsdInspect handler) following Phase 7 logs/reader.js pattern instead of inlining in cli.js
 
 ### TODOs (carried over from research)
 
@@ -101,8 +104,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-04-21T10:01:13.162Z
-- **Stopped at:** Completed 09-04-PLAN.md
+- **Last session:** 2026-04-21T10:11:25.745Z
+- **Stopped at:** Completed 09-05-PLAN.md — Phase 9 ready for verification
 - **Next action:** Ejecutar Plan 09-04 (dispatcher wiring: `resolvePhaseFn` DI, guard order tras acquireGsdLock, thread `phase_id`+`brief` a `launchOpts`, `resolver_failed` release path, `buildGsdContext` extension, migrar emit `gsd.phase.resolved` al dispatcher).
 - **Files of record:**
   - `.planning/PROJECT.md`

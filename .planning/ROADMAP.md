@@ -93,7 +93,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   - [x] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests (completed 2026-04-21)
   - [x] 09-03-PLAN.md — src/gsd/resolver.js (discriminated union verdict) + integration tests with tmpDir (completed 2026-04-21)
   - [x] 09-04-PLAN.md — Dispatcher wiring (resolver guard order, phase_id/brief threading) + buildGsdContext extension + hook cleanup
-  - [ ] 09-05-PLAN.md — kodo gsd inspect <task-id> CLI (dry-run, --json, exit codes) + anti-regression tests for D-04/D-18
+  - [x] 09-05-PLAN.md — kodo gsd inspect <task-id> CLI (dry-run, --json, exit codes) + anti-regression tests for D-04/D-18
 
 ### Phase 10: Orchestrator Verification Gate
 **Goal:** El orquestador recibe metadata GSD al spawnearse, carga los artefactos de la fase, bloquea la transición a In Review si `VERIFICATION.md` falta o está incompleto, y refleja el resultado en un comentario Plane.
