@@ -81,4 +81,30 @@ describe('session-start.js — buildGsdContext', () => {
     const ctx = buildGsdContext(makeSession({ summary: 'Build the widget' }));
     assert.match(ctx, /Build the widget/);
   });
+
+  it('renders brief BEFORE the bootstrap command (D-11 order)', () => {
+    const session = /** @type {any} */ (makeSession({ phase_id: undefined }));
+    const out = buildGsdContext(session, {
+      brief: '## Project Brief\n\n**Task:** KL-42 — Build phase resolver\n\nBody',
+    });
+    const briefIdx = out.indexOf('## Project Brief');
+    const cmdIdx = out.indexOf('/gsd-new-project');
+    assert.ok(briefIdx >= 0, 'brief heading should be present');
+    assert.ok(cmdIdx >= 0, 'bootstrap command should be present');
+    assert.ok(briefIdx < cmdIdx, `brief must appear before command (brief@${briefIdx}, cmd@${cmdIdx})`);
+  });
+
+  it('renders bootstrap branch without brief when opts.brief is absent (backward-compatible)', () => {
+    const session = /** @type {any} */ (makeSession({ phase_id: undefined }));
+    const out = buildGsdContext(session); // no opts
+    assert.ok(!out.includes('## Project Brief'), 'brief block should be absent');
+    assert.ok(out.includes('/gsd-new-project'), 'bootstrap command still rendered');
+  });
+
+  it('ignores opts.brief when session.phase_id is present (phase branch unchanged)', () => {
+    const session = /** @type {any} */ (makeSession({ phase_id: '9' }));
+    const out = buildGsdContext(session, { brief: '## Project Brief\n\nShould NOT appear' });
+    assert.ok(!out.includes('## Project Brief'), 'brief should NOT be rendered on phase branch');
+    assert.ok(out.includes('/gsd-plan-phase 9'), 'phase commands still render');
+  });
 });

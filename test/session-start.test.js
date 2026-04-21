@@ -130,4 +130,45 @@ describe('session-start.js — source invariants', () => {
       }
     }
   });
+
+  it('Phase 9: does NOT emit gsd.phase.resolved from hook (moved to dispatcher, pattern-mapper #3)', () => {
+    // Anti-regression guard. The dispatcher is now the single source for
+    // gsd.phase.resolved emission. Duplicating from the hook would make
+    // `kodo logs --event gsd.phase.resolved` double-count every GSD session.
+    //
+    // Grep the source (comments stripped) for the invocation pattern. The
+    // substring may appear in a comment describing the removal — that's fine.
+    // We only forbid the actual call `gsdPhaseResolved(log, ...)`.
+    const invocationRe = /gsdPhaseResolved\s*\(/;
+    // Strip single-line and block comments to avoid false positives from the
+    // explanatory comment block that documents this invariant.
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.ok(
+      !invocationRe.test(stripped),
+      'src/hooks/session-start.js must NOT invoke gsdPhaseResolved — that emission moved to src/triggers/dispatcher.js in Phase 9 to avoid duplicate NDJSON entries',
+    );
+  });
+
+  it('Phase 9: still invokes gsdBootstrap from hook for bootstrap sessions', () => {
+    // Companion assertion: removing the phase-resolved emit must NOT remove the
+    // bootstrap emit. Bootstrap events still originate from the hook.
+    assert.match(
+      source,
+      /gsdBootstrap\s*\(/,
+      'session-start.js must still invoke gsdBootstrap for bootstrap sessions',
+    );
+  });
+
+  it('Phase 9: buildGsdContext signature accepts opts with brief field', () => {
+    // Signature invariant — detect accidental reverts of the D-09 extension.
+    assert.match(
+      source,
+      /export function buildGsdContext\(session, opts\s*=\s*\{\}\)/,
+      'buildGsdContext must accept (session, opts = {}) with brief support',
+    );
+  });
 });

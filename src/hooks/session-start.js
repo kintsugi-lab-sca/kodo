@@ -71,10 +71,15 @@ export function buildSessionContext(session, config) {
  * Replaces buildSessionContext entirely for GSD sessions (per D-03).
  * Pure: no I/O, no globals — fully testable.
  *
+ * Phase 9 extension (D-09, D-11): accepts `opts.brief` (pre-rendered bootstrap
+ * brief from buildBriefFromTask) and renders it FIRST, then the bootstrap
+ * command. Phase 8 behavior unchanged for sessions that already have phase_id.
+ *
  * @param {import('../session/state.js').Session} session
+ * @param {{ brief?: string }} [opts] - Phase 9: bootstrap brief to render before commands (D-11 order).
  * @returns {string}
  */
-export function buildGsdContext(session) {
+export function buildGsdContext(session, opts = {}) {
   const lines = [
     `# kodo ${session.task_ref} — GSD Mode`,
     '',
@@ -101,7 +106,13 @@ export function buildGsdContext(session) {
       'Do NOT comment your plan manually or move the task state — GSD manages the full cycle.',
     );
   } else {
-    // No phase — bootstrap mode (D-01 fallback)
+    // No phase — bootstrap mode (D-01 fallback).
+    // D-11: brief FIRST, commands AFTER. Claude reads the brief, then executes
+    // the bootstrap command. If brief is absent (legacy sessions or non-GSD
+    // bootstrap paths), skip the brief block entirely — never render a blank section.
+    if (opts.brief) {
+      lines.push(opts.brief, '');
+    }
     lines.push(
       'No `.planning/` directory detected or no phase resolved for this task.',
       '',
@@ -141,8 +152,10 @@ async function main() {
     }
 
     const { session } = result;
+    // Phase 9: thread session.brief into buildGsdContext — it was persisted by
+    // the dispatcher via buildSessionFromTask when resolver returned 'bootstrap'.
     const context = session.gsd
-      ? buildGsdContext(session)
+      ? buildGsdContext(session, { brief: session.brief })
       : buildSessionContext(session, loadConfig());
 
     // Emit typed session.start event (best-effort; silent on failure so we
@@ -167,22 +180,20 @@ async function main() {
       // silent — never crash Claude Code
     }
 
-    // Emit GSD-specific event (best-effort, silent on failure)
-    if (session.gsd) {
+    // Phase 9 (pattern-mapper refinement #3): gsd.phase.resolved is emitted by
+    // the DISPATCHER now (single source of truth), not the hook. The hook only
+    // emits gsd.bootstrap for bootstrap sessions (no phase_id). If we kept the
+    // phase-resolved emit here, every GSD dispatch would produce TWO matching
+    // NDJSON entries — `kodo logs --event gsd.phase.resolved` would double-count.
+    if (session.gsd && !session.phase_id) {
       try {
         const { createLogger } = await import('../logger.js');
+        const { gsdBootstrap } = await import('../logger-events.js');
         const log = createLogger({
           sessionId: session.session_id,
           minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
         }).child({ component: 'hook', task_id: session.task_id });
-
-        if (session.phase_id) {
-          const { gsdPhaseResolved } = await import('../logger-events.js');
-          gsdPhaseResolved(log, { phase_id: session.phase_id, match_heading: session.summary });
-        } else {
-          const { gsdBootstrap } = await import('../logger-events.js');
-          gsdBootstrap(log, { project_path: session.project_path });
-        }
+        gsdBootstrap(log, { project_path: session.project_path });
       } catch {
         // silent — never crash Claude Code
       }
