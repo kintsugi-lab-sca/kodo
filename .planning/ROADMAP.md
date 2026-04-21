@@ -90,7 +90,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
 **Plans:** 1/5 plans complete
   - [x] 09-01-PLAN.md — Pure parser: src/gsd/roadmap.js (parseRoadmap + normalizeTitle) + unit tests (completed 2026-04-21)
-  - [ ] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests
+  - [x] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests
   - [ ] 09-03-PLAN.md — src/gsd/resolver.js (discriminated union verdict) + integration tests with tmpDir
   - [ ] 09-04-PLAN.md — Dispatcher wiring (resolver guard order, phase_id/brief threading) + buildGsdContext extension + hook cleanup
   - [ ] 09-05-PLAN.md — kodo gsd inspect <task-id> CLI (dry-run, --json, exit codes) + anti-regression tests for D-04/D-18
