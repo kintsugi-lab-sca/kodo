@@ -23,7 +23,8 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   task_url?: string,         // Optional URL to the task in the provider UI
  *   project_name?: string,     // Optional human-friendly project name
  *   gsd?: boolean,             // Phase 8: GSD mode flag (D-10). Falsy/missing == non-GSD.
- *   phase_id?: string,         // Phase 9 prep (D-11): resolved phase identifier (not populated in Phase 8).
+ *   phase_id?: string,         // Phase 9 (D-11): resolved phase identifier. Populated by dispatcher when match succeeds.
+ *   brief?: string,            // Phase 9 (D-09, pattern-mapper #4): bootstrap brief rendered by buildBriefFromTask. Persisted so hook SessionStart can read it via findSession(). Only set when resolver returns action='bootstrap'.
  * }} Session
  *
  * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
