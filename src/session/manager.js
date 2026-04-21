@@ -19,10 +19,12 @@ import { stateTransition } from '../logger-events.js';
  *   workspaceRef: string,
  *   sessionId: string,
  *   flags?: string[],
+ *   phaseId?: string,  // Phase 9 D-03: resolved phase id threaded from dispatcher (action === 'phase').
+ *   brief?: string,    // Phase 9 D-09: bootstrap brief (only set when resolver returned 'bootstrap').
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief }) {
   return {
     workspace_ref: workspaceRef,
     session_id: sessionId,
@@ -39,6 +41,11 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     // D-12: GSD flag propagated from labels through dispatcher → launchWorkItem.
     // Field is omitted entirely when flags do not include 'gsd' (treated as falsy/non-GSD).
     ...(flags?.includes('gsd') ? { gsd: true } : {}),
+    // Phase 9: phase_id and brief threaded from dispatcher after resolvePhase().
+    // Both optional — only present on GSD sessions where the resolver produced
+    // `action: 'phase'` (phaseId) or `action: 'bootstrap'` (brief). Never both.
+    ...(phaseId ? { phase_id: phaseId } : {}),
+    ...(brief ? { brief } : {}),
   };
 }
 
@@ -124,10 +131,18 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
  * Launch a Claude Code session for a provider-backed task.
  *
  * @param {string} identifier e.g. "KL-42"
- * @param {{ model?: string|null, flags?: string[], sessionId?: string }} [opts]
+ * @param {{
+ *   model?: string|null,
+ *   flags?: string[],
+ *   sessionId?: string,
+ *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
+ *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
+ * }} [opts]
  *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
  *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
  *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
+ *   `phase_id` and `brief` are persisted on the Session record for the hook
+ *   SessionStart to consume via findSession().
  */
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
@@ -197,6 +212,11 @@ export async function launchWorkItem(identifier, opts = {}) {
     workspaceRef,
     sessionId,
     flags: combinedFlags,
+    // Phase 9: resolver outputs threaded by dispatcher via opts. Conditional
+    // spread in buildSessionFromTask omits the fields when undefined — keeps
+    // Session records clean for non-GSD paths.
+    phaseId: opts.phase_id,
+    brief: opts.brief,
   });
   addSession(task.id, session);
 
