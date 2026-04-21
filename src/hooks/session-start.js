@@ -180,24 +180,9 @@ async function main() {
       // silent — never crash Claude Code
     }
 
-    // Phase 9 (pattern-mapper refinement #3): gsd.phase.resolved is emitted by
-    // the DISPATCHER now (single source of truth), not the hook. The hook only
-    // emits gsd.bootstrap for bootstrap sessions (no phase_id). If we kept the
-    // phase-resolved emit here, every GSD dispatch would produce TWO matching
-    // NDJSON entries — `kodo logs --event gsd.phase.resolved` would double-count.
-    if (session.gsd && !session.phase_id) {
-      try {
-        const { createLogger } = await import('../logger.js');
-        const { gsdBootstrap } = await import('../logger-events.js');
-        const log = createLogger({
-          sessionId: session.session_id,
-          minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-        }).child({ component: 'hook', task_id: session.task_id });
-        gsdBootstrap(log, { project_path: session.project_path });
-      } catch {
-        // silent — never crash Claude Code
-      }
-    }
+    // Phase 9 (pattern-mapper refinement #3, completado en 09-06): ni
+    // gsd.phase.resolved ni gsd.bootstrap se emiten desde este hook. El
+    // dispatcher es la fuente única (src/triggers/dispatcher.js).
 
     // Output context for Claude Code to inject
     const output = JSON.stringify({
