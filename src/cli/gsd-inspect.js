@@ -8,7 +8,8 @@
 //   3. Llamar resolvePhase() — MISMA función que el dispatcher (D-04 invariant).
 //   4. Renderizar preview de buildGsdContext con session sintético.
 //   5. Emitir human-readable (default) o JSON (--json, D-17).
-//   6. Exit code 0 si phase|bootstrap, 1 si error (D-19).
+//   6. Exit codes (D-19): 0=phase|bootstrap, 1=verdict error OR config
+//      error, 2=provider fetch failure (transient).
 //
 // Dry-run estricto (D-18): NO lock, NO state, NO cmux. Pure read-only.
 // Esta invariante está protegida por un test dedicado en test/gsd-inspect-cli.test.js
@@ -41,7 +42,10 @@ import { initRegistry, getProvider } from '../providers/registry.js';
  *
  * @param {RunGsdInspectOpts} opts
  * @param {RunGsdInspectDeps} [deps]
- * @returns {Promise<number>} exit code (0 success, 1 resolver error, 2 fetch failure)
+ * @returns {Promise<number>} exit code per D-19:
+ *   0 = verdict 'phase' or 'bootstrap' (happy path)
+ *   1 = verdict 'error' (resolver) OR config error (project mapping missing)
+ *   2 = provider.getTask fetch failure (transient, retryable)
  */
 export async function runGsdInspect(opts, deps = {}) {
   const write = deps.writeFn || ((s) => process.stdout.write(s));
@@ -66,13 +70,16 @@ export async function runGsdInspect(opts, deps = {}) {
     return 2;
   }
 
-  // 2. Resolve project path (may throw if task's project has no mapping).
+  // 2. Resolve project path. A missing mapping is a config error (semantic
+  //    failure) — exit 1 per D-19, NOT 2. Exit code 2 is reserved for
+  //    provider fetch failure (transient). Scripts with retry-on-2 must
+  //    not reintentar cuando el operador necesita corregir config.
   let projectPath;
   try {
     projectPath = resolveProjectPathFn(task);
   } catch (e) {
     err(`Error resolving project path: ${/** @type {Error} */ (e).message}\n`);
-    return 2;
+    return 1;
   }
 
   // 3. Call resolver — MISMA función que el dispatcher (D-04).

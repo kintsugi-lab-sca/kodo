@@ -200,4 +200,23 @@ describe('runGsdInspect — read-only dry-run (D-18 invariant)', () => {
     const src = readFileSync(new URL('../src/cli/gsd-inspect.js', import.meta.url), 'utf-8');
     assert.match(src, /import\s*\{\s*resolvePhase\s*\}\s*from\s*['"]\.\.\/gsd\/resolver\.js['"]/);
   });
+
+  it('09-06: resolveProjectPath throw returns exit code 1 (config error ≠ fetch failure, D-19)', async () => {
+    // HI-02 gap closure: distinguimos config error (exit 1) de fetch failure
+    // (exit 2). Un project mapping ausente no es transient — reintentar
+    // nunca va a funcionar hasta que el operador arregle la config.
+    const exitCode = await runGsdInspect({ taskId: 'KL-42' }, {
+      getProviderFn: () => ({
+        init: async () => {},
+        getTask: async () => ({ ref: 'KL-42', title: 'x', labels: [], project_id: 'p-missing' }),
+      }),
+      resolveProjectPathFn: () => {
+        throw new Error('No local path mapped for project p-missing');
+      },
+      writeFn: () => {},
+      errFn: () => {},
+    });
+    assert.strictEqual(exitCode, 1,
+      'config error (resolveProjectPath throw) must return 1, not 2 (D-19 reserves 2 for fetch failure)');
+  });
 });
