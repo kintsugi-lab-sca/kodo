@@ -41,6 +41,9 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 - ✓ Event taxonomy tipada (7 tipos: session.start/end, state.transition, orchestrator.review, gsd.phase.resolved, gsd.bootstrap, plane.api.call) — v0.3 Phase 7
 - ✓ Correlación con transcript de Claude Code vía `transcript_path` en `session.start` — v0.3 Phase 7
 - ✓ Resolver `kodo logs --session-of <plane-task-id>` (two-step: state.json → head-line scan) — v0.3 Phase 7
+- ✓ Phase resolver + bootstrap: `resolvePhase` (discriminated union), detección `.planning/PROJECT.md`, match 1:1 por título contra ROADMAP.md, brief desde `task.description_markdown` — v0.3 Phase 9 (GSD-02, GSD-03, GSD-08, GSD-09)
+- ✓ `kodo gsd inspect <task-id>` como dry-run forense del resolver (exit codes D-19: 0=ok, 1=config error, 2=fetch failure) — v0.3 Phase 9
+- ✓ Dispatcher como fuente única para `gsd.phase.resolved` y `gsd.bootstrap` (pattern-mapper #3, invariante D-14) — v0.3 Phase 9
 
 ### Active
 
@@ -102,4 +105,4 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 | ensureConfig guards commands needing provider | First-run UX, auto-launches wizard | ✓ Good — clean onboarding flow |
 
 ---
-*Last updated: 2026-04-16 — Phase 7 complete (kodo logs CLI + event taxonomy)*
+*Last updated: 2026-04-21 — Phase 9 complete (phase resolver + bootstrap + `kodo gsd inspect`)*
