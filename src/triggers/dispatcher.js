@@ -7,6 +7,8 @@ import { listSessions, removeSession } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
+import { resolvePhase } from '../gsd/resolver.js';
+import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
 const inFlight = new Set();
@@ -21,6 +23,7 @@ const inFlight = new Set();
  *   acquireGsdLockFn?: (projectPath: string, sessionInfo: {session_id: string, task_id: string, task_ref: string}) => {acquired: boolean, holder?: object},
  *   releaseGsdLockFn?: (projectPath: string, sessionId: string) => void,
  *   resolveProjectPathFn?: (task: import('../interface.js').TaskItem, projects: Record<string, any>) => string,
+ *   resolvePhaseFn?: (params: { projectPath: string, task: object }) => import('../gsd/resolver.js').ResolveResult,
  * }} DispatchDeps
  */
 
@@ -32,7 +35,7 @@ const inFlight = new Set();
  * @param {import('../interface.js').TriggerEvent} event
  * @param {{ model?: string|null, flags?: string[], force?: boolean }} [opts]
  * @param {DispatchDeps} [deps] - Injectable dependencies for testing
- * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked', session?: object, holder?: object }>}
+ * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked'|'resolver_failed', session?: object, holder?: object, code?: string, detail?: string }>}
  */
 export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
@@ -43,6 +46,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const acquireGsdLockFn = deps.acquireGsdLockFn || acquireGsdLock;
   const releaseGsdLockFn = deps.releaseGsdLockFn || releaseGsdLock;
   const resolveProjectPathFn = deps.resolveProjectPathFn || ((task) => resolveProjectPath(task, loadProjects()));
+  const resolvePhaseFn = deps.resolvePhaseFn || resolvePhase;
 
   // 1. Resolve task via provider
   const provider = getProviderFn(event.provider);
@@ -128,6 +132,82 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     }
   }
 
+  // 3c. GSD phase resolution (Phase 9, D-03). Runs AFTER lock acquisition and
+  // BEFORE the session-already-active guard so that stale relaunches also
+  // receive phase_id + brief threaded (pattern-mapper refinement #2 — if this
+  // moved below the already-active check, relaunches of stale sessions would
+  // miss the resolver output).
+  //
+  // Fail-closed (D-13): error verdicts release the lock and return early.
+  let gsdPhaseId = null;
+  let gsdBrief = null;
+  let resolverVerdict = null;
+  if (kodoConfig.flags.includes('gsd') && gsdProjectPath) {
+    resolverVerdict = resolvePhaseFn({ projectPath: gsdProjectPath, task });
+    switch (resolverVerdict.action) {
+      case 'phase':
+        gsdPhaseId = resolverVerdict.phase_id;
+        break;
+      case 'bootstrap':
+        gsdBrief = buildBriefFromTask(task);
+        break;
+      case 'error':
+        // D-13: fail-closed. Release lock, emit forensic event, return early.
+        if (gsdSessionId && gsdProjectPath) {
+          try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
+            // silent — lock.js release is idempotent
+          }
+        }
+        // D-14: emit gsd.phase.resolved with matched:false for forensic logging.
+        try {
+          const { createLogger } = await import('../logger.js');
+          const log = createLogger({
+            sessionId: gsdSessionId || 'dispatch',
+            minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+          }).child({ component: 'dispatcher', task_id: task.id });
+          log.warn('gsd.phase.resolved', {
+            event: 'gsd.phase.resolved',
+            matched: false,
+            error_code: resolverVerdict.code,
+            detail: resolverVerdict.detail,
+            task_ref: task.ref,
+          });
+        } catch {
+          // silent — never block the return on logger failure
+        }
+        console.log(`[kodo:dispatch] resolver_failed — ${task.ref}: ${resolverVerdict.code}${resolverVerdict.detail ? ' (' + resolverVerdict.detail + ')' : ''}`);
+        return {
+          action: 'resolver_failed',
+          code: resolverVerdict.code,
+          detail: resolverVerdict.detail,
+        };
+    }
+    // D-14: emit matched-true gsd.phase.resolved (phase branch) or gsd.bootstrap (bootstrap branch).
+    try {
+      const { createLogger } = await import('../logger.js');
+      const { gsdPhaseResolved } = await import('../logger-events.js');
+      const log = createLogger({
+        sessionId: gsdSessionId,
+        minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+      }).child({ component: 'dispatcher', task_id: task.id });
+      if (resolverVerdict.action === 'phase') {
+        gsdPhaseResolved(log, {
+          phase_id: resolverVerdict.phase_id,
+          match_heading: resolverVerdict.match_heading,
+        });
+      } else if (resolverVerdict.action === 'bootstrap') {
+        // Include brief_empty flag per D-12 for operator visibility.
+        log.info('gsd.bootstrap', {
+          event: 'gsd.bootstrap',
+          project_path: gsdProjectPath,
+          brief_empty: isBriefEmpty(task),
+        });
+      }
+    } catch {
+      // silent — never crash dispatch on logger failure
+    }
+  }
+
   // 4. Session-already-active guard (checks persisted state)
   const active = listSessionsFn();
   const existing = active.find((s) => s.task_id === task.id);
@@ -153,6 +233,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
         // lock file (fix CR-01). Omitted for non-GSD paths.
         ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
+        // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
+        // record persists them for the hook SessionStart to render.
+        ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),
+        ...(gsdBrief ? { brief: gsdBrief } : {}),
       };
       const session = await launchWorkItemFn(event.taskRef, launchOpts);
       return { action: 'stale_relaunch', session };
@@ -180,6 +264,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
       // lock file (fix CR-01). Omitted for non-GSD paths.
       ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
+      // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
+      // record persists them for the hook SessionStart to render.
+      ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),
+      ...(gsdBrief ? { brief: gsdBrief } : {}),
     };
     const session = await launchWorkItemFn(event.taskRef, launchOpts);
     return { action: 'launched', session };

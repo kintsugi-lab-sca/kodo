@@ -512,3 +512,127 @@ describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)'
     assert.equal(releaseCalled, false, 'non-GSD path must not touch releaseGsdLockFn');
   });
 });
+
+describe('dispatchTrigger — Phase 9 resolver integration', () => {
+  const baseTask = {
+    id: 'task-uuid-9-1',
+    ref: 'KL-42',
+    title: 'Phase Resolver + Bootstrap',
+    description: 'Some description',
+    labels: ['kodo', 'kodo:gsd'],
+    state: 'In Progress',
+    projectId: 'proj-1',
+    projectName: 'Test',
+    groups: [],
+    url: 'https://example.com/KL-42',
+    priority: 'medium',
+  };
+  const baseEvent = { provider: 'test', taskRef: 'KL-42', action: 'state_change', raw: {} };
+
+  function makeDeps({ verdict, acquireResult = { acquired: true }, launchResult = { session_id: 'sess-1' }, task = baseTask }) {
+    const inspectState = { releaseCalled: false, launchCalledWith: null };
+    return {
+      getProviderFn: () => ({
+        getTask: async () => task,
+        init: async () => {},
+        updateTaskState: async () => {},
+        addComment: async () => {},
+        listPendingTasks: async () => [],
+        parseTriggerEvent: () => null,
+        verifySignature: () => true,
+        resolveRef: async () => '',
+      }),
+      resolveProjectPathFn: () => '/tmp/fake-project',
+      acquireGsdLockFn: () => acquireResult,
+      releaseGsdLockFn: () => { inspectState.releaseCalled = true; },
+      resolvePhaseFn: () => verdict,
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      launchWorkItemFn: async (_ref, opts) => { inspectState.launchCalledWith = opts; return launchResult; },
+      _inspect: () => inspectState,
+    };
+  }
+
+  it('threads phase_id to launchOpts when resolver returns action=phase', async () => {
+    const deps = makeDeps({
+      verdict: { action: 'phase', phase_id: '9', match_heading: '### Phase 9: Phase Resolver + Bootstrap', match_reason: 'exact' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'launched');
+    const { launchCalledWith } = deps._inspect();
+    assert.equal(launchCalledWith.phase_id, '9');
+    assert.equal(launchCalledWith.brief, undefined);
+  });
+
+  it('threads brief to launchOpts when resolver returns action=bootstrap', async () => {
+    const deps = makeDeps({
+      verdict: { action: 'bootstrap', reason: 'no-planning-dir' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const { launchCalledWith } = deps._inspect();
+    assert.ok(launchCalledWith.brief, 'brief should be present');
+    assert.ok(launchCalledWith.brief.startsWith('## Project Brief'));
+    assert.equal(launchCalledWith.phase_id, undefined);
+  });
+
+  it('releases lock and returns resolver_failed on action=error (no-match)', async () => {
+    const deps = makeDeps({
+      verdict: { action: 'error', code: 'no-match' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'resolver_failed');
+    assert.equal(result.code, 'no-match');
+    const { releaseCalled, launchCalledWith } = deps._inspect();
+    assert.equal(releaseCalled, true, 'lock must be released on resolver error (D-13)');
+    assert.equal(launchCalledWith, null, 'launch must NOT be called on resolver error');
+  });
+
+  it('releases lock and returns resolver_failed on multi-match with detail', async () => {
+    const deps = makeDeps({
+      verdict: { action: 'error', code: 'multi-match', matches: ['Phase 1: Foo', 'Phase 2: Foo'] },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'resolver_failed');
+    assert.equal(result.code, 'multi-match');
+    const { releaseCalled } = deps._inspect();
+    assert.equal(releaseCalled, true);
+  });
+
+  it('resolver runs BEFORE session-already-active guard (pattern-mapper #2)', async () => {
+    // Simulate an existing session AND a successful resolver match. The
+    // existing-session path should still thread phase_id through launchOpts
+    // (stale_relaunch). Use listSessionsFn returning a session whose workspace
+    // is no longer present (stale) to force stale_relaunch path.
+    const deps = makeDeps({
+      verdict: { action: 'phase', phase_id: '9', match_heading: '### Phase 9', match_reason: 'x' },
+    });
+    deps.listSessionsFn = () => [{ task_id: 'task-uuid-9-1', workspace_ref: 'workspace:gone' }];
+    deps.listWorkspacesFn = async () => ''; // empty workspace list → stale
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'stale_relaunch');
+    const { launchCalledWith } = deps._inspect();
+    assert.equal(launchCalledWith.phase_id, '9', 'stale relaunch must still receive phase_id');
+  });
+
+  it('does NOT call resolver for non-GSD tasks', async () => {
+    const nonGsdTask = { ...baseTask, labels: ['kodo'] /* no kodo:gsd */ };
+    let resolverCalled = false;
+    const deps = makeDeps({
+      verdict: { action: 'phase', phase_id: '9', match_heading: 'x', match_reason: 'x' },
+      task: nonGsdTask,
+    });
+    deps.resolvePhaseFn = () => {
+      resolverCalled = true;
+      return { action: 'phase', phase_id: '9', match_heading: 'x', match_reason: 'x' };
+    };
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(resolverCalled, false, 'resolver must not run for non-GSD tasks');
+  });
+});
