@@ -17,7 +17,7 @@
 - [ ] **GSD-06**: kodo comenta en la tarea Plane el identificador de fase resuelto y el resultado de la verificación (pasada/fallida con motivo)
 - [ ] **GSD-07**: Orquestador recibe metadata GSD (phase_id, project_path) al spawnearse y carga PROJECT.md + ROADMAP.md + PLAN.md de la fase en su contexto
 - [x] **GSD-08**: Bootstrap `/gsd:new-project` usa la descripción de la tarea Plane como project-brief inicial
-- [ ] **GSD-09**: Cuando el título de la tarea Plane matchea un heading de fase en ROADMAP.md, kodo infiere la fase sin requerir configuración explícita
+- [x] **GSD-09**: Cuando el título de la tarea Plane matchea un heading de fase en ROADMAP.md, kodo infiere la fase sin requerir configuración explícita
 - [ ] **GSD-10**: Dos tareas Plane apuntando al mismo repo no arrancan sesiones GSD concurrentes (lock a nivel de repo, no solo de tarea)
 
 ### Structured Logging
@@ -83,7 +83,7 @@
 | GSD-06 | Phase 10 | Pending |
 | GSD-07 | Phase 10 | Pending |
 | GSD-08 | Phase 9 | Complete |
-| GSD-09 | Phase 9 | Pending |
+| GSD-09 | Phase 9 | Complete |
 | GSD-10 | Phase 8 | Pending |
 | LOG-01 | Phase 6 | Pending |
 | LOG-02 | Phase 6 | Pending |

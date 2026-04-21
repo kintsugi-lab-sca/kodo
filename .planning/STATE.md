@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: GSD Integration + Structured Logging
 status: executing
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-04-21T09:49:28.729Z"
+stopped_at: Completed 09-04-PLAN.md
+last_updated: "2026-04-21T10:01:13.168Z"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 20
-  completed_plans: 18
-  percent: 90
+  completed_plans: 19
+  percent: 95
 ---
 
 # Project State
@@ -28,12 +28,12 @@ progress:
 ## Current Position
 
 Phase: 09 (phase-resolver-bootstrap) — EXECUTING
-Plan: 4 of 5 (09-01 completed 2026-04-21)
+Plan: 5 of 5 (09-01 completed 2026-04-21)
 
 - **Milestone:** v0.3 (Phases 6-10)
 - **Phase:** 9
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 90%
+- **Progress:** [██████████] 95%
 
 ```
 [x] Phases 1-5  v0.2 Provider Abstraction (shipped 2026-04-13)
@@ -59,6 +59,7 @@ Plan: 4 of 5 (09-01 completed 2026-04-21)
 | 09-01  | 3m       | 2     | 2 new  | 54874c8 (feat), 04028a7 (test) |
 | Phase 09 P09-02 | 5min | 2 tasks | 3 files |
 | Phase 09 P03 | 2min | 2 tasks | 2 files |
+| Phase 09-phase-resolver-bootstrap P04 | 6min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Plan: 4 of 5 (09-01 completed 2026-04-21)
 - [Phase 09]: Plan 09-03: resolvePhase devuelve discriminated union (PhaseVerdict|BootstrapVerdict|ErrorVerdict) — D-02 literal respetado, consumers usan switch(verdict.action) exhaustivo
 - [Phase 09]: Plan 09-03: resolver sin realpathSync — el dispatcher ya resolvió projectPath (Phase 8), duplicarlo aquí sería inconsistente y caro
 - [Phase 09]: Plan 09-03: D-06 match title-only enforced en tests — task.title match contra phase.title (NO contra heading completo); test explícito asserta ambos sides (title matchea, heading form falla)
+- [Phase 09-phase-resolver-bootstrap]: Plan 09-04: Dispatcher guard chain wires resolver AFTER lock / BEFORE session-active guard (pattern-mapper #2) — stale relaunches also receive phase_id+brief threaded
+- [Phase 09-phase-resolver-bootstrap]: Plan 09-04: gsd.phase.resolved emitted ONLY from dispatcher (single source of truth) — hook emit eliminated to avoid NDJSON double-count (pattern-mapper #3)
+- [Phase 09-phase-resolver-bootstrap]: Plan 09-04: brief persisted in Session record via opts threading (dispatcher → launchWorkItem → buildSessionFromTask) — hook reads via findSession() (pattern-mapper #4)
 
 ### TODOs (carried over from research)
 
@@ -97,8 +101,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-04-21T09:49:19.665Z
-- **Stopped at:** Completed 09-03-PLAN.md
+- **Last session:** 2026-04-21T10:01:13.162Z
+- **Stopped at:** Completed 09-04-PLAN.md
 - **Next action:** Ejecutar Plan 09-04 (dispatcher wiring: `resolvePhaseFn` DI, guard order tras acquireGsdLock, thread `phase_id`+`brief` a `launchOpts`, `resolver_failed` release path, `buildGsdContext` extension, migrar emit `gsd.phase.resolved` al dispatcher).
 - **Files of record:**
   - `.planning/PROJECT.md`
