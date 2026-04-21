@@ -153,13 +153,24 @@ describe('session-start.js — source invariants', () => {
     );
   });
 
-  it('Phase 9: still invokes gsdBootstrap from hook for bootstrap sessions', () => {
-    // Companion assertion: removing the phase-resolved emit must NOT remove the
-    // bootstrap emit. Bootstrap events still originate from the hook.
-    assert.match(
-      source,
-      /gsdBootstrap\s*\(/,
-      'session-start.js must still invoke gsdBootstrap for bootstrap sessions',
+  it('Phase 9 (09-06 gap closure): does NOT emit gsd.bootstrap from hook (moved to dispatcher, pattern-mapper #3)', () => {
+    // Anti-regression guard completing pattern-mapper #3 for gsd.bootstrap.
+    // The dispatcher is now the single source for gsd.bootstrap emission
+    // (src/triggers/dispatcher.js:198-204). Duplicating from the hook would
+    // make `kodo logs --event gsd.bootstrap` double-count every bootstrap
+    // dispatch — the exact regression GAP-01 / REVIEW HI-01 identified.
+    //
+    // Strip single-line and block comments to avoid false positives from
+    // explanatory comments that may legitimately mention gsdBootstrap.
+    const invocationRe = /gsdBootstrap\s*\(/;
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.ok(
+      !invocationRe.test(stripped),
+      'src/hooks/session-start.js must NOT invoke gsdBootstrap — that emission moved to src/triggers/dispatcher.js in Phase 9 (09-06) to avoid duplicate NDJSON entries',
     );
   });
 
