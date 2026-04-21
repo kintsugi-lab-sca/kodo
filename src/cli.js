@@ -238,6 +238,25 @@ program
     }
   });
 
+// --- kodo gsd <subcommand> ---
+const gsd = program.command('gsd').description('GSD subcommands (inspect resolver, etc.)');
+
+gsd
+  .command('inspect <task-id>')
+  .description('Dry-run the phase resolver for a task (read-only, no lock/state/cmux)')
+  .option('--json', 'Emit structured verdict as JSON (scriptable)')
+  .action(async (taskId, opts) => {
+    try {
+      await ensureConfig();
+      const { runGsdInspect } = await import('./cli/gsd-inspect.js');
+      const code = await runGsdInspect({ taskId, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
