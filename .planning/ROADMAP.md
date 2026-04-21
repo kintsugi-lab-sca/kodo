@@ -88,10 +88,10 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   2. `src/gsd/roadmap.js` parsea `## Phase N: Title` de `ROADMAP.md` y `resolvePhase(roadmap, task)` hace match 1:1 estricto por título/heading — falla cerrado (error visible) si hay 0 o >1 matches.
   3. Cuando el título de la tarea coincide con un heading de fase, kodo infiere `phase_id` sin configuración explícita, y `gsd.phase.resolved` registra qué fase y por qué match.
   4. Existe `kodo gsd inspect <task-id>` (dry-run) que reporta qué haría el resolver sin arrancar una sesión.
-**Plans:** 1/5 plans complete
+**Plans:** 3/5 plans complete
   - [x] 09-01-PLAN.md — Pure parser: src/gsd/roadmap.js (parseRoadmap + normalizeTitle) + unit tests (completed 2026-04-21)
-  - [x] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests
-  - [ ] 09-03-PLAN.md — src/gsd/resolver.js (discriminated union verdict) + integration tests with tmpDir
+  - [x] 09-02-PLAN.md — Session typedef brief? + src/gsd/brief.js (buildBriefFromTask, D-10 format) + unit tests (completed 2026-04-21)
+  - [x] 09-03-PLAN.md — src/gsd/resolver.js (discriminated union verdict) + integration tests with tmpDir (completed 2026-04-21)
   - [ ] 09-04-PLAN.md — Dispatcher wiring (resolver guard order, phase_id/brief threading) + buildGsdContext extension + hook cleanup
   - [ ] 09-05-PLAN.md — kodo gsd inspect <task-id> CLI (dry-run, --json, exit codes) + anti-regression tests for D-04/D-18
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: GSD Integration + Structured Logging
 status: executing
-stopped_at: Completed 09-02-PLAN.md
-last_updated: "2026-04-21T09:43:25.568Z"
+stopped_at: Completed 09-03-PLAN.md
+last_updated: "2026-04-21T09:49:28.729Z"
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 20
-  completed_plans: 17
-  percent: 85
+  completed_plans: 18
+  percent: 90
 ---
 
 # Project State
@@ -28,12 +28,12 @@ progress:
 ## Current Position
 
 Phase: 09 (phase-resolver-bootstrap) — EXECUTING
-Plan: 3 of 5 (09-01 completed 2026-04-21)
+Plan: 4 of 5 (09-01 completed 2026-04-21)
 
 - **Milestone:** v0.3 (Phases 6-10)
 - **Phase:** 9
 - **Status:** Ready to execute
-- **Progress:** [█████████░] 85%
+- **Progress:** [█████████░] 90%
 
 ```
 [x] Phases 1-5  v0.2 Provider Abstraction (shipped 2026-04-13)
@@ -58,6 +58,7 @@ Plan: 3 of 5 (09-01 completed 2026-04-21)
 |--------|----------|-------|--------|---------|
 | 09-01  | 3m       | 2     | 2 new  | 54874c8 (feat), 04028a7 (test) |
 | Phase 09 P09-02 | 5min | 2 tasks | 3 files |
+| Phase 09 P03 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Plan: 3 of 5 (09-01 completed 2026-04-21)
 - **Regex parser 09-01 refinado (2026-04-21):** `parseRoadmap` usa separador `(?::\s*|\s+-\s+)` en vez de `[:\-]`. El `[:\-]` literal del plan `<action>` permitía que `## Phase 1-5: Overview` matcheara como fase 1 (greedy `\d+` captura `1`, `[:\-]` matchea `-`), contradiciendo el behavior Test 7 y los `must_haves.truths`. El dash padeado (`\s+-\s+`) rechaza rangos y preserva `## Phase 1 - Foo`. Documentado como Rule 1 deviation en 09-01-SUMMARY.
 - [Phase 09]: Brief persisted in Session record (D-09 + pattern-mapper #4): hook SessionStart reads record via findSession(), alternative channels add mechanism without benefit. Schema v2 flexible → no migration bump.
 - [Phase 09]: isBriefEmpty exported as separate predicate: dispatcher can emit gsd.bootstrap { brief_empty: true } without re-parsing rendered string nor hardcoding the '(no description provided)' sentinel in two places.
+- [Phase 09]: Plan 09-03: resolvePhase devuelve discriminated union (PhaseVerdict|BootstrapVerdict|ErrorVerdict) — D-02 literal respetado, consumers usan switch(verdict.action) exhaustivo
+- [Phase 09]: Plan 09-03: resolver sin realpathSync — el dispatcher ya resolvió projectPath (Phase 8), duplicarlo aquí sería inconsistente y caro
+- [Phase 09]: Plan 09-03: D-06 match title-only enforced en tests — task.title match contra phase.title (NO contra heading completo); test explícito asserta ambos sides (title matchea, heading form falla)
 
 ### TODOs (carried over from research)
 
@@ -93,16 +97,18 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-04-21T09:43:25.561Z
-- **Stopped at:** Completed 09-02-PLAN.md
-- **Next action:** Ejecutar Plan 09-02 (Session typedef brief? + `src/gsd/brief.js buildBriefFromTask`, D-10 format, unit tests).
+- **Last session:** 2026-04-21T09:49:19.665Z
+- **Stopped at:** Completed 09-03-PLAN.md
+- **Next action:** Ejecutar Plan 09-04 (dispatcher wiring: `resolvePhaseFn` DI, guard order tras acquireGsdLock, thread `phase_id`+`brief` a `launchOpts`, `resolver_failed` release path, `buildGsdContext` extension, migrar emit `gsd.phase.resolved` al dispatcher).
 - **Files of record:**
   - `.planning/PROJECT.md`
   - `.planning/REQUIREMENTS.md`
   - `.planning/ROADMAP.md`
   - `.planning/research/SUMMARY.md` + STACK/FEATURES/ARCHITECTURE/PITFALLS
   - `.planning/MILESTONES.md` (v0.2 shipped 2026-04-13)
-  - `.planning/phases/09-phase-resolver-bootstrap/09-01-SUMMARY.md` (this plan)
+  - `.planning/phases/09-phase-resolver-bootstrap/09-01-SUMMARY.md`
+  - `.planning/phases/09-phase-resolver-bootstrap/09-02-SUMMARY.md`
+  - `.planning/phases/09-phase-resolver-bootstrap/09-03-SUMMARY.md` (this plan)
 
 ---
 *v0.3 state initialized: 2026-04-15*

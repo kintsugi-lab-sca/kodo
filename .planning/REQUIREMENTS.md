@@ -10,8 +10,8 @@
 ### GSD Integration
 
 - [ ] **GSD-01**: Usuario puede etiquetar una tarea Plane con `kodo:gsd` y kodo reconoce el modo GSD en el dispatcher
-- [ ] **GSD-02**: kodo detecta si el repo destino tiene `.planning/PROJECT.md` y dispara `/gsd:new-project` en la sesión solo cuando el directorio está ausente (guard por presencia)
-- [~] **GSD-03**: kodo lee `.planning/ROADMAP.md` del repo destino y resuelve la fase correspondiente a la tarea Plane (match por título/heading, 1:1 estricto) — parser shipped en Plan 09-01 (`src/gsd/roadmap.js`); resolver (disk I/O + matching + discriminated union) pendiente en Plan 09-03
+- [x] **GSD-02**: kodo detecta si el repo destino tiene `.planning/PROJECT.md` y dispara `/gsd:new-project` en la sesión solo cuando el directorio está ausente (guard por presencia)
+- [x] **GSD-03**: kodo lee `.planning/ROADMAP.md` del repo destino y resuelve la fase correspondiente a la tarea Plane (match por título/heading, 1:1 estricto) — parser shipped en Plan 09-01 (`src/gsd/roadmap.js`); resolver shipped en Plan 09-03 (`src/gsd/resolver.js`, discriminated union fail-closed)
 - [ ] **GSD-04**: Sesión GSD recibe contexto inyectado con la secuencia `/gsd:plan-phase <n>` → `/gsd:execute-phase <n>` → `/gsd:verify-work` al arrancar
 - [ ] **GSD-05**: Orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md` y bloquea la transición a In Review si el artefacto no existe o su checklist no está completo
 - [ ] **GSD-06**: kodo comenta en la tarea Plane el identificador de fase resuelto y el resultado de la verificación (pasada/fallida con motivo)
@@ -76,8 +76,8 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | GSD-01 | Phase 8 | Pending |
-| GSD-02 | Phase 9 | Pending |
-| GSD-03 | Phase 9 | In Progress (parser shipped 09-01 · resolver pending 09-03) |
+| GSD-02 | Phase 9 | Complete |
+| GSD-03 | Phase 9 | Complete (parser 09-01 · resolver 09-03) |
 | GSD-04 | Phase 8 | Pending |
 | GSD-05 | Phase 10 | Pending |
 | GSD-06 | Phase 10 | Pending |
