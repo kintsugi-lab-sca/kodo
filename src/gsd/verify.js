@@ -35,7 +35,7 @@ import { findSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseVerificationFrontmatter, computeVerdict } from './verification.js';
-import { orchestratorReview } from '../logger-events.js';
+import { orchestratorReview, planeApiCallFailed } from '../logger-events.js';
 import { createLogger } from '../logger.js';
 
 /**
@@ -182,7 +182,7 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
   try {
     task = await provider.getTask(session.task_ref);
   } catch (err) {
-    log.error('plane.api.call.failed', {
+    planeApiCallFailed(log, {
       step: 'getTask',
       error: /** @type {Error} */ (err).message,
     });
@@ -193,7 +193,7 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
       await provider.addComment(task, markdown);
       commented = true;
     } catch (err) {
-      log.error('plane.api.call.failed', {
+      planeApiCallFailed(log, {
         step: 'addComment',
         error: /** @type {Error} */ (err).message,
       });
@@ -210,7 +210,7 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
         await provider.updateTaskState(task, reviewState);
         transitioned = true;
       } catch (err) {
-        log.error('plane.api.call.failed', {
+        planeApiCallFailed(log, {
           step: 'updateTaskState',
           error: /** @type {Error} */ (err).message,
         });
