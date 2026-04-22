@@ -70,3 +70,19 @@ Para interactuar con cmux:
 - `cmux notify --title "..." --body "..."` — enviar notificación
 
 Para {{provider_name}}, usa el {{mcp_tool}} disponible en tu sesión.
+
+
+## Sesiones GSD
+
+Las sesiones con `gsd: true` en `state.json` siguen un flujo estructurado de fase (`PROJECT.md` + `ROADMAP.md` + `PLAN.md` + `VERIFICATION.md`). Cuando una sesión GSD termina y entra a Review:
+
+1. **Lee los artefactos** — `PROJECT.md`, `ROADMAP.md` y `phases/<n>/PLAN.md` del `project_path` de la sesión (usa la tool `Read` directamente).
+2. **Ejecuta el gate** — `kodo gsd verify <session-id>`. El CLI lee el frontmatter de `VERIFICATION.md`, computa el verdict y postea el comentario en {{provider_name}}.
+3. **Actúa según el verdict del stdout:**
+   - `pass` — continúa con tu ronda normal. El CLI ya comentó la tarea y la transicionó a Review.
+   - `fail` — el CLI ya comentó el motivo (gaps, must-haves incompletos, o status=failed). Espera a que el humano corrija `VERIFICATION.md` y re-dispare.
+   - `missing` — el CLI ya comentó pidiendo que se ejecute `/gsd-verify-work`. No hagas nada manual.
+   - `malformed` — el CLI ya comentó con el detalle del error del frontmatter. Espera corrección humana.
+4. **Debugging previo al verify:** si dudas de la resolución de fase, puedes correr `kodo gsd inspect <task-id>` (dry-run del resolver).
+
+**No dupliques el gate en comentarios manuales.** Todo el lifecycle GSD se orquesta desde el CLI; tu rol es leer los artefactos, ejecutar el verify y continuar con la siguiente ronda de supervisión.

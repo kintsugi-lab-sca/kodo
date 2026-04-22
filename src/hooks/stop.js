@@ -21,6 +21,30 @@ const SKILL_PATH = join(KODO_ROOT, 'skills', 'kodo-orchestrate', 'skill.md');
 
 const STDIN_TIMEOUT = 3000;
 
+/**
+ * Build the orchestrator nudge text for a session that just ended.
+ * Pure function — no I/O. Exported for testing.
+ *
+ * Phase 10 D-04: when session.gsd === true, the nudge points the orchestrator
+ * at `kodo gsd verify <session-id>`. Non-GSD sessions get the original text.
+ *
+ * Pitfall #4: session.phase_id may be undefined (bootstrap mode, Phase 9 D-11).
+ * Fallback string: "bootstrap".
+ *
+ * Idioma: español (consistente con el texto original del hook + D-16 Phase 10).
+ *
+ * @param {import('../session/state.js').Session} session
+ * @returns {string}
+ */
+export function buildStopNudgeText(session) {
+  const base = `La sesión ${session.task_ref} (${session.summary}) ha terminado y está en Review.`;
+  if (session.gsd) {
+    const phaseLabel = session.phase_id ? `fase ${session.phase_id}` : 'bootstrap';
+    return `${base} Es una sesión GSD (${phaseLabel}). Ejecuta \`kodo gsd verify ${session.session_id}\` y actúa según el verdict.\\n`;
+  }
+  return `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`;
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -119,7 +143,7 @@ async function main() {
       if (orchMatch) {
         await cmux.send({
           workspace: orchMatch[1],
-          text: `La sesión ${session.task_ref} (${session.summary}) ha terminado y está en Review. Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`,
+          text: buildStopNudgeText(session),
         });
       }
     } catch {}
