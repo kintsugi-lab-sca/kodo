@@ -257,6 +257,22 @@ gsd
     }
   });
 
+gsd
+  .command('verify <session-id>')
+  .description('Verify phase closure: parses VERIFICATION.md, posts verdict comment and transitions task to Review on pass (idempotent — duplicates accepted, CONTEXT Deferred)')
+  .option('--json', 'Emit structured verdict as JSON (scriptable)')
+  .action(async (sessionId, opts) => {
+    try {
+      await ensureConfig();
+      const { runGsdVerifyCli } = await import('./cli/gsd-verify.js');
+      const code = await runGsdVerifyCli({ sessionId, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
