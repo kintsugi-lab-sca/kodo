@@ -184,6 +184,20 @@ describe('runGsdVerify — DI + session resolution', () => {
     assert.equal(calls.addComment.length, 1, 'addComment se llama igual (comentario de malformed)');
     assert.equal(calls.updateTaskState.length, 0);
   });
+
+  it('T3b: session sin phase_id → comentario distingue bootstrap de VERIFICATION inválida (WR-01)', async () => {
+    const session = makeSession({ phase_id: undefined });
+    const { deps, calls } = makeDeps({ session, verificationMd: null });
+    await runGsdVerify({ sessionId: 'sess-1' }, deps);
+    const body = calls.addComment[0].md;
+    assert.match(body, /Sesión sin phase_id/);
+    assert.doesNotMatch(
+      body,
+      /VERIFICATION\.md presente pero inválido/,
+      'bootstrap no debe reusar la plantilla de VERIFICATION malformada',
+    );
+    assert.doesNotMatch(body, /\(Phase \)/, 'no debe quedar "Phase " vacío');
+  });
 });
 
 describe('runGsdVerify — VERIFICATION.md discovery (Pitfall #3)', () => {
@@ -201,6 +215,62 @@ describe('runGsdVerify — VERIFICATION.md discovery (Pitfall #3)', () => {
     const { deps } = makeDeps({ session, verificationMd: null, phaseExists: false });
     const result = await runGsdVerify({ sessionId: 'sess-1' }, deps);
     assert.equal(result.verdict.action, 'missing');
+  });
+
+  it('T5b: readdirFn falla con EACCES → malformed, NO colapsa a missing (WR-02)', async () => {
+    const session = makeSession();
+    const { deps } = makeDeps({
+      session,
+      verificationMd: null,
+      phaseExists: true,
+      extraDeps: {
+        readdirFn: () => {
+          const err = /** @type {NodeJS.ErrnoException} */ (new Error('permission denied'));
+          err.code = 'EACCES';
+          throw err;
+        },
+      },
+    });
+    const result = await runGsdVerify({ sessionId: 'sess-1' }, deps);
+    assert.equal(result.verdict.action, 'malformed');
+    assert.match(result.verdict.detail, /EACCES/);
+  });
+
+  it('T5c: readdirFn falla con ENOENT → missing (path legítimo de "no existe")', async () => {
+    const session = makeSession();
+    const { deps } = makeDeps({
+      session,
+      verificationMd: null,
+      phaseExists: true,
+      extraDeps: {
+        readdirFn: () => {
+          const err = /** @type {NodeJS.ErrnoException} */ (new Error('not found'));
+          err.code = 'ENOENT';
+          throw err;
+        },
+      },
+    });
+    const result = await runGsdVerify({ sessionId: 'sess-1' }, deps);
+    assert.equal(result.verdict.action, 'missing');
+  });
+
+  it('T5d: readFileFn falla con EACCES tras existsFn=true → malformed, no propaga (WR-02)', async () => {
+    const session = makeSession();
+    const { deps } = makeDeps({
+      session,
+      verificationMd: 'ignored',
+      phaseExists: true,
+      extraDeps: {
+        readFileFn: () => {
+          const err = /** @type {NodeJS.ErrnoException} */ (new Error('permission denied'));
+          err.code = 'EACCES';
+          throw err;
+        },
+      },
+    });
+    const result = await runGsdVerify({ sessionId: 'sess-1' }, deps);
+    assert.equal(result.verdict.action, 'malformed');
+    assert.match(result.verdict.detail, /EACCES/);
   });
 
   it('T6: prefix-match exacto: "03" NO matchea "30-other" (Pitfall #3)', async () => {

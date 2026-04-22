@@ -127,11 +127,25 @@ export async function runGsdVerify(opts, deps = {}) {
   if (!existsFn(phasesRoot)) {
     verdict = { action: 'missing', phase_id: session.phase_id };
   } else {
+    /** @type {string[]} */
     let entries;
     try {
       entries = readdirFn(phasesRoot);
-    } catch {
-      entries = [];
+    } catch (err) {
+      // WR-02: sólo ENOENT colapsa a 'missing'. Errores de permisos (EACCES),
+      // demasiados descriptores (EMFILE) u otros fallos son malformed — la fase
+      // existe pero no se puede inspeccionar, distinto de "no existe".
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+      if (code === 'ENOENT') {
+        entries = [];
+      } else {
+        verdict = {
+          action: 'malformed',
+          phase_id: session.phase_id,
+          detail: `cannot read phases dir: ${code || 'unknown'}`,
+        };
+        return finalize({ verdict, session, log, getProviderFn, loadConfigFn });
+      }
     }
     const match = entries.find((e) => e.startsWith(`${padded}-`));
     if (!match) {
@@ -141,7 +155,20 @@ export async function runGsdVerify(opts, deps = {}) {
       if (!existsFn(verPath)) {
         verdict = { action: 'missing', phase_id: session.phase_id };
       } else {
-        const md = readFileFn(verPath);
+        // WR-02: readFile puede lanzar EACCES incluso si existsFn=true. Mapear
+        // a malformed en vez de dejar burbujear como excepción no capturada.
+        let md;
+        try {
+          md = readFileFn(verPath);
+        } catch (err) {
+          const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+          verdict = {
+            action: 'malformed',
+            phase_id: session.phase_id,
+            detail: `cannot read VERIFICATION.md: ${code || 'unknown'}`,
+          };
+          return finalize({ verdict, session, log, getProviderFn, loadConfigFn });
+        }
         const parsed = parseVerificationFrontmatter(md);
         verdict = computeVerdict(parsed, session.phase_id);
       }
@@ -347,6 +374,17 @@ export function renderMissingComment(v, phaseName) {
  * @returns {string}
  */
 export function renderMalformedComment(v, phaseName) {
+  // WR-01: session sin phase_id (bootstrap) comparte action=malformed pero no
+  // es un problema de VERIFICATION.md — no hay fase a verificar. Rama propia
+  // en la plantilla para que el comentario en Plane sea accionable.
+  if (!v.phase_id) {
+    return [
+      `[kodo:gsd] ⚠️ Sesión sin phase_id — verificación no aplicable`,
+      '',
+      `Detalle: ${v.detail}`,
+      `Asocia la sesión a una fase del ROADMAP antes de verificar.`,
+    ].join('\n');
+  }
   return [
     `[kodo:gsd] ⚠️ VERIFICATION.md presente pero inválido (Phase ${v.phase_id})`,
     '',
