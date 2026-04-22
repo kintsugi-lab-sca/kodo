@@ -105,3 +105,63 @@ describe('buildContextSummary — Phase 10 GSD tagging', () => {
     assert.match(out, /\/tmp\/proj/);
   });
 });
+
+import { buildStopNudgeText } from '../src/hooks/stop.js';
+
+describe('buildStopNudgeText — Phase 10 nudge condicional GSD', () => {
+  const baseSession = {
+    workspace_ref: 'workspace:1',
+    session_id: 'sess-abc-123',
+    task_id: 'tid',
+    task_ref: 'KL-42',
+    provider: 'plane',
+    project_id: 'p1',
+    summary: 'Do work',
+    status: 'review',
+    started_at: new Date().toISOString(),
+    project_path: '/tmp/proj',
+  };
+
+  it('S1: GSD session con phase_id → incluye `kodo gsd verify <session-id>` y fase', () => {
+    const text = buildStopNudgeText({ ...baseSession, gsd: true, phase_id: '10' });
+    assert.match(text, /kodo gsd verify sess-abc-123/);
+    assert.match(text, /fase 10/);
+    assert.match(text, /La sesión KL-42/);
+  });
+
+  it('S2: GSD session sin phase_id (bootstrap) → fallback bootstrap', () => {
+    const text = buildStopNudgeText({ ...baseSession, gsd: true, phase_id: undefined });
+    assert.match(text, /kodo gsd verify sess-abc-123/);
+    assert.match(text, /bootstrap/);
+  });
+
+  it('S3: non-GSD session → texto original sin kodo gsd verify', () => {
+    const text = buildStopNudgeText({ ...baseSession, gsd: false });
+    assert.ok(!text.includes('kodo gsd verify'));
+    assert.match(text, /Revisa el resultado y decide si pasa a Done/);
+  });
+
+  it('S4: session sin gsd (undefined) → texto original', () => {
+    const text = buildStopNudgeText({ ...baseSession });
+    assert.ok(!text.includes('kodo gsd verify'));
+  });
+
+  it('S5: todos los casos arrancan con "La sesión KL-42"', () => {
+    const gsd = buildStopNudgeText({ ...baseSession, gsd: true, phase_id: '10' });
+    const nonGsd = buildStopNudgeText({ ...baseSession, gsd: false });
+    assert.ok(gsd.startsWith('La sesión KL-42'));
+    assert.ok(nonGsd.startsWith('La sesión KL-42'));
+  });
+
+  it('S6: preserva el \\n literal al final', () => {
+    const text = buildStopNudgeText({ ...baseSession, gsd: true, phase_id: '10' });
+    assert.ok(text.endsWith('\\n'));
+  });
+
+  it('S7: idioma español (no inglés en prosa)', () => {
+    const text = buildStopNudgeText({ ...baseSession, gsd: true, phase_id: '10' });
+    // No debe contener palabras-clave inglesas típicas del buildGsdContext.
+    assert.ok(!/\bplease\b|\byou must\b|\bexecute\b/i.test(text));
+    assert.match(text, /Ejecuta/); // español
+  });
+});
