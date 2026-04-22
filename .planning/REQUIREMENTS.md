@@ -13,9 +13,9 @@
 - [x] **GSD-02**: kodo detecta si el repo destino tiene `.planning/PROJECT.md` y dispara `/gsd:new-project` en la sesión solo cuando el directorio está ausente (guard por presencia)
 - [x] **GSD-03**: kodo lee `.planning/ROADMAP.md` del repo destino y resuelve la fase correspondiente a la tarea Plane (match por título/heading, 1:1 estricto) — parser shipped en Plan 09-01 (`src/gsd/roadmap.js`); resolver shipped en Plan 09-03 (`src/gsd/resolver.js`, discriminated union fail-closed)
 - [ ] **GSD-04**: Sesión GSD recibe contexto inyectado con la secuencia `/gsd:plan-phase <n>` → `/gsd:execute-phase <n>` → `/gsd:verify-work` al arrancar
-- [ ] **GSD-05**: Orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md` y bloquea la transición a In Review si el artefacto no existe o su checklist no está completo
-- [ ] **GSD-06**: kodo comenta en la tarea Plane el identificador de fase resuelto y el resultado de la verificación (pasada/fallida con motivo)
-- [ ] **GSD-07**: Orquestador recibe metadata GSD (phase_id, project_path) al spawnearse y carga PROJECT.md + ROADMAP.md + PLAN.md de la fase en su contexto
+- [x] **GSD-05**: Orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md` y bloquea la transición a In Review si el artefacto no existe o su checklist no está completo
+- [x] **GSD-06**: kodo comenta en la tarea Plane el identificador de fase resuelto y el resultado de la verificación (pasada/fallida con motivo)
+- [x] **GSD-07**: Orquestador recibe metadata GSD (phase_id, project_path) al spawnearse y carga PROJECT.md + ROADMAP.md + PLAN.md de la fase en su contexto
 - [x] **GSD-08**: Bootstrap `/gsd:new-project` usa la descripción de la tarea Plane como project-brief inicial
 - [x] **GSD-09**: Cuando el título de la tarea Plane matchea un heading de fase en ROADMAP.md, kodo infiere la fase sin requerir configuración explícita
 - [ ] **GSD-10**: Dos tareas Plane apuntando al mismo repo no arrancan sesiones GSD concurrentes (lock a nivel de repo, no solo de tarea)
@@ -79,9 +79,9 @@
 | GSD-02 | Phase 9 | Complete |
 | GSD-03 | Phase 9 | Complete (parser 09-01 · resolver 09-03) |
 | GSD-04 | Phase 8 | Pending |
-| GSD-05 | Phase 10 | Pending |
-| GSD-06 | Phase 10 | Pending |
-| GSD-07 | Phase 10 | Pending |
+| GSD-05 | Phase 10 | Complete |
+| GSD-06 | Phase 10 | Complete |
+| GSD-07 | Phase 10 | Complete |
 | GSD-08 | Phase 9 | Complete |
 | GSD-09 | Phase 9 | Complete |
 | GSD-10 | Phase 8 | Pending |

@@ -122,7 +122,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/6 | Planned | - |
 | 8. GSD Label + Session Plumbing | v0.3 | 5/5 | Complete   | 2026-04-20 |
 | 9. Phase Resolver + Bootstrap | v0.3 | 1/5 | Executing | - |
-| 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete   | 2026-04-22 |
+| 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete    | 2026-04-22 |
 
 ## Coverage (v0.3)
 
