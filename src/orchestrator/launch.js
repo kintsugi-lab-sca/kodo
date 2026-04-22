@@ -105,7 +105,7 @@ export async function launchOrchestrator(opts = {}) {
  * @param {import('../session/state.js').Session[]} sessions
  * @param {ReturnType<import('../config.js').loadConfig>} config
  */
-function buildContextSummary(sessions, config) {
+export function buildContextSummary(sessions, config) {
   const lines = [];
 
   const running = sessions.filter((s) => s.status === 'running');
@@ -117,7 +117,10 @@ function buildContextSummary(sessions, config) {
     lines.push('');
     for (const s of running) {
       const elapsed = Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60_000);
-      lines.push(`- **${s.task_ref}**: ${s.summary}`);
+      // Phase 10 D-19: taggear sesiones GSD para que el orquestador las identifique.
+      // Pitfall #4: phase_id puede estar ausente en modo bootstrap (Phase 9 D-11).
+      const gsdTag = s.gsd ? ` \`[GSD ${s.phase_id ? `phase ${s.phase_id}` : 'bootstrap'}]\`` : '';
+      lines.push(`- **${s.task_ref}**${gsdTag}: ${s.summary}`);
       lines.push(`  Workspace: ${s.workspace_ref} | ${elapsed}min | ${s.project_path}`);
     }
   }
