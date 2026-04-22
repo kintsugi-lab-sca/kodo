@@ -28,7 +28,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 - [ ] **Phase 7: `kodo logs` CLI + Event Taxonomy** — subcommand with filters, structured lifecycle events, transcript correlation
 - [x] **Phase 8: GSD Label + Session Plumbing** — label flag chain, SessionRecord schema, dispatcher wiring, per-repo lock (completed 2026-04-20)
 - [ ] **Phase 9: Phase Resolver + Bootstrap** — `.planning/` presence detection, ROADMAP.md parser, title inference, Plane-body project brief
-- [ ] **Phase 10: Orchestrator Verification Gate** — orchestrator metadata, VERIFICATION.md inspection, Plane comment on review outcome
+- [x] **Phase 10: Orchestrator Verification Gate** — orchestrator metadata, VERIFICATION.md inspection, Plane comment on review outcome (completed 2026-04-22)
 
 ## Phase Details
 
@@ -103,10 +103,10 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
   1. El orquestador se spawnea con metadata GSD (`phase_id`, `project_path`) y carga `PROJECT.md` + `ROADMAP.md` + `phases/<n>/PLAN.md` en su contexto.
   2. Antes de aprobar In Review, el orquestador inspecciona `.planning/phases/<n>/VERIFICATION.md`: si falta o su checklist no está completa, bloquea la transición con motivo estructurado.
   3. Al finalizar el review, kodo comenta en la tarea Plane con el `phase_id` resuelto y el resultado (pasada/fallida con motivo); el evento `orchestrator.review` queda en el log de la sesión.
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
   - [x] 10-01-PLAN.md — Wave 1: src/gsd/verification.js (parseVerificationFrontmatter + computeVerdict) + unit tests — GSD-05
   - [x] 10-02-PLAN.md — Wave 2: src/gsd/verify.js (orchestration: findSession → VERIFICATION.md → verdict → Plane comment + transition + orchestrator.review log) + CLI/integration tests — GSD-05, GSD-06
-  - [ ] 10-03-PLAN.md — Wave 3: src/cli/gsd-verify.js thin handler + cli.js subcommand registration (exit codes 0/1/2) — GSD-05, GSD-06
+  - [x] 10-03-PLAN.md — Wave 3: src/cli/gsd-verify.js thin handler + cli.js subcommand registration (exit codes 0/1/2) — GSD-05, GSD-06
   - [x] 10-04-PLAN.md — Wave 2: prompt.md ## Sesiones GSD section + launch.js buildContextSummary [GSD phase N] tag + stop.js conditional nudge — GSD-07
 
 ## Progress
@@ -122,7 +122,7 @@ Full details: `.planning/milestones/v0.2-ROADMAP.md`
 | 7. `kodo logs` CLI + Event Taxonomy | v0.3 | 0/6 | Planned | - |
 | 8. GSD Label + Session Plumbing | v0.3 | 5/5 | Complete   | 2026-04-20 |
 | 9. Phase Resolver + Bootstrap | v0.3 | 1/5 | Executing | - |
-| 10. Orchestrator Verification Gate | v0.3 | 3/4 | In Progress|  |
+| 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete   | 2026-04-22 |
 
 ## Coverage (v0.3)
 
