@@ -2,9 +2,9 @@
 //
 // src/logger-events.js — Taxonomía cerrada de 7 eventos de ciclo de vida.
 //
-// Contrato fijo por ROADMAP §Phase 7:
+// Contrato fijo por ROADMAP §Phase 7 + extensión v0.3:
 //   session.start, session.end, state.transition, orchestrator.review,
-//   gsd.phase.resolved, gsd.bootstrap, plane.api.call
+//   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -25,15 +25,17 @@ import { join } from 'node:path';
  *   GSD_PHASE_RESOLVED: 'gsd.phase.resolved',
  *   GSD_BOOTSTRAP: 'gsd.bootstrap',
  *   PLANE_API_CALL: 'plane.api.call',
+ *   PLANE_API_CALL_FAILED: 'plane.api.call.failed',
  * }>} */
 export const EVENTS = Object.freeze({
-  SESSION_START:        'session.start',
-  SESSION_END:          'session.end',
-  STATE_TRANSITION:     'state.transition',
-  ORCHESTRATOR_REVIEW:  'orchestrator.review',
-  GSD_PHASE_RESOLVED:   'gsd.phase.resolved',
-  GSD_BOOTSTRAP:        'gsd.bootstrap',
-  PLANE_API_CALL:       'plane.api.call',
+  SESSION_START:          'session.start',
+  SESSION_END:            'session.end',
+  STATE_TRANSITION:       'state.transition',
+  ORCHESTRATOR_REVIEW:    'orchestrator.review',
+  GSD_PHASE_RESOLVED:     'gsd.phase.resolved',
+  GSD_BOOTSTRAP:          'gsd.bootstrap',
+  PLANE_API_CALL:         'plane.api.call',
+  PLANE_API_CALL_FAILED:  'plane.api.call.failed',
 });
 
 /**
@@ -170,5 +172,22 @@ export function planeApiCall(logger, fields) {
     path: fields.path,
     status: fields.status,
     duration_ms: fields.duration_ms,
+  });
+}
+
+/**
+ * Emitido cuando una llamada a Plane falla en un paso específico del gate
+ * (getTask, addComment, updateTaskState). Complementa `plane.api.call` —
+ * el provider emite el evento success internamente, y este módulo emite el
+ * failure desde los consumers (verify.js u otros).
+ *
+ * @param {Logger} logger
+ * @param {{ step: string, error: string }} fields
+ */
+export function planeApiCallFailed(logger, fields) {
+  logger.error(EVENTS.PLANE_API_CALL_FAILED, {
+    event: EVENTS.PLANE_API_CALL_FAILED,
+    step: fields.step,
+    error: fields.error,
   });
 }

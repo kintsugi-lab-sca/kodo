@@ -34,14 +34,15 @@ const {
   gsdPhaseResolved,
   gsdBootstrap,
   planeApiCall,
+  planeApiCallFailed,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
-  it('EVENTS is frozen and contains the 7 canonical types', () => {
+describe('LOG-09: logger-events taxonomy (8 helpers)', () => {
+  it('EVENTS is frozen and contains the 8 canonical types', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -49,6 +50,7 @@ describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
       'gsd.phase.resolved',
       'orchestrator.review',
       'plane.api.call',
+      'plane.api.call.failed',
       'session.end',
       'session.start',
       'state.transition',
@@ -174,5 +176,16 @@ describe('LOG-09: logger-events taxonomy (7 helpers)', () => {
     assert.equal(line.path, '/work-items/KL-42/');
     assert.equal(line.status, 200);
     assert.equal(line.duration_ms, 142);
+  });
+
+  it('planeApiCallFailed emits event=plane.api.call.failed + step/error at error level', () => {
+    const sessionId = 'sess-ev-pacf';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    planeApiCallFailed(log, { step: 'getTask', error: 'ECONNREFUSED' });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.PLANE_API_CALL_FAILED);
+    assert.equal(line.level, 'error');
+    assert.equal(line.step, 'getTask');
+    assert.equal(line.error, 'ECONNREFUSED');
   });
 });
