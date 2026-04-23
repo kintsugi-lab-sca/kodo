@@ -293,4 +293,25 @@ describe('manager.js source hygiene', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     assert.ok(!source.includes('stripHtml'), 'stripHtml no longer needed — description is Markdown');
   });
+
+  it('kodo:gsd implies --dangerously-skip-permissions (GSD automation cannot require tool confirmation)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Debe existir una condición que añada skip-permissions cuando el flag es
+    // 'gsd' — no sólo cuando es 'yolo'. Blinda la decisión de coupling
+    // documentada en buildClaudeCommand.
+    assert.ok(
+      /kodoFlags\.includes\(['"]gsd['"]\)/.test(source),
+      'buildClaudeCommand debe testear kodoFlags para "gsd" al decidir skip-permissions',
+    );
+    // Garantiza que la condición sigue cubriendo 'yolo' explícito también.
+    assert.ok(
+      /kodoFlags\.includes\(['"]yolo['"]\)/.test(source),
+      'buildClaudeCommand debe seguir respetando kodo:yolo explícito',
+    );
+    // Sanity: --dangerously-skip-permissions sigue vivo en el comando.
+    assert.ok(
+      source.includes('--dangerously-skip-permissions'),
+      'el flag CLI debe seguir siendo --dangerously-skip-permissions',
+    );
+  });
 });

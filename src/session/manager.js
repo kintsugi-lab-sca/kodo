@@ -256,8 +256,11 @@ function buildClaudeCommand(config, sessionId, task, description, modelOverride,
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
   const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
 
-  // Only add --dangerously-skip-permissions if kodo:yolo label is present
-  const cliFlags = kodoFlags.includes('yolo') ? '--dangerously-skip-permissions' : '';
+  // GSD sessions run `/gsd-execute-phase` autonomously; pedir confirmación
+  // por cada tool call rompe la automatización. Por diseño, kodo:gsd implica
+  // skip-permissions tal y como hace kodo:yolo explícito.
+  const skipPerms = kodoFlags.includes('yolo') || kodoFlags.includes('gsd');
+  const cliFlags = skipPerms ? '--dangerously-skip-permissions' : '';
 
   return `claude --model ${model} --session-id ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
 }
