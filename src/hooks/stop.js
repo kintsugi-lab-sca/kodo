@@ -12,6 +12,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession, removeSession } from '../session/state.js';
+import { getSessionMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
 
