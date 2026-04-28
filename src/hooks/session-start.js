@@ -8,6 +8,7 @@
 import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
+import { getSessionMode } from '../labels.js';
 
 const STDIN_TIMEOUT = 3000;
 
