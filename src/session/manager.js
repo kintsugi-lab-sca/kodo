@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { loadConfig, loadProjects } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
-import { parseKodoLabels } from '../labels.js';
+import { parseKodoLabels, getGsdMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession } from './state.js';
@@ -25,6 +25,10 @@ import { stateTransition } from '../logger-events.js';
  * @returns {import('./state.js').Session}
  */
 export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief }) {
+  // Phase 11 (D-03): GSD execution mode derived locally from flags. Single source
+  // of truth: `flags`. The signature does NOT grow — gsdMode is a local derivation,
+  // mirroring the dispatcher pattern at src/triggers/dispatcher.js:74.
+  const gsdMode = getGsdMode(flags);
   return {
     workspace_ref: workspaceRef,
     session_id: sessionId,
@@ -38,9 +42,12 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     project_path: projectPath,
     task_url: task.url,
     project_name: task.projectName,
-    // D-12: GSD flag propagated from labels through dispatcher → launchWorkItem.
-    // Field is omitted entirely when flags do not include 'gsd' (treated as falsy/non-GSD).
-    ...(flags?.includes('gsd') ? { gsd: true } : {}),
+    // Phase 11 (D-03/D-04): GSD mode derived locally from flags via getGsdMode.
+    // When set, gsd_mode is ALWAYS persisted alongside gsd:true (no missing-mode
+    // shape post-v0.4). Legacy sessions with gsd:true and no gsd_mode are read
+    // as 'full' by getSessionMode (D-08). 'kodo:gsd-quick' wins over 'kodo:gsd'
+    // (precedence centralized in getGsdMode — single point of change for new modes).
+    ...(gsdMode ? { gsd: true, gsd_mode: gsdMode } : {}),
     // Phase 9: phase_id and brief threaded from dispatcher after resolvePhase().
     // Both optional — only present on GSD sessions where the resolver produced
     // `action: 'phase'` (phaseId) or `action: 'bootstrap'` (brief). Never both.
@@ -256,10 +263,11 @@ function buildClaudeCommand(config, sessionId, task, description, modelOverride,
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
   const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
 
-  // GSD sessions run `/gsd-execute-phase` autonomously; pedir confirmación
-  // por cada tool call rompe la automatización. Por diseño, kodo:gsd implica
-  // skip-permissions tal y como hace kodo:yolo explícito.
-  const skipPerms = kodoFlags.includes('yolo') || kodoFlags.includes('gsd');
+  // Las sesiones GSD (full y quick) corren slash commands autónomos; pedir
+  // confirmación por tool call rompe la automatización. Cualquier modo GSD
+  // implica skip-permissions, igual que kodo:yolo explícito. Un solo punto
+  // de cambio: añadir un nuevo modo a getGsdMode() basta (D-01/D-02 Phase 11).
+  const skipPerms = kodoFlags.includes('yolo') || getGsdMode(kodoFlags) !== null;
   const cliFlags = skipPerms ? '--dangerously-skip-permissions' : '';
 
   return `claude --model ${model} --session-id ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();

@@ -294,19 +294,32 @@ describe('manager.js source hygiene', () => {
     assert.ok(!source.includes('stripHtml'), 'stripHtml no longer needed — description is Markdown');
   });
 
-  it('kodo:gsd implies --dangerously-skip-permissions (GSD automation cannot require tool confirmation)', () => {
+  it('cualquier modo GSD implica --dangerously-skip-permissions (Phase 11 D-01: kodo:gsd y kodo:gsd-quick)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // Debe existir una condición que añada skip-permissions cuando el flag es
-    // 'gsd' — no sólo cuando es 'yolo'. Blinda la decisión de coupling
-    // documentada en buildClaudeCommand.
+    // Phase 11 D-01/D-02: skipPerms se deriva de getGsdMode(kodoFlags) !== null
+    // en lugar del literal kodoFlags.includes('gsd'). Esto extiende el contrato
+    // a kodo:gsd-quick (y a cualquier modo futuro registrado en getGsdMode)
+    // con un solo punto de cambio.
     assert.ok(
-      /kodoFlags\.includes\(['"]gsd['"]\)/.test(source),
-      'buildClaudeCommand debe testear kodoFlags para "gsd" al decidir skip-permissions',
+      /getGsdMode\(kodoFlags\)\s*!==\s*null/.test(source),
+      'buildClaudeCommand debe derivar skip-permissions de getGsdMode(kodoFlags) !== null',
+    );
+    // El literal viejo NO debe seguir presente — si vuelve, el refactor D-01
+    // ha sido revertido y kodo:gsd-quick deja de heredar skip-perms.
+    assert.ok(
+      !/kodoFlags\.includes\(['"]gsd['"]\)/.test(source),
+      'el literal kodoFlags.includes("gsd") fue reemplazado por getGsdMode (no debe regresar)',
     );
     // Garantiza que la condición sigue cubriendo 'yolo' explícito también.
     assert.ok(
       /kodoFlags\.includes\(['"]yolo['"]\)/.test(source),
       'buildClaudeCommand debe seguir respetando kodo:yolo explícito',
+    );
+    // Phase 11 <specifics>: yolo va PRIMERO en el `||` para preservar la
+    // trazabilidad humana ("yolo es intención explícita; GSD es implícita").
+    assert.ok(
+      /kodoFlags\.includes\(['"]yolo['"]\)\s*\|\|\s*getGsdMode/.test(source),
+      'el orden de short-circuit debe ser yolo primero, getGsdMode después',
     );
     // Sanity: --dangerously-skip-permissions sigue vivo en el comando.
     assert.ok(
