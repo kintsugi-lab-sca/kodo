@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../config.js';
 import { listSessions } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
+import { getSessionMode } from '../labels.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = join(__dirname, 'prompt.md');
@@ -117,9 +118,17 @@ export function buildContextSummary(sessions, config) {
     lines.push('');
     for (const s of running) {
       const elapsed = Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60_000);
-      // Phase 10 D-19: taggear sesiones GSD para que el orquestador las identifique.
-      // Pitfall #4: phase_id puede estar ausente en modo bootstrap (Phase 9 D-11).
-      const gsdTag = s.gsd ? ` \`[GSD ${s.phase_id ? `phase ${s.phase_id}` : 'bootstrap'}]\`` : '';
+      // Phase 12 D-11: prioridad mode-first. Una sesión quick con phase_id
+      // residual (no debería existir — dispatcher lo descarta — pero defensa
+      // en profundidad) renderiza [GSD quick], no [GSD phase N].
+      // D-12: cómputo inline (YAGNI — un solo callsite, no se extrae helper).
+      // D-13: sesiones no-GSD siguen sin tag (status quo Phase 10 D-19).
+      let gsdTag = '';
+      if (s.gsd) {
+        const mode = getSessionMode(s);
+        const inner = mode === 'quick' ? 'quick' : (s.phase_id ? `phase ${s.phase_id}` : 'bootstrap');
+        gsdTag = ` \`[GSD ${inner}]\``;
+      }
       lines.push(`- **${s.task_ref}**${gsdTag}: ${s.summary}`);
       lines.push(`  Workspace: ${s.workspace_ref} | ${elapsed}min | ${s.project_path}`);
     }
