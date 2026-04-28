@@ -39,7 +39,7 @@ Requirements archive: `.planning/milestones/v0.3-REQUIREMENTS.md`
 ### v0.4 GSD Quick Mode (Phases 11-13) — IN PROGRESS
 
 - [x] **Phase 11: Quick Mode Recognition & Persistence** — `kodo:gsd-quick` propaga `gsd_mode='quick'` desde label hasta `SessionRecord` con skip-permissions parity (completed 2026-04-28)
-- [ ] **Phase 12: Hook & Orchestrator Bifurcation** — SessionStart inyecta `/gsd-quick`, Stop nudge omite `kodo gsd verify`, orchestrator distingue `[GSD quick]` en su tag
+- [x] **Phase 12: Hook & Orchestrator Bifurcation** — SessionStart inyecta `/gsd-quick`, Stop nudge omite `kodo gsd verify`, orchestrator distingue `[GSD quick]` en su tag (completed 2026-04-28)
 - [ ] **Phase 13: Test Coverage Matrix** — los 4 estados de label (none, gsd, gsd-quick, ambos) cubiertos en `labels`, `manager`, `dispatcher`, `session-start`
 
 ## Phase Details
@@ -101,7 +101,7 @@ Pending v0.4 ship. Candidates listed in `PROJECT.md` Active section (GitHub Issu
 | 9. Phase Resolver + Bootstrap | v0.3 | 6/6 | Complete | 2026-04-21 |
 | 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete | 2026-04-22 |
 | 11. Quick Mode Recognition & Persistence | v0.4 | 3/3 | Complete    | 2026-04-28 |
-| 12. Hook & Orchestrator Bifurcation | v0.4 | 0/0 | Not started | — |
+| 12. Hook & Orchestrator Bifurcation | v0.4 | 3/3 | Complete   | 2026-04-28 |
 | 13. Test Coverage Matrix | v0.4 | 0/0 | Not started | — |
 
 ---
