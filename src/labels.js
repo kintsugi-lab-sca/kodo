@@ -36,3 +36,50 @@ export function parseKodoLabels(labels) {
 
   return result;
 }
+
+/**
+ * Returns the GSD execution mode encoded in a flags array.
+ * Centralized here so dispatcher, manager, hooks and tests share one definition.
+ *
+ *   kodo:gsd-quick → 'quick'
+ *   kodo:gsd       → 'full'
+ *   neither        → null
+ *
+ * `kodo:gsd-quick` wins if both labels are present (more specific intent).
+ *
+ * @param {string[]} flags
+ * @returns {'full'|'quick'|null}
+ */
+export function getGsdMode(flags) {
+  if (!Array.isArray(flags)) return null;
+  if (flags.includes('gsd-quick')) return 'quick';
+  if (flags.includes('gsd')) return 'full';
+  return null;
+}
+
+/**
+ * Returns the GSD execution mode encoded in a persisted Session record.
+ * Centralized here (paired with getGsdMode) so hooks, orchestrator and tests
+ * share one definition of "what mode is this session?".
+ *
+ *   gsd:true, gsd_mode:'quick' → 'quick'
+ *   gsd:true, gsd_mode:'full'  → 'full'
+ *   gsd:true, no gsd_mode      → 'full'   // legacy preservation (Phase 11 D-08):
+ *                                          //   sesiones pre-v0.4 con `gsd:true`
+ *                                          //   eran siempre full por contrato.
+ *   gsd:false / missing        → null     // non-GSD session
+ *
+ * El helper vive en labels.js (no en session/state.js) porque la regla
+ * "legacy gsd:true == full" es semánticamente parte de la taxonomía de
+ * labels: define qué label histórica equivale a qué modo (matiz Phase 11
+ * <specifics>).
+ *
+ * Defensivo: nunca lanza para session null/undefined/sin campos.
+ *
+ * @param {import('./session/state.js').Session | null | undefined} session
+ * @returns {'full'|'quick'|null}
+ */
+export function getSessionMode(session) {
+  if (!session?.gsd) return null;
+  return session.gsd_mode || 'full';
+}
