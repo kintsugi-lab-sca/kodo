@@ -38,7 +38,7 @@ Requirements archive: `.planning/milestones/v0.3-REQUIREMENTS.md`
 
 ### v0.4 GSD Quick Mode (Phases 11-13) — IN PROGRESS
 
-- [ ] **Phase 11: Quick Mode Recognition & Persistence** — `kodo:gsd-quick` propaga `gsd_mode='quick'` desde label hasta `SessionRecord` con skip-permissions parity
+- [x] **Phase 11: Quick Mode Recognition & Persistence** — `kodo:gsd-quick` propaga `gsd_mode='quick'` desde label hasta `SessionRecord` con skip-permissions parity (completed 2026-04-28)
 - [ ] **Phase 12: Hook & Orchestrator Bifurcation** — SessionStart inyecta `/gsd-quick`, Stop nudge omite `kodo gsd verify`, orchestrator distingue `[GSD quick]` en su tag
 - [ ] **Phase 13: Test Coverage Matrix** — los 4 estados de label (none, gsd, gsd-quick, ambos) cubiertos en `labels`, `manager`, `dispatcher`, `session-start`
 
@@ -54,9 +54,9 @@ Requirements archive: `.planning/milestones/v0.3-REQUIREMENTS.md`
   3. Cuando el resolver retorna `phase` para una task quick, `phase_id` NO se persiste en `SessionRecord` (la sesión es phase-agnostic); cuando retorna `error` con `code: 'no-match'` la sesión arranca igual; `roadmap-missing` y `multi-match` siguen abortando.
   4. El comando claude lanzado por una task `kodo:gsd-quick` incluye `--dangerously-skip-permissions` (mismo flag que ya implica `kodo:gsd` desde commit `004995c`).
 **Plans**: 3 plans
-  - [ ] 11-01-PLAN.md — Add getSessionMode helper to src/labels.js (D-09/D-10)
-  - [ ] 11-02-PLAN.md — Persist gsd_mode in buildSessionFromTask + unify skipPerms via getGsdMode (QUICK-03/QUICK-04)
-  - [ ] 11-03-PLAN.md — Dispatcher telemetry mode field + tolerated info emit + lift gsdBootstrap helper (QUICK-01/QUICK-02)
+  - [x] 11-01-PLAN.md — Add getSessionMode helper to src/labels.js (D-09/D-10)
+  - [x] 11-02-PLAN.md — Persist gsd_mode in buildSessionFromTask + unify skipPerms via getGsdMode (QUICK-03/QUICK-04)
+  - [x] 11-03-PLAN.md — Dispatcher telemetry mode field + tolerated info emit + lift gsdBootstrap helper (QUICK-01/QUICK-02)
 
 ### Phase 12: Hook & Orchestrator Bifurcation
 **Goal**: Los tres puntos de lectura del modo (SessionStart hook, Stop hook, orchestrator launch summary) ramifican en `session.gsd_mode` para que una sesión quick ejecute `/gsd-quick`, no se le sugiera `kodo gsd verify`, y aparezca distinguida en la pizarra del orchestrator.
@@ -100,7 +100,7 @@ Pending v0.4 ship. Candidates listed in `PROJECT.md` Active section (GitHub Issu
 | 8. GSD Label + Session Plumbing | v0.3 | 5/5 | Complete | 2026-04-20 |
 | 9. Phase Resolver + Bootstrap | v0.3 | 6/6 | Complete | 2026-04-21 |
 | 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete | 2026-04-22 |
-| 11. Quick Mode Recognition & Persistence | v0.4 | 0/3 | Planned | — |
+| 11. Quick Mode Recognition & Persistence | v0.4 | 3/3 | Complete    | 2026-04-28 |
 | 12. Hook & Orchestrator Bifurcation | v0.4 | 0/0 | Not started | — |
 | 13. Test Coverage Matrix | v0.4 | 0/0 | Not started | — |
 
