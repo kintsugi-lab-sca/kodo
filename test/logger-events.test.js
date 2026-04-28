@@ -139,26 +139,52 @@ describe('LOG-09: logger-events taxonomy (8 helpers)', () => {
     assert.equal(line.reason, 'VERIFICATION.md missing');
   });
 
-  it('gsdPhaseResolved emits event=gsd.phase.resolved + phase_id/match_heading', () => {
+  it('gsdPhaseResolved emits event=gsd.phase.resolved + phase_id/match_heading + mode (Phase 11 D-05)', () => {
     const sessionId = 'sess-ev-gpr';
     const log = createLogger({ sessionId, minLevel: 'info' });
     gsdPhaseResolved(log, {
       phase_id: '07-kodo-logs-cli',
       match_heading: 'Phase 7: kodo logs CLI + Event Taxonomy',
+      mode: 'full',
     });
     const line = readAllLines(logPathFor(sessionId)).pop();
     assert.equal(line.event, EVENTS.GSD_PHASE_RESOLVED);
     assert.equal(line.phase_id, '07-kodo-logs-cli');
     assert.equal(line.match_heading, 'Phase 7: kodo logs CLI + Event Taxonomy');
+    assert.equal(line.mode, 'full');
   });
 
-  it('gsdBootstrap emits event=gsd.bootstrap + project_path', () => {
+  it('gsdPhaseResolved emits mode=quick when quick session matches a phase (Phase 11 D-05)', () => {
+    const sessionId = 'sess-ev-gpr-q';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    gsdPhaseResolved(log, {
+      phase_id: '11-quick-mode-recognition-persistence',
+      match_heading: 'Phase 11: Quick Mode Recognition & Persistence',
+      mode: 'quick',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.mode, 'quick');
+    assert.equal(line.phase_id, '11-quick-mode-recognition-persistence');
+  });
+
+  it('gsdBootstrap emits event=gsd.bootstrap + project_path + brief_empty + mode (Phase 11 D-07)', () => {
     const sessionId = 'sess-ev-gb';
     const log = createLogger({ sessionId, minLevel: 'info' });
-    gsdBootstrap(log, { project_path: '/tmp/kodo-demo' });
+    gsdBootstrap(log, { project_path: '/tmp/kodo-demo', brief_empty: false, mode: 'full' });
     const line = readAllLines(logPathFor(sessionId)).pop();
     assert.equal(line.event, EVENTS.GSD_BOOTSTRAP);
     assert.equal(line.project_path, '/tmp/kodo-demo');
+    assert.equal(line.brief_empty, false);
+    assert.equal(line.mode, 'full');
+  });
+
+  it('gsdBootstrap emits brief_empty=true + mode=quick when quick session bootstraps (Phase 11 D-07)', () => {
+    const sessionId = 'sess-ev-gb-q';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    gsdBootstrap(log, { project_path: '/tmp/kodo-demo-q', brief_empty: true, mode: 'quick' });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.brief_empty, true);
+    assert.equal(line.mode, 'quick');
   });
 
   it('planeApiCall emits event=plane.api.call + method/path/status/duration_ms', () => {

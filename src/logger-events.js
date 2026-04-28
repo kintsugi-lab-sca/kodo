@@ -139,25 +139,36 @@ export function orchestratorReview(logger, fields) {
 }
 
 /**
+ * Emite el evento `gsd.phase.resolved` (success branch, matched:true).
+ * Phase 11 (D-05): añade el campo `mode` para distinguir 'full' vs 'quick'.
+ * El dispatcher es la única fuente de este evento (D-14 Phase 9 invariante).
+ *
  * @param {Logger} logger
- * @param {{ phase_id: string, match_heading: string }} fields
+ * @param {{ phase_id: string, match_heading: string, mode: 'full'|'quick' }} fields
  */
 export function gsdPhaseResolved(logger, fields) {
   logger.info(EVENTS.GSD_PHASE_RESOLVED, {
     event: EVENTS.GSD_PHASE_RESOLVED,
     phase_id: fields.phase_id,
     match_heading: fields.match_heading,
+    mode: fields.mode,
   });
 }
 
 /**
+ * Emite el evento `gsd.bootstrap`. Phase 11 (D-07): añade `mode` y reconcilia
+ * el campo `brief_empty` que el dispatcher ya emitía como literal en Phase 9
+ * (lift literal → helper, completa la migración a la taxonomía cerrada D-14).
+ *
  * @param {Logger} logger
- * @param {{ project_path: string }} fields
+ * @param {{ project_path: string, brief_empty: boolean, mode: 'full'|'quick' }} fields
  */
 export function gsdBootstrap(logger, fields) {
   logger.info(EVENTS.GSD_BOOTSTRAP, {
     event: EVENTS.GSD_BOOTSTRAP,
     project_path: fields.project_path,
+    brief_empty: fields.brief_empty,
+    mode: fields.mode,
   });
 }
 

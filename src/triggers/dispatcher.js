@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects } from '../config.js';
-import { parseKodoLabels } from '../labels.js';
+import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { listSessions, removeSession } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
@@ -67,6 +67,12 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // Parse labels for model/flags regardless of force (needed for launch opts)
   const kodoConfig = parseKodoLabels(task.labels.map((name) => ({ name })));
 
+  // GSD execution mode (full|quick|null). 'kodo:gsd-quick' takes precedence
+  // over 'kodo:gsd' if both labels are present (more specific intent).
+  // Both modes share lock + bootstrap paths; only the prompt and phase
+  // resolution semantics diverge.
+  const gsdMode = getGsdMode(kodoConfig.flags);
+
   // 2b. Handle terminal states — clean up session if task moved to Done/Cancelled
   if (task.state) {
     const config = loadConfig();
@@ -111,7 +117,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // persists the same value that the stop hook will later use to release.
   let gsdSessionId = null;
   let gsdProjectPath = null;
-  if (kodoConfig.flags.includes('gsd')) {
+  if (gsdMode) {
     try {
       gsdProjectPath = resolveProjectPathFn(task);
     } catch {
@@ -142,16 +148,52 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   let gsdPhaseId = null;
   let gsdBrief = null;
   let resolverVerdict = null;
-  if (kodoConfig.flags.includes('gsd') && gsdProjectPath) {
+  if (gsdMode && gsdProjectPath) {
     resolverVerdict = resolvePhaseFn({ projectPath: gsdProjectPath, task });
     switch (resolverVerdict.action) {
       case 'phase':
-        gsdPhaseId = resolverVerdict.phase_id;
+        // Quick mode is phase-agnostic: a phase match is incidental, the
+        // session runs `/gsd-quick` regardless. Discard the matched phase_id.
+        if (gsdMode === 'full') {
+          gsdPhaseId = resolverVerdict.phase_id;
+        }
         break;
       case 'bootstrap':
+        // Both modes bootstrap identically (user decision: same `/gsd-new-project` path).
         gsdBrief = buildBriefFromTask(task);
         break;
       case 'error':
+        // Quick mode tolerates 'no-match' — `/gsd-quick` is meant for one-off
+        // tasks not necessarily tied to a ROADMAP phase. roadmap-missing and
+        // multi-match are still data-quality errors that fail closed.
+        if (gsdMode === 'quick' && resolverVerdict.code === 'no-match') {
+          // D-06: quick + no-match is tolerated, not silent. Emit info-level
+          // gsd.phase.resolved {matched:false, code:'no-match', tolerated:true,
+          // mode:'quick'} for forensic reconstruction by `kodo logs --session-of`.
+          // Dispatcher remains the single source of gsd.phase.resolved (D-14
+          // Phase 9 invariant preserved). Field name `code` (not `error_code`)
+          // distinguishes this tolerated condition from the fail-closed warn
+          // emit below which uses `error_code`.
+          try {
+            const { createLogger } = await import('../logger.js');
+            const log = createLogger({
+              sessionId: gsdSessionId || 'dispatch',
+              minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+            }).child({ component: 'dispatcher', task_id: task.id });
+            log.info('gsd.phase.resolved', {
+              event: 'gsd.phase.resolved',
+              matched: false,
+              code: 'no-match',
+              tolerated: true,
+              mode: 'quick',
+              task_ref: task.ref,
+            });
+          } catch {
+            // silent — never block dispatch on logger failure (mirror existing
+            // forensic warn pattern below)
+          }
+          break;
+        }
         // D-13: fail-closed. Release lock, emit forensic event, return early.
         if (gsdSessionId && gsdProjectPath) {
           try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
@@ -171,6 +213,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
             error_code: resolverVerdict.code,
             detail: resolverVerdict.detail,
             task_ref: task.ref,
+            mode: gsdMode,  // D-07 schema homogeneity: warn fail-closed also distinguishes mode
           });
         } catch {
           // silent — never block the return on logger failure
@@ -185,22 +228,30 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     // D-14: emit matched-true gsd.phase.resolved (phase branch) or gsd.bootstrap (bootstrap branch).
     try {
       const { createLogger } = await import('../logger.js');
-      const { gsdPhaseResolved } = await import('../logger-events.js');
+      const { gsdPhaseResolved, gsdBootstrap } = await import('../logger-events.js');
       const log = createLogger({
         sessionId: gsdSessionId,
         minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
       }).child({ component: 'dispatcher', task_id: task.id });
       if (resolverVerdict.action === 'phase') {
+        // D-05: mode in payload — emit phase_id + match_heading even in quick
+        // mode (forensic: operator can see "resolver matched phase X but session
+        // is phase-agnostic"). Session record itself drops phase_id when quick
+        // (see the case 'phase' handler above).
         gsdPhaseResolved(log, {
           phase_id: resolverVerdict.phase_id,
           match_heading: resolverVerdict.match_heading,
+          mode: gsdMode,  // 'full' | 'quick' — never null inside if(gsdMode && ...)
         });
       } else if (resolverVerdict.action === 'bootstrap') {
-        // Include brief_empty flag per D-12 for operator visibility.
-        log.info('gsd.bootstrap', {
-          event: 'gsd.bootstrap',
+        // D-07: mode in payload — homogeneous schema for kodo logs filtering.
+        // D-14 (Phase 9 invariant) + Phase 11 lift: emit via the typed helper
+        // gsdBootstrap (closed taxonomy) instead of the literal log.info — the
+        // helper already exists in src/logger-events.js and accepts brief_empty.
+        gsdBootstrap(log, {
           project_path: gsdProjectPath,
           brief_empty: isBriefEmpty(task),
+          mode: gsdMode,  // 'full' | 'quick'
         });
       }
     } catch {
