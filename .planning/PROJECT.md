@@ -14,7 +14,18 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 v0.3 añadió la pipeline completa de `kodo:gsd`: label Plane → dispatcher → per-repo lock → resolver 1:1 título→fase (con bootstrap condicional) → sesión Claude GSD → gate de verificación que comenta en Plane y transiciona a Review sólo tras `VERIFICATION.md` pass. Todo cableado con logger estructurado NDJSON (8 tipos de evento tipados) y CLI `kodo logs` para inspección local.
 
-**Next milestone:** no planificado. Candidatos a considerar: adapters (GitHub/ClickUp/local), polling trigger, ergonomía del CLI, cerrar la deuda de LOG-09 (`state.transition` sin callsites en producción, raw strings en dispatcher).
+## Current Milestone: v0.4 GSD Quick Mode
+
+**Goal:** Una task etiquetada `kodo:gsd-quick` arranca una sesión Claude que ejecuta `/gsd-quick` (one-shot, sin plan/execute/verify), comparte lock+skip-permissions con `kodo:gsd`, y el orchestrator no intenta verify post-mortem.
+
+**Target features:**
+- Persistencia de modo (`gsd_mode: 'full'|'quick'`) en sesiones
+- Hooks bifurcados (SessionStart inyecta `/gsd-quick` en lugar de plan/execute/verify)
+- Stop nudge sin verify para quick (one-shot)
+- Tag distintivo en orchestrator launch summary
+- Cobertura de tests (labels, manager, dispatcher, session-start)
+
+**Key context:** WIP no-committeado en `src/labels.js`, `src/session/state.js`, `src/triggers/dispatcher.js` introdujo el dispatch de `kodo:gsd-quick` pero el resto de la cadena (manager + hooks + orchestrator) sigue mirando `flags.includes('gsd')` literal — una task quick arranca sin `gsd: true` persistido, sin skip-permissions, y SessionStart le pide `/gsd-new-project` en vez de `/gsd-quick`. Sin research — polish interno sin nueva tecnología.
 
 ## Requirements
 
@@ -120,4 +131,4 @@ v0.3 añadió la pipeline completa de `kodo:gsd`: label Plane → dispatcher →
 | CONTEXT.md + PATTERNS.md + DISCUSSION-LOG por fase | Facilita onboarding del agente ejecutor y trazabilidad de decisiones | ✓ Good — se usó en Phase 9 y Phase 10 |
 
 ---
-*Last updated: 2026-04-22 — v0.3 milestone shipped*
+*Last updated: 2026-04-28 — v0.4 milestone started (GSD Quick Mode)*
