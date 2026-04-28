@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig } from '../config.js';
 import { listSessions } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
+import { getSessionMode } from '../labels.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = join(__dirname, 'prompt.md');
