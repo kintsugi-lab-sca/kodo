@@ -57,18 +57,19 @@
 
 ## Traceability
 
-(filled by roadmap)
+| Requirement | Phase    | Status  |
+|-------------|----------|---------|
+| QUICK-01    | Phase 11 | Pending |
+| QUICK-02    | Phase 11 | Pending |
+| QUICK-03    | Phase 11 | Pending |
+| QUICK-04    | Phase 11 | Pending |
+| QUICK-05    | Phase 12 | Pending |
+| QUICK-06    | Phase 12 | Pending |
+| QUICK-07    | Phase 12 | Pending |
+| QUICK-08    | Phase 13 | Pending |
 
-| Requirement | Phase |
-|-------------|-------|
-| QUICK-01    | TBD   |
-| QUICK-02    | TBD   |
-| QUICK-03    | TBD   |
-| QUICK-04    | TBD   |
-| QUICK-05    | TBD   |
-| QUICK-06    | TBD   |
-| QUICK-07    | TBD   |
-| QUICK-08    | TBD   |
+**Coverage:** 8/8 requirements mapped to exactly one phase. No orphans, no duplicates.
 
 ---
 *Created: 2026-04-28 — v0.4 milestone requirements*
+*Traceability filled: 2026-04-28 — v0.4 roadmap created (Phases 11-13)*
