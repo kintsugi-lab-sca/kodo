@@ -86,3 +86,5 @@ Las sesiones con `gsd: true` en `state.json` siguen un flujo estructurado de fas
 4. **Debugging previo al verify:** si dudas de la resolución de fase, puedes correr `kodo gsd inspect <task-id>` (dry-run del resolver).
 
 **No dupliques el gate en comentarios manuales.** Todo el lifecycle GSD se orquesta desde el CLI; tu rol es leer los artefactos, ejecutar el verify y continuar con la siguiente ronda de supervisión.
+
+**Sesiones quick.** Las sesiones lanzadas por `kodo:gsd-quick` aparecen en la pizarra como `[GSD quick]`. Son one-shot (sin `VERIFICATION.md`), por eso **NO ejecutes `kodo gsd verify`** sobre ellas — el CLI no las soporta. Revísalas manualmente como cualquier sesión no-GSD: lee el comentario final del agente, valida en {{provider_name}} y decide si pasa a Done o necesita más trabajo.
