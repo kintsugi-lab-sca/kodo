@@ -93,7 +93,33 @@ export function buildGsdContext(session, opts = {}) {
     '',
   ];
 
-  if (session.phase_id) {
+  const mode = getSessionMode(session);
+  if (mode === 'quick') {
+    // Phase 12 D-06: quick wins over phase_id (defense in depth — dispatcher
+    // already strips phase_id in quick mode per Phase 11 D-03).
+    // D-03: brief FIRST when present (quick+bootstrap), command AFTER.
+    // Replicates D-11 Phase 9 ordering. In quick+match the dispatcher does
+    // not persist a brief, so the block simply skips.
+    if (opts.brief) {
+      lines.push(opts.brief, '');
+    }
+    // D-04: defang double-quotes in the title with a simple replace before
+    // wrapping in double-quotes. Plane titles rarely use quotes meaningfully;
+    // Claude Code's slash-command parser handles backslash escapes
+    // inconsistently, so a literal replacement is the predictable choice.
+    const safeTitle = session.summary.replace(/"/g, "'");
+    lines.push(
+      'This is a one-shot GSD session.',
+      '',
+      'Execute the slash command:',
+      '',
+      `1. \`/gsd-quick "${safeTitle}"\``,
+      '',
+      // D-05: closing line that justifies why this block has a single
+      // command instead of three. Idioma EN per D-04 Phase 8.
+      'Run the slash command and finish — no plan/execute/verify cycle.',
+    );
+  } else if (session.phase_id) {
     // Phase known — inject plan/execute/verify sequence (D-01)
     lines.push(
       `This is a GSD session for **phase ${session.phase_id}**.`,
