@@ -26,24 +26,33 @@ const STDIN_TIMEOUT = 3000;
  * Build the orchestrator nudge text for a session that just ended.
  * Pure function — no I/O. Exported for testing.
  *
- * Phase 10 D-04: when session.gsd === true, the nudge points the orchestrator
- * at `kodo gsd verify <session-id>`. Non-GSD sessions get the original text.
+ * Phase 12 D-07: switch exhaustivo sobre getSessionMode(session) con tres cases:
+ *   - 'quick' → texto que NO sugiere `kodo gsd verify` (CLI no soporta quick).
+ *               Es one-shot sin VERIFICATION.md; orchestrator revisa manualmente.
+ *   - 'full'  → texto Phase 10 D-04: apunta a `kodo gsd verify <session-id>`.
+ *               phase_id puede estar ausente (bootstrap, Phase 9 D-11) → fallback "bootstrap".
+ *   - default → null (no-GSD): texto original "Revisa el resultado y decide…".
  *
- * Pitfall #4: session.phase_id may be undefined (bootstrap mode, Phase 9 D-11).
- * Fallback string: "bootstrap".
- *
- * Idioma: español (consistente con el texto original del hook + D-16 Phase 10).
+ * Idioma: español (D-16 Phase 10).
  *
  * @param {import('../session/state.js').Session} session
  * @returns {string}
  */
 export function buildStopNudgeText(session) {
   const base = `La sesión ${session.task_ref} (${session.summary}) ha terminado y está en Review.`;
-  if (session.gsd) {
-    const phaseLabel = session.phase_id ? `fase ${session.phase_id}` : 'bootstrap';
-    return `${base} Es una sesión GSD (${phaseLabel}). Ejecuta \`kodo gsd verify ${session.session_id}\` y actúa según el verdict.\\n`;
+  switch (getSessionMode(session)) {
+    case 'quick':
+      // D-08: texto ES, NO sugiere verify. Escape literal `\\n` preservado (D-04 Phase 10).
+      return `${base} Es una sesión GSD quick (one-shot, sin VERIFICATION.md). Revísala manualmente como cualquier sesión no-GSD.\\n`;
+    case 'full': {
+      // Texto Phase 10 D-04 preservado verbatim.
+      const phaseLabel = session.phase_id ? `fase ${session.phase_id}` : 'bootstrap';
+      return `${base} Es una sesión GSD (${phaseLabel}). Ejecuta \`kodo gsd verify ${session.session_id}\` y actúa según el verdict.\\n`;
+    }
+    default:
+      // null → sesión no-GSD. Texto original preservado.
+      return `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`;
   }
-  return `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`;
 }
 
 async function readStdin() {
