@@ -35,7 +35,7 @@
 
 ### Test coverage
 
-- [x] **QUICK-08**: Cobertura de los 4 estados de label (none, `gsd`, `gsd-quick`, ambos) en `test/labels.test.js` (helper), `test/manager.test.js` (`buildSessionFromTask` + skip-perms source-hygiene), `test/dispatcher.test.js` (resolver tolerance + phase_id discard), `test/session-start.test.js` (`buildGsdContext` rama quick).
+- [ ] **QUICK-08**: Cobertura de los 4 estados de label (none, `gsd`, `gsd-quick`, ambos) en `test/labels.test.js` (helper), `test/manager.test.js` (`buildSessionFromTask` + skip-perms source-hygiene), `test/dispatcher.test.js` (resolver tolerance + phase_id discard), `test/session-start.test.js` (`buildGsdContext` rama quick).
 
 ---
 
@@ -66,7 +66,7 @@
 | QUICK-05    | Phase 12 | Pending |
 | QUICK-06    | Phase 12 | Pending |
 | QUICK-07    | Phase 12 | Pending |
-| QUICK-08    | Phase 13 | Complete |
+| QUICK-08    | Phase 13 | Pending |
 
 **Coverage:** 8/8 requirements mapped to exactly one phase. No orphans, no duplicates.
 
