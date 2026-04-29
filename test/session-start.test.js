@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildSessionContext } from '../src/hooks/session-start.js';
+import { buildSessionContext, buildGsdContext } from '../src/hooks/session-start.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'session-start.js');
@@ -93,6 +93,89 @@ describe('session-start.js — buildSessionContext', () => {
     assert.match(context, /Refactor auth module/);
     assert.match(context, /sess-42/);
     assert.match(context, /\/home\/user\/project/);
+  });
+});
+
+describe('QUICK-08 — quick mode buildGsdContext', () => {
+  it('QUICK-08: renders /gsd-quick "<title>" and omits /gsd-plan-phase, /gsd-execute-phase, /gsd-verify-work, /gsd-new-project', () => {
+    const session = makeSession({
+      gsd: true,
+      gsd_mode: 'quick',
+      summary: 'TASK-X',
+      task_ref: 'KL-42',
+    });
+    const output = buildGsdContext(session, {});
+    assert.match(output, /\/gsd-quick "TASK-X"/);
+    assert.ok(!output.includes('/gsd-plan-phase'), 'quick branch must not inject /gsd-plan-phase');
+    assert.ok(!output.includes('/gsd-execute-phase'), 'quick branch must not inject /gsd-execute-phase');
+    assert.ok(!output.includes('/gsd-verify-work'), 'quick branch must not inject /gsd-verify-work');
+    assert.ok(!output.includes('/gsd-new-project'), 'quick branch must not inject /gsd-new-project (bootstrap is full-only)');
+  });
+
+  it('QUICK-08: includes closing line "Run the slash command and finish — no plan/execute/verify cycle." (Phase 12 D-05)', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X' });
+    const output = buildGsdContext(session, {});
+    assert.match(
+      output,
+      /Run the slash command and finish — no plan\/execute\/verify cycle\./,
+      'D-05 closing line must justify why quick block has a single command',
+    );
+  });
+
+  it('QUICK-08: escapes double-quotes in title — \'TASK-X "with quotes"\' produces /gsd-quick "TASK-X \'with quotes\'" (Phase 12 D-04)', () => {
+    // Phase 12 D-04: title.replace(/"/g, "'"). Plane titles raramente usan
+    // quotes estratégicamente; el slash-command parser de Claude Code
+    // interpreta backslash escapes inconsistentemente, así que reemplazo
+    // simple es la elección predecible.
+    const session = makeSession({
+      gsd: true,
+      gsd_mode: 'quick',
+      summary: 'TASK-X "with quotes"',
+    });
+    const output = buildGsdContext(session, {});
+    assert.ok(
+      output.includes(`/gsd-quick "TASK-X 'with quotes'"`),
+      `output must contain literal /gsd-quick "TASK-X 'with quotes'" — got fragment: ${output.slice(output.indexOf('/gsd-quick'), output.indexOf('/gsd-quick') + 60)}`,
+    );
+  });
+
+  it('QUICK-08: when opts.brief present, brief renders FIRST and slash command AFTER (Phase 12 D-03 simétrico con D-11 Phase 9)', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X' });
+    const brief = '## Project Brief\n\nFoo bar baz';
+    const output = buildGsdContext(session, { brief });
+    const briefIdx = output.indexOf('## Project Brief');
+    const cmdIdx = output.indexOf('/gsd-quick');
+    assert.ok(briefIdx >= 0, 'brief must be rendered when opts.brief is provided');
+    assert.ok(cmdIdx >= 0, 'slash command must be rendered');
+    assert.ok(briefIdx < cmdIdx, 'brief must come BEFORE slash command (Phase 12 D-03)');
+  });
+
+  it('QUICK-08: when opts.brief absent, no brief block is rendered (no blank section)', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X' });
+    const output = buildGsdContext(session, {});
+    assert.ok(!output.includes('## Project Brief'), 'no brief block when opts.brief is undefined');
+    assert.match(output, /\/gsd-quick/, 'slash command still rendered');
+  });
+
+  it('QUICK-08: header is unified "# kodo TASK-X — GSD Mode" (Phase 12 D-01: same as full branches)', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X', task_ref: 'KL-99' });
+    const output = buildGsdContext(session, {});
+    assert.match(output, /# kodo KL-99 — GSD Mode/, 'header must be unified across all GSD branches');
+  });
+
+  it('QUICK-08: quick wins over residual phase_id (Phase 12 D-06: defense in depth)', () => {
+    // Una sesión quick NO debería tener phase_id (dispatcher lo descarta
+    // por Phase 11 D-03). Si por error/legacy aparece, el branch quick
+    // debe ignorarlo y NO degradar a la rama full+match.
+    const session = makeSession({
+      gsd: true,
+      gsd_mode: 'quick',
+      phase_id: '9',  // residual — should be ignored
+      summary: 'TASK-X',
+    });
+    const output = buildGsdContext(session, {});
+    assert.match(output, /\/gsd-quick "TASK-X"/, 'quick command rendered despite residual phase_id');
+    assert.ok(!output.includes('/gsd-plan-phase 9'), 'must not fall through to full+phase branch');
   });
 });
 
