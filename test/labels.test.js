@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKodoLabels } from '../src/labels.js';
+import { parseKodoLabels, getGsdMode, getSessionMode } from '../src/labels.js';
 
 describe('parseKodoLabels', () => {
   it('returns isKodo=false when no labels', () => {
@@ -63,5 +63,31 @@ describe('parseKodoLabels', () => {
   it('handles null/undefined input', () => {
     assert.equal(parseKodoLabels(null).isKodo, false);
     assert.equal(parseKodoLabels(undefined).isKodo, false);
+  });
+});
+
+describe('QUICK-08 — getGsdMode 4-state matrix', () => {
+  it('QUICK-08: returns null when no GSD flags present', () => {
+    assert.equal(getGsdMode([]), null);
+  });
+
+  it('QUICK-08: returns "full" for ["gsd"] only', () => {
+    assert.equal(getGsdMode(['gsd']), 'full');
+  });
+
+  it('QUICK-08: returns "quick" for ["gsd-quick"] only', () => {
+    assert.equal(getGsdMode(['gsd-quick']), 'quick');
+  });
+
+  it('QUICK-08: gsd-quick wins over gsd when both present (precedence rule, Phase 13 D-03)', () => {
+    // Precedencia centralizada en getGsdMode — más específico gana.
+    // Phase 11 D-09/D-10: única fuente de la regla; consumers no replican.
+    assert.equal(getGsdMode(['gsd', 'gsd-quick']), 'quick');
+    assert.equal(getGsdMode(['gsd-quick', 'gsd']), 'quick', 'order-independent');
+  });
+
+  it('QUICK-08: returns null defensively for non-array input', () => {
+    assert.equal(getGsdMode(null), null);
+    assert.equal(getGsdMode(undefined), null);
   });
 });
