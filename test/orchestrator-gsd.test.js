@@ -165,3 +165,107 @@ describe('buildStopNudgeText — Phase 10 nudge condicional GSD', () => {
     assert.match(text, /Ejecuta/); // español
   });
 });
+
+describe('QUICK-08 — buildContextSummary gsdTag', () => {
+  const baseSession = {
+    workspace_ref: 'workspace:1',
+    session_id: 's1',
+    task_id: 'tid',
+    task_ref: 'KL-42',
+    provider: 'plane',
+    project_id: 'p1',
+    summary: 'Do work',
+    status: 'running',
+    started_at: new Date().toISOString(),
+    project_path: '/tmp/proj',
+  };
+  const config = { claude: { max_parallel: 3 } };
+
+  it('QUICK-08: gsd_mode:"quick" → tag [GSD quick]', () => {
+    const sessions = [{ ...baseSession, gsd: true, gsd_mode: 'quick' }];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-42\*\*\s*`\[GSD quick\]`/, 'must render [GSD quick] tag');
+    assert.ok(!out.includes('[GSD phase'), 'must not render [GSD phase ...] for quick session');
+    assert.ok(!out.includes('[GSD bootstrap]'), 'must not render [GSD bootstrap] for quick session');
+  });
+
+  it('QUICK-08: gsd_mode:"full" + phase_id → tag [GSD phase N] (Phase 10 D-19 preserved)', () => {
+    const sessions = [{ ...baseSession, gsd: true, gsd_mode: 'full', phase_id: '9' }];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-42\*\*\s*`\[GSD phase 9\]`/);
+  });
+
+  it('QUICK-08: gsd_mode:"full" without phase_id → tag [GSD bootstrap]', () => {
+    const sessions = [{ ...baseSession, gsd: true, gsd_mode: 'full' }];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-42\*\*\s*`\[GSD bootstrap\]`/);
+  });
+
+  it('QUICK-08: defensive — quick session with residual phase_id renders [GSD quick] (mode wins over phase_id, Phase 12 D-11)', () => {
+    // Phase 12 D-11: defensa en profundidad. Dispatcher descarta phase_id
+    // en quick (Phase 11 D-03), así que esta combinación no debería
+    // existir en producción. Si por bug/legacy aparece, mode-first
+    // garantiza que el tag respeta la intención del modo.
+    const sessions = [{ ...baseSession, gsd: true, gsd_mode: 'quick', phase_id: '9' }];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-42\*\*\s*`\[GSD quick\]`/, 'mode wins over residual phase_id');
+    assert.ok(!out.includes('[GSD phase 9]'), 'must not fall through to phase_id branch');
+  });
+
+  it('QUICK-08: legacy gsd:true without gsd_mode + phase_id reads as full (Phase 11 D-08) → [GSD phase N]', () => {
+    // Sesión v0.3 legacy: getSessionMode devuelve 'full' (regla ausente == full).
+    // El cómputo `mode === 'quick' ? 'quick' : (s.phase_id ? 'phase N' : 'bootstrap')`
+    // cae al ternary phase_id → '[GSD phase 5]'.
+    const sessions = [{ ...baseSession, gsd: true, phase_id: '5' /* no gsd_mode */ }];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-42\*\*\s*`\[GSD phase 5\]`/, 'legacy session reads as full → phase tag');
+  });
+
+  it('QUICK-08: mix of all 3 GSD tag flavors renders correctly per session', () => {
+    const sessions = [
+      { ...baseSession, task_ref: 'KL-Q', gsd: true, gsd_mode: 'quick' },
+      { ...baseSession, task_ref: 'KL-P', gsd: true, gsd_mode: 'full', phase_id: '7' },
+      { ...baseSession, task_ref: 'KL-B', gsd: true, gsd_mode: 'full' },
+      { ...baseSession, task_ref: 'KL-N', gsd: false },
+    ];
+    const out = buildContextSummary(sessions, config);
+    assert.match(out, /KL-Q\*\*\s*`\[GSD quick\]`/);
+    assert.match(out, /KL-P\*\*\s*`\[GSD phase 7\]`/);
+    assert.match(out, /KL-B\*\*\s*`\[GSD bootstrap\]`/);
+    assert.ok(!/KL-N\*\*.*\[GSD/.test(out), 'non-GSD session must not have any GSD tag');
+  });
+});
+
+describe('QUICK-08 — launch.js source hygiene', () => {
+  const LAUNCH_SOURCE_PATH = 'src/orchestrator/launch.js';
+
+  it('QUICK-08: no inline `s.gsd_mode || "full"` or `session.gsd_mode || "full"` (Phase 13 D-09)', () => {
+    const source = readFileSync(LAUNCH_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      !/\b(s|session)\.gsd_mode\s*\|\|\s*['"]full['"]/.test(source),
+      'launch.js must use getSessionMode(s), not inline `s.gsd_mode || "full"` (Phase 13 D-09)',
+    );
+  });
+
+  it('QUICK-08: no direct access to `.gsd_mode` field — must use getSessionMode helper (Phase 13 D-10)', () => {
+    const source = readFileSync(LAUNCH_SOURCE_PATH, 'utf-8');
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(
+      !/\.gsd_mode\b/.test(stripped),
+      'src/orchestrator/launch.js must not access .gsd_mode directly. Use `getSessionMode(s)` from src/labels.js. Direct access to session.gsd_mode is allowed only inside getSessionMode itself (src/labels.js).',
+    );
+  });
+
+  it('QUICK-08: imports getSessionMode from labels.js (Phase 12 D-11 contract)', () => {
+    const source = readFileSync(LAUNCH_SOURCE_PATH, 'utf-8');
+    assert.match(
+      source,
+      /import\s*\{[^}]*getSessionMode[^}]*\}\s*from\s*['"]\.\.\/labels\.js['"]/,
+      'launch.js must import getSessionMode from ../labels.js',
+    );
+  });
+});
