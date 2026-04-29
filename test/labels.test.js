@@ -91,3 +91,36 @@ describe('QUICK-08 — getGsdMode 4-state matrix', () => {
     assert.equal(getGsdMode(undefined), null);
   });
 });
+
+describe('QUICK-08 — getSessionMode 4-state matrix', () => {
+  it('QUICK-08: returns null for non-GSD session (gsd:false)', () => {
+    assert.equal(getSessionMode({ gsd: false }), null);
+  });
+
+  it('QUICK-08: returns null when gsd field is missing', () => {
+    assert.equal(getSessionMode({}), null);
+  });
+
+  it('QUICK-08: returns null defensively for null/undefined session', () => {
+    assert.equal(getSessionMode(null), null);
+    assert.equal(getSessionMode(undefined), null);
+  });
+
+  it('QUICK-08: legacy session (gsd:true, no gsd_mode) reads as "full" — Phase 11 D-08 invariant', () => {
+    // CRITICAL: pre-v0.4 sessions persistidas con gsd:true SIEMPRE eran full.
+    // Esta regla "ausente == full" se aplica internamente en getSessionMode
+    // para que sesiones legacy en state.json se sigan leyendo sin migración
+    // programática (REQUIREMENTS Out of Scope). Si esta regla cambia
+    // silenciosamente, sesiones v0.3 viejas leen como null y rompen los
+    // hooks (que asumen full|quick cuando gsd:true).
+    assert.equal(getSessionMode({ gsd: true }), 'full');
+  });
+
+  it('QUICK-08: returns "full" for gsd:true + gsd_mode:"full" (post-v0.4 full)', () => {
+    assert.equal(getSessionMode({ gsd: true, gsd_mode: 'full' }), 'full');
+  });
+
+  it('QUICK-08: returns "quick" for gsd:true + gsd_mode:"quick" (post-v0.4 quick)', () => {
+    assert.equal(getSessionMode({ gsd: true, gsd_mode: 'quick' }), 'quick');
+  });
+});
