@@ -383,4 +383,34 @@ describe('manager.js source hygiene', () => {
       'el flag CLI debe seguir siendo --dangerously-skip-permissions',
     );
   });
+
+  it('QUICK-08: gsd_mode derivation uses getGsdMode helper, not inline includes (Phase 13 D-12)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Phase 11 D-03: buildSessionFromTask deriva gsdMode localmente vía
+    // getGsdMode(flags). Si alguien reintroduce derivación inline tipo
+    // `flags.includes('gsd-quick') ? 'quick' : 'full'`, la regla de
+    // precedencia centralizada se duplica y diverge silenciosamente.
+    // Single point of change: añadir un nuevo modo a getGsdMode() basta.
+    assert.ok(
+      /const gsdMode = getGsdMode\(flags\)/.test(source),
+      'buildSessionFromTask debe derivar gsdMode vía `const gsdMode = getGsdMode(flags)` (Phase 11 D-03)',
+    );
+    // El literal alternativo NO debe estar presente — si vuelve, el refactor
+    // D-03 fue revertido y la precedencia se duplica.
+    assert.ok(
+      !/flags\.includes\(['"]gsd-quick['"]\)\s*\?/.test(source),
+      'la derivación inline `flags.includes("gsd-quick") ? ...` no debe existir — usa getGsdMode',
+    );
+    // El campo persistido se llama gsd_mode (no mode ni gsdMode) en el spread.
+    // Sanity check: buildSessionFromTask spreaded el campo con ese nombre exacto.
+    assert.ok(
+      /gsd_mode:\s*gsdMode/.test(source),
+      'el campo persistido debe ser `gsd_mode: gsdMode` (no renombrar a mode/gsdMode)',
+    );
+    // Sanity: el spread es condicional (sólo cuando hay modo) — Phase 11 D-04.
+    assert.ok(
+      /\.\.\.\(gsdMode\s*\?\s*\{\s*gsd:\s*true,\s*gsd_mode:\s*gsdMode\s*\}/.test(source),
+      'gsd_mode debe persistirse SIEMPRE junto a gsd:true en el spread condicional (Phase 11 D-04)',
+    );
+  });
 });
