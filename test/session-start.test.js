@@ -265,4 +265,35 @@ describe('session-start.js — source invariants', () => {
       'buildGsdContext must accept (session, opts = {}) with brief support',
     );
   });
+
+  it('QUICK-08: no inline `session.gsd_mode || "full"` (Phase 13 D-09 anti-inline)', () => {
+    // Phase 11 <specifics>: el helper getSessionMode aplica la regla
+    // "legacy gsd:true sin gsd_mode == full" (D-08). Inline `session.gsd_mode || 'full'`
+    // es una micro-violación de DRY que duplica la regla en cada callsite.
+    // Si esta regex matchea, el refactor Phase 12 D-09 se está erosionando.
+    assert.ok(
+      !/session\.gsd_mode\s*\|\|\s*['"]full['"]/.test(source),
+      'session-start.js must use getSessionMode(session), not inline `session.gsd_mode || "full"` (Phase 13 D-09 — single source of legacy preservation)',
+    );
+  });
+
+  it('QUICK-08: no direct access to `.gsd_mode` field — must use getSessionMode helper (Phase 13 D-10)', () => {
+    // Phase 13 D-10: el campo session.gsd_mode SOLO debe leerse vía
+    // getSessionMode (definido en src/labels.js). Cualquier acceso directo
+    // .gsd_mode en session-start.js (consumer) es una violación del helper boundary.
+    // Excepción documentada: src/labels.js:84 lee el campo legítimamente
+    // dentro de getSessionMode — pero este archivo NO es src/labels.js.
+    //
+    // Strip comments para evitar false positives (la rama quick puede tener
+    // un comentario que mencione gsd_mode como referencia documental).
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(
+      !/\.gsd_mode\b/.test(stripped),
+      'src/hooks/session-start.js must not access .gsd_mode directly. Use `getSessionMode(session)` from src/labels.js. Direct access to session.gsd_mode is allowed only inside getSessionMode itself (src/labels.js).',
+    );
+  });
 });
