@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: GSD Quick Mode
-status: verifying
-stopped_at: Completed 13-05-stop-launch-coverage-PLAN.md (Phase 13 Wave 1 complete — ready for verifier)
-last_updated: "2026-04-29T15:32:21.883Z"
+status: phase_complete
+stopped_at: Phase 13 verified (8/8 must-haves PASS, 0 issues, QUICK-08 closed) — milestone v0.4 ready for ship
+last_updated: "2026-04-29T15:40:00.000Z"
 last_activity: 2026-04-29
 progress:
   total_phases: 3
@@ -24,15 +24,16 @@ progress:
 
 **Core Value:** Cualquier sistema de tareas puede ser el motor de kodo — una tarea Plane etiquetada `kodo:gsd` (full) o `kodo:gsd-quick` (one-shot) arranca una sesión Claude bajo el workflow GSD, con bootstrap automático, lock per-repo y logs estructurados inspeccionables desde el CLI.
 
-**Current Focus:** Phase 13 — test-coverage-matrix
+**Current Focus:** v0.4 milestone listo para ship — Phase 13 verificada (PASS 8/8)
 
 ## Current Position
 
-Phase: 13 (test-coverage-matrix) — EXECUTION COMPLETE, AWAITING VERIFIER
-Plan: 5 of 5 (last plan)
-Plans: 5 of 5 complete (13-01..13-05)
+Phase: 13 (test-coverage-matrix) — VERIFIED ✓ PASS
+Plan: 5 of 5 complete (13-01..13-05)
+Plans: 5 of 5 complete
 Tests: 414/415 pass, 1 skip pre-existente (startup-budget Decision B v0.3), 0 fails
-Status: Wave 1 complete — ready for Wave 2 verifier
+Verifier verdict: PASS · 8/8 must-haves · 0 blockers · 0 warnings · 1 nit no bloqueante (recuento de tests en SUMMARY 13-02 contó 1 test legacy)
+Status: Phase 13 cerrada — milestone v0.4 listo para complete-milestone / ship
 Last activity: 2026-04-29
 
 ## Phase Sketch (v0.4)
@@ -78,9 +79,9 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-04-29T15:32:21.870Z
-- **Stopped at:** Completed 13-05-stop-launch-coverage-PLAN.md (Phase 13 Wave 1 complete — ready for verifier)
-- **Next action:** `/gsd-plan-phase 11` para descomponer Phase 11 en plans ejecutables.
+- **Last session:** 2026-04-29T15:40:00Z
+- **Stopped at:** Phase 13 verified PASS (VERIFICATION.md committed). v0.4 milestone listo para ship.
+- **Next action:** `/gsd-complete-milestone` para archivar v0.4 y abrir v0.5; o revisar/cerrar QUICK-01..QUICK-07 en REQUIREMENTS.md (siguen en `Pending` aunque las Phases 11/12 verificaron PASS — herencia de la herramienta `requirements mark-complete` no invocada en su momento).
 - **Files of record:**
   - `.planning/PROJECT.md`
   - `.planning/REQUIREMENTS.md` (v0.4, 8 reqs con traceability poblada)
