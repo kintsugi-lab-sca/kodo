@@ -10,28 +10,28 @@
 
 ### Label parsing & dispatch
 
-- [ ] **QUICK-01**: `parseKodoLabels` expone `'gsd-quick'` en `flags`. `getGsdMode(flags)` devuelve `'quick'` cuando está presente, `'full'` cuando hay `'gsd'` literal, `null` en otro caso. `gsd-quick` gana sobre `gsd` si ambos están presentes (intent más específico).
-- [ ] **QUICK-02**: Dispatcher trata `kodo:gsd-quick` como sesión GSD (lock acquisition, ramas resolver). Resolver verdict `phase` en modo quick descarta `phase_id` (la sesión es phase-agnostic). Resolver verdict `error` con `code: 'no-match'` en modo quick NO falla cerrado (continúa al launch). `roadmap-missing` y `multi-match` siguen fail-closed.
+- [x] **QUICK-01**: `parseKodoLabels` expone `'gsd-quick'` en `flags`. `getGsdMode(flags)` devuelve `'quick'` cuando está presente, `'full'` cuando hay `'gsd'` literal, `null` en otro caso. `gsd-quick` gana sobre `gsd` si ambos están presentes (intent más específico).
+- [x] **QUICK-02**: Dispatcher trata `kodo:gsd-quick` como sesión GSD (lock acquisition, ramas resolver). Resolver verdict `phase` en modo quick descarta `phase_id` (la sesión es phase-agnostic). Resolver verdict `error` con `code: 'no-match'` en modo quick NO falla cerrado (continúa al launch). `roadmap-missing` y `multi-match` siguen fail-closed.
 
 ### Session persistence
 
-- [ ] **QUICK-03**: `SessionRecord` persiste `gsd: true` para ambos modos (full y quick) y un campo `gsd_mode: 'full'|'quick'` que distingue. Hooks y orchestrator leen `session.gsd_mode` para ramificar.
+- [x] **QUICK-03**: `SessionRecord` persiste `gsd: true` para ambos modos (full y quick) y un campo `gsd_mode: 'full'|'quick'` que distingue. Hooks y orchestrator leen `session.gsd_mode` para ramificar.
 
 ### Skip-permissions parity
 
-- [ ] **QUICK-04**: `kodo:gsd-quick` implica `--dangerously-skip-permissions` en el comando claude (mismo contrato que `kodo:gsd` desde commit `004995c`). Razón: el slash command `/gsd-quick` también requiere automatización sin tool-confirmation.
+- [x] **QUICK-04**: `kodo:gsd-quick` implica `--dangerously-skip-permissions` en el comando claude (mismo contrato que `kodo:gsd` desde commit `004995c`). Razón: el slash command `/gsd-quick` también requiere automatización sin tool-confirmation.
 
 ### Hook bifurcation
 
-- [ ] **QUICK-05**: SessionStart hook (`buildGsdContext`) inyecta `/gsd-quick "<task title>"` cuando `session.gsd_mode === 'quick'`, en lugar del bloque `/gsd-plan-phase → /gsd-execute-phase → /gsd-verify-work` o del bloque `/gsd-new-project` de bootstrap. La rama quick es one-shot.
+- [x] **QUICK-05**: SessionStart hook (`buildGsdContext`) inyecta `/gsd-quick "<task title>"` cuando `session.gsd_mode === 'quick'`, en lugar del bloque `/gsd-plan-phase → /gsd-execute-phase → /gsd-verify-work` o del bloque `/gsd-new-project` de bootstrap. La rama quick es one-shot.
 
 ### Stop hook semantics
 
-- [ ] **QUICK-06**: Stop hook (`buildStopNudgeText`) NO sugiere `kodo gsd verify <session-id>` cuando `session.gsd_mode === 'quick'`. Razón: quick es one-shot sin `VERIFICATION.md`. El nudge debe pedir revisión manual al humano. El lock se libera igual en ambos modos.
+- [x] **QUICK-06**: Stop hook (`buildStopNudgeText`) NO sugiere `kodo gsd verify <session-id>` cuando `session.gsd_mode === 'quick'`. Razón: quick es one-shot sin `VERIFICATION.md`. El nudge debe pedir revisión manual al humano. El lock se libera igual en ambos modos.
 
 ### Orchestrator visibility
 
-- [ ] **QUICK-07**: `buildContextSummary` del orchestrator distingue tres etiquetas en su tag `[GSD …]`: `quick`, `phase N`, `bootstrap`. La sección `## Sesiones GSD` del `prompt.md` aclara que sesiones quick no se verifican via `kodo gsd verify` (el orchestrator las revisa como cualquier sesión no-GSD).
+- [x] **QUICK-07**: `buildContextSummary` del orchestrator distingue tres etiquetas en su tag `[GSD …]`: `quick`, `phase N`, `bootstrap`. La sección `## Sesiones GSD` del `prompt.md` aclara que sesiones quick no se verifican via `kodo gsd verify` (el orchestrator las revisa como cualquier sesión no-GSD).
 
 ### Test coverage
 
@@ -59,13 +59,13 @@
 
 | Requirement | Phase    | Status  |
 |-------------|----------|---------|
-| QUICK-01    | Phase 11 | Pending |
-| QUICK-02    | Phase 11 | Pending |
-| QUICK-03    | Phase 11 | Pending |
-| QUICK-04    | Phase 11 | Pending |
-| QUICK-05    | Phase 12 | Pending |
-| QUICK-06    | Phase 12 | Pending |
-| QUICK-07    | Phase 12 | Pending |
+| QUICK-01    | Phase 11 | Complete |
+| QUICK-02    | Phase 11 | Complete |
+| QUICK-03    | Phase 11 | Complete |
+| QUICK-04    | Phase 11 | Complete |
+| QUICK-05    | Phase 12 | Complete |
+| QUICK-06    | Phase 12 | Complete |
+| QUICK-07    | Phase 12 | Complete |
 | QUICK-08    | Phase 13 | Complete |
 
 **Coverage:** 8/8 requirements mapped to exactly one phase. No orphans, no duplicates.

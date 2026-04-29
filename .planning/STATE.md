@@ -80,8 +80,8 @@ None.
 ## Session Continuity
 
 - **Last session:** 2026-04-29T15:40:00Z
-- **Stopped at:** Phase 13 verified PASS (VERIFICATION.md committed). v0.4 milestone listo para ship.
-- **Next action:** `/gsd-complete-milestone` para archivar v0.4 y abrir v0.5; o revisar/cerrar QUICK-01..QUICK-07 en REQUIREMENTS.md (siguen en `Pending` aunque las Phases 11/12 verificaron PASS — herencia de la herramienta `requirements mark-complete` no invocada en su momento).
+- **Stopped at:** Phase 13 verified PASS + QUICK-01..08 cerrados (8/8). v0.4 milestone listo para ship.
+- **Next action:** `/gsd-complete-milestone` para archivar v0.4 y abrir v0.5.
 - **Files of record:**
   - `.planning/PROJECT.md`
   - `.planning/REQUIREMENTS.md` (v0.4, 8 reqs con traceability poblada)
