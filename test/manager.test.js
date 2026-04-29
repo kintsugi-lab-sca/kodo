@@ -115,6 +115,62 @@ describe('manager — pure helpers', () => {
         });
         assert.equal(session.gsd, undefined);
       });
+
+      it('QUICK-08: persists gsd_mode:"full" when flags include "gsd"', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['gsd'],
+        });
+        assert.equal(session.gsd, true);
+        assert.equal(session.gsd_mode, 'full');
+      });
+
+      it('QUICK-08: persists gsd_mode:"quick" when flags include "gsd-quick"', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['gsd-quick'],
+        });
+        assert.equal(session.gsd, true);
+        assert.equal(session.gsd_mode, 'quick');
+      });
+
+      it('QUICK-08: gsd-quick wins over gsd when both flags present (precedence via getGsdMode)', () => {
+        // La regla de precedencia vive en getGsdMode (Phase 11 D-09).
+        // buildSessionFromTask no la replica — sólo deriva localmente.
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['gsd', 'gsd-quick'],
+        });
+        assert.equal(session.gsd, true);
+        assert.equal(session.gsd_mode, 'quick');
+      });
+
+      it('QUICK-08: omits gsd_mode when flags include neither gsd nor gsd-quick', () => {
+        // Phase 11 D-04: gsd_mode SIEMPRE acompaña a gsd:true; nunca se persiste
+        // gsd_mode sin gsd:true y nunca gsd:true sin gsd_mode (post-v0.4).
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:1',
+          sessionId: 'sess-1',
+          flags: ['yolo'],
+        });
+        assert.equal(session.gsd, undefined);
+        assert.equal(session.gsd_mode, undefined);
+      });
     });
 
     // CR-01 regression guard: launchWorkItem threads opts.sessionId into
