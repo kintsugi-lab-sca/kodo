@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildStopNudgeText } from '../src/hooks/stop.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STOP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'stop.js');
@@ -47,5 +48,99 @@ describe('stop.js source hygiene', () => {
   it('uses dynamic import for gsd/lock.js (lazy load)', () => {
     const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
     assert.match(source, /await import\(.*gsd\/lock/, 'must use dynamic import for lock module');
+  });
+
+  it('QUICK-08: no inline `session.gsd_mode || "full"` (Phase 13 D-09 anti-inline)', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      !/session\.gsd_mode\s*\|\|\s*['"]full['"]/.test(source),
+      'stop.js must use getSessionMode(session), not inline `session.gsd_mode || "full"` (Phase 13 D-09)',
+    );
+  });
+
+  it('QUICK-08: no direct access to `.gsd_mode` field — must use getSessionMode helper (Phase 13 D-10)', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(
+      !/\.gsd_mode\b/.test(stripped),
+      'src/hooks/stop.js must not access .gsd_mode directly. Use `getSessionMode(session)` from src/labels.js. Direct access to session.gsd_mode is allowed only inside getSessionMode itself (src/labels.js).',
+    );
+  });
+
+  it('QUICK-08: case "quick" block in source does NOT contain `kodo gsd verify` (Phase 13 D-11 source guard complementing behavior test)', () => {
+    // Captura el bloque del case 'quick' por regex y verifica que no
+    // contiene la subcadena `kodo gsd verify`. Si alguien refactoriza
+    // el switch y reintroduce el verify nudge en quick, este test
+    // falla además del behavior test.
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    const quickCaseMatch = source.match(/case\s+['"]quick['"]:[\s\S]*?(?=case\s+['"]full['"]|case\s+['"]default['"]|\bdefault\s*:)/);
+    assert.ok(quickCaseMatch, 'must find case "quick" block in source');
+    assert.ok(
+      !quickCaseMatch[0].includes('kodo gsd verify'),
+      'case "quick" block must NOT contain `kodo gsd verify` (CLI does not support quick mode)',
+    );
+  });
+});
+
+describe('QUICK-08 — buildStopNudgeText switch', () => {
+  function makeQuickSession(overrides = {}) {
+    return {
+      workspace_ref: 'workspace:1',
+      session_id: 'sess-quick-123',
+      task_id: 'tid',
+      task_ref: 'KL-42',
+      provider: 'plane',
+      project_id: 'p1',
+      summary: 'Quick task',
+      status: 'review',
+      started_at: '2026-04-29T00:00:00.000Z',
+      project_path: '/tmp/proj',
+      ...overrides,
+    };
+  }
+
+  it('QUICK-08: case "quick" — text omits `kodo gsd verify`, mentions sin VERIFICATION.md, asks manual review, idioma ES (Phase 12 D-08)', () => {
+    const text = buildStopNudgeText(makeQuickSession({ gsd: true, gsd_mode: 'quick' }));
+    assert.ok(!text.includes('kodo gsd verify'), 'quick case must NOT mention `kodo gsd verify` (CLI does not support quick)');
+    assert.match(text, /sin VERIFICATION\.md/, 'quick case must mention sin VERIFICATION.md');
+    assert.match(text, /Revísala manualmente/, 'quick case must ask for manual review');
+    assert.match(text, /La sesión KL-42/, 'preserves base sentence opener');
+    assert.match(text, /Es una sesión GSD quick/, 'identifies session as GSD quick');
+    // Idioma ES (D-16 Phase 10 carry-forward)
+    assert.ok(!/\bplease\b|\byou must\b/i.test(text), 'must be Spanish, no English keywords');
+    // Phase 10 \\n literal preservado (cmux.send interpreta como Enter)
+    assert.ok(text.endsWith('\\n'), 'must end with literal \\\\n (cmux Enter)');
+  });
+
+  it('QUICK-08: case "full" with phase_id — includes `kodo gsd verify <session-id>` and `fase N` (Phase 10 D-04 preserved)', () => {
+    const text = buildStopNudgeText(makeQuickSession({ gsd: true, gsd_mode: 'full', phase_id: '10' }));
+    assert.match(text, /kodo gsd verify sess-quick-123/, 'must include session-id in verify command');
+    assert.match(text, /fase 10/, 'phase_id renders as "fase N"');
+    assert.match(text, /actúa según el verdict/, 'instructive ES text preserved');
+  });
+
+  it('QUICK-08: case "full" without phase_id (bootstrap) — verify command + "bootstrap" fallback', () => {
+    const text = buildStopNudgeText(makeQuickSession({ gsd: true, gsd_mode: 'full' }));
+    assert.match(text, /kodo gsd verify sess-quick-123/);
+    assert.match(text, /\(bootstrap\)/, 'phase_label fallback "bootstrap" when phase_id absent');
+  });
+
+  it('QUICK-08: legacy gsd:true without gsd_mode reads as full (Phase 11 D-08) — verify nudge present', () => {
+    // Sesión v0.3 legacy persistida en state.json antes de Phase 11.
+    // getSessionMode aplica la regla "ausente == full" → cae en case 'full'.
+    const text = buildStopNudgeText(makeQuickSession({ gsd: true, phase_id: '5' /* sin gsd_mode */ }));
+    assert.match(text, /kodo gsd verify sess-quick-123/, 'legacy session reads as full → verify nudge');
+    assert.match(text, /fase 5/);
+  });
+
+  it('QUICK-08: default (non-GSD) — original Phase 10 text, no verify, no quick mention', () => {
+    const text = buildStopNudgeText(makeQuickSession({ gsd: false }));
+    assert.match(text, /Revisa el resultado y decide si pasa a Done/);
+    assert.ok(!text.includes('kodo gsd verify'), 'non-GSD must not suggest verify');
+    assert.ok(!text.includes('quick'), 'non-GSD must not mention quick');
   });
 });
