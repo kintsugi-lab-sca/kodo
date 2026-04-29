@@ -636,3 +636,102 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     assert.equal(resolverCalled, false, 'resolver must not run for non-GSD tasks');
   });
 });
+
+describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () => {
+  const baseTask = {
+    id: 'task-uuid-quick-1',
+    ref: 'KL-42',
+    title: 'Quick mode test',
+    description: 'Some description',
+    labels: ['kodo', 'kodo:gsd-quick'],  // propagates gsdMode === 'quick' via parseKodoLabels + getGsdMode
+    state: 'In Progress',
+    projectId: 'proj-1',
+    projectName: 'Test',
+    groups: [],
+    url: 'https://example.com/KL-42',
+    priority: 'medium',
+  };
+  const baseEvent = { provider: 'test', taskRef: 'KL-42', action: 'state_change', raw: {} };
+
+  function makeQuickDeps({ verdict, acquireResult = { acquired: true }, launchResult = { session_id: 'sess-quick' }, task = baseTask }) {
+    const inspectState = { releaseCalled: false, launchCalledWith: null };
+    return {
+      getProviderFn: () => ({
+        getTask: async () => task,
+        init: async () => {},
+        updateTaskState: async () => {},
+        addComment: async () => {},
+        listPendingTasks: async () => [],
+        parseTriggerEvent: () => null,
+        verifySignature: () => true,
+        resolveRef: async () => '',
+      }),
+      resolveProjectPathFn: () => '/tmp/fake-project',
+      acquireGsdLockFn: () => acquireResult,
+      releaseGsdLockFn: () => { inspectState.releaseCalled = true; },
+      resolvePhaseFn: () => verdict,
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      launchWorkItemFn: async (_ref, opts) => { inspectState.launchCalledWith = opts; return launchResult; },
+      _inspect: () => inspectState,
+    };
+  }
+
+  it('QUICK-08: quick + verdict phase → discards phase_id (Phase 11 D-03, dispatcher.js:157-159)', async () => {
+    // Quick is phase-agnostic: even when the resolver matches a phase, the
+    // session is not bound to it. Dispatcher emits gsd.phase.resolved with
+    // phase_id (forensic — D-05 Phase 11) but does NOT thread it to launchOpts.
+    const deps = makeQuickDeps({
+      verdict: { action: 'phase', phase_id: '9', match_heading: '### Phase 9: Foo', match_reason: 'exact' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'launched');
+    const { launchCalledWith } = deps._inspect();
+    assert.ok(launchCalledWith, 'launch must have been invoked');
+    assert.equal(
+      launchCalledWith.phase_id,
+      undefined,
+      'quick mode discards phase_id even when resolver returned a phase match',
+    );
+    assert.equal(launchCalledWith.brief, undefined, 'no brief on quick + match path');
+  });
+
+  it('QUICK-08: quick + verdict error no-match → tolerated, continues to launch (Phase 11 D-06)', async () => {
+    // Phase 11 D-06: quick + no-match is not a fatal error. Dispatcher emits
+    // info log gsd.phase.resolved {matched:false, code:'no-match', tolerated:true,
+    // mode:'quick'} and continues to launch. roadmap-missing and multi-match
+    // remain fail-closed.
+    const deps = makeQuickDeps({
+      verdict: { action: 'error', code: 'no-match' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'launched', 'quick + no-match must NOT abort — continues to launch');
+    const { launchCalledWith, releaseCalled } = deps._inspect();
+    assert.ok(launchCalledWith, 'launch must have been invoked despite no-match');
+    assert.equal(launchCalledWith.phase_id, undefined, 'no phase_id when resolver did not match');
+    assert.equal(launchCalledWith.brief, undefined, 'no brief on quick + no-match path');
+    assert.equal(
+      releaseCalled,
+      false,
+      'lock must NOT be released early — it stays held until session ends (Stop hook releases)',
+    );
+  });
+
+  it('QUICK-08: quick + verdict error roadmap-missing → fail-closed, releases lock', async () => {
+    // Phase 11 D-13 carry-forward: quick tolerates ONLY no-match. roadmap-missing
+    // and multi-match remain data-quality errors that abort with lock release.
+    const deps = makeQuickDeps({
+      verdict: { action: 'error', code: 'roadmap-missing', detail: 'no .planning/ROADMAP.md' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.equal(result.action, 'resolver_failed');
+    assert.equal(result.code, 'roadmap-missing');
+    const { launchCalledWith, releaseCalled } = deps._inspect();
+    assert.equal(launchCalledWith, null, 'launch must NOT be invoked on fail-closed verdict');
+    assert.equal(releaseCalled, true, 'lock must be released on fail-closed (Phase 11 D-13)');
+  });
+});
