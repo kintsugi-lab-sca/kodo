@@ -110,7 +110,7 @@ Pending v0.4 ship. Candidates listed in `PROJECT.md` Active section (GitHub Issu
 | 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete | 2026-04-22 |
 | 11. Quick Mode Recognition & Persistence | v0.4 | 3/3 | Complete    | 2026-04-28 |
 | 12. Hook & Orchestrator Bifurcation | v0.4 | 3/3 | Complete   | 2026-04-28 |
-| 13. Test Coverage Matrix | v0.4 | 0/5 | Planning complete | — |
+| 13. Test Coverage Matrix | v0.4 | 1/5 | In Progress|  |
 
 ---
 *Last updated: 2026-04-29 — Phase 13 planning complete (5 plans, all wave 1)*
