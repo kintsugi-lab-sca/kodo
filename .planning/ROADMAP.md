@@ -83,7 +83,12 @@ Requirements archive: `.planning/milestones/v0.3-REQUIREMENTS.md`
   6. `test/labels.test.js` cubre los 4 estados de `getSessionMode(session)`: `gsd:false` → null, legacy `gsd:true` sin `gsd_mode` → `'full'`, `gsd:true`+`gsd_mode:'full'` → `'full'`, `gsd:true`+`gsd_mode:'quick'` → `'quick'`.
   7. `test/stop.test.js` cubre los 3 cases del switch exhaustivo de `buildStopNudgeText` (`quick` sin `kodo gsd verify`, `full` con verify nudge, `default` no-GSD); source-hygiene assert que el bloque del case quick no contiene `kodo gsd verify` en el source.
   8. `test/orchestrator-gsd.test.js` (o equivalente) cubre las 3 etiquetas de `buildContextSummary` gsdTag (`[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]`) más el caso defensivo Phase 12 D-11 (sesión quick con phase_id residual sigue rindiendo `[GSD quick]`).
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 13-01-PLAN.md — Extender test/labels.test.js con 4 estados de getGsdMode + 4 estados de getSessionMode (SC #1, #6)
+  - [ ] 13-02-PLAN.md — Extender test/manager.test.js con gsd_mode propagation + source-hygiene anti-inline (SC #2)
+  - [ ] 13-03-PLAN.md — Añadir test/dispatcher.test.js QUICK-08 quick mode resolver tolerance (SC #3)
+  - [ ] 13-04-PLAN.md — Añadir test/session-start.test.js QUICK-08 quick mode buildGsdContext + source-hygiene D-09/D-10 (SC #4)
+  - [ ] 13-05-PLAN.md — Extender test/stop.test.js + test/orchestrator-gsd.test.js con switch buildStopNudgeText + gsdTag 3 etiquetas + source-hygiene (SC #7, #8)
 
 ### Next milestone
 
@@ -105,7 +110,7 @@ Pending v0.4 ship. Candidates listed in `PROJECT.md` Active section (GitHub Issu
 | 10. Orchestrator Verification Gate | v0.3 | 4/4 | Complete | 2026-04-22 |
 | 11. Quick Mode Recognition & Persistence | v0.4 | 3/3 | Complete    | 2026-04-28 |
 | 12. Hook & Orchestrator Bifurcation | v0.4 | 3/3 | Complete   | 2026-04-28 |
-| 13. Test Coverage Matrix | v0.4 | 0/0 | Not started | — |
+| 13. Test Coverage Matrix | v0.4 | 0/5 | Planning complete | — |
 
 ---
-*Last updated: 2026-04-28 — v0.4 GSD Quick Mode roadmap created (Phases 11-13)*
+*Last updated: 2026-04-29 — Phase 13 planning complete (5 plans, all wave 1)*
