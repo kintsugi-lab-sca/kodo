@@ -71,15 +71,18 @@ Requirements archive: `.planning/milestones/v0.3-REQUIREMENTS.md`
 **UI hint**: no
 
 ### Phase 13: Test Coverage Matrix
-**Goal**: Los cuatro estados de label (none, `gsd`, `gsd-quick`, ambos) están cubiertos por tests automatizados en cada uno de los cuatro puntos de la cadena (helper, manager, dispatcher, hook), garantizando que un cambio futuro en cualquiera de los cuatro no introduzca regresión silenciosa de modo.
+**Goal**: Los cuatro estados de label (none, `gsd`, `gsd-quick`, ambos) están cubiertos por tests automatizados en cada uno de los cuatro puntos de la cadena (helper, manager, dispatcher, hook), más los tres sitios complementarios (`getSessionMode`, `stop.js` switch, `launch.js` gsdTag) que Phase 11/12 dejaron como deferred. Garantiza que un cambio futuro en cualquiera de los siete sitios no introduzca regresión silenciosa de modo.
 **Depends on**: Phase 11 + Phase 12 (verifica el chain completo)
-**Requirements**: QUICK-08
+**Requirements**: QUICK-08 (+ scope ampliado por Phase 13 CONTEXT D-04..D-07)
 **Success Criteria** (what must be TRUE):
   1. `test/labels.test.js` cubre los 4 estados sobre `parseKodoLabels` y `getGsdMode` (none → null, `gsd` → `'full'`, `gsd-quick` → `'quick'`, ambos → `'quick'`).
-  2. `test/manager.test.js` verifica que `buildSessionFromTask` emite `gsd_mode: 'quick'` y que el comando claude incluye `--dangerously-skip-permissions` para quick (source-hygiene del flag desde una sola fuente).
+  2. `test/manager.test.js` verifica que `buildSessionFromTask` emite `gsd_mode: 'quick'` y que el comando claude incluye `--dangerously-skip-permissions` para quick (source-hygiene del flag desde una sola fuente). Source-hygiene extendido: `gsd_mode` se persiste vía `getGsdMode(flags)`, no inline.
   3. `test/dispatcher.test.js` cubre la tolerancia del resolver en modo quick (`code: 'no-match'` continúa, `roadmap-missing` aborta) y el descarte de `phase_id` cuando hay match.
-  4. `test/session-start.test.js` cubre la rama quick de `buildGsdContext` (inyecta `/gsd-quick "<title>"` y omite la cadena plan/execute/verify).
-  5. La suite completa pasa: `node --test` reporta 0 fallos y los 4 tests nuevos/extendidos están entre los pasados.
+  4. `test/session-start.test.js` cubre la rama quick de `buildGsdContext` (inyecta `/gsd-quick "<title>"` y omite la cadena plan/execute/verify); incluye source-hygiene anti-inline `|| 'full'` y anti-acceso directo a `session.gsd_mode`.
+  5. La suite completa pasa: `node --test` reporta 0 fallos y los tests nuevos/extendidos están entre los pasados.
+  6. `test/labels.test.js` cubre los 4 estados de `getSessionMode(session)`: `gsd:false` → null, legacy `gsd:true` sin `gsd_mode` → `'full'`, `gsd:true`+`gsd_mode:'full'` → `'full'`, `gsd:true`+`gsd_mode:'quick'` → `'quick'`.
+  7. `test/stop.test.js` cubre los 3 cases del switch exhaustivo de `buildStopNudgeText` (`quick` sin `kodo gsd verify`, `full` con verify nudge, `default` no-GSD); source-hygiene assert que el bloque del case quick no contiene `kodo gsd verify` en el source.
+  8. `test/orchestrator-gsd.test.js` (o equivalente) cubre las 3 etiquetas de `buildContextSummary` gsdTag (`[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]`) más el caso defensivo Phase 12 D-11 (sesión quick con phase_id residual sigue rindiendo `[GSD quick]`).
 **Plans**: TBD
 
 ### Next milestone
