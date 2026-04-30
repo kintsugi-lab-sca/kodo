@@ -93,6 +93,55 @@
 
 ---
 
+## Milestone: v0.4 — GSD Quick Mode
+
+**Shipped:** 2026-04-30
+**Phases:** 3 (11-13) | **Plans:** 11 | **Tasks:** ~22
+
+### What Was Built
+- `getGsdMode(flags)` + `getSessionMode(session)` como ÚNICAS fuentes de derivación de modo, con precedencia `gsd-quick > gsd` y fallback legacy a `'full'` (Phase 11 — QUICK-01)
+- `gsd_mode: 'full'|'quick'` persistido en `SessionRecord` desde `buildSessionFromTask` + skip-permissions parity para `kodo:gsd-quick` (Phase 11 — QUICK-03, QUICK-04)
+- Resolver tolerance en quick: descarta `phase_id` con match (phase-agnostic), tolera `code:'no-match'` continuando al launch, mantiene `roadmap-missing` y `multi-match` fail-closed (Phase 11 — QUICK-02)
+- SessionStart hook bifurca: `/gsd-quick "<title>"` para quick (one-shot), bloque `/gsd-plan-phase → /gsd-execute-phase → /gsd-verify-work` para full (Phase 12 — QUICK-05)
+- Stop hook switch exhaustivo de 3 cases (`quick` sin verify, `full` con verify nudge, `default` no-GSD); lock release compartido entre full y quick (Phase 12 — QUICK-06)
+- `buildContextSummary` del orchestrator emite 3 etiquetas (`[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]`); `prompt.md` § "Sesiones GSD" aclara que quick no se verifica (Phase 12 — QUICK-07)
+- Test coverage matrix: 4 estados de label × 7 sitios de la cadena + invariants source-hygiene D-09/D-10/D-11 (Phase 13 — QUICK-08; 44 tests añadidos contra src grep en 6 archivos test)
+
+### What Worked
+- **Helper-as-single-source-of-truth + tests anti-inline:** `getGsdMode`/`getSessionMode` definidos una vez en `src/labels.js`; los tests `D-09/D-10/D-11 source-hygiene` en Phase 13 grepean el código productivo para detectar regresiones donde alguien lea `flags.includes('gsd-quick')` o `session.gsd_mode` inline. La mitad del test budget de Phase 13 (≈22 de 44 tests) son guardas estructurales, no behavior — y atrapan drift que los tests behavior no verían.
+- **Phase 13 sequential executor mode (sin worktree):** 5 plans pequeños (1-2 tasks cada uno) ejecutados secuencialmente en 1-3 min cada uno, total ~10 min. Cero overhead de worktree merge, cero conflictos. Para fases test-only sin sobreposición de archivos, sequential venció a parallel-worktree en simplicidad.
+- **CONTEXT.md con D-NN decisions traídas a Phase 13:** las decisiones D-09/D-10/D-11 anti-inline se redactaron en Phase 12 CONTEXT y se ejecutaron como tests en Phase 13 sin re-discutir. El CONTEXT funcionó como contrato cross-phase.
+- **0 deviations across 11 plans:** todos los plans ejecutaron al pie de la letra. Plan-checker + research light + 1-2 task plans mantuvieron la varianza baja.
+- **Gap-closure por "fail-open en helper" (Phase 11 D-08):** cuando se detectó que sesiones legacy v0.3 sin `gsd_mode` se romperían, la solución fue añadir el fallback en `getSessionMode` (un sitio) en lugar de cambiar el shape persistido. La compatibilidad backward salió gratis.
+
+### What Was Inefficient
+- **`requirements mark-complete` no se ejecutó tras Phase 11/12 verify:** QUICK-01..QUICK-07 quedaron `[ ]` en `REQUIREMENTS.md` durante todo Phase 13 aunque sus VERIFICATION.md estaban PASS. El gsd-tools no automatiza esto; el flujo de verify dejó el cierre como acción manual implícita. Se descubrió en milestone close, hubo que cerrar 7 reqs en bloque en un commit aparte.
+- **execute-plan.md mark-complete demasiado eager:** Plan 13-01 marcó QUICK-08 como complete tras la primera de 5 plans porque el plan declara contribuir a QUICK-08 — el helper no entiende que QUICK-08 abarca 5 plans. Se revirtió manualmente; las 4 plans siguientes recibieron instrucción explícita de NO marcar complete. Faltaría señalización en el plan ("contributes_to" vs "closes") o un check en gsd-tools que verifique todos los plans del req antes de cerrar.
+- **`gsd-tools audit-open` roto:** lanza `ReferenceError: output is not defined` en `gsd-tools.cjs:786`. El workflow de complete-milestone lo invoca como pre-flight check; no bloqueó pero perdimos la señal. Reportar en el upstream.
+- **`gsd-tools state record-metric` / `state add-decision` silenciosos:** el ejecutor de Plan 13-01 reportó que estos comandos no encontraban las secciones esperadas en STATE.md (formato narrativo personalizado). Skip silencioso = ruido invisible si los plans los llamaban por costumbre y nadie miraba.
+- **`gsd-tools milestone complete` advirtió "STATE.md field Last Activity Description not found":** mismo síntoma — la herramienta espera un schema y STATE.md ha derivado a freeform. Siguen funcionando los archives, pero la actualización de STATE quedó parcial (el orchestrator tuvo que reescribirla a mano).
+
+### Patterns Established
+- **Source-hygiene tests via grep contra src:** `assert(!fs.readFileSync(...).includes('flags.includes(\'gsd-quick\')'))`. Barato de añadir, atrapa drift que el behavior no ve. Bien para invariantes "DRY hard-enforced" donde un helper es la única fuente legítima.
+- **Switch exhaustivo sobre `getSessionMode(session)`:** 3 cases (quick / full / default) con default que cae al comportamiento pre-quick. Reemplaza chains `if (session.gsd_mode === 'quick') ... else if (session.gsd) ...` que dispersan la lógica de modo.
+- **"Aditivo y opcional" para campos nuevos en SessionRecord:** `gsd_mode` se añade sin migrar sesiones existentes; `falsy/missing → 'full'` por compat. Pattern reutilizable para v0.5+ si añadimos flags adicionales.
+- **Verifier inline cuando el agente verifier hace stream timeout:** Phase 12 lo necesitó (gsd-verifier opus con stream idle); Phase 13 funcionó normal (sonnet). Útil tener el fallback manual como backup.
+
+### Key Lessons
+1. **`requirements mark-complete` debe ir en el commit de cada VERIFICATION.md, no al final.** Si las herramientas no lo automatizan, hay que añadirlo al script de verify o al template del verifier. Repetimos el mismo bug que en v0.3.
+2. **Plans que contribuyen a un mismo requirement deben señalizar "contributes" vs "closes".** Phase 13 partió QUICK-08 en 5 plans, cada uno cerrando un subset de los 8 success criteria. El primer plan no debería poder cerrar el req entero sólo porque lo nombra en su frontmatter.
+3. **Source-hygiene tests valen su peso si la regla "una sola fuente del helper" es non-negotiable.** Coste: ~3 tests por sitio. Beneficio: refactor agresivo sin miedo a re-introducir lógica inline. Recomendado para próximos helpers cross-cutting (pe. eventual `getProviderMode()` si añadimos provider-specific routing).
+4. **Para fases test-only con archivos disjuntos, sequential vence a parallel-worktree.** El overhead de creación/merge/cleanup de worktrees pesa más que el ahorro de paralelismo cuando los plans son <3 min cada uno y no hay solapamiento.
+5. **STATE.md freeform vs schema:** la herramienta `gsd-tools state record-*` espera secciones canónicas. Cuando STATE.md se personaliza (como en kodo), las llamadas son no-ops silenciosos. O alineamos el schema o documentamos que esos comandos no aplican.
+
+### Cost Observations
+- Model mix: executor agents opus (sequential, no worktree), verifier sonnet, code-reviewer no se invocó en Phase 13 (test-only)
+- Phase 13 ejecutó 5 plans secuenciales en ~10 min de orchestrator-time + 1 verifier sonnet ~4 min = 6 agent sessions
+- Milestone total: ~20-25 agent sessions across 3 phases
+- Notable: cada executor de Phase 13 quedó <130k tokens (test-only, src no se tocó). Sequential mode mantuvo el orchestrator <15% context budget al final.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -101,6 +150,7 @@
 |-----------|-------|--------|------------|
 | v0.2 | 10 | 5 | Established TDD + pure helper extraction pattern |
 | v0.3 | 25 | 5 | Added CONTEXT/PATTERNS/DISCUSSION-LOG + worktree parallelism + code review gate |
+| v0.4 | 11 | 3 | Source-hygiene grep tests anti-drift + sequential-no-worktree para fases test-only |
 
 ### Cumulative Quality
 
@@ -108,8 +158,11 @@
 |-----------|-------|-----------|------------|
 | v0.2 | 122 | 2,782 | 1,868 |
 | v0.3 | 366+ | ~5,400 | ~6,280 |
+| v0.4 | 415 | ~5,400 | ~7,760 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. Small plans (2 tasks) execute reliably — zero failures across 10 plans
+1. Small plans (1-2 tasks) execute reliably — zero failures across 21+ plans (v0.2 + v0.4 evidence; v0.3 with 25 plans similar pattern)
 2. Pure helper extraction + DI > mock.module for Node.js test runner compatibility
+3. Source-hygiene grep tests blindan invariantes "DRY hard-enforced" donde un helper es la única fuente legítima — ratifican refactor sin miedo a drift inline (v0.4)
+4. Sequential-no-worktree gana a parallel-worktree para fases test-only con archivos disjuntos (v0.4) — el overhead de worktree solo paga cuando los plans son largos y/o tocan el mismo árbol
