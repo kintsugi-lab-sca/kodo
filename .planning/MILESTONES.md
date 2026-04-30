@@ -1,5 +1,20 @@
 # Milestones
 
+## v0.4 GSD Quick Mode (Shipped: 2026-04-29)
+
+**Phases completed:** 3 phases, 11 plans, 11 tasks
+
+**Key accomplishments:**
+
+- buildStopNudgeText refactorizado a switch exhaustivo sobre getSessionMode(session) — sesiones quick reciben "revisión manual" en lugar de `kodo gsd verify`, sin tocar el lock release.
+- Cobertura completa de getGsdMode (4 estados) y getSessionMode (4 estados de SessionRecord) en test/labels.test.js — 11 tests nuevos, todos passing, 0 regresiones en suite global (380/381).
+- Cobertura completa de `gsd_mode` en `buildSessionFromTask` (4 estados behavior) más source-hygiene anti-inline anti-renombrado en `test/manager.test.js`. 5 tests nuevos (4 behavior + 1 source-hygiene), todos passing al primer intento. 0 regresiones — suite global 385/386 (1 skip pre-existente).
+- Cobertura behavior completa de las 3 ramas resolver-específicas del modo quick en `test/dispatcher.test.js`: (1) descarte de `phase_id` en match, (2) tolerancia + continúa al launch en no-match, (3) fail-closed + lock release en roadmap-missing. 3 tests nuevos, todos passing al primer intento. 0 regresiones en suite global (388/389 pass, 1 skip pre-existente).
+- Cobertura behavior completa (7 tests) de la rama `mode === 'quick'` de `buildGsdContext` en `src/hooks/session-start.js` (líneas 96-121, Phase 12) más 2 invariants source-hygiene (Phase 13 D-09 anti-inline + D-10 anti-acceso directo) en `test/session-start.test.js`. 9 tests nuevos, todos passing al primer intento. 0 regresiones — suite global 397/398 (1 skip pre-existente).
+- Cobertura behavior completa de los dos sitios complementarios que Phase 12 introdujo: (a) `buildStopNudgeText` switch exhaustivo de 3 cases en `src/hooks/stop.js` (5 tests), (b) `buildContextSummary` gsdTag mode-first en `src/orchestrator/launch.js` (6 tests con 3 etiquetas + caso defensivo Phase 12 D-11 + legacy Phase 11 D-08 + mix). Más 6 tests source-hygiene Phase 13 D-09/D-10/D-11 distribuidos entre ambos archivos. 17 tests nuevos (11 behavior + 6 source-hygiene), todos passing al primer intento. 0 regresiones — suite global 414/415 pass, 1 skip pre-existente.
+
+---
+
 ## v0.3 GSD Integration + Structured Logging (Shipped: 2026-04-22)
 
 **Delivered:** Un sistema completo para que tareas Plane etiquetadas `kodo:gsd` arranquen sesiones Claude bajo el workflow GSD — bootstrap automático de repos, resolver 1:1 título→fase, gate de verificación con comentarios Plane deterministas, y observabilidad NDJSON end-to-end.

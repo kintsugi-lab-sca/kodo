@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.4
 milestone_name: GSD Quick Mode
-status: phase_complete
-stopped_at: Phase 13 verified (8/8 must-haves PASS, 0 issues, QUICK-08 closed) — milestone v0.4 ready for ship
-last_updated: "2026-04-29T15:40:00.000Z"
-last_activity: 2026-04-29
+status: shipped
+stopped_at: v0.4 GSD Quick Mode shipped 2026-04-30 — archives + tag created. Awaiting /gsd-new-milestone for v0.5.
+last_updated: "2026-04-30T07:40:00.000Z"
+last_activity: 2026-04-30
 progress:
   total_phases: 3
   completed_phases: 3
@@ -17,78 +17,49 @@ progress:
 # Project State
 
 **Project:** kodo
-**Milestone:** v0.4 — GSD Quick Mode
-**Last updated:** 2026-04-28
+**Milestone shipped:** v0.4 — GSD Quick Mode (2026-04-30)
+**Last updated:** 2026-04-30
 
 ## Project Reference
 
-**Core Value:** Cualquier sistema de tareas puede ser el motor de kodo — una tarea Plane etiquetada `kodo:gsd` (full) o `kodo:gsd-quick` (one-shot) arranca una sesión Claude bajo el workflow GSD, con bootstrap automático, lock per-repo y logs estructurados inspeccionables desde el CLI.
+See: `.planning/PROJECT.md` (full evolution review applied at v0.4 close)
 
-**Current Focus:** v0.4 milestone listo para ship — Phase 13 verificada (PASS 8/8)
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
+
+**Current focus:** Awaiting `/gsd-new-milestone` para definir v0.5. Candidates en `PROJECT.md` Active section.
 
 ## Current Position
 
-Phase: 13 (test-coverage-matrix) — VERIFIED ✓ PASS
-Plan: 5 of 5 complete (13-01..13-05)
-Plans: 5 of 5 complete
-Tests: 414/415 pass, 1 skip pre-existente (startup-budget Decision B v0.3), 0 fails
-Verifier verdict: PASS · 8/8 must-haves · 0 blockers · 0 warnings · 1 nit no bloqueante (recuento de tests en SUMMARY 13-02 contó 1 test legacy)
-Status: Phase 13 cerrada — milestone v0.4 listo para complete-milestone / ship
-Last activity: 2026-04-29
-
-## Phase Sketch (v0.4)
-
-| Phase | Goal | Requirements | Plans |
-|-------|------|--------------|-------|
-| 11 — Quick Mode Recognition & Persistence | `gsd_mode` persistido + skip-perms parity + resolver tolerance | QUICK-01..04 | TBD |
-| 12 — Hook & Orchestrator Bifurcation | SessionStart, Stop y orchestrator ramifican en `gsd_mode` | QUICK-05..07 | TBD |
-| 13 — Test Coverage Matrix | 4 estados × 4 puntos de la cadena | QUICK-08 | TBD |
-
-**Coverage:** 8/8 requirements mapped.
+No active phase. v0.4 archived; v0.5 not yet started.
 
 ## Accumulated Context
 
-### Roadmap Evolution
+### Roadmap (recent)
 
-- v0.4 milestone iniciado tras v0.3 shipped (2026-04-22). Motivo: WIP no-committeado en `src/labels.js` + `src/triggers/dispatcher.js` introdujo `kodo:gsd-quick` solo en el dispatcher; el resto de la cadena (manager, hooks, orchestrator) sigue tratando una sesión quick como no-GSD. v0.4 cierra esa cadena.
-- Roadmap creado 2026-04-28 con 3 fases (Phases 11-13). Numeración continúa desde v0.3 (que terminó en Phase 10), no se resetea.
-- Phase 11 cubre data-plane (label → dispatcher → SessionRecord), Phase 12 cubre control-plane (hooks + orchestrator), Phase 13 cierra con la matriz de tests cross-cutting que QUICK-08 enumera explícitamente.
+- **v0.2 Provider Abstraction** — shipped 2026-04-13. See `milestones/v0.2-ROADMAP.md`.
+- **v0.3 GSD Integration + Structured Logging** — shipped 2026-04-22. See `milestones/v0.3-ROADMAP.md`.
+- **v0.4 GSD Quick Mode** — shipped 2026-04-30. See `milestones/v0.4-ROADMAP.md`. Phase artifacts: `milestones/v0.4-phases/`.
 
-### Decisions (carried from v0.3)
-
-- **Resolver con discriminated union (Phase/Bootstrap/Error verdict):** el modo `quick` reutiliza el mismo resolver pero descarta el `phase_id` cuando hay match y tolera `code: 'no-match'` en error. `roadmap-missing` y `multi-match` siguen fail-closed.
-- **Per-repo lock con PID+TTL + realpath:** ambos modos (full y quick) comparten el mismo lock para que `kodo:gsd` y `kodo:gsd-quick` sobre el mismo repo no se solapen.
-- **Session-start hook en inglés para el agente, prompt.md orquestador en ES:** se mantiene en v0.4. La rama quick del hook también será inglés (`/gsd-quick "<title>"`).
-- **Dispatcher como ÚNICA fuente de `gsd.phase.resolved` y `gsd.bootstrap`:** se mantiene; quick no añade nuevos eventos. `gsd.phase.resolved` se emite con `phase_id` opcional cuando el modo es quick.
-- **`kodo:gsd` implica `--dangerously-skip-permissions` (commit `004995c`):** v0.4 extiende el mismo contrato a `kodo:gsd-quick` (QUICK-04).
-
-### Decisions (new in v0.4)
-
-- **`gsd_mode` aditivo y opcional en `SessionRecord`:** las sesiones legacy se siguen leyendo sin migración. Falsy/missing == `'full'` por compatibilidad con sesiones v0.3 ya persistidas.
-- **`getGsdMode(flags)` ya implementado en `src/labels.js`:** centraliza la regla de precedencia (`gsd-quick` gana sobre `gsd`). Dispatcher, manager, hooks y tests deben consumir este helper, no `flags.includes(...)` literal.
-- **Quick es phase-agnostic:** aunque el resolver pueda devolver `phase` con match exitoso, en modo quick descartamos `phase_id` antes de persistir. La sesión no se ata a una fase.
-- **Quick no produce `VERIFICATION.md`:** el orchestrator no debe sugerir `kodo gsd verify` para sesiones quick; el humano revisa manualmente como cualquier sesión no-GSD.
-
-### Blockers
+### Open Blockers
 
 None.
 
 ### Open Questions
 
-- ¿El bloque "## Sesiones GSD" de `prompt.md` necesita re-redacción completa, o sólo añadir un párrafo sobre quick? (Resolvable en Phase 12 planning.)
+None blocking. v0.5 candidates a priorizar en `/gsd-new-milestone`: GitHub/ClickUp/local providers, polling/file-watcher triggers, CLI colour output, LOG-09 deuda, Phase 7 UATs pendientes.
 
 ## Session Continuity
 
-- **Last session:** 2026-04-29T15:40:00Z
-- **Stopped at:** Phase 13 verified PASS + QUICK-01..08 cerrados (8/8). v0.4 milestone listo para ship.
-- **Next action:** `/gsd-complete-milestone` para archivar v0.4 y abrir v0.5.
+- **Last session:** 2026-04-30T07:40:00Z
+- **Stopped at:** v0.4 milestone shipped — ROADMAP collapsed, PROJECT.md evolved, REQUIREMENTS.md archived (will be removed via git rm), tag v0.4 pendiente de crear.
+- **Next action:** `/gsd-new-milestone` para arrancar v0.5 (questioning → research → requirements → roadmap).
 - **Files of record:**
-  - `.planning/PROJECT.md`
-  - `.planning/REQUIREMENTS.md` (v0.4, 8 reqs con traceability poblada)
-  - `.planning/ROADMAP.md` (v0.4 phases añadidos)
-  - `.planning/MILESTONES.md` (v0.2 + v0.3 shipped)
-  - WIP no-committeado: `src/labels.js`, `src/session/state.js`, `src/triggers/dispatcher.js`
-  - Plan base: `/Users/alex/.claude/plans/staged-meandering-wind.md`
+  - `.planning/PROJECT.md` (evolved post-v0.4)
+  - `.planning/MILESTONES.md` (v0.2/v0.3/v0.4 entries)
+  - `.planning/ROADMAP.md` (collapsed milestone groupings)
+  - `.planning/milestones/v0.4-ROADMAP.md` (full v0.4 archive)
+  - `.planning/milestones/v0.4-REQUIREMENTS.md` (8/8 QUICK reqs Complete)
+  - `.planning/milestones/v0.4-phases/` (3 phase dirs archived)
 
 ---
-*v0.4 roadmap created: 2026-04-28*
+*v0.4 closed: 2026-04-30*
