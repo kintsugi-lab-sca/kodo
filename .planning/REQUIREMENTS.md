@@ -45,6 +45,10 @@ Acknowledged y pendientes pero deferred a v0.6+. Continúan vivos en `PROJECT.md
 - **TRG-01** (TBD): Polling trigger channel para providers sin webhook.
 - **TRG-02** (TBD): File watcher trigger para provider local.
 
+### Hooks / Prompts
+
+- **HOOK-01** (TBD): El template de cierre de `buildSessionContext` en `src/hooks/session-start.js` (sesiones no-GSD) debe instruir a la sesión a verificar el estado real del push antes de afirmar deploy/publicación, o redactar las menciones de push/deploy en condicional. Driver: incidentes ROMAN-125 y ROMAN-126 (2026-05-04) donde la sesión escribió "push a main ya disparó GitHub Actions" sin haber pusheado, generando confusión en revisión. La opción mínima es añadir una línea al bloque "Criterios para dar la tarea por terminada" recordando que kodo NO hace push automático y que las afirmaciones sobre publicación se redactan en condicional o se verifican con `git rev-parse HEAD` vs `git rev-parse @{u}`.
+
 ## Out of Scope
 
 Explicitly excluded del scope de v0.5. Documentado para evitar scope creep.

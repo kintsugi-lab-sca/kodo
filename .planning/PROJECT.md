@@ -79,6 +79,7 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
 - [ ] Polling trigger channel para providers sin webhook
 - [ ] File watcher trigger para provider local
+- [ ] Hook prompt: que `buildSessionContext` (sesiones no-GSD) recuerde a la sesión que kodo NO hace push automático, y exija verificar el push real o redactar en condicional las afirmaciones de deploy/publicación (HOOK-01 — driver: ROMAN-125 / ROMAN-126)
 
 ### Out of Scope
 
