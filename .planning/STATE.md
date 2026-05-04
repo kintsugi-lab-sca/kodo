@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
-status: roadmap_complete
-stopped_at: v0.5 roadmap creado el 2026-05-04 — Phases 14-17 mapeadas, 13/13 reqs cubiertos. Listo para /gsd-plan-phase 14
-last_updated: "2026-05-04T07:33:00.000Z"
-last_activity: 2026-05-04
+status: planning
+stopped_at: Phase 14 context gathered
+last_updated: "2026-05-04T15:37:53.901Z"
+last_activity: 2026-05-04 — ROADMAP.md generado para v0.5 (4 phases, 13/13 reqs mapeados)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # Project State
@@ -27,6 +26,7 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
 **Current focus:** v0.5 es un milestone de pulido + cierre de deuda. Cuatro fases (coarse granularity):
+
 1. **Phase 14**: Foundation `src/cli/format.js` + `picocolors` dep (DX-06, DX-07)
 2. **Phase 15**: Wiring del helper en `kodo logs`, `gsd inspect`, `gsd verify`, `kodo check` (DX-01..05)
 3. **Phase 16**: LOG-09 cleanup — dispatcher literales → `EVENTS.*`, `markSessionStatus` cableado en verify.js + stop.js (LOG-13..15)
@@ -65,8 +65,8 @@ Ninguna pendiente para arrancar Phase 14. Adapters (GitHub/ClickUp/local), polli
 
 ## Session Continuity
 
-- **Last session:** 2026-05-04T07:33:00Z
-- **Stopped at:** ROADMAP.md generado para v0.5. Phases 14-17 con success criteria observables. REQUIREMENTS.md traceability completa (13/13).
+- **Last session:** 2026-05-04T15:37:53.895Z
+- **Stopped at:** Phase 14 context gathered
 - **Next action:** `/gsd-plan-phase 14` para planificar la foundation `src/cli/format.js` + `picocolors`.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.5 + Evolution section actualizada)
