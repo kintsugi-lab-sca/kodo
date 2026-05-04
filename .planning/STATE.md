@@ -1,36 +1,42 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.4
-milestone_name: GSD Quick Mode
-status: shipped
-stopped_at: v0.4 GSD Quick Mode shipped 2026-04-30 — archives + tag created. Awaiting /gsd-new-milestone for v0.5.
-last_updated: "2026-04-30T07:40:00.000Z"
-last_activity: 2026-04-30
+milestone: v0.5
+milestone_name: CLI Polish & v0.3 Debt Cleanup
+status: defining_requirements
+stopped_at: v0.5 milestone iniciado el 2026-05-04 — definiendo requirements
+last_updated: "2026-05-04T00:00:00.000Z"
+last_activity: 2026-05-04
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 **Project:** kodo
-**Milestone shipped:** v0.4 — GSD Quick Mode (2026-04-30)
-**Last updated:** 2026-04-30
+**Active milestone:** v0.5 — CLI Polish & v0.3 Debt Cleanup (started 2026-05-04)
+**Last updated:** 2026-05-04
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (full evolution review applied at v0.4 close)
+See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Awaiting `/gsd-new-milestone` para definir v0.5. Candidates en `PROJECT.md` Active section.
+**Current focus:** v0.5 es un milestone de pulido + cierre de deuda. Tres áreas:
+1. Output del CLI con colores/formato (TTY-aware, `picocolors`)
+2. Cerrar LOG-09 (literales del dispatcher → `EVENTS.*`, `markSessionStatus` cableado en verify.js + stop.js)
+3. Automatizar UATs humanos de Phase 7 (live --follow, `session.start` real, `--session-of` E2E)
 
 ## Current Position
 
-No active phase. v0.4 archived; v0.5 not yet started.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-04 — Milestone v0.5 started
 
 ## Accumulated Context
 
@@ -39,6 +45,7 @@ No active phase. v0.4 archived; v0.5 not yet started.
 - **v0.2 Provider Abstraction** — shipped 2026-04-13. See `milestones/v0.2-ROADMAP.md`.
 - **v0.3 GSD Integration + Structured Logging** — shipped 2026-04-22. See `milestones/v0.3-ROADMAP.md`.
 - **v0.4 GSD Quick Mode** — shipped 2026-04-30. See `milestones/v0.4-ROADMAP.md`. Phase artifacts: `milestones/v0.4-phases/`.
+- **v0.5 CLI Polish & v0.3 Debt Cleanup** — started 2026-05-04. Continúa numeración desde Phase 14 (v0.4 cerró en Phase 13).
 
 ### Open Blockers
 
@@ -46,20 +53,18 @@ None.
 
 ### Open Questions
 
-None blocking. v0.5 candidates a priorizar en `/gsd-new-milestone`: GitHub/ClickUp/local providers, polling/file-watcher triggers, CLI colour output, LOG-09 deuda, Phase 7 UATs pendientes.
+Ninguna pendiente para arrancar requirements. Adapters (GitHub/ClickUp/local), polling y file-watcher quedan deferred a v0.6+ (registrado explícitamente en PROJECT.md Active section).
 
 ## Session Continuity
 
-- **Last session:** 2026-04-30T07:40:00Z
-- **Stopped at:** v0.4 milestone shipped — ROADMAP collapsed, PROJECT.md evolved, REQUIREMENTS.md archived (will be removed via git rm), tag v0.4 pendiente de crear.
-- **Next action:** `/gsd-new-milestone` para arrancar v0.5 (questioning → research → requirements → roadmap).
+- **Last session:** 2026-05-04T00:00:00Z
+- **Stopped at:** v0.5 milestone abierto. PROJECT.md y STATE.md actualizados. Siguiente paso: decidir research → REQUIREMENTS.md → ROADMAP.md.
+- **Next action:** Continuar `/gsd-new-milestone` (research decision → requirements → roadmap).
 - **Files of record:**
-  - `.planning/PROJECT.md` (evolved post-v0.4)
-  - `.planning/MILESTONES.md` (v0.2/v0.3/v0.4 entries)
-  - `.planning/ROADMAP.md` (collapsed milestone groupings)
-  - `.planning/milestones/v0.4-ROADMAP.md` (full v0.4 archive)
-  - `.planning/milestones/v0.4-REQUIREMENTS.md` (8/8 QUICK reqs Complete)
-  - `.planning/milestones/v0.4-phases/` (3 phase dirs archived)
+  - `.planning/PROJECT.md` (Current Milestone v0.5 + Evolution section añadida)
+  - `.planning/STATE.md` (este archivo)
+  - `.planning/MILESTONES.md` (v0.2/v0.3/v0.4 entries — v0.5 se añadirá al cierre)
+  - `.planning/ROADMAP.md` (a actualizar tras roadmapper)
 
 ---
-*v0.4 closed: 2026-04-30*
+*v0.5 abierto: 2026-05-04*

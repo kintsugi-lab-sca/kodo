@@ -14,6 +14,20 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispatcher. Ahora `gsd_mode: 'full'|'quick'` se persiste en `SessionRecord` desde `buildSessionFromTask` vía el helper `getGsdMode(flags)`, los tres puntos de lectura del modo (SessionStart hook, Stop hook, orchestrator launch summary) ramifican vía `getSessionMode(session)`, una sesión quick recibe `/gsd-quick "<title>"` en lugar del bloque plan/execute/verify, su Stop nudge pide revisión manual sin sugerir `kodo gsd verify`, y el orchestrator emite `[GSD quick]` en su tag para distinguirla. La cobertura cross-cutting del modo (helper, manager, dispatcher, session-start, stop, launch) queda blindada con 44 tests nuevos contra 7 sitios de la cadena. El lock per-repo y el contrato `--dangerously-skip-permissions` se comparten entre full y quick (mismo `session.gsd === true` en ambos modos).
 
+## Current Milestone: v0.5 CLI Polish & v0.3 Debt Cleanup
+
+**Goal:** Pulir la experiencia CLI con colores y formato legible, y cerrar la deuda técnica heredada de v0.3 (LOG-09 + UATs Phase 7) sin tocar el alcance de adapters.
+
+**Target features:**
+- Output del CLI con colores semánticos (info/warn/error) y reformat de tablas/headers vía `picocolors`, con TTY detection y respeto a `NO_COLOR`/`FORCE_COLOR` — `--json` mantiene bytes idénticos al output sin TTY.
+- Cerrar LOG-09: migrar literales de `dispatcher.js` (`'gsd.phase.resolved'` y `'gsd.bootstrap'`) al catálogo `EVENTS.*` y cablear `markSessionStatus` en transiciones reales (`verify.js` cuando mueve la tarea Plane a Review tras `pass`, y `stop.js` cuando libera el lock per-repo) para que `state.transition` se emita en runtime.
+- Convertir los 3 UATs humanos pendientes de Phase 7 (live `--follow`, `session.start` con campos reales, `--session-of` E2E) en integration tests automatizados con fixtures NDJSON y `state.json`.
+
+**Key context:**
+- `picocolors` será la 2ª dependencia externa de kodo (junto a `commander`). Trade-off aceptado a cambio del DX win y de no escribir un wrapper ANSI custom.
+- v0.5 es deliberadamente un milestone de pulido + cierre de deuda. Adapters (GitHub Issues, ClickUp, local), polling y file-watcher triggers permanecen en `Active` y se atacarán en v0.6.
+- El contrato del logger NDJSON no cambia: `KODO_LOG_LEVEL` y `--json` siguen produciendo bytes deterministas; los colores solo aplican a salida TTY interactiva.
+
 ## Requirements
 
 ### Validated
@@ -54,14 +68,17 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 
 ### Active
 
+**In v0.5 (current milestone):**
+- [ ] Output del CLI con colores y formato mejorado (TTY-aware, `picocolors`, `--json` determinista)
+- [ ] Cerrar deuda LOG-09: migrar literales del dispatcher a `EVENTS.*` y cablear `markSessionStatus` en callsites de producción (verify.js + stop.js) para que `state.transition` se emita en runtime
+- [ ] Automatizar UATs humanos de Phase 7 (live --follow, `session.start` real, `--session-of` E2E) como integration tests
+
+**Deferred to v0.6 or later:**
 - [ ] Adapter de GitHub Issues que implementa TaskProvider
 - [ ] Adapter de ClickUp que implementa TaskProvider
 - [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
 - [ ] Polling trigger channel para providers sin webhook
 - [ ] File watcher trigger para provider local
-- [ ] Output del CLI con colores y formato mejorado
-- [ ] Cerrar deuda LOG-09: migrar literales del dispatcher a `EVENTS.*` y cablear `markSessionStatus` en callsites de producción para que `state.transition` se emita en runtime
-- [ ] Completar UATs humanos de Phase 7 (live --follow, `session.start` real, `--session-of` E2E)
 
 ### Out of Scope
 
@@ -131,5 +148,22 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 | Quick es phase-agnostic: descartamos `phase_id` aunque el resolver lo encuentre | El verdict del resolver es informativo en quick, no estructural | ✓ Good — Phase 11 D-03 + tests dispatcher quick + match |
 | Quick no produce `VERIFICATION.md` ni se verifica via `kodo gsd verify` | One-shot por diseño; gate sería un no-op | ✓ Good — Phase 12 stop nudge ramificado + prompt.md aclara revisión manual |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ---
-*Last updated: 2026-04-30 — v0.4 GSD Quick Mode shipped*
+*Last updated: 2026-05-04 — v0.5 CLI Polish & v0.3 Debt Cleanup started*
