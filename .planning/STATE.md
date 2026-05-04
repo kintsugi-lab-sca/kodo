@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
-status: defining_requirements
-stopped_at: v0.5 milestone iniciado el 2026-05-04 — definiendo requirements
-last_updated: "2026-05-04T00:00:00.000Z"
+status: roadmap_complete
+stopped_at: v0.5 roadmap creado el 2026-05-04 — Phases 14-17 mapeadas, 13/13 reqs cubiertos. Listo para /gsd-plan-phase 14
+last_updated: "2026-05-04T07:33:00.000Z"
 last_activity: 2026-05-04
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -26,17 +26,18 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** v0.5 es un milestone de pulido + cierre de deuda. Tres áreas:
-1. Output del CLI con colores/formato (TTY-aware, `picocolors`)
-2. Cerrar LOG-09 (literales del dispatcher → `EVENTS.*`, `markSessionStatus` cableado en verify.js + stop.js)
-3. Automatizar UATs humanos de Phase 7 (live --follow, `session.start` real, `--session-of` E2E)
+**Current focus:** v0.5 es un milestone de pulido + cierre de deuda. Cuatro fases (coarse granularity):
+1. **Phase 14**: Foundation `src/cli/format.js` + `picocolors` dep (DX-06, DX-07)
+2. **Phase 15**: Wiring del helper en `kodo logs`, `gsd inspect`, `gsd verify`, `kodo check` (DX-01..05)
+3. **Phase 16**: LOG-09 cleanup — dispatcher literales → `EVENTS.*`, `markSessionStatus` cableado en verify.js + stop.js (LOG-13..15)
+4. **Phase 17**: UAT automation — los 3 UATs Phase 7 convertidos a integration tests (UAT-01..03)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 14 (Not started — roadmap recién creado)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-04 — Milestone v0.5 started
+Status: Roadmap complete, ready for planning
+Last activity: 2026-05-04 — ROADMAP.md generado para v0.5 (4 phases, 13/13 reqs mapeados)
 
 ## Accumulated Context
 
@@ -45,7 +46,7 @@ Last activity: 2026-05-04 — Milestone v0.5 started
 - **v0.2 Provider Abstraction** — shipped 2026-04-13. See `milestones/v0.2-ROADMAP.md`.
 - **v0.3 GSD Integration + Structured Logging** — shipped 2026-04-22. See `milestones/v0.3-ROADMAP.md`.
 - **v0.4 GSD Quick Mode** — shipped 2026-04-30. See `milestones/v0.4-ROADMAP.md`. Phase artifacts: `milestones/v0.4-phases/`.
-- **v0.5 CLI Polish & v0.3 Debt Cleanup** — started 2026-05-04. Continúa numeración desde Phase 14 (v0.4 cerró en Phase 13).
+- **v0.5 CLI Polish & v0.3 Debt Cleanup** — started 2026-05-04. Continúa numeración desde Phase 14 (v0.4 cerró en Phase 13). Phases 14-17 mapeadas en ROADMAP.md.
 
 ### Open Blockers
 
@@ -53,18 +54,26 @@ None.
 
 ### Open Questions
 
-Ninguna pendiente para arrancar requirements. Adapters (GitHub/ClickUp/local), polling y file-watcher quedan deferred a v0.6+ (registrado explícitamente en PROJECT.md Active section).
+Ninguna pendiente para arrancar Phase 14. Adapters (GitHub/ClickUp/local), polling y file-watcher quedan deferred a v0.6+ (registrado explícitamente en PROJECT.md Active section y en REQUIREMENTS.md "Future Requirements").
+
+### Critical Invariants to Preserve (cross-phase)
+
+- **LOG-12 guard**: `kodo check` NO debe cargar `src/logger.js` transitivamente. Phase 14 helper `src/cli/format.js` debe vivir fuera del grafo del logger; Phase 15 cableado en `kodo check` no puede romper el guard.
+- **`--json` determinismo**: bytes idénticos entre TTY y no-TTY (DX-06 invariante). Validado por golden bytes test.
+- **Source-hygiene D-09/D-10/D-11**: anti-inline anti-direct-access para `gsd_mode` derivation. Phase 16 modifica `verify.js` y `stop.js`, ambos lectores de modo — los tests grep contra `src/` deben seguir verdes.
+- **Lock release idempotente** (Phase 8 GSD-10): el cableado de `markSessionStatus` en `stop.js` (Phase 16) NO debe romper el orden actual de release ni la rama no-GSD del switch.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-04T00:00:00Z
-- **Stopped at:** v0.5 milestone abierto. PROJECT.md y STATE.md actualizados. Siguiente paso: decidir research → REQUIREMENTS.md → ROADMAP.md.
-- **Next action:** Continuar `/gsd-new-milestone` (research decision → requirements → roadmap).
+- **Last session:** 2026-05-04T07:33:00Z
+- **Stopped at:** ROADMAP.md generado para v0.5. Phases 14-17 con success criteria observables. REQUIREMENTS.md traceability completa (13/13).
+- **Next action:** `/gsd-plan-phase 14` para planificar la foundation `src/cli/format.js` + `picocolors`.
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone v0.5 + Evolution section añadida)
+  - `.planning/PROJECT.md` (Current Milestone v0.5 + Evolution section actualizada)
   - `.planning/STATE.md` (este archivo)
+  - `.planning/REQUIREMENTS.md` (traceability table 13/13 mapeada)
+  - `.planning/ROADMAP.md` (Phases 14-17 + collapsible v0.5 block)
   - `.planning/MILESTONES.md` (v0.2/v0.3/v0.4 entries — v0.5 se añadirá al cierre)
-  - `.planning/ROADMAP.md` (a actualizar tras roadmapper)
 
 ---
-*v0.5 abierto: 2026-05-04*
+*v0.5 roadmap completo: 2026-05-04*

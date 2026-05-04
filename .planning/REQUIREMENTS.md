@@ -62,29 +62,33 @@ Explicitly excluded del scope de v0.5. Documentado para evitar scope creep.
 
 ## Traceability
 
-Will be populated by the roadmapper agent during phase mapping.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DX-01 | TBD | Pending |
-| DX-02 | TBD | Pending |
-| DX-03 | TBD | Pending |
-| DX-04 | TBD | Pending |
-| DX-05 | TBD | Pending |
-| DX-06 | TBD | Pending |
-| DX-07 | TBD | Pending |
-| LOG-13 | TBD | Pending |
-| LOG-14 | TBD | Pending |
-| LOG-15 | TBD | Pending |
-| UAT-01 | TBD | Pending |
-| UAT-02 | TBD | Pending |
-| UAT-03 | TBD | Pending |
+| DX-06 | Phase 14 | Pending |
+| DX-07 | Phase 14 | Pending |
+| DX-01 | Phase 15 | Pending |
+| DX-02 | Phase 15 | Pending |
+| DX-03 | Phase 15 | Pending |
+| DX-04 | Phase 15 | Pending |
+| DX-05 | Phase 15 | Pending |
+| LOG-13 | Phase 16 | Pending |
+| LOG-14 | Phase 16 | Pending |
+| LOG-15 | Phase 16 | Pending |
+| UAT-01 | Phase 17 | Pending |
+| UAT-02 | Phase 17 | Pending |
+| UAT-03 | Phase 17 | Pending |
 
 **Coverage:**
 - v0.5 requirements: 13 total
-- Mapped to phases: 0 (pending roadmapper)
-- Unmapped: 13 ⏳
+- Mapped to phases: 13 ✓
+- Unmapped: 0 ✓
+
+**Distribution:**
+- Phase 14 (CLI Format Foundation): 2 reqs (DX-06, DX-07)
+- Phase 15 (CLI Polish Wiring): 5 reqs (DX-01..05)
+- Phase 16 (LOG-09 Debt Cleanup): 3 reqs (LOG-13..15)
+- Phase 17 (Phase 7 UAT Automation): 3 reqs (UAT-01..03)
 
 ---
 *Requirements defined: 2026-05-04*
-*Last updated: 2026-05-04 after initial definition for v0.5*
+*Last updated: 2026-05-04 — Traceability completed by roadmapper agent (4 phases, 13/13 mapped)*
