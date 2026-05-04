@@ -73,7 +73,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   4. `picocolors` aparece en `package.json` (`dependencies`) y en el lockfile; PROJECT.md documenta el bump (commander → commander+picocolors) en la sección Constraints/Context y `kodo --version` sigue funcionando sin warnings.
   5. La suite global pasa (`node --test` reporta 0 fallos nuevos respecto a la línea base) — no se ha modificado ningún callsite todavía, así que cualquier rotura indica problema en el helper o en la dependencia.
 **Plans**: 3 plans
-  - [ ] 14-01-PLAN.md — picocolors dep + src/cli/format.js helper + unit tests (matrix + golden bytes + formatRow/formatTable)
+  - [x] 14-01-PLAN.md — picocolors dep + src/cli/format.js helper + unit tests (matrix + golden bytes + formatRow/formatTable)
   - [ ] 14-02-PLAN.md — test/format-isolation.test.js (LOG-12 extension walker + picocolors single-source grep, D-06/D-07/D-08)
   - [ ] 14-03-PLAN.md — PROJECT.md §Constraints color-isolation bullet + test/version-smoke.test.js (kodo --version exit 0, no warnings)
 **UI hint**: no
@@ -134,7 +134,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 | 11. Quick Mode Recognition & Persistence | v0.4 | 3/3 | Complete | 2026-04-28 |
 | 12. Hook & Orchestrator Bifurcation | v0.4 | 3/3 | Complete | 2026-04-28 |
 | 13. Test Coverage Matrix | v0.4 | 5/5 | Complete | 2026-04-29 |
-| 14. CLI Format Foundation | v0.5 | 0/3 | Planned | - |
+| 14. CLI Format Foundation | v0.5 | 1/3 | In Progress|  |
 | 15. CLI Polish Wiring | v0.5 | 0/0 | Not started | - |
 | 16. LOG-09 Debt Cleanup | v0.5 | 0/0 | Not started | - |
 | 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
