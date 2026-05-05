@@ -55,7 +55,7 @@ import { createLogger } from '../logger.js';
  *
  * @typedef {{
  *   verdict: VerdictWithMissing,
- *   plane: { commented: boolean, transitioned: boolean },
+ *   plane: { commented: boolean, transitioned: boolean, comment_body: string },
  *   session: { session_id: string, task_ref: string, phase_id: string },
  * }} RunGsdVerifyResult
  */
@@ -279,7 +279,10 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
 
   return {
     verdict,
-    plane: { commented, transitioned },
+    // Plan 15-04 Task 1 (DX-04): exponer markdown ya generado para que el CLI
+    // pueda mostrar un summary slice SIN re-renderizar (Pitfall #2 Phase 10:
+    // una sola superficie de generación → determinismo byte-a-byte intacto).
+    plane: { commented, transitioned, comment_body: markdown },
     session: {
       session_id: session.session_id,
       task_ref: session.task_ref,
