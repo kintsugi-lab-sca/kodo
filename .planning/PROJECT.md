@@ -65,6 +65,7 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - ✓ Stop hook bifurca: nudge para quick pide revisión manual sin mencionar `kodo gsd verify`; lock se libera igual en ambos modos — v0.4 Phase 12 (QUICK-06)
 - ✓ `buildContextSummary` del orchestrator emite 3 etiquetas distintas: `[GSD quick]`, `[GSD phase N]` (full match), `[GSD bootstrap]` (full sin match); sección `## Sesiones GSD` de `prompt.md` aclara que quick no se verifica — v0.4 Phase 12 (QUICK-07)
 - ✓ Test coverage matrix QUICK-08: 4 estados de label × 7 sitios de la cadena (helper, manager, dispatcher, session-start, getSessionMode, stop switch, launch gsdTag) + invariants source-hygiene D-09/D-10/D-11 anti-inline anti-acceso-directo — v0.4 Phase 13 (44 tests añadidos, suite global 414/415 pass)
+- ✓ Helper `src/cli/format.js` (factory `createFormatter(stream, env?)`) con eager useColor (`NO_COLOR > FORCE_COLOR > stream.isTTY`), level chips, ok/fail symbols, formatRow/formatTable strip-aware + `picocolors@^1.1.1` como 2ª dep prod, single-source D-07 blindado por `test/format-isolation.test.js` (LOG-12 extension + grep) y smoke `test/version-smoke.test.js` — v0.5 Phase 14 (DX-06, DX-07; 44 tests añadidos, suite 458/459 pass)
 
 ### Active
 
@@ -168,4 +169,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-04 — v0.5 CLI Polish & v0.3 Debt Cleanup started*
+*Last updated: 2026-05-05 — v0.5 Phase 14 (CLI Format Foundation) complete; helper + picocolors shipped at API level, callsites pending Phase 15*
