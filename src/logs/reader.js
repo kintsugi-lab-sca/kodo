@@ -22,6 +22,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { KODO_DIR } from '../config.js';
 import { LEVELS, formatLine } from '../logger.js';
+import { _resolveUseColor } from '../cli/format.js';
 
 /**
  * @typedef {{
@@ -65,7 +66,11 @@ export async function runLogs(opts) {
   const filePath = join(KODO_DIR, 'logs', `${sessionId}.ndjson`);
   const minLevelNum =
     opts.level && opts.level in LEVELS ? LEVELS[opts.level] : LEVELS.debug;
-  const useColor = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+  // Phase 15 D-01 / Pattern A: source unification de useColor via _resolveUseColor —
+  // añade soporte FORCE_COLOR (precedence NO_COLOR > FORCE_COLOR > stream.isTTY).
+  // El --json early-return (líneas siguientes) preserva el bypass total: el
+  // formatter NUNCA se invoca con --json, lo que satisface SC#2 byte-a-byte.
+  const useColor = _resolveUseColor(process.stdout);
 
   /**
    * Imprime una línea NDJSON cruda aplicando filtros + formato.
