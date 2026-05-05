@@ -88,7 +88,12 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   3. `kodo gsd inspect <task-id>` presenta el verdict del resolver con símbolos `✓`/`✗` por sección (config, fetch, roadmap, match) y muestra el exit code al final del output; los exit codes siguen siendo D-19 (0=ok, 1=config, 2=fetch).
   4. `kodo gsd verify <session-id>` colorea pass=verde / soft-fail=amarillo / hard-fail=rojo y muestra un resumen del comentario Plane que se postea, sin alterar los exit codes deterministas (Pitfall #6 Opción A) ni el contenido del comentario Plane (mismo verdict → mismos bytes).
   5. `kodo check` colorea OK/FAIL en su tabla de chequeos y NO carga `src/logger.js` transitivamente — el test-graph guard LOG-12 sigue verde tras los cambios.
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 15-01-PLAN.md — kodo logs wiring (logger.js#formatLine shape dual + reader.js useColor source via _resolveUseColor)
+  - [ ] 15-02-PLAN.md — kodo check wiring (eliminar ANSI inline, fmt.yellow/red/ok via formatterFn DI)
+  - [ ] 15-03-PLAN.md — gsd inspect renderHuman 4 secciones (config/fetch/roadmap/match) + Exit: N visible
+  - [ ] 15-04-PLAN.md — gsd verify expone plane.comment_body + renderHuman color mapping + summary slice
+  - [ ] 15-05-PLAN.md — Wave 2: extender test/format-isolation.test.js con cableado positivo (5 callsites) + anti-leak picocolors
 **UI hint**: no
 
 ### Phase 16: LOG-09 Debt Cleanup
@@ -147,9 +152,9 @@ Plans:
 | 12. Hook & Orchestrator Bifurcation | v0.4 | 3/3 | Complete | 2026-04-28 |
 | 13. Test Coverage Matrix | v0.4 | 5/5 | Complete | 2026-04-29 |
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
-| 15. CLI Polish Wiring | v0.5 | 0/0 | Not started | - |
+| 15. CLI Polish Wiring | v0.5 | 0/5 | Planned     | - |
 | 16. LOG-09 Debt Cleanup | v0.5 | 0/0 | Not started | - |
 | 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
 
 ---
-*Last updated: 2026-05-04 — Phase 14 planned (3 plans, 2 waves)*
+*Last updated: 2026-05-05 — Phase 15 planned (5 plans, 2 waves)*
