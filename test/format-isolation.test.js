@@ -127,3 +127,55 @@ describe('Single source of color (D-07, D-08): picocolors imports', () => {
     assert.equal(found, true, 'No file under src/ imports picocolors — Plan 14-01 contract broken');
   });
 });
+
+describe('Phase 15 cableado: callsites importan format.js (positive) + no picocolors leak (negative)', () => {
+  /** @type {readonly string[]} */
+  const PHASE_15_CALLSITES = Object.freeze([
+    'src/logger.js',
+    'src/logs/reader.js',
+    'src/check.js',
+    'src/cli/gsd-inspect.js',
+    'src/cli/gsd-verify.js',
+  ]);
+
+  it('Phase 15 callsites import src/cli/format.js (cableado verificado tras Plans 15-01..15-04)', () => {
+    const missingImports = [];
+    for (const rel of PHASE_15_CALLSITES) {
+      const full = join(REPO, rel);
+      const specs = extractImports(readFileSync(full, 'utf-8'));
+      // Match relative imports a format.js — paths varían según ubicación del archivo:
+      //   - desde src/logger.js → './cli/format.js'
+      //   - desde src/logs/reader.js → '../cli/format.js'
+      //   - desde src/check.js → './cli/format.js'
+      //   - desde src/cli/gsd-inspect.js → './format.js'
+      //   - desde src/cli/gsd-verify.js → './format.js'
+      const hasFormatImport = specs.some((s) => /(\.\.?\/)+(cli\/)?format\.js$/.test(s));
+      if (!hasFormatImport) {
+        missingImports.push(rel);
+      }
+    }
+    assert.deepEqual(
+      missingImports,
+      [],
+      `Phase 15 callsites missing the format.js import:\n  ${missingImports.join('\n  ')}\n` +
+        `Each callsite must import { createFormatter } and/or { _resolveUseColor } from src/cli/format.js.`,
+    );
+  });
+
+  it('Phase 15 callsites do NOT import picocolors directly (D-07 single-source preserved)', () => {
+    const leakers = [];
+    for (const rel of PHASE_15_CALLSITES) {
+      const full = join(REPO, rel);
+      const specs = extractImports(readFileSync(full, 'utf-8'));
+      if (specs.includes('picocolors')) {
+        leakers.push(rel);
+      }
+    }
+    assert.deepEqual(
+      leakers,
+      [],
+      `picocolors must be imported only via src/cli/format.js (D-07 single-source).\n` +
+        `Leakers detected:\n  ${leakers.join('\n  ')}`,
+    );
+  });
+});
