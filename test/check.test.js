@@ -116,15 +116,18 @@ describe('check.js — checkPendingTasks (pure)', () => {
     assert.match(result.lines.join('\n'), /Error checking tasks/);
   });
 
-  it('Test 5a: pending output uses yellow ANSI color', async () => {
+  it('Test 5a: pending output uses yellow ANSI color (via formatter, TTY)', async () => {
     const provider = createFakeProvider({
       listPendingTasks: async () => [{ id: '1', ref: 'KL-1' }],
     });
+    const { createFormatter } = await import('../src/cli/format.js');
 
     const result = await checkPendingTasks({
       config: BASE_CONFIG,
       runningCount: 0,
       getProviderFn: () => provider,
+      // env={} so the test does not inherit NO_COLOR / FORCE_COLOR=0 from the caller.
+      formatterFn: () => createFormatter({ isTTY: true }, {}),
     });
 
     assert.match(
@@ -134,23 +137,71 @@ describe('check.js — checkPendingTasks (pure)', () => {
     );
   });
 
-  it('Test 5b: error output uses red ANSI color', async () => {
+  it('Test 5b: error output uses red ANSI color (via formatter, TTY)', async () => {
     const provider = createFakeProvider({
       listPendingTasks: async () => {
         throw new Error('boom');
       },
     });
+    const { createFormatter } = await import('../src/cli/format.js');
 
     const result = await checkPendingTasks({
       config: BASE_CONFIG,
       runningCount: 0,
       getProviderFn: () => provider,
+      formatterFn: () => createFormatter({ isTTY: true }, {}),
     });
 
     assert.match(
       result.lines.join('\n'),
       /\x1b\[31m/,
       'Expected red (\\x1b[31m) for error',
+    );
+  });
+
+  it('Test 5d: no ANSI escapes when formatter is non-TTY (NO_COLOR-equivalent)', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => [{ id: '1', ref: 'KL-1' }],
+    });
+    const { createFormatter } = await import('../src/cli/format.js');
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 0,
+      getProviderFn: () => provider,
+      formatterFn: () => createFormatter({ isTTY: false }, {}),
+    });
+
+    const out = result.lines.join('\n');
+    assert.doesNotMatch(out, /\x1b\[/, 'No ANSI escapes expected with isTTY=false');
+    assert.match(
+      out,
+      /\[kodo:check\] 1 pending kodo task\(s\)/,
+      'Plain text shape preserved',
+    );
+  });
+
+  it('Test 5d-error: no ANSI escapes for error path when non-TTY', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => {
+        throw new Error('boom');
+      },
+    });
+    const { createFormatter } = await import('../src/cli/format.js');
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 0,
+      getProviderFn: () => provider,
+      formatterFn: () => createFormatter({ isTTY: false }, {}),
+    });
+
+    const out = result.lines.join('\n');
+    assert.doesNotMatch(out, /\x1b\[/, 'No ANSI escapes expected with isTTY=false');
+    assert.match(
+      out,
+      /\[kodo:check\] Error checking tasks: boom/,
+      'Plain text error shape preserved',
     );
   });
 });
@@ -176,6 +227,48 @@ describe('check.js — source invariants', () => {
       source,
       /from ['"]\.\/providers\/registry\.js['"]/,
       'check.js must import from ./providers/registry.js',
+    );
+  });
+
+  it('Test 5c: imports createFormatter from ./cli/format.js (Phase 15 wiring)', () => {
+    const source = readFileSync(CHECK_SOURCE_PATH, 'utf-8');
+    assert.match(
+      source,
+      /import \{ createFormatter \} from ['"]\.\/cli\/format\.js['"]/,
+      'check.js must import createFormatter from ./cli/format.js',
+    );
+  });
+
+  it('Test 5c: contains no ANSI inline literals (D-09 cleanup)', () => {
+    const source = readFileSync(CHECK_SOURCE_PATH, 'utf-8');
+    assert.doesNotMatch(
+      source,
+      /ANSI_(YELLOW|RED|RESET)/,
+      'check.js must not declare ANSI_* literals (use formatter instead)',
+    );
+    assert.doesNotMatch(
+      source,
+      /\\x1b\[/,
+      'check.js must not contain raw \\x1b ANSI escapes (use formatter instead)',
+    );
+  });
+
+  it('Test 5e: All clear path uses fmt.ok with ✓-leading order (D-10 byte-order change)', () => {
+    // runCheck() does not accept formatterFn DI (Option A — fmt local). The visible
+    // ✓-leading bytes are produced by `fmt.ok('All clear')` in src/check.js, which
+    // expands to `${OK_SYMBOL} ${pc.green(s)}` per format.js:165.
+    // Color (green) is covered by test/format.test.js Phase 14; here we only assert
+    // the source uses fmt.ok and that the pre-Phase-15 trailing-✓ shape is gone.
+    const source = readFileSync(CHECK_SOURCE_PATH, 'utf-8');
+    assert.match(
+      source,
+      /fmt\.ok\(['"]All clear['"]\)/,
+      'check.js must call fmt.ok(\'All clear\') (✓ is prepended by the helper)',
+    );
+    assert.doesNotMatch(
+      source,
+      /All clear ✓/,
+      'Pre-Phase-15 trailing-✓ shape must be gone',
     );
   });
 });

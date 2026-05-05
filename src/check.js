@@ -11,10 +11,7 @@ import { loadState } from './session/state.js';
 import { checkHealth, actOnHealth } from './session/health.js';
 import { initRegistry, getProvider } from './providers/registry.js';
 import { launchOrchestrator } from './orchestrator/launch.js';
-
-const ANSI_YELLOW = '\x1b[33m';
-const ANSI_RED = '\x1b[31m';
-const ANSI_RESET = '\x1b[0m';
+import { createFormatter } from './cli/format.js';
 
 /**
  * Pure helper: queries the configured provider for pending tasks and returns
@@ -25,10 +22,12 @@ const ANSI_RESET = '\x1b[0m';
  *   config: { provider: string, claude: { max_parallel: number } },
  *   runningCount: number,
  *   getProviderFn: (name: string) => import('./interface.js').TaskProvider,
+ *   formatterFn?: () => import('./cli/format.js').Formatter,
  * }} params
  * @returns {Promise<{ lines: string[], reasons: string[] }>}
  */
-export async function checkPendingTasks({ config, runningCount, getProviderFn }) {
+export async function checkPendingTasks({ config, runningCount, getProviderFn, formatterFn }) {
+  const fmt = (formatterFn || (() => createFormatter(process.stdout)))();
   const lines = [];
   const reasons = [];
 
@@ -39,13 +38,13 @@ export async function checkPendingTasks({ config, runningCount, getProviderFn })
     const available = config.claude.max_parallel - runningCount;
     if (pending.length > 0 && available > 0) {
       lines.push(
-        `${ANSI_YELLOW}[kodo:check] ${pending.length} pending kodo task(s), ${available} slot(s) available${ANSI_RESET}`,
+        `[kodo:check] ${fmt.yellow(`${pending.length} pending kodo task(s), ${available} slot(s) available`)}`,
       );
       reasons.push(`${pending.length} tarea(s) pendientes con slots disponibles`);
     }
   } catch (err) {
     lines.push(
-      `${ANSI_RED}[kodo:check] Error checking tasks: ${err.message}${ANSI_RESET}`,
+      `[kodo:check] ${fmt.red(`Error checking tasks: ${err.message}`)}`,
     );
   }
 
@@ -61,6 +60,7 @@ export async function runCheck() {
   const state = loadState();
   const reasons = [];
   const lines = [];
+  const fmt = createFormatter(process.stdout);
 
   const running = Object.values(state.sessions).filter((s) => s.status === 'running');
   const inReview = Object.values(state.sessions).filter((s) => s.status === 'review');
@@ -102,7 +102,7 @@ export async function runCheck() {
 
   // 4. Summary
   if (reasons.length === 0) {
-    lines.push('[kodo:check] All clear ✓');
+    lines.push(`[kodo:check] ${fmt.ok('All clear')}`);
   }
 
   const summary = lines.join('\n');
