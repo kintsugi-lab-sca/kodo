@@ -4,14 +4,14 @@ milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
 status: executing
 stopped_at: Phase 15 context gathered
-last_updated: "2026-05-05T14:28:24.288Z"
-last_activity: 2026-05-05 -- Phase 15 execution started
+last_updated: "2026-05-05T15:00:55.541Z"
+last_activity: 2026-05-05
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 3
-  percent: 38
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -35,10 +35,10 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 ## Current Position
 
-Phase: 15 (cli-polish-wiring) — EXECUTING
-Plan: 1 of 5
+Phase: 16
+Plan: Not started
 Status: Executing Phase 15
-Last activity: 2026-05-05 -- Phase 15 execution started
+Last activity: 2026-05-05
 
 ## Accumulated Context
 
