@@ -66,11 +66,11 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - ✓ `buildContextSummary` del orchestrator emite 3 etiquetas distintas: `[GSD quick]`, `[GSD phase N]` (full match), `[GSD bootstrap]` (full sin match); sección `## Sesiones GSD` de `prompt.md` aclara que quick no se verifica — v0.4 Phase 12 (QUICK-07)
 - ✓ Test coverage matrix QUICK-08: 4 estados de label × 7 sitios de la cadena (helper, manager, dispatcher, session-start, getSessionMode, stop switch, launch gsdTag) + invariants source-hygiene D-09/D-10/D-11 anti-inline anti-acceso-directo — v0.4 Phase 13 (44 tests añadidos, suite global 414/415 pass)
 - ✓ Helper `src/cli/format.js` (factory `createFormatter(stream, env?)`) con eager useColor (`NO_COLOR > FORCE_COLOR > stream.isTTY`), level chips, ok/fail symbols, formatRow/formatTable strip-aware + `picocolors@^1.1.1` como 2ª dep prod, single-source D-07 blindado por `test/format-isolation.test.js` (LOG-12 extension + grep) y smoke `test/version-smoke.test.js` — v0.5 Phase 14 (DX-06, DX-07; 44 tests añadidos, suite 458/459 pass)
+- ✓ Output del CLI con colores y formato mejorado (TTY-aware, `--json` byte-determinista): los 5 callsites cablean `src/cli/format.js` — `kodo logs` (logger.js shape dual NO_COLOR/TTY columnar `timestamp · level · component · message` + `_resolveUseColor` unificado en logger+reader), `kodo check` (3 ANSI inline → `fmt.yellow/red/ok` via `formatterFn` DI), `kodo gsd inspect` (4 secciones literales `config/fetch/roadmap/match` con `✓/✗` + línea final `Exit: N`), `kodo gsd verify` (verdict pass=green/soft=yellow/hard=red + `result.plane.comment_body` expuesto + summary slice 3 líneas sin re-render), single-source-of-color invariant cerrado por `test/format-isolation.test.js` extension (5 callsites importan `format.js` + 0 leak `picocolors`); LOG-12 verde, exit codes D-19/Pitfall #6 invariantes, bytes Plane comment idénticos por verdict — v0.5 Phase 15 (DX-01, DX-02, DX-03, DX-04, DX-05; suite 494 pass + 1 skip pre-existente)
 
 ### Active
 
 **In v0.5 (current milestone):**
-- [ ] Output del CLI con colores y formato mejorado (TTY-aware, `picocolors`, `--json` determinista)
 - [ ] Cerrar deuda LOG-09: migrar literales del dispatcher a `EVENTS.*` y cablear `markSessionStatus` en callsites de producción (verify.js + stop.js) para que `state.transition` se emita en runtime
 - [ ] Automatizar UATs humanos de Phase 7 (live --follow, `session.start` real, `--session-of` E2E) como integration tests
 
@@ -169,4 +169,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-05 — v0.5 Phase 14 (CLI Format Foundation) complete; helper + picocolors shipped at API level, callsites pending Phase 15*
+*Last updated: 2026-05-05 — v0.5 Phase 15 (CLI Polish Wiring) complete; los 5 callsites (`kodo logs`, `kodo check`, `kodo gsd inspect`, `kodo gsd verify`, `format.js` foundation) consumen `src/cli/format.js` con bytes deterministas en `--json`/`NO_COLOR`, símbolos `✓/✗` por sección en `gsd inspect`, color verdict en `gsd verify` (pass=green/soft=yellow/hard=red), exit codes D-19/Pitfall #6 invariantes, LOG-12 verde y single-source-of-color blindado por test source-hygiene*
