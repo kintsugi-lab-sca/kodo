@@ -117,6 +117,18 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 **Plans**: TBD
 **UI hint**: no
 
+## Backlog
+
+### Phase 999.1: Skill kodo-orchestrate al repo y actualizar a v0.5 (BACKLOG)
+
+**Goal:** Mover la skill `kodo-orchestrate` desde `~/.claude/skills/` al repo (`.claude/skills/kodo-orchestrate/skill.md`) y actualizarla a v0.5: provider-agnostic (eliminar referencias hardcoded a Plane API), cheat-sheet de `kodo` CLI moderno (`kodo logs --session-of`, `kodo gsd inspect`, `kodo gsd verify`), flujos de diagnóstico (sesión stuck → `kodo logs --follow`; lock no se libera → `~/.kodo/locks/`), eliminar el mapping hardcoded de proyectos (leerlo siempre de `~/.kodo/projects.json`). Cierra la fuente de drift entre `src/orchestrator/prompt.md` y la skill global (última edición 2026-04-16, anterior a v0.3 GSD y v0.4 Quick).
+
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
