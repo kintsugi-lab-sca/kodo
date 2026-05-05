@@ -16,6 +16,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { KODO_DIR } from './config.js';
+import { createFormatter, _resolveUseColor } from './cli/format.js';
 
 // Re-export for conveniencia — los consumidores pueden hacer
 // `import { noopLogger } from './logger.js'` o directamente desde './logger-noop.js'.
@@ -26,6 +27,16 @@ export const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 }
 
 /** @type {readonly ['debug','info','warn','error']} */
 export const LEVEL_NAMES = Object.freeze(['debug', 'info', 'warn', 'error']);
+
+/**
+ * Widths fijas del shape columnar Phase 15 D-05 (TTY-only).
+ *   - timestamp: 8 (HH:MM:SS).
+ *   - level: 5 (max 'ERROR').
+ *   - component: 12 (D-06 — empty cell se rellena con 12 espacios para alineación vertical).
+ * Pad-only sin truncate (delega en `padCell` de format.js — D-10 Phase 14).
+ * @type {Readonly<{ timestamp: 8, level: 5, component: 12 }>}
+ */
+const COLUMNAR_WIDTHS = Object.freeze({ timestamp: 8, level: 5, component: 12 });
 
 // ANSI escape codes (mismas convenciones que src/check.js).
 export const ANSI_RESET = '\x1b[0m';
@@ -73,7 +84,15 @@ function formatCtxInline(record) {
 
 /**
  * Pretty-format a log record. Shared by stderr mirror AND `kodo logs` CLI.
- * Output shape: `HH:MM:SS LEVEL [component ]msg[ +k=v ...]`.
+ *
+ * Shape dual condicionado a `useColor` (Phase 15 D-02):
+ *   - `useColor=false` (NO_COLOR / non-TTY) → bytes IDÉNTICOS pre-Phase-15
+ *     (single space, sin separator middle-dot, sin padding) — preserva SC#1
+ *     byte-a-byte. Usado por `--json` consumers downstream + tests golden.
+ *   - `useColor=true` (TTY + color enabled) → shape columnar:
+ *     `HH:MM:SS · <colored LEVEL> · <component padded 12> · <msg>[ +k=v...]`
+ *     con widths fijas (D-05) y separator ` · ` (D-07 Phase 14 default).
+ *
  * Pure — no I/O.
  * @param {object} record
  * @param {{ useColor: boolean }} opts
@@ -82,13 +101,51 @@ function formatCtxInline(record) {
 export function formatLine(record, { useColor }) {
   const time = String(/** @type {any} */ (record).timestamp).slice(11, 19);
   const lvl = String(/** @type {any} */ (record).level).toUpperCase();
-  const c = useColor ? COLOR_BY_LEVEL[/** @type {any} */ (record).level] || '' : '';
-  const r = useColor ? ANSI_RESET : '';
-  const comp = /** @type {any} */ (record).component
-    ? ` ${/** @type {any} */ (record).component}`
+
+  if (!useColor) {
+    // BRANCH NON-TTY/NO_COLOR — preservación byte-a-byte (SC#1 Phase 15).
+    // NO modificar este return: cualquier cambio rompe golden bytes test.
+    const comp = /** @type {any} */ (record).component
+      ? ` ${/** @type {any} */ (record).component}`
+      : '';
+    const ctx = formatCtxInline(record);
+    return `${time} ${lvl}${comp} ${/** @type {any} */ (record).msg}${ctx}`;
+  }
+
+  // BRANCH TTY+COLOR — columnar (D-02 + D-05 + D-06 + D-07 Phase 15).
+  // widths: timestamp=8, level=5, component=12 (D-05). Separator ' · ' (default formatRow).
+  // Component vacío → 12 espacios (D-06, alineación vertical estricta).
+  //
+  // El caller ya resolvió `useColor=true` (vía `_resolveUseColor` en createLogger
+  // o vía `_resolveUseColor(process.stdout)` en logs/reader.js). Para que el
+  // formatter respete ese contrato sin re-inspeccionar `process.stderr.isTTY`
+  // (que puede divergir en tests con stub), inyectamos un descriptor sintético
+  // `{ isTTY: true }` y un env limpio (`NO_COLOR`/`FORCE_COLOR` deliberadamente
+  // no-set) — `_resolveUseColor` cae al fallback `stream.isTTY = true` y devuelve
+  // `true` deterministamente.
+  const fmt = createFormatter({ isTTY: true }, {});
+  const levelKey = /** @type {any} */ (record).level;
+  const levelMethod =
+    levelKey === 'debug' ? fmt.debug
+    : levelKey === 'info'  ? fmt.info
+    : levelKey === 'warn'  ? fmt.warn
+    : levelKey === 'error' ? fmt.error
+    : (/** @type {string} */ s) => s;
+  const lvlCell = levelMethod(lvl);
+  const compRaw = /** @type {any} */ (record).component
+    ? String(/** @type {any} */ (record).component)
     : '';
+  const cells = [time, lvlCell, compRaw, String(/** @type {any} */ (record).msg)];
+  // formatRow ignora widths[i] cuando es undefined (Phase 14 src/cli/format.js:130) →
+  // la 4ª celda (msg) NO se padea: solo timestamp / level / component se columnan.
+  const widths = [
+    COLUMNAR_WIDTHS.timestamp,
+    COLUMNAR_WIDTHS.level,
+    COLUMNAR_WIDTHS.component,
+  ];
+  const row = fmt.formatRow(cells, widths);
   const ctx = formatCtxInline(record);
-  return `${time} ${c}${lvl}${r}${comp} ${/** @type {any} */ (record).msg}${ctx}`;
+  return `${row}${ctx}`;
 }
 
 // --- Redaction (LOG-08) ---------------------------------------------------
@@ -201,7 +258,9 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
   mkdirSync(logDir, { recursive: true });
   const filePath = join(logDir, `${sessionId}.ndjson`);
   const minLevelNum = LEVELS[minLevel];
-  const useColor = Boolean(process.stderr.isTTY) && !process.env.NO_COLOR;
+  // Phase 15 D-02 / Pattern A: source unification de useColor via _resolveUseColor —
+  // añade soporte FORCE_COLOR (precedence NO_COLOR > FORCE_COLOR > stream.isTTY).
+  const useColor = _resolveUseColor(process.stderr);
   let writeFailedWarned = false;
 
   return makeNode({ session_id: sessionId });

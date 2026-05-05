@@ -170,12 +170,16 @@ describe('Phase 15 DX-02: formatLine TTY branch (columnar shape with widths fija
       { useColor: true },
     );
     // Esperamos: <time> · <colored INFO> · <12 spaces> · go
-    // El campo component vacío se debe presentar como '            ' (12 espacios).
-    // Buscamos la secuencia ' ·             · ' (separator + 12 spaces + separator).
+    // El campo component vacío se debe presentar como 12 espacios literales,
+    // delimitados por separators ` · ` (espacio + middle-dot + espacio).
+    // Entre los dos middle-dots: 1 (separator suffix) + 12 (cell) + 1 (separator prefix) = 14 espacios.
+    const fourteenSpaces = ' '.repeat(14);
     assert.ok(
-      out.includes(' ·             · '),
-      `expected 12-space empty component cell, got: ${JSON.stringify(out)}`,
+      out.includes(`·${fourteenSpaces}·`),
+      `expected 12-space empty component cell padded between separators, got: ${JSON.stringify(out)}`,
     );
+    // Cross-check: msg literal aparece después del último separator
+    assert.ok(out.endsWith(' · go'), `expected ' · go' at tail, got: ${JSON.stringify(out)}`);
   });
 
   it('Test 6 — TTY component >12 chars no truncado (D-05 pad-only)', () => {
