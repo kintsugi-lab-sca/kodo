@@ -37,7 +37,7 @@ describe('LOG-05/06/07 exports: formatLine + COLOR_BY_LEVEL + ANSI_RESET', () =>
     assert.equal(plain, '10:30:45 INFO plane hello +extra=field');
   });
 
-  it('formatLine with useColor=true wraps level with ANSI codes', () => {
+  it('formatLine with useColor=true wraps level with ANSI codes (Phase 15: columnar shape via picocolors)', () => {
     const rec = {
       timestamp: '2026-04-16T10:30:45.123Z',
       level: 'warn',
@@ -45,10 +45,16 @@ describe('LOG-05/06/07 exports: formatLine + COLOR_BY_LEVEL + ANSI_RESET', () =>
       session_id: 'sess-x',
     };
     const colored = mod.formatLine(rec, { useColor: true });
-    assert.ok(colored.includes(mod.COLOR_BY_LEVEL.warn));
-    assert.ok(colored.includes(mod.ANSI_RESET));
+    // Phase 15 D-02: en TTY shape columnar, level chip va por createFormatter().warn
+    // (picocolors), que usa escape `\x1b[33m...\x1b[39m` (color-off, NO full reset).
+    // Validamos presencia del escape ANSI yellow (33) que es invariante entre
+    // mecanismos (raw ANSI inline pre-Phase-15 y picocolors post-Phase-14).
+    assert.ok(colored.includes('\x1b[33m'), `expected ANSI yellow escape, got: ${JSON.stringify(colored)}`);
     assert.ok(colored.includes('WARN'));
     assert.ok(colored.includes('careful'));
+    // ANSI_RESET sigue exportándose para writeNdjson y backwards-compat (Phase 15
+    // no toca esa surface), aunque ya no aparezca en formatLine TTY output.
+    assert.equal(typeof mod.ANSI_RESET, 'string');
   });
 
   it('formatLine omits component when record has no component field', () => {
