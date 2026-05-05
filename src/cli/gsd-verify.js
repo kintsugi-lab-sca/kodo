@@ -15,6 +15,7 @@
 // Aceptado en v0.3 para minimizar superficie; ver .planning/phases/10-*/10-CONTEXT.md §Deferred.
 
 import { runGsdVerify } from '../gsd/verify.js';
+import { createFormatter } from './format.js';
 
 /**
  * @typedef {{ sessionId: string, json?: boolean }} RunGsdVerifyCliOpts
@@ -23,6 +24,7 @@ import { runGsdVerify } from '../gsd/verify.js';
  *   runVerifyFn?: typeof runGsdVerify,
  *   writeFn?: (s: string) => void,
  *   errFn?: (s: string) => void,
+ *   formatterFn?: () => import('./format.js').Formatter,
  * }} RunGsdVerifyCliDeps
  */
 
@@ -56,6 +58,10 @@ export async function runGsdVerifyCli(opts, deps = {}) {
   const write = deps.writeFn || ((s) => process.stdout.write(s));
   const err = deps.errFn || ((s) => process.stderr.write(s));
   const runVerifyFn = deps.runVerifyFn || runGsdVerify;
+  // Plan 15-04 Task 2 (DX-04): formatterFn DI siguiendo el molde de
+  // runVerifyFn/writeFn/errFn. Resolvemos lazy para evitar tocar process.stdout
+  // durante el import.
+  const fmt = (deps.formatterFn || (() => createFormatter(process.stdout)))();
 
   let result;
   try {
@@ -69,9 +75,11 @@ export async function runGsdVerifyCli(opts, deps = {}) {
   }
 
   if (opts.json) {
+    // --json mode permanece sin cambios — el shape de result lo provee
+    // verify.js (incluido el nuevo plane.comment_body de Plan 15-04 Task 1).
     write(JSON.stringify(result, null, 2) + '\n');
   } else {
-    renderHuman(result, write);
+    renderHuman(result, write, fmt);
   }
   return 0;
 }
@@ -80,37 +88,78 @@ export async function runGsdVerifyCli(opts, deps = {}) {
  * Render the verdict + plane side-effect result in human-readable form.
  * Exhaustive switch over the 4 verdict actions (pass/fail/missing/malformed).
  *
+ * Plan 15-04 (DX-04):
+ *   - D-14: verdict.action coloreado según semántica (pass=green / fail=yellow /
+ *     missing|malformed=red). El cuerpo (phase_id, reason, detail, must_haves)
+ *     queda neutro. NO se usa fmt.ok aquí — el `✓` se reserva para gsd-inspect.
+ *   - D-15: bloque "Plane comment (summary):" con primeras 3 líneas de
+ *     `result.plane.comment_body` como SLICE del string ya generado por
+ *     verify.js. NO se re-genera el markdown aquí — Pitfall #2 Phase 10
+ *     (determinismo byte-a-byte del comentario; una sola superficie de
+ *     generación, en verify.js).
+ *
  * @private
  * @param {any} result
  * @param {(s: string) => void} write
+ * @param {import('./format.js').Formatter} fmt
  */
-function renderHuman(result, write) {
+function renderHuman(result, write, fmt) {
   const { verdict, plane, session } = result;
   write(`Session:      ${session.session_id}\n`);
   write(`Task:         ${session.task_ref}\n\n`);
   write('Verdict:\n');
+
+  // D-14: verdict.action → 3 colores semánticos.
+  const actionColored = (() => {
+    switch (verdict.action) {
+      case 'pass':
+        return fmt.green('pass'); // happy path
+      case 'fail':
+        return fmt.yellow('fail'); // soft-fail (recoverable por agente)
+      case 'missing':
+        return fmt.red('missing'); // hard-fail (operador interviene)
+      case 'malformed':
+        return fmt.red('malformed'); // hard-fail
+      default:
+        return String(verdict.action);
+    }
+  })();
+  write(`  action:      ${actionColored}\n`);
+
+  // El cuerpo se imprime en color neutro (mismo formato pre-Phase-15).
   switch (verdict.action) {
     case 'pass':
-      write(`  action:      pass\n`);
       write(`  phase_id:    ${verdict.phase_id}\n`);
       write(`  must_haves:  ${verdict.must_haves}\n`);
       break;
     case 'fail':
-      write(`  action:      fail\n`);
       write(`  phase_id:    ${verdict.phase_id}\n`);
       write(`  reason:      ${verdict.reason}\n`);
       write(`  detail:      ${verdict.detail}\n`);
       break;
     case 'missing':
-      write(`  action:      missing\n`);
       write(`  phase_id:    ${verdict.phase_id}\n`);
       break;
     case 'malformed':
-      write(`  action:      malformed\n`);
       write(`  phase_id:    ${verdict.phase_id}\n`);
       write(`  detail:      ${verdict.detail}\n`);
       break;
   }
   write('\n');
+
+  // D-15: summary block como SLICE del comment_body ya generado por verify.js.
+  // Pitfall #2 Phase 10: NO se re-genera el markdown desde aquí — se reusa el
+  // string que ya produjo verify.js. Determinismo del comentario byte-a-byte
+  // intacto (una sola superficie de generación, en verify.js).
+  if (plane && plane.comment_body) {
+    const summaryLines = plane.comment_body.split('\n').slice(0, 3);
+    write('Plane comment (summary):\n');
+    for (const line of summaryLines) {
+      write(`  ${line}\n`);
+    }
+    write('\n');
+  }
+
+  // Línea final: Plane status (orden D-15 — DESPUÉS del summary).
   write(`Plane: commented=${plane.commented} transitioned=${plane.transitioned}\n`);
 }
