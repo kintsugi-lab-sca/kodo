@@ -94,6 +94,88 @@ describe('LOG-05: --json emits raw NDJSON (pipe-friendly)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Phase 15 DX-01/DX-02 — Tests para src/logs/reader.js
+//   Test 1: --json bypass byte-a-byte (SC#2: bytes idénticos sin importar TTY/FORCE_COLOR).
+//   Test 3: FORCE_COLOR=1 + non-TTY stdout → output coloreado (D-02 Phase 14 precedence).
+// ---------------------------------------------------------------------------
+
+describe('Phase 15 SC#2: --json bypass byte-idéntico (TTY-independent, FORCE_COLOR-independent)', () => {
+  it('Test 1 — --json escribe la línea NDJSON cruda sin parsear ni colorear', async () => {
+    const sessionId = 'sess-reader-json-bypass';
+    const rec = {
+      timestamp: '2026-05-05T10:30:45.123Z',
+      level: 'info',
+      msg: 'x',
+      session_id: sessionId,
+    };
+    const rawLine = JSON.stringify(rec);
+    seedLog(sessionId, [rec]);
+
+    // Stub stdout.isTTY=true + FORCE_COLOR=1 → si el formatter se invocara,
+    // produciría escapes ANSI; con --json el bypass debe ignorarlos.
+    const prevForce = process.env.FORCE_COLOR;
+    const prevNoColor = process.env.NO_COLOR;
+    delete process.env.NO_COLOR;
+    process.env.FORCE_COLOR = '1';
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+    try {
+      const { captured } = await captureStdout(() => runLogs({ sessionId, json: true }));
+      const out = captured.join('');
+      // Bytes idénticos: '<raw>\n' sin tocar.
+      assert.equal(out, rawLine + '\n', `expected raw NDJSON pass-through, got: ${JSON.stringify(out)}`);
+      // Cero ANSI escapes — el formatter no se invoca para --json (D-03 bypass total).
+      assert.equal(out.includes('\x1b['), false, `--json output must contain zero ANSI escapes, got: ${JSON.stringify(out)}`);
+    } finally {
+      if (prevForce === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = prevForce;
+      if (prevNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = prevNoColor;
+      if (desc) Object.defineProperty(process.stdout, 'isTTY', desc);
+      else delete process.stdout.isTTY;
+    }
+  });
+});
+
+describe('Phase 15 DX-02: FORCE_COLOR support en runLogs (no-TTY → coloreado vía _resolveUseColor)', () => {
+  it('Test 3 — FORCE_COLOR=1 + isTTY=false → formatLine produce shape columnar (ANSI cyan)', async () => {
+    const sessionId = 'sess-reader-force-color';
+    const rec = {
+      timestamp: '2026-05-05T10:30:45.123Z',
+      level: 'info',
+      msg: 'forced',
+      session_id: sessionId,
+      component: 'plane',
+    };
+    seedLog(sessionId, [rec]);
+
+    const prevForce = process.env.FORCE_COLOR;
+    const prevNoColor = process.env.NO_COLOR;
+    delete process.env.NO_COLOR;
+    process.env.FORCE_COLOR = '1';
+    const desc = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+    try {
+      const { captured } = await captureStdout(() => runLogs({ sessionId }));
+      const out = captured.join('');
+      // FORCE_COLOR='1' debe forzar useColor=true incluso con isTTY=false.
+      // El shape columnar incluye separador ' · ' y ANSI cyan (\x1b[36m) para info.
+      assert.ok(out.includes('\x1b[36m'), `expected ANSI cyan (FORCE_COLOR coerced useColor=true), got: ${JSON.stringify(out)}`);
+      assert.ok(out.includes(' · '), `expected columnar separator ' · ', got: ${JSON.stringify(out)}`);
+    } finally {
+      if (prevForce === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = prevForce;
+      if (prevNoColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = prevNoColor;
+      if (desc) Object.defineProperty(process.stdout, 'isTTY', desc);
+      else delete process.stdout.isTTY;
+    }
+  });
+});
+
 describe('D-02: --component filter', () => {
   it('keeps only matching component', async () => {
     const sessionId = 'sess-reader-comp';
