@@ -37,6 +37,7 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseVerificationFrontmatter, computeVerdict } from './verification.js';
 import { orchestratorReview, planeApiCallFailed } from '../logger-events.js';
 import { createLogger } from '../logger.js';
+import { markSessionStatus } from '../session/manager.js';
 
 /**
  * @typedef {{ sessionId: string }} RunGsdVerifyOpts
@@ -236,6 +237,13 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
       try {
         await provider.updateTaskState(task, reviewState);
         transitioned = true;
+        // Phase 16 LOG-14 (D-11): mark session 'review' SOLO cuando pass + addComment OK
+        // + updateTaskState OK. El reason 'gate-passed' espeja el verdict legacy mapping
+        // del header (line 26) y el orchestratorReview emitido abajo. El helper emite
+        // state.transition con from/to reales vía logger. SC#3: las ramas fail/missing/
+        // malformed y errores Plane NO emiten state.transition (verificado por
+        // test/gsd-verify-integration.test.js Task 2).
+        markSessionStatus(session.task_id, 'review', 'gate-passed', log);
       } catch (err) {
         planeApiCallFailed(log, {
           step: 'updateTaskState',
