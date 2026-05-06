@@ -107,9 +107,9 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   4. Cuando `stop.js` libera el lock per-repo (rama `if (session.gsd) { ... }`) llama a `markSessionStatus` al estado terminal de la sesión y se emite `state.transition`; el test verifica que el evento se emite ANTES o DESPUÉS del release del lock (orden documentado) sin romper la idempotencia del release ni la rama no-GSD del switch.
   5. La cadena quick + full sigue intacta: una sesión `gsd_mode: 'quick'` llega a stop, el lock se libera, `state.transition` se emite con el estado terminal correcto y el nudge sigue siendo el de revisión manual (no se ha tocado el switch del modo). Los 414+ tests existentes pasan; los nuevos tests cubren los 3 callsites (dispatcher EVENTS, verify pass branch, stop release branch).
 **Plans**: 3 plans
-  - [ ] 16-01-PLAN.md — dispatcher.js EVENTS.GSD_PHASE_RESOLVED migration (4 literales runtime) + test/dispatcher-isolation.test.js comment-aware grep (LOG-13, SC#1)
-  - [ ] 16-02-PLAN.md — verify.js markSessionStatus en pass branch tras updateTaskState OK + 6 asserts SC#3 negative en gsd-verify-integration.test.js (LOG-14, SC#2/SC#3)
-  - [ ] 16-03-PLAN.md — stop.js markSessionStatus PRE-release dentro de if (session.gsd) + refactor light runStopHook + test/stop-state-transition.test.js 3 escenarios full/quick/no-GSD (LOG-15, SC#4/SC#5)
+  - [x] 16-01-PLAN.md — dispatcher.js EVENTS.GSD_PHASE_RESOLVED migration (4 literales runtime) + test/dispatcher-isolation.test.js comment-aware grep (LOG-13, SC#1)
+  - [x] 16-02-PLAN.md — verify.js markSessionStatus en pass branch tras updateTaskState OK + 6 asserts SC#3 negative en gsd-verify-integration.test.js (LOG-14, SC#2/SC#3)
+  - [x] 16-03-PLAN.md — stop.js markSessionStatus PRE-release dentro de if (session.gsd) + refactor light runStopHook + test/stop-state-transition.test.js 3 escenarios full/quick/no-GSD (LOG-15, SC#4/SC#5)
 **UI hint**: no
 
 ### Phase 17: Phase 7 UAT Automation
@@ -132,7 +132,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 **Goal:** Mover la skill `kodo-orchestrate` desde `~/.claude/skills/` al repo (`.claude/skills/kodo-orchestrate/skill.md`) y actualizarla a v0.5: provider-agnostic (eliminar referencias hardcoded a Plane API), cheat-sheet de `kodo` CLI moderno (`kodo logs --session-of`, `kodo gsd inspect`, `kodo gsd verify`), flujos de diagnóstico (sesión stuck → `kodo logs --follow`; lock no se libera → `~/.kodo/locks/`), eliminar el mapping hardcoded de proyectos (leerlo siempre de `~/.kodo/projects.json`). Cierra la fuente de drift entre `src/orchestrator/prompt.md` y la skill global (última edición 2026-04-16, anterior a v0.3 GSD y v0.4 Quick).
 
 **Requirements:** TBD
-**Plans:** 5/5 plans complete
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
@@ -156,7 +156,7 @@ Plans:
 | 13. Test Coverage Matrix | v0.4 | 5/5 | Complete | 2026-04-29 |
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
-| 16. LOG-09 Debt Cleanup | v0.5 | 0/3 | Planned     | - |
+| 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete   | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
 
 ---
