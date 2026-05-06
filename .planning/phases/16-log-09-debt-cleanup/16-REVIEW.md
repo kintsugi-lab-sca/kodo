@@ -342,3 +342,67 @@ Tests pasan, pero los issues clasificados arriba NO están cubiertos por la suit
 _Reviewed: 2026-05-06T13:41:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+
+---
+
+## Resolution Log
+
+**Iteration 1 — 2026-05-06T15:11:00Z (BLOCKER scope only)**
+
+| ID    | Status | Commit    | Files                                     |
+| ----- | ------ | --------- | ----------------------------------------- |
+| CR-01 | fixed  | `68de9ca` | `src/gsd/verify.js`                       |
+| CR-02 | fixed  | `97218d9` | `test/stop-state-transition.test.js`      |
+
+### CR-01 — `verify.js` `markSessionStatus` rompe contrato D-17 si lanza
+
+Aplicado el wrap try/catch local sugerido en el Fix de la review. La
+invocación a `markSessionStatus(session.task_id, 'review', 'gate-passed', log)`
+queda envuelta en un catch silencioso, alineado con el patrón usado en
+`stop.js:179-193`. Justificación documentada inline (CR-01 fix comment):
+state.transition es observability-only; orchestratorReview es el signal
+contractual del orquestador, así que un fallo de filesystem en
+`updateSession` (EACCES, ENOSPC, NFS hiccup) NO debe abortar la emisión.
+Adicionalmente, en el mismo comentario se reescribió la cita "header line 26"
+por una referencia por contenido (sección "Legacy verdict mapping"), lo
+que de paso resuelve IN-03 (cita por número de línea en comentario). IN-03
+NO se marca como fixed en esta iteración — el cambio cae como subproducto;
+si se requiere tracking explícito, repórtese en una próxima review.
+
+### CR-02 — `stop-state-transition.test.js` poluciona `~/.kodo/state.json`
+
+Aplicada la opción B del Fix (override `HOME` por suite, mkdtempSync +
+cleanup en after). Mismo patrón usado por
+`test/gsd-verify-integration.test.js`. La importación de
+`../src/session/state.js` se migró de eager (top-level `import`) a
+dynamic dentro del setup `before`, asegurando que el `KODO_DIR` se
+evalúe DESPUÉS del override de `HOME`. Los imports transitivos
+(stop.js → manager.js → state.js) heredan el mismo módulo cacheado vía
+ESM module cache, así que el `markSessionStatus` interno escribe sobre
+el `state.json` del tmpdir, no sobre el real.
+
+`getSession` se quitó del import ya que no se usaba en el cuerpo de los
+tests (alcance limpio para evitar dead imports tras el refactor a
+dynamic).
+
+### Verificación
+
+- `node --check src/gsd/verify.js` → SYNTAX OK.
+- `node --check test/stop-state-transition.test.js` → SYNTAX OK.
+- Suite Phase 16 (`dispatcher-isolation` + `gsd-verify-integration` +
+  `stop-state-transition` + `stop`): **30 pass / 0 fail**.
+- `npm test` (suite completa): **503 pass / 0 fail / 1 skipped**.
+- Inspección post-run de `~/.kodo/state.json`: NO hay nuevas entries
+  `kodo-test-stop-*` activas tras el run con el fix; la contaminación
+  histórica residual (50 entries en `state.history` con `ended_at`
+  anterior al fix) sobrevive como deuda diagnóstica del periodo previo
+  pero no se incrementa con runs futuros.
+
+### Fuera de scope esta iteración
+
+- **Warnings** (WR-01 a WR-08): pendientes para una iteración posterior.
+- **Info** (IN-01 a IN-04): pendientes para una iteración posterior.
+
+_Fixed: 2026-05-06T15:11:00Z_
+_Fixer: Claude (gsd-code-fixer)_
+_Iteration: 1_
