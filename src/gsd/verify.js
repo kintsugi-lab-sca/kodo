@@ -239,11 +239,26 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
         transitioned = true;
         // Phase 16 LOG-14 (D-11): mark session 'review' SOLO cuando pass + addComment OK
         // + updateTaskState OK. El reason 'gate-passed' espeja el verdict legacy mapping
-        // del header (line 26) y el orchestratorReview emitido abajo. El helper emite
-        // state.transition con from/to reales vía logger. SC#3: las ramas fail/missing/
-        // malformed y errores Plane NO emiten state.transition (verificado por
+        // documentado en la cabecera de este archivo (sección "Legacy verdict mapping":
+        // pass + side-effects OK → 'approved', reason 'gate-passed') y el
+        // orchestratorReview emitido abajo. El helper emite state.transition con
+        // from/to reales vía logger. SC#3: las ramas fail/missing/malformed y errores
+        // Plane NO emiten state.transition (verificado por
         // test/gsd-verify-integration.test.js Task 2).
-        markSessionStatus(session.task_id, 'review', 'gate-passed', log);
+        //
+        // CR-01 fix (Phase 16): markSessionStatus → updateSession → writeFileSync sobre
+        // ~/.kodo/state.json puede lanzar (EACCES, ENOSPC, EROFS, NFS hiccup). Sin este
+        // catch local, el throw burbujea por finalize() y SALTA orchestratorReview abajo,
+        // violando el invariante D-17 ("orchestratorReview emitido en TODAS las ramas").
+        // En ese punto la cadena Plane ya completó (comment + transition), así que Plane
+        // queda en "In review" pero el orquestador NUNCA recibe el verdict → split-brain.
+        // state.transition es observability-only; orchestratorReview es el contractual
+        // signal que consume el orquestador. Silenciar fallos de fs aquí preserva D-17.
+        try {
+          markSessionStatus(session.task_id, 'review', 'gate-passed', log);
+        } catch {
+          // intencionalmente vacío — ver comentario CR-01 arriba.
+        }
       } catch (err) {
         planeApiCallFailed(log, {
           step: 'updateTaskState',
