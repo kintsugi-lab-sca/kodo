@@ -9,6 +9,7 @@ import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
+import { EVENTS } from '../logger-events.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
 const inFlight = new Set();
@@ -180,8 +181,8 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
               sessionId: gsdSessionId || 'dispatch',
               minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
             }).child({ component: 'dispatcher', task_id: task.id });
-            log.info('gsd.phase.resolved', {
-              event: 'gsd.phase.resolved',
+            log.info(EVENTS.GSD_PHASE_RESOLVED, {
+              event: EVENTS.GSD_PHASE_RESOLVED,
               matched: false,
               code: 'no-match',
               tolerated: true,
@@ -207,8 +208,8 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
             sessionId: gsdSessionId || 'dispatch',
             minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
           }).child({ component: 'dispatcher', task_id: task.id });
-          log.warn('gsd.phase.resolved', {
-            event: 'gsd.phase.resolved',
+          log.warn(EVENTS.GSD_PHASE_RESOLVED, {
+            event: EVENTS.GSD_PHASE_RESOLVED,
             matched: false,
             error_code: resolverVerdict.code,
             detail: resolverVerdict.detail,
