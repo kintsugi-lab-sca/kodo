@@ -40,9 +40,14 @@ describe('stop.js source hygiene', () => {
 
   it('releases lock before removeSession (order matters)', () => {
     const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
-    const lockIdx = source.indexOf('releaseGsdLock');
-    const removeIdx = source.indexOf('removeSession(id)');
-    assert.ok(lockIdx < removeIdx, 'releaseGsdLock must come before removeSession(id)');
+    const lockIdx = source.indexOf('releaseGsdLock(session.project_path');
+    // Phase 16 (LOG-15): main() refactor a runStopHook(input, deps) renombró el
+    // call site de removeSession(id) a removeSessionFn(id). Aceptamos ambas
+    // variantes — lo crítico es el orden, no el nombre del binding local.
+    const removeFnIdx = source.indexOf('removeSessionFn(id)');
+    const removeIdx = removeFnIdx >= 0 ? removeFnIdx : source.indexOf('removeSession(id)');
+    assert.ok(removeIdx > 0, 'must find removeSessionFn(id) or removeSession(id) call');
+    assert.ok(lockIdx < removeIdx, 'releaseGsdLock must come before remove call');
   });
 
   it('uses dynamic import for gsd/lock.js (lazy load)', () => {

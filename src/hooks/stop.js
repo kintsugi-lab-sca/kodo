@@ -68,15 +68,44 @@ async function readStdin() {
 }
 
 
-async function main() {
+/**
+ * Test-friendly entry point for the stop hook.
+ * Pure-ish function over (input, deps) — used by tests with memSink loggerFactory.
+ * Production callers should use main() which parses stdin first.
+ *
+ * Phase 16 LOG-15: añade el bloque `markSessionStatus(... 'done' ...)` PRE-release
+ * dentro de la rama "session.gsd" del cleanup. El refactor light a (input, deps)
+ * permite a tests inyectar memSink logger sin spawn de child process — mismo
+ * patrón que `runGsdVerify(opts, deps)` en src/gsd/verify.js.
+ *
+ * W-4 deps enumeration:
+ *   - findSessionFn: mandatory para tests (lookup en fixture sintético)
+ *   - removeSessionFn: mandatory para test no-GSD (sanity removeSession ejecuta)
+ *   - cmux: mandatory para aislamiento — el flow invoca setColor/notify/listWorkspaces/send
+ *           tanto en GSD como no-GSD; sin stub los tests intentarían conectar a cmuxd real.
+ *   - loggerFactory: mandatory para captura de state.transition + session.end
+ *
+ * @param {{session_id: string, cwd?: string, transcript_path?: string}} input
+ * @param {{
+ *   findSessionFn?: typeof findSession,
+ *   removeSessionFn?: typeof removeSession,
+ *   cmux?: typeof cmux,
+ *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
+ * }} [deps]
+ * @returns {Promise<void>}
+ */
+export async function runStopHook(input, deps = {}) {
+  // W-4: defaults vía OR — runtime productivo usa los imports estáticos.
+  const findSessionFn = deps.findSessionFn || findSession;
+  const removeSessionFn = deps.removeSessionFn || removeSession;
+  const cmuxClient = deps.cmux || cmux;
   try {
-    const input = JSON.parse(await readStdin());
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
 
     // Find the tracked session — prefer session_id (unique), fall back to cwd
     console.error(`[kodo:stop] Looking for session: sessionId=${sessionId}, cwd=${cwd}`);
-    let result = findSession({ sessionId, cwd });
+    let result = findSessionFn({ sessionId, cwd });
 
     if (!result) {
       console.error(`[kodo:stop] No matching session found`);
@@ -88,7 +117,7 @@ async function main() {
       if (isOrchestratorSession) {
         await handleOrchestratorStop();
       }
-      process.exit(0);
+      return;
     }
 
     const { id, session } = result;
@@ -97,7 +126,7 @@ async function main() {
     // state transition to review). The hook only performs mechanical
     // cleanup: cmux color + local state removal.
     try {
-      await cmux.setColor({
+      await cmuxClient.setColor({
         workspace: session.workspace_ref,
         color: colorForStatus('review'),
       });
@@ -106,7 +135,7 @@ async function main() {
     }
 
     try {
-      await cmux.notify({
+      await cmuxClient.notify({
         title: `kodo: ${session.task_ref} cerrada`,
         body: session.summary,
         workspace: session.workspace_ref,
@@ -116,13 +145,19 @@ async function main() {
     // Emit typed session.end event BEFORE removeSession so the logger
     // captures the transition while the session record still exists.
     // Silent-failure: never crash Claude Code stop hook.
+    // W-2 (Phase 16): bloque preservado en su sitio durante el refactor —
+    // solo cambia la creación del logger (loggerFactory si presente).
     try {
-      const { createLogger } = await import('../logger.js');
+      const log = (deps && deps.loggerFactory)
+        ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
+        : await (async () => {
+            const { createLogger } = await import('../logger.js');
+            return createLogger({
+              sessionId: session.session_id,
+              minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+            }).child({ component: 'hook', task_id: session.task_id });
+          })();
       const { sessionEnd } = await import('../logger-events.js');
-      const log = createLogger({
-        sessionId: session.session_id,
-        minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-      }).child({ component: 'hook', task_id: session.task_id });
       sessionEnd(log, {
         session_id: session.session_id,
         task_id: session.task_id,
@@ -135,6 +170,28 @@ async function main() {
 
     // Release GSD lock if applicable (D-09: idempotent, verifies session_id)
     if (session.gsd) {
+      // Phase 16 LOG-15 (D-04, D-08): mark session 'done' BEFORE releaseGsdLock so
+      // the state.transition event captures the terminal status while the session
+      // record still exists. Mirrors the session.end pattern at line 116 (emit
+      // BEFORE mutation). Status is fixed 'done' for both modes (full + quick) —
+      // stop.js is a mechanical hook and does NOT infer mode (D-04, D-07).
+      // Reason canónico: 'session-stop:lock-released' (D-06).
+      try {
+        const log = (deps && deps.loggerFactory)
+          ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
+          : await (async () => {
+              const { createLogger } = await import('../logger.js');
+              return createLogger({
+                sessionId: session.session_id,
+                minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+              }).child({ component: 'hook', task_id: session.task_id });
+            })();
+        const { markSessionStatus } = await import('../session/manager.js');
+        markSessionStatus(session.task_id, 'done', 'session-stop:lock-released', log);
+      } catch {
+        // silent — never block lock release on logger failure (mirrors session.end pattern line 116)
+      }
+
       try {
         const { releaseGsdLock } = await import('../gsd/lock.js');
         releaseGsdLock(session.project_path, session.session_id);
@@ -143,15 +200,15 @@ async function main() {
       }
     }
 
-    removeSession(id);
+    removeSessionFn(id);
     console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
 
     // Notify orchestrator if running
     try {
-      const workspaces = await cmux.listWorkspaces();
+      const workspaces = await cmuxClient.listWorkspaces();
       const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
       if (orchMatch) {
-        await cmux.send({
+        await cmuxClient.send({
           workspace: orchMatch[1],
           text: buildStopNudgeText(session),
         });
@@ -162,6 +219,16 @@ async function main() {
   } catch (err) {
     console.error(`[kodo] Stop hook error: ${err.message}`);
   }
+}
+
+async function main() {
+  const input = JSON.parse(await readStdin());
+  await runStopHook(input);
+  // Preserve the historical exit semantics — main() always exits 0 (the hook
+  // must not crash Claude Code). runStopHook ya envuelve su cuerpo en try/catch
+  // top-level que silencia errores. El branch `no session found + orchestrator`
+  // ahora retorna en lugar de process.exit(0); main() simplemente termina.
+  process.exit(0);
 }
 
 /**

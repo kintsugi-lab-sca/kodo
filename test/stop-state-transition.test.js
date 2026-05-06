@@ -17,9 +17,20 @@
 //   findSessionFn, removeSessionFn, cmux, loggerFactory.
 //
 // Logger memSink mismo patrón que test/gsd-verify-integration.test.js:73-83.
+//
+// Deviation Rule 1: markSessionStatus en src/session/manager.js lee el `from`
+// status desde listSessions() (state.json real). Para que los asserts sobre
+// `from='review'`/`from='running'` funcionen sin pollutar state.json del
+// usuario, los tests escriben la session real con addSession() y limpian con
+// removeSession() en try/finally garantizado. Los task_id usan prefijo
+// 'kodo-test-stop-' para detectar cualquier leak. El runStopHook recibe
+// findSessionFn/removeSessionFn injectados (los spies) para que el flujo de
+// runStopHook sea testeable, pero markSessionStatus interno usa state real
+// (que el test ha poblado).
 
-import { describe, it } from 'node:test';
+import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { addSession, removeSession, getSession } from '../src/session/state.js';
 
 /**
  * Fake logger memSink — same pattern as test/gsd-verify-integration.test.js:73-83.
@@ -56,108 +67,150 @@ function makeCmuxStub() {
   };
 }
 
+/** Persist a synthetic session into state.json so markSessionStatus reads
+ *  the correct `from` status. Returns a cleanup function. */
+function persistSession(session) {
+  addSession(session.task_id, session);
+  return () => {
+    try { removeSession(session.task_id); } catch {}
+  };
+}
+
 describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
+  // Track all task_ids written to state.json so we always clean up,
+  // even if a test throws before its local cleanup runs.
+  const writtenTaskIds = [];
+  afterEach(() => {
+    while (writtenTaskIds.length > 0) {
+      const tid = writtenTaskIds.pop();
+      try { removeSession(tid); } catch {}
+    }
+  });
 
   it('full mode: session.status="review" + lock release → emits state.transition from=review to=done (D-05)', async () => {
     const session = {
       session_id: 's-full-1',
-      task_id: 't-full-1',
+      task_id: 'kodo-test-stop-full-1',
       task_ref: 'KL-full-1',
       gsd: true,
       gsd_mode: 'full',
       status: 'review',
       project_path: '/tmp/repo-full',
       provider: 'plane',
+      project_id: 'p-full',
       workspace_ref: 'workspace:1',
+      started_at: new Date().toISOString(),
       summary: 'test session full',
     };
-    const { logger, events } = makeLogger();
-    const { stub: cmuxStub } = makeCmuxStub();
-    const findSessionFn = ({ sessionId }) =>
-      sessionId === session.session_id ? { id: session.session_id, session } : null;
-    const removeSessionCalls = [];
-    const removeSessionFn = (id) => removeSessionCalls.push(id);
+    writtenTaskIds.push(session.task_id);
+    const cleanup = persistSession(session);
+    try {
+      const { logger, events } = makeLogger();
+      const { stub: cmuxStub } = makeCmuxStub();
+      const findSessionFn = ({ sessionId }) =>
+        sessionId === session.session_id ? { id: session.task_id, session } : null;
+      const removeSessionCalls = [];
+      const removeSessionFn = (id) => removeSessionCalls.push(id);
 
-    const { runStopHook } = await import('../src/hooks/stop.js');
-    await runStopHook(
-      { session_id: session.session_id, cwd: '/tmp/repo-full' },
-      {
-        findSessionFn,
-        removeSessionFn,
-        cmux: cmuxStub,
-        loggerFactory: () => logger,
-      },
-    );
+      const { runStopHook } = await import('../src/hooks/stop.js');
+      await runStopHook(
+        { session_id: session.session_id, cwd: '/tmp/repo-full' },
+        {
+          findSessionFn,
+          removeSessionFn,
+          cmux: cmuxStub,
+          loggerFactory: () => logger,
+        },
+      );
 
-    const transition = events.find((e) => e.fields?.event === 'state.transition');
-    assert.ok(transition, 'full mode debe emitir state.transition');
-    assert.equal(transition.fields.from, 'review', 'D-05: from debe ser el status previo (review post-verify)');
-    assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done"');
-    assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
-    assert.deepEqual(removeSessionCalls, [session.session_id], 'removeSession se ejecutó (sanity)');
+      const transition = events.find((e) => e.fields?.event === 'state.transition');
+      assert.ok(transition, 'full mode debe emitir state.transition');
+      assert.equal(transition.fields.from, 'review', 'D-05: from debe ser el status previo (review post-verify)');
+      assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done"');
+      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
+      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession se ejecutó (sanity)');
+    } finally {
+      cleanup();
+    }
   });
 
   it('quick mode: session.status="running" + lock release → emits state.transition from=running to=done', async () => {
     const session = {
       session_id: 's-quick-1',
-      task_id: 't-quick-1',
+      task_id: 'kodo-test-stop-quick-1',
       task_ref: 'KL-quick-1',
       gsd: true,
       gsd_mode: 'quick',
       status: 'running',
       project_path: '/tmp/repo-quick',
       provider: 'plane',
+      project_id: 'p-quick',
       workspace_ref: 'workspace:2',
+      started_at: new Date().toISOString(),
       summary: 'test session quick',
     };
-    const { logger, events } = makeLogger();
-    const { stub: cmuxStub } = makeCmuxStub();
-    const findSessionFn = ({ sessionId }) =>
-      sessionId === session.session_id ? { id: session.session_id, session } : null;
-    const removeSessionCalls = [];
-    const removeSessionFn = (id) => removeSessionCalls.push(id);
+    writtenTaskIds.push(session.task_id);
+    const cleanup = persistSession(session);
+    try {
+      const { logger, events } = makeLogger();
+      const { stub: cmuxStub } = makeCmuxStub();
+      const findSessionFn = ({ sessionId }) =>
+        sessionId === session.session_id ? { id: session.task_id, session } : null;
+      const removeSessionCalls = [];
+      const removeSessionFn = (id) => removeSessionCalls.push(id);
 
-    const { runStopHook } = await import('../src/hooks/stop.js');
-    await runStopHook(
-      { session_id: session.session_id, cwd: '/tmp/repo-quick' },
-      { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
-    );
+      const { runStopHook } = await import('../src/hooks/stop.js');
+      await runStopHook(
+        { session_id: session.session_id, cwd: '/tmp/repo-quick' },
+        { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
+      );
 
-    const transition = events.find((e) => e.fields?.event === 'state.transition');
-    assert.ok(transition, 'quick mode debe emitir state.transition');
-    assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running — quick no pasa por verify)');
-    assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done" (mismo para ambos modos)');
-    assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
+      const transition = events.find((e) => e.fields?.event === 'state.transition');
+      assert.ok(transition, 'quick mode debe emitir state.transition');
+      assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running — quick no pasa por verify)');
+      assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done" (mismo para ambos modos)');
+      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
+    } finally {
+      cleanup();
+    }
   });
 
   it('non-GSD: session.gsd=false → does NOT emit state.transition (D-07)', async () => {
     const session = {
       session_id: 's-nogsd-1',
-      task_id: 't-nogsd-1',
+      task_id: 'kodo-test-stop-nogsd-1',
       task_ref: 'KL-nogsd-1',
       gsd: false,
       status: 'running',
       project_path: '/tmp/repo-nogsd',
       provider: 'plane',
+      project_id: 'p-nogsd',
       workspace_ref: 'workspace:3',
+      started_at: new Date().toISOString(),
       summary: 'test session no-gsd',
     };
-    const { logger, events } = makeLogger();
-    const { stub: cmuxStub } = makeCmuxStub();
-    const findSessionFn = ({ sessionId }) =>
-      sessionId === session.session_id ? { id: session.session_id, session } : null;
-    const removeSessionCalls = [];
-    const removeSessionFn = (id) => removeSessionCalls.push(id);
+    writtenTaskIds.push(session.task_id);
+    const cleanup = persistSession(session);
+    try {
+      const { logger, events } = makeLogger();
+      const { stub: cmuxStub } = makeCmuxStub();
+      const findSessionFn = ({ sessionId }) =>
+        sessionId === session.session_id ? { id: session.task_id, session } : null;
+      const removeSessionCalls = [];
+      const removeSessionFn = (id) => removeSessionCalls.push(id);
 
-    const { runStopHook } = await import('../src/hooks/stop.js');
-    await runStopHook(
-      { session_id: session.session_id, cwd: '/tmp/repo-nogsd' },
-      { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
-    );
+      const { runStopHook } = await import('../src/hooks/stop.js');
+      await runStopHook(
+        { session_id: session.session_id, cwd: '/tmp/repo-nogsd' },
+        { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
+      );
 
-    const transition = events.find((e) => e.fields?.event === 'state.transition');
-    assert.equal(transition, undefined, 'D-07: non-GSD no debe emitir state.transition (solo dentro de if (session.gsd))');
-    assert.deepEqual(removeSessionCalls, [session.session_id], 'removeSession sí se ejecuta (la sesión se limpia normal — solo el state.transition no aparece)');
+      const transition = events.find((e) => e.fields?.event === 'state.transition');
+      assert.equal(transition, undefined, 'D-07: non-GSD no debe emitir state.transition (solo dentro de if (session.gsd))');
+      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession sí se ejecuta (la sesión se limpia normal — solo el state.transition no aparece)');
+    } finally {
+      cleanup();
+    }
   });
 
   // N-2 MANDATORY: D-04 es LOCKED. Este test cierra drift futuro — si un
@@ -165,32 +218,50 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
   // este test cae con assertion message específico citando D-04.
   it('D-04 invariante MANDATORY: ambos modos full y quick emiten to="done" (no se infiere modo)', async () => {
     const fullSession = {
-      session_id: 's-d04-full', task_id: 't-d04-full', task_ref: 'KL-d04-full',
-      gsd: true, gsd_mode: 'full', status: 'review', project_path: '/tmp/d04-full',
-      provider: 'plane', workspace_ref: 'workspace:4', summary: 'd04 full',
+      session_id: 's-d04-full',
+      task_id: 'kodo-test-stop-d04-full',
+      task_ref: 'KL-d04-full',
+      gsd: true, gsd_mode: 'full', status: 'review',
+      project_path: '/tmp/d04-full', provider: 'plane',
+      project_id: 'p-d04-full',
+      workspace_ref: 'workspace:4',
+      started_at: new Date().toISOString(),
+      summary: 'd04 full',
     };
     const quickSession = {
-      session_id: 's-d04-quick', task_id: 't-d04-quick', task_ref: 'KL-d04-quick',
-      gsd: true, gsd_mode: 'quick', status: 'running', project_path: '/tmp/d04-quick',
-      provider: 'plane', workspace_ref: 'workspace:5', summary: 'd04 quick',
+      session_id: 's-d04-quick',
+      task_id: 'kodo-test-stop-d04-quick',
+      task_ref: 'KL-d04-quick',
+      gsd: true, gsd_mode: 'quick', status: 'running',
+      project_path: '/tmp/d04-quick', provider: 'plane',
+      project_id: 'p-d04-quick',
+      workspace_ref: 'workspace:5',
+      started_at: new Date().toISOString(),
+      summary: 'd04 quick',
     };
 
     const { runStopHook } = await import('../src/hooks/stop.js');
 
     for (const session of [fullSession, quickSession]) {
-      const { logger, events } = makeLogger();
-      const { stub: cmuxStub } = makeCmuxStub();
-      const findSessionFn = ({ sessionId }) =>
-        sessionId === session.session_id ? { id: session.session_id, session } : null;
-      const removeSessionFn = () => {};
-      await runStopHook(
-        { session_id: session.session_id, cwd: session.project_path },
-        { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
-      );
-      const transition = events.find((e) => e.fields?.event === 'state.transition');
-      assert.ok(transition, `D-04 invariante: modo ${session.gsd_mode} debe emitir state.transition`);
-      assert.equal(transition.fields.to, 'done',
-        `D-04 LOCKED: to debe ser 'done' fijo (modo ${session.gsd_mode}) — D-04 prohíbe inferir modo`);
+      writtenTaskIds.push(session.task_id);
+      const cleanup = persistSession(session);
+      try {
+        const { logger, events } = makeLogger();
+        const { stub: cmuxStub } = makeCmuxStub();
+        const findSessionFn = ({ sessionId }) =>
+          sessionId === session.session_id ? { id: session.task_id, session } : null;
+        const removeSessionFn = () => {};
+        await runStopHook(
+          { session_id: session.session_id, cwd: session.project_path },
+          { findSessionFn, removeSessionFn, cmux: cmuxStub, loggerFactory: () => logger },
+        );
+        const transition = events.find((e) => e.fields?.event === 'state.transition');
+        assert.ok(transition, `D-04 invariante: modo ${session.gsd_mode} debe emitir state.transition`);
+        assert.equal(transition.fields.to, 'done',
+          `D-04 LOCKED: to debe ser 'done' fijo (modo ${session.gsd_mode}) — D-04 prohíbe inferir modo`);
+      } finally {
+        cleanup();
+      }
     }
   });
 });
