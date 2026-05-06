@@ -55,7 +55,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 
 - [x] **Phase 14: CLI Format Foundation** — `src/cli/format.js` helper centraliza color/format con TTY detection + `picocolors` añadido como dependencia, sin tocar callsites todavía (completed 2026-05-05)
 - [x] **Phase 15: CLI Polish Wiring** — `kodo logs`, `kodo gsd inspect`, `kodo gsd verify`, `kodo check` consumen el helper para colorear niveles/verdicts/tablas; `--json` mantiene bytes deterministas y `kodo check` preserva guard LOG-12 (completed 2026-05-05)
-- [ ] **Phase 16: LOG-09 Debt Cleanup** — `dispatcher.js` migra literales a `EVENTS.*` y `markSessionStatus` se cabela en `verify.js` (transición Plane → Review) y `stop.js` (release del lock per-repo) para emitir `state.transition` real en runtime
+- [x] **Phase 16: LOG-09 Debt Cleanup** — `dispatcher.js` migra literales a `EVENTS.*` y `markSessionStatus` se cabela en `verify.js` (transición Plane → Review) y `stop.js` (release del lock per-repo) para emitir `state.transition` real en runtime (completed 2026-05-06)
 - [ ] **Phase 17: Phase 7 UAT Automation** — los 3 UATs humanos pendientes (`--follow` live, `session.start` campos reales, `--session-of` E2E) se convierten en integration tests con fixtures NDJSON progresivos y `state.json` sintético
 
 </details>
@@ -156,7 +156,7 @@ Plans:
 | 13. Test Coverage Matrix | v0.4 | 5/5 | Complete | 2026-04-29 |
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
-| 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete   | 2026-05-06 |
+| 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
 
 ---
