@@ -128,6 +128,15 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     const review = events.find((e) => e.msg === 'orchestrator.review');
     assert.ok(review);
     assert.equal(review.fields.verdict, 'approved');
+    // Phase 16 LOG-14 SC#2: pass branch emite state.transition con from/to/reason canónicos.
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.ok(transition, 'pass + Plane OK debe emitir state.transition');
+    assert.equal(transition.level, 'info');
+    assert.equal(transition.fields.to, 'review');
+    assert.equal(transition.fields.reason, 'gate-passed');
+    // from depende del session.status previo (fixture: 'review'); el test confirma
+    // que el campo existe y NO está vacío.
+    assert.ok(typeof transition.fields.from === 'string' && transition.fields.from.length > 0);
     // Plan 15-04 Task 1: result.plane.comment_body expuesto, byte-idéntico al md posteado.
     assert.equal(typeof result.plane.comment_body, 'string');
     assert.match(result.plane.comment_body, /^\[kodo:gsd\] ✅ Phase 10 verificada/);
@@ -154,7 +163,7 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       ].join('\n'),
     );
     const session = makeSession();
-    const { deps, calls } = makeDeps(session);
+    const { deps, calls, events } = makeDeps(session);
     const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
     assert.equal(result.verdict.action, 'fail');
     assert.equal(result.verdict.reason, 'gaps-found');
@@ -167,6 +176,15 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.equal(typeof result.plane.comment_body, 'string');
     assert.match(result.plane.comment_body, /^\[kodo:gsd\] ❌ Phase 10 bloqueada/);
     assert.equal(result.plane.comment_body, calls.addComment[0].md);
+    // Phase 16 LOG-14 SC#3: soft-fail (gaps-found) NO emite state.transition.
+    // B-1: assertion message menciona 'soft-fail' explícitamente para distinguirlo
+    // del hard-fail (status-failed) testeado en otro caso.
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(
+      transition,
+      undefined,
+      'soft-fail (gaps-found) must NOT emit state.transition — verdict.action !== "pass"',
+    );
   });
 
   it('T22 E2E: VERIFICATION.md con status desconocido → malformed, comentario warn', async () => {
@@ -182,7 +200,7 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       ].join('\n'),
     );
     const session = makeSession();
-    const { deps, calls } = makeDeps(session);
+    const { deps, calls, events } = makeDeps(session);
     const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
     assert.equal(result.verdict.action, 'malformed');
     assert.match(result.verdict.detail, /in_progress/);
@@ -193,6 +211,9 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.equal(typeof result.plane.comment_body, 'string');
     assert.match(result.plane.comment_body, /^\[kodo:gsd\] ⚠️ VERIFICATION\.md presente pero inválido/);
     assert.equal(result.plane.comment_body, calls.addComment[0].md);
+    // Phase 16 LOG-14 SC#3: malformed NO emite state.transition.
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(transition, undefined, 'malformed branch must NOT emit state.transition');
   });
 
   it('T23 E2E: sin directorio de fase → missing', async () => {
@@ -201,7 +222,7 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       recursive: true,
     });
     const session = makeSession();
-    const { deps, calls } = makeDeps(session);
+    const { deps, calls, events } = makeDeps(session);
     const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
     assert.equal(result.verdict.action, 'missing');
     assert.equal(calls.addComment.length, 1);
@@ -211,6 +232,9 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.equal(typeof result.plane.comment_body, 'string');
     assert.match(result.plane.comment_body, /^\[kodo:gsd\] ⚠️ VERIFICATION\.md no encontrado/);
     assert.equal(result.plane.comment_body, calls.addComment[0].md);
+    // Phase 16 LOG-14 SC#3: missing NO emite state.transition.
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(transition, undefined, 'missing branch must NOT emit state.transition');
   });
 
   it('T24 E2E (Plan 15-04 Task 1): comment_body expuesto aún cuando getTask falla (Plane unreachable)', async () => {
@@ -226,17 +250,7 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       ].join('\n'),
     );
     const session = makeSession();
-    const { logger } = (() => {
-      const events = [];
-      const lg = {
-        info: (m, f) => events.push({ level: 'info', msg: m, fields: f }),
-        warn: (m, f) => events.push({ level: 'warn', msg: m, fields: f }),
-        error: (m, f) => events.push({ level: 'error', msg: m, fields: f }),
-        debug: (m, f) => events.push({ level: 'debug', msg: m, fields: f }),
-        child: () => lg,
-      };
-      return { logger: lg };
-    })();
+    const { logger, events } = makeLogger();
     const brokenProvider = {
       getTask: async () => {
         throw new Error('plane unreachable');
@@ -261,6 +275,19 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.match(result.plane.comment_body, /^\[kodo:gsd\] ✅ Phase 10 verificada/);
     const expectedMd = renderComment(result.verdict, 'Orchestrator gate');
     assert.equal(result.plane.comment_body, expectedMd, 'byte-equality preservada incluso si Plane no responde');
+    // Phase 16 LOG-14 SC#3: pass + getTask fail NO emite state.transition
+    // (markSessionStatus skipped — no entra al if (task) block).
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(
+      transition,
+      undefined,
+      'pass + getTask fail must NOT emit state.transition (markSessionStatus skipped — no entra al if (task) block)',
+    );
+    // Sanity: planeApiCallFailed sí se emitió en step 'getTask'
+    const apiFailed = events.find(
+      (e) => e.fields?.event === 'plane.api.call.failed' && e.fields.step === 'getTask',
+    );
+    assert.ok(apiFailed, 'planeApiCallFailed should fire on getTask error');
   });
 
   it('T25 E2E (Plan 15-04 Task 1): comment_body byte-idéntico entre dos invocaciones (idempotencia)', async () => {
@@ -284,5 +311,85 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       r2.plane.comment_body,
       'comment_body debe ser byte-idéntico entre invocaciones (no timestamp en plantilla)',
     );
+  });
+
+  it('T26 SC#3 LOG-14: fail hard (status-failed) → NO state.transition emitted', async () => {
+    // VERIFICATION.md fixture con status: failed (hard-fail explícito).
+    // B-1: este test es mandatory — distingue hard-fail (status-failed) del
+    // soft-fail (gaps-found) testeado en T21. ROADMAP §Phase 16 SC#3 demanda
+    // la distinción literalmente.
+    writeFileSync(
+      join(tmpRoot, '.planning', 'phases', '10-orchestrator-verification-gate', '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: failed',
+        'must_haves_total: 8',
+        'must_haves_verified: 8',
+        'gaps_count: 0',
+        '---',
+      ].join('\n'),
+    );
+    const session = makeSession();
+    const { deps, calls, events } = makeDeps(session);
+    const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
+    assert.equal(result.verdict.action, 'fail');
+    assert.equal(result.verdict.reason, 'status-failed');
+    assert.equal(calls.updateTaskState.length, 0);
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(
+      transition,
+      undefined,
+      'hard-fail (status-failed) must NOT emit state.transition — verdict.action !== "pass"',
+    );
+  });
+
+  it('T27 SC#3 LOG-14: pass + updateTaskState fails → NO state.transition emitted', async () => {
+    // Centinela del orden D-11: markSessionStatus está DENTRO del try de
+    // updateTaskState; si updateTaskState lanza, el throw aborta antes de
+    // que markSessionStatus se invoque. Si alguien refactoriza moviendo la
+    // línea afuera del try, este test cae con assertion message específico.
+    writeFileSync(
+      join(tmpRoot, '.planning', 'phases', '10-orchestrator-verification-gate', '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: passed',
+        'must_haves_total: 8',
+        'must_haves_verified: 8',
+        'gaps_count: 0',
+        '---',
+      ].join('\n'),
+    );
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const provider = {
+      getTask: async (ref) => ({ id: 'task-int', ref, title: 'T', projectId: 'proj-int' }),
+      addComment: async () => {},
+      updateTaskState: async () => {
+        throw new Error('Plane state transition rejected');
+      },
+    };
+    const deps = {
+      findSessionFn: () => session,
+      getProviderFn: async () => provider,
+      loadConfigFn: () => ({
+        provider: 'plane',
+        providers: { plane: { states: { review: 'In review' } } },
+      }),
+      loggerFactory: () => logger,
+    };
+    const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
+    assert.equal(result.plane.commented, true);
+    assert.equal(result.plane.transitioned, false);
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.equal(
+      transition,
+      undefined,
+      'pass + updateTaskState fail must NOT emit state.transition (markSessionStatus is INSIDE the updateTaskState try; throw aborts before invocation — D-11 order)',
+    );
+    // Sanity: planeApiCallFailed sí se emitió en step 'updateTaskState'.
+    const apiFailed = events.find(
+      (e) => e.fields?.event === 'plane.api.call.failed' && e.fields.step === 'updateTaskState',
+    );
+    assert.ok(apiFailed, 'planeApiCallFailed should fire on updateTaskState error');
   });
 });
