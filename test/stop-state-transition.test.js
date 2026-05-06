@@ -21,16 +21,30 @@
 // Deviation Rule 1: markSessionStatus en src/session/manager.js lee el `from`
 // status desde listSessions() (state.json real). Para que los asserts sobre
 // `from='review'`/`from='running'` funcionen sin pollutar state.json del
-// usuario, los tests escriben la session real con addSession() y limpian con
-// removeSession() en try/finally garantizado. Los task_id usan prefijo
-// 'kodo-test-stop-' para detectar cualquier leak. El runStopHook recibe
-// findSessionFn/removeSessionFn injectados (los spies) para que el flujo de
-// runStopHook sea testeable, pero markSessionStatus interno usa state real
-// (que el test ha poblado).
+// usuario, los tests escriben la session vía addSession() y limpian con
+// removeSession() en try/finally garantizado.
+//
+// CR-02 fix (Phase 16): los tests originalmente escribían sobre
+// ~/.kodo/state.json REAL del desarrollador (race con sesiones productivas,
+// orphans en SIGKILL/OOM, contaminación cross-job en CI compartido,
+// fragilidad ante migración de schema). Mismo patrón que
+// test/gsd-verify-integration.test.js: mkdtempSync + override de HOME para
+// que KODO_DIR resuelva al tmpdir. Como `state.js` calcula KODO_DIR al
+// import-time (`join(homedir(), '.kodo')`), la importación se hace DINÁMICA
+// dentro del setup `before`, DESPUÉS de fijar HOME — todos los imports
+// transitivos de state.js (incluyendo el que hace stop.js → manager.js)
+// resuelven al mismo tmpdir porque comparten module cache.
 
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { addSession, removeSession, getSession } from '../src/session/state.js';
+import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Estas referencias se resuelven en `before` después de fijar HOME, para
+// garantizar que KODO_DIR del módulo state.js apunta al tmpdir aislado.
+let addSession;
+let removeSession;
 
 /**
  * Fake logger memSink — same pattern as test/gsd-verify-integration.test.js:73-83.
@@ -77,6 +91,40 @@ function persistSession(session) {
 }
 
 describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
+  // CR-02 fix: tmpdir HOME override para que ~/.kodo/state.json apunte a un
+  // directorio aislado, NO al state real del desarrollador. Mismo patrón que
+  // gsd-verify-integration.test.js (mkdtempSync + cleanup en after).
+  let tmpHome;
+  let origHome;
+
+  before(async () => {
+    origHome = process.env.HOME;
+    tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-stop-state-'));
+    process.env.HOME = tmpHome;
+    // Crear ~/.kodo dentro del tmpdir (state.js no lo crea al cargar; sí lo
+    // hace ensureDir() de config.js bajo loadConfig, pero state.js usa
+    // KODO_DIR directamente sin asegurar la dir → mkdir explícito aquí).
+    mkdirSync(join(tmpHome, '.kodo'), { recursive: true });
+    // Dynamic import: state.js evalúa KODO_DIR = join(homedir(), '.kodo') al
+    // module load time. Importarlo AHORA (con HOME ya overrideado) garantiza
+    // que el módulo cacheado apunta al tmpdir. Cualquier otro módulo que
+    // importe state.js posteriormente recibe la misma instancia cacheada.
+    const stateMod = await import('../src/session/state.js');
+    addSession = stateMod.addSession;
+    removeSession = stateMod.removeSession;
+  });
+
+  after(() => {
+    if (origHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = origHome;
+    }
+    if (tmpHome) {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
   // Track all task_ids written to state.json so we always clean up,
   // even if a test throws before its local cleanup runs.
   const writtenTaskIds = [];
