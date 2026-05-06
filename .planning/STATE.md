@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
 status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-05-06T08:26:56.495Z"
-last_activity: 2026-05-05
+stopped_at: Phase 16 planned, ready to execute
+last_updated: "2026-05-06T10:48:00.000Z"
+last_activity: 2026-05-06
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 8
+  total_plans: 11
   completed_plans: 8
-  percent: 100
+  percent: 73
 ---
 
 # Project State
@@ -35,10 +35,10 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Executing Phase 15
-Last activity: 2026-05-05
+Phase: 16 — LOG-09 Debt Cleanup
+Plan: 3 plans (16-01, 16-02, 16-03) — Wave 1, all parallel
+Status: Ready to execute (PLAN.md verified, 0 blockers post-revision iter 1)
+Last activity: 2026-05-06
 
 ## Accumulated Context
 
@@ -66,9 +66,9 @@ Ninguna pendiente para arrancar Phase 14. Adapters (GitHub/ClickUp/local), polli
 
 ## Session Continuity
 
-- **Last session:** 2026-05-06T08:26:56.490Z
-- **Stopped at:** Phase 16 context gathered
-- **Next action:** `/gsd-plan-phase 14` para planificar la foundation `src/cli/format.js` + `picocolors`.
+- **Last session:** 2026-05-06T10:48:00.000Z
+- **Stopped at:** Phase 16 planned, ready to execute
+- **Next action:** `/gsd-execute-phase 16` para ejecutar los 3 plans Wave 1 (dispatcher EVENTS migration, verify markSessionStatus, stop markSessionStatus PRE-release).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.5 + Evolution section actualizada)
   - `.planning/STATE.md` (este archivo)

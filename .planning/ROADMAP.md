@@ -106,7 +106,10 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   3. La transición Phase 16 SC#2 sólo se dispara en la rama `pass`: `soft-fail`, `hard-fail` y errores de `addComment`/transition Plane NO emiten `state.transition` (regression test cubre las 4 ramas del verdict).
   4. Cuando `stop.js` libera el lock per-repo (rama `if (session.gsd) { ... }`) llama a `markSessionStatus` al estado terminal de la sesión y se emite `state.transition`; el test verifica que el evento se emite ANTES o DESPUÉS del release del lock (orden documentado) sin romper la idempotencia del release ni la rama no-GSD del switch.
   5. La cadena quick + full sigue intacta: una sesión `gsd_mode: 'quick'` llega a stop, el lock se libera, `state.transition` se emite con el estado terminal correcto y el nudge sigue siendo el de revisión manual (no se ha tocado el switch del modo). Los 414+ tests existentes pasan; los nuevos tests cubren los 3 callsites (dispatcher EVENTS, verify pass branch, stop release branch).
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 16-01-PLAN.md — dispatcher.js EVENTS.GSD_PHASE_RESOLVED migration (4 literales runtime) + test/dispatcher-isolation.test.js comment-aware grep (LOG-13, SC#1)
+  - [ ] 16-02-PLAN.md — verify.js markSessionStatus en pass branch tras updateTaskState OK + 6 asserts SC#3 negative en gsd-verify-integration.test.js (LOG-14, SC#2/SC#3)
+  - [ ] 16-03-PLAN.md — stop.js markSessionStatus PRE-release dentro de if (session.gsd) + refactor light runStopHook + test/stop-state-transition.test.js 3 escenarios full/quick/no-GSD (LOG-15, SC#4/SC#5)
 **UI hint**: no
 
 ### Phase 17: Phase 7 UAT Automation
@@ -153,8 +156,8 @@ Plans:
 | 13. Test Coverage Matrix | v0.4 | 5/5 | Complete | 2026-04-29 |
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
-| 16. LOG-09 Debt Cleanup | v0.5 | 0/0 | Not started | - |
+| 16. LOG-09 Debt Cleanup | v0.5 | 0/3 | Planned     | - |
 | 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
 
 ---
-*Last updated: 2026-05-05 — Phase 15 planned (5 plans, 2 waves)*
+*Last updated: 2026-05-06 — Phase 16 planned (3 plans, 1 wave — parallel)*
