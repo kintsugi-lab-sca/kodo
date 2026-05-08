@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects } from '../config.js';
-import { parseKodoLabels, getGsdMode } from '../labels.js';
+import { parseKodoLabels, getGsdMode, isGsdChild } from '../labels.js';
 import { listSessions, removeSession, computeWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
@@ -59,6 +59,16 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   console.log(`[kodo:dispatch] Resolving taskRef: ${event.taskRef}`);
   const task = await provider.getTask(event.taskRef);
   console.log(`[kodo:dispatch] Task: ${task.ref} — labels: [${task.labels.join(', ')}]`);
+
+  // 1b. Anti-recursion guard — kodo:gsd-child labels mark sub-issues created
+  // by the agent (Phase 15+) for progress reporting. Drop them BEFORE any
+  // further processing, even under opts.force. Hard safety property: see
+  // Phase 14 D-06 (cuts before parseKodoLabels) and D-07 (--force does NOT
+  // bypass). Cuts before lock acquisition and resolver to avoid wasted work.
+  if (isGsdChild(task.labels)) {
+    console.log(`[kodo:dispatch] Ignored — kodo:gsd-child filtered (anti-recursion)`);
+    return { action: 'ignored', code: 'gsd_child' };
+  }
 
   // 2. Check kodo labels (skip if force=true)
   if (!opts.force) {
