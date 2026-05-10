@@ -122,7 +122,12 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   3. Existe un integration test que monta un `state.json` sintético + ficheros de log y ejecuta `kodo logs --session-of <plane-task-id>` E2E, verificando la resolución two-step (`state.json` lookup → head-line scan) y los exit codes deterministas para los casos: task encontrada, task no presente en state.json, task presente sin log file.
   4. `07-HUMAN-UAT.md` se elimina o se reduce a una nota apuntando a los integration tests que lo sustituyen; `MILESTONES.md` v0.3 deja de listar los UATs como deferred (actualización de la entrada al cierre del milestone).
   5. La suite global pasa (`node --test`) y los 3 nuevos tests forman parte de los pasados — sin nuevos `--test-only`, sin sleeps mayores que el watcher poll de fs.watchFile, sin dependencias externas más allá de las ya existentes.
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 17-01-PLAN.md — UAT-01 logs-follow-integration.test.js (subprocess + 3 batches progresivos + SIGINT cleanup, D-01..D-07, SC#1)
+  - [ ] 17-02-PLAN.md — UAT-02 session-start-event.test.js (spawn hook + state.json sintético + 6 keys D-10 + fail-loud, D-08..D-11, SC#2)
+  - [ ] 17-03-PLAN.md — UAT-03 session-of-resolver.test.js (4 escenarios E2E con state.json + logs/ sintéticos + exit codes deterministas observados, D-12..D-14, SC#3)
+  - [ ] 17-04-PLAN.md — 07-HUMAN-UAT.md redirect (status: superseded) + MILESTONES.md v0.3 entry actualizada (D-15, D-16, SC#4)
+  - [ ] 17-05-PLAN.md — Full suite green check + audits source-hygiene/sleeps/deps/imports + 9 runs deterministicos (SC#5)
 **UI hint**: no
 
 ## Backlog
@@ -157,7 +162,7 @@ Plans:
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
-| 17. Phase 7 UAT Automation | v0.5 | 0/0 | Not started | - |
+| 17. Phase 7 UAT Automation | v0.5 | 0/5 | Planned    | - |
 
 ---
-*Last updated: 2026-05-06 — Phase 16 planned (3 plans, 1 wave — parallel)*
+*Last updated: 2026-05-10 — Phase 17 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05)*
