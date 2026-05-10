@@ -4,8 +4,8 @@ milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-05-10T15:01:22.086Z"
-last_activity: 2026-05-10 -- Phase 17 planning complete
+last_updated: "2026-05-10T15:55:40.257Z"
+last_activity: 2026-05-10 -- Phase 17 execution started
 progress:
   total_phases: 5
   completed_phases: 3
@@ -26,7 +26,7 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Phase 16 — log-09-debt-cleanup
+**Current focus:** Phase 17 — phase-7-uat-automation
 
 1. **Phase 14**: Foundation `src/cli/format.js` + `picocolors` dep (DX-06, DX-07)
 2. **Phase 15**: Wiring del helper en `kodo logs`, `gsd inspect`, `gsd verify`, `kodo check` (DX-01..05)
@@ -35,10 +35,10 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-10 -- Phase 17 planning complete
+Phase: 17 (phase-7-uat-automation) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 17
+Last activity: 2026-05-10 -- Phase 17 execution started
 
 ## Accumulated Context
 
