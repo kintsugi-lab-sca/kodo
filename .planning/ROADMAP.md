@@ -126,8 +126,8 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   - [x] 17-01-PLAN.md — UAT-01 logs-follow-integration.test.js (subprocess + 3 batches progresivos + SIGINT cleanup, D-01..D-07, SC#1)
   - [x] 17-02-PLAN.md — UAT-02 session-start-event.test.js (spawn hook + state.json sintético + 6 keys D-10 + fail-loud, D-08..D-11, SC#2)
   - [x] 17-03-PLAN.md — UAT-03 session-of-resolver.test.js (4 escenarios E2E con state.json + logs/ sintéticos + exit codes deterministas observados, D-12..D-14, SC#3)
-  - [ ] 17-04-PLAN.md — 07-HUMAN-UAT.md redirect (status: superseded) + MILESTONES.md v0.3 entry actualizada (D-15, D-16, SC#4)
-  - [ ] 17-05-PLAN.md — Full suite green check + audits source-hygiene/sleeps/deps/imports + 9 runs deterministicos (SC#5)
+  - [x] 17-04-PLAN.md — 07-HUMAN-UAT.md redirect (status: superseded) + MILESTONES.md v0.3 entry actualizada (D-15, D-16, SC#4)
+  - [x] 17-05-PLAN.md — Full suite green check + audits source-hygiene/sleeps/deps/imports + 9 runs deterministicos (SC#5)
 **UI hint**: no
 
 ## Backlog
@@ -137,7 +137,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 **Goal:** Mover la skill `kodo-orchestrate` desde `~/.claude/skills/` al repo (`.claude/skills/kodo-orchestrate/skill.md`) y actualizarla a v0.5: provider-agnostic (eliminar referencias hardcoded a Plane API), cheat-sheet de `kodo` CLI moderno (`kodo logs --session-of`, `kodo gsd inspect`, `kodo gsd verify`), flujos de diagnóstico (sesión stuck → `kodo logs --follow`; lock no se libera → `~/.kodo/locks/`), eliminar el mapping hardcoded de proyectos (leerlo siempre de `~/.kodo/projects.json`). Cierra la fuente de drift entre `src/orchestrator/prompt.md` y la skill global (última edición 2026-04-16, anterior a v0.3 GSD y v0.4 Quick).
 
 **Requirements:** TBD
-**Plans:** 3/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [ ] TBD (promote with /gsd-review-backlog when ready)
@@ -162,7 +162,7 @@ Plans:
 | 14. CLI Format Foundation | v0.5 | 3/3 | Complete    | 2026-05-05 |
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
-| 17. Phase 7 UAT Automation | v0.5 | 3/5 | In Progress|  |
+| 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete   | 2026-05-10 |
 
 ---
 *Last updated: 2026-05-10 — Phase 17 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05)*
