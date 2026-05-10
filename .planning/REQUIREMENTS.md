@@ -26,9 +26,9 @@ Pulir la experiencia del CLI con colores y formato legible, y cerrar la deuda t�
 
 ### UAT — Automatización de UATs Phase 7
 
-- [ ] **UAT-01**: Integration test de `kodo logs --follow` — spawn child process con NDJSON que se escribe progresivamente; verifica tail real (no fake), incluyendo cierre limpio del watcher al terminar el test.
-- [ ] **UAT-02**: Integration test de `session.start` con campos reales — fixture session que dispara emisión real (`transcript_path`, `session_id`, `plane_task_id`); verifica todos los campos canónicos en NDJSON contra el contrato de Phase 7.
-- [ ] **UAT-03**: Integration test de `--session-of <plane-task-id>` E2E — fixture `state.json` + log files; verifica resolución two-step (state.json read → head-line scan) y exit codes.
+- [x] **UAT-01**: Integration test de `kodo logs --follow` — spawn child process con NDJSON que se escribe progresivamente; verifica tail real (no fake), incluyendo cierre limpio del watcher al terminar el test.
+- [x] **UAT-02**: Integration test de `session.start` con campos reales — fixture session que dispara emisión real (`transcript_path`, `session_id`, `plane_task_id`); verifica todos los campos canónicos en NDJSON contra el contrato de Phase 7.
+- [x] **UAT-03**: Integration test de `--session-of <plane-task-id>` E2E — fixture `state.json` + log files; verifica resolución two-step (state.json read → head-line scan) y exit codes.
 
 ## Future Requirements
 
@@ -78,9 +78,9 @@ Explicitly excluded del scope de v0.5. Documentado para evitar scope creep.
 | LOG-13 | Phase 16 | Complete |
 | LOG-14 | Phase 16 | Complete |
 | LOG-15 | Phase 16 | Complete |
-| UAT-01 | Phase 17 | Pending |
-| UAT-02 | Phase 17 | Pending |
-| UAT-03 | Phase 17 | Pending |
+| UAT-01 | Phase 17 | Complete |
+| UAT-02 | Phase 17 | Complete |
+| UAT-03 | Phase 17 | Complete |
 
 **Coverage:**
 - v0.5 requirements: 13 total
