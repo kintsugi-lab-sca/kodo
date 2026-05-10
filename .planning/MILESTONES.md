@@ -32,10 +32,10 @@
 - **Phase resolver + bootstrap (Phase 9)** — `src/gsd/roadmap.js` parser (accept `##`/`###` + decimales, reject rangos), `src/gsd/resolver.js` con discriminated union `PhaseVerdict | BootstrapVerdict | ErrorVerdict`, match 1:1 título Plane→heading, brief extraído de `task.description_markdown`, y `kodo gsd inspect <task-id>` CLI dry-run forense (GSD-02, GSD-03, GSD-08, GSD-09)
 - **Orchestrator verification gate (Phase 10)** — `src/gsd/verification.js` parser + verdict discriminado pass/soft-fail/hard-fail (zero deps, prototype-pollution defense), `src/gsd/verify.js` orquestación con comentario Plane determinista en español + transición condicional a Review + evento `orchestrator.review`, `kodo gsd verify <session-id>` CLI handler con exit codes deterministas, y integración en prompt/launch/stop del orquestador (GSD-05, GSD-06, GSD-07)
 - **Post-audit cleanup (Phase 10 tail)** — añadido `plane.api.call.failed` al catálogo EVENTS (8º tipo) + helper `planeApiCallFailed`, cableado en `verify.js`, y distinguidos EACCES/EMFILE de ENOENT en discovery de VERIFICATION.md (WR-01, WR-02, WR-03 del code review)
+- **UAT debt closure (Phase 17, v0.5 milestone)** — los 3 UATs humanos pendientes de Phase 7 (live `--follow` tail, `session.start` con campos D-10, `--session-of` E2E) se automatizaron en `test/logs-follow-integration.test.js`, `test/session-start-event.test.js`, `test/session-of-resolver.test.js`. Cobertura equivalente sin coste humano recurrente. Ver `.planning/phases/17-phase-7-uat-automation/`.
 
 **Known deferred items (accepted as tech debt):**
 
-- Phase 7 `07-HUMAN-UAT.md` — 3 tests manuales pendientes (live --follow, session.start real fields, --session-of E2E)
 - INT-MED-01 — `dispatcher.js` usa literales `'gsd.phase.resolved'` y `'gsd.bootstrap'` en vez de `EVENTS.*` (diferido Phase 9, sin impacto runtime)
 - INT-LOW-01 — `markSessionStatus` exportado pero sin callsites de producción → `state.transition` nunca se emite (diferido Phase 7 D-06)
 - INT-LOW-02 — 07-01-SUMMARY doc-only mismatch `plane_task_id` vs `task_id` en código
