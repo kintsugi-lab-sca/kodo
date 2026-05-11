@@ -142,6 +142,61 @@
 
 ---
 
+## Milestone: v0.5 — CLI Polish & v0.3 Debt Cleanup
+
+**Shipped:** 2026-05-11
+**Phases:** 5 (14-17 + 999.1) | **Plans:** 21 | **Tasks:** ~30
+
+### What Was Built
+- Helper `src/cli/format.js` con factory `createFormatter(stream, env?)` — única fuente de color/format con eager `useColor` precedence `NO_COLOR > FORCE_COLOR > stream.isTTY` (Phase 14 — DX-06, DX-07)
+- `picocolors@^1.1.1` como 2ª dep prod y única fuente de ANSI; `test/format-isolation.test.js` blinda single-source via grep + LOG-12 extension walker (Phase 14)
+- 5 callsites del CLI cableados al helper: `kodo logs` (logger.js shape dual + columnar), `kodo check` (3 ANSI inline → fmt.* via DI), `kodo gsd inspect` (4 secciones + Exit:N), `kodo gsd verify` (verdict color + `plane.comment_body` slice) (Phase 15 — DX-01..05)
+- LOG-09 cerrado: `dispatcher.js` literales → `EVENTS.*` con comment-aware grep; `markSessionStatus` cableado en `verify.js#finalize` rama pass (try/catch silencioso preserva D-17) y `stop.js` PRE-`releaseGsdLock` dentro de `if (session.gsd)` (D-08 emit-before-mutation) (Phase 16 — LOG-13..15)
+- 3 UATs humanos de Phase 7 automatizados como integration tests: `logs-follow-integration` (subprocess + 3 batches + SIGINT cleanup), `session-start-event` (spawn hook + 6 keys D-10 + fail-loud), `session-of-resolver` (4 escenarios spawnSync con exit codes deterministas) (Phase 17 — UAT-01..03)
+- Skill `kodo-orchestrate` migrada a `.claude/skills/kodo-orchestrate/skill.md` como source canonical provider-agnostic (3 tags GSD literales, 4 flujos diagnóstico CLI, mapping `~/.kodo/projects.json`); `src/orchestrator/prompt.md` reducido a fallback degradado (~37 LOC); `stop.js` con `KODO_ROOT` env override + path `.claude/skills/` (Phase 999.1 — D-01..D-17)
+
+### What Worked
+- **Helper-as-single-source + isolation tests (Phase 14):** el patrón de v0.4 (`getGsdMode`/`getSessionMode` + grep tests) se replicó como `createFormatter` + `test/format-isolation.test.js`. Atrapó intentos de leak de `picocolors` en otros archivos y bloqueó regresión hacia `src/logger.js`. Coste: ~3 asserts; beneficio: refactor de 5 callsites sin miedo a drift.
+- **Golden bytes contract para `--json`:** la decisión de hacer early-return (NO pasar a través con `useColor=false`) garantizó bytes idénticos al output pre-Phase 14 sin depender del helper. Phase 15 mantuvo el contrato sin fricción.
+- **Emit-BEFORE-mutation (D-08) en Phase 16:** invertir el orden de `markSessionStatus` + `releaseGsdLock` (emit primero, release después) hizo el test mucho más simple — si el emit falla, el operador ve el intento. Patrón replicable para otras transiciones.
+- **Integration tests via spawnSync real (Phase 17):** los 3 UATs se automatizaron con subprocess real (no mock) — `test/logs-follow-integration.test.js` arranca `bin/kodo logs --follow` y observa los exit codes deterministas. Cobertura equivalente a UAT humano sin coste recurrente. Sin sleeps largos (depende del watcher poll de fs.watchFile).
+- **Wave parallel + revert-to-spawnSync en Phase 999.1:** el plan revisó la primera versión (que importaba `handleOrchestratorStop` in-process) y volvió al patrón canon de Phase 16-17 (`spawnSync` child contra tmpdir aislado). Ahorró tiempo de debug en runtime.
+- **Code-review agents pescaron lo que tests no veían:** `16-REVIEW.md` (8 WR + 4 IN) y CR-01/WR-01/WR-03 en Phase 999.1 — ninguno bloqueante, pero documentados explícitamente como Resolution Log y aplazados/aceptados con rationale. Cross-check con milestone audit confirmó las findings.
+
+### What Was Inefficient
+- **`gsd-sdk milestone.complete` sólo registró Phase 999.1 en MILESTONES.md:** el SDK contó `phase_count: 1, plans: 5` porque las fases 14-17 ya tenían `<details>` summary en ROADMAP.md (formato similar al shipped). Hubo que reescribir manualmente la entrada de MILESTONES.md con las 5 fases. Si el SDK leyera el grupo "🚧 IN PROGRESS" del ROADMAP, contaría correctamente.
+- **STATE.md sobrescrito con cifras parciales por el SDK:** `milestone.complete` puso `total_phases: 1` reflejando sólo Phase 999.1. Tuvimos que regenerar STATE.md a mano post-archive. El SDK necesita acoplarse mejor a la realidad multi-phase de un milestone.
+- **Audit stale al cerrar:** `v0.5-MILESTONE-AUDIT.md` se generó 2026-05-06 con Phase 17 unstarted (`gaps_found`). Phase 17 y 999.1 cerraron días después. El audit nunca se re-corrió, así que el archivo de auditoría que se mueve a `milestones/` refleja un estado intermedio. Mejora: `/gsd-audit-milestone` debería volver a correr automáticamente al cerrar, o el cierre debería invalidar y regenerar.
+- **Checkbox drift en REQUIREMENTS.md (DX-01..07):** mismo patrón visto en v0.3/v0.4 — los `[ ]` quedaron sin marcar `[x]` aunque las VERIFICATION.md de Phases 14/15 las marcaban SATISFIED. Se corrigió manualmente al cierre. Sigue siendo deuda del workflow: `requirements mark-complete` por fase no es un hábito sistemático.
+- **Phase 14 sin `SECURITY.md`:** `/gsd-secure-phase 14` quedó como recomendación opcional del audit y no se ejecutó. Phase es low-risk presentation-only, pero el artefacto faltante deja una grieta de proceso.
+
+### Patterns Established
+- **Factory + bound methods + DI-by-descriptor:** `createFormatter(stream, env?)` devuelve object literal con bound methods, mirror de `src/logger.js#makeNode`. Los callsites pasan `process.stdout`/`process.stderr` en lugar de write fns — el formatter resuelve `isTTY` internamente. Patrón reutilizable para futuros helpers cross-cutting (eventual `createMetrics(stream)` o similar).
+- **`--json` bypasea el helper (early-return):** decisión explícita Phase 15 D-08. Más simple y determinista que "pasar a través con useColor=false". Aplicable a cualquier flag de output estructurado en el futuro.
+- **`KODO_ROOT` env override (aditivo) en hooks:** Phase 999.1 D-16 introdujo `process.env.KODO_ROOT || join(__dirname, '..', '..')` en `stop.js` para que tests spawnSync apunten a tmpdir aislado sin romper el default. Patrón replicable para cualquier hook con paths absolutos.
+- **Skill canonical en `<repo>/.claude/skills/` (NO en `~/.claude/skills/`):** decisión Phase 999.1 D-04..D-06. Source único, versionado con el código. Trade-off: requiere cwd=repo (Constraint añadida). `SKILL-01` (`kodo skill sync`) queda diferido condicional a fricción real.
+- **Comment-aware grep tests:** `test/dispatcher-isolation.test.js` con asserts que filtran comentarios D-NN históricos antes de greppear literales. Permite preservar referencias documentales sin romper la guarda.
+
+### Key Lessons
+1. **El SDK no es la única fuente de verdad para MILESTONES.md.** `gsd-sdk milestone.complete` sirve como base (archive + audit move + skeleton entry), pero el contenido narrativo y los counts cruzados los tiene que escribir el orquestador a mano. No es bug, es la división del trabajo — pero hay que documentarlo en el workflow.
+2. **El audit no debe morir al cerrar el milestone; debe correrse de nuevo.** Un audit `gaps_found` de hace 5 días NO refleja el milestone real al cerrar. O re-corremos `/gsd-audit-milestone` automáticamente al iniciar `/gsd-complete-milestone`, o invalidamos el viejo y exigimos uno fresco.
+3. **`spawnSync` child + tmpdir aislado es el patrón canon para tests de hooks.** Phase 16 SC#5 lo estableció, Phase 17 lo reusó (3 tests), Phase 999.1 lo replicó por tercera vez. Tres ejemplos diferentes confirman el patrón: nunca importar el hook in-process; siempre spawnar.
+4. **`requirements mark-complete` automatizado YA debería ser parte del verifier o del execute-plan.** Tres milestones (v0.3, v0.4, v0.5) con el mismo bug de checkbox drift — es momento de cerrarlo en herramienta.
+5. **Tech debt explícita en Resolution Log > tech debt implícita en backlog.** `16-REVIEW.md` con 8 WR + 4 IN aplazados con rationale firmado es mejor que "lo arreglamos en v0.6" sin papel. El Resolution Log sobrevive al milestone close.
+6. **El orchestrator se lanza desde cwd=repo y eso es un contrato operativo, no un bug:** Phase 999.1 sketcheó `kodo skill sync` (SKILL-01) y decidió que la fricción de exigir cwd=repo es menor que la complejidad de sincronizar dos copias. Constraint > código nuevo cuando se puede.
+
+### Cost Observations
+- Model mix: executor agents opus (Phase 14/15/16 con worktree, Phase 17 sequential, Phase 999.1 mixed); verifier sonnet; code-reviewer inherit; orchestrator opus
+- Phase 14: 3 plans × 1 executor + 1 verifier + 1 validator retroactivo = 5 sessions
+- Phase 15: 5 plans × 1 executor + 1 verifier + 1 code-reviewer = 7 sessions (Wave 1 con 4 paralelos en worktrees)
+- Phase 16: 3 plans × 1 executor + 1 verifier + 1 code-reviewer = 5 sessions
+- Phase 17: 5 plans × 1 executor + 1 verifier + 1 code-reviewer = 7 sessions (sequential, sin worktree)
+- Phase 999.1: 5 plans × 1 executor (3 paralelos Wave 1 + 2 Wave 2) + 1 verifier + 1 code-reviewer = 8 sessions
+- Milestone total: ~32 agent sessions across 5 phases
+- Notable: las fases con worktree Wave parallel (15, 16, 999.1) consumieron ~25% más tokens por sesión que sequential, pero el orchestrator se mantuvo <20% context budget al final del milestone.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -151,6 +206,7 @@
 | v0.2 | 10 | 5 | Established TDD + pure helper extraction pattern |
 | v0.3 | 25 | 5 | Added CONTEXT/PATTERNS/DISCUSSION-LOG + worktree parallelism + code review gate |
 | v0.4 | 11 | 3 | Source-hygiene grep tests anti-drift + sequential-no-worktree para fases test-only |
+| v0.5 | 21 | 5 | Helper-as-single-source patrón replicado (createFormatter) + spawnSync child con tmpdir aislado como canon para tests de hooks + skill canonical en `<repo>/.claude/skills/` |
 
 ### Cumulative Quality
 
@@ -159,10 +215,14 @@
 | v0.2 | 122 | 2,782 | 1,868 |
 | v0.3 | 366+ | ~5,400 | ~6,280 |
 | v0.4 | 415 | ~5,400 | ~7,760 |
+| v0.5 | 511+ | ~6,500 | ~9,855 |
 
 ### Top Lessons (Verified Across Milestones)
 
-1. Small plans (1-2 tasks) execute reliably — zero failures across 21+ plans (v0.2 + v0.4 evidence; v0.3 with 25 plans similar pattern)
+1. Small plans (1-2 tasks) execute reliably — zero failures across 42+ plans (v0.2 + v0.4 + v0.5 evidence; v0.3 with 25 plans similar pattern)
 2. Pure helper extraction + DI > mock.module for Node.js test runner compatibility
-3. Source-hygiene grep tests blindan invariantes "DRY hard-enforced" donde un helper es la única fuente legítima — ratifican refactor sin miedo a drift inline (v0.4)
+3. Source-hygiene grep tests blindan invariantes "DRY hard-enforced" donde un helper es la única fuente legítima — ratifican refactor sin miedo a drift inline (v0.4, v0.5)
 4. Sequential-no-worktree gana a parallel-worktree para fases test-only con archivos disjuntos (v0.4) — el overhead de worktree solo paga cuando los plans son largos y/o tocan el mismo árbol
+5. `spawnSync` child + tmpdir aislado es el patrón canon para tests de hooks (v0.5 — Phase 16 estableció, Phase 17 y 999.1 reusaron). Nunca importar el hook in-process; siempre spawnar.
+6. `requirements mark-complete` automatizado YA debería ser parte del verifier — tres milestones consecutivos (v0.3, v0.4, v0.5) con checkbox drift son señal clara de bug de proceso, no de descuido puntual.
+7. El audit no debe morir al cerrar el milestone; debe re-correrse — v0.5 cerró con un audit `gaps_found` de hace 5 días que ya no reflejaba la realidad (v0.5).
