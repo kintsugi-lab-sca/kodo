@@ -250,9 +250,12 @@ async function handleOrchestratorStop() {
       return;
     }
 
-    // Auto-commit skill changes
+    // Auto-commit skill changes.
+    // `-c commit.gpgsign=false` evita cuelgues si el dev tiene firma GPG global
+    // sin TTY (gpg-agent bloquearía pidiendo passphrase) y no firma commits
+    // generados por LLM con la clave personal del dev (WR-01 999.1-REVIEW).
     const date = new Date().toISOString().slice(0, 10);
-    execSync(`git add .claude/skills/ && git commit -m "skill: orchestrator learnings ${date}"`, {
+    execSync(`git -c commit.gpgsign=false add .claude/skills/ && git -c commit.gpgsign=false commit -m "skill: orchestrator learnings ${date}"`, {
       cwd: KODO_ROOT,
       encoding: 'utf-8',
     });

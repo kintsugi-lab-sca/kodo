@@ -84,11 +84,14 @@ equivale a `'full'` (compat con sesiones legacy de v0.3).
 
 - Sesiones `[GSD phase N]` o `[GSD bootstrap]` que entran a Review →
   `kodo gsd verify <session-id>`. El CLI postea el comentario en el provider
-  y transiciona el work item. Exit codes deterministas:
-  - `0` pass — el CLI movió la tarea a Review; continúa con tu ronda.
-  - `1` soft-fail — el CLI comentó el motivo; espera corrección humana.
-  - `2` hard-fail — igual que soft-fail, pero rompe must-haves.
-  - `64..78` usage / not-found — error operacional; revisa el comando.
+  y transiciona el work item. Verdicts canónicos en `VERIFICATION.md`: `pass`,
+  `fail`, `missing` (archivo ausente), `malformed` (frontmatter inválido).
+  Exit codes deterministas del CLI:
+  - `0` — el gate corrió: el verdict viene en stdout/JSON; si es `pass` la
+    tarea se movió a Review, si es `fail`/`missing`/`malformed` el CLI dejó
+    un comentario explicando el motivo y espera corrección humana.
+  - `1` — error interno (sesión no existe, no es GSD, config rota).
+  - `2` — fetch transient al provider (red caída, timeout); retryable.
 - Sesiones `[GSD quick]` → **NO ejecutes `kodo gsd verify`**. El CLI no las
   soporta (son one-shot, sin `VERIFICATION.md`). Revísalas manualmente como
   cualquier sesión no-GSD: lee el comentario final del agente y decide.
@@ -169,7 +172,7 @@ Si sí, añade una entrada en la sección "Lecciones aprendidas" con formato:
 
 **El commit es automático** — el hook Stop (`src/hooks/stop.js`) detecta
 cambios en `.claude/skills/` y los committea al terminar la sesión
-orquestadora vía `handleSkillAutoCommit`. No necesitas hacer `git commit`
+orquestadora vía `handleOrchestratorStop`. No necesitas hacer `git commit`
 manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
