@@ -82,6 +82,7 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - [ ] Polling trigger channel para providers sin webhook
 - [ ] File watcher trigger para provider local
 - [ ] Hook prompt: que `buildSessionContext` (sesiones no-GSD) recuerde a la sesión que kodo NO hace push automático, y exija verificar el push real o redactar en condicional las afirmaciones de deploy/publicación (HOOK-01 — driver: ROMAN-125 / ROMAN-126)
+- [ ] **SKILL-01**: `kodo skill sync` CLI que empuje la canonical de `<repo>/.claude/skills/` a `~/.claude/skills/`, permitiendo lanzar `kodo orchestrator` desde cualquier `cwd` con la skill auto-cargada. Hoy (post Phase 999.1) se exige cwd = repo (Constraint añadida) en su lugar; si la fricción demuestra ser alta en v0.6+, retomar SKILL-01.
 
 ### Out of Scope
 
@@ -122,6 +123,7 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - **Logger aislado del vigilante**: `kodo check` no debe cargar `src/logger.js` transitivamente (LOG-12 guard)
 - **Modo derivado por helper, NO inline**: cualquier consumidor de `gsd_mode` o de las flags debe usar `getGsdMode(flags)` / `getSessionMode(session)`. Source-hygiene Phase 13 D-09/D-10/D-11 blindado con tests.
 - **Color isolation**: `picocolors` solo se importa desde `src/cli/format.js`. Cualquier callsite que necesite color va por `createFormatter(stream)` — test/format-isolation.test.js blinda la single-source con grep + walker (LOG-12 extension + D-07/D-08 source-hygiene).
+- **Orchestrator se lanza desde cwd = repo kodo**: `kodo orchestrator` DEBE invocarse desde el directorio `~/dev/klab/kodo` (o el path real del repo) para que Claude Code auto-cargue `.claude/skills/kodo-orchestrate/skill.md` como skill local. Si se lanza desde otro cwd, la sesión arranca con `src/orchestrator/prompt.md` como render mínimo provider-specific (fallback degradado documentado, no error). La skill canonical solo vive en el repo desde Phase 999.1 (D-04/D-05/D-06); `~/.claude/skills/kodo-orchestrate/` se eliminó al cierre de esa phase.
 
 ## Key Decisions
 
