@@ -10,23 +10,13 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ## Current State
 
-**Shipped:** v0.4 (2026-04-30) — GSD Quick Mode
+**Shipped:** v0.5 (2026-05-11) — CLI Polish & v0.3 Debt Cleanup
 
-v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispatcher. Ahora `gsd_mode: 'full'|'quick'` se persiste en `SessionRecord` desde `buildSessionFromTask` vía el helper `getGsdMode(flags)`, los tres puntos de lectura del modo (SessionStart hook, Stop hook, orchestrator launch summary) ramifican vía `getSessionMode(session)`, una sesión quick recibe `/gsd-quick "<title>"` en lugar del bloque plan/execute/verify, su Stop nudge pide revisión manual sin sugerir `kodo gsd verify`, y el orchestrator emite `[GSD quick]` en su tag para distinguirla. La cobertura cross-cutting del modo (helper, manager, dispatcher, session-start, stop, launch) queda blindada con 44 tests nuevos contra 7 sitios de la cadena. El lock per-repo y el contrato `--dangerously-skip-permissions` se comparten entre full y quick (mismo `session.gsd === true` en ambos modos).
+v0.5 transforma el CLI de output mono a TTY-aware con colores semánticos y columnas alineadas: el helper `src/cli/format.js` (factory `createFormatter(stream, env?)`) centraliza color/format con precedencia `NO_COLOR > FORCE_COLOR > stream.isTTY`, y `picocolors@^1.1.1` se incorpora como única fuente de ANSI (2ª dep prod junto a `commander`). Los 5 callsites del CLI (`kodo logs`, `kodo check`, `kodo gsd inspect`, `kodo gsd verify`, `logger` para stderr columnar) consumen el helper sin alterar el contrato `--json` (golden bytes invariant) ni el guard LOG-12 sobre `kodo check`. En paralelo se cierra la deuda v0.3: `dispatcher.js` migra los literales a `EVENTS.*`, `markSessionStatus` se cabela en `verify.js` (transición Plane→Review tras `pass`) y `stop.js` (release del lock per-repo, emit-BEFORE-mutation D-08), y `state.transition` se emite real en runtime. Los 3 UATs humanos pendientes de Phase 7 (`--follow` live, `session.start` campos reales, `--session-of` E2E) se automatizan como integration tests con fixtures NDJSON progresivos y `state.json` sintético. Cierra el milestone con la migración de la skill `kodo-orchestrate` al repo (`.claude/skills/kodo-orchestrate/skill.md`) como source canonical provider-agnostic, reduciendo `src/orchestrator/prompt.md` a fallback degradado (~37 LOC) y fixeando el path del auto-commit en `stop.js` (D-14). Suite global: 511/512 pass + 1 skip pre-existente.
 
-## Current Milestone: v0.5 CLI Polish & v0.3 Debt Cleanup
+## Next Milestone
 
-**Goal:** Pulir la experiencia CLI con colores y formato legible, y cerrar la deuda técnica heredada de v0.3 (LOG-09 + UATs Phase 7) sin tocar el alcance de adapters.
-
-**Target features:**
-- Output del CLI con colores semánticos (info/warn/error) y reformat de tablas/headers vía `picocolors`, con TTY detection y respeto a `NO_COLOR`/`FORCE_COLOR` — `--json` mantiene bytes idénticos al output sin TTY.
-- Cerrar LOG-09: migrar literales de `dispatcher.js` (`'gsd.phase.resolved'` y `'gsd.bootstrap'`) al catálogo `EVENTS.*` y cablear `markSessionStatus` en transiciones reales (`verify.js` cuando mueve la tarea Plane a Review tras `pass`, y `stop.js` cuando libera el lock per-repo) para que `state.transition` se emita en runtime.
-- Convertir los 3 UATs humanos pendientes de Phase 7 (live `--follow`, `session.start` con campos reales, `--session-of` E2E) en integration tests automatizados con fixtures NDJSON y `state.json`.
-
-**Key context:**
-- `picocolors` será la 2ª dependencia externa de kodo (junto a `commander`). Trade-off aceptado a cambio del DX win y de no escribir un wrapper ANSI custom.
-- v0.5 es deliberadamente un milestone de pulido + cierre de deuda. Adapters (GitHub Issues, ClickUp, local), polling y file-watcher triggers permanecen en `Active` y se atacarán en v0.6.
-- El contrato del logger NDJSON no cambia: `KODO_LOG_LEVEL` y `--json` siguen produciendo bytes deterministas; los colores solo aplican a salida TTY interactiva.
+**Status:** Entre milestones — pendiente arrancar v0.6 con `/gsd-new-milestone` (research → requirements → roadmap). El backlog Active (sección de abajo) indica el shape probable: adapters nuevos (GitHub Issues, ClickUp, local), polling/file-watcher triggers, HOOK-01 (recordatorio anti-push-fantasma) y, condicional a fricción, SKILL-01 (`kodo skill sync`).
 
 ## Requirements
 
@@ -72,10 +62,7 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 
 ### Active
 
-**In v0.5 (current milestone):**
-- (todos los items planificados en v0.5 están validated)
-
-**Deferred to v0.6 or later:**
+**Candidates for v0.6 (next milestone):**
 - [ ] Adapter de GitHub Issues que implementa TaskProvider
 - [ ] Adapter de ClickUp que implementa TaskProvider
 - [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
@@ -83,6 +70,12 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 - [ ] File watcher trigger para provider local
 - [ ] Hook prompt: que `buildSessionContext` (sesiones no-GSD) recuerde a la sesión que kodo NO hace push automático, y exija verificar el push real o redactar en condicional las afirmaciones de deploy/publicación (HOOK-01 — driver: ROMAN-125 / ROMAN-126)
 - [ ] **SKILL-01**: `kodo skill sync` CLI que empuje la canonical de `<repo>/.claude/skills/` a `~/.claude/skills/`, permitiendo lanzar `kodo orchestrator` desde cualquier `cwd` con la skill auto-cargada. Hoy (post Phase 999.1) se exige cwd = repo (Constraint añadida) en su lugar; si la fricción demuestra ser alta en v0.6+, retomar SKILL-01.
+
+**Tech debt diferida (v0.5, no bloqueante):**
+- [ ] Phase 14 — `SECURITY.md` ausente (low-risk presentation-only); opcional `/gsd-secure-phase 14` para auditar threats_open: 0 explícito.
+- [ ] Phase 14 — `test/version-smoke.test.js` spawnSync sin `timeout` (WR-01); regex ANSI defensiva (IN-01); caso `FORCE_COLOR=''` sin test explícito (IN-02).
+- [ ] Phase 15 — `ANSI_*` exports retenidos en `src/logger.js` para back-compat (decisión explícita); LOC deltas menores en `src/check.js` (127 vs 130) y `src/gsd/verify.js` (402 vs 405).
+- [ ] Phase 16 — 8 WR + 4 IN en `16-REVIEW.md` Resolution Log aplazados (doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc.).
 
 ### Out of Scope
 
@@ -99,15 +92,23 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 
 ## Context
 
-**Current state (post v0.4):** ~13,160 LOC JavaScript total (src + test). 37 archivos `*.test.js`, 415 tests con 414 pass + 1 skip pre-existente (startup-budget Decisión B). Node.js 20+ con una sola dependencia externa (commander).
+**Current state (post v0.5):** ~16,355 LOC JavaScript total (src + test). Node.js 20+ con dos dependencias externas en producción (`commander` + `picocolors@^1.1.1`). Suite global: 511/512 pass + 1 skip pre-existente (startup-budget Decisión B).
 
-**Architecture v0.4 añade:**
+**Architecture v0.5 añade:**
+- `src/cli/format.js` factory `createFormatter(stream, env?)` — única fuente de color/format para el CLI. Devuelve un object literal de bound methods (debug/info/warn/error/ok/fail + colores + `formatRow`/`formatTable`/`visibleWidth`) con precedencia eager `NO_COLOR > FORCE_COLOR > stream.isTTY` (D-02). Golden bytes contract: `useColor=false → zero ANSI` (base de `--json` determinismo). LOG-12 extension walker en `test/format-isolation.test.js` bloquea regresión hacia `src/logger.js` desde el grafo de `format.js`.
+- `picocolors` como única fuente de ANSI: `src/cli/format.js` es el único importador (`test/format-isolation.test.js` blinda con grep + walker).
+- `kodo logs` con shape dual: TTY → columnar `timestamp · level · component · message` + colores por nivel; no-TTY/`--json` → bytes idénticos al output pre-Phase 14 (early-return bypass del helper).
+- `dispatcher.js` ya no emite literales: `EVENTS.GSD_PHASE_RESOLVED` y `EVENTS.GSD_BOOTSTRAP` son las únicas referencias runtime (comment-aware grep test).
+- `markSessionStatus` con callsites reales: `verify.js#finalize` rama `pass` tras `addComment + updateTaskState` (try/catch silencioso preserva D-17 orchestratorReview en TODAS las ramas); `stop.js` PRE-`releaseGsdLock` dentro de `if (session.gsd)` (D-08 emit-before-mutation). `state.transition` se emite real en runtime con `from`/`to`.
+- `.claude/skills/kodo-orchestrate/skill.md` como source canonical provider-agnostic (deriva `provider` desde `~/.kodo/config.json`, mapping vía `~/.kodo/projects.json`, 3 tags GSD literales, 4 flujos diagnóstico CLI con exit codes deterministas). `src/orchestrator/prompt.md` reducido a fallback degradado (~37 LOC) con 3 placeholders preservados y cross-ref a la skill.
+- `src/hooks/stop.js` con `KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..')` (env override aditivo), `SKILL_PATH` y los dos comandos git de `handleOrchestratorStop` apuntando a `.claude/skills/` (fix D-14).
+
+**Architecture v0.4 (heredada):**
 - `getGsdMode(flags)` + `getSessionMode(session)` en `src/labels.js` — únicas fuentes de derivación de modo. Cualquier consumer (manager, dispatcher, hooks, orchestrator) DEBE llamar al helper, NO inspeccionar `flags.includes('gsd-quick')` ni `session.gsd_mode` inline (D-09/D-10/D-11 source-hygiene blindados con tests).
 - `SessionRecord.gsd_mode: 'full' | 'quick'` — campo aditivo opcional. Falsy/missing equivale a `'full'` para preservar compatibilidad con sesiones persistidas en v0.3.
 - `src/hooks/session-start.js` rama quick — inyecta `/gsd-quick "<title>"` en inglés (mismo idioma que la rama full por D-04 Phase 8).
 - `src/hooks/stop.js` switch exhaustivo `getSessionMode(session)` con 3 cases: `quick` (revisión manual), `full` (verify nudge), default (no-GSD). Lock se libera dentro del bloque `if (session.gsd) { ... }` que ambos modos disparan.
 - `src/orchestrator/launch.js` `buildContextSummary` emite gsdTag mode-first con 3 etiquetas: `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]`.
-- `src/orchestrator/prompt.md` § "Sesiones GSD" aclara que quick no se verifica via `kodo gsd verify`.
 
 **Adding a new provider requires only:**
 1. Create `src/providers/<name>/provider.js` implementing 9 TaskProvider methods
@@ -153,6 +154,15 @@ v0.4 cierra la cadena `kodo:gsd-quick` que el WIP de v0.3 dejó solo en el dispa
 | `getGsdMode(flags)` y `getSessionMode(session)` como ÚNICAS fuentes de derivación de modo | DRY hard-enforced; un solo sitio cambia si añadimos un tercer modo | ✓ Good — Phase 13 D-09/D-10/D-11 invariants source-hygiene en tests grep against src/ |
 | Quick es phase-agnostic: descartamos `phase_id` aunque el resolver lo encuentre | El verdict del resolver es informativo en quick, no estructural | ✓ Good — Phase 11 D-03 + tests dispatcher quick + match |
 | Quick no produce `VERIFICATION.md` ni se verifica via `kodo gsd verify` | One-shot por diseño; gate sería un no-op | ✓ Good — Phase 12 stop nudge ramificado + prompt.md aclara revisión manual |
+| `picocolors` como única fuente de ANSI (color isolation) | Un único importador (`src/cli/format.js`) evita drift y permite golden bytes test | ✓ Good — Phase 14 D-07 + `test/format-isolation.test.js` blinda con grep+walker |
+| Helper de color/format devuelve object literal de bound methods (factory) | Espejo de `src/logger.js#makeNode`: DI-friendly, sin clases, sin estado mutable | ✓ Good — Phase 14 D-01..D-04; 5 callsites consumen sin fricción |
+| `--json` bypasea el helper (early-return) en lugar de "pasar a través con useColor=false" | Garantiza determinismo de bytes histórico sin depender del helper | ✓ Good — Phase 15 D-08; golden bytes test sigue verde |
+| Eager `useColor` calculado al construir el formatter (NO_COLOR > FORCE_COLOR > stream.isTTY) | Evita re-lectura del env dentro de cada helper; previene races test/runtime | ✓ Good — Phase 14 D-02; matriz de 4 estados validada |
+| `state.transition` se emite ANTES de mutar (release del lock, transición Plane) | Si el emit falla, el operador ve el intento; evita "fantasmas" donde la mutación ocurrió sin trazar | ✓ Good — Phase 16 D-08 emit-before-mutation; 3 escenarios stop test |
+| `markSessionStatus` en `verify.js` SÓLO en rama pass (NO en soft-fail/hard-fail/errors) | El gate no debe afirmar progreso si el verdict no es pass | ✓ Good — Phase 16 SC#3; 6 asserts negative en gsd-verify-integration.test |
+| UATs humanos se automatizan via spawn child process real (NO mock) | Tail real, exit codes deterministas observados; equivalencia con UAT humano | ✓ Good — Phase 17; 3 integration tests pass sin sleeps largos |
+| Skill `kodo-orchestrate` vive sólo en `<repo>/.claude/skills/` (NO en `~/.claude/skills/`) | Source canonical único, versionado con el código; cwd=repo como contrato operativo | ✓ Good — Phase 999.1 D-04..D-06; SKILL-01 deferred si la fricción aparece |
+| `KODO_ROOT` env override en `stop.js` (aditivo) | Permite tests spawnSync contra tmpdir aislado sin tocar el path por defecto | ✓ Good — Phase 999.1 D-16; `test/skill-auto-commit.test.js` 2 escenarios |
 
 ## Evolution
 
@@ -172,4 +182,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 — v0.5 Phase 999.1 (Skill kodo-orchestrate al repo y actualizar a v0.5) complete; skill canonical migrada a `.claude/skills/kodo-orchestrate/skill.md` (177 LOC, provider-agnostic v0.5: sin Plane/MCP-tool hardcodes, deriva `provider` desde `~/.kodo/config.json`, 4 flujos de diagnóstico D-10, 3 tags GSD literales); `src/orchestrator/prompt.md` slimmed 90→38 LOC como fallback degradado provider-specific (placeholders preservados, cross-ref a skill); `src/hooks/stop.js` D-14/D-15 fixed (SKILL_PATH a `.claude/skills/`, KODO_ROOT env override, gpgsign disabled); `test/skill-auto-commit.test.js` D-16 coverage (184 LOC, 2 escenarios spawnSync child con tmpdir aislado); `PROJECT.md` Constraints + Deferred SKILL-01 + relic `skills/kodo-orchestrate/` removido; code review CR-01/WR-01/WR-03 fixed inline; suite 511/512 pass + 1 skip pre-existente. v0.5 milestone: 5/5 phases shipped (14, 15, 16, 17, 999.1).*
+*Last updated: 2026-05-11 — v0.5 milestone shipped (CLI Polish & v0.3 Debt Cleanup). 5/5 phases (14, 15, 16, 17, 999.1), 21 plans, 13/13 requirements satisfied (DX-01..07, LOG-13..15, UAT-01..03). Suite 511/512 pass + 1 skip pre-existente. ~16,355 LOC src+test. Próximo: `/gsd-new-milestone` para v0.6.*
