@@ -141,9 +141,9 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   4. `test/skill-auto-commit.test.js` cubre D-16 con 2 escenarios spawnSync child (canon Phase 16-17 LOG-15/UAT-03): `spawnSync(process.execPath, [STOP_HOOK], { env: { HOME: tmpHome, KODO_ROOT: tmpRepo } })` contra repo tmpdir sembrado (mkdtempSync + git init local + `commit.gpgsign false`): (A) cambios en `.claude/skills/` → commit con mensaje `skill: orchestrator learnings YYYY-MM-DD`; (B) sin cambios → no-op silencioso. NUNCA importa ni invoca `handleOrchestratorStop` in-process. `git diff --quiet src/hooks/stop.js` exits 0 (Plan 04 no toca el hook).
   5. `PROJECT.md > Constraints` contiene la regla D-05/D-06 ("Orchestrator se lanza desde cwd = repo kodo" + fallback degradado documentado). `PROJECT.md > Active > Deferred to v0.6 or later` contiene SKILL-01 (`kodo skill sync` CLI diferido). `~/.claude/skills/kodo-orchestrate/skill.md` eliminado manualmente (checkpoint humano D-04). Suite global verde.
 **Plans**: 5 plans
-  - [ ] 999.1-01-PLAN.md — Crear .claude/skills/kodo-orchestrate/skill.md provider-agnostic v0.5 (D-01, D-03, D-07..D-13, D-15, D-17)
-  - [ ] 999.1-02-PLAN.md — Simplificar src/orchestrator/prompt.md a render mínimo con cross-ref a skill (D-02, D-03)
-  - [ ] 999.1-03-PLAN.md — Fix path + env override en src/hooks/stop.js: KODO_ROOT env hook + SKILL_PATH + git status + git add + JSDoc → `.claude/skills/` (D-14, D-15, D-16 prerequisite)
+  - [x] 999.1-01-PLAN.md — Crear .claude/skills/kodo-orchestrate/skill.md provider-agnostic v0.5 (D-01, D-03, D-07..D-13, D-15, D-17)
+  - [x] 999.1-02-PLAN.md — Simplificar src/orchestrator/prompt.md a render mínimo con cross-ref a skill (D-02, D-03)
+  - [x] 999.1-03-PLAN.md — Fix path + env override en src/hooks/stop.js: KODO_ROOT env hook + SKILL_PATH + git status + git add + JSDoc → `.claude/skills/` (D-14, D-15, D-16 prerequisite)
   - [ ] 999.1-04-PLAN.md — test/skill-auto-commit.test.js spawnSync child con 2 escenarios en tmpdir aislado (D-16, canon Phase 16-17)
   - [ ] 999.1-05-PLAN.md — PROJECT.md Constraints D-05/D-06 + Deferred SKILL-01 + checkpoint humano eliminar skill global (D-04, D-05, D-06)
 **UI hint**: no
@@ -173,7 +173,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete    | 2026-05-10 |
-| 999.1. Skill kodo-orchestrate al repo | v0.5 | 0/5 | Planned     | — |
+| 999.1. Skill kodo-orchestrate al repo | v0.5 | 3/5 | In Progress|  |
 
 ---
 *Last updated: 2026-05-11 — Phase 999.1 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05). D-01..D-17 lockeadas en CONTEXT.md; no REQ-IDs formales.*
