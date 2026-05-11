@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
 status: planning
-last_updated: "2026-05-11T14:40:29.778Z"
+last_updated: "2026-05-11T17:07:00.000Z"
 last_activity: 2026-05-11
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,7 +16,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** v0.6 — Session Isolation & Skill Sync (initialized 2026-05-11; requirements + roadmap pendientes)
+**Active milestone:** v0.6 — Session Isolation & Skill Sync (roadmap defined 2026-05-11; Phases 18-22 derived from REQUIREMENTS.md)
 **Last updated:** 2026-05-11
 
 ## Project Reference
@@ -25,14 +25,22 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Definir REQUIREMENTS.md + ROADMAP.md de v0.6. Scope: worktree always-on, HOOK-01 universal, SKILL-01 (`kodo skill sync` manual + auto en orchestrator), tech debt v0.5 closure (Phase 14/15/16). Adapters (GitHub/ClickUp/local) y polling/file-watcher deferidos a v0.7+.
+**Current focus:** Roadmap v0.6 emitido (5 fases, 19 requirements, 100% coverage). Próximo paso: `/gsd-plan-phase 18` para arrancar Worktree Runtime Wiring (foundational). Phases 20/21/22 son paralelizables con la cadena WT (18→19).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap defined, plans TBD)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-11 — Milestone v0.6 started
+Status: Planning — awaiting `/gsd-plan-phase 18`
+Last activity: 2026-05-11 — v0.6 ROADMAP emitido (5 fases)
+
+## Phases (v0.6)
+
+- [ ] Phase 18: Worktree Runtime Wiring (WT-01, WT-02, WT-03)
+- [ ] Phase 19: Worktree Cleanup & Integration (WT-04, WT-05, WT-06)
+- [ ] Phase 20: HOOK-01 Universal Anti-Push-Fantasma (HOOK-01, HOOK-02, HOOK-03)
+- [ ] Phase 21: Skill Sync CLI + Auto-Sync (SKILL-01, SKILL-02, SKILL-03, SKILL-04)
+- [ ] Phase 22: Tech Debt v0.5 Closure (DEBT-01..DEBT-06)
 
 ## Accumulated Context
 
@@ -49,30 +57,32 @@ None.
 
 ### Open Questions
 
-- ¿Auto-sync de SKILL-01 en `kodo orchestrator` rompe la Constraint cwd=repo (Phase 999.1 D-04/D-05/D-06)? Reevaluar al planificar la fase SKILL-01.
-- ¿El worktree always-on requiere cambios en el lock per-repo (Phase 8 GSD-10), `KODO_ROOT` (Phase 999.1) o auto-commit path (`stop.js`)?
-- ¿HOOK-01 universal altera bytes del prompt en sesiones GSD? Validar golden bytes y tags `[GSD quick/phase N/bootstrap]`.
+- ¿Auto-sync de SKILL-01 en `kodo orchestrator` rompe la Constraint cwd=repo (Phase 999.1 D-04/D-05/D-06)? → Reflejado en SC#3 de Phase 21; resolver en plan de fase.
+- ¿El worktree always-on requiere cambios en el lock per-repo (Phase 8 GSD-10), `KODO_ROOT` (Phase 999.1) o auto-commit path (`stop.js`)? → Cubierto explícitamente: lock NO toca worktree (Phase 18 SC#3), `KODO_ROOT` y auto-commit cwd cableados en Phase 19 SC#2.
+- ¿HOOK-01 universal altera bytes del prompt en sesiones GSD? → Cubierto por Phase 20 SC#2 (golden bytes invariante).
 
 ### Critical Invariants to Preserve (cross-phase)
 
-- **LOG-12 guard**: `kodo check` NO debe cargar `src/logger.js` transitivamente. Reafirmado por Phase 14 (helper aislado) y Phase 15 (`kodo check` cableado sin importar logger).
+- **LOG-12 guard**: `kodo check` NO debe cargar `src/logger.js` transitivamente. Reafirmado por Phase 14 (helper aislado) y Phase 15 (`kodo check` cableado sin importar logger). Aplica a Phase 22 al retirar `ANSI_*` exports.
 - **Color isolation**: `picocolors` solo se importa desde `src/cli/format.js`. Cualquier nuevo callsite que necesite color DEBE consumir `createFormatter(stream)` — `test/format-isolation.test.js` blinda con grep + walker.
-- **`--json` determinismo**: bytes idénticos entre TTY y no-TTY (DX-06 invariante). Golden bytes test cubre `kodo logs --json` y los demás surfaces hacen early-return.
+- **`--json` determinismo**: bytes idénticos entre TTY y no-TTY (DX-06 invariante). Aplica a `kodo skill sync` cuando emita JSON (Phase 21).
 - **Source-hygiene D-09/D-10/D-11**: anti-inline anti-direct-access para `gsd_mode` derivation. Cualquier consumer de modo va por `getGsdMode(flags)` / `getSessionMode(session)`.
-- **Lock release idempotente** (Phase 8 GSD-10): preservado tras cableado de `markSessionStatus` en `stop.js` (Phase 16) — emit BEFORE mutation (D-08).
-- **Orchestrator cwd = repo kodo**: `kodo orchestrator` debe lanzarse desde el directorio del repo para que `.claude/skills/kodo-orchestrate/skill.md` se auto-cargue. Fallback: `src/orchestrator/prompt.md` provider-specific.
+- **Lock release idempotente** (Phase 8 GSD-10): preservado tras cableado de `markSessionStatus` en `stop.js` (Phase 16) — emit BEFORE mutation (D-08). Phase 19 cleanup del worktree NO debe alterar la idempotencia del release.
+- **Orchestrator cwd = repo kodo** (Phase 999.1 D-04..D-06): `kodo orchestrator` debe lanzarse desde el repo para que `.claude/skills/kodo-orchestrate/skill.md` se auto-cargue. Phase 21 SKILL-02 auto-sync NO debe romper este contrato (skill local sigue ganando; sync solo asegura que home no quede stale).
+- **Golden bytes GSD tags**: `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]` no mutan en shape ni offset relativo. Phase 20 HOOK-02 lo blinda con golden bytes test modo-por-modo.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-11 — v0.6 initialized
-- **Stopped at:** PROJECT.md actualizado con Current Milestone v0.6; STATE.md reset; pendiente REQUIREMENTS.md + ROADMAP.md
-- **Next action:** Decidir research/skip → definir requirements → spawn `gsd-roadmapper`
+- **Last session:** 2026-05-11 — v0.6 roadmap emitido
+- **Stopped at:** ROADMAP.md con 5 fases (18-22); REQUIREMENTS.md traceability completo; STATE.md actualizado con total_phases=5
+- **Next action:** `/gsd-plan-phase 18` para arrancar Worktree Runtime Wiring
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.6, scope confirmado)
+  - `.planning/REQUIREMENTS.md` (19 requirements en 4 categorías, traceability completo)
+  - `.planning/ROADMAP.md` (5 fases v0.6 + historicos colapsados)
   - `.planning/STATE.md` (este archivo)
-  - `.planning/ROADMAP.md` (v0.5 colapsado — pendiente regenerar para v0.6)
   - `.planning/MILESTONES.md` (v0.5 entry con 5 fases, 13/13 reqs, tech debt)
   - `.planning/milestones/v0.5-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
 
 ---
-*v0.6 milestone initialized: 2026-05-11. Goal: aislar sesiones en worktrees, sync skill canonical, anti-push-fantasma universal, cerrar tech debt v0.5.*
+*v0.6 roadmap emitido: 2026-05-11. 5 fases (18-22), 19 requirements, 100% coverage. Granularity coarse aplicada (bundle de tech debt, split worktree por surface area).*

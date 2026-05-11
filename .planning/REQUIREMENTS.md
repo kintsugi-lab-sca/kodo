@@ -66,30 +66,32 @@
 
 ## Traceability
 
-(Mapped to phases by `gsd-roadmapper` — see ROADMAP.md.)
+Mapped to phases by `gsd-roadmapper` 2026-05-11 — see `ROADMAP.md` for full phase definitions.
 
-| REQ-ID  | Phase | Status  |
-|---------|-------|---------|
-| WT-01   | TBD   | pending |
-| WT-02   | TBD   | pending |
-| WT-03   | TBD   | pending |
-| WT-04   | TBD   | pending |
-| WT-05   | TBD   | pending |
-| WT-06   | TBD   | pending |
-| HOOK-01 | TBD   | pending |
-| HOOK-02 | TBD   | pending |
-| HOOK-03 | TBD   | pending |
-| SKILL-01| TBD   | pending |
-| SKILL-02| TBD   | pending |
-| SKILL-03| TBD   | pending |
-| SKILL-04| TBD   | pending |
-| DEBT-01 | TBD   | pending |
-| DEBT-02 | TBD   | pending |
-| DEBT-03 | TBD   | pending |
-| DEBT-04 | TBD   | pending |
-| DEBT-05 | TBD   | pending |
-| DEBT-06 | TBD   | pending |
+| REQ-ID   | Phase    | Status  |
+|----------|----------|---------|
+| WT-01    | Phase 18 | pending |
+| WT-02    | Phase 18 | pending |
+| WT-03    | Phase 18 | pending |
+| WT-04    | Phase 19 | pending |
+| WT-05    | Phase 19 | pending |
+| WT-06    | Phase 19 | pending |
+| HOOK-01  | Phase 20 | pending |
+| HOOK-02  | Phase 20 | pending |
+| HOOK-03  | Phase 20 | pending |
+| SKILL-01 | Phase 21 | pending |
+| SKILL-02 | Phase 21 | pending |
+| SKILL-03 | Phase 21 | pending |
+| SKILL-04 | Phase 21 | pending |
+| DEBT-01  | Phase 22 | pending |
+| DEBT-02  | Phase 22 | pending |
+| DEBT-03  | Phase 22 | pending |
+| DEBT-04  | Phase 22 | pending |
+| DEBT-05  | Phase 22 | pending |
+| DEBT-06  | Phase 22 | pending |
+
+**Coverage:** 19/19 requirements mapped (100%) — no orphans, no duplicates.
 
 ---
 
-*Created: 2026-05-11 — milestone v0.6 initialized via `/gsd-new-milestone`. Requirements gathered without research (skip — features son específicas a kodo, no hay framework externo nuevo).*
+*Created: 2026-05-11 — milestone v0.6 initialized via `/gsd-new-milestone`. Requirements gathered without research (skip — features son específicas a kodo, no hay framework externo nuevo). Traceability filled by `gsd-roadmapper` 2026-05-11.*
