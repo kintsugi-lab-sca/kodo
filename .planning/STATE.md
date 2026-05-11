@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
 status: planning
-last_updated: "2026-05-11T17:07:00.000Z"
-last_activity: 2026-05-11
+stopped_at: Phase 18 context gathered
+last_updated: "2026-05-11T16:39:40.730Z"
+last_activity: 2026-05-11 — v0.6 ROADMAP emitido (5 fases)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
-  percent: 0
 ---
 
 # Project State
@@ -73,8 +73,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-11 — v0.6 roadmap emitido
-- **Stopped at:** ROADMAP.md con 5 fases (18-22); REQUIREMENTS.md traceability completo; STATE.md actualizado con total_phases=5
+- **Last session:** 2026-05-11T16:39:40.725Z
+- **Stopped at:** Phase 18 context gathered
 - **Next action:** `/gsd-plan-phase 18` para arrancar Worktree Runtime Wiring
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.6, scope confirmado)
