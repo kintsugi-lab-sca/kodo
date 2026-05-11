@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.5
 milestone_name: CLI Polish & v0.3 Debt Cleanup
-status: executing
+status: milestone_complete
 stopped_at: Phase 999.1 context gathered
 last_updated: "2026-05-10T21:22:11.594Z"
 last_activity: 2026-05-10
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
   completed_plans: 16
   percent: 100
@@ -37,8 +37,8 @@ See: `.planning/PROJECT.md` (Current Milestone section actualizado para v0.5)
 
 Phase: 999.1
 Plan: Not started
-Status: Executing Phase 17
-Last activity: 2026-05-10
+Status: Milestone complete
+Last activity: 2026-05-11
 
 ## Accumulated Context
 

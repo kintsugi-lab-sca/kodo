@@ -173,7 +173,7 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete    | 2026-05-10 |
-| 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete   | 2026-05-11 |
+| 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete    | 2026-05-11 |
 
 ---
 *Last updated: 2026-05-11 — Phase 999.1 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05). D-01..D-17 lockeadas en CONTEXT.md; no REQ-IDs formales.*
