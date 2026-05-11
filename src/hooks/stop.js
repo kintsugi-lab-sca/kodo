@@ -17,8 +17,8 @@ import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const KODO_ROOT = join(__dirname, '..', '..');
-const SKILL_PATH = join(KODO_ROOT, 'skills', 'kodo-orchestrate', 'skill.md');
+const KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..');
+const SKILL_PATH = join(KODO_ROOT, '.claude', 'skills', 'kodo-orchestrate', 'skill.md');
 
 const STDIN_TIMEOUT = 3000;
 
@@ -233,14 +233,14 @@ async function main() {
 
 /**
  * Called when the orchestrator session ends.
- * Auto-commits any pending changes in skills/ to preserve learnings.
+ * Auto-commits any pending changes in .claude/skills/ to preserve learnings.
  */
 async function handleOrchestratorStop() {
   const { execSync } = await import('node:child_process');
 
   try {
-    // Check if there are uncommitted changes in skills/
-    const status = execSync('git status --porcelain skills/', {
+    // Check if there are uncommitted changes in .claude/skills/
+    const status = execSync('git status --porcelain .claude/skills/', {
       cwd: KODO_ROOT,
       encoding: 'utf-8',
     }).trim();
@@ -252,7 +252,7 @@ async function handleOrchestratorStop() {
 
     // Auto-commit skill changes
     const date = new Date().toISOString().slice(0, 10);
-    execSync(`git add skills/ && git commit -m "skill: orchestrator learnings ${date}"`, {
+    execSync(`git add .claude/skills/ && git commit -m "skill: orchestrator learnings ${date}"`, {
       cwd: KODO_ROOT,
       encoding: 'utf-8',
     });
