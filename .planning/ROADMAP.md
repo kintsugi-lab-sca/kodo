@@ -130,17 +130,27 @@ Phase artifacts: `.planning/milestones/v0.4-phases/`
   - [x] 17-05-PLAN.md — Full suite green check + audits source-hygiene/sleeps/deps/imports + 9 runs deterministicos (SC#5)
 **UI hint**: no
 
+### Phase 999.1: Skill kodo-orchestrate al repo y actualizar a v0.5
+**Goal**: Mover la skill `kodo-orchestrate` desde `~/.claude/skills/` al repo (`.claude/skills/kodo-orchestrate/skill.md`) y actualizarla a v0.5: provider-agnostic (eliminar referencias hardcoded a Plane), CLI moderno (`kodo logs --session-of`, `kodo gsd inspect`, `kodo gsd verify`), flujos de diagnóstico (sesión stuck, lock no liberado), mapping vía `~/.kodo/projects.json`. En el mismo movimiento: simplificar `src/orchestrator/prompt.md` a render mínimo provider-specific (skill = canonical, prompt = fallback degradado), fixear `src/hooks/stop.js` para que el auto-commit apunte a `.claude/skills/` (D-14), cubrir `handleOrchestratorStop` con tests (D-16) y capturar D-05/D-06 + SKILL-01 en PROJECT.md.
+**Depends on**: v0.5 Phase 17 (suite estable como línea base; no depende funcionalmente de Phase 16/17 pero se planifica al cierre del milestone)
+**Requirements**: D-01..D-17 (decisiones lockeadas en CONTEXT.md — sin REQ-IDs formales)
+**Success Criteria** (what must be TRUE):
+  1. `.claude/skills/kodo-orchestrate/skill.md` existe en el repo, provider-agnostic (sin `{{...}}`, sin `mcp__plane__*`, sin "Plane" como nombre propio, sin IDs hardcoded LIKEN/ROMAN/TENDERIO), instruye `cat ~/.kodo/config.json` como primer paso y `cat ~/.kodo/projects.json` como única fuente de mapping, documenta los 4 flujos de diagnóstico D-10 con sus exit codes deterministas, cita los 3 tags del orchestrator (`[GSD phase N]` / `[GSD bootstrap]` / `[GSD quick]`), cross-referencia `src/orchestrator/prompt.md` y `src/hooks/stop.js`, y "Lecciones aprendidas" arranca vacío con placeholder D-13.
+  2. `src/orchestrator/prompt.md` reducido a render mínimo provider-specific (~30–80 líneas) con los 3 placeholders `{{provider_name}}` / `{{mcp_tool}}` / `{{provider}}` preservados (validados por ejecución real de `resolvePromptTemplate(t, {provider:'plane'})` sin dejar `{{...}}` residuales), cross-ref a la skill canonical en cabecera, loop GSD compacto operativo como fallback degradado.
+  3. `src/hooks/stop.js` con `KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..')` (env override aditivo, prerequisite D-16 para spawnSync), `SKILL_PATH` y los dos comandos git de `handleOrchestratorStop` apuntando a `.claude/skills/` (fix D-14), JSDoc actualizado a `.claude/skills/` (D-15), firma `async function handleOrchestratorStop()` cero-args sin export (NO se introduce API pública), tests `stop.test.js` y `stop-state-transition.test.js` siguen verdes.
+  4. `test/skill-auto-commit.test.js` cubre D-16 con 2 escenarios spawnSync child (canon Phase 16-17 LOG-15/UAT-03): `spawnSync(process.execPath, [STOP_HOOK], { env: { HOME: tmpHome, KODO_ROOT: tmpRepo } })` contra repo tmpdir sembrado (mkdtempSync + git init local + `commit.gpgsign false`): (A) cambios en `.claude/skills/` → commit con mensaje `skill: orchestrator learnings YYYY-MM-DD`; (B) sin cambios → no-op silencioso. NUNCA importa ni invoca `handleOrchestratorStop` in-process. `git diff --quiet src/hooks/stop.js` exits 0 (Plan 04 no toca el hook).
+  5. `PROJECT.md > Constraints` contiene la regla D-05/D-06 ("Orchestrator se lanza desde cwd = repo kodo" + fallback degradado documentado). `PROJECT.md > Active > Deferred to v0.6 or later` contiene SKILL-01 (`kodo skill sync` CLI diferido). `~/.claude/skills/kodo-orchestrate/skill.md` eliminado manualmente (checkpoint humano D-04). Suite global verde.
+**Plans**: 5 plans
+  - [ ] 999.1-01-PLAN.md — Crear .claude/skills/kodo-orchestrate/skill.md provider-agnostic v0.5 (D-01, D-03, D-07..D-13, D-15, D-17)
+  - [ ] 999.1-02-PLAN.md — Simplificar src/orchestrator/prompt.md a render mínimo con cross-ref a skill (D-02, D-03)
+  - [ ] 999.1-03-PLAN.md — Fix path + env override en src/hooks/stop.js: KODO_ROOT env hook + SKILL_PATH + git status + git add + JSDoc → `.claude/skills/` (D-14, D-15, D-16 prerequisite)
+  - [ ] 999.1-04-PLAN.md — test/skill-auto-commit.test.js spawnSync child con 2 escenarios en tmpdir aislado (D-16, canon Phase 16-17)
+  - [ ] 999.1-05-PLAN.md — PROJECT.md Constraints D-05/D-06 + Deferred SKILL-01 + checkpoint humano eliminar skill global (D-04, D-05, D-06)
+**UI hint**: no
+
 ## Backlog
 
-### Phase 999.1: Skill kodo-orchestrate al repo y actualizar a v0.5 (BACKLOG)
-
-**Goal:** Mover la skill `kodo-orchestrate` desde `~/.claude/skills/` al repo (`.claude/skills/kodo-orchestrate/skill.md`) y actualizarla a v0.5: provider-agnostic (eliminar referencias hardcoded a Plane API), cheat-sheet de `kodo` CLI moderno (`kodo logs --session-of`, `kodo gsd inspect`, `kodo gsd verify`), flujos de diagnóstico (sesión stuck → `kodo logs --follow`; lock no se libera → `~/.kodo/locks/`), eliminar el mapping hardcoded de proyectos (leerlo siempre de `~/.kodo/projects.json`). Cierra la fuente de drift entre `src/orchestrator/prompt.md` y la skill global (última edición 2026-04-16, anterior a v0.3 GSD y v0.4 Quick).
-
-**Requirements:** TBD
-**Plans:** 5/5 plans complete
-
-Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+(none currently — Phase 999.1 promovida a Phase Details)
 
 ## Progress
 
@@ -163,6 +173,7 @@ Plans:
 | 15. CLI Polish Wiring | v0.5 | 5/5 | Complete    | 2026-05-05 |
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete    | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete    | 2026-05-10 |
+| 999.1. Skill kodo-orchestrate al repo | v0.5 | 0/5 | Planned     | — |
 
 ---
-*Last updated: 2026-05-10 — Phase 17 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05)*
+*Last updated: 2026-05-11 — Phase 999.1 planned (5 plans, 2 waves — Wave 1 parallel: 01/02/03; Wave 2: 04/05). D-01..D-17 lockeadas en CONTEXT.md; no REQ-IDs formales.*
