@@ -1,40 +1,38 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.5
-milestone_name: CLI Polish & v0.3 Debt Cleanup
-status: shipped
-stopped_at: v0.5 milestone complete
-last_updated: "2026-05-11T09:15:00.000Z"
+milestone: v0.6
+milestone_name: Session Isolation & Skill Sync
+status: planning
+last_updated: "2026-05-11T14:40:29.778Z"
 last_activity: 2026-05-11
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 21
-  completed_plans: 21
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 **Project:** kodo
-**Active milestone:** Between milestones — v0.5 shipped 2026-05-11; v0.6 pendiente de inicializar.
+**Active milestone:** v0.6 — Session Isolation & Skill Sync (initialized 2026-05-11; requirements + roadmap pendientes)
 **Last updated:** 2026-05-11
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (Current State actualizado a v0.5 shipped)
+See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Planificar v0.6 con `/gsd-new-milestone` (research → requirements → roadmap). Candidatos en backlog: adapters (GitHub Issues/ClickUp/local), polling/file-watcher triggers, HOOK-01, SKILL-01.
+**Current focus:** Definir REQUIREMENTS.md + ROADMAP.md de v0.6. Scope: worktree always-on, HOOK-01 universal, SKILL-01 (`kodo skill sync` manual + auto en orchestrator), tech debt v0.5 closure (Phase 14/15/16). Adapters (GitHub/ClickUp/local) y polling/file-watcher deferidos a v0.7+.
 
 ## Current Position
 
-Milestone: v0.5 (shipped 2026-05-11)
-Phase: — (between milestones)
-Plan: — (between milestones)
-Status: milestone complete
-Last activity: 2026-05-11
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-11 — Milestone v0.6 started
 
 ## Accumulated Context
 
@@ -51,7 +49,9 @@ None.
 
 ### Open Questions
 
-Ninguna abierta. v0.6 scope queda pendiente de arrancar `/gsd-new-milestone`.
+- ¿Auto-sync de SKILL-01 en `kodo orchestrator` rompe la Constraint cwd=repo (Phase 999.1 D-04/D-05/D-06)? Reevaluar al planificar la fase SKILL-01.
+- ¿El worktree always-on requiere cambios en el lock per-repo (Phase 8 GSD-10), `KODO_ROOT` (Phase 999.1) o auto-commit path (`stop.js`)?
+- ¿HOOK-01 universal altera bytes del prompt en sesiones GSD? Validar golden bytes y tags `[GSD quick/phase N/bootstrap]`.
 
 ### Critical Invariants to Preserve (cross-phase)
 
@@ -64,15 +64,15 @@ Ninguna abierta. v0.6 scope queda pendiente de arrancar `/gsd-new-milestone`.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-11 — milestone close
-- **Stopped at:** v0.5 archived, tag pendiente
-- **Next action:** `/gsd-new-milestone` para arrancar v0.6.
+- **Last session:** 2026-05-11 — v0.6 initialized
+- **Stopped at:** PROJECT.md actualizado con Current Milestone v0.6; STATE.md reset; pendiente REQUIREMENTS.md + ROADMAP.md
+- **Next action:** Decidir research/skip → definir requirements → spawn `gsd-roadmapper`
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current State v0.5 shipped, Active candidates v0.6)
+  - `.planning/PROJECT.md` (Current Milestone v0.6, scope confirmado)
   - `.planning/STATE.md` (este archivo)
-  - `.planning/ROADMAP.md` (v0.5 colapsado, Backlog vacío)
+  - `.planning/ROADMAP.md` (v0.5 colapsado — pendiente regenerar para v0.6)
   - `.planning/MILESTONES.md` (v0.5 entry con 5 fases, 13/13 reqs, tech debt)
   - `.planning/milestones/v0.5-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
 
 ---
-*v0.5 milestone shipped: 2026-05-11. 5 phases (14, 15, 16, 17, 999.1) · 21 plans · 13/13 requirements satisfied.*
+*v0.6 milestone initialized: 2026-05-11. Goal: aislar sesiones en worktrees, sync skill canonical, anti-push-fantasma universal, cerrar tech debt v0.5.*

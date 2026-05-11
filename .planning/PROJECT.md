@@ -14,9 +14,15 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 v0.5 transforma el CLI de output mono a TTY-aware con colores semánticos y columnas alineadas: el helper `src/cli/format.js` (factory `createFormatter(stream, env?)`) centraliza color/format con precedencia `NO_COLOR > FORCE_COLOR > stream.isTTY`, y `picocolors@^1.1.1` se incorpora como única fuente de ANSI (2ª dep prod junto a `commander`). Los 5 callsites del CLI (`kodo logs`, `kodo check`, `kodo gsd inspect`, `kodo gsd verify`, `logger` para stderr columnar) consumen el helper sin alterar el contrato `--json` (golden bytes invariant) ni el guard LOG-12 sobre `kodo check`. En paralelo se cierra la deuda v0.3: `dispatcher.js` migra los literales a `EVENTS.*`, `markSessionStatus` se cabela en `verify.js` (transición Plane→Review tras `pass`) y `stop.js` (release del lock per-repo, emit-BEFORE-mutation D-08), y `state.transition` se emite real en runtime. Los 3 UATs humanos pendientes de Phase 7 (`--follow` live, `session.start` campos reales, `--session-of` E2E) se automatizan como integration tests con fixtures NDJSON progresivos y `state.json` sintético. Cierra el milestone con la migración de la skill `kodo-orchestrate` al repo (`.claude/skills/kodo-orchestrate/skill.md`) como source canonical provider-agnostic, reduciendo `src/orchestrator/prompt.md` a fallback degradado (~37 LOC) y fixeando el path del auto-commit en `stop.js` (D-14). Suite global: 511/512 pass + 1 skip pre-existente.
 
-## Next Milestone
+## Current Milestone: v0.6 Session Isolation & Skill Sync
 
-**Status:** Entre milestones — pendiente arrancar v0.6 con `/gsd-new-milestone` (research → requirements → roadmap). El backlog Active (sección de abajo) indica el shape probable: adapters nuevos (GitHub Issues, ClickUp, local), polling/file-watcher triggers, HOOK-01 (recordatorio anti-push-fantasma) y, condicional a fricción, SKILL-01 (`kodo skill sync`).
+**Goal:** Aislar sesiones en worktrees por defecto, sincronizar la canonical skill `kodo-orchestrate` automáticamente, recordar a TODAS las sesiones que no hay push automático, y cerrar la tech debt acumulada en v0.5.
+
+**Target features:**
+- Worktree always-on (`claude --worktree`) para todas las sesiones (full + quick + no-GSD) — reemplaza las labels `kodo:worktree`/`kodo:branch` descartadas; resuelve la incidencia 28/04 (ROMAN-113…118) donde `git add -A`/`commit -a` arrastraba staging entre sesiones paralelas
+- HOOK-01 universal — `buildSessionContext` añade recordatorio anti-push-fantasma a TODAS las sesiones (GSD + no-GSD); driver: ROMAN-125/126
+- SKILL-01 — `kodo skill sync` CLI (manual) + auto-sync en `kodo orchestrator` (detecta drift y sincroniza antes de lanzar)
+- Tech debt v0.5 closure — Phase 14 (SECURITY.md + WR-01/IN-01/IN-02), Phase 15 (`ANSI_*` exports retirados de `src/logger.js`), Phase 16 (8 WR + 4 IN del Resolution Log)
 
 ## Requirements
 
@@ -62,20 +68,23 @@ v0.5 transforma el CLI de output mono a TTY-aware con colores semánticos y colu
 
 ### Active
 
-**Candidates for v0.6 (next milestone):**
+**In scope for v0.6:**
+- [ ] **Worktree always-on**: `claude --worktree` se aplica a TODAS las sesiones (full + quick + no-GSD). Reemplaza las labels `kodo:worktree`/`kodo:branch` descartadas en sketch 2026-05-07. Resuelve la incidencia 28/04 (ROMAN-113…118).
+- [ ] **HOOK-01 (universal)**: `buildSessionContext` añade recordatorio anti-push-fantasma a TODAS las sesiones (GSD + no-GSD). Exige verificar push real o redactar en condicional las afirmaciones de deploy/publicación. Driver: ROMAN-125 / ROMAN-126.
+- [ ] **SKILL-01**: `kodo skill sync` CLI manual + auto-sync en `kodo orchestrator` (detecta drift entre `<repo>/.claude/skills/` y `~/.claude/skills/` y sincroniza antes de lanzar). Puede impactar la Constraint cwd=repo introducida en Phase 999.1 — reevaluar contrato si auto-sync vuelve a poblar `~/.claude/skills/`.
+- [ ] **Tech debt v0.5 closure**: Phase 14 (`SECURITY.md` + WR-01 spawnSync timeout + IN-01 regex ANSI defensiva + IN-02 test `FORCE_COLOR=''`), Phase 15 (retirar `ANSI_*` exports de `src/logger.js`), Phase 16 (8 WR + 4 IN del Resolution Log: doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc.).
+
+**Deferred to v0.7+ (no necesarios aún):**
 - [ ] Adapter de GitHub Issues que implementa TaskProvider
 - [ ] Adapter de ClickUp que implementa TaskProvider
 - [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
 - [ ] Polling trigger channel para providers sin webhook
 - [ ] File watcher trigger para provider local
-- [ ] Hook prompt: que `buildSessionContext` (sesiones no-GSD) recuerde a la sesión que kodo NO hace push automático, y exija verificar el push real o redactar en condicional las afirmaciones de deploy/publicación (HOOK-01 — driver: ROMAN-125 / ROMAN-126)
-- [ ] **SKILL-01**: `kodo skill sync` CLI que empuje la canonical de `<repo>/.claude/skills/` a `~/.claude/skills/`, permitiendo lanzar `kodo orchestrator` desde cualquier `cwd` con la skill auto-cargada. Hoy (post Phase 999.1) se exige cwd = repo (Constraint añadida) en su lugar; si la fricción demuestra ser alta en v0.6+, retomar SKILL-01.
 
-**Tech debt diferida (v0.5, no bloqueante):**
-- [ ] Phase 14 — `SECURITY.md` ausente (low-risk presentation-only); opcional `/gsd-secure-phase 14` para auditar threats_open: 0 explícito.
-- [ ] Phase 14 — `test/version-smoke.test.js` spawnSync sin `timeout` (WR-01); regex ANSI defensiva (IN-01); caso `FORCE_COLOR=''` sin test explícito (IN-02).
-- [ ] Phase 15 — `ANSI_*` exports retenidos en `src/logger.js` para back-compat (decisión explícita); LOC deltas menores en `src/check.js` (127 vs 130) y `src/gsd/verify.js` (402 vs 405).
-- [ ] Phase 16 — 8 WR + 4 IN en `16-REVIEW.md` Resolution Log aplazados (doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc.).
+**Tech debt v0.5 (ahora in scope v0.6, ver arriba):**
+- Phase 14 — `SECURITY.md` + WR-01 + IN-01 + IN-02 → cierra en v0.6
+- Phase 15 — `ANSI_*` exports back-compat → retiro en v0.6
+- Phase 16 — 8 WR + 4 IN Resolution Log → cierra en v0.6
 
 ### Out of Scope
 
@@ -182,4 +191,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-11 — v0.5 milestone shipped (CLI Polish & v0.3 Debt Cleanup). 5/5 phases (14, 15, 16, 17, 999.1), 21 plans, 13/13 requirements satisfied (DX-01..07, LOG-13..15, UAT-01..03). Suite 511/512 pass + 1 skip pre-existente. ~16,355 LOC src+test. Próximo: `/gsd-new-milestone` para v0.6.*
+*Last updated: 2026-05-11 — v0.6 milestone initialized (Session Isolation & Skill Sync). Scope: worktree always-on, HOOK-01 universal, SKILL-01, tech debt v0.5 closure. Adapters (GitHub/ClickUp/local) y polling/file-watcher deferidos a v0.7+. Requirements + roadmap pendientes.*
