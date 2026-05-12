@@ -119,7 +119,13 @@ Plans:
   1. El prompt construido por `buildSessionContext` contiene la sección "Anti-push-fantasma" (con la instrucción de verificar `git push` real o redactar en condicional) para los 3 modos: full, quick y no-GSD; verificable por inspección del payload del hook.
   2. Los bytes del prompt fuera del bloque HOOK-01 permanecen idénticos: las tags `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]` y los demás artefactos no cambian shape ni offset relativo (golden bytes test compara modo-por-modo).
   3. El bloque HOOK-01 se inserta en una posición determinista por modo — re-emitir el mismo contexto produce los mismos bytes (idempotencia + reproducibilidad de debugging).
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+**Wave 1**
+- [ ] 20-01-PLAN.md — Append inline bloque ES "Anti-push-fantasma" en `buildSessionContext` + bloque EN "No automatic push" común post-if/else en `buildGsdContext` (HOOK-01 + HOOK-02 satisfied-by-construction)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 20-02-PLAN.md — Extender `test/session-start.test.js` + `test/gsd-context.test.js` con suite HOOK-01/02/03 coverage matrix 4 modos × presencia + golden bytes opción B + idempotencia + D-04 common-block invariance
 
 ### Phase 21: Skill Sync CLI + Auto-Sync
 **Goal**: La skill canonical `kodo-orchestrate` se mantiene sincronizada entre `<repo>/.claude/skills/` y `~/.claude/skills/` sin acción humana recurrente, sin romper la Constraint cwd=repo de Phase 999.1.
@@ -172,9 +178,9 @@ Plans:
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/0 | Not started | — |
+| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/2 | Planning complete | — |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
 ---
-*Last updated: 2026-05-12 — Phase 19 planning complete (2 plans, waves 1-2, 100% requirement coverage WT-04/05/06). Phases 20-22 plans TBD.*
+*Last updated: 2026-05-12 — Phase 20 planning complete (2 plans, waves 1-2, 100% requirement coverage HOOK-01/02/03; inline implementation per D-04b, append-at-end per D-03, orchestrator EXCLUDED per D-05). Phases 21-22 plans TBD.*
