@@ -1,10 +1,12 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 7 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 11 eventos de ciclo de vida.
 //
-// Contrato fijo por ROADMAP §Phase 7 + extensión v0.3:
+// Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
+// + Phase 19 (worktree cleanup):
 //   session.start, session.end, state.transition, orchestrator.review,
-//   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed
+//   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
+//   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -26,16 +28,22 @@ import { join } from 'node:path';
  *   GSD_BOOTSTRAP: 'gsd.bootstrap',
  *   PLANE_API_CALL: 'plane.api.call',
  *   PLANE_API_CALL_FAILED: 'plane.api.call.failed',
+ *   WORKTREE_CLEANUP_OK: 'worktree.cleanup.ok',
+ *   WORKTREE_CLEANUP_DIRTY: 'worktree.cleanup.dirty',
+ *   WORKTREE_CLEANUP_ERROR: 'worktree.cleanup.error',
  * }>} */
 export const EVENTS = Object.freeze({
-  SESSION_START:          'session.start',
-  SESSION_END:            'session.end',
-  STATE_TRANSITION:       'state.transition',
-  ORCHESTRATOR_REVIEW:    'orchestrator.review',
-  GSD_PHASE_RESOLVED:     'gsd.phase.resolved',
-  GSD_BOOTSTRAP:          'gsd.bootstrap',
-  PLANE_API_CALL:         'plane.api.call',
-  PLANE_API_CALL_FAILED:  'plane.api.call.failed',
+  SESSION_START:           'session.start',
+  SESSION_END:             'session.end',
+  STATE_TRANSITION:        'state.transition',
+  ORCHESTRATOR_REVIEW:     'orchestrator.review',
+  GSD_PHASE_RESOLVED:      'gsd.phase.resolved',
+  GSD_BOOTSTRAP:           'gsd.bootstrap',
+  PLANE_API_CALL:          'plane.api.call',
+  PLANE_API_CALL_FAILED:   'plane.api.call.failed',
+  WORKTREE_CLEANUP_OK:     'worktree.cleanup.ok',
+  WORKTREE_CLEANUP_DIRTY:  'worktree.cleanup.dirty',
+  WORKTREE_CLEANUP_ERROR:  'worktree.cleanup.error',
 });
 
 /**
