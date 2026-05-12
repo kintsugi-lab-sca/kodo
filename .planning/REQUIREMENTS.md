@@ -10,9 +10,9 @@
 
 ### Worktree always-on (WT-*)
 
-- [ ] **WT-01** — Toda sesión kodo se lanza con `claude --worktree` (full + quick + no-GSD). No depende de labels ni flags opt-in.
-- [ ] **WT-02** — El path del worktree se deriva determinísticamente del session-id (ej. `<repo>/.bg-shell/<session-id>/`) y se persiste en `SessionRecord.worktree_path`.
-- [ ] **WT-03** — El lock per-repo (Phase 8 GSD-10) sigue siendo sobre el repo principal, NO sobre el worktree. Dos sesiones contra el mismo repo siguen coalesciendo.
+- [x] **WT-01** — Toda sesión kodo se lanza con `claude --worktree` (full + quick + no-GSD). No depende de labels ni flags opt-in.
+- [x] **WT-02** — El path del worktree se deriva determinísticamente del session-id (ej. `<repo>/.bg-shell/<session-id>/`) y se persiste en `SessionRecord.worktree_path`.
+- [x] **WT-03** — El lock per-repo (Phase 8 GSD-10) sigue siendo sobre el repo principal, NO sobre el worktree. Dos sesiones contra el mismo repo siguen coalesciendo.
 - [ ] **WT-04** — El `stop` hook hace cleanup del worktree (`git worktree remove`) tras release del lock, fail-open si la sesión dejó cambios sin commitear (log warn, no borrar).
 - [ ] **WT-05** — `auto-commit` de la skill `kodo-orchestrate` opera dentro del worktree (cwd correcto en `stop.js`); `KODO_ROOT` env override (Phase 999.1) sigue funcionando para tests.
 - [ ] **WT-06** — `kodo gsd verify` lee `VERIFICATION.md` desde el worktree de la sesión (path correcto en runtime).
@@ -70,9 +70,9 @@ Mapped to phases by `gsd-roadmapper` 2026-05-11 — see `ROADMAP.md` for full ph
 
 | REQ-ID   | Phase    | Status  |
 |----------|----------|---------|
-| WT-01    | Phase 18 | pending |
-| WT-02    | Phase 18 | pending |
-| WT-03    | Phase 18 | pending |
+| WT-01    | Phase 18 | Complete |
+| WT-02    | Phase 18 | Complete |
+| WT-03    | Phase 18 | Complete |
 | WT-04    | Phase 19 | pending |
 | WT-05    | Phase 19 | pending |
 | WT-06    | Phase 19 | pending |
