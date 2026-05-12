@@ -86,8 +86,13 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
   3. Dos tareas Plane sobre el mismo repo siguen coalesciendo: solo una sesión arranca, la segunda recibe el "lock held" canónico de Phase 8 GSD-10; el lock vive en el repo principal, NO en el worktree.
 **Plans**: 3 plans
 Plans:
+**Wave 1**
 - [ ] 18-01-PLAN.md — Helper puro `computeWorktreePath` + extender typedef `Session.worktree_path?` (WT-02 base, sin tocar runtime)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 18-02-PLAN.md — Cablear `--worktree <sessionId>` en `launchWorkItem`/`buildClaudeCommand` + persistir `worktree_path` PRE-spawn (WT-01 + WT-02 wiring)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 18-03-PLAN.md — Canonical error `worktree_collision` en dispatcher + invariante lock per-repo (WT-03 SC#3) + exclusión `launchOrchestrator` D-06 + integration coalesce tests
 
 ### Phase 19: Worktree Cleanup & Integration
