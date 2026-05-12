@@ -294,8 +294,13 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       return { action: 'stale_relaunch', session };
     } catch (err) {
       // WR-01: if launch throws after the GSD lock was acquired, release it
-      // so the repo does not stay locked until TTL. No session was ever
-      // persisted (addSession runs last), so the stop hook cannot recover.
+      // so the repo does not stay locked until TTL. Phase 18 D-03 inverted
+      // the ordering in launchWorkItem to `addSession → cmux.send`: si el
+      // throw ocurre ANTES de addSession (provider/cmux.newWorkspace) no hay
+      // SessionRecord y la sesión no arranca; si ocurre DESPUÉS de addSession
+      // pero ANTES de cmux.send, queda un SessionRecord 'running' huérfano
+      // (mismo modo que crashes post-spawn — el stop hook lo limpia en el
+      // siguiente ciclo). En ambos casos, liberar el lock aquí es correcto.
       if (gsdSessionId && gsdProjectPath) {
         try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
           // silent — best effort, never mask the original error
@@ -325,8 +330,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     return { action: 'launched', session };
   } catch (err) {
     // WR-01: if launch throws after the GSD lock was acquired, release it so
-    // the repo does not stay locked until TTL. The Stop hook cannot recover
-    // here because no session record was ever persisted (addSession runs last).
+    // the repo does not stay locked until TTL. Phase 18 D-03 reordered
+    // launchWorkItem to `addSession → cmux.send`: en el peor caso queda un
+    // SessionRecord 'running' huérfano si cmux.send falla — el stop hook lo
+    // limpia. El lock release sigue siendo idempotente y seguro aquí.
     if (gsdSessionId && gsdProjectPath) {
       try { releaseGsdLockFn(gsdProjectPath, gsdSessionId); } catch {
         // silent — best effort, never mask the original error

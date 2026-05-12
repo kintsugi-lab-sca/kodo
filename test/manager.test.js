@@ -16,6 +16,8 @@ let resolveProjectPath;
 let deriveModuleName;
 /** @type {import('../src/session/manager.js')['resolveTaskAndLaunchContext']} */
 let resolveTaskAndLaunchContext;
+/** @type {import('../src/session/manager.js')['buildClaudeCommand']} */
+let buildClaudeCommand;
 
 /** @returns {import('../src/interface.js').TaskItem} */
 function makeTask(overrides = {}) {
@@ -41,6 +43,7 @@ describe('manager — pure helpers', () => {
       resolveProjectPath,
       deriveModuleName,
       resolveTaskAndLaunchContext,
+      buildClaudeCommand,
     } = await import('../src/session/manager.js'));
   });
 
@@ -170,6 +173,62 @@ describe('manager — pure helpers', () => {
         });
         assert.equal(session.gsd, undefined);
         assert.equal(session.gsd_mode, undefined);
+      });
+    });
+
+    describe('worktree_path persistence (Phase 18 WT-02, D-03)', () => {
+      it('persists worktree_path when worktreePath param is provided', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          worktreePath: '/tmp/proj/.bg-shell/sess-uuid',
+        });
+        assert.equal(session.worktree_path, '/tmp/proj/.bg-shell/sess-uuid');
+      });
+
+      it('omits worktree_path key entirely when worktreePath is undefined (legacy compat — D-03c aditivo opcional)', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          // worktreePath omitido — conditional spread debe NO añadir el campo
+        });
+        assert.equal('worktree_path' in session, false,
+          'worktree_path key must be absent from session (conditional spread, not null)');
+      });
+
+      it('omits worktree_path key when worktreePath is explicit undefined', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          worktreePath: undefined,
+        });
+        assert.equal('worktree_path' in session, false);
+      });
+
+      it('does not regress pre-existing fields when worktree_path is set (byte-shape stable)', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          flags: ['gsd'],
+          worktreePath: '/tmp/proj/.bg-shell/sess-uuid',
+        });
+        assert.equal(session.task_id, 'uuid-task');
+        assert.equal(session.session_id, 'sess-uuid');
+        assert.equal(session.gsd, true);
+        assert.equal(session.gsd_mode, 'full');
+        assert.equal(session.worktree_path, '/tmp/proj/.bg-shell/sess-uuid');
       });
     });
 
@@ -322,6 +381,98 @@ describe('manager — pure helpers', () => {
       assert.equal(result.description, 'Plain markdown description');
     });
   });
+
+  describe('buildClaudeCommand cmd shape (Phase 18 WT-01)', () => {
+    /** @returns {ReturnType<import('../src/config.js').loadConfig>} */
+    function makeConfig() {
+      // Minimal shape — buildClaudeCommand only reads config.claude.default_model.
+      return /** @type {any} */ ({
+        provider: 'plane',
+        claude: { default_model: 'sonnet' },
+      });
+    }
+
+    it('emits --worktree <sessionId> immediately after --session-id (D-01: explicit, never bare)', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'abc-123',
+        makeTask(),
+        'desc',
+        null,
+        [],
+        null,
+      );
+      assert.match(cmd, /--session-id abc-123 --worktree abc-123/,
+        '--worktree must follow --session-id with a single space and the same sessionId arg');
+    });
+
+    it('--worktree precedes --dangerously-skip-permissions when GSD flags imply skip-perms', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'abc-123',
+        makeTask(),
+        'desc',
+        null,
+        ['gsd'],
+        null,
+      );
+      assert.match(cmd, /--worktree abc-123 --dangerously-skip-permissions/,
+        'flag order must be --worktree before --dangerously-skip-permissions (golden-bytes QUICK-07)');
+    });
+
+    it('worktree arg is the sessionId verbatim, not = syntax, not bare', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'sess-uuid-xyz',
+        makeTask(),
+        'desc',
+        null,
+        [],
+        null,
+      );
+      assert.ok(cmd.includes('--worktree sess-uuid-xyz'),
+        '--worktree must be followed by an explicit sessionId arg');
+      assert.ok(!cmd.includes('--worktree='),
+        'no `=` syntax (D-01: explicit positional arg)');
+      // No `--worktree` followed by anything other than the sessionId (no bare flag).
+      assert.ok(!/--worktree(?!\s+sess-uuid-xyz)/.test(cmd),
+        'no bare --worktree without an explicit sessionId');
+    });
+
+    it('preserves --model … --session-id … --worktree … flag ORDER (golden-bytes QUICK-07)', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'abc-123',
+        makeTask(),
+        'desc',
+        null,
+        ['gsd-quick'],
+        null,
+      );
+      assert.match(
+        cmd,
+        /^claude --model sonnet --session-id abc-123 --worktree abc-123 --dangerously-skip-permissions /,
+        'header order must be --model → --session-id → --worktree → [--dangerously-skip-permissions] → prompt',
+      );
+    });
+
+    it('--worktree present for non-GSD sessions too (D-06b universal)', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'abc-123',
+        makeTask(),
+        'desc',
+        null,
+        [], // no flags — non-GSD
+        null,
+      );
+      assert.match(cmd, /--worktree abc-123/,
+        '--worktree must be present for non-GSD sessions (Phase 18 D-06b universal)');
+      // And no --dangerously-skip-permissions for non-GSD/no-yolo.
+      assert.ok(!cmd.includes('--dangerously-skip-permissions'),
+        'non-GSD non-yolo sessions must not get skip-perms');
+    });
+  });
 });
 
 describe('manager.js source hygiene', () => {
@@ -381,6 +532,74 @@ describe('manager.js source hygiene', () => {
     assert.ok(
       source.includes('--dangerously-skip-permissions'),
       'el flag CLI debe seguir siendo --dangerously-skip-permissions',
+    );
+  });
+
+  it('Phase 18 WT-01: imports computeWorktreePath from session/state.js (single source of truth)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /import\s+\{[^}]*\bcomputeWorktreePath\b[^}]*\}\s+from\s+['"]\.\/state\.js['"]/.test(source),
+      'manager.js must import computeWorktreePath from ./state.js (Plan 01 helper)',
+    );
+    // No re-implementation inline — Plan 01 is the single source of truth.
+    assert.ok(
+      !/\.bg-shell['"]\s*,\s*sessionId/.test(source),
+      'manager.js must NOT inline path.join(... , ".bg-shell", sessionId) — use computeWorktreePath',
+    );
+  });
+
+  it('Phase 18 WT-01: launchWorkItem computes worktreePath from (projectPath, sessionId)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)/.test(source),
+      'launchWorkItem must invoke computeWorktreePath(projectPath, sessionId) verbatim',
+    );
+  });
+
+  it('Phase 18 WT-02: buildSessionFromTask spreads worktree_path conditionally (D-03c aditivo)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Same idiom as phase_id/brief (line 54-55) — `worktreePath ? { worktree_path: worktreePath } : {}`.
+    assert.ok(
+      /worktreePath\s*\?\s*\{\s*worktree_path:\s*worktreePath\s*\}/.test(source),
+      'buildSessionFromTask must use conditional spread `worktreePath ? { worktree_path: worktreePath } : {}`',
+    );
+  });
+
+  it('Phase 18 WT-01: buildClaudeCommand emits --worktree ${sessionId} in template', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /--worktree\s+\$\{sessionId\}/.test(source),
+      'buildClaudeCommand template must contain `--worktree ${sessionId}` verbatim',
+    );
+    // Order check: --session-id must precede --worktree in the template (golden-bytes QUICK-07).
+    assert.ok(
+      /--session-id\s+\$\{sessionId\}\s+--worktree\s+\$\{sessionId\}/.test(source),
+      '--session-id ${sessionId} must precede --worktree ${sessionId} in the template',
+    );
+  });
+
+  it('Phase 18 D-03: addSession runs BEFORE cmux.send (PRE-spawn persistence ordering)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    const addIdx = source.indexOf('addSession(task.id, session)');
+    const sendIdx = source.indexOf('cmux.send({ workspace: workspaceRef, text: claudeCmd })');
+    assert.ok(addIdx > 0, 'addSession(task.id, session) must be present in launchWorkItem');
+    assert.ok(sendIdx > 0, 'cmux.send({ workspace: workspaceRef, text: claudeCmd }) must be present');
+    assert.ok(
+      addIdx < sendIdx,
+      `Phase 18 D-03: addSession(task.id, session) must precede cmux.send (got addSession@${addIdx}, cmux.send@${sendIdx})`,
+    );
+  });
+
+  it('Phase 18 D-04 invariant: cmux.newWorkspace still uses cwd: projectPath (NOT worktree path)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /cmux\.newWorkspace\(\s*\{[^}]*cwd:\s*projectPath/.test(source),
+      'cmux.newWorkspace must keep `cwd: projectPath` (D-04 lockeado — worktree lo materializa claude)',
+    );
+    // Defensive: no accidental swap to worktreePath
+    assert.ok(
+      !/cmux\.newWorkspace\(\s*\{[^}]*cwd:\s*worktreePath/.test(source),
+      'cmux.newWorkspace must NOT receive cwd: worktreePath',
     );
   });
 
