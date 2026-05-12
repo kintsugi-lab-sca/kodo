@@ -35,6 +35,9 @@ const {
   gsdBootstrap,
   planeApiCall,
   planeApiCallFailed,
+  worktreeCleanupOk,
+  worktreeCleanupDirty,
+  worktreeCleanupError,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
@@ -216,5 +219,55 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup)', 
     assert.equal(line.level, 'error');
     assert.equal(line.step, 'getTask');
     assert.equal(line.error, 'ECONNREFUSED');
+  });
+
+  it('worktreeCleanupOk emits event=worktree.cleanup.ok at info level', () => {
+    const sessionId = 'sess-ev-wtok';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    worktreeCleanupOk(log, {
+      session_id: sessionId,
+      worktree_path: '/tmp/wt',
+      branch_deleted: true,
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.WORKTREE_CLEANUP_OK);
+    assert.equal(line.level, 'info');
+    assert.equal(line.session_id, sessionId);
+    assert.equal(line.worktree_path, '/tmp/wt');
+    assert.equal(line.branch_deleted, true);
+  });
+
+  it('worktreeCleanupDirty emits event=worktree.cleanup.dirty at warn level with moved_to', () => {
+    const sessionId = 'sess-ev-wtdirty';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    worktreeCleanupDirty(log, {
+      session_id: sessionId,
+      worktree_path: '/tmp/wt',
+      moved_to: '/tmp/wt.dirty',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.WORKTREE_CLEANUP_DIRTY);
+    assert.equal(line.level, 'warn');
+    assert.equal(line.session_id, sessionId);
+    assert.equal(line.worktree_path, '/tmp/wt');
+    assert.equal(line.moved_to, '/tmp/wt.dirty');
+  });
+
+  it('worktreeCleanupError emits event=worktree.cleanup.error at error level with phase+reason', () => {
+    const sessionId = 'sess-ev-wterr';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    worktreeCleanupError(log, {
+      session_id: sessionId,
+      worktree_path: '/tmp/wt',
+      phase: 'remove',
+      reason: 'EBUSY: rmdir failed',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.WORKTREE_CLEANUP_ERROR);
+    assert.equal(line.level, 'error');
+    assert.equal(line.session_id, sessionId);
+    assert.equal(line.worktree_path, '/tmp/wt');
+    assert.equal(line.phase, 'remove');
+    assert.equal(line.reason, 'EBUSY: rmdir failed');
   });
 });
