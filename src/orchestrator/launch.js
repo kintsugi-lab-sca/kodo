@@ -80,6 +80,25 @@ export async function launchOrchestrator(opts = {}) {
   const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
   const escapedPrompt = prompt.replace(/'/g, "'\\''");
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 18 D-06: launchOrchestrator EXCLUIDO de --worktree.
+  //
+  // El orchestrator necesita cwd = repo kodo (línea cmux.newWorkspace
+  // arriba: `cwd: process.cwd()`) para que Claude Code auto-cargue
+  // `.claude/skills/kodo-orchestrate/skill.md` (Phase 999.1 D-05/D-06
+  // constraint registrado en PROJECT.md §Constraints).
+  //
+  // Si se añadiera --worktree aquí, la sesión arrancaría en
+  // <repo>/.bg-shell/<uuid>/ donde NO existe la skill, regresando al
+  // fallback degradado de src/orchestrator/prompt.md (~37 LOC).
+  //
+  // Source-hygiene blindado por test/orchestrator-launch-isolation.test.js
+  // que grep-asserta `--worktree` ausente del código (los comentarios sí
+  // pueden mencionarlo — el test usa stripComments).
+  //
+  // Las sesiones de TRABAJO (launchWorkItem) sí van con --worktree (Plan 02
+  // WT-01 + D-06b universal). Solo el orchestrator queda exento.
+  // ─────────────────────────────────────────────────────────────────────
   const claudeCmd = [
     'claude',
     '--model', config.claude.default_model,
