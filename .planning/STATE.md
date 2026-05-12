@@ -4,8 +4,8 @@ milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
 status: executing
 stopped_at: Phase 18 context gathered
-last_updated: "2026-05-12T05:55:43.910Z"
-last_activity: 2026-05-12 -- Phase 18 planning complete
+last_updated: "2026-05-12T06:43:53.229Z"
+last_activity: 2026-05-12 -- Phase 18 execution started
 progress:
   total_phases: 5
   completed_phases: 0
@@ -26,14 +26,14 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Roadmap v0.6 emitido (5 fases, 19 requirements, 100% coverage). Próximo paso: `/gsd-plan-phase 18` para arrancar Worktree Runtime Wiring (foundational). Phases 20/21/22 son paralelizables con la cadena WT (18→19).
+**Current focus:** Phase 18 — worktree-runtime-wiring
 
 ## Current Position
 
-Phase: Not started (roadmap defined, plans TBD)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-05-12 -- Phase 18 planning complete
+Phase: 18 (worktree-runtime-wiring) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 18
+Last activity: 2026-05-12 -- Phase 18 execution started
 
 ## Phases (v0.6)
 

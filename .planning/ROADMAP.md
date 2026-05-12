@@ -87,7 +87,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 **Plans**: 3 plans
 Plans:
 **Wave 1**
-- [ ] 18-01-PLAN.md — Helper puro `computeWorktreePath` + extender typedef `Session.worktree_path?` (WT-02 base, sin tocar runtime)
+- [x] 18-01-PLAN.md — Helper puro `computeWorktreePath` + extender typedef `Session.worktree_path?` (WT-02 base, sin tocar runtime)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 18-02-PLAN.md — Cablear `--worktree <sessionId>` en `launchWorkItem`/`buildClaudeCommand` + persistir `worktree_path` PRE-spawn (WT-01 + WT-02 wiring)
@@ -164,7 +164,7 @@ Plans:
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete | 2026-05-10 |
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
-| 18. Worktree Runtime Wiring | v0.6 | 0/3 | Planned | — |
+| 18. Worktree Runtime Wiring | v0.6 | 1/3 | In Progress|  |
 | 19. Worktree Cleanup & Integration | v0.6 | 0/0 | Not started | — |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/0 | Not started | — |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
