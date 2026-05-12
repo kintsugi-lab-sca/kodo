@@ -84,7 +84,11 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
   1. Cualquier sesión lanzada por kodo (full / quick / no-GSD) corre con `claude --worktree` activo — observable inspeccionando el subcomando construido en `launch.js` y verificable porque `git -C <cwd> rev-parse --show-toplevel` desde el agente devuelve un path distinto al repo principal.
   2. `SessionRecord.worktree_path` queda persistido en `state.json` con un path determinístico derivado del session-id (ej. `<repo>/.bg-shell/<session-id>/`), legible por `kodo logs --session-of` y demás consumidores.
   3. Dos tareas Plane sobre el mismo repo siguen coalesciendo: solo una sesión arranca, la segunda recibe el "lock held" canónico de Phase 8 GSD-10; el lock vive en el repo principal, NO en el worktree.
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 18-01-PLAN.md — Helper puro `computeWorktreePath` + extender typedef `Session.worktree_path?` (WT-02 base, sin tocar runtime)
+- [ ] 18-02-PLAN.md — Cablear `--worktree <sessionId>` en `launchWorkItem`/`buildClaudeCommand` + persistir `worktree_path` PRE-spawn (WT-01 + WT-02 wiring)
+- [ ] 18-03-PLAN.md — Canonical error `worktree_collision` en dispatcher + invariante lock per-repo (WT-03 SC#3) + exclusión `launchOrchestrator` D-06 + integration coalesce tests
 
 ### Phase 19: Worktree Cleanup & Integration
 **Goal**: El ciclo de vida del worktree cierra limpio (fail-open en caso de dirty state) y el resto de subsistemas que tocan filesystem (`auto-commit` de la skill, `kodo gsd verify`) operan dentro del worktree correcto.
@@ -155,11 +159,11 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete | 2026-05-10 |
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
-| 18. Worktree Runtime Wiring | v0.6 | 0/0 | Not started | — |
+| 18. Worktree Runtime Wiring | v0.6 | 0/3 | Planned | — |
 | 19. Worktree Cleanup & Integration | v0.6 | 0/0 | Not started | — |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/0 | Not started | — |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
 ---
-*Last updated: 2026-05-11 — v0.6 milestone initialized (5 phases, 19 requirements). Phase 18-22 derived from REQUIREMENTS.md. Plans TBD via `/gsd-plan-phase 18`.*
+*Last updated: 2026-05-12 — Phase 18 planning complete (3 plans, waves 1-3, 100% requirement coverage WT-01/02/03). Phases 19-22 plans TBD.*
