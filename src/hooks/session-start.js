@@ -26,6 +26,8 @@ export function buildSessionContext(session, config) {
   const mcpHint = providerCfg.mcp_hint || `MCP de ${providerName}`;
   const reviewState = providerCfg.states?.review || 'In Review';
 
+  // Phase 20 HOOK-01 (no-GSD ES): bloque "Anti-push-fantasma" al FINAL del array preserva
+  // golden bytes anteriores (HOOK-02 satisfied-by-construction).
   return [
     `# kodo ${session.task_ref}`,
     '',
@@ -64,6 +66,16 @@ export function buildSessionContext(session, config) {
     '- Has dejado constancia clara de lo hecho en el comentario final',
     '',
     'Si no puedes terminar (falta info, hay blocker, requiere decisión humana): comenta el estado actual con detalle, **no muevas a revisión**, y cierra con `/exit`. La tarea quedará visible en el dashboard para que el humano intervenga.',
+    '',
+    '## Anti-push-fantasma',
+    '',
+    'kodo NO hace `git push` automático. Antes de afirmar deploy, publicación o cambios remotos, verifica con `git push` real, o redacta la afirmación en condicional ("una vez se haga push…").',
+    '',
+    'Ejemplos:',
+    '- Bad: "Feature publicada en producción."',
+    '- Good: "Feature commiteada localmente, pendiente de `git push` al remoto."',
+    '- Bad: "Deploy hecho."',
+    '- Good: "Deploy quedará efectivo una vez se haga `git push origin main`."',
   ].join('\n');
 }
 
@@ -150,6 +162,22 @@ export function buildGsdContext(session, opts = {}) {
       'This will initialize the project planning structure using the task description as brief.',
     );
   }
+
+  // Phase 20 HOOK-01 (GSD EN): anti-push reminder común a las 3 ramas (quick / phase / bootstrap).
+  // D-04: bloque EN único; las 3 ramas convergen aquí post-if/else.
+  // HOOK-02 satisfied-by-construction: append al FINAL preserva golden bytes de los bloques anteriores.
+  lines.push(
+    '',
+    '## No automatic push',
+    '',
+    'kodo does NOT push automatically. Before claiming a deploy, release, or any remote change, verify with a real `git push`, or phrase the claim conditionally ("once pushed…").',
+    '',
+    'Examples:',
+    '- Bad: "Feature deployed to production."',
+    '- Good: "Feature committed locally, pending `git push` to remote."',
+    '- Bad: "Deploy done."',
+    '- Good: "Deploy will be live once `git push origin main` runs."',
+  );
 
   return lines.join('\n');
 }
