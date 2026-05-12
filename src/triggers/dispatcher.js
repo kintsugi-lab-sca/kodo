@@ -1,9 +1,10 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects } from '../config.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
-import { listSessions, removeSession } from '../session/state.js';
+import { listSessions, removeSession, computeWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
@@ -25,6 +26,7 @@ const inFlight = new Set();
  *   releaseGsdLockFn?: (projectPath: string, sessionId: string) => void,
  *   resolveProjectPathFn?: (task: import('../interface.js').TaskItem, projects: Record<string, any>) => string,
  *   resolvePhaseFn?: (params: { projectPath: string, task: object }) => import('../gsd/resolver.js').ResolveResult,
+ *   existsSyncFn?: (path: string) => boolean,
  * }} DispatchDeps
  */
 
@@ -36,7 +38,7 @@ const inFlight = new Set();
  * @param {import('../interface.js').TriggerEvent} event
  * @param {{ model?: string|null, flags?: string[], force?: boolean }} [opts]
  * @param {DispatchDeps} [deps] - Injectable dependencies for testing
- * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked'|'resolver_failed', session?: object, holder?: object, code?: string, detail?: string }>}
+ * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked'|'resolver_failed'|'worktree_collision', session?: object, holder?: object, code?: string, detail?: string }>}
  */
 export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
@@ -48,6 +50,9 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const releaseGsdLockFn = deps.releaseGsdLockFn || releaseGsdLock;
   const resolveProjectPathFn = deps.resolveProjectPathFn || ((task) => resolveProjectPath(task, loadProjects()));
   const resolvePhaseFn = deps.resolvePhaseFn || resolvePhase;
+  // Phase 18 D-05: parametrizable for test hygiene (precedente: la mayoría
+  // de IO en dispatch ya está parametrizado vía DispatchDeps).
+  const existsSyncFn = deps.existsSyncFn || existsSync;
 
   // 1. Resolve task via provider
   const provider = getProviderFn(event.provider);
@@ -136,6 +141,52 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         console.log(`[kodo:dispatch] gsd_locked — ${task.ref} blocked by lock on ${gsdProjectPath}`);
         return { action: 'gsd_locked', holder: lockResult.holder };
       }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 18 D-05, D-05b, D-06b: fail-fast worktree_collision canonical
+  // error. Single source of truth para el path: computeWorktreePath de
+  // session/state.js (Plan 01). Patrón paralelo a gsd_locked (Phase 8
+  // D-19) y resolver_failed (Phase 9 D-13): action explícito + return
+  // early ANTES de invocar launchWorkItem.
+  //
+  // Para sesiones GSD: gsdSessionId ya está generado tras lock acquire.
+  // Para sesiones no-GSD (D-06b): generamos sessionId aquí early-bird
+  // para poder check colisión PRE-launch. Threaded a launchWorkItem via
+  // opts.sessionId (mismo mecanismo que GSD por CR-01 fix).
+  //
+  // INVARIANTE WT-03: el lock per-repo (Phase 8 GSD-10) sigue siendo
+  // sobre projectPath, JAMÁS sobre worktreePath. acquireGsdLockFn arriba
+  // NO se modifica.
+  //
+  // Si resolveProjectPathFn throws (config humano roto) el path no se
+  // computa y se omite el check — graceful, heredado v0.5: launchWorkItem
+  // fallará luego con su propio error.
+  // ─────────────────────────────────────────────────────────────────────
+  let dispatchSessionId = gsdSessionId;
+  let dispatchProjectPath = gsdProjectPath;
+  if (!gsdMode) {
+    try {
+      dispatchProjectPath = resolveProjectPathFn(task);
+    } catch {
+      dispatchProjectPath = null;
+    }
+    if (dispatchProjectPath) dispatchSessionId = randomUUID();
+  }
+  if (dispatchSessionId && dispatchProjectPath) {
+    const worktreePath = computeWorktreePath(dispatchProjectPath, dispatchSessionId);
+    if (existsSyncFn(worktreePath)) {
+      // Release lock if GSD acquired one (no leak — Phase 8 D-09 idempotent)
+      if (gsdSessionId && gsdProjectPath) {
+        try {
+          releaseGsdLockFn(gsdProjectPath, gsdSessionId);
+        } catch {
+          // silent — release is idempotent (Phase 8 D-09)
+        }
+      }
+      console.log(`[kodo:dispatch] worktree_collision — ${task.ref} blocked by existing worktree at ${worktreePath}`);
+      return { action: 'worktree_collision', code: 'worktree_exists', detail: worktreePath };
     }
   }
 
@@ -318,9 +369,12 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     const launchOpts = {
       model: opts.model ?? kodoConfig.model,
       flags: [...(opts.flags || []), ...kodoConfig.flags],
-      // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
-      // lock file (fix CR-01). Omitted for non-GSD paths.
-      ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
+      // Phase 18: thread dispatchSessionId (puede ser GSD generado pre-lock
+      // o no-GSD generado en collision-check block arriba). launchWorkItem
+      // consume vía `opts.sessionId || randomUUID()` — si está presente lo
+      // usa verbatim. Garantiza que la UUID del worktree path == sessionId
+      // del lock file (CR-01 + WT-01/WT-03 invariants).
+      ...(dispatchSessionId ? { sessionId: dispatchSessionId } : {}),
       // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
       // record persists them for the hook SessionStart to render.
       ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),
