@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
-status: executing
+status: ready_to_plan
 stopped_at: Phase 19 context gathered
 last_updated: "2026-05-12T15:12:21.673Z"
 last_activity: 2026-05-12 -- Phase 19 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
   completed_plans: 5
-  percent: 83
+  percent: 40
 ---
 
 # Project State
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 ## Current Position
 
-Phase: 19 (worktree-cleanup-integration) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 19
-Last activity: 2026-05-12 -- Phase 19 execution started
+Phase: 20
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-12
 
 ## Phases (v0.6)
 
