@@ -5,12 +5,19 @@
 // Validates ROADMAP Success Criterion 3: "Dos webhooks Plane que resuelven
 // al mismo realpath de repo no arrancan sesiones GSD concurrentes."
 //
+// Phase 18 (SC#3 WT-03): se extiende con 4 asserts que validan que el lock
+// per-repo SIGUE viviendo en `<projectPath>/.planning/.kodo.lock` y NUNCA
+// dentro del worktree. Coalescencia preservada con --worktree cableado.
+//
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { acquireGsdLock, releaseGsdLock, readLock } from '../src/gsd/lock.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Shared tmp dir simulating a repo with .planning/ */
 let repoDir;
@@ -307,5 +314,202 @@ describe('GSD concurrency — integration (Success Criterion 3)', () => {
       },
     );
     assert.equal(result2.action, 'launched');
+  });
+});
+
+describe('Phase 18 — coalesce con worktree cableado (WT-03 SC#3)', () => {
+  let repoDir2;
+
+  beforeEach(() => {
+    repoDir2 = mkdtempSync(join(tmpdir(), 'kodo-coalesce-wt-'));
+  });
+
+  afterEach(() => {
+    rmSync(repoDir2, { recursive: true, force: true });
+  });
+
+  it('GSD coalesce: second dispatch gets gsd_locked BEFORE worktree check', async () => {
+    // Invariante: el orden en dispatcher es lock acquire → collision check
+    // → resolver. La segunda dispatch sobre la misma repo rebota por el lock
+    // ANTES de tocar existsSync(worktreePath). Worktree path no llega a
+    // computarse en la rama rejected (lockResult.acquired === false return
+    // early).
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+
+    const task1 = makeGsdTask('task-uuid-WT-1', 'KL-200');
+    const task2 = makeGsdTask('task-uuid-WT-2', 'KL-201');
+
+    let existsSyncCallCount = 0;
+
+    const result1 = await dispatchTrigger(
+      { taskRef: 'KL-200', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task1),
+        launchWorkItemFn: async () => fakeLaunchResult,
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+        resolveProjectPathFn: () => repoDir2,
+        existsSyncFn: (p) => { existsSyncCallCount++; return false; },
+      },
+    );
+    assert.equal(result1.action, 'launched');
+    // First dispatch went through the collision check once.
+    assert.equal(existsSyncCallCount, 1, 'first dispatch must hit existsSync exactly once');
+
+    const result2 = await dispatchTrigger(
+      { taskRef: 'KL-201', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task2),
+        launchWorkItemFn: async () => fakeLaunchResult,
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+        resolveProjectPathFn: () => repoDir2,
+        existsSyncFn: (p) => { existsSyncCallCount++; return false; },
+      },
+    );
+    assert.equal(result2.action, 'gsd_locked', 'second dispatch must be rejected by lock');
+    assert.ok(result2.holder);
+    assert.equal(result2.holder.task_ref, 'KL-200');
+    // The second dispatch must NOT have reached the collision check — lock
+    // rejection returns early. existsSyncCallCount must still be 1.
+    assert.equal(
+      existsSyncCallCount,
+      1,
+      'second dispatch must NOT reach existsSync — lock rejection precedes collision check',
+    );
+  });
+
+  it('lock file vive en projectPath/.planning/.kodo.lock, NO en worktree (WT-03 SC#3)', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+
+    const task1 = makeGsdTask('task-uuid-WT-LOCK', 'KL-300');
+    let capturedSessionId = null;
+
+    await dispatchTrigger(
+      { taskRef: 'KL-300', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task1),
+        launchWorkItemFn: async (_ref, opts) => {
+          capturedSessionId = opts.sessionId;
+          return { ...fakeLaunchResult, session_id: opts.sessionId };
+        },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: (path, info) => acquireGsdLock(path, info),
+        resolveProjectPathFn: () => repoDir2,
+      },
+    );
+
+    // El lock file vive en el repo principal, no en el worktree.
+    // realpath para colapsar /tmp → /private/tmp en macOS (Pitfall 3 Phase 8).
+    const realRepo = realpathSync(repoDir2);
+    const lockPath = join(realRepo, '.planning', '.kodo.lock');
+    assert.ok(existsSync(lockPath), `Lock debe vivir en ${lockPath}`);
+
+    const lockContent = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    assert.equal(lockContent.session_id, capturedSessionId, 'lock session_id == launch sessionId');
+    assert.match(lockContent.session_id, /^[a-f0-9-]+$/);
+
+    // NUNCA debe existir un lock dentro del worktree.
+    const worktreePath = join(realRepo, '.bg-shell', lockContent.session_id);
+    const wrongLockPath = join(worktreePath, '.planning', '.kodo.lock');
+    assert.ok(
+      !existsSync(wrongLockPath),
+      `Lock NUNCA debe vivir dentro del worktree (${wrongLockPath})`,
+    );
+  });
+
+  it('no-GSD parallel sobre mismo repo: ambos dispatches launchean con sessionIds distintos (D-06b)', async () => {
+    // Driver: incidencia 28/04 ROMAN-113…118. Worktrees distintos por
+    // session-id permiten paralelismo sin contención (cada uno aislado).
+    // Antes de Phase 18, dos no-GSD compartían cwd=projectPath y `git add -A`
+    // arrastraba staging entre sesiones. Ahora cada una corre en su worktree.
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+
+    const task1 = { ...makeGsdTask('task-uuid-WT-P1', 'KL-400'), labels: ['kodo'] };
+    const task2 = { ...makeGsdTask('task-uuid-WT-P2', 'KL-401'), labels: ['kodo'] };
+
+    let session1Id = null;
+    let session2Id = null;
+
+    const r1 = await dispatchTrigger(
+      { taskRef: 'KL-400', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task1),
+        launchWorkItemFn: async (_ref, opts) => {
+          session1Id = opts.sessionId;
+          return { ...fakeLaunchResult, task_id: task1.id, session_id: opts.sessionId };
+        },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        // no acquireGsdLockFn override — non-GSD does not touch lock
+        resolveProjectPathFn: () => repoDir2,
+      },
+    );
+
+    const r2 = await dispatchTrigger(
+      { taskRef: 'KL-401', action: 'state_change', provider: 'test', raw: {} },
+      {},
+      {
+        getProviderFn: () => createFakeProvider(task2),
+        launchWorkItemFn: async (_ref, opts) => {
+          session2Id = opts.sessionId;
+          return { ...fakeLaunchResult, task_id: task2.id, session_id: opts.sessionId };
+        },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        resolveProjectPathFn: () => repoDir2,
+      },
+    );
+
+    assert.equal(r1.action, 'launched', 'non-GSD task 1 must launch');
+    assert.equal(r2.action, 'launched', 'non-GSD task 2 must launch (paralelo permitido — D-06b)');
+    assert.ok(session1Id, 'task 1 must have a sessionId threaded by dispatcher');
+    assert.ok(session2Id, 'task 2 must have a sessionId threaded by dispatcher');
+    assert.notEqual(session1Id, session2Id, 'sessionIds must be unique — worktrees aislados');
+  });
+
+  it('lock invariant cross-callsite: NUNCA se pasa worktreePath a acquireGsdLock/releaseGsdLock', () => {
+    // Source-hygiene cross-source. Patrón Phase 16 LOG-13 dispatcher-isolation.
+    // Asegura que ningún callsite pasa un nombre que contenga "worktree" al
+    // lock. WT-03 invariant doblemente blindado (este test + integration above).
+    const sources = [
+      join(__dirname, '..', 'src', 'triggers', 'dispatcher.js'),
+      join(__dirname, '..', 'src', 'session', 'manager.js'),
+      join(__dirname, '..', 'src', 'hooks', 'stop.js'),
+    ];
+
+    /** @param {string} src */
+    function stripComments(src) {
+      return src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+        .join('\n');
+    }
+
+    for (const f of sources) {
+      const src = readFileSync(f, 'utf-8');
+      const stripped = stripComments(src);
+      assert.ok(
+        !/acquireGsdLockFn?\s*\([^)]*worktree/i.test(stripped),
+        `${f} pasa worktree* a acquireGsdLock — VIOLA WT-03 SC#3`,
+      );
+      assert.ok(
+        !/releaseGsdLockFn?\s*\([^)]*worktree/i.test(stripped),
+        `${f} pasa worktree* a releaseGsdLock — VIOLA WT-03 SC#3`,
+      );
+    }
   });
 });
