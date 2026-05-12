@@ -122,10 +122,10 @@ Plans:
 **Plans**: 2 plans
 Plans:
 **Wave 1**
-- [ ] 20-01-PLAN.md — Append inline bloque ES "Anti-push-fantasma" en `buildSessionContext` + bloque EN "No automatic push" común post-if/else en `buildGsdContext` (HOOK-01 + HOOK-02 satisfied-by-construction)
+- [x] 20-01-PLAN.md — Append inline bloque ES "Anti-push-fantasma" en `buildSessionContext` + bloque EN "No automatic push" común post-if/else en `buildGsdContext` (HOOK-01 + HOOK-02 satisfied-by-construction)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 20-02-PLAN.md — Extender `test/session-start.test.js` + `test/gsd-context.test.js` con suite HOOK-01/02/03 coverage matrix 4 modos × presencia + golden bytes opción B + idempotencia + D-04 common-block invariance
+- [x] 20-02-PLAN.md — Extender `test/session-start.test.js` + `test/gsd-context.test.js` con suite HOOK-01/02/03 coverage matrix 4 modos × presencia + golden bytes opción B + idempotencia + D-04 common-block invariance
 
 ### Phase 21: Skill Sync CLI + Auto-Sync
 **Goal**: La skill canonical `kodo-orchestrate` se mantiene sincronizada entre `<repo>/.claude/skills/` y `~/.claude/skills/` sin acción humana recurrente, sin romper la Constraint cwd=repo de Phase 999.1.
@@ -178,7 +178,7 @@ Plans:
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/2 | Planning complete | — |
+| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete   | 2026-05-12 |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
