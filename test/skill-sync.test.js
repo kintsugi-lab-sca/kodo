@@ -287,14 +287,19 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     assert.match(second.stdout, /No drift/);
   });
 
-  it('SKILL-04 #3: fs error (dest read-only) → exit 1, stderr canonical', () => {
+  it('SKILL-04 #3: fs error (dest file unreadable) → exit 1, stderr canonical', () => {
     ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
-    // Primer run para crear dest, luego chmod 0o500 (read-only) y modificar source.
+    // Primer run para crear dest.
     const first = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(first.status, 0);
     const dest = destOf(_tmpHome);
-    chmodSync(dest, 0o500);
-    // Modificar source para forzar copia que fallará por permisos.
+    // chmod del archivo individual a 0o000: el syncSkill intentará readFileSync
+    // para computar el hash y fallará con EACCES (Rule 1: ajustar setup del test
+    // para reproducir fs error determinísticamente; chmod del dir 0o500 no basta
+    // en macOS porque POSIX permite overwrite de archivo existente sin permiso
+    // en parent dir si el file mismo es escribible).
+    chmodSync(join(dest, 'skill.md'), 0o000);
+    // Modificar source para forzar una comparación de hash que requiere leer dest.
     writeFileSync(
       join(sourceOf(_tmpRepo), 'skill.md'),
       '# kodo:orchestrate\n\nCanonical body v2.\n',
@@ -302,7 +307,9 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     );
 
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
-    // afterEach restaura permisos antes del rmSync (chmod 0o755).
+    // afterEach restaura permisos del dest dir antes del rmSync (chmod 0o755).
+    // Restaurar también el archivo aquí para que afterEach pueda borrarlo.
+    try { chmodSync(join(dest, 'skill.md'), 0o644); } catch {}
     assert.equal(result.status, 1, `stdout: ${result.stdout}, stderr: ${result.stderr}`);
     assert.match(result.stderr, /^Error: filesystem error: /);
   });

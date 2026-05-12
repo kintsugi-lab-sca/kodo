@@ -273,6 +273,27 @@ gsd
     }
   });
 
+// --- kodo skill <subcommand> ---
+const skill = program.command('skill').description('Skill management subcommands (sync, etc.)');
+
+skill
+  .command('sync')
+  .description('Sync canonical skill <repo>/.claude/skills/kodo-orchestrate/ → ~/.claude/skills/kodo-orchestrate/')
+  .option('--prune', 'Remove foreign files in home that are not in repo (destructive; opt-in)')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    try {
+      // NOTE: NO `ensureConfig()` — kodo skill sync no requiere provider configurado
+      // (RESEARCH §Open Question 1; gate D-07 exit 2 sustituye al check de config).
+      const { runSkillSyncCli } = await import('./cli/skill-sync.js');
+      const code = await runSkillSyncCli({ prune: opts.prune || false, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
