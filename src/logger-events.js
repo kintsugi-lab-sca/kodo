@@ -210,3 +210,58 @@ export function planeApiCallFailed(logger, fields) {
     error: fields.error,
   });
 }
+
+/**
+ * Worktree cleanup OK — emitted (info) after a clean worktree was
+ * successfully removed and (optionally) its branch deleted (Phase 19 D-08).
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, worktree_path: string, branch_deleted: boolean }} fields
+ */
+export function worktreeCleanupOk(logger, fields) {
+  logger.info(EVENTS.WORKTREE_CLEANUP_OK, {
+    event: EVENTS.WORKTREE_CLEANUP_OK,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    branch_deleted: fields.branch_deleted,
+  });
+}
+
+/**
+ * Worktree cleanup DIRTY — emitted (warn) when the worktree had uncommitted
+ * changes and was moved aside to `<path>.dirty` for human review (Phase 19 D-02).
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, worktree_path: string, moved_to: string }} fields
+ */
+export function worktreeCleanupDirty(logger, fields) {
+  logger.warn(EVENTS.WORKTREE_CLEANUP_DIRTY, {
+    event: EVENTS.WORKTREE_CLEANUP_DIRTY,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    moved_to: fields.moved_to,
+  });
+}
+
+/**
+ * Worktree cleanup ERROR — emitted (error) when a cleanup step failed
+ * unexpectedly (FS error, git lock, race). The stop hook continues
+ * fail-open after this event (Phase 19 D-03).
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   session_id: string,
+ *   worktree_path: string,
+ *   phase: 'status' | 'remove' | 'move' | 'branch' | 'prune',
+ *   reason: string,
+ * }} fields
+ */
+export function worktreeCleanupError(logger, fields) {
+  logger.error(EVENTS.WORKTREE_CLEANUP_ERROR, {
+    event: EVENTS.WORKTREE_CLEANUP_ERROR,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    phase: fields.phase,
+    reason: fields.reason,
+  });
+}
