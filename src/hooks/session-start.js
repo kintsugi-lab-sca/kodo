@@ -163,6 +163,22 @@ export function buildGsdContext(session, opts = {}) {
     );
   }
 
+  // Phase 20 HOOK-01 (GSD EN): anti-push reminder común a las 3 ramas (quick / phase / bootstrap).
+  // D-04: bloque EN único; las 3 ramas convergen aquí post-if/else.
+  // HOOK-02 satisfied-by-construction: append al FINAL preserva golden bytes de los bloques anteriores.
+  lines.push(
+    '',
+    '## No automatic push',
+    '',
+    'kodo does NOT push automatically. Before claiming a deploy, release, or any remote change, verify with a real `git push`, or phrase the claim conditionally ("once pushed…").',
+    '',
+    'Examples:',
+    '- Bad: "Feature deployed to production."',
+    '- Good: "Feature committed locally, pending `git push` to remote."',
+    '- Bad: "Deploy done."',
+    '- Good: "Deploy will be live once `git push origin main` runs."',
+  );
+
   return lines.join('\n');
 }
 
