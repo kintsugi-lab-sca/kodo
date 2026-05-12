@@ -19,9 +19,9 @@
 
 ### HOOK-01 universal (HOOK-*)
 
-- [ ] **HOOK-01** — `buildSessionContext` añade sección "Anti-push-fantasma" a TODAS las sesiones (GSD + no-GSD). Texto: kodo NO hace push automático; el agente debe verificar `git push` real o redactar en condicional ("una vez se haga push…") las afirmaciones de deploy/publicación. Driver: ROMAN-125 / ROMAN-126.
-- [ ] **HOOK-02** — Golden bytes preservados — los tags `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]` y los demás artefactos del prompt no cambian shape; el bloque HOOK-01 se inserta en posición determinista (mismo offset por modo).
-- [ ] **HOOK-03** — Test coverage para los 3 modos × `buildSessionContext` (full / quick / no-GSD) cubre que el recordatorio aparece y que el resto del prompt no muta.
+- [x] **HOOK-01** — `buildSessionContext` añade sección "Anti-push-fantasma" a TODAS las sesiones (GSD + no-GSD). Texto: kodo NO hace push automático; el agente debe verificar `git push` real o redactar en condicional ("una vez se haga push…") las afirmaciones de deploy/publicación. Driver: ROMAN-125 / ROMAN-126.
+- [x] **HOOK-02** — Golden bytes preservados — los tags `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]` y los demás artefactos del prompt no cambian shape; el bloque HOOK-01 se inserta en posición determinista (mismo offset por modo).
+- [x] **HOOK-03** — Test coverage para los 3 modos × `buildSessionContext` (full / quick / no-GSD) cubre que el recordatorio aparece y que el resto del prompt no muta.
 
 ### Skill sync (SKILL-*)
 
@@ -76,9 +76,9 @@ Mapped to phases by `gsd-roadmapper` 2026-05-11 — see `ROADMAP.md` for full ph
 | WT-04    | Phase 19 | Complete |
 | WT-05    | Phase 19 | Complete |
 | WT-06    | Phase 19 | Complete |
-| HOOK-01  | Phase 20 | pending |
-| HOOK-02  | Phase 20 | pending |
-| HOOK-03  | Phase 20 | pending |
+| HOOK-01  | Phase 20 | Complete |
+| HOOK-02  | Phase 20 | Complete |
+| HOOK-03  | Phase 20 | Complete |
 | SKILL-01 | Phase 21 | pending |
 | SKILL-02 | Phase 21 | pending |
 | SKILL-03 | Phase 21 | pending |

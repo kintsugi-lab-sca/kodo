@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
-status: executing
+status: ready_to_plan
 stopped_at: Phase 20 context gathered
 last_updated: "2026-05-12T16:18:09.158Z"
 last_activity: 2026-05-12 -- Phase 20 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
   completed_plans: 6
-  percent: 75
+  percent: 60
 ---
 
 # Project State
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 ## Current Position
 
-Phase: 20 (hook-01-universal-anti-push-fantasma) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 20
-Last activity: 2026-05-12 -- Phase 20 execution started
+Phase: 21
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-12
 
 ## Phases (v0.6)
 
