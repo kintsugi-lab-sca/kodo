@@ -918,7 +918,11 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     );
   });
 
-  it('Test 7 — stderr canonical bytes: [kodo:dispatch] worktree_collision — KL-42 blocked by existing worktree at <path>', async () => {
+  it('Test 7 — stdout canonical bytes: [kodo:dispatch] worktree_collision — KL-42 blocked by existing worktree at <path>', async () => {
+    // WR-02 (review): emit es console.log (stdout). Convención del módulo —
+    // gsd_locked y resolver_failed también usan console.log. Si en el futuro
+    // se migran TODOS los canonicals a stderr (tech-debt v0.6), actualizar
+    // este test en consecuencia.
     const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
     const originalLog = console.log;
     const captured = [];
@@ -939,11 +943,11 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
       console.log = originalLog;
     }
     const collisionLine = captured.find((l) => l.includes('worktree_collision'));
-    assert.ok(collisionLine, 'must emit a worktree_collision stderr line');
+    assert.ok(collisionLine, 'must emit a worktree_collision stdout trace line');
     assert.match(
       collisionLine,
       /^\[kodo:dispatch\] worktree_collision — KL-42 blocked by existing worktree at \/tmp\/test-repo\/\.bg-shell\/[a-f0-9-]+$/,
-      `canonical stderr shape mismatch — got: ${collisionLine}`,
+      `canonical stdout shape mismatch — got: ${collisionLine}`,
     );
   });
 
