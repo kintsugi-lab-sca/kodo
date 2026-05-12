@@ -3,14 +3,20 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { loadConfig } from '../config.js';
 import { listSessions } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
 import { getSessionMode } from '../labels.js';
+import { syncSkill } from '../skill/sync.js';
+import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = join(__dirname, 'prompt.md');
 const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
+// Phase 21 D-08 + Pattern C: KODO_ROOT override aditivo para test isolation
+// (mismo patrón que src/hooks/stop.js:20; permite spawnSync con env.KODO_ROOT=tmpRepo).
+const KODO_ROOT_FOR_SKILL = process.env.KODO_ROOT || process.cwd();
 
 /**
  * Resolve {{placeholder}} tokens in the orchestrator prompt template.
@@ -38,6 +44,38 @@ export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
   const log = opts.logger?.child({ component: 'orchestrator' });
   log?.info('orchestrator.launch.start', { provider: config.provider });
+
+  // ─── PHASE 21 D-03 fail-open auto-sync ──────────────────────────────────
+  // Sincroniza canonical skill <repo>/.claude/skills/kodo-orchestrate/ → home
+  // ANTES del primer side-effect cmux (D-08 SoSoT: mismo módulo que kodo skill sync).
+  //
+  // Insertado aquí (no antes de cmux.newWorkspace L70) para cubrir el caso
+  // "orchestrator ya existe": el operador hace `kodo orchestrate` para refrescar
+  // y home debe quedar coherente — RESEARCH §Inserción L44 vs L70.
+  //
+  // Si syncSkill falla: emit skill.sync.auto.error + continuar (D-03 fail-open —
+  // la skill local del repo gana por construcción Phase 999.1 D-04, así el
+  // orchestrator funciona aunque home quede stale). NUNCA prune (D-05c).
+  //
+  // SKILL-03 invariante: este bloque NO toca process.cwd() ni los args de
+  // cmux.newWorkspace({ cwd: process.cwd() }) (línea ~72). La skill canonical
+  // sigue siendo la del repo (cwd=repo Phase 999.1 D-04/D-05/D-06 intacto).
+  try {
+    const skillSource = join(KODO_ROOT_FOR_SKILL, '.claude', 'skills', 'kodo-orchestrate');
+    const skillDest = join(homedir(), '.claude', 'skills', 'kodo-orchestrate');
+    const skillResult = syncSkill({ source: skillSource, dest: skillDest }); // prune NEVER true (D-05c)
+    if (skillResult.status === 'error') {
+      if (log) skillSyncAutoError(log, { source: skillSource, dest: skillDest, error: skillResult.error || 'unknown' });
+    } else if (skillResult.status === 'ok') {
+      if (log) skillSyncAuto(log, { source: skillSource, dest: skillDest, files_changed: skillResult.files_changed });
+    }
+    // status === 'noop' → silencio total (D-03b — sin .noop event para evitar ruido).
+  } catch (err) {
+    // Defense in depth: si syncSkill throws inesperado, fail-open silencioso.
+    // Mismo patrón que stop.js outer catch del worktree cleanup (Phase 19 D-03).
+    console.error(`[kodo:orchestrator] skill sync failed: ${/** @type {Error} */ (err).message}`);
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   // Check if orchestrator is already running
   let workspaceList;
