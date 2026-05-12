@@ -333,9 +333,14 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       const launchOpts = {
         model: opts.model ?? kodoConfig.model,
         flags: [...(opts.flags || []), ...kodoConfig.flags],
-        // Thread GSD sessionId so launchWorkItem uses the UUID stamped in the
-        // lock file (fix CR-01). Omitted for non-GSD paths.
-        ...(gsdSessionId ? { sessionId: gsdSessionId } : {}),
+        // Phase 18 CR-01 fix: thread `dispatchSessionId` (NOT `gsdSessionId`)
+        // — for GSD: dispatchSessionId === gsdSessionId by construction
+        // (línea 167). Para non-GSD: dispatchSessionId fue el UUID que pasó
+        // por el collision-check (líneas 175-179). Si pasáramos gsdSessionId
+        // aquí, sería `null` en non-GSD y launchWorkItem generaría un UUID
+        // fresh sin validar colisión — rompería el contrato D-05.
+        // Misma idiom que el path "Launch" (línea 377).
+        ...(dispatchSessionId ? { sessionId: dispatchSessionId } : {}),
         // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
         // record persists them for the hook SessionStart to render.
         ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),

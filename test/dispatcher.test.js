@@ -947,6 +947,41 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     );
   });
 
+  it('CR-01: non-GSD stale_relaunch threads dispatchSessionId (NOT gsdSessionId/null)', async () => {
+    // Phase 18 review fix CR-01: el bloque stale_relaunch threadeaba
+    // gsdSessionId — null en non-GSD — saltándose el collision-check.
+    // Tras el fix debe threadear dispatchSessionId (UUID v4 validado por
+    // collision-check, no null).
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchSessionId = 'NOT_SET';
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(nonGsdTask()),
+      launchWorkItemFn: async (_ref, opts) => {
+        launchSessionId = opts.sessionId;
+        return launchWorkItemResult;
+      },
+      // Existing session whose workspace is gone → stale_relaunch path.
+      listSessionsFn: () => [
+        { task_id: 'task-uuid-WT-2', workspace_ref: 'workspace:gone', status: 'running' },
+      ],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => ({ acquired: true }),
+      releaseGsdLockFn: () => {},
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      // existsSync returns false → collision-free → flow continues to stale_relaunch.
+      existsSyncFn: () => false,
+    });
+    assert.equal(result.action, 'stale_relaunch');
+    assert.ok(launchSessionId, 'stale_relaunch must thread a sessionId (NOT undefined)');
+    assert.notEqual(launchSessionId, null, 'stale_relaunch must NOT thread null gsdSessionId');
+    assert.match(
+      launchSessionId,
+      uuidV4Re,
+      'stale_relaunch must thread the dispatchSessionId UUID validated by collision-check',
+    );
+  });
+
   it('Test 8 — graceful: when resolveProjectPathFn throws, collision check is skipped (heredado v0.5)', async () => {
     const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
     let launchCalled = false;
