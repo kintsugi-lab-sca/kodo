@@ -96,6 +96,61 @@ describe('session-start.js — buildSessionContext', () => {
   });
 });
 
+describe('HOOK-01 — anti-push reminder, no-GSD ES', () => {
+  it('HOOK-01: bloque "## Anti-push-fantasma" presente con header H2', () => {
+    const ctx = buildSessionContext(makeSession(), makeConfig());
+    assert.match(ctx, /## Anti-push-fantasma/);
+  });
+
+  it('HOOK-01 D-02: statement explícito + par Bad/Good presentes', () => {
+    const ctx = buildSessionContext(makeSession(), makeConfig());
+    assert.match(ctx, /kodo NO hace `git push` automático/);
+    assert.match(ctx, /verifica con `git push` real/);
+    assert.match(ctx, /Bad: "Feature publicada en producción\."/);
+    assert.match(ctx, /Good: "Feature commiteada localmente, pendiente de `git push` al remoto\."/);
+    assert.match(ctx, /Bad: "Deploy hecho\."/);
+    assert.match(ctx, /Good: "Deploy quedará efectivo una vez se haga `git push origin main`\."/);
+  });
+
+  it('HOOK-02 (opción B): bloque al FINAL — prefix bytes intactos + tail starts con header', () => {
+    const ctx = buildSessionContext(makeSession(), makeConfig());
+    const HEADER = '## Anti-push-fantasma';
+    const idx = ctx.lastIndexOf(HEADER);
+    assert.ok(idx > 0, `header "${HEADER}" must be present and after byte 0`);
+    const tail = ctx.slice(idx);
+    assert.ok(tail.startsWith(HEADER), 'header must start the final block');
+    const prefix = ctx.slice(0, idx);
+    assert.ok(
+      prefix.endsWith('\n\n'),
+      'prefix must end with blank line separator before HOOK-01 block (D-03)',
+    );
+  });
+
+  it('HOOK-03 idempotencia: re-emitir produce bytes idénticos', () => {
+    const session = makeSession();
+    const config = makeConfig();
+    const a = buildSessionContext(session, config);
+    const b = buildSessionContext(session, config);
+    assert.equal(a, b);
+    assert.equal(a.length, b.length);
+  });
+
+  it('HOOK-01 D-02b: bloque sin emojis ni códigos ANSI escape', () => {
+    const ctx = buildSessionContext(makeSession(), makeConfig());
+    const HEADER = '## Anti-push-fantasma';
+    const block = ctx.slice(ctx.lastIndexOf(HEADER));
+    // Sólo verificamos el slice del bloque HOOK-01 — el resto del prompt ES
+    // contiene emojis legítimos (✅/📁/⚠️/🔍) en la sección "Comentario final".
+    assert.ok(
+      !/[\u{1F300}-\u{1FAFF}]/u.test(block),
+      'HOOK-01 block must not contain emojis (D-02b)',
+    );
+    // ESC (\x1B) inicia secuencias ANSI; el bloque es markdown plano.
+    // eslint-disable-next-line no-control-regex
+    assert.ok(!/\x1B\[/.test(block), 'HOOK-01 block must not contain ANSI escape sequences (D-02b)');
+  });
+});
+
 describe('QUICK-08 — quick mode buildGsdContext', () => {
   it('QUICK-08: renders /gsd-quick "<title>" and omits /gsd-plan-phase, /gsd-execute-phase, /gsd-verify-work, /gsd-new-project', () => {
     const session = makeSession({
@@ -176,6 +231,28 @@ describe('QUICK-08 — quick mode buildGsdContext', () => {
     const output = buildGsdContext(session, {});
     assert.match(output, /\/gsd-quick "TASK-X"/, 'quick command rendered despite residual phase_id');
     assert.ok(!output.includes('/gsd-plan-phase 9'), 'must not fall through to full+phase branch');
+  });
+
+  it('HOOK-01 (quick EN): bloque "## No automatic push" presente con statement + ejemplo', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X' });
+    const ctx = buildGsdContext(session, {});
+    assert.match(ctx, /## No automatic push/);
+    assert.match(ctx, /kodo does NOT push automatically/);
+    assert.match(ctx, /verify with a real `git push`/);
+    assert.match(ctx, /Bad: "Feature deployed to production\."/);
+    assert.match(ctx, /Good: "Feature committed locally, pending `git push` to remote\."/);
+  });
+
+  it('HOOK-02 (quick EN, opción B): bloque al FINAL — prefix bytes intactos', () => {
+    const session = makeSession({ gsd: true, gsd_mode: 'quick', summary: 'TASK-X' });
+    const ctx = buildGsdContext(session, {});
+    const HEADER = '## No automatic push';
+    const idx = ctx.lastIndexOf(HEADER);
+    assert.ok(idx > 0);
+    const tail = ctx.slice(idx);
+    assert.ok(tail.startsWith(HEADER), 'header must start the final block (quick branch)');
+    const prefix = ctx.slice(0, idx);
+    assert.ok(prefix.endsWith('\n\n'), 'prefix must end with blank line separator (D-03)');
   });
 });
 
