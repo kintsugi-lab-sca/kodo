@@ -735,3 +735,239 @@ describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () =>
     assert.equal(releaseCalled, true, 'lock must be released on fail-closed (Phase 11 D-13)');
   });
 });
+
+describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)', () => {
+  const uuidV4Re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  function gsdTask() {
+    return {
+      id: 'task-uuid-WT',
+      ref: 'KL-42',
+      title: 'Worktree collision test',
+      description: '',
+      labels: ['kodo', 'kodo:gsd'],
+      projectId: 'proj-1',
+      projectName: 'Test',
+      groups: [],
+      url: 'https://example.com/KL-42',
+      priority: 'medium',
+      state: 'Todo',
+    };
+  }
+
+  function nonGsdTask() {
+    return {
+      id: 'task-uuid-WT-2',
+      ref: 'KL-42',
+      title: 'Worktree collision test (non-GSD)',
+      description: '',
+      labels: ['kodo'],
+      projectId: 'proj-1',
+      projectName: 'Test',
+      groups: [],
+      url: 'https://example.com/KL-42',
+      priority: 'medium',
+      state: 'Todo',
+    };
+  }
+
+  function makeFakeProvider(task) {
+    return {
+      init: async () => {},
+      getTask: async () => task,
+      updateTaskState: async () => {},
+      addComment: async () => {},
+      listPendingTasks: async () => [],
+      parseTriggerEvent: () => null,
+      verifySignature: () => true,
+      resolveRef: async () => '',
+    };
+  }
+
+  const baseEvent = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+
+  it('Test 1 — worktree_collision shape (GSD): returns {action, code, detail} when path exists', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchCalled = false;
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(gsdTask()),
+      launchWorkItemFn: async () => { launchCalled = true; return launchWorkItemResult; },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => ({ acquired: true }),
+      releaseGsdLockFn: () => {},
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      existsSyncFn: () => true,
+    });
+    assert.equal(result.action, 'worktree_collision');
+    assert.equal(result.code, 'worktree_exists');
+    assert.ok(result.detail, 'detail must be populated with worktree path');
+    assert.match(result.detail, /\/tmp\/test-repo\/\.bg-shell\/[a-f0-9-]+$/);
+    assert.equal(launchCalled, false, 'launchWorkItemFn must NOT be invoked on collision');
+  });
+
+  it('Test 2 — worktree_collision shape (non-GSD, D-06b): returns same shape, no lock involved', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchCalled = false;
+    let lockCalled = false;
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(nonGsdTask()),
+      launchWorkItemFn: async () => { launchCalled = true; return launchWorkItemResult; },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => { lockCalled = true; return { acquired: true }; },
+      releaseGsdLockFn: () => {},
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      existsSyncFn: () => true,
+    });
+    assert.equal(result.action, 'worktree_collision');
+    assert.equal(result.code, 'worktree_exists');
+    assert.ok(result.detail);
+    assert.equal(launchCalled, false);
+    assert.equal(lockCalled, false, 'non-GSD must NOT acquire lock');
+  });
+
+  it('Test 3 — lock release on collision (GSD): releaseGsdLockFn invoked exactly once before return', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let releaseArgs = null;
+    let releaseCount = 0;
+    let capturedLockSessionId = null;
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(gsdTask()),
+      launchWorkItemFn: async () => launchWorkItemResult,
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: (_path, info) => {
+        capturedLockSessionId = info.session_id;
+        return { acquired: true };
+      },
+      releaseGsdLockFn: (path, sid) => {
+        releaseCount++;
+        releaseArgs = { path, sid };
+      },
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      existsSyncFn: () => true,
+    });
+    assert.equal(result.action, 'worktree_collision');
+    assert.equal(releaseCount, 1, 'release must be called exactly once on collision');
+    assert.equal(releaseArgs.path, '/tmp/test-repo', 'release receives projectPath (NOT worktreePath) — WT-03 invariant');
+    assert.equal(releaseArgs.sid, capturedLockSessionId, 'release receives the gsdSessionId used to acquire');
+    assert.match(releaseArgs.sid, uuidV4Re);
+  });
+
+  it('Test 4 — no collision (GSD happy path): threads gsdSessionId to launchWorkItemFn', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchSessionId = null;
+    let lockSessionId = null;
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(gsdTask()),
+      launchWorkItemFn: async (_ref, opts) => {
+        launchSessionId = opts.sessionId;
+        return launchWorkItemResult;
+      },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: (_path, info) => {
+        lockSessionId = info.session_id;
+        return { acquired: true };
+      },
+      releaseGsdLockFn: () => {},
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      existsSyncFn: () => false,
+    });
+    assert.equal(result.action, 'launched');
+    assert.match(launchSessionId, uuidV4Re);
+    assert.equal(launchSessionId, lockSessionId, 'GSD: threaded sessionId must match the lock sessionId');
+  });
+
+  it('Test 5 — no collision (non-GSD happy path): threads a freshly-generated sessionId', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchSessionId = null;
+    const result = await dispatchTrigger(baseEvent, {}, {
+      getProviderFn: () => makeFakeProvider(nonGsdTask()),
+      launchWorkItemFn: async (_ref, opts) => {
+        launchSessionId = opts.sessionId;
+        return launchWorkItemResult;
+      },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => {},
+      acquireGsdLockFn: () => ({ acquired: true }),
+      releaseGsdLockFn: () => {},
+      resolveProjectPathFn: () => '/tmp/test-repo',
+      existsSyncFn: () => false,
+    });
+    assert.equal(result.action, 'launched');
+    assert.ok(launchSessionId, 'non-GSD must now thread a sessionId (Phase 18)');
+    assert.match(launchSessionId, uuidV4Re);
+  });
+
+  it('Test 6 — return type union includes worktree_collision (JSDoc audit)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(join(here, '..', 'src', 'triggers', 'dispatcher.js'), 'utf-8');
+    assert.ok(
+      /@returns[\s\S]{0,400}worktree_collision/.test(src),
+      'dispatchTrigger @returns union must include worktree_collision',
+    );
+  });
+
+  it('Test 7 — stderr canonical bytes: [kodo:dispatch] worktree_collision — KL-42 blocked by existing worktree at <path>', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const originalLog = console.log;
+    const captured = [];
+    console.log = (...args) => { captured.push(args.join(' ')); };
+    try {
+      await dispatchTrigger(baseEvent, {}, {
+        getProviderFn: () => makeFakeProvider(gsdTask()),
+        launchWorkItemFn: async () => launchWorkItemResult,
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: () => ({ acquired: true }),
+        releaseGsdLockFn: () => {},
+        resolveProjectPathFn: () => '/tmp/test-repo',
+        existsSyncFn: () => true,
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    const collisionLine = captured.find((l) => l.includes('worktree_collision'));
+    assert.ok(collisionLine, 'must emit a worktree_collision stderr line');
+    assert.match(
+      collisionLine,
+      /^\[kodo:dispatch\] worktree_collision — KL-42 blocked by existing worktree at \/tmp\/test-repo\/\.bg-shell\/[a-f0-9-]+$/,
+      `canonical stderr shape mismatch — got: ${collisionLine}`,
+    );
+  });
+
+  it('Test 8 — graceful: when resolveProjectPathFn throws, collision check is skipped (heredado v0.5)', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    let launchCalled = false;
+    let existsSyncCalled = false;
+    // resolveProjectPath throws → dispatchProjectPath null → skip collision check
+    // → flow continues; launchWorkItem will fail later with its own error.
+    await assert.rejects(
+      () => dispatchTrigger(baseEvent, {}, {
+        getProviderFn: () => makeFakeProvider(nonGsdTask()),
+        launchWorkItemFn: async () => { launchCalled = true; throw new Error('downstream launch error'); },
+        listSessionsFn: () => [],
+        listWorkspacesFn: async () => '',
+        removeSessionFn: () => {},
+        acquireGsdLockFn: () => ({ acquired: true }),
+        releaseGsdLockFn: () => {},
+        resolveProjectPathFn: () => { throw new Error('no path mapped'); },
+        existsSyncFn: () => { existsSyncCalled = true; return true; },
+      }),
+      /downstream launch error/,
+    );
+    assert.equal(existsSyncCalled, false, 'existsSyncFn must NOT be called when resolveProjectPath throws');
+    assert.equal(launchCalled, true, 'flow must continue to launchWorkItem (which fails with its own error)');
+  });
+});
