@@ -41,8 +41,8 @@ function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('LOG-09: logger-events taxonomy (8 helpers)', () => {
-  it('EVENTS is frozen and contains the 8 canonical types', () => {
+describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup)', () => {
+  it('EVENTS is frozen and contains the 11 canonical types', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -54,6 +54,9 @@ describe('LOG-09: logger-events taxonomy (8 helpers)', () => {
       'session.end',
       'session.start',
       'state.transition',
+      'worktree.cleanup.dirty',
+      'worktree.cleanup.error',
+      'worktree.cleanup.ok',
     ]);
   });
 
