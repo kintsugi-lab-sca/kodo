@@ -211,7 +211,7 @@ export async function runStopHook(input, deps = {}) {
     // releaseGsdLock (D-07) y branch se lee ANTES de worktree remove (D-08).
     if (session.worktree_path) {
       try {
-        const { existsSync, renameSync } = await import('node:fs');
+        const { lstatSync, renameSync } = await import('node:fs');
         const {
           worktreeCleanupOk,
           worktreeCleanupDirty,
@@ -293,12 +293,24 @@ export async function runStopHook(input, deps = {}) {
           }
         } else if (isDirty === true) {
           // 3b. DIRTY path: move-aside to <wt>.dirty (D-02); branch PRESERVADA.
-          // Pitfall #1 mitigation: pre-check con existsSync — si el target canónico
-          // ya existe, generar variante `<wt>.dirty-<timestamp>` para no acabar
-          // metiendo el worktree DENTRO del directorio colisionante.
+          // Pitfall #1 mitigation (Phase 19 CR-03): lstatSync en try/catch detecta
+          // archivos regulares, dirs, symlinks vivos Y symlinks colgantes (la versión
+          // previa seguía symlinks y devolvía false → evadía la pre-check). Solo
+          // ENOENT mantiene el target canónico; cualquier otro error o stat exitoso
+          // fuerza la variante suffixed para evitar que `git worktree move` falle
+          // confusamente.
           let target = `${wt}.dirty`;
-          if (existsSync(target)) {
+          try {
+            lstatSync(target);
+            // Target existe como cualquier cosa (file, dir, symlink vivo o colgante)
+            // → forzar variante con timestamp.
             target = `${wt}.dirty-${Date.now()}`;
+          } catch (err) {
+            if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
+              // EACCES, ELOOP u otro: defensivo, no asumimos libre.
+              target = `${wt}.dirty-${Date.now()}`;
+            }
+            // ENOENT: target libre, mantener `<wt>.dirty` canónico.
           }
           let moveOk = false;
           let moveErrMsg = null;
