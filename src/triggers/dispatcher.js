@@ -341,6 +341,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         // fresh sin validar colisión — rompería el contrato D-05.
         // Misma idiom que el path "Launch" (línea 377).
         ...(dispatchSessionId ? { sessionId: dispatchSessionId } : {}),
+        // Phase 18 WR-01 fix: thread projectPath ya resuelto para evitar
+        // double-resolution y cerrar la ventana de inconsistencia con el
+        // path validado por collision-check.
+        ...(dispatchProjectPath ? { projectPath: dispatchProjectPath } : {}),
         // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
         // record persists them for the hook SessionStart to render.
         ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),
@@ -380,6 +384,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       // usa verbatim. Garantiza que la UUID del worktree path == sessionId
       // del lock file (CR-01 + WT-01/WT-03 invariants).
       ...(dispatchSessionId ? { sessionId: dispatchSessionId } : {}),
+      // Phase 18 WR-01 fix: thread projectPath ya resuelto para evitar
+      // double-resolution y cerrar la ventana de inconsistencia con el
+      // path validado por collision-check.
+      ...(dispatchProjectPath ? { projectPath: dispatchProjectPath } : {}),
       // Phase 9: thread phase_id (match) or brief (bootstrap) so Session
       // record persists them for the hook SessionStart to render.
       ...(gsdPhaseId ? { phase_id: gsdPhaseId } : {}),

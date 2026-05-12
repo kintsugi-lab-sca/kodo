@@ -151,6 +151,13 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
  *   model?: string|null,
  *   flags?: string[],
  *   sessionId?: string,
+ *   projectPath?: string, // Phase 18 WR-01: dispatcher-resolved path threaded
+ *                         //                  para evitar double-resolution.
+ *                         //                  Cuando presente, salta el
+ *                         //                  resolveProjectPath interno —
+ *                         //                  garantiza consistencia con el
+ *                         //                  path validado por collision-check
+ *                         //                  (existsSyncFn).
  *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
  *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
  * }} [opts]
@@ -179,12 +186,19 @@ export async function launchWorkItem(identifier, opts = {}) {
   const projects = loadProjects();
   const {
     task,
-    projectPath,
+    projectPath: resolvedProjectPath,
     moduleName,
     description,
     model: labelModel,
     flags: labelFlags,
   } = await resolveTaskAndLaunchContext({ provider, identifier, projects });
+  // Phase 18 WR-01: prefer dispatcher-resolved path when present — el
+  // dispatcher ya lo computó para el collision-check, threadearlo aquí
+  // evita re-leer ~/.kodo/projects.json y elimina la ventana donde el
+  // config humano podría editarse entre check y launch (path validado
+  // ≠ path usado). Fallback al resolver interno cuando no hay opts —
+  // backward-compat para callers no-dispatcher (kodo launch CLI directo).
+  const projectPath = opts.projectPath || resolvedProjectPath;
 
   // Create cmux workspace
   // Move task to "In Progress" in the provider
