@@ -89,6 +89,48 @@ describe('stop.js source hygiene', () => {
       'case "quick" block must NOT contain `kodo gsd verify` (CLI does not support quick mode)',
     );
   });
+
+  it('Phase 19 D-07: worktree cleanup happens AFTER releaseGsdLock', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    const lockIdx = source.indexOf('releaseGsdLock(session.project_path');
+    assert.ok(lockIdx > 0, 'must find releaseGsdLock call site');
+    // Cleanup marker: el helper canónico `worktreeCleanupOk` se invoca en la
+    // rama CLEAN del cleanup block. Si alguien reordena y cleanup queda antes
+    // de releaseGsdLock, este test falla.
+    const cleanupIdx = source.indexOf('worktreeCleanupOk');
+    assert.ok(cleanupIdx > 0, 'must find worktree cleanup block (worktreeCleanupOk)');
+    assert.ok(
+      lockIdx < cleanupIdx,
+      'cleanup must come AFTER releaseGsdLock (Phase 19 D-07)',
+    );
+  });
+
+  it('Phase 19 D-08 / Pitfall #2: branch --show-current is read BEFORE worktree remove', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    const showCurrentIdx = source.indexOf("'--show-current'");
+    // worktree remove se invoca como array literal: ['worktree', 'remove', ...].
+    const removeMatches = [];
+    const re = /'worktree',\s*'remove'/g;
+    let m;
+    while ((m = re.exec(source)) !== null) removeMatches.push(m.index);
+    const removeIdx = removeMatches[0] ?? -1;
+    assert.ok(showCurrentIdx > 0, 'must reference branch --show-current');
+    assert.ok(removeIdx > 0, 'must reference worktree remove');
+    assert.ok(
+      showCurrentIdx < removeIdx,
+      'branch --show-current must precede worktree remove (Pitfall #2 / D-08)',
+    );
+  });
+
+  it('Phase 19 D-05 (WT-05 satisfied-by-design): handleOrchestratorStop preserves cwd: KODO_ROOT', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    const match = source.match(/async function handleOrchestratorStop[\s\S]*?\n}/);
+    assert.ok(match, 'must find handleOrchestratorStop function');
+    assert.ok(
+      match[0].includes('cwd: KODO_ROOT'),
+      'handleOrchestratorStop must preserve cwd: KODO_ROOT (Phase 19 D-05; auto-commit excluded from worktree per Phase 18 D-06)',
+    );
+  });
 });
 
 describe('QUICK-08 — buildStopNudgeText switch', () => {
