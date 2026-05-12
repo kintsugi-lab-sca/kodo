@@ -4,8 +4,8 @@ milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
 status: executing
 stopped_at: Phase 19 context gathered
-last_updated: "2026-05-12T11:16:08.961Z"
-last_activity: 2026-05-12 -- Phase 19 planning complete
+last_updated: "2026-05-12T11:18:09.419Z"
+last_activity: 2026-05-12 -- Phase 19 execution started
 progress:
   total_phases: 5
   completed_phases: 1
@@ -26,14 +26,14 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Phase 18 — worktree-runtime-wiring
+**Current focus:** Phase 19 — worktree-cleanup-integration
 
 ## Current Position
 
-Phase: 19
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-12 -- Phase 19 planning complete
+Phase: 19 (worktree-cleanup-integration) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 19
+Last activity: 2026-05-12 -- Phase 19 execution started
 
 ## Phases (v0.6)
 
