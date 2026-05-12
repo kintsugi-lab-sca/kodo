@@ -787,27 +787,27 @@ JSDoc update:
 | A4 | El planner añadirá test E2E con `git init` local (mismo patrón que `test/skill-auto-commit.test.js`) | Architecture Patterns + Validation Architecture | Si el planner prefiere mocks puros (`gitFn` stub) sin git real, perdemos cobertura de los pitfalls observados empíricamente. Recomendación fuerte: HÍBRIDO — unit tests con `gitFn` stub para flow logic + 1 E2E test con git real para validar la integración. |
 | A5 | `commit_docs: true` en `.planning/config.json` significa que RESEARCH.md va al commit del researcher | Step 7 del execution flow del agente | Confirmado: `.planning/config.json:5` muestra `"commit_docs": true`. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿El planner debería factorizar el cleanup block en un módulo separado (`src/hooks/worktree-cleanup.js`) o mantenerlo inline en `stop.js`?**
    - What we know: Phase 18 Plan 18-01 estableció precedent de factorizar `computeWorktreePath` a `state.js` por reusabilidad. Pero `stop.js` ya tiene `handleOrchestratorStop` inline (50 líneas) sin factorizar.
    - What's unclear: Si el cleanup block crece >40 líneas, factorizar mejora legibilidad de `runStopHook`; si ≤40, inline es coherente con `handleOrchestratorStop`.
-   - Recommendation: Mantener inline en Plan 02; el planner puede revisar tras escribir el RED test si parece desproporcionado.
+   - RESOLVED: Mantener inline en Plan 02; el planner puede revisar tras escribir el RED test si parece desproporcionado.
 
 2. **¿`git worktree move` sobre dirty necesita `--force` en algunas versiones de git?**
    - What we know: Empíricamente git 2.51.2 acepta `move` sobre dirty sin `--force`.
    - What's unclear: Git docs históricas (~2.20) sugerían que `move` requería `--force` para dirty, pero los release notes de git 2.30+ no mencionan el cambio explícitamente.
-   - Recommendation: NO usar `--force` por defecto. El fallback D-02 (`mv + repair`) cubre el case si una versión vieja rechaza.
+   - RESOLVED: NO usar `--force` por defecto. El fallback D-02 (`mv + repair`) cubre el case si una versión vieja rechaza.
 
 3. **¿Hay riesgo de cmux retener handles en archivos del worktree post-stop?**
    - What we know: cmux abre un shell en el cwd del workspace. Phase 18 D-04 fija `cwd: projectPath` (repo principal), no el worktree, así que cmux NO debería retener handles en el worktree.
    - What's unclear: ¿El claude --worktree process abre handles que sobreviven al stop signal? Empíricamente no he podido testar (no hay claude binary disponible para spawn).
-   - Recommendation: Pitfall #4 documenta el case y el catch fail-open lo absorbe. Si `EBUSY` se vuelve frecuente en prod, deuda observable.
+   - RESOLVED: Pitfall #4 documenta el case y el catch fail-open lo absorbe. Si `EBUSY` se vuelve frecuente en prod, deuda observable.
 
 4. **¿El nudge enriquecido (D-10 Claude's Discretion: inyectar `moved_to` path en el orchestrator nudge) requiere skill.md update?**
    - What we know: skill.md líneas 99-110 describen el nudge actual. Si el planner añade info de `moved_to`, el orchestrator NECESITA saber interpretarlo.
    - What's unclear: ¿El planner va a meterse en este nice-to-have o lo deja deferido?
-   - Recommendation: Recomiendo DEFERIR (deferred ideas de CONTEXT.md ya lo marcaron). Si el planner decide implementarlo, debe incluir update de skill.md como parte del plan.
+   - RESOLVED: DEFERIR (deferred ideas de CONTEXT.md ya lo marcaron). Si el planner decide implementarlo, debe incluir update de skill.md como parte del plan.
 
 ## Environment Availability
 

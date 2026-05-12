@@ -103,7 +103,13 @@ Plans:
   1. Tras stop hook, `git worktree list` ya no incluye el worktree de la sesión cerrada cuando el tree está limpio; si quedan cambios sin commitear, el worktree persiste y se emite un `log warn` (no se borra silenciosamente).
   2. `auto-commit` de `kodo-orchestrate` produce commits dentro del worktree de la sesión (no en el repo principal), y `KODO_ROOT` env override sigue permitiendo apuntar a un tmpdir aislado para tests (compat Phase 999.1 D-16).
   3. `kodo gsd verify <session-id>` localiza `VERIFICATION.md` en el worktree de la sesión y produce los mismos exit codes deterministas + bytes de comentario Plane (Pitfall #6 Opción A invariante).
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+**Wave 1**
+- [ ] 19-01-PLAN.md — Extender `EVENTS` frozen object + 3 helpers NDJSON `worktreeCleanupOk/Dirty/Error` en `src/logger-events.js` (scaffolding D-10 para WT-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 19-02-PLAN.md — Cleanup fail-open en `stop.js` tras `releaseGsdLock` (D-01..D-04, D-07..D-09) + `verify.js` lee `worktree_path ?? project_path` (D-06) + 3 source-hygiene asserts D-05/D-07/D-08 (WT-04 + WT-05 satisfied-by-design + WT-06)
 
 ### Phase 20: HOOK-01 Universal Anti-Push-Fantasma
 **Goal**: Toda sesión (GSD full, GSD quick, no-GSD) recibe el recordatorio explícito de que kodo NO hace push automático, sin alterar los golden bytes de las tags `[GSD quick]` / `[GSD phase N]` / `[GSD bootstrap]`.
@@ -165,10 +171,10 @@ Plans:
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete | 2026-05-10 |
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 19. Worktree Cleanup & Integration | v0.6 | 0/0 | Not started | — |
+| 19. Worktree Cleanup & Integration | v0.6 | 0/2 | Planned     | — |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/0 | Not started | — |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
 ---
-*Last updated: 2026-05-12 — Phase 18 planning complete (3 plans, waves 1-3, 100% requirement coverage WT-01/02/03). Phases 19-22 plans TBD.*
+*Last updated: 2026-05-12 — Phase 19 planning complete (2 plans, waves 1-2, 100% requirement coverage WT-04/05/06). Phases 20-22 plans TBD.*
