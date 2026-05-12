@@ -186,7 +186,21 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   }
   if (dispatchSessionId && dispatchProjectPath) {
     const worktreePath = computeWorktreePath(dispatchProjectPath, dispatchSessionId);
-    if (existsSyncFn(worktreePath)) {
+    // WR-04 (review): existsSync devuelve `false` ante TODO error
+    // (EACCES, ENOTDIR, EIO, FUSE disconnect) — false-negative silencioso.
+    // Si el directorio no puede verificarse, procedemos al launch (el path
+    // determinístico con UUID v4 hace que la colisión real sea ~imposible);
+    // logueamos el probe failure para forensic post-mortem si claude
+    // --worktree falla luego con un error opaco.
+    let pathExists = false;
+    try {
+      pathExists = existsSyncFn(worktreePath);
+    } catch (probeErr) {
+      console.log(`[kodo:dispatch] worktree_probe_failed — ${task.ref}: ${probeErr.message}`);
+      // pathExists stays false — proceed to launch. Si existe-pero-no-podemos-leer,
+      // claude --worktree fallará con su propio error de filesystem.
+    }
+    if (pathExists) {
       // Release lock if GSD acquired one (no leak — Phase 8 D-09 idempotent)
       if (gsdSessionId && gsdProjectPath) {
         try {
