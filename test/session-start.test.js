@@ -141,8 +141,11 @@ describe('HOOK-01 — anti-push reminder, no-GSD ES', () => {
     const block = ctx.slice(ctx.lastIndexOf(HEADER));
     // Sólo verificamos el slice del bloque HOOK-01 — el resto del prompt ES
     // contiene emojis legítimos (✅/📁/⚠️/🔍) en la sección "Comentario final".
+    // Cubre rangos Unicode comunes de emojis: Miscellaneous Symbols (2600-26FF),
+    // Dingbats (2700-27BF) — incluye ✅/⚠/✓ — y Misc Symbols & Pictographs +
+    // Supplemental Symbols & Pictographs (1F300-1FAFF) que cubre 📁/🔍/etc.
     assert.ok(
-      !/[\u{1F300}-\u{1FAFF}]/u.test(block),
+      !/[\u{2600}-\u{27BF}\u{1F300}-\u{1FAFF}]/u.test(block),
       'HOOK-01 block must not contain emojis (D-02b)',
     );
     // ESC (\x1B) inicia secuencias ANSI; el bloque es markdown plano.

@@ -183,4 +183,18 @@ describe('HOOK-01 — anti-push reminder, GSD EN', () => {
     const b = buildGsdContext(session);
     assert.equal(a, b);
   });
+
+  it('HOOK-01 D-02b: bloque EN sin emojis ni códigos ANSI escape', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: '08' }));
+    const block = ctx.slice(ctx.lastIndexOf(HEADER));
+    // Cubre rangos Unicode comunes de emojis: Miscellaneous Symbols (2600-26FF),
+    // Dingbats (2700-27BF) — incluye ✅/⚠/✓ — y Misc Symbols & Pictographs +
+    // Supplemental Symbols & Pictographs (1F300-1FAFF).
+    assert.ok(
+      !/[\u{2600}-\u{27BF}\u{1F300}-\u{1FAFF}]/u.test(block),
+      'HOOK-01 EN block must not contain emojis (D-02b)',
+    );
+    // eslint-disable-next-line no-control-regex
+    assert.ok(!/\x1B\[/.test(block), 'HOOK-01 EN block must not contain ANSI escape sequences (D-02b)');
+  });
 });
