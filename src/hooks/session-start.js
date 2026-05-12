@@ -26,6 +26,8 @@ export function buildSessionContext(session, config) {
   const mcpHint = providerCfg.mcp_hint || `MCP de ${providerName}`;
   const reviewState = providerCfg.states?.review || 'In Review';
 
+  // Phase 20 HOOK-01 (no-GSD ES): bloque "Anti-push-fantasma" al FINAL del array preserva
+  // golden bytes anteriores (HOOK-02 satisfied-by-construction).
   return [
     `# kodo ${session.task_ref}`,
     '',
@@ -64,6 +66,16 @@ export function buildSessionContext(session, config) {
     '- Has dejado constancia clara de lo hecho en el comentario final',
     '',
     'Si no puedes terminar (falta info, hay blocker, requiere decisión humana): comenta el estado actual con detalle, **no muevas a revisión**, y cierra con `/exit`. La tarea quedará visible en el dashboard para que el humano intervenga.',
+    '',
+    '## Anti-push-fantasma',
+    '',
+    'kodo NO hace `git push` automático. Antes de afirmar deploy, publicación o cambios remotos, verifica con `git push` real, o redacta la afirmación en condicional ("una vez se haga push…").',
+    '',
+    'Ejemplos:',
+    '- Bad: "Feature publicada en producción."',
+    '- Good: "Feature commiteada localmente, pendiente de `git push` al remoto."',
+    '- Bad: "Deploy hecho."',
+    '- Good: "Deploy quedará efectivo una vez se haga `git push origin main`."',
   ].join('\n');
 }
 
