@@ -1,133 +1,113 @@
 ---
 phase: 19-worktree-cleanup-integration
-reviewed: 2026-05-12T13:35:00Z
+reviewed: 2026-05-12T17:24:00Z
 depth: standard
-files_reviewed: 7
+files_reviewed: 8
 files_reviewed_list:
-  - src/logger-events.js
-  - src/hooks/stop.js
   - src/gsd/verify.js
-  - test/logger-events.test.js
-  - test/stop-worktree-cleanup.test.js
+  - src/hooks/stop.js
+  - src/logger-events.js
   - test/gsd-verify-integration.test.js
+  - test/logger-events.test.js
+  - test/stop-state-transition.test.js
+  - test/stop-worktree-cleanup.test.js
   - test/stop.test.js
 findings:
-  critical: 3
-  warning: 6
-  info: 4
-  total: 13
+  blocker: 0
+  warning: 5
+  total: 5
 status: issues_found
 ---
 
-# Phase 19: Code Review Report
+# Phase 19: Code Review Report (post Wave 3)
 
-**Reviewed:** 2026-05-12T13:35:00Z
+**Reviewed:** 2026-05-12T17:24:00Z
 **Depth:** standard
-**Files Reviewed:** 7
-**Status:** issues_found
+**Files Reviewed:** 8
+**Status:** issues_found (warnings only — no blockers)
 
 ## Summary
 
-Phase 19 cablea el worktree cleanup fail-open dentro de `stop.js` (WT-04), reapunta `verify.js` para leer `VERIFICATION.md` desde el worktree con fallback a `project_path` (WT-06) y extiende `logger-events.js` con 3 helpers NDJSON (`worktree.cleanup.{ok,dirty,error}`).
+Wave 3 (plan 19-03) cierra correctamente las dos brechas detectadas en la primera pasada de code review:
 
-El review revela **3 bugs BLOCKER** en el orden de operaciones del stop hook que rompen el contrato WT-06 end-to-end, **6 WARNING** en robustez/contrato del cleanup y verify, y **4 INFO** sobre brittleness en tests. La taxonomía de eventos y los helpers en `logger-events.js` están limpios — la deuda se concentra en `stop.js` y `verify.js`.
+- **CR-02 (markSessionStatus solo dentro de `if (session.gsd)`)** — FIXED.
+  `src/hooks/stop.js:152-176` reubica el mark fuera del `if (session.gsd)` que envuelve `releaseGsdLock`. El error de mark se diagnostica vía `console.error` en lugar de `catch {}` silencioso (WR-03 del plan 19-03 cumplido). El reason canónico ya es `'session-stop'` (sin sufijo `:lock-released`). El source-hygiene test `Phase 19 CR-02` cierra el invariante por regex y verifica que la cadena antigua desaparece.
+- **CR-03 (`existsSync` seguía symlinks)** — FIXED.
+  `src/hooks/stop.js:302-314` reemplaza `existsSync(target)` por `lstatSync(target)` dentro de try/catch que discrimina `ENOENT`. Cualquier stat exitoso (file, dir, symlink vivo o colgante) o error distinto de ENOENT fuerza la variante suffixed. Los dos tests nuevos (`DANGLING SYMLINK`, `REGULAR FILE`) en `test/stop-worktree-cleanup.test.js:235-316` ejercitan los escenarios exactos que la versión existsSync no cubría. El source-hygiene test `Phase 19 CR-03` impide regresión.
 
-Los problemas críticos son arquitecturales: el cleanup destruye el worktree (y la sesión del state) ANTES de que el nudge al orquestador permita ejecutar `kodo gsd verify <session-id>`. La promesa WT-06 ("verify lee del worktree") sólo se sostiene en el flujo `/gsd-verify-work` invocado por el agente DENTRO de la sesión, no en el flujo orchestrator-led que el propio nudge sugiere.
+CR-01 (orden cleanup/removeSession vs orchestrator-led verify) está formalmente deferido a Phase 21+ vía override D-07 documentado en VERIFICATION.md (no se re-flagea aquí, según consigna).
 
-## Critical Issues
+Riesgos NUEVOS introducidos por Wave 3: ninguno con severidad blocker. Sí hay un puñado de warnings —principalmente en torno a logger instancing duplicado, redundancia tras el relocate de CR-02, y matices de fail-open en la pre-check de lstat— que conviene cerrar como tech debt menor (no bloqueante para shipping).
 
-### CR-01: Cleanup destruye el worktree antes de que el orquestador pueda invocar `kodo gsd verify` → WT-06 roto
+## Blockers
 
-**File:** `src/hooks/stop.js:217-356` (cleanup) vs `src/hooks/stop.js:362-371` (nudge) vs `src/gsd/verify.js:133` (phasesRoot)
+(ninguno)
+
+## Warnings
+
+### WR-01: Logger creado dos veces por sesión cuando hay worktree_path
+
+**Archivo:** `src/hooks/stop.js:159-167` y `src/hooks/stop.js:220-228`
+**Severidad:** Warning
 **Issue:**
-El orden en `runStopHook` es: (1) `markSessionStatus('done')` → (2) `releaseGsdLock` → (3) `worktree cleanup` (línea 217-356) → (4) `removeSessionFn(id)` (línea 358) → (5) notificar al orquestador con texto que sugiere `kodo gsd verify <session-id>` (línea 362-371). El texto del nudge para sesiones GSD `full` (definido en `buildStopNudgeText`, línea 50) dice literalmente: `Ejecuta \`kodo gsd verify ${session.session_id}\``.
+El bloque CR-02 instancia un logger (`log`) líneas 159-167 para `markSessionStatus` y `sessionEnd`. Más abajo, el bloque worktree cleanup vuelve a instanciar otro logger (`cleanupLog`) líneas 220-228 con exactamente la misma factoría y bindings (`{session_id, task_id}`). En producción, esto:
 
-Pero cuando el orquestador ejecuta ese comando:
-1. `verify.js:106` llama `findSessionFn({sessionId})` que invoca `findSession` de `src/session/state.js:180`. `findSession` solo busca en `state.sessions`, **NO** en `state.history`. La sesión fue movida a `history` por `removeSession` (línea 358 de stop.js → `src/session/state.js:127-141`), así que `findSession` devuelve `null` y `verify.js:107` lanza `"session not found: <sessionId>"`.
-2. Incluso si la sesión fuera recuperable, `verify.js:133` resuelve `phasesRoot = session.worktree_path ?? session.project_path`. El cleanup ya eliminó (clean path) o movió a `.dirty` (dirty path) el worktree. `existsFn(phasesRoot)` → false → verdict `'missing'`. El comentario en Plane diría "VERIFICATION.md no encontrado" aunque la fase esté completa.
+1. Llama a `createLogger(...)` dos veces para la misma sesión → dos cadenas `.child(...)` independientes → potencial duplicación de file descriptors NDJSON si el sink no es perezoso.
+2. Hace la lectura del código confusa: a primera vista parece que `cleanupLog` necesita un binding diferente, pero los argumentos a `loggerFactory` son idénticos.
+3. Rompe ligeramente con el comment del propio archivo (línea 156: "El logger se construye UNA sola vez y se comparte entre markSessionStatus + sessionEnd").
 
-Esto es un **doble fallo en cadena**: sin la sesión en `state.sessions` el verify ni siquiera arranca; con la sesión recuperable, el worktree ya no existe. WT-06 sólo funciona cuando `/gsd-verify-work` se ejecuta DENTRO de la sesión Claude Code antes del stop hook — el camino orchestrator-led que el propio nudge anuncia está roto.
+**Fix:** Reutilizar `log` para los eventos `worktreeCleanup*`. Reemplazar el segundo bloque por `const cleanupLog = log;` o, mejor, eliminar la variable y usar `log` directamente. Si la separación importa para tener un `component` distinto, hacerlo explícito con `log.child({ component: 'worktree' })` en una sola línea — no re-instanciar la cadena entera.
 
-**Fix:** Reordenar o desacoplar. Tres opciones:
-
-```javascript
-// Opción A: cleanup DESPUÉS del nudge al orquestador
-// Mueve líneas 210-356 (cleanup block) a DESPUÉS del bloque "Notify orchestrator"
-// (líneas 362-371). El orquestador recibe el nudge mientras el worktree y la
-// sesión aún viven; cuando el orquestador invoca verify, todo está intacto.
-// Riesgo: el cleanup compite con otra invocación de Claude Code dentro del wt.
-// Mitigación: el agente ya terminó (stop hook), nadie escribe al wt.
-
-// Opción B: verify lee de history como fallback
-// src/session/state.js findSession() — buscar también en state.history cuando
-// no haya match en state.sessions. Y mover el cleanup A UN STOP-DELAYED job
-// (cmux notification que dispara cleanup tras N segundos).
-
-// Opción C (más simple, recomendada): no eliminar el worktree clean en stop hook
-// Phase 19 D-04 dice "prune oportunista al final". Cambiar la semántica: stop
-// hook NUNCA elimina worktree; solo emite worktree.cleanup.* metadata. El
-// orquestador (post-verify) decide cuándo borrar. Esto preserva WT-06 sin
-// reordenar, a costa de basura en disco hasta el next prune.
-```
-
-El test `test/stop-worktree-cleanup.test.js` E2E CLEAN (líneas 262-280) confirma que el worktree y la rama se borran inmediatamente — el contrato actual está en flagrante contradicción con el flujo orchestrator-led que documenta el ROADMAP.
-
----
-
-### CR-02: `runStopHook` puede ejecutar `markSessionStatus` y `removeSession` sin que la sesión esté ya cerrada en estado terminal — race condition con cleanup
-
-**File:** `src/hooks/stop.js:186-208` (markSessionStatus 'done' + releaseGsdLock) vs `src/hooks/stop.js:358` (removeSession)
-**Issue:**
-La línea 197 hace `markSessionStatus(session.task_id, 'done', 'session-stop:lock-released', log)`. Pero esto está dentro del bloque `if (session.gsd)` (línea 179). Para sesiones **no-GSD**, no se marca `done` antes de `removeSessionFn(id)` (línea 358). La sesión se archiva a history con el `status` previo (`review` según el fixture), NO con `done`. El logger nunca emite `state.transition` con `to:'done'` para sesiones no-GSD; sin embargo el `sessionEnd` helper (línea 168-173) emite con `status: session.status` que es el status PRE-removal (`review` u otro), no `done`.
-
-Esto significa que `session.end` para sesiones no-GSD emite `status: 'review'` (o cualquier valor previo) en lugar del estado terminal real. El consumer downstream (e.g. analytics que cuente sesiones completadas) verá `status: 'review'` para sesiones que efectivamente terminaron. Hay inconsistencia entre el observable `session.end` y la realidad (sesión archivada).
-
-Adicional: si el branch `if (session.gsd)` lanza después de `markSessionStatus` pero antes de `releaseGsdLock`, la sesión queda con `status: 'done'` pero el lock sigue tomado (el catch defensivo en línea 205-207 sólo loguea). Race aceptable porque `releaseGsdLock` es idempotente, pero merece un test que cubra el caso.
-
-**Fix:**
-```javascript
-// Mover markSessionStatus FUERA del if (session.gsd) para que todas las sesiones
-// transiten a 'done' antes de session.end y removeSession:
-try {
-  const log = buildLog(session, deps);
-  const { markSessionStatus } = await import('../session/manager.js');
-  markSessionStatus(session.task_id, 'done', 'session-stop', log);
-} catch { /* silent — never block stop hook */ }
-
-// Luego emitir session.end con el status YA actualizado:
-sessionEnd(log, {
-  session_id: session.session_id,
-  task_id: session.task_id,
-  status: 'done',  // o leer session.status freshly tras markSessionStatus
-  ended_at: new Date().toISOString(),
-});
+```js
+// Reemplazar 220-228 por:
+const cleanupLog = log; // o: const cleanupLog = log.child({ component: 'worktree' });
 ```
 
 ---
 
-### CR-03: `worktree move` con path absoluto + `-C <project>` puede fallar — el target relativo no se computa contra el CWD esperado
+### WR-02: Comentario obsoleto contradice el nuevo orden tras CR-02
 
-**File:** `src/hooks/stop.js:311`
+**Archivo:** `src/hooks/stop.js:193-195`
+**Severidad:** Warning
 **Issue:**
-Línea 311 invoca `gitFn(project, ['worktree', 'move', wt, target])`. El default `gitFn` (línea 105-108) lo expande a `git -C <project> worktree move <wt> <target>`. `wt` y `target` son ambos absolutos (porque `target = \`${wt}.dirty\``, línea 304), así que git debería resolverlos correctamente.
+El comentario dice: *"Phase 19 CR-02: markSessionStatus ya corrió ANTES de este bloque para todas las sesiones; aquí solo queda el lock release para sesiones GSD."* Correcto. Pero el comentario inmediatamente anterior (líneas 178-180) afirma: *"Emit typed session.end event BEFORE removeSession so the logger captures the transition while the session record still exists."* — eso ya no aplica porque `state.transition` se emite vía `markSessionStatus` 14 líneas más arriba, NO por `sessionEnd`. `sessionEnd` solo emite el evento `session.end` (no `state.transition`).
 
-Pero hay un caso patológico no cubierto: si `target` ya existe y NO es un directorio vacío (e.g. existsync devolvió true pero es un archivo regular o tiene contenido residual de una corrida anterior), git `worktree move` **fallará** con un error específico. El código maneja eso entrando al fallback de `renameSync + git worktree repair` (línea 318-319). Pero `renameSync` falla en POSIX si el destination existe como directorio no-vacío (ENOTEMPTY), y el catch externo simplemente emite `worktree.cleanup.error{phase:'move'}` y abandona. El worktree dirty se queda **en su sitio original**, accesible al usuario para inspección.
+Es código que funciona pero el comentario engaña al próximo reviewer. Tras el relocate de CR-02, la única razón para emitir `sessionEnd` antes de `removeSessionFn` es preservar la invariante observable de "session.end emitido mientras la sesión todavía existe en state.json"; el motivo `state.transition` ya no aplica.
 
-El problema real es que `existsSync(target)` (línea 305) **NO distingue entre `.dirty` que sea un worktree previo vs un archivo regular vs un symlink roto**. El reemplazo `target = \`${wt}.dirty-${Date.now()}\`` (línea 306) sólo dispara cuando existe; pero si `target` es un symlink colgante (e.g. apuntando a un worktree borrado), `existsSync` devolverá false (Node `fs.existsSync` sigue symlinks), `worktree move` intentará escribir, y fallará confusamente.
+**Fix:** Actualizar el comentario en 178-180 para clarificar que `sessionEnd` solo emite `session.end` (la transición ya ocurrió arriba). Por ejemplo:
 
-**Fix:**
-```javascript
-// Usar lstatSync para detectar symlinks y archivos no-directorio:
-import { lstatSync } from 'node:fs';
-let target = `${wt}.dirty`;
-try {
-  const stat = lstatSync(target);
-  // Existe (regular file, dir, symlink): siempre forzar variante con timestamp
-  target = `${wt}.dirty-${Date.now()}`;
+```js
+// Emit typed session.end event BEFORE removeSession. La transición a 'done'
+// ya se emitió arriba vía markSessionStatus; aquí solo cerramos el ciclo
+// observable con el evento session.end mientras el registro aún existe.
+// Silent-failure: never crash Claude Code stop hook.
+```
+
+---
+
+### WR-03: `lstatSync` ENOENT-vs-error path no distingue EACCES como "libre"
+
+**Archivo:** `src/hooks/stop.js:302-314`
+**Severidad:** Warning
+**Issue:**
+La pre-check actual hace `lstatSync(target)` en try/catch. Política implementada:
+- Stat éxito → asume colisión → variante suffixed.
+- `ENOENT` → asume libre → mantiene `<wt>.dirty`.
+- Cualquier otro error (EACCES, ELOOP, EIO, …) → variante suffixed (defensivo).
+
+El comentario (línea 310) lo enmarca como "defensivo, no asumimos libre" — coherente. Pero EACCES en un pre-check NO necesariamente significa "el target existe": puede significar "no podemos leerlo". Mantener `<wt>.dirty` como target probablemente fallaría igualmente en el `git worktree move` posterior; promover a suffixed es defensivo pero podría producir un `cleanup.dirty.moved_to` con sufijo timestamp cuando en realidad el target canónico era libre.
+
+No es un bug correcto/incorrecto — es una decisión de tradeoff que vale la pena documentar explícitamente. La política actual prioriza "nunca fallar move" sobre "preservar nombre canónico", lo que está alineado con D-02 (fail-open), pero el comentario no lo dice.
+
+**Fix:** Ajustar el comentario para nombrar el tradeoff. Opcional: emitir un `console.error` cuando se cae a la rama suffixed por error distinto de ENOENT, para diagnóstico (state mutation oculta sin observability es la misma crítica que motivó WR-03 del plan 19-03):
+
+```js
 } catch (err) {
-  // ENOENT: target libre, OK seguir con `${wt}.dirty`
-  if (err.code !== 'ENOENT') {
-    // EACCES u otro: ir directamente al fallback timestamp
+  const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+  if (code !== 'ENOENT') {
+    // EACCES, ELOOP u otro: tradeoff explícito — preferimos perder el nombre
+    // canónico antes que arriesgar que `git worktree move` falle confusamente.
+    console.error(`[kodo:stop] dirty-target pre-check ${code} on ${target} — falling back to suffixed`);
     target = `${wt}.dirty-${Date.now()}`;
   }
 }
@@ -135,211 +115,105 @@ try {
 
 ---
 
-## Warnings
+### WR-04: `gitFn` por defecto re-importa `node:child_process` en cada invocación
 
-### WR-01: `gitFn` default ignora errores stderr de git — log silenciado en CLEAN path
-
-**File:** `src/hooks/stop.js:105-108`
+**Archivo:** `src/hooks/stop.js:105-108`
+**Severidad:** Warning
 **Issue:**
-El `gitFn` default usa `execFileSync` con `{ encoding: 'utf-8' }` sin `stdio: ['ignore', 'pipe', 'pipe']`. Por defecto `execFileSync` HEREDA stdio del padre cuando se omite, así que stderr de git escapa al stderr del padre. Eso podría ser intencional (visible en logs de Claude Code) pero contamina la salida del hook con mensajes git crípticos. Más importante: cuando git escribe a stderr y exit code != 0, el Error.message contiene a veces sólo "Command failed" sin el stderr capturado.
-
-**Fix:**
-```javascript
+```js
 const gitFn = deps.gitFn || (async (cwd, args) => {
   const { execFileSync } = await import('node:child_process');
-  try {
-    return execFileSync('git', ['-C', cwd, ...args], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
-  } catch (err) {
-    // Surface stderr para diagnósticos
-    err.message = `${err.message} (stderr: ${err.stderr?.toString().trim() || 'none'})`;
-    throw err;
-  }
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' }).trim();
 });
 ```
 
----
+Cada llamada a `gitFn` hace un `await import('node:child_process')`. En el flujo normal (CLEAN path) se invoca 4-5 veces (branch --show-current, status, worktree remove, branch -D, worktree prune). Node cachea el módulo, así que el coste real es bajo, pero:
 
-### WR-02: `existsFn(phasesRoot)` salta el error mapping de `readdirFn` para sesiones con worktree borrado
+1. Cinco awaits innecesarios añaden latencia en un hook que ya está midiendo presión de cierre.
+2. Es asimétrico con el patrón ya usado en el resto del archivo (e.g., `lstatSync`/`renameSync` se importan UNA vez líneas 214 con destructuring).
+3. Si en algún momento alguien sustituye `execFileSync` por `execFile` async, este patrón obliga a propagar el await al import.
 
-**File:** `src/gsd/verify.js:133-186`
-**Issue:**
-Línea 133 hace `phasesRoot = join(session.worktree_path ?? session.project_path, '.planning', 'phases')`. Si `worktree_path` apunta a un directorio borrado, `existsFn(phasesRoot)` devuelve false → verdict `'missing'` (línea 137-138). Pero "missing" es un mensaje de Plane confuso: el VERIFICATION.md PODRÍA existir en `project_path`, sólo que el código miró al worktree primero.
+No afecta corrección. Sí afecta legibilidad y consistencia.
 
-El fallback a `project_path` ES silent (D-09), pero sólo aplica cuando `worktree_path` es `null/undefined`. Si está definido pero apunta a un path inexistente, NO hay fallback. Esto contradice el intent de D-09: "sesiones legacy v0.5 sin `worktree_path` siguen leyendo del project_path silently" — pero las sesiones v0.6+ post-cleanup también pierden el worktree, y deberían tener el mismo fallback.
+**Fix:** Mover el import al top-level del archivo (estático) o, si la lazy-loading es deliberada (evitar cargar `child_process` cuando el hook no toca worktree), hacer el import UNA vez al entrar al bloque worktree cleanup, no en cada llamada:
 
-**Fix:**
-```javascript
-// Resolver phasesRoot con fallback transparente cuando worktree no existe:
-let phasesRoot;
-if (session.worktree_path) {
-  const wtPhases = join(session.worktree_path, '.planning', 'phases');
-  phasesRoot = existsFn(wtPhases) ? wtPhases : join(session.project_path, '.planning', 'phases');
-} else {
-  phasesRoot = join(session.project_path, '.planning', 'phases');
-}
-```
-
-Pero ojo: esto es una curita encima de CR-01. La solución arquitectural real es no destruir el worktree antes del verify.
-
----
-
-### WR-03: `markSessionStatus` post-`releaseGsdLock` puede fallar silenciosamente y dejar state inconsistente
-
-**File:** `src/hooks/stop.js:186-208`
-**Issue:**
-Línea 197 invoca `markSessionStatus(session.task_id, 'done', 'session-stop:lock-released', log)` ANTES de `releaseGsdLock` (línea 204). El try/catch en línea 198-200 silencia cualquier fallo de `markSessionStatus`. Si `markSessionStatus` lanza (e.g. EACCES en state.json), el lock se libera de todos modos. Resultado: sesión sigue con status `running` en state.json, lock libre, archivada a history en `removeSessionFn` con status incorrecto.
-
-El comentario en línea 199 dice "silent — never block lock release on logger failure" — pero `markSessionStatus` NO es logger, es escritura a state.json. Confundir las dos categorías de fallo lleva a swallow de bugs reales (e.g. state.json corrupto).
-
-**Fix:**
-```javascript
-try {
-  markSessionStatus(session.task_id, 'done', 'session-stop:lock-released', log);
-} catch (err) {
-  // Log explícito en stderr para diagnóstico — no es failure silencioso.
-  console.error(`[kodo:stop] markSessionStatus failed: ${err.message}`);
-}
+```js
+import { execFileSync } from 'node:child_process';
+// …
+const gitFn = deps.gitFn || ((cwd, args) =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' }).trim());
 ```
 
 ---
 
-### WR-04: `handleOrchestratorStop` puede arrastrar staging de sesiones paralelas en main repo
+### WR-05: `gitFn` default antepone `-C <project>` aunque algunos call-sites ya pasan `-C <wt>`
 
-**File:** `src/hooks/stop.js:413-416`
+**Archivo:** `src/hooks/stop.js:105-108` + call-sites `:239, :249`
+**Severidad:** Warning
 **Issue:**
-Línea 413 ejecuta `git -c commit.gpgsign=false add .claude/skills/ && git -c commit.gpgsign=false commit -m "..."`. Aunque el `git add` está scoped a `.claude/skills/`, esto se ejecuta con `cwd: KODO_ROOT` (línea 414). Si otra sesión Claude Code (e.g. corriendo `/gsd-bootstrap` u otro flujo) tiene archivos staged que tocan `.claude/skills/`, el `git commit` los enrolla en el commit del orquestador.
+El default `gitFn` produce el comando `git -C <project> <args>`. Los call-sites de `branch --show-current` y `status --porcelain` pasan args con `-C <wt>` ya incluido. Resultado neto del comando ejecutado:
 
-La memoria del usuario explícitamente advierte sobre este patrón ("sin worktree, prohibido `git add -A` / `commit -a`; arrastra staging de otra sesión"). Aunque aquí el `add` está scoped, el `commit` sin path filter agarra **todo** lo staged.
-
-**Fix:**
-```javascript
-// Pasar paths explícitos al commit para acotar:
-execSync(
-  `git -c commit.gpgsign=false commit .claude/skills/ -m "skill: orchestrator learnings ${date}"`,
-  { cwd: KODO_ROOT, encoding: 'utf-8' }
-);
-// Nota: `git commit <pathspec>` commits only those paths (bypasses staging).
-// Esto evita arrastre — pero también ignora staging intencional. Trade-off explícito.
 ```
+git -C <project> -C <wt> branch --show-current
+```
+
+Git acepta múltiples `-C` (los compone), así el segundo gana → ejecuta en `<wt>`. **Funciona**, y el comentario (líneas 234-237) lo documenta como intencional. Pero:
+
+1. Mezcla dos convenciones: para algunos comandos `cwd` es project + args `-C wt`; para otros (remove, move, branch -D, prune) `cwd` es project + sin `-C` extra (porque deben ejecutarse desde el repo principal).
+2. La asimetría es invisible salvo lectura cuidadosa. Un implementer nuevo verá `gitFn(project, ['-C', wt, 'status', '--porcelain'])` y pensará que es un typo.
+3. Hace que los tests stub (en `test/stop-worktree-cleanup.test.js`) tengan que reconocer el comando vía `args.includes('--show-current')` en lugar de `cwd === wt` — el primer test (`CLEAN: …`) lo refleja en el assertion sobre `args`.
+
+**Fix:** Elegir una convención y documentarla explícitamente. Opción A (más simple): cambiar la firma de gitFn a `(cwd, args)` donde `cwd` SIEMPRE es el directorio de ejecución; los call-sites pasan `wt` o `project` según corresponda y el `gitFn` default usa `cwd` directamente:
+
+```js
+const gitFn = deps.gitFn || ((cwd, args) =>
+  execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim());
+// call-sites:
+await gitFn(wt, ['branch', '--show-current']);
+await gitFn(wt, ['status', '--porcelain']);
+await gitFn(project, ['worktree', 'remove', wt]);
+```
+
+Esto elimina la composición `-C <project> -C <wt>` y hace cada call-site auto-evidente. Cambio no es estrictamente necesario para corrección (los tests pasan), pero reduce la superficie de confusión.
+
+## Verificación de gap-closures (CR-02 + CR-03)
+
+### CR-02 — markSessionStatus fuera de `if (session.gsd)` ✅
+
+- **Implementación:** `src/hooks/stop.js:159-176` ejecuta `markSessionStatus(... 'done', 'session-stop' ...)` para TODA sesión encontrada (GSD y no-GSD), antes del bloque `if (session.gsd) { releaseGsdLock(...) }` (líneas 196-203).
+- **Diagnóstico explícito:** `catch (err) { console.error(...) }` líneas 172-176 — cumple WR-03 del plan 19-03 (no silent).
+- **Reason canónico actualizado:** `'session-stop'` (sin sufijo). El test source-hygiene `test/stop.test.js:135-158` verifica regex `markSessionStatus(session.task_id, 'done', 'session-stop'` y que la cadena antigua `'session-stop:lock-released'` ya no aparece.
+- **Test behavioral:** `test/stop-state-transition.test.js:242-287` confirma que non-GSD AHORA emite `state.transition` con `to='done'`, `reason='session-stop'`.
+- **D-04 invariante:** `test/stop-state-transition.test.js:292-339` confirma que tanto full como quick emiten `to='done'` fijo (D-04 LOCKED).
+
+### CR-03 — `lstatSync` reemplaza a `existsSync` (symlink-safe) ✅
+
+- **Implementación:** `src/hooks/stop.js:302-314`. La pre-check ya no sigue symlinks: `lstatSync` stat-ea el symlink en sí, así symlinks colgantes disparan el path suffixed igual que un archivo regular o un directorio existente.
+- **Tests behavioral:**
+  - `test/stop-worktree-cleanup.test.js:235-277` (DANGLING SYMLINK) — verifica que un symlink a `<tmpBase>/nonexistent-target` dispara variante suffixed.
+  - `test/stop-worktree-cleanup.test.js:279-316` (REGULAR FILE) — verifica que un archivo regular en `<wt>.dirty` también dispara variante suffixed.
+  - `test/stop-worktree-cleanup.test.js:153-188` (TARGET COLLISION) — escenario pre-existente, sigue verde tras el cambio.
+- **Test source-hygiene:** `test/stop.test.js:160-178` verifica:
+  - `lstatSync(target)` está presente.
+  - `existsSync` NO aparece en `stop.js` (impide regresión).
+  - El comentario referencia `Phase 19 CR-03` para trazabilidad.
+
+### CR-01 — DEFERRED ✅ (override D-07, accepted_by: alex)
+
+No re-flagueado en este reporte según consigna. La decisión está documentada en `19-VERIFICATION.md` overrides_applied:1.
+
+## Observaciones complementarias (no findings)
+
+1. **Test de regresión `test/stop-state-transition.test.js`** — el comentario header (líneas 12-19) documenta el cambio de premisa: el régimen non-GSD pasó de "NO emite state.transition" a "SÍ emite state.transition" tras CR-02. La explicación es clara y traceable al REVIEW.md previo. Buen patrón.
+
+2. **HOME tmpdir override en `test/stop-state-transition.test.js:116-142`** — el `before` hook fija HOME tmpdir y hace dynamic import de `state.js` DESPUÉS, garantizando que `KODO_DIR = join(homedir(), '.kodo')` resuelve al tmpdir aislado. El comentario CR-02 fix lo explica explícitamente. Patrón sólido y reutilizable.
+
+3. **`src/logger-events.js`** — Phase 19 añade 3 helpers (`worktreeCleanupOk/Dirty/Error`) que respetan la convención existente (pure transform, sin I/O, sin imports fuera de `node:os`/`node:path`). `EVENTS` sigue frozen. El test `EVENTS is frozen and contains the 11 canonical types` en `test/logger-events.test.js:48-64` valida el contrato. Sin findings en este archivo.
+
+4. **`src/gsd/verify.js`** — el catch silencioso para `markSessionStatus` (líneas 266-270) preserva la invariante D-17 ("orchestratorReview en TODAS las ramas"). El comentario CR-01 fix Phase 16 explica el reasoning (split-brain). Esto NO es el mismo "catch silencioso" criticado en CR-02 del plan 19-03: aquí está justificado por la invariante D-17 documentada y testeada.
 
 ---
 
-### WR-05: La taxonomía `EVENTS` no está exhaustivamente tipada vs la implementación en runtime — TypeScript JSDoc se desincroniza fácil
-
-**File:** `src/logger-events.js:22-47`
-**Issue:**
-El JSDoc `@type {Readonly<{...}>}` para `EVENTS` enumera los 11 tipos literales. Si un día alguien añade un evento nuevo en el `Object.freeze({...})` y olvida actualizar el `@type {...}`, TypeScript-en-JSDoc no detecta la divergencia (porque `Object.freeze` devuelve `Readonly<T>` inferido). El test contractual línea 47-64 sí lo cubre, pero a costa de mantener una lista paralela. Tres lugares para sincronizar: JSDoc type, `Object.freeze` literal, test assertion.
-
-No es bug runtime — es deuda estructural. WARNING porque facilita romper la taxonomía sin que CI lo note.
-
-**Fix:**
-Generar el JSDoc type desde el literal usando `typeof EVENTS`:
-```javascript
-export const EVENTS = Object.freeze({
-  SESSION_START: 'session.start',
-  // ...
-});
-/** @typedef {typeof EVENTS[keyof typeof EVENTS]} EventName */
-```
-
----
-
-### WR-06: `worktreeCleanupError` con `phase: 'branch'` documentado en JSDoc pero nunca emitido — discrepancia contractual
-
-**File:** `src/logger-events.js:255` vs `src/hooks/stop.js:282-291`
-**Issue:**
-El JSDoc de `worktreeCleanupError` (línea 252-258) lista `phase: 'status' | 'remove' | 'move' | 'branch' | 'prune'`. Pero en `stop.js:282-291`, cuando `git branch -D` falla, el código emite `console.error` (línea 290) y crea un `worktreeCleanupOk` con `branch_deleted: false` (línea 293-297). **NUNCA** se emite `worktree.cleanup.error{phase:'branch'}`.
-
-El test `test/stop-worktree-cleanup.test.js:209-233` ("BRANCH-D FAILURE") confirma este comportamiento explícitamente: `assert.equal(err, undefined, 'no cleanup.error for branch -D failure (warn-only per Pitfall #3)')`. Es decir, el contrato real es: emitir `cleanup.ok{branch_deleted:false}` y nada más. El JSDoc miente: `'branch'` jamás aparece en producción.
-
-**Fix:** Eliminar `'branch'` del union en la JSDoc, o documentar explícitamente que está reservado para futuras extensiones pero NO se emite hoy:
-```javascript
-/**
- * @param {{
- *   ...
- *   phase: 'status' | 'remove' | 'move' | 'prune',  // 'branch' NO se emite — fail-open vía warn (Pitfall #3)
- *   ...
- * }} fields
- */
-```
-
----
-
-## Info
-
-### IN-01: `test/logger-events.test.js:111-115` — `sessionEnd` test no pasa `task_id`, viola el contrato del helper
-
-**File:** `test/logger-events.test.js:111-115`
-**Issue:**
-El JSDoc de `sessionEnd` (en `src/logger-events.js:103-110`) declara `task_id: string | null` como REQUERIDO. El test omite el campo. En runtime esto resulta en `task_id: undefined` en el NDJSON output (porque `fields.task_id` es `undefined` y el helper lo asigna directo). El test no verifica `task_id` así que pasa, pero el evento emitido viola el contrato D-10.
-
-**Fix:**
-```javascript
-sessionEnd(log, {
-  session_id: sessionId,
-  task_id: null,  // explicit null para sesiones sin task
-  status: 'done',
-  ended_at: '2026-04-16T10:05:00.000Z',
-});
-// Y añadir: assert.equal(line.task_id, null);
-```
-
----
-
-### IN-02: Comentario inconsistente — header de `logger-events.test.js` dice "los 7 helpers" pero hay 11
-
-**File:** `test/logger-events.test.js:4-9`
-**Issue:**
-El bloque de comentario inicial dice "Los 7 helpers (sessionStart, sessionEnd, ...)" pero el test ya cubre 11 helpers (3 nuevos worktree.cleanup.* añadidos en Phase 19). El comentario quedó stale.
-
-**Fix:** Actualizar el header:
-```javascript
-* Valida:
-*  - EVENTS está frozen y contiene los 11 tipos canónicos.
-*  - Los 11 helpers emiten una línea NDJSON con el `event` correcto...
-```
-
----
-
-### IN-03: `test/stop-worktree-cleanup.test.js:182` — regex con escape redundante
-
-**File:** `test/stop-worktree-cleanup.test.js:182`
-**Issue:**
-La línea construye `new RegExp(\`^${wt.replace(/\//g, '\\/')}\\.dirty-\`)`. El `\\/` no es necesario en un RegExp constructor — `/` no requiere escape ahí. Funciona pero es ruido. Más grave: si `wt` contiene otros metacharacters de regex (e.g. `.`, `+`, `(`, `)`), el match será incorrecto. El `tmpdir()` raramente los emite, pero el patrón es frágil.
-
-**Fix:**
-```javascript
-// Usar startsWith en vez de regex:
-assert.ok(
-  target.startsWith(`${wt}.dirty-`),
-  `target must use suffixed variant, got: ${target}`,
-);
-```
-
----
-
-### IN-04: `test/stop-worktree-cleanup.test.js:54-58` — handler stub silencia errores de retorno no-string
-
-**File:** `test/stop-worktree-cleanup.test.js:52-59`
-**Issue:**
-`makeGitFnStub` devuelve `handler(cwd, args) ?? ''`. Si un handler accidentalmente retorna un objeto u otro tipo, el stub lo propaga al code-under-test que hace `(out || '').trim()` (stop.js:245). Si `out` es un objeto, `.trim()` lanza `TypeError`. Defensa débil que esconde fallos de fixture.
-
-**Fix:**
-```javascript
-const gitFn = (cwd, args) => {
-  calls.push({ cwd, args });
-  const r = handler(cwd, args);
-  if (r === undefined || r === null) return '';
-  if (typeof r !== 'string') throw new TypeError(`gitFn stub must return string, got ${typeof r}`);
-  return r;
-};
-```
-
----
-
-_Reviewed: 2026-05-12T13:35:00Z_
+_Reviewed: 2026-05-12T17:24:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
