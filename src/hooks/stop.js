@@ -149,56 +149,51 @@ export async function runStopHook(input, deps = {}) {
       });
     } catch {}
 
+    // Phase 19 CR-02 fix: markSessionStatus aplica a TODAS las sesiones (GSD + no-GSD)
+    // y debe ejecutarse ANTES de sessionEnd para que el observable NDJSON refleje el
+    // estado terminal real. REVIEW.md CR-02 + WR-03 mandatan console.error (no silent)
+    // porque markSessionStatus muta state.json — un fallo merece diagnóstico explícito.
+    // El logger se construye UNA sola vez y se comparte entre markSessionStatus + sessionEnd
+    // (W-2 Phase 16 pattern preservado; solo cambia el scope del mark — antes dentro de
+    // if (session.gsd), ahora aplica a todas las sesiones).
+    const log = (deps && deps.loggerFactory)
+      ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
+      : await (async () => {
+          const { createLogger } = await import('../logger.js');
+          return createLogger({
+            sessionId: session.session_id,
+            minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+          }).child({ component: 'hook', task_id: session.task_id });
+        })();
+
+    try {
+      const { markSessionStatus } = await import('../session/manager.js');
+      markSessionStatus(session.task_id, 'done', 'session-stop', log);
+    } catch (err) {
+      // WR-03: state.json mutation failure merits explicit diagnostic (NOT silent).
+      // Still fail-open — runStopHook never crashes Claude Code.
+      console.error(`[kodo:stop] markSessionStatus failed: ${/** @type {Error} */ (err).message}`);
+    }
+
     // Emit typed session.end event BEFORE removeSession so the logger
     // captures the transition while the session record still exists.
     // Silent-failure: never crash Claude Code stop hook.
-    // W-2 (Phase 16): bloque preservado en su sitio durante el refactor —
-    // solo cambia la creación del logger (loggerFactory si presente).
     try {
-      const log = (deps && deps.loggerFactory)
-        ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
-        : await (async () => {
-            const { createLogger } = await import('../logger.js');
-            return createLogger({
-              sessionId: session.session_id,
-              minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-            }).child({ component: 'hook', task_id: session.task_id });
-          })();
       const { sessionEnd } = await import('../logger-events.js');
       sessionEnd(log, {
         session_id: session.session_id,
         task_id: session.task_id,
-        status: session.status,
+        status: 'done',
         ended_at: new Date().toISOString(),
       });
     } catch {
-      // silent — never crash Claude Code
+      // silent — never crash Claude Code (logger fail-open per Phase 16 LOG-15)
     }
 
-    // Release GSD lock if applicable (D-09: idempotent, verifies session_id)
+    // Release GSD lock if applicable (D-09: idempotent, verifies session_id).
+    // Phase 19 CR-02: markSessionStatus ya corrió ANTES de este bloque para
+    // todas las sesiones; aquí solo queda el lock release para sesiones GSD.
     if (session.gsd) {
-      // Phase 16 LOG-15 (D-04, D-08): mark session 'done' BEFORE releaseGsdLock so
-      // the state.transition event captures the terminal status while the session
-      // record still exists. Mirrors the session.end pattern at line 116 (emit
-      // BEFORE mutation). Status is fixed 'done' for both modes (full + quick) —
-      // stop.js is a mechanical hook and does NOT infer mode (D-04, D-07).
-      // Reason canónico: 'session-stop:lock-released' (D-06).
-      try {
-        const log = (deps && deps.loggerFactory)
-          ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
-          : await (async () => {
-              const { createLogger } = await import('../logger.js');
-              return createLogger({
-                sessionId: session.session_id,
-                minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-              }).child({ component: 'hook', task_id: session.task_id });
-            })();
-        const { markSessionStatus } = await import('../session/manager.js');
-        markSessionStatus(session.task_id, 'done', 'session-stop:lock-released', log);
-      } catch {
-        // silent — never block lock release on logger failure (mirrors session.end pattern line 116)
-      }
-
       try {
         const { releaseGsdLock } = await import('../gsd/lock.js');
         releaseGsdLock(session.project_path, session.session_id);
