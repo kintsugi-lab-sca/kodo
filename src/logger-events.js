@@ -1,10 +1,12 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 7 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 11 eventos de ciclo de vida.
 //
-// Contrato fijo por ROADMAP §Phase 7 + extensión v0.3:
+// Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
+// + Phase 19 (worktree cleanup):
 //   session.start, session.end, state.transition, orchestrator.review,
-//   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed
+//   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
+//   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -26,16 +28,22 @@ import { join } from 'node:path';
  *   GSD_BOOTSTRAP: 'gsd.bootstrap',
  *   PLANE_API_CALL: 'plane.api.call',
  *   PLANE_API_CALL_FAILED: 'plane.api.call.failed',
+ *   WORKTREE_CLEANUP_OK: 'worktree.cleanup.ok',
+ *   WORKTREE_CLEANUP_DIRTY: 'worktree.cleanup.dirty',
+ *   WORKTREE_CLEANUP_ERROR: 'worktree.cleanup.error',
  * }>} */
 export const EVENTS = Object.freeze({
-  SESSION_START:          'session.start',
-  SESSION_END:            'session.end',
-  STATE_TRANSITION:       'state.transition',
-  ORCHESTRATOR_REVIEW:    'orchestrator.review',
-  GSD_PHASE_RESOLVED:     'gsd.phase.resolved',
-  GSD_BOOTSTRAP:          'gsd.bootstrap',
-  PLANE_API_CALL:         'plane.api.call',
-  PLANE_API_CALL_FAILED:  'plane.api.call.failed',
+  SESSION_START:           'session.start',
+  SESSION_END:             'session.end',
+  STATE_TRANSITION:        'state.transition',
+  ORCHESTRATOR_REVIEW:     'orchestrator.review',
+  GSD_PHASE_RESOLVED:      'gsd.phase.resolved',
+  GSD_BOOTSTRAP:           'gsd.bootstrap',
+  PLANE_API_CALL:          'plane.api.call',
+  PLANE_API_CALL_FAILED:   'plane.api.call.failed',
+  WORKTREE_CLEANUP_OK:     'worktree.cleanup.ok',
+  WORKTREE_CLEANUP_DIRTY:  'worktree.cleanup.dirty',
+  WORKTREE_CLEANUP_ERROR:  'worktree.cleanup.error',
 });
 
 /**
@@ -200,5 +208,60 @@ export function planeApiCallFailed(logger, fields) {
     event: EVENTS.PLANE_API_CALL_FAILED,
     step: fields.step,
     error: fields.error,
+  });
+}
+
+/**
+ * Worktree cleanup OK — emitted (info) after a clean worktree was
+ * successfully removed and (optionally) its branch deleted (Phase 19 D-08).
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, worktree_path: string, branch_deleted: boolean }} fields
+ */
+export function worktreeCleanupOk(logger, fields) {
+  logger.info(EVENTS.WORKTREE_CLEANUP_OK, {
+    event: EVENTS.WORKTREE_CLEANUP_OK,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    branch_deleted: fields.branch_deleted,
+  });
+}
+
+/**
+ * Worktree cleanup DIRTY — emitted (warn) when the worktree had uncommitted
+ * changes and was moved aside to `<path>.dirty` for human review (Phase 19 D-02).
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, worktree_path: string, moved_to: string }} fields
+ */
+export function worktreeCleanupDirty(logger, fields) {
+  logger.warn(EVENTS.WORKTREE_CLEANUP_DIRTY, {
+    event: EVENTS.WORKTREE_CLEANUP_DIRTY,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    moved_to: fields.moved_to,
+  });
+}
+
+/**
+ * Worktree cleanup ERROR — emitted (error) when a cleanup step failed
+ * unexpectedly (FS error, git lock, race). The stop hook continues
+ * fail-open after this event (Phase 19 D-03).
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   session_id: string,
+ *   worktree_path: string,
+ *   phase: 'status' | 'remove' | 'move' | 'branch' | 'prune',
+ *   reason: string,
+ * }} fields
+ */
+export function worktreeCleanupError(logger, fields) {
+  logger.error(EVENTS.WORKTREE_CLEANUP_ERROR, {
+    event: EVENTS.WORKTREE_CLEANUP_ERROR,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    phase: fields.phase,
+    reason: fields.reason,
   });
 }
