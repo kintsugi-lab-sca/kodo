@@ -109,7 +109,7 @@ Plans:
 - [x] 19-01-PLAN.md — Extender `EVENTS` frozen object + 3 helpers NDJSON `worktreeCleanupOk/Dirty/Error` en `src/logger-events.js` (scaffolding D-10 para WT-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 19-02-PLAN.md — Cleanup fail-open en `stop.js` tras `releaseGsdLock` (D-01..D-04, D-07..D-09) + `verify.js` lee `worktree_path ?? project_path` (D-06) + 3 source-hygiene asserts D-05/D-07/D-08 (WT-04 + WT-05 satisfied-by-design + WT-06)
+- [x] 19-02-PLAN.md — Cleanup fail-open en `stop.js` tras `releaseGsdLock` (D-01..D-04, D-07..D-09) + `verify.js` lee `worktree_path ?? project_path` (D-06) + 3 source-hygiene asserts D-05/D-07/D-08 (WT-04 + WT-05 satisfied-by-design + WT-06)
 
 ### Phase 20: HOOK-01 Universal Anti-Push-Fantasma
 **Goal**: Toda sesión (GSD full, GSD quick, no-GSD) recibe el recordatorio explícito de que kodo NO hace push automático, sin alterar los golden bytes de las tags `[GSD quick]` / `[GSD phase N]` / `[GSD bootstrap]`.
@@ -171,7 +171,7 @@ Plans:
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete | 2026-05-10 |
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 19. Worktree Cleanup & Integration | v0.6 | 1/2 | In Progress|  |
+| 19. Worktree Cleanup & Integration | v0.6 | 2/2 | Complete   | 2026-05-12 |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 0/0 | Not started | — |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
