@@ -185,7 +185,7 @@ Plans:
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete   | 2026-05-12 |
+| 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete    | 2026-05-12 |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
 ---

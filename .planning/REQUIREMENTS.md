@@ -25,10 +25,10 @@
 
 ### Skill sync (SKILL-*)
 
-- [ ] **SKILL-01** — CLI `kodo skill sync` empuja `<repo>/.claude/skills/` → `~/.claude/skills/`. Diff-aware: solo copia archivos cambiados; NO borra archivos foráneos en `~/.claude/skills/` salvo flag `--prune` explícito.
-- [ ] **SKILL-02** — `kodo orchestrator` detecta drift entre repo y home antes de lanzar (hash o mtime); si hay drift, ejecuta sync automáticamente con evento `skill.sync.auto` en el log NDJSON.
-- [ ] **SKILL-03** — Auto-sync NO rompe Constraint cwd=repo: el orchestrator sigue funcionando si se lanza desde el repo (la skill local override sigue ganando); auto-sync solo asegura que `~/.claude/skills/` no quede stale para invocaciones cross-cwd futuras.
-- [ ] **SKILL-04** — Exit codes deterministas en `kodo skill sync`: 0 sync ok / 0 no-op si no hay drift / 1 error de filesystem / 2 fuera de un repo kodo. Documentado en stderr canonical messages.
+- [x] **SKILL-01** — CLI `kodo skill sync` empuja `<repo>/.claude/skills/` → `~/.claude/skills/`. Diff-aware: solo copia archivos cambiados; NO borra archivos foráneos en `~/.claude/skills/` salvo flag `--prune` explícito.
+- [x] **SKILL-02** — `kodo orchestrator` detecta drift entre repo y home antes de lanzar (hash o mtime); si hay drift, ejecuta sync automáticamente con evento `skill.sync.auto` en el log NDJSON.
+- [x] **SKILL-03** — Auto-sync NO rompe Constraint cwd=repo: el orchestrator sigue funcionando si se lanza desde el repo (la skill local override sigue ganando); auto-sync solo asegura que `~/.claude/skills/` no quede stale para invocaciones cross-cwd futuras.
+- [x] **SKILL-04** — Exit codes deterministas en `kodo skill sync`: 0 sync ok / 0 no-op si no hay drift / 1 error de filesystem / 2 fuera de un repo kodo. Documentado en stderr canonical messages.
 
 ### Tech debt v0.5 closure (DEBT-*)
 
@@ -79,10 +79,10 @@ Mapped to phases by `gsd-roadmapper` 2026-05-11 — see `ROADMAP.md` for full ph
 | HOOK-01  | Phase 20 | Complete |
 | HOOK-02  | Phase 20 | Complete |
 | HOOK-03  | Phase 20 | Complete |
-| SKILL-01 | Phase 21 | pending |
-| SKILL-02 | Phase 21 | pending |
-| SKILL-03 | Phase 21 | pending |
-| SKILL-04 | Phase 21 | pending |
+| SKILL-01 | Phase 21 | Complete |
+| SKILL-02 | Phase 21 | Complete |
+| SKILL-03 | Phase 21 | Complete |
+| SKILL-04 | Phase 21 | Complete |
 | DEBT-01  | Phase 22 | pending |
 | DEBT-02  | Phase 22 | pending |
 | DEBT-03  | Phase 22 | pending |
