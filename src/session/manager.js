@@ -5,7 +5,7 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
-import { addSession, listSessions, updateSession } from './state.js';
+import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { stateTransition } from '../logger-events.js';
 
 /**
@@ -19,12 +19,17 @@ import { stateTransition } from '../logger-events.js';
  *   workspaceRef: string,
  *   sessionId: string,
  *   flags?: string[],
- *   phaseId?: string,  // Phase 9 D-03: resolved phase id threaded from dispatcher (action === 'phase').
- *   brief?: string,    // Phase 9 D-09: bootstrap brief (only set when resolver returned 'bootstrap').
+ *   phaseId?: string,      // Phase 9 D-03: resolved phase id threaded from dispatcher (action === 'phase').
+ *   brief?: string,        // Phase 9 D-09: bootstrap brief (only set when resolver returned 'bootstrap').
+ *   worktreePath?: string, // Phase 18 D-03: deterministic worktree path computed by computeWorktreePath
+ *                          //               (single source of truth in src/session/state.js). Persisted
+ *                          //               PRE-spawn so kodo logs / consumers can resolve the path
+ *                          //               immediately. Aditivo opcional (D-03c) — mismo idiom que
+ *                          //               phaseId/brief/gsdMode.
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief, worktreePath }) {
   // Phase 11 (D-03): GSD execution mode derived locally from flags. Single source
   // of truth: `flags`. The signature does NOT grow — gsdMode is a local derivation,
   // mirroring the dispatcher pattern at src/triggers/dispatcher.js:74.
@@ -53,6 +58,10 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     // `action: 'phase'` (phaseId) or `action: 'bootstrap'` (brief). Never both.
     ...(phaseId ? { phase_id: phaseId } : {}),
     ...(brief ? { brief } : {}),
+    // Phase 18 (D-03c): aditivo opcional. Falsy/undefined → campo omitido del shape
+    // (consumers downstream toleran falsy — legacy v0.5 sessions sin este campo
+    // se siguen leyendo). Mismo idiom que gsd_mode (Phase 11 D-08), phase_id y brief.
+    ...(worktreePath ? { worktree_path: worktreePath } : {}),
   };
 }
 
@@ -206,10 +215,13 @@ export async function launchWorkItem(identifier, opts = {}) {
   const sessionId = opts.sessionId || randomUUID();
   const modelOverride = opts.model ?? labelModel;
   const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
+  // Phase 18 (D-01, D-02, D-03): compute deterministic worktree path PRE-spawn.
+  // Single source of truth: computeWorktreePath de session/state.js (Plan 01).
+  // El path NO se crea aquí — `claude --worktree <sessionId>` lo materializa al
+  // arrancar la sesión del lado de claude. Plan 03 valida la unicidad del path
+  // (D-05 fail-fast canonical error en el dispatcher, fuera de launchWorkItem).
+  const worktreePath = computeWorktreePath(projectPath, sessionId);
   const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName);
-
-  // Send Claude command to workspace
-  await cmux.send({ workspace: workspaceRef, text: claudeCmd });
 
   // Track session in state with generic task fields
   const session = buildSessionFromTask({
@@ -224,8 +236,23 @@ export async function launchWorkItem(identifier, opts = {}) {
     // Session records clean for non-GSD paths.
     phaseId: opts.phase_id,
     brief: opts.brief,
+    // Phase 18 (D-03): persist el path ANTES de cmux.send. Conditional spread
+    // dentro de buildSessionFromTask preserva compat para call sites sin path.
+    worktreePath,
   });
+
+  // Phase 18 (D-03 PRE-spawn ordering): persist BEFORE cmux.send so consumers
+  // (kodo logs --session-of, stop hook recovery, future readers) see the
+  // worktree_path immediately. Si addSession falla, cmux.send NO se llama
+  // (la sesión NO arranca) — orden refuerza la garantía de trace previa.
+  // Si cmux.send falla tras este addSession, el dispatcher WR-01 ya libera el
+  // lock GSD; el SessionRecord queda en estado 'running' hasta el siguiente
+  // ciclo de housekeeping (mismo comportamiento que tenemos hoy con session
+  // records huérfanos por crashes — no es nueva superficie).
   addSession(task.id, session);
+
+  // Send Claude command to workspace
+  await cmux.send({ workspace: workspaceRef, text: claudeCmd });
 
   // Notify
   await cmux.notify({
@@ -258,7 +285,7 @@ export async function launchWorkItem(identifier, opts = {}) {
  * @param {string[]} [kodoFlags]
  * @param {string|null} [moduleName]
  */
-function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null) {
+export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null) {
   const model = modelOverride || config.claude.default_model;
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
   const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
@@ -270,7 +297,19 @@ function buildClaudeCommand(config, sessionId, task, description, modelOverride,
   const skipPerms = kodoFlags.includes('yolo') || getGsdMode(kodoFlags) !== null;
   const cliFlags = skipPerms ? '--dangerously-skip-permissions' : '';
 
-  return `claude --model ${model} --session-id ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
+  // Phase 18 (D-01, D-06b): `--worktree <sessionId>` se emite SIEMPRE — para TODAS
+  // las sesiones de launchWorkItem (full + quick + no-GSD). El sessionId va como
+  // arg POSICIONAL explícito (NO `--worktree=...`, NO bare `--worktree`) para
+  // garantizar el path determinístico `<projectPath>/.bg-shell/<sessionId>`.
+  //
+  // Orden de flags (contractual, golden-bytes QUICK-07):
+  //   --model X --session-id Y --worktree Y [--dangerously-skip-permissions] '<prompt>'
+  //
+  // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
+  // (último arg, escapado entre comillas) — añadir `--worktree` en el header NO
+  // muta los offsets relativos de las tags. Phase 20 (HOOK-01) operará sobre
+  // buildSessionContext/buildGsdContext, no sobre el header del cmd.
+  return `claude --model ${model} --session-id ${sessionId} --worktree ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
 }
 
 /** @param {string} str */
