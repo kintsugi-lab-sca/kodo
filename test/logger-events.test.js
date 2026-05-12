@@ -38,14 +38,16 @@ const {
   worktreeCleanupOk,
   worktreeCleanupDirty,
   worktreeCleanupError,
+  skillSyncAuto,
+  skillSyncAutoError,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup)', () => {
-  it('EVENTS is frozen and contains the 11 canonical types', () => {
+describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync)', () => {
+  it('EVENTS is frozen and contains the 13 canonical types', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -56,6 +58,8 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup)', 
       'plane.api.call.failed',
       'session.end',
       'session.start',
+      'skill.sync.auto',
+      'skill.sync.auto.error',
       'state.transition',
       'worktree.cleanup.dirty',
       'worktree.cleanup.error',
@@ -269,5 +273,56 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup)', 
     assert.equal(line.worktree_path, '/tmp/wt');
     assert.equal(line.phase, 'remove');
     assert.equal(line.reason, 'EBUSY: rmdir failed');
+  });
+
+  // ─── Phase 21 D-09: skill sync auto helpers ──────────────────────────────
+
+  it('EVENTS.SKILL_SYNC_AUTO === "skill.sync.auto"', () => {
+    assert.equal(EVENTS.SKILL_SYNC_AUTO, 'skill.sync.auto');
+  });
+
+  it('EVENTS.SKILL_SYNC_AUTO_ERROR === "skill.sync.auto.error"', () => {
+    assert.equal(EVENTS.SKILL_SYNC_AUTO_ERROR, 'skill.sync.auto.error');
+  });
+
+  it('skillSyncAuto emits event=skill.sync.auto at info level with source/dest/files_changed', () => {
+    const sessionId = 'sess-ev-ssauto';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    skillSyncAuto(log, {
+      source: '/repo/.claude/skills/kodo-orchestrate',
+      dest: '/home/user/.claude/skills/kodo-orchestrate',
+      files_changed: 3,
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.SKILL_SYNC_AUTO);
+    assert.equal(line.level, 'info');
+    assert.equal(line.source, '/repo/.claude/skills/kodo-orchestrate');
+    assert.equal(line.dest, '/home/user/.claude/skills/kodo-orchestrate');
+    assert.equal(line.files_changed, 3);
+  });
+
+  it('skillSyncAutoError emits event=skill.sync.auto.error at error level with source/dest/error', () => {
+    const sessionId = 'sess-ev-ssauto-err';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    skillSyncAutoError(log, {
+      source: '/repo/.claude/skills/kodo-orchestrate',
+      dest: '/home/user/.claude/skills/kodo-orchestrate',
+      error: 'EACCES: permission denied',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.SKILL_SYNC_AUTO_ERROR);
+    assert.equal(line.level, 'error');
+    assert.equal(line.source, '/repo/.claude/skills/kodo-orchestrate');
+    assert.equal(line.dest, '/home/user/.claude/skills/kodo-orchestrate');
+    assert.equal(line.error, 'EACCES: permission denied');
+  });
+
+  it('No SKILL_SYNC_AUTO_NOOP event (D-03b — silence on no-drift to avoid noise)', () => {
+    // @ts-expect-error — assert undefined to guard the contract literally.
+    assert.equal(EVENTS.SKILL_SYNC_AUTO_NOOP, undefined);
+    const keys = Object.keys(EVENTS);
+    assert.equal(keys.includes('SKILL_SYNC_AUTO_NOOP'), false);
+    // Y tampoco hay literal 'skill.sync.auto.noop' en los valores.
+    assert.equal(Object.values(EVENTS).includes('skill.sync.auto.noop'), false);
   });
 });

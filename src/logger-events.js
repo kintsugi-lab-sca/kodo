@@ -1,12 +1,13 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 11 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 13 eventos de ciclo de vida.
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
-// + Phase 19 (worktree cleanup):
+// + Phase 19 (worktree cleanup) + Phase 21 (skill sync):
 //   session.start, session.end, state.transition, orchestrator.review,
 //   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
-//   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error
+//   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error,
+//   skill.sync.auto, skill.sync.auto.error
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -31,6 +32,8 @@ import { join } from 'node:path';
  *   WORKTREE_CLEANUP_OK: 'worktree.cleanup.ok',
  *   WORKTREE_CLEANUP_DIRTY: 'worktree.cleanup.dirty',
  *   WORKTREE_CLEANUP_ERROR: 'worktree.cleanup.error',
+ *   SKILL_SYNC_AUTO: 'skill.sync.auto',
+ *   SKILL_SYNC_AUTO_ERROR: 'skill.sync.auto.error',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -44,6 +47,8 @@ export const EVENTS = Object.freeze({
   WORKTREE_CLEANUP_OK:     'worktree.cleanup.ok',
   WORKTREE_CLEANUP_DIRTY:  'worktree.cleanup.dirty',
   WORKTREE_CLEANUP_ERROR:  'worktree.cleanup.error',
+  SKILL_SYNC_AUTO:         'skill.sync.auto',
+  SKILL_SYNC_AUTO_ERROR:   'skill.sync.auto.error',
 });
 
 /**
@@ -263,5 +268,46 @@ export function worktreeCleanupError(logger, fields) {
     worktree_path: fields.worktree_path,
     phase: fields.phase,
     reason: fields.reason,
+  });
+}
+
+/**
+ * Skill sync AUTO ok — emitted (info) when launchOrchestrator auto-syncs
+ * the canonical skill from repo → home (Phase 21 D-03b). `files_changed` is
+ * the count of files actually copied this run (may be 0 if drift was resolved
+ * via symlink-replace alone — caller normalizes that case).
+ *
+ * NOTE: There is intentionally no noop variant of this event (Phase 21 D-03b):
+ * silence when drift is not detected, mirroring Phase 19 D-10 which dropped
+ * `worktree.cleanup.dirty` skipped-legacy. The CLI surface (`kodo skill sync`)
+ * already prints `No drift` to stdout; observability via NDJSON only covers
+ * the auto path's non-silent branches (ok with files_changed > 0, error).
+ *
+ * @param {Logger} logger
+ * @param {{ source: string, dest: string, files_changed: number }} fields
+ */
+export function skillSyncAuto(logger, fields) {
+  logger.info(EVENTS.SKILL_SYNC_AUTO, {
+    event: EVENTS.SKILL_SYNC_AUTO,
+    source: fields.source,
+    dest: fields.dest,
+    files_changed: fields.files_changed,
+  });
+}
+
+/**
+ * Skill sync AUTO error — emitted (error) when the auto-sync in launchOrchestrator
+ * failed (FS error, permissions, etc). The orchestrator continues fail-open
+ * (Phase 21 D-03 — mismo principio que worktree cleanup Phase 19 D-03).
+ *
+ * @param {Logger} logger
+ * @param {{ source: string, dest: string, error: string }} fields
+ */
+export function skillSyncAutoError(logger, fields) {
+  logger.error(EVENTS.SKILL_SYNC_AUTO_ERROR, {
+    event: EVENTS.SKILL_SYNC_AUTO_ERROR,
+    source: fields.source,
+    dest: fields.dest,
+    error: fields.error,
   });
 }
