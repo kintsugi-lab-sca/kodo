@@ -26,6 +26,7 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   gsd_mode?: 'full'|'quick', // GSD execution mode. 'full' = plan→execute→verify chain (kodo:gsd label). 'quick' = single /gsd-quick command (kodo:gsd-quick label). Only set when gsd === true.
  *   phase_id?: string,         // Phase 9 (D-11): resolved phase identifier. Populated by dispatcher when match succeeds.
  *   brief?: string,            // Phase 9 (D-09, pattern-mapper #4): bootstrap brief rendered by buildBriefFromTask. Persisted so hook SessionStart can read it via findSession(). Only set when resolver returns action='bootstrap'.
+ *   worktree_path?: string,    // Phase 18 (D-03c, aditivo opcional — mismo patrón que gsd_mode Phase 11 D-08). Path determinístico derivado del session-id (`<projectPath>/.bg-shell/<sessionId>`) computado por computeWorktreePath. Sesiones legacy v0.5 sin este campo se leen como undefined; consumers downstream deben tolerar falsy. NO bump de schema_version.
  * }} Session
  *
  * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
@@ -44,6 +45,29 @@ export function migrateState(rawState) {
     schema_version: 2,
     sessions: {},
   };
+}
+
+/**
+ * Compute the deterministic worktree path for a session.
+ *
+ * Phase 18 (D-01, D-02, D-03 — Claude's Discretion factor-into-helper).
+ * Pure function: NO realpathSync, NO mkdirSync, NO existsSync — solo `path.join`.
+ * Determinístico por (projectPath, sessionId): mismo input → mismo output.
+ *
+ * Convención: `<projectPath>/.bg-shell/<sessionId>` (CONTEXT.md §domain).
+ * `.bg-shell/` es la convención claude para worktrees de sesión (ver
+ * `claude --help`). El directorio NO se crea aquí — eso lo hace
+ * `claude --worktree <sessionId>` durante el spawn (Plan 02).
+ *
+ * Phase 19 consumirá este helper para `git worktree remove <worktreePath>`
+ * en el stop hook (WT-04). Mantener la firma estable.
+ *
+ * @param {string} projectPath - Repo principal (no symlinked-resolved aquí; ver D-04).
+ * @param {string} sessionId - UUID de la sesión (mismo que `Session.session_id`).
+ * @returns {string} Path absoluto sin trailing slash.
+ */
+export function computeWorktreePath(projectPath, sessionId) {
+  return join(projectPath, '.bg-shell', sessionId);
 }
 
 /**
