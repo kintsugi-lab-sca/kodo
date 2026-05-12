@@ -163,6 +163,16 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // Si resolveProjectPathFn throws (config humano roto) el path no se
   // computa y se omite el check — graceful, heredado v0.5: launchWorkItem
   // fallará luego con su propio error.
+  //
+  // WR-03 (review): ventana TOCTOU aceptada (threat model T-18-07). Entre
+  // existsSyncFn (línea 179) y cmux.send (manager.js:255) hay decenas/
+  // cientos de ms donde un proceso externo podría crear
+  // <projectPath>/.bg-shell/<sessionId>/. Probabilidad efectiva ~0 (UUID
+  // v4 de 122 bits + dispatcher es punto único de generación de sessionId
+  // por phase). Si ocurre, el síntoma es un fallo de `claude --worktree`
+  // en runtime (no en collision-check). No emitimos canonical
+  // `worktree_collision` en ese caso — el operador verá el error opaco
+  // de cmux y debe inferir TOCTOU. Instrumentación deferida a v0.6.
   // ─────────────────────────────────────────────────────────────────────
   let dispatchSessionId = gsdSessionId;
   let dispatchProjectPath = gsdProjectPath;
