@@ -136,7 +136,13 @@ Plans:
   2. Lanzar `kodo orchestrator` detecta drift (hash o mtime) entre repo y home antes de invocar Claude Code; si hay drift, sincroniza automáticamente y emite un evento `skill.sync.auto` en el log NDJSON con `from`/`to`/`files_changed`.
   3. Lanzar `kodo orchestrator` desde el cwd=repo sigue ganando con la skill local (Constraint Phase 999.1 D-04/D-05/D-06 preservada): la skill auto-cargada es la del repo, NO la sincronizada en home; la sync solo asegura que invocaciones cross-cwd futuras no vean `~/.claude/skills/` stale.
   4. Los stderr canonical messages de `kodo skill sync` están documentados (mismo verdict → mismos bytes) y los exit codes están cubiertos por test (al menos los 4 estados: ok / no-op / filesystem error / fuera de repo).
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+**Wave 1**
+- [ ] 21-01-PLAN.md — Crear src/skill/sync.js (syncSkill puro SHA-256 walker + D-04 symlink replace + D-05 prune opt-in) + src/cli/skill-sync.js handler con DI + Commander subgrupo `kodo skill sync [--prune] [--json]` en src/cli.js + 2 helpers tipados skillSyncAuto/Error en src/logger-events.js + test/skill-sync.test.js (8 unit + 8 spawnSync SKILL-04 + source-hygiene). SKILL-01 + SKILL-04.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 21-02-PLAN.md — Cablear bloque auto-sync fail-open en src/orchestrator/launch.js entre L40 y L42 (ANTES de cmux.listWorkspaces; D-03 fail-open + D-05c no prune + D-10 cwd preservation) + test/orchestrator-auto-sync.test.js con 5 escenarios (auto-sync drift/noop/error + D-08b cross-callsite + SKILL-03 invariante). SKILL-02 + SKILL-03.
 
 ### Phase 22: Tech Debt v0.5 Closure
 **Goal**: Cerrar el Resolution Log acumulado en v0.5 (Phase 14 / 15 / 16) sin alterar comportamiento runtime ni golden bytes; transformar warnings y informational items en tests y código limpio.
@@ -179,8 +185,8 @@ Plans:
 | 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/0 | Not started | — |
+| 21. Skill Sync CLI + Auto-Sync | v0.6 | 0/2 | Planning complete | — |
 | 22. Tech Debt v0.5 Closure | v0.6 | 0/0 | Not started | — |
 
 ---
-*Last updated: 2026-05-12 — Phase 20 planning complete (2 plans, waves 1-2, 100% requirement coverage HOOK-01/02/03; inline implementation per D-04b, append-at-end per D-03, orchestrator EXCLUDED per D-05). Phases 21-22 plans TBD.*
+*Last updated: 2026-05-12 — Phase 21 planning complete (2 plans, waves 1-2, 100% requirement coverage SKILL-01/02/03/04; module + CLI + events in Wave 1, fail-open orchestrator hook in Wave 2; cwd=repo Phase 999.1 D-04..D-06 preserved per D-10). Phase 22 plans TBD.*
