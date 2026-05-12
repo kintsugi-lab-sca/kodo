@@ -231,6 +231,89 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     const err = events.find((e) => e.fields?.event === 'worktree.cleanup.error');
     assert.equal(err, undefined, 'no cleanup.error for branch -D failure (warn-only per Pitfall #3)');
   });
+
+  it('DANGLING SYMLINK: <wt>.dirty is a symlink to nonexistent path → suffixed (Pitfall #1 / CR-03)', async () => {
+    const tmpBase = mkdtempSync(join(tmpdir(), 'kodo-dangling-'));
+    const wt = join(tmpBase, 'wt');
+    const dirty = `${wt}.dirty`;
+    const nonexistent = join(tmpBase, 'nonexistent-target');
+    mkdirSync(wt, { recursive: true });
+    // Symlink colgante: <wt>.dirty → <tmpBase>/nonexistent-target (que NO existe).
+    // existsSync(dirty) → false (sigue el symlink); lstatSync(dirty) → stat
+    // exitoso del symlink en sí. CR-03 fix: dispara variante suffixed.
+    const { symlinkSync } = await import('node:fs');
+    symlinkSync(nonexistent, dirty);
+    const session = makeSession({ worktree_path: wt });
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'sess-x';
+      if (args.includes('--porcelain')) return 'M something\n'; // dirty
+      return '';
+    });
+    try {
+      await runStopHook(
+        { session_id: session.session_id, cwd: session.project_path },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: () => {},
+          cmux: makeStubCmux(),
+          loggerFactory: () => logger,
+          gitFn,
+        },
+      );
+      const moveCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'move');
+      assert.ok(moveCall, 'must call worktree move');
+      const target = moveCall.args[3] ?? moveCall.args[moveCall.args.length - 1];
+      assert.notEqual(target, dirty, 'target must NOT be the colliding symlink path');
+      assert.ok(
+        target.startsWith(`${wt}.dirty-`),
+        `target must use suffixed variant, got: ${target}`,
+      );
+      const dirtyEv = events.find((e) => e.fields?.event === 'worktree.cleanup.dirty');
+      assert.equal(dirtyEv?.fields?.moved_to, target);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('REGULAR FILE: <wt>.dirty is a plain file (not dir) → suffixed (Pitfall #1 / CR-03)', async () => {
+    const tmpBase = mkdtempSync(join(tmpdir(), 'kodo-regfile-'));
+    const wt = join(tmpBase, 'wt');
+    const dirty = `${wt}.dirty`;
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(dirty, 'pre-existing file blocking the dirty target');
+    const session = makeSession({ worktree_path: wt });
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'sess-x';
+      if (args.includes('--porcelain')) return 'M something\n'; // dirty
+      return '';
+    });
+    try {
+      await runStopHook(
+        { session_id: session.session_id, cwd: session.project_path },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: () => {},
+          cmux: makeStubCmux(),
+          loggerFactory: () => logger,
+          gitFn,
+        },
+      );
+      const moveCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'move');
+      assert.ok(moveCall, 'must call worktree move');
+      const target = moveCall.args[3] ?? moveCall.args[moveCall.args.length - 1];
+      assert.notEqual(target, dirty, 'target must NOT be the colliding regular file path');
+      assert.ok(
+        target.startsWith(`${wt}.dirty-`),
+        `target must use suffixed variant, got: ${target}`,
+      );
+      const dirtyEv = events.find((e) => e.fields?.event === 'worktree.cleanup.dirty');
+      assert.equal(dirtyEv?.fields?.moved_to, target);
+    } finally {
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {

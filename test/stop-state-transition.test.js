@@ -3,14 +3,30 @@
 // test/stop-state-transition.test.js — Phase 16 LOG-15 SC#5 coverage.
 //
 // Cubre la cadena `stop hook → markSessionStatus → state.transition` en los
-// tres regímenes definidos por el plan:
+// tres regímenes definidos por el plan original Phase 16.
 //
-//   1. full mode  — session.status='review' (post-verify) + lock release
-//                  → emits state.transition from='review' to='done' (D-05).
-//   2. quick mode — session.status='running' (no verify) + lock release
-//                  → emits state.transition from='running' to='done'.
-//   3. non-GSD    — session.gsd=false → NO state.transition (D-07). El resto
-//                   del flujo (removeSession) sí ejecuta — sanity check.
+// Phase 19 CR-02 update (2026-05-12):
+//   - markSessionStatus se relocaliza FUERA del bloque `if (session.gsd)` para
+//     que TODAS las sesiones (GSD + no-GSD) transiten a 'done' antes de
+//     sessionEnd. El observable NDJSON refleja ahora el estado terminal real
+//     también para sesiones no-GSD.
+//   - La razón canónica del mark cambia de 'session-stop:lock-released' a
+//     'session-stop' — el mark ya no ocurre PRE-lock-release, sino antes del
+//     bloque entero session-end + GSD lock.
+//   - Test 3 (non-GSD): ahora SÍ emite state.transition. La premisa antigua
+//     "D-07: solo dentro de if (session.gsd)" queda overrideada por la
+//     decisión CR-02 del code review de Phase 19 (REVIEW.md §CR-02).
+//
+// Regímenes actualizados:
+//
+//   1. full mode  — session.status='review' (post-verify) + mark
+//                  → emits state.transition from='review' to='done'
+//                  con reason='session-stop' (D-05 preserved; reason updated).
+//   2. quick mode — session.status='running' (no verify) + mark
+//                  → emits state.transition from='running' to='done'
+//                  con reason='session-stop'.
+//   3. non-GSD    — session.gsd=false → SÍ emite state.transition (Phase 19
+//                  CR-02). El removeSession también ejecuta — full flow.
 //   4. D-04 invariante MANDATORY (N-2): full y quick emiten `to='done'` fijo.
 //
 // El test usa el export `runStopHook(input, deps)` con DI completa (W-4):
@@ -175,7 +191,7 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       assert.ok(transition, 'full mode debe emitir state.transition');
       assert.equal(transition.fields.from, 'review', 'D-05: from debe ser el status previo (review post-verify)');
       assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done"');
-      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
+      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado (mark PRE-lock-release)');
       assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession se ejecutó (sanity)');
     } finally {
       cleanup();
@@ -217,13 +233,19 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       assert.ok(transition, 'quick mode debe emitir state.transition');
       assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running — quick no pasa por verify)');
       assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done" (mismo para ambos modos)');
-      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'D-06: reason canónico');
+      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado');
     } finally {
       cleanup();
     }
   });
 
-  it('non-GSD: session.gsd=false → does NOT emit state.transition (D-07)', async () => {
+  it('non-GSD (Phase 19 CR-02): session.gsd=false → DOES emit state.transition (mark applies to ALL sessions)', async () => {
+    // Phase 19 CR-02 override: previamente el test afirmaba que non-GSD NO
+    // emitía state.transition (mark estaba dentro de `if (session.gsd)`). El
+    // code review de Phase 19 (REVIEW.md §CR-02) identificó que sessionEnd
+    // emitía status: session.status stale para non-GSD. El fix relocaliza
+    // markSessionStatus fuera del if, así que ahora TODAS las sesiones
+    // transitan a 'done' antes del removeSession.
     const session = {
       session_id: 's-nogsd-1',
       task_id: 'kodo-test-stop-nogsd-1',
@@ -254,8 +276,11 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       );
 
       const transition = events.find((e) => e.fields?.event === 'state.transition');
-      assert.equal(transition, undefined, 'D-07: non-GSD no debe emitir state.transition (solo dentro de if (session.gsd))');
-      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession sí se ejecuta (la sesión se limpia normal — solo el state.transition no aparece)');
+      assert.ok(transition, 'Phase 19 CR-02: non-GSD ahora emite state.transition (mark fuera de if gsd)');
+      assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running)');
+      assert.equal(transition.fields.to, 'done', 'D-04: to fijo a "done" — aplica también a non-GSD post CR-02');
+      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado');
+      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession sí se ejecuta (sanity)');
     } finally {
       cleanup();
     }

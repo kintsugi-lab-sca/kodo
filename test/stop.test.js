@@ -131,6 +131,51 @@ describe('stop.js source hygiene', () => {
       'handleOrchestratorStop must preserve cwd: KODO_ROOT (Phase 19 D-05; auto-commit excluded from worktree per Phase 18 D-06)',
     );
   });
+
+  it('Phase 19 CR-02: markSessionStatus is invoked OUTSIDE the if (session.gsd) block (applies to all sessions)', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    // El mark debe aparecer en el source y NO estar precedido inmediatamente por
+    // `if (session.gsd) {` sin un cierre intermedio. Estrategia simple: el mark
+    // debe aparecer ANTES de la línea que contiene `if (session.gsd) {` que
+    // envuelve `releaseGsdLock`.
+    const markIdx = source.indexOf("markSessionStatus(session.task_id, 'done', 'session-stop'");
+    assert.ok(markIdx > 0, 'must find markSessionStatus with new reason session-stop (Phase 19 CR-02)');
+    // Buscar el `if (session.gsd) {` que contiene `releaseGsdLock`. Patrón robusto:
+    // captura el bloque if (session.gsd) seguido (en pocas líneas) de releaseGsdLock.
+    const ifGsdRegex = /if\s*\(session\.gsd\)\s*\{[\s\S]{0,500}releaseGsdLock/;
+    const ifMatch = ifGsdRegex.exec(source);
+    assert.ok(ifMatch, 'must find if (session.gsd) { ... releaseGsdLock block');
+    assert.ok(
+      markIdx < ifMatch.index,
+      'markSessionStatus must be invoked BEFORE the if (session.gsd) { releaseGsdLock } block (Phase 19 CR-02)',
+    );
+    // Sanity: la cadena con la razón antigua ya NO debe aparecer (relocate completo).
+    assert.equal(
+      source.indexOf("'session-stop:lock-released'"),
+      -1,
+      "old reason 'session-stop:lock-released' must be removed after CR-02 relocate",
+    );
+  });
+
+  it('Phase 19 CR-03: dirty target pre-check uses lstatSync (NOT existsSync) — symlink-safe', () => {
+    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      source.includes('lstatSync(target)'),
+      'pre-check must use lstatSync(target) per Phase 19 CR-03 (symlink-safe)',
+    );
+    // existsSync NO debe aparecer en el archivo — el único uso era el pre-check
+    // que se sustituyó por lstatSync (CR-03). Si reaparece, regresión.
+    assert.equal(
+      source.indexOf('existsSync'),
+      -1,
+      'existsSync must NOT appear in stop.js after CR-03 fix (symlink-following risk)',
+    );
+    // Sanity: el comentario referencia la decisión.
+    assert.ok(
+      /Phase 19 CR-03/.test(source),
+      'comment must reference Phase 19 CR-03 for traceability',
+    );
+  });
 });
 
 describe('QUICK-08 — buildStopNudgeText switch', () => {
