@@ -15,10 +15,15 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runGsdVerify, renderComment } from '../src/gsd/verify.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const VERIFY_SOURCE_PATH = resolve(__dirname, '..', 'src', 'gsd', 'verify.js');
 
 describe('runGsdVerify — integración con filesystem real (.planning/ sintético)', () => {
   let tmpRoot;
@@ -49,6 +54,19 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       gsd: true,
       phase_id: '10',
     };
+  }
+
+  // Phase 19 D-06: sesión v0.6+ con worktree_path → phasesRoot resuelve allí.
+  function makeSessionWithWorktree(tmpWorktree) {
+    return {
+      ...makeSession(),
+      worktree_path: tmpWorktree,
+    };
+  }
+
+  // Phase 19 D-09: sesión legacy v0.5 sin worktree_path → fallback silent a project_path.
+  function makeLegacySession() {
+    return makeSession();
   }
 
   function makeProviderMock() {
@@ -391,5 +409,67 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       (e) => e.fields?.event === 'plane.api.call.failed' && e.fields.step === 'updateTaskState',
     );
     assert.ok(apiFailed, 'planeApiCallFailed should fire on updateTaskState error');
+  });
+
+  it('Phase 19 D-06: verify reads VERIFICATION.md from worktree_path when present', async () => {
+    // Sembrar VERIFICATION.md SOLO en el worktree (no en project_path / tmpRoot).
+    const wt = mkdtempSync(join(tmpdir(), 'kodo-verify-wt-'));
+    try {
+      const phaseDir = join(wt, '.planning', 'phases', '10-test');
+      mkdirSync(phaseDir, { recursive: true });
+      writeFileSync(
+        join(phaseDir, '10-VERIFICATION.md'),
+        [
+          '---',
+          'status: passed',
+          'must_haves_total: 4',
+          'must_haves_verified: 4',
+          'gaps_count: 0',
+          '---',
+          '',
+          '# Phase 10 — Worktree read',
+        ].join('\n'),
+      );
+      const session = makeSessionWithWorktree(wt);
+      const { deps } = makeDeps(session);
+      const result = await runGsdVerify({ sessionId: session.session_id }, deps);
+      assert.equal(result.verdict.action, 'pass', 'must read VERIFICATION.md from worktree');
+      assert.equal(result.verdict.must_haves, 4);
+    } finally {
+      rmSync(wt, { recursive: true, force: true });
+    }
+  });
+
+  it('Phase 19 D-09: legacy session without worktree_path falls back to project_path silently', async () => {
+    // Sembrar VERIFICATION.md SOLO en project_path (tmpRoot); la sesión NO tiene worktree_path.
+    // beforeEach() ya creó el dir 10-orchestrator-verification-gate; reusamos.
+    writeFileSync(
+      join(tmpRoot, '.planning', 'phases', '10-orchestrator-verification-gate', '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: passed',
+        'must_haves_total: 4',
+        'must_haves_verified: 4',
+        'gaps_count: 0',
+        '---',
+        '',
+        '# Legacy OK',
+      ].join('\n'),
+    );
+    const session = makeLegacySession();
+    assert.equal(session.worktree_path, undefined, 'precondition: legacy session has no worktree_path');
+    const { deps, events } = makeDeps(session);
+    const result = await runGsdVerify({ sessionId: session.session_id }, deps);
+    assert.equal(result.verdict.action, 'pass', 'must fall back to project_path');
+    const warns = events.filter((e) => e.level === 'warn' && /fallback|worktree/i.test(String(e.msg || '')));
+    assert.equal(warns.length, 0, 'no warn-level events for fallback (D-09 silent)');
+  });
+
+  it('Phase 19 D-06 source-hygiene: verify.js resolves phasesRoot with worktree_path nullish coalescing', () => {
+    const source = readFileSync(VERIFY_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /session\.worktree_path\s*\?\?\s*session\.project_path/.test(source),
+      'phasesRoot must use session.worktree_path ?? session.project_path (D-06 + D-09 fallback)',
+    );
   });
 });

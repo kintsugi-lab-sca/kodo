@@ -21,6 +21,11 @@
 //   - Fail-open Plane: getTask/addComment/updateTaskState en try/catch individuales (D-17).
 //   - Provider obtenido UNA sola vez por ejecución (hoisted const provider). Sub-concern H.
 //   - Idempotencia NO implementada en v0.3: duplicados aceptados (Pitfall #7).
+//   - Phase 19 D-06: phasesRoot resuelve `session.worktree_path ?? session.project_path`.
+//     Sesiones v0.6+ leen VERIFICATION.md desde el worktree (escrito por el agente);
+//     sesiones legacy v0.5 sin `worktree_path` siguen leyendo del project_path
+//     silently (D-09 — no warn de fallback). Pitfall #6 Opción A: exit codes +
+//     bytes Plane comment IDÉNTICOS al comportamiento v0.5.
 //
 // Legacy verdict mapping (Pitfall #2):
 //   pass + side-effects OK  → 'approved' (reason: 'gate-passed')
@@ -121,7 +126,11 @@ export async function runGsdVerify(opts, deps = {}) {
   const padded = /^\d+$/.test(session.phase_id)
     ? session.phase_id.padStart(2, '0')
     : session.phase_id; // "02.1" se queda como está
-  const phasesRoot = join(session.project_path, '.planning', 'phases');
+  // Phase 19 D-06: lee desde el worktree cuando existe (sesiones v0.6+ tras
+  // Phase 18 wiring), con fallback silent a project_path para sesiones legacy
+  // v0.5 sin worktree_path (D-09 — sin warn de fallback). Pitfall #6 Opción A
+  // invariante: exit codes + bytes Plane comment IDÉNTICOS al comportamiento v0.5.
+  const phasesRoot = join(session.worktree_path ?? session.project_path, '.planning', 'phases');
 
   /** @type {VerdictWithMissing} */
   let verdict;
