@@ -18,7 +18,7 @@
 import { createHash } from 'node:crypto';
 import {
   readFileSync, writeFileSync, readdirSync, mkdirSync,
-  lstatSync, rmSync, existsSync,
+  lstatSync, rmSync, unlinkSync, existsSync,
 } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 
@@ -60,19 +60,21 @@ export function syncSkill(opts) {
     }
 
     // 2. D-04: detectar y reemplazar symlink legacy (lstatSync NO sigue el link).
+    // Usar unlinkSync (no rmSync) — `rmSync({force:true})` sobre un symlink que
+    // apunta a un directorio real puede borrar contenido del target en algunas
+    // versiones de Node. unlinkSync siempre borra solo el link (POSIX unlink(2)).
     try {
       const st = lstatSync(dest);
       if (st.isSymbolicLink()) {
-        rmSync(dest, { force: true }); // borra solo el link, no el target
+        unlinkSync(dest);
         mkdirSync(dest, { recursive: true });
         symlinkReplaced = true;
       }
     } catch (err) {
-      // ENOENT: dest no existe — mkdirSync más abajo lo crea. Otros errores:
-      // fall-through silencioso; mkdirSync recursive es idempotente y dará el
-      // error real al caller si persiste.
+      // ENOENT: dest no existe — mkdirSync más abajo lo crea (idempotente).
+      // Otros errores: fall-through; mkdirSync re-lanzará el error real al caller.
       if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
-        // defense in depth — fall-through al mkdirSync siguiente
+        throw err;
       }
     }
 

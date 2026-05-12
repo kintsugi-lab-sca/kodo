@@ -71,9 +71,18 @@ export async function launchOrchestrator(opts = {}) {
     }
     // status === 'noop' → silencio total (D-03b — sin .noop event para evitar ruido).
   } catch (err) {
-    // Defense in depth: si syncSkill throws inesperado, fail-open silencioso.
-    // Mismo patrón que stop.js outer catch del worktree cleanup (Phase 19 D-03).
-    console.error(`[kodo:orchestrator] skill sync failed: ${/** @type {Error} */ (err).message}`);
+    // Defense in depth: si syncSkill throws inesperado, fail-open vía evento
+    // NDJSON (no console.error — preservar el principio "fail-open via event"
+    // del patrón Phase 19 cleanup D-03).
+    if (log) {
+      try {
+        const skillSource = join(KODO_ROOT_FOR_SKILL, '.claude', 'skills', 'kodo-orchestrate');
+        const skillDest = join(homedir(), '.claude', 'skills', 'kodo-orchestrate');
+        skillSyncAutoError(log, { source: skillSource, dest: skillDest, error: /** @type {Error} */ (err).message });
+      } catch {
+        // silent — never crash the launch
+      }
+    }
   }
   // ────────────────────────────────────────────────────────────────────────
 
