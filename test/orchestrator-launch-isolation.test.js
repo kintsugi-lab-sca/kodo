@@ -26,6 +26,10 @@ const SRC = join(__dirname, '..', 'src', 'orchestrator', 'launch.js');
  *
  * @param {string} src
  */
+// WR-05 (review): naive stripper. No maneja strings con `//`, template
+// literals con block-comments, ni block-comments inline con código.
+// Adecuado para los source files actuales (no contienen esos patrones).
+// Si evolucionan, considerar AST-based stripping (acorn).
 function stripComments(src) {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '')

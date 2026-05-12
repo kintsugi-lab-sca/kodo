@@ -490,6 +490,12 @@ describe('Phase 18 — coalesce con worktree cableado (WT-03 SC#3)', () => {
       join(__dirname, '..', 'src', 'hooks', 'stop.js'),
     ];
 
+    // WR-05 (review): naive comment stripper. Adecuado para los source
+    // files actuales — NO maneja strings con `//`, template literals con
+    // block-comments, ni comentarios block inline-con-código (p.ej.
+    // `fn(<block>note<block> x)`). Si el codebase evoluciona y aparecen
+    // tales patrones, considerar AST-based stripping (acorn). Por ahora la
+    // simplicidad gana: este test detecta el WT-03 violation que importa.
     /** @param {string} src */
     function stripComments(src) {
       return src
