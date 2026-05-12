@@ -3,8 +3,23 @@ phase: 19-worktree-cleanup-integration
 verified: 2026-05-12T13:37:00Z
 status: gaps_found
 score: 3/3 must-haves verified (literal artifact level); 1/3 SCs end-to-end functional
-overrides_applied: 0
+overrides_applied: 1
 re_verification: false
+overrides:
+  - must_have: "SC#3 end-to-end orchestrator-led (CR-01)"
+    reason: |
+      WT-06 cubre el flujo embedded `/gsd-verify-work` (lectura desde worktree),
+      verificado por verify.js:133 + T20-T27 + D-06/D-09. El flujo orchestrator-led
+      post-stop está roto por findSession (state.js:180-194) no escaneando
+      state.history y por cleanup/removeSession ejecutando antes del nudge.
+      CONTEXT.md §D-07 y §Deferred declararon EXPLÍCITAMENTE que el bug latente
+      de findSession→history queda fuera de scope de Phase 19 y se difiere a
+      Phase 21+. El verifier escaló la decisión; el usuario (alex) confirma el
+      deferral: Phase 19 cumple WT-06 a nivel embedded; el orchestrator-led
+      verify queda como deuda explícita para Phase 21+.
+    accepted_by: alex
+    accepted_at: 2026-05-12T14:38:00+02:00
+    deferred_to: "Phase 21+ (skill sync milestone) — capturar como issue dedicado al lifecycle del SessionRecord"
 gaps:
   - truth: "SC#3 — `kodo gsd verify <session-id>` localiza VERIFICATION.md en el worktree de la sesión y produce los mismos exit codes deterministas + bytes Plane comment (Pitfall #6 Opción A invariante)"
     status: partial
