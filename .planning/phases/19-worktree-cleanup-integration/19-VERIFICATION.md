@@ -1,10 +1,10 @@
 ---
 phase: 19-worktree-cleanup-integration
-verified: 2026-05-12T13:37:00Z
-status: gaps_found
-score: 3/3 must-haves verified (literal artifact level); 1/3 SCs end-to-end functional
+verified: 2026-05-12T17:30:00Z
+status: human_needed
+score: 10/10 must-haves verified
 overrides_applied: 1
-re_verification: false
+re_verification: true
 overrides:
   - must_have: "SC#3 end-to-end orchestrator-led (CR-01)"
     reason: |
@@ -20,198 +20,178 @@ overrides:
     accepted_by: alex
     accepted_at: 2026-05-12T14:38:00+02:00
     deferred_to: "Phase 21+ (skill sync milestone) — capturar como issue dedicado al lifecycle del SessionRecord"
-gaps:
-  - truth: "SC#3 — `kodo gsd verify <session-id>` localiza VERIFICATION.md en el worktree de la sesión y produce los mismos exit codes deterministas + bytes Plane comment (Pitfall #6 Opción A invariante)"
-    status: partial
-    reason: |
-      El cambio quirúrgico en verify.js:133 (`session.worktree_path ?? session.project_path`)
-      es correcto AL NIVEL DE LECTURA (tests T20–T27 + D-06/D-09 pasan), pero el flujo
-      end-to-end orchestrator-led está roto por dos eslabones en cadena identificados
-      por gsd-code-review (CR-01):
-        1. `runStopHook` invoca `removeSessionFn(id)` (stop.js:358) que archiva la
-           sesión de `state.sessions` → `state.history` (state.js:127-141).
-        2. `findSession()` (state.js:180-194) SOLO escanea `state.sessions`, NUNCA
-           `state.history`. Cuando el orchestrator recibe el nudge "Ejecuta `kodo
-           gsd verify <session-id>`" (buildStopNudgeText, stop.js:50) y lo ejecuta,
-           verify.js:106 invoca findSessionFn que devuelve `null` → verify.js:107
-           lanza `session not found: <sessionId>`.
-        3. Aunque la sesión fuera recuperable, el cleanup ya borró el worktree
-           (clean path) o lo movió a `.dirty/` (dirty path), así que
-           `existsFn(phasesRoot)` retornaría false → verdict `'missing'`.
-      Resultado: la promesa WT-06 ("verify lee del worktree") solo se sostiene
-      cuando `/gsd-verify-work` se ejecuta DENTRO de la sesión Claude Code antes
-      del stop hook. El camino orchestrator-led que el propio nudge anuncia ES
-      una contradicción arquitectural.
-      El 19-02-SUMMARY clasifica este bug como "deferido / deuda residual",
-      pero el SC#3 del ROADMAP no admite caveat: "kodo gsd verify <session-id>
-      localiza VERIFICATION.md" — el flujo entero falla en producción
-      orchestrator-led.
-    artifacts:
-      - path: "src/session/state.js"
-        line: "180-194"
-        issue: "findSession() solo escanea state.sessions, no state.history"
-      - path: "src/hooks/stop.js"
-        line: "358"
-        issue: "removeSessionFn(id) ejecuta ANTES de que el orchestrator pueda invocar verify"
-      - path: "src/hooks/stop.js"
-        line: "217-356"
-        issue: "Cleanup del worktree (remove/move) ejecuta ANTES del nudge al orchestrator"
-    missing:
-      - "Extender findSession para escanear también state.history como fallback (mínimo invasivo) — o reordenar para que cleanup+removeSession ocurran DESPUÉS del nudge al orchestrator + grace window"
-      - "Alternativa arquitectural: stop hook NUNCA borra worktree (solo emite metadata); orchestrator post-verify dispara cleanup explícito"
-  - truth: "Stop hook nunca crashea (D-03 fail-open)"
-    status: partial
-    reason: |
-      CR-02 (review): `markSessionStatus('done')` (stop.js:197) está SOLO dentro
-      de `if (session.gsd)` (línea 179). Para sesiones no-GSD, la sesión transita
-      a history (vía removeSessionFn línea 358) con `status: session.status`
-      (típicamente 'review'), y `sessionEnd` (stop.js:171) emite el evento
-      `session.end` con `status: session.status` — un valor PRE-removal, no el
-      estado terminal real ('done'). El observable NDJSON contradice la realidad.
-      No es crash, pero rompe la invariante implícita "session.end emite el
-      estado terminal" para el 50% de sesiones (no-GSD).
-    artifacts:
-      - path: "src/hooks/stop.js"
-        line: "179-208"
-        issue: "markSessionStatus('done') está condicionado a session.gsd; sesiones no-GSD no transitan a 'done' antes de session.end"
-    missing:
-      - "Mover markSessionStatus FUERA del bloque if (session.gsd) — todas las sesiones deben transitar a 'done' antes de session.end + removeSession"
-  - truth: "Si git worktree move falla por colisión de target, fallback a variante suffixed (Pitfall #1 mitigation)"
-    status: partial
-    reason: |
-      CR-03 (review): `existsSync(target)` (stop.js:305) sigue symlinks por defecto
-      en Node. Si `<wt>.dirty` es un symlink colgante (apuntando a un worktree
-      previamente borrado), existsSync devuelve `false` — entonces el código
-      intenta `git worktree move <wt> <wt>.dirty` directamente y git falla
-      confusamente. El test TARGET COLLISION (stop-worktree-cleanup.test.js:153)
-      solo cubre el caso `mkdirSync(dirty)`, no symlinks colgantes ni archivos
-      regulares. La mitigación es funcional para el happy path pero no
-      defensiva contra el caso patológico.
-    artifacts:
-      - path: "src/hooks/stop.js"
-        line: "305"
-        issue: "existsSync sigue symlinks; un symlink colgante evade la pre-check"
-    missing:
-      - "Sustituir existsSync por lstatSync con try/catch ENOENT — detecta archivos regulares, dirs, symlinks (colgantes y vivos) y dispara la variante .dirty-<ts> en todos los casos"
+deferred:
+  - truth: "SC#3 — kodo gsd verify <session-id> localiza VERIFICATION.md en el worktree del sesión (flujo orchestrator-led post-stop)"
+    addressed_in: "Phase 21+"
+    evidence: "Override D-07 aceptado por alex: findSession no escanea state.history y cleanup/removeSession ejecutan antes del nudge. Deuda arquitectural explícita deferida a Phase 21+ (skill sync milestone)."
 human_verification:
-  - test: "Smoke real orchestrator-led: arrancar `kodo orchestrator`, lanzar una sesión GSD full con `kodo run <task>`, dejar que termine, observar que el nudge llega al orchestrator y que `kodo gsd verify <session-id>` ejecutado por el orchestrator NO falla con `session not found`"
+  - test: "Smoke real orchestrator-led: arrancar kodo orchestrator, lanzar sesión GSD full con kodo run <task>, dejar que termine, observar que el nudge llega al orchestrator y que kodo gsd verify <session-id> ejecutado por el orchestrator NO falla con session not found"
     expected: "El verify localiza el VERIFICATION.md y comenta en Plane; exit code 0"
     why_human: "Requiere infraestructura real (orchestrator + cmux + plane API + git worktree) y el bug es de coordinación entre componentes — los unit tests no cubren la cadena completa porque mockean findSession y la sesión nunca pasa por history"
-  - test: "Smoke dirty-state: ejecutar una sesión que deje `working tree dirty`, dejar que stop hook corra, verificar que `<wt>.dirty/` existe en disco, que `git worktree list` lo lista, y que la branch sigue viva"
-    expected: "El directorio `.dirty/` está intacto con los cambios del usuario, accesible para inspección manual"
+  - test: "Smoke dirty-state: ejecutar una sesión que deje working tree dirty, dejar que stop hook corra, verificar que <wt>.dirty/ existe en disco, que git worktree list lo lista, y que la branch sigue viva"
+    expected: "El directorio .dirty/ está intacto con los cambios del usuario, accesible para inspección manual"
     why_human: "Los E2E smoke tests cubren el case en tmpdir aislado, pero la validación de UX en un repo real con archivos del usuario requiere visual inspection"
-  - test: "Smoke session legacy v0.5: cargar una sesión con `worktree_path: undefined` (state.json antiguo) y confirmar que stop hook no toca git y que verify lee del project_path silently"
+  - test: "Smoke session legacy v0.5: cargar una sesión con worktree_path: undefined (state.json antiguo) y confirmar que stop hook no toca git y que verify lee del project_path silently"
     expected: "Sin eventos worktree.cleanup.*, verify localiza VERIFICATION.md en el project_path, sin warn de fallback en logs"
     why_human: "Requiere fixture state.json migrado/desmigrado a v0.5 — los tests usan factories sintéticas pero no cubren la transición real"
 ---
 
-# Phase 19: Worktree Cleanup & Integration — Verification Report
+# Phase 19: Worktree Cleanup & Integration — Verification Report (Re-verification)
 
 **Phase Goal:** El ciclo de vida del worktree cierra limpio (fail-open en caso de dirty state) y el resto de subsistemas que tocan filesystem (`auto-commit` de la skill, `kodo gsd verify`) operan dentro del worktree correcto.
-**Verified:** 2026-05-12T13:37:00Z
-**Status:** gaps_found (3 must-haves a nivel artefacto verificados; 1 gap end-to-end + 2 partial blockers identificados por code-review todavía sin closure plan)
-**Re-verification:** No — initial verification
+**Verified:** 2026-05-12T17:30:00Z
+**Status:** human_needed (todos los gaps de código cerrados; override CR-01 honrado; quedan 3 items de smoke test que requieren infraestructura real)
+**Re-verification:** Sí — tras ejecución de plan 19-03 que cierra CR-02 y CR-03
+
+## Re-verification Summary
+
+| Item | Verificación anterior | Estado actual |
+|------|-----------------------|---------------|
+| CR-01 (findSession no escanea history) | FAILED — override D-07 aplicado | DEFERRED (override honrado, sin cambios) |
+| CR-02 (markSessionStatus solo en if session.gsd) | FAILED | CLOSED — 19-03 Task 1 |
+| CR-03 (existsSync sigue symlinks) | FAILED | CLOSED — 19-03 Task 2 |
+| Suite global | 564/564 pass + 0 skip | 567/568 pass + 1 skip pre-existente |
+
+**Gaps cerrados:** 2/3 (CR-02 + CR-03). Gap CR-01 permanece como deuda deferida a Phase 21+ con override aceptado.
+**Regresiones introducidas:** 0.
 
 ## Goal Achievement
 
-### Observable Truths (ROADMAP Success Criteria + PLAN must_haves)
+### Observable Truths
 
 | # | Truth (Source) | Status | Evidence |
 |---|----------------|--------|----------|
-| 1 | **SC#1**: Tras stop hook clean, `git worktree list` ya no incluye el worktree; si dirty, persiste con log warn | VERIFIED (con caveat CR-02/CR-03) | `src/hooks/stop.js:217-356` cablea cleanup fail-open. E2E CLEAN (`test/stop-worktree-cleanup.test.js:262`) verifica `existsSync(wt)===false` + branch borrada + evento `worktree.cleanup.ok`. E2E DIRTY (`stop-worktree-cleanup.test.js:282`) verifica `.dirty/` persiste + branch viva + evento `worktree.cleanup.dirty`. 8/8 tests pasan. |
-| 2 | **SC#2**: `auto-commit` produce commits dentro del worktree; `KODO_ROOT` env override preservado | VERIFIED (satisfied-by-design D-05) | `handleOrchestratorStop` (`stop.js:393-427`) sigue con `cwd: KODO_ROOT` (líneas 414, 422). CONTEXT.md §D-05 interpreta WT-05 como "el cwd respeta el contrato D-06 por construcción" — la orchestrator session está excluida del worktree (Phase 18 D-06). Source-hygiene test `Phase 19 D-05` blinda el invariante. `test/skill-auto-commit.test.js` legacy verde (2/2). **Tensión semántica**: el texto literal de WT-05/SC#2 dice "opera DENTRO del worktree" mientras la implementación opera EN KODO_ROOT. Aceptado como deviation intencional documentada en CONTEXT D-05 (orchestrator no tiene worktree). |
-| 3 | **SC#3 / WT-06**: `kodo gsd verify <session-id>` localiza VERIFICATION.md en el worktree con mismos exit codes + bytes Plane comment | **FAILED (end-to-end)** | A NIVEL DE LECTURA: `src/gsd/verify.js:133` con `??` fallback pasa los tests `T20-T27` + 3 nuevos (D-06 worktree, D-09 legacy, source-hygiene). PERO el FLUJO ORCHESTRATOR-LED está roto por CR-01: `findSession` (state.js:180-194) no escanea `state.history`, y `removeSessionFn` (stop.js:358) + cleanup (stop.js:217-356) ejecutan ANTES del nudge al orchestrator (stop.js:362-371). El orchestrator que recibe el nudge no puede invocar verify porque la sesión ya está en history y el worktree ya no existe. Ver gap detallado. |
-| 4 | **PLAN must_have**: EVENTS exporta 11 strings incluyendo 3 nuevos `worktree.cleanup.*` (D-10) | VERIFIED | `src/logger-events.js:35-47` (12 matches grep). `test/logger-events.test.js` 15/15 pasan, inventory test confirma 11 strings ordenados. |
-| 5 | **PLAN must_have**: 3 helpers tipados (`worktreeCleanupOk`/`Dirty`/`Error`) con level info/warn/error + shape exacto | VERIFIED | `src/logger-events.js:221, 237, 259`. Contract tests asertan `level`, `event`, y todos los campos del shape. 3/3 pasan. |
-| 6 | **PLAN must_have**: handleOrchestratorStop preserva `cwd: KODO_ROOT` (D-05) | VERIFIED | `src/hooks/stop.js:414, 422` (2 matches grep). Source-hygiene test específico Phase 19 D-05 blinda con regex match. |
-| 7 | **PLAN must_have**: Cleanup ocurre DESPUÉS de releaseGsdLock (D-07) | VERIFIED | awk check: `releaseGsdLock` línea 204 < `worktreeCleanupOk` línea 221. Source-hygiene test específico Phase 19 D-07 blinda. |
-| 8 | **PLAN must_have**: Branch name leído ANTES de worktree remove (D-08 / Pitfall #2) | VERIFIED | awk check: `--show-current` línea 241 < `'worktree', 'remove'` línea 270. Source-hygiene test específico Phase 19 D-08 blinda. |
-| 9 | **PLAN must_have**: Legacy v0.5 sin worktree_path → skip silencioso (D-09) | VERIFIED | `stop.js:217` guard `if (session.worktree_path)`. Test LEGACY (`stop-worktree-cleanup.test.js:190`) verifica `calls.length === 0` y sin eventos `worktree.cleanup.*`. Verify también con `??` fallback silent. |
-| 10 | **PLAN must_have**: D-01 dirty = `git status --porcelain` no vacío (commits unpushed NO cuentan) | VERIFIED | `stop.js:254`. Test DIRTY usa `'M file.txt\n?? new.txt\n'` como dirty signal. Sin path que evalúe `git log @{u}..HEAD` o equivalentes. |
+| 1 | **SC#1** — Tras stop hook clean, `git worktree list` ya no incluye el worktree; si dirty, persiste con log warn | VERIFIED | `stop.js:261-343`: CLEAN path llama `worktree remove` + emite `worktree.cleanup.ok`; DIRTY path llama `worktree move <wt>.dirty` + emite `worktree.cleanup.dirty`. E2E tests `stop-worktree-cleanup.test.js:345-396` con git real verifican en disco. 10/10 unit tests + 2 E2E pasan. |
+| 2 | **SC#2** — `auto-commit` produce commits dentro del worktree; `KODO_ROOT` env override preservado | VERIFIED | `handleOrchestratorStop` (stop.js:400+) preserva `cwd: KODO_ROOT`. Source-hygiene test `Phase 19 D-05` pasa (stop.test.js). `grep -c "cwd: KODO_ROOT" src/hooks/stop.js` = 2. Satisfied-by-design per D-05/D-06. |
+| 3 | **SC#3 / WT-06** — `kodo gsd verify <session-id>` localiza VERIFICATION.md en el worktree (embedded flow) | VERIFIED (override CR-01 para orchestrator-led) | `verify.js:133`: `join(session.worktree_path ?? session.project_path, '.planning', 'phases')` — productivo y único. Tests T20-T27 + D-06/D-09 + source-hygiene pasan. El flujo orchestrator-led post-stop permanece roto (findSession no escanea history) — override D-07 aceptado por alex, deferido a Phase 21+. |
+| 4 | **CR-02** — `markSessionStatus('done')` se ejecuta para TODAS las sesiones (GSD + no-GSD) ANTES de sessionEnd | VERIFIED (CLOSED por 19-03) | `stop.js:169-176`: `markSessionStatus(session.task_id, 'done', 'session-stop', log)` fuera del bloque `if (session.gsd)`. Catch usa `console.error` (WR-03). `sessionEnd` recibe `status: 'done'` literal (stop.js:186). Verificado por source-hygiene `Phase 19 CR-02` (stop.test.js:135-158). `grep -c "session-stop:lock-released" stop.js` = 0; `grep -c "status: session.status" stop.js` = 0. |
+| 5 | **CR-03** — Pre-check del dirty target usa `lstatSync` (symlink-safe); symlinks colgantes disparan variante suffixed | VERIFIED (CLOSED por 19-03) | `stop.js:302-314`: `lstatSync(target)` en try/catch ENOENT. `grep -c "existsSync" stop.js` = 0. Tests DANGLING SYMLINK + REGULAR FILE (stop-worktree-cleanup.test.js:235-316) pasan. Source-hygiene `Phase 19 CR-03` verifica ausencia de existsSync. |
+| 6 | **D-07** — Cleanup ocurre DESPUÉS de releaseGsdLock | VERIFIED | awk check: `releaseGsdLock` línea 199 < `worktreeCleanupOk` línea 216. Source-hygiene `Phase 19 D-07` pasa. |
+| 7 | **D-08** — Branch name leído ANTES de worktree remove | VERIFIED | awk check: `--show-current` < `worktree remove`. Source-hygiene `Phase 19 D-08` pasa. |
+| 8 | **D-09** — Legacy v0.5 sin worktree_path → skip silencioso en cleanup + fallback en verify | VERIFIED | `stop.js:212` guard `if (session.worktree_path)`. Test LEGACY (stop-worktree-cleanup.test.js:190) pasa con `calls.length === 0`. `verify.js:133` usa `??` fallback. |
+| 9 | **D-10** — EVENTS exporta 11 strings incluyendo 3 nuevos `worktree.cleanup.*`; 3 helpers tipados | VERIFIED | `node -e` runtime check: EVENTS count 11, frozen: true, los 3 helpers typeof function. 15/15 tests logger-events pasan. |
+| 10 | **WT-04 fail-open** — `runStopHook` nunca crashea; outer try/catch top-level intacto | VERIFIED | Test ERROR on remove (stop-worktree-cleanup.test.js:126) verifica que `worktreeCleanupError{phase:remove}` se emite y `await runStopHook` completa sin throw. Top-level catch stop.js:381. |
 
-**Score (must-haves nivel artefacto):** 9/10 VERIFIED. **Score (Success Criteria end-to-end funcional):** 2/3 (SC#3 partial — flujo orchestrator-led roto por CR-01).
+**Score:** 10/10 truths verified (CR-01 override aplicado cuenta como VERIFIED per frontmatter override)
+
+### Deferred Items
+
+Items no yet met but explicitly addressed in later milestone phases.
+
+| # | Item | Addressed In | Evidence |
+|---|------|-------------|----------|
+| 1 | Flujo orchestrator-led: `kodo gsd verify <session-id>` post-stop falla porque `findSession` no escanea `state.history` y el worktree ya fue borrado antes del nudge | Phase 21+ | Override D-07 aceptado por alex (2026-05-12T14:38+02:00). CONTEXT.md §Deferred documenta explícitamente. Phase 21 (SKILL-01..04) es el milestone de skill sync donde se planea revisar el lifecycle del SessionRecord. |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `src/logger-events.js` | EVENTS + 3 helpers tipados | VERIFIED | 268 líneas; 12 grep matches para `WORKTREE_CLEANUP_*`; helpers exportados línea 221, 237, 259 |
-| `src/hooks/stop.js` | Cleanup fail-open tras releaseGsdLock + gitFn DI | VERIFIED (con caveats CR-02/CR-03) | 434 líneas; bloque cleanup 217-356; 21 grep matches para markers requeridos. `existsSync` sigue symlinks (CR-03) |
-| `src/gsd/verify.js` | phasesRoot con `??` fallback + JSDoc | VERIFIED | Línea 133 productiva, línea 24 comentario header (`grep -c == 2` por la cita literal del codepoint, deviation documentada en 19-02-SUMMARY) |
-| `test/logger-events.test.js` | Contract tests + inventory updated | VERIFIED | 15/15 pasan; inventory test refleja 11 strings |
-| `test/stop-worktree-cleanup.test.js` | 6 unit + 2 E2E con git real | VERIFIED | 8/8 pasan (CLEAN, DIRTY, ERROR, COLLISION, LEGACY, BRANCH-D-FAIL + 2 E2E) |
-| `test/gsd-verify-integration.test.js` | +3 tests (D-06, D-09, source-hygiene) | VERIFIED | 11/11 pasan (8 existentes + 3 nuevos) |
-| `test/stop.test.js` | +3 source-hygiene asserts D-05/D-07/D-08 | VERIFIED | 18/18 pasan (15 existentes + 3 nuevos) |
+| `src/logger-events.js` | EVENTS extendido + 3 helpers tipados worktreeCleanupOk/Dirty/Error | VERIFIED | 11 eventos, frozen, 3 helpers exportados con level info/warn/error correcto. Runtime check pasa. |
+| `src/hooks/stop.js` | Cleanup fail-open + CR-02 fix + CR-03 fix | VERIFIED | `markSessionStatus` fuera de `if (session.gsd)` (línea 169-176). `lstatSync` reemplaza `existsSync` (línea 302-314). `cwd: KODO_ROOT` preservado. |
+| `src/gsd/verify.js` | phasesRoot con `??` fallback | VERIFIED | Línea 133 productiva única. Línea 24 en comentario header (documentado como deviation intencional). `join(session.project_path, '.planning', 'phases')` ya NO existe (grep = 0). |
+| `test/stop-worktree-cleanup.test.js` | 6 unit + 2 E2E + 2 CR-03 nuevos = 10 unit + 2 E2E | VERIFIED | 10 `it()` en unit describe + 2 en E2E. DANGLING SYMLINK + REGULAR FILE presentes. Todos pasan. |
+| `test/gsd-verify-integration.test.js` | +3 tests (D-06, D-09, source-hygiene) | VERIFIED | Tests presentes. 11/11 pasan. |
+| `test/stop.test.js` | 5 source-hygiene asserts (D-05/D-07/D-08 de 19-02 + CR-02/CR-03 de 19-03) | VERIFIED | Todos 5 presentes y pasan. Total 20 asserts en suite. |
+| `test/stop-state-transition.test.js` | Sync al contrato CR-02 (3 asserts actualizados) | VERIFIED (deviation) | 4/4 pasan. Header comment documenta Phase 19 CR-02. `grep -c "Phase 19 CR-02"` = 7; `grep -c "session-stop'"` = 6. |
+| `test/logger-events.test.js` | Contract tests + inventory actualizado | VERIFIED | 15/15 pasan. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `src/hooks/stop.js` | `src/logger-events.js` | `dynamic import { worktreeCleanupOk/Dirty/Error }` | WIRED | `stop.js:220-224` |
-| `src/hooks/stop.js` | git CLI | `gitFn(cwd, args) → execFileSync('git', ['-C', cwd, ...args])` | WIRED | Default factory `stop.js:105-108`; producción usa execFileSync real |
-| `src/gsd/verify.js` | `SessionRecord.worktree_path` | nullish coalescing en phasesRoot | WIRED | `verify.js:133` |
-| `test/stop-worktree-cleanup.test.js` | `src/hooks/stop.js` | `runStopHook({...}, { gitFn, loggerFactory, ... })` | WIRED | 8 invocaciones con stubs/E2E |
-| **`src/hooks/stop.js` (nudge) → `src/gsd/verify.js`** | **`findSession({ sessionId })`** | **state.json lookup** | **BROKEN** | **CR-01**: `findSession` (state.js:180) escanea solo `state.sessions`; `removeSessionFn` (stop.js:358) movió la sesión a `state.history`. El orchestrator-led verify no puede recuperar la sesión |
+| `stop.js` | `logger-events.js` | `dynamic import { worktreeCleanupOk/Dirty/Error }` | WIRED | `stop.js:215-219` |
+| `stop.js` | git CLI | `gitFn(cwd, args) → execFileSync('git', ['-C', cwd, ...args])` | WIRED | Default factory `stop.js:105-108`; producción usa execFileSync real |
+| `stop.js` | `session/manager.js` | `markSessionStatus(task_id, 'done', 'session-stop', log)` fuera de `if (session.gsd)` | WIRED (CR-02 fix) | `stop.js:169-176`. TODAS las sesiones transitan a 'done'. |
+| `stop.js` | `node:fs` | `lstatSync(target)` en try/catch ENOENT (CR-03 fix) | WIRED | `stop.js:302-314`. `existsSync` eliminado del archivo. |
+| `verify.js` | `SessionRecord.worktree_path` | nullish coalescing en phasesRoot | WIRED | `verify.js:133` |
+| `stop.js (nudge)` → `verify.js` | `findSession({ sessionId })` | state.json lookup | BROKEN (deferred CR-01) | `findSession` escanea solo `state.sessions`; sesión ya en `state.history` tras `removeSessionFn`. Override D-07 aceptado. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `stop.js` cleanup block | `session.worktree_path` | `findSession` returns `SessionRecord` con campo aditivo Phase 18 D-03c | YES (Phase 18 verificado completo per ROADMAP) | FLOWING |
-| `verify.js` phasesRoot | `session.worktree_path` | mismo source que arriba | YES (lectura) / **NO (end-to-end, session no recuperable post-removeSession)** | **DISCONNECTED end-to-end (CR-01)** |
+| `stop.js` cleanup block | `session.worktree_path` | `findSession` → `SessionRecord` (Phase 18 D-03c) | YES (Phase 18 verificado) | FLOWING |
+| `verify.js` phasesRoot | `session.worktree_path` | mismo source | YES (flujo embedded) / NO (orchestrator-led, CR-01 deferred) | FLOWING (embedded), DISCONNECTED (orchestrator-led, override) |
 | Cleanup events NDJSON | `cleanupLog` payload | `worktreeCleanup{Ok,Dirty,Error}` helpers | YES | FLOWING |
+| `sessionEnd` status field | `'done'` literal | hardcoded tras CR-02 fix (ya no `session.status` stale) | YES | FLOWING |
 
 ### Behavioral Spot-Checks
 
-| Behavior | Command | Result | Status |
+| Behavior | Command / Check | Result | Status |
 |----------|---------|--------|--------|
-| EVENTS frozen + 11 strings + 3 helpers exportados | `node -e "import('./src/logger-events.js').then(m => console.log(Object.values(m.EVENTS).length === 11 && typeof m.worktreeCleanupOk === 'function'))"` | (asumido por test suite verde) | PASS (implícito por tests) |
-| Phase 19 specific tests | `node --test test/stop-worktree-cleanup.test.js test/gsd-verify-integration.test.js test/logger-events.test.js test/stop.test.js` | 52/52 pass | PASS |
-| Suite global sin regresiones | `npm test` | **564 tests / 563 pass + 1 skip** (skip pre-existente, no introducido por Phase 19) | PASS |
-| awk D-07 (releaseGsdLock < worktreeCleanupOk) | `awk` over stop.js | lock:204 cleanup:221 | PASS |
-| awk D-08 (--show-current < worktree remove) | `awk` over stop.js | branch:241 remove:270 | PASS |
-| LOG-12 invariant | `grep -l "logger-events" src/check.js src/cli/format.js` | 0 matches | PASS |
-| End-to-end orchestrator-led verify | (not testable automatically — requires real orchestrator + cmux + plane) | N/A | SKIP (→ human verification) |
+| EVENTS frozen + 11 strings + 3 helpers | `node -e "import('./src/logger-events.js').then(...)` runtime | count=11, frozen=true, helpers=function | PASS |
+| Phase 19 specific tests (stop-cleanup + verify + logger + stop) | `node --test test/stop-worktree-cleanup.test.js test/stop.test.js test/gsd-verify-integration.test.js test/logger-events.test.js` | 56/56 pass | PASS |
+| Suite global sin regresiones | `npm test` | **568 tests / 567 pass + 1 skip** (skip pre-existente) | PASS |
+| awk D-07 (releaseGsdLock línea 199 < worktreeCleanupOk línea 216) | awk check | lock:199 cleanup:216 | PASS |
+| awk D-08 (--show-current < worktree remove) | awk check | branch antes de remove | PASS |
+| CR-02: markSessionStatus (línea 171) ANTES de if (session.gsd) (línea 196) | awk check | 171 < 196 | PASS |
+| CR-02: `session-stop:lock-released` eliminado | `grep -c "'session-stop:lock-released'" stop.js` | 0 | PASS |
+| CR-02: `status: session.status` eliminado | `grep -c "status: session\.status" stop.js` | 0 | PASS |
+| CR-03: `lstatSync(target)` presente | `grep -c "lstatSync(target)" stop.js` | 1 | PASS |
+| CR-03: `existsSync` ausente del archivo | `grep -c "existsSync" stop.js` | 0 | PASS |
+| 5 commits 19-03 existen | `git log --oneline` | 26ec187, d688a04, caeca1b, 59654c1, a6586f1 | PASS |
+| End-to-end orchestrator-led verify | Requiere infraestructura real | N/A | SKIP → human verification |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| **WT-04** | 19-01 + 19-02 | Stop hook hace cleanup del worktree (`git worktree remove`) tras release del lock, fail-open si dirty | SATISFIED (con caveats CR-02/CR-03) | 8/8 tests stop-worktree-cleanup pasan; 2 E2E con git real |
-| **WT-05** | 19-02 | `auto-commit` opera dentro del worktree; KODO_ROOT env override preservado | SATISFIED (satisfied-by-design) | `handleOrchestratorStop` preserva `cwd: KODO_ROOT`; D-05 interpreta WT-05 como contrato D-06 por construcción. **Pero tensión semántica con la lectura literal de WT-05** — ver Truth #2 |
-| **WT-06** | 19-02 | `kodo gsd verify` lee VERIFICATION.md desde el worktree | **PARTIAL** | El cambio quirúrgico verify.js:133 funciona en aislamiento (tests pasan), pero el flujo orchestrator-led (que es el caso de uso real para WT-06 + SC#3) está roto por CR-01 |
+| **WT-04** | 19-01 + 19-02 + 19-03 | Stop hook hace cleanup del worktree fail-open; dirty state preserva con log warn | SATISFIED | 10/10 unit tests + 2 E2E (git real). CR-02/CR-03 cerrados por 19-03. |
+| **WT-05** | 19-02 | `auto-commit` opera dentro del worktree; KODO_ROOT env override preservado | SATISFIED (satisfied-by-design) | `handleOrchestratorStop` preserva `cwd: KODO_ROOT`. Source-hygiene D-05 pasa. |
+| **WT-06** | 19-02 | `kodo gsd verify` lee VERIFICATION.md desde el worktree | SATISFIED (embedded; orchestrator-led override CR-01) | `verify.js:133` cambiado. Tests T20-T27 + D-06/D-09 pasan. Override D-07 aceptado para el flujo orchestrator-led post-stop. |
 
-**Orphaned requirements:** ninguno detectado — los 3 IDs WT-04/05/06 están reclamados por 19-01/19-02. REQUIREMENTS.md todavía marca WT-04/05/06 como `pending` (línea 76-78); el sync de status pertenece a una fase posterior (no es gap de Phase 19).
+**Orphaned requirements:** ninguno — WT-04/05/06 reclamados por 19-01/19-02/19-03. REQUIREMENTS.md marca WT-04/05/06 como `pending` (sync de status pertenece a fase posterior, no es gap de Phase 19).
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `src/hooks/stop.js` | 305 | `existsSync(target)` (sigue symlinks) | Warning (CR-03) | Symlinks colgantes evaden la pre-check de Pitfall #1; git `worktree move` fallaría confusamente. Edge case raro pero la mitigación NO es defensiva |
-| `src/hooks/stop.js` | 179-208 | `markSessionStatus('done')` solo en `if (session.gsd)` | Warning (CR-02) | Sesiones no-GSD emiten `session.end` con `status: 'review'` (stale) en lugar de `done` |
-| `src/session/state.js` | 180-194 | `findSession` no escanea `state.history` | **Blocker (CR-01)** | Rompe el flujo orchestrator-led verify (WT-06 / SC#3 end-to-end) |
-| `src/gsd/verify.js` | 24 | Comentario header cita el codepoint literal `??` | Info (deviation documentada en 19-02-SUMMARY) | `grep -c` da 2 en lugar de 1; el spirit del acceptance criterion (single source productiva) está respetado, pero el grep literal del plan no |
+| `src/hooks/stop.js` | 220-228 | `cleanupLog` instancia un segundo logger con binding idéntico a `log` (línea 159-167) | Warning (WR-01 del REVIEW.md post-19-03) | Potencial duplicación de file descriptors NDJSON. No es bloqueante; fix sugerido: `const cleanupLog = log` |
+| `src/hooks/stop.js` | 178-180 | Comentario dice "state.transition captured here" pero la transición ya ocurre en markSessionStatus (línea 169-171); sessionEnd solo emite session.end | Warning (WR-02 del REVIEW.md post-19-03) | Confunde al próximo reviewer. No es bloqueante. |
+| `src/hooks/stop.js` | 105-108 | `gitFn` default re-importa `node:child_process` en cada invocación (5 veces por sesión CLEAN) | Warning (WR-04 del REVIEW.md post-19-03) | Latencia mínima (Node cachea módulos). No es bloqueante. |
+| `src/hooks/stop.js` | 105-108 + 239/249 | `gitFn` default antepone `-C <project>` y los call-sites de branch/status pasan `-C <wt>` → `git -C <project> -C <wt> branch --show-current` | Warning (WR-05 del REVIEW.md post-19-03) | Git acepta múltiples `-C` y compone (funciona). Convención mezclada confunde; documentado en comentario 234-237. No es bloqueante. |
+
+Todos los anti-patrones son warnings del REVIEW.md post-19-03 con severidad advisory. Ninguno bloquea el Phase Goal. WR-01/02/04/05 son tech debt menor identificado para un futuro refactor.
 
 ### Human Verification Required
 
-(Ver `human_verification:` en frontmatter — 3 items: smoke orchestrator-led, smoke dirty-state, smoke legacy v0.5.)
+**1. Smoke orchestrator-led verify**
+
+**Test:** Arrancar `kodo orchestrator`, lanzar una sesión GSD full con `kodo run <task>`, dejar que termine, observar que el nudge llega al orchestrator y que `kodo gsd verify <session-id>` ejecutado por el orchestrator NO falla con `session not found`.
+**Expected:** El verify localiza el VERIFICATION.md y comenta en Plane; exit code 0.
+**Why human:** Requiere infraestructura real (orchestrator + cmux + plane API + git worktree). El bug CR-01 está deferido pero el smoke test puede confirmar si en la práctica el flujo embedded (ejecutado DENTRO de la sesión antes del stop hook) es suficiente para el workflow real.
+
+**2. Smoke dirty-state en repo real**
+
+**Test:** Ejecutar una sesión que deje `working tree dirty`, dejar que stop hook corra, verificar que `<wt>.dirty/` existe en disco, que `git worktree list` lo lista, y que la branch sigue viva.
+**Expected:** El directorio `.dirty/` está intacto con los cambios del usuario, accesible para inspección manual.
+**Why human:** Los E2E smoke tests cubren el caso en tmpdir aislado; la validación de UX en un repo real con archivos del usuario requiere visual inspection.
+
+**3. Smoke legacy v0.5**
+
+**Test:** Cargar una sesión con `worktree_path: undefined` (state.json antiguo de v0.5) y confirmar que stop hook no toca git y que verify lee del project_path silently.
+**Expected:** Sin eventos `worktree.cleanup.*`; verify localiza VERIFICATION.md en el project_path; sin warn de fallback en logs.
+**Why human:** Requiere fixture state.json migrado/desmigrado a v0.5; los tests usan factories sintéticas pero no cubren la transición real desde un state.json persistido.
 
 ### Gaps Summary
 
-**Gap principal (BLOCKER end-to-end de SC#3):** El review del código (`19-REVIEW.md` CR-01) identifica que el cleanup del worktree + `removeSessionFn` ejecutan ANTES del nudge al orchestrator, y `findSession` NO escanea `state.history`. Esto significa que el caso de uso publicitado por el propio nudge ("Ejecuta `kodo gsd verify <session-id>`") **falla con `session not found`** en producción orchestrator-led. El 19-02-SUMMARY clasifica esto como "deuda residual deferida", pero la lectura estricta del Phase Goal y de SC#3 NO admite el caveat — el ciclo del worktree no "cierra limpio" si el verify orchestrator-led queda quebrado.
+**Todos los gaps de código están cerrados:**
+- CR-02 (markSessionStatus solo en if session.gsd) — CLOSED por 19-03 Task 1: mark relocated a línea 169-176, aplica a todas las sesiones, razón `'session-stop'`, catch `console.error` (WR-03).
+- CR-03 (existsSync seguía symlinks) — CLOSED por 19-03 Task 2: `lstatSync` con ENOENT discrimination en línea 302-314. 2 tests DANGLING SYMLINK + REGULAR FILE blindan. `existsSync` eliminado del archivo entero.
 
-**Tensión documentada en SC#2 (WT-05):** El texto literal del requirement dice "auto-commit opera DENTRO del worktree", pero la implementación opera en `KODO_ROOT` con justificación D-05 (orchestrator excluido del worktree per Phase 18 D-06). Acceptable como deviation documentada pero el ROADMAP SC#2 debería actualizarse para reflejar el contrato real ("preserva el cwd de auto-commit per construcción D-06") — esto NO es bloqueante de Phase 19 si el equipo acepta la interpretación, pero conviene anotarlo.
+**Deuda deferida (override CR-01):**
+- El flujo orchestrator-led `kodo gsd verify <session-id>` post-stop sigue roto porque `findSession` no escanea `state.history`. Override D-07 aceptado por alex. Deferido a Phase 21+.
 
-**Warnings menores (CR-02, CR-03):** Anti-patrones que NO bloquean el goal pero degradan la robustez. CR-02 lleva a `session.end` con status stale para sesiones no-GSD (observable NDJSON inconsistente); CR-03 deja un edge case (symlinks colgantes) sin mitigación defensiva.
+**Warnings advisory (no bloqueantes):**
+- WR-01: doble logger instancing (cleanupLog ≡ log). Fix trivial: `const cleanupLog = log`.
+- WR-02: comentario obsoleto en sessionEnd block.
+- WR-04: `node:child_process` re-importado en cada llamada a gitFn default.
+- WR-05: convención mixta de `-C <project>` + `-C <wt>` en gitFn call-sites.
 
-**Decisión de fase (recomendación para el orquestador humano):**
-
-- **Si CR-01 se acepta como deuda explícita** (documentada en 19-CONTEXT.md §Deferred y referenciada en 19-02-SUMMARY) y el equipo afirma que `/gsd-verify-work` se ejecuta DENTRO de la sesión Claude Code (no via orchestrator post-stop), entonces el goal está cumplido para el flujo embedded y el override es procedente. **En ese caso conviene añadir un override formal en VERIFICATION.md frontmatter** con `must_have: "SC#3 end-to-end orchestrator-led"`, `reason: "WT-06 cubre el embedded /gsd-verify-work flow; el orchestrator-led queda fuera de scope hasta findSession extienda a history"`, `accepted_by: "<usuario>"`.
-- **Si el flujo orchestrator-led ES parte del goal**, este es un BLOCKER y requiere closure plan (extender `findSession` para fallback a history, o reordenar stop hook).
-
-Recomendación del verificador: **escalar la decisión** porque la lectura literal del Phase Goal ("ciclo de vida cierra limpio Y resto de subsistemas que tocan filesystem operan dentro del worktree correcto") + SC#3 sugiere que el verify orchestrator-led ES in-scope, y el `buildStopNudgeText` del propio stop.js publicita ese flujo al orchestrator. Si el equipo prefiere diferir, debe aceptarse explícitamente como override.
+Estos warnings son tech debt menor documentado en `19-REVIEW.md` (post-19-03). No bloquean el Phase Goal ni la promoción a la siguiente fase.
 
 ---
 
-*Verified: 2026-05-12T13:37:00Z*
+*Verified: 2026-05-12T17:30:00Z*
 *Verifier: Claude (gsd-verifier)*
+*Re-verification: Sí — tras plan 19-03 (CR-02 + CR-03 gap closure)*
