@@ -108,3 +108,79 @@ describe('session-start.js — buildGsdContext', () => {
     assert.ok(out.includes('/gsd-plan-phase 9'), 'phase commands still render');
   });
 });
+
+describe('HOOK-01 — anti-push reminder, GSD EN', () => {
+  const HEADER = '## No automatic push';
+
+  it('HOOK-01 (phase): bloque "## No automatic push" presente con statement + ejemplo', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: '08' }));
+    assert.match(ctx, /## No automatic push/);
+    assert.match(ctx, /kodo does NOT push automatically/);
+    assert.match(ctx, /verify with a real `git push`/);
+    assert.match(ctx, /Bad: "Feature deployed to production\."/);
+    assert.match(ctx, /Good: "Feature committed locally, pending `git push` to remote\."/);
+    assert.match(ctx, /Bad: "Deploy done\."/);
+    assert.match(ctx, /Good: "Deploy will be live once `git push origin main` runs\."/);
+  });
+
+  it('HOOK-01 (bootstrap): bloque "## No automatic push" presente', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: undefined }));
+    assert.match(ctx, /## No automatic push/);
+    assert.match(ctx, /kodo does NOT push automatically/);
+    // El bloque común se appendea DESPUÉS de /gsd-new-project (rama bootstrap).
+    const cmdIdx = ctx.indexOf('/gsd-new-project');
+    const blockIdx = ctx.lastIndexOf(HEADER);
+    assert.ok(cmdIdx >= 0, '/gsd-new-project still rendered in bootstrap branch');
+    assert.ok(blockIdx > cmdIdx, 'HOOK-01 block must come AFTER bootstrap command');
+  });
+
+  it('HOOK-02 (phase, opción B): bloque al FINAL — prefix bytes intactos', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: '08' }));
+    const idx = ctx.lastIndexOf(HEADER);
+    assert.ok(idx > 0, `header "${HEADER}" must be present and after byte 0`);
+    const tail = ctx.slice(idx);
+    assert.ok(tail.startsWith(HEADER), 'header must start the final block');
+    const prefix = ctx.slice(0, idx);
+    assert.ok(
+      prefix.endsWith('\n\n'),
+      'prefix must end with blank line separator before HOOK-01 block (D-03)',
+    );
+  });
+
+  it('HOOK-02 (bootstrap, opción B): bloque al FINAL — prefix bytes intactos', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: undefined }));
+    const idx = ctx.lastIndexOf(HEADER);
+    assert.ok(idx > 0);
+    const tail = ctx.slice(idx);
+    assert.ok(tail.startsWith(HEADER), 'header must start the final block (bootstrap branch)');
+    const prefix = ctx.slice(0, idx);
+    assert.ok(prefix.endsWith('\n\n'), 'prefix must end with blank line separator (D-03)');
+  });
+
+  it('D-04 common-block invariance: bloque EN bytes-idéntico en las 3 ramas (quick / phase / bootstrap)', () => {
+    const ctxQuick = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'TASK-X' }));
+    const ctxPhase = buildGsdContext(makeSession({ phase_id: '08' }));
+    const ctxBoot = buildGsdContext(makeSession({ phase_id: undefined }));
+    const tail = (s) => s.slice(s.lastIndexOf(HEADER));
+    assert.equal(tail(ctxQuick), tail(ctxPhase), 'quick tail must equal phase tail');
+    assert.equal(tail(ctxPhase), tail(ctxBoot), 'phase tail must equal bootstrap tail');
+    // Sanidad: el tail no está vacío y empieza con el header.
+    assert.ok(tail(ctxPhase).startsWith(HEADER), 'tail must start with HEADER');
+    assert.ok(tail(ctxPhase).length > HEADER.length, 'tail must include block body');
+  });
+
+  it('HOOK-03 idempotencia (phase): re-emitir produce bytes idénticos', () => {
+    const session = makeSession({ phase_id: '08' });
+    const a = buildGsdContext(session);
+    const b = buildGsdContext(session);
+    assert.equal(a, b);
+    assert.equal(a.length, b.length);
+  });
+
+  it('HOOK-03 idempotencia (bootstrap): re-emitir produce bytes idénticos', () => {
+    const session = makeSession({ phase_id: undefined });
+    const a = buildGsdContext(session);
+    const b = buildGsdContext(session);
+    assert.equal(a, b);
+  });
+});
