@@ -4,8 +4,8 @@ milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
 status: executing
 stopped_at: Phase 22 context gathered (auto)
-last_updated: "2026-05-13T08:00:05.939Z"
-last_activity: 2026-05-13 -- Phase 22 planning complete
+last_updated: "2026-05-13T08:00:35.132Z"
+last_activity: 2026-05-13 -- Phase 22 execution started
 progress:
   total_phases: 5
   completed_phases: 4
@@ -26,14 +26,14 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
 
-**Current focus:** Phase 21 — skill-sync-cli-auto-sync
+**Current focus:** Phase 22 — tech-debt-v0-5-closure
 
 ## Current Position
 
-Phase: 22
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-13 -- Phase 22 planning complete
+Phase: 22 (tech-debt-v0-5-closure) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 22
+Last activity: 2026-05-13 -- Phase 22 execution started
 
 ## Phases (v0.6)
 

@@ -157,9 +157,9 @@ Plans:
 **Plans**: 3 plans
 Plans:
 **Wave 1** (3 plans paralelos — sin depends_on cruzados, files_modified disjuntos)
-- [ ] 22-01-PLAN.md — Phase 14 closure: DEBT-01 audit (satisfied-by-existing) + DEBT-02 timeout WR-01 + DEBT-03 IN-01 regex CSI + IN-02 case 8 FORCE_COLOR=""
-- [ ] 22-02-PLAN.md — Phase 15 closure: DEBT-04 retiro ANSI_*/COLOR_BY_LEVEL exports + ajuste logger-exports.test.js + comentarios format.js + guard format-isolation.test.js
-- [ ] 22-03-PLAN.md — Phase 16 closure: DEBT-05 (WR-04/05/06/07/08 + WR-01/02/03 satisfied-by-existing) + DEBT-06 (IN-01 lazy DI JSDoc + IN-02 payload deepEqual + IN-03/04 satisfied-by-existing)
+- [x] 22-01-PLAN.md — Phase 14 closure: DEBT-01 audit (satisfied-by-existing) + DEBT-02 timeout WR-01 + DEBT-03 IN-01 regex CSI + IN-02 case 8 FORCE_COLOR=""
+- [x] 22-02-PLAN.md — Phase 15 closure: DEBT-04 retiro ANSI_*/COLOR_BY_LEVEL exports + ajuste logger-exports.test.js + comentarios format.js + guard format-isolation.test.js
+- [x] 22-03-PLAN.md — Phase 16 closure: DEBT-05 (WR-04/05/06/07/08 + WR-01/02/03 satisfied-by-existing) + DEBT-06 (IN-01 lazy DI JSDoc + IN-02 payload deepEqual + IN-03/04 satisfied-by-existing)
 
 ## Backlog
 
@@ -191,7 +191,7 @@ Plans:
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete    | 2026-05-12 |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 22. Tech Debt v0.5 Closure | v0.6 | 0/3 | Not started | — |
+| 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete   | 2026-05-13 |
 
 ---
 *Last updated: 2026-05-13 — Phase 22 planning complete (3 plans, Wave 1 paralela, 100% coverage DEBT-01..06; Plan 22-01 Phase 14 closure, Plan 22-02 Phase 15 closure DEBT-04, Plan 22-03 Phase 16 closure DEBT-05/06; 4 items satisfied-by-existing tras re-validación Phase 19 colateral — scope reducido ~40%).*
