@@ -54,7 +54,7 @@ export function _resolveUseColor(stream, env = process.env) {
  * @returns {number}
  */
 export function visibleWidth(s) {
-  return String(s).replace(/\x1b\[\d+m/g, '').length;
+  return String(s).replace(/\x1b\[[\d;]*[A-Za-z]/g, '').length;
 }
 
 /**

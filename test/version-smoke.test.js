@@ -18,6 +18,7 @@ describe('Phase 14 SC#4: kodo --version smoke (post picocolors install)', () => 
     const result = spawnSync(process.execPath, [KODO_BIN, '--version'], {
       cwd: REPO,
       encoding: 'utf-8',
+      timeout: 10_000, // WR-01 Phase 14 — fail-fast si el bin cuelga (CI hygiene)
       // No env override — we want to test the install in its real shape.
     });
     assert.equal(
