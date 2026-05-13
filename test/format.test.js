@@ -44,6 +44,10 @@ describe('_resolveUseColor precedence (D-02)', () => {
   it("case 7: TTY=true + NO_COLOR='' (empty string is set) => false", () => {
     assert.equal(_resolveUseColor({ isTTY: true }, { NO_COLOR: '' }), false);
   });
+
+  it("case 8: TTY=false + FORCE_COLOR='' => true (any non-'0' value forces, IN-02 Phase 14)", () => {
+    assert.equal(_resolveUseColor({ isTTY: false }, { FORCE_COLOR: '' }), true);
+  });
 });
 
 describe('golden bytes when useColor=false (DX-06 contract)', () => {
@@ -158,6 +162,24 @@ describe('visibleWidth strips ANSI', () => {
 
   it('empty string is zero', () => {
     assert.equal(visibleWidth(''), 0);
+  });
+});
+
+describe('visibleWidth CSI multi-param (IN-01 Phase 14)', () => {
+  it('strip multi-param CSI \\x1b[33;1m', () => {
+    assert.equal(visibleWidth('\x1b[33;1mbold yellow\x1b[0m'), 11);
+  });
+
+  it('strip 256-color CSI \\x1b[38;5;200m', () => {
+    assert.equal(visibleWidth('\x1b[38;5;200mpurple\x1b[0m'), 6);
+  });
+
+  it('regression: plain string unchanged', () => {
+    assert.equal(visibleWidth('plain'), 5);
+  });
+
+  it('regression: single-param CSI still strips', () => {
+    assert.equal(visibleWidth('\x1b[33mhello\x1b[0m'), 5);
   });
 });
 
