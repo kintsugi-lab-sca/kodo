@@ -179,3 +179,19 @@ describe('Phase 15 cableado: callsites importan format.js (positive) + no picoco
     );
   });
 });
+
+describe('DEBT-04 source-hygiene: ANSI exports retired (Phase 15 IN-01 closed via Phase 22)', () => {
+  it('src/logger.js no exporta ANSI_RESET ni COLOR_BY_LEVEL', () => {
+    const src = readFileSync(join(SRC, 'logger.js'), 'utf-8');
+    assert.equal(
+      /export\s+const\s+ANSI_/m.test(src),
+      false,
+      'ANSI_* must not be exported from logger.js after Phase 22 (DEBT-04)',
+    );
+    assert.equal(
+      /export\s+const\s+COLOR_BY_LEVEL/m.test(src),
+      false,
+      'COLOR_BY_LEVEL must not be exported from logger.js after Phase 22 (DEBT-04)',
+    );
+  });
+});

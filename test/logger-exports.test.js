@@ -8,21 +8,7 @@ after(() => fixture.cleanup());
 
 const mod = await import('../src/logger.js');
 
-describe('LOG-05/06/07 exports: formatLine + COLOR_BY_LEVEL + ANSI_RESET', () => {
-  it('exports ANSI_RESET as a string', () => {
-    assert.equal(typeof mod.ANSI_RESET, 'string');
-    assert.equal(mod.ANSI_RESET, '\x1b[0m');
-  });
-
-  it('exports COLOR_BY_LEVEL frozen map with 4 levels', () => {
-    assert.equal(typeof mod.COLOR_BY_LEVEL, 'object');
-    assert.equal(Object.isFrozen(mod.COLOR_BY_LEVEL), true);
-    for (const lvl of ['debug', 'info', 'warn', 'error']) {
-      assert.equal(typeof mod.COLOR_BY_LEVEL[lvl], 'string');
-      assert.ok(mod.COLOR_BY_LEVEL[lvl].startsWith('\x1b['));
-    }
-  });
-
+describe('LOG-05/06/07 exports: formatLine (Phase 22 DEBT-04 retiró ANSI_RESET + COLOR_BY_LEVEL)', () => {
   it('exports formatLine(record, { useColor }) as pure function', () => {
     assert.equal(typeof mod.formatLine, 'function');
     const rec = {
@@ -52,9 +38,6 @@ describe('LOG-05/06/07 exports: formatLine + COLOR_BY_LEVEL + ANSI_RESET', () =>
     assert.ok(colored.includes('\x1b[33m'), `expected ANSI yellow escape, got: ${JSON.stringify(colored)}`);
     assert.ok(colored.includes('WARN'));
     assert.ok(colored.includes('careful'));
-    // ANSI_RESET sigue exportándose para writeNdjson y backwards-compat (Phase 15
-    // no toca esa surface), aunque ya no aparezca en formatLine TTY output.
-    assert.equal(typeof mod.ANSI_RESET, 'string');
   });
 
   it('formatLine omits component when record has no component field', () => {

@@ -98,7 +98,7 @@ function padCell(cell, width) {
  * eager (D-04 — captured en closure, no se re-lee en cada llamada).
  *
  * Methods devueltos:
- *   - Level chips: debug/info/warn/error (mapeo idéntico a logger.js COLOR_BY_LEVEL).
+ *   - Level chips: debug/info/warn/error (mapeo equivalente al logger NDJSON pre-Phase-15, ya no expuesto).
  *   - Syntactic: ok (✓ + green), fail (✗ + red).
  *   - Raw color escape hatches: green/yellow/red/cyan/gray/dim.
  *   - Tabular: formatRow(cells, widths, opts?), formatTable(rows, opts?).
@@ -156,7 +156,7 @@ export function createFormatter(stream, env = process.env) {
   }
 
   return {
-    // Level chips (D-03, mapping mirrors src/logger.js:37 COLOR_BY_LEVEL).
+    // Level chips (D-03, mapping mirrors el mapeo interno legacy del logger NDJSON pre-Phase-15).
     debug: (s) => pc.gray(s),
     info: (s) => pc.cyan(s),
     warn: (s) => pc.yellow(s),

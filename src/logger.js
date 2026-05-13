@@ -38,19 +38,10 @@ export const LEVEL_NAMES = Object.freeze(['debug', 'info', 'warn', 'error']);
  */
 const COLUMNAR_WIDTHS = Object.freeze({ timestamp: 8, level: 5, component: 12 });
 
-// ANSI escape codes (mismas convenciones que src/check.js).
-export const ANSI_RESET = '\x1b[0m';
-const ANSI_GRAY = '\x1b[90m';
-const ANSI_CYAN = '\x1b[36m';
-const ANSI_YELLOW = '\x1b[33m';
+// ANSI escape codes — privadas; consumidas por el writeNdjson error path (línea ~312).
+// Phase 22 DEBT-04 retiró COLOR_BY_LEVEL y los exports ANSI_* (Phase 15 IN-01 closed).
+const ANSI_RESET = '\x1b[0m';
 const ANSI_RED = '\x1b[31m';
-
-export const COLOR_BY_LEVEL = Object.freeze({
-  debug: ANSI_GRAY,
-  info: ANSI_CYAN,
-  warn: ANSI_YELLOW,
-  error: ANSI_RED,
-});
 
 const BASE_RECORD_KEYS = new Set([
   'timestamp',
