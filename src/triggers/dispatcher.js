@@ -10,7 +10,7 @@ import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import * as cmux from '../cmux/client.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
-import { EVENTS } from '../logger-events.js';
+import { EVENTS, gsdPhaseResolved, gsdBootstrap } from '../logger-events.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
 const inFlight = new Set();
@@ -304,7 +304,6 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     // D-14: emit matched-true gsd.phase.resolved (phase branch) or gsd.bootstrap (bootstrap branch).
     try {
       const { createLogger } = await import('../logger.js');
-      const { gsdPhaseResolved, gsdBootstrap } = await import('../logger-events.js');
       const log = createLogger({
         sessionId: gsdSessionId,
         minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),

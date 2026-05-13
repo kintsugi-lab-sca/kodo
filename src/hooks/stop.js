@@ -94,6 +94,23 @@ async function readStdin() {
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
  * }} [deps]
  * @returns {Promise<void>}
+ *
+ * **Lazy DI pattern (IN-01 Phase 16 documentado vía Phase 22):**
+ *
+ * Los siguientes módulos se importan dinámicamente y NO son inyectables vía `deps`:
+ *
+ *   - `markSessionStatus` — dynamic import for lazy DI from `../session/manager.js`
+ *   - `releaseGsdLock`    — dynamic import for lazy DI from `../gsd/lock.js`
+ *   - `handleOrchestratorStop` (orchestrator branch) — dynamic import lazy
+ *
+ * Razón: lazy DI difiere la carga del módulo hasta call-time del hook, evitando que
+ * `gsd/lock.js` o `session/manager.js` entren al module-load graph de `stop.js`. Esto
+ * mantiene `stop.js` ligero al import-time (relevante para tests Phase 16 LOG-13/14/15
+ * que importan `runStopHook` sin requerir `gsd/lock.js` en su grafo).
+ *
+ * Refactor a DI explícito requiere ampliar la signature `deps` (breaking change para
+ * tests Phase 16) — diferido a v0.7+. Esta nota cierra DEBT-06 IN-01 por documentación
+ * (D-02b Phase 22 CONTEXT.md: documentar > refactor cuando el refactor implica breaking).
  */
 export async function runStopHook(input, deps = {}) {
   // W-4: defaults vía OR — runtime productivo usa los imports estáticos.

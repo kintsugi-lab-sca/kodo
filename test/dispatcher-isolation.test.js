@@ -18,6 +18,12 @@ const DISPATCHER_PATH = join(SRC, 'triggers', 'dispatcher.js');
  *
  * Mirrors test/stop.test.js:62-67 (Phase 13 source-hygiene).
  *
+ * NOTE (WR-08 Phase 16 closure via Phase 22): inline comments at end of code lines
+ * are NOT stripped. Esto es intencional — si un test futuro mencionara
+ * 'gsd.phase.resolved' en un comentario inline al final de una línea de código, el
+ * match sobre el código real sería válido y el test debería capturarlo. Para evitar
+ * falsos positivos, mantén las menciones literales en líneas dedicadas (//-only).
+ *
  * @param {string} src
  * @returns {string} the source with all comment lines removed
  */

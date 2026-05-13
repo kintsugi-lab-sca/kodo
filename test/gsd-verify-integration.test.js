@@ -361,6 +361,18 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     );
   });
 
+  /**
+   * WR-05 Phase 16 — Test scope claration:
+   * Este test cubre ORDER (markSessionStatus emite ANTES del throw de updateTaskState).
+   * NO cubre PRESENCE (que markSessionStatus se invoca en el pass branch del verify).
+   * El test T20 ("pass + Plane OK → state.transition emitted") cubre presence.
+   *
+   * Si un refactor mueve markSessionStatus DESPUÉS del try/catch del updateTaskState,
+   * T27 fallaría loud (transition !== undefined) — el contrato pre-throw permanece blindado.
+   *
+   * DI explícito de markSessionStatus para spy literal cambia signature pública de
+   * runGsdVerify y es out of scope (Phase 22 D-04b: refactors puros no requieren spy nuevo).
+   */
   it('T27 SC#3 LOG-14: pass + updateTaskState fails → NO state.transition emitted', async () => {
     // Centinela del orden D-11: markSessionStatus está DENTRO del try de
     // updateTaskState; si updateTaskState lanza, el throw aborta antes de

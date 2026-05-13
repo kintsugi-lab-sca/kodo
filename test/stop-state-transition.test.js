@@ -332,9 +332,16 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
         assert.ok(transition, `D-04 invariante: modo ${session.gsd_mode} debe emitir state.transition`);
         assert.equal(transition.fields.to, 'done',
           `D-04 LOCKED: to debe ser 'done' fijo (modo ${session.gsd_mode}) — D-04 prohíbe inferir modo`);
+        const expectedFrom = session.gsd_mode === 'full' ? 'review' : 'running';
+        assert.equal(
+          transition.fields.from,
+          expectedFrom,
+          `WR-04 Phase 16: from debe ser '${expectedFrom}' para modo ${session.gsd_mode} — Test D-04 invariante MANDATORY ya NO es estructuralmente débil`,
+        );
       } finally {
         cleanup();
       }
     }
   });
 });
+

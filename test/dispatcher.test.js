@@ -1009,4 +1009,30 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     assert.equal(existsSyncCalled, false, 'existsSyncFn must NOT be called when resolveProjectPath throws');
     assert.equal(launchCalled, true, 'flow must continue to launchWorkItem (which fails with its own error)');
   });
+
+  it('IN-02 Phase 16 closure: gsd.phase.resolved payload tiene canonical keys (event/matched + phase_id|mode|task_ref)', async () => {
+    // Direct helper test (Phase 22 fallback per RESEARCH.md IN-02 strategy):
+    // assert sobre el helper gsdPhaseResolved importado de logger-events.js, invocado
+    // con memSink minimal. No acopla al DI shape de dispatchTrigger.
+    const { gsdPhaseResolved, EVENTS } = await import('../src/logger-events.js');
+    const records = [];
+    const sinkLogger = {
+      info: (msg, fields) => records.push({ level: 'info', msg, fields }),
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      child: () => sinkLogger,
+    };
+    gsdPhaseResolved(sinkLogger, {
+      phase_id: '5',
+      match_heading: '### Phase 5: Foo',
+      mode: 'full',
+    });
+    assert.equal(records.length, 1, 'IN-02: gsdPhaseResolved emite 1 record');
+    const fields = records[0].fields;
+    assert.equal(fields.event, EVENTS.GSD_PHASE_RESOLVED, 'IN-02: event canonical key');
+    assert.equal(fields.phase_id, '5', 'IN-02: phase_id presente');
+    assert.equal(fields.match_heading, '### Phase 5: Foo', 'IN-02: match_heading presente');
+    assert.equal(fields.mode, 'full', 'IN-02: mode presente');
+  });
 });
