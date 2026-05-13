@@ -10,19 +10,18 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ## Current State
 
-**Shipped:** v0.5 (2026-05-11) — CLI Polish & v0.3 Debt Cleanup
+**Shipped:** v0.6 (2026-05-13) — Session Isolation & Skill Sync
 
-v0.5 transforma el CLI de output mono a TTY-aware con colores semánticos y columnas alineadas: el helper `src/cli/format.js` (factory `createFormatter(stream, env?)`) centraliza color/format con precedencia `NO_COLOR > FORCE_COLOR > stream.isTTY`, y `picocolors@^1.1.1` se incorpora como única fuente de ANSI (2ª dep prod junto a `commander`). Los 5 callsites del CLI (`kodo logs`, `kodo check`, `kodo gsd inspect`, `kodo gsd verify`, `logger` para stderr columnar) consumen el helper sin alterar el contrato `--json` (golden bytes invariant) ni el guard LOG-12 sobre `kodo check`. En paralelo se cierra la deuda v0.3: `dispatcher.js` migra los literales a `EVENTS.*`, `markSessionStatus` se cabela en `verify.js` (transición Plane→Review tras `pass`) y `stop.js` (release del lock per-repo, emit-BEFORE-mutation D-08), y `state.transition` se emite real en runtime. Los 3 UATs humanos pendientes de Phase 7 (`--follow` live, `session.start` campos reales, `--session-of` E2E) se automatizan como integration tests con fixtures NDJSON progresivos y `state.json` sintético. Cierra el milestone con la migración de la skill `kodo-orchestrate` al repo (`.claude/skills/kodo-orchestrate/skill.md`) como source canonical provider-agnostic, reduciendo `src/orchestrator/prompt.md` a fallback degradado (~37 LOC) y fixeando el path del auto-commit en `stop.js` (D-14). Suite global: 511/512 pass + 1 skip pre-existente.
+v0.6 aísla sesiones de trabajo en git worktrees por defecto (`claude --worktree <session-id>` con path determinístico `<repo>/.bg-shell/<sid>/`), persiste `worktree_path` PRE-spawn en `SessionRecord`, y preserva el lock per-repo Phase 8 GSD-10 (el lock vive sobre el repo principal, NUNCA sobre el worktree). El stop hook cierra el lifecycle con cleanup fail-open: tree limpio → `git worktree remove` + branch delete + `prune` oportunista; tree dirty → move-aside a `<wt>.dirty/` para review humano. `kodo gsd verify` lee `VERIFICATION.md` desde `session.worktree_path ?? session.project_path` (fallback aditivo opcional). `markSessionStatus` universal post-CR-02 transita TODAS las sesiones (GSD + no-GSD) a `'done'` PRE-sessionEnd. El hook session-start inyecta un bloque "Anti-push-fantasma" (ES en no-GSD, EN común post-if/else en GSD 3-rama) al final del prompt — golden bytes de las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` preservados por construcción. La skill canonical `kodo-orchestrate` se sincroniza automáticamente entre `<repo>/.claude/skills/` y `~/.claude/skills/` vía `kodo skill sync` (CLI manual con SHA-256 hash diff, `--prune` opt-in, exit codes 0/0/1/2 + canonical stderr) o auto-sync en `launchOrchestrator` antes de `cmux.listWorkspaces` (fail-open + event NDJSON `skill.sync.auto[.error]`). El symlink legacy en home (residuo Phase 999.1) se detecta y reemplaza con dir real automáticamente al primer ejecución. Tech debt v0.5 cerrada: SECURITY.md Phase 14 audited (satisfied-by-existing), version-smoke timeout, visibleWidth regex defensiva, FORCE_COLOR='' covered, `ANSI_*`/`COLOR_BY_LEVEL` exports retirados de `src/logger.js` (ANSI_RESET + ANSI_RED preservadas como private const para writeNdjson:303), 7/8 WR + 4/4 IN del Resolution Log Phase 16 cerrados (WR-07 deferred a v0.7+ por regression T20 fixture). Suite global: 614 pass + 1 skip + 0 fail (+103 tests vs baseline v0.5). Constraint Phase 999.1 cwd=repo invariante preservada; LOG-12, color isolation, golden bytes DX-06, Pitfall #6 Opción A, lock idempotencia GSD-10, Phase 18 D-06 (orchestrator EXCLUIDO de --worktree) intactos.
 
-## Current Milestone: v0.6 Session Isolation & Skill Sync
+## Next Milestone Goals
 
-**Goal:** Aislar sesiones en worktrees por defecto, sincronizar la canonical skill `kodo-orchestrate` automáticamente, recordar a TODAS las sesiones que no hay push automático, y cerrar la tech debt acumulada en v0.5.
-
-**Target features:**
-- Worktree always-on (`claude --worktree`) para todas las sesiones (full + quick + no-GSD) — reemplaza las labels `kodo:worktree`/`kodo:branch` descartadas; resuelve la incidencia 28/04 (ROMAN-113…118) donde `git add -A`/`commit -a` arrastraba staging entre sesiones paralelas
-- HOOK-01 universal — `buildSessionContext` añade recordatorio anti-push-fantasma a TODAS las sesiones (GSD + no-GSD); driver: ROMAN-125/126
-- SKILL-01 — `kodo skill sync` CLI (manual) + auto-sync en `kodo orchestrator` (detecta drift y sincroniza antes de lanzar)
-- Tech debt v0.5 closure — Phase 14 (SECURITY.md + WR-01/IN-01/IN-02), Phase 15 (`ANSI_*` exports retirados de `src/logger.js`), Phase 16 (8 WR + 4 IN del Resolution Log)
+Por definir vía `/gsd-new-milestone`. Candidatos (de v0.6 deferred + REQUIREMENTS.md "Future"):
+- Adapters TaskProvider: GitHub Issues, ClickUp, local (JSON/Markdown).
+- Polling trigger channel para providers sin webhook.
+- File watcher trigger para provider local.
+- Phase dedicada al lifecycle del SessionRecord — resolver CR-01 Phase 19 (findSession en state.history) + WR-07 Phase 22 (markSessionStatus early-return refactor estructural).
+- Phase 21 advisory follow-up: pureza `syncSkill` (console.warn → callback), `runSkillSyncCli` async cleanup, test launchOrchestrator real.
 
 ## Requirements
 

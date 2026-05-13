@@ -87,3 +87,15 @@ None.
 
 ---
 *v0.6 roadmap emitido: 2026-05-11. 5 fases (18-22), 19 requirements, 100% coverage. Granularity coarse aplicada (bundle de tech debt, split worktree por surface area).*
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone v0.6 close on 2026-05-13:
+
+| Category | Phase | Item | Status | Rationale |
+|----------|-------|------|--------|-----------|
+| uat_gaps | 19 | 19-HUMAN-UAT.md | partial (3 pending) | Smoke UATs no ejecutados; cleanup automatizado cubre happy path. |
+| verification_gaps | 19 | 19-VERIFICATION.md | human_needed | CR-01 latent bug `findSession` no busca en `state.history` — accepted by alex (override docs/19-VERIFICATION.md). |
+| verification_gaps | 22 | 22-VERIFICATION.md | human_needed | WR-07 deferred — `markSessionStatus` early-return regresiona T20 fixture; refactor estructural defer a v0.7+. |
+
+Detailed rationale in `.planning/v0.6-MILESTONE-AUDIT.md`.
