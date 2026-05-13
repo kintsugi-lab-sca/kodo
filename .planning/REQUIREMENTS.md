@@ -32,12 +32,12 @@
 
 ### Tech debt v0.5 closure (DEBT-*)
 
-- [ ] **DEBT-01** (Phase 14) — `SECURITY.md` para Phase 14 con `threats_open: 0` auditado (low-risk presentation-only).
-- [ ] **DEBT-02** (Phase 14) — `test/version-smoke.test.js` recibe `timeout` explícito en spawnSync (WR-01); regresión `format-isolation.test.js` cubre el caso.
-- [ ] **DEBT-03** (Phase 14) — Regex ANSI defensiva (IN-01) + test explícito `FORCE_COLOR=''` con `useColor=false` esperado (IN-02).
-- [ ] **DEBT-04** (Phase 15) — Retirar `ANSI_*` exports de `src/logger.js`; grep cross-repo verifica 0 consumers externos; ajustar `format-isolation.test.js` si la regla cambia.
-- [ ] **DEBT-05** (Phase 16) — 8 WR del Resolution Log cerrados: doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc. (lista completa en `milestones/v0.5-phases/16-log-09-debt-cleanup/16-REVIEW.md`).
-- [ ] **DEBT-06** (Phase 16) — 4 IN del Resolution Log resueltos (cosméticos/documentales: nombres de variables, comentarios, ordenamiento de imports).
+- [x] **DEBT-01** (Phase 14) — `SECURITY.md` para Phase 14 con `threats_open: 0` auditado (low-risk presentation-only).
+- [x] **DEBT-02** (Phase 14) — `test/version-smoke.test.js` recibe `timeout` explícito en spawnSync (WR-01); regresión `format-isolation.test.js` cubre el caso.
+- [x] **DEBT-03** (Phase 14) — Regex ANSI defensiva (IN-01) + test explícito `FORCE_COLOR=''` con `useColor=false` esperado (IN-02).
+- [x] **DEBT-04** (Phase 15) — Retirar `ANSI_*` exports de `src/logger.js`; grep cross-repo verifica 0 consumers externos; ajustar `format-isolation.test.js` si la regla cambia.
+- [x] **DEBT-05** (Phase 16) — 8 WR del Resolution Log cerrados: doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc. (lista completa en `milestones/v0.5-phases/16-log-09-debt-cleanup/16-REVIEW.md`).
+- [x] **DEBT-06** (Phase 16) — 4 IN del Resolution Log resueltos (cosméticos/documentales: nombres de variables, comentarios, ordenamiento de imports).
 
 ---
 
@@ -83,12 +83,12 @@ Mapped to phases by `gsd-roadmapper` 2026-05-11 — see `ROADMAP.md` for full ph
 | SKILL-02 | Phase 21 | Complete |
 | SKILL-03 | Phase 21 | Complete |
 | SKILL-04 | Phase 21 | Complete |
-| DEBT-01  | Phase 22 | pending |
-| DEBT-02  | Phase 22 | pending |
-| DEBT-03  | Phase 22 | pending |
-| DEBT-04  | Phase 22 | pending |
-| DEBT-05  | Phase 22 | pending |
-| DEBT-06  | Phase 22 | pending |
+| DEBT-01  | Phase 22 | Complete |
+| DEBT-02  | Phase 22 | Complete |
+| DEBT-03  | Phase 22 | Complete |
+| DEBT-04  | Phase 22 | Complete |
+| DEBT-05  | Phase 22 | Complete |
+| DEBT-06  | Phase 22 | Complete |
 
 **Coverage:** 19/19 requirements mapped (100%) — no orphans, no duplicates.
 

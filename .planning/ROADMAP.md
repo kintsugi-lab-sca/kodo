@@ -191,7 +191,7 @@ Plans:
 | 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
 | 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete    | 2026-05-12 |
 | 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete   | 2026-05-13 |
+| 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete    | 2026-05-13 |
 
 ---
 *Last updated: 2026-05-13 — Phase 22 planning complete (3 plans, Wave 1 paralela, 100% coverage DEBT-01..06; Plan 22-01 Phase 14 closure, Plan 22-02 Phase 15 closure DEBT-04, Plan 22-03 Phase 16 closure DEBT-05/06; 4 items satisfied-by-existing tras re-validación Phase 19 colateral — scope reducido ~40%).*

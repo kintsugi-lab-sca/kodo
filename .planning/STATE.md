@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.6
 milestone_name: Session Isolation & Skill Sync
-status: executing
+status: milestone_complete
 stopped_at: Phase 22 context gathered (auto)
 last_updated: "2026-05-13T08:00:35.132Z"
 last_activity: 2026-05-13 -- Phase 22 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 13
   completed_plans: 10
-  percent: 77
+  percent: 100
 ---
 
 # Project State
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (Current Milestone v0.6)
 
 ## Current Position
 
-Phase: 22 (tech-debt-v0-5-closure) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 22
-Last activity: 2026-05-13 -- Phase 22 execution started
+Phase: 22
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-05-13
 
 ## Phases (v0.6)
 
