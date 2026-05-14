@@ -255,6 +255,27 @@ export function githubApiCall(logger, fields) {
 }
 
 /**
+ * Emitido cuando una llamada a GitHub API falla (HTTP `!res.ok`) — Phase 23 D-15.
+ * Complementa `github.api.call`: el cliente emite uno u otro por request (nunca ambos).
+ *
+ * Divergencia respecto a `planeApiCallFailed`: en lugar de `step` (gate-step-level),
+ * GitHub usa la tripleta HTTP `{method, path, status}` + `error` snippet del body
+ * (truncado a 200 chars por el caller para evitar fugas de payload sensible).
+ *
+ * @param {Logger} logger
+ * @param {{ method: string, path: string, status: number, error: string }} fields
+ */
+export function githubApiCallFailed(logger, fields) {
+  logger.error(EVENTS.GITHUB_API_CALL_FAILED, {
+    event: EVENTS.GITHUB_API_CALL_FAILED,
+    method: fields.method,
+    path: fields.path,
+    status: fields.status,
+    error: fields.error,
+  });
+}
+
+/**
  * Worktree cleanup OK — emitted (info) after a clean worktree was
  * successfully removed and (optionally) its branch deleted (Phase 19 D-08).
  *
