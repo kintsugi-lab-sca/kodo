@@ -34,7 +34,7 @@
 
 - [ ] **TEST-01** — `test/providers/github/provider.test.js` — contract tests validando que `GitHubProvider` cumple los 9 métodos `TaskProvider` con fixtures GitHub API offline (`test/fixtures/github/*.json` JSON snapshots de respuestas reales redactadas); zero live API calls; cobertura ≥ 90% de las branches del normalizer.
 - [x] **TEST-02** — `test/triggers/polling.test.js` — integration tests del polling loop con clock mock (override de `setTimeout`/`setInterval` o helper `controlledTime`); verifica detection patterns POLL-03 (a)/(b)/(c), 304 handling POLL-02, fail-open retry POLL-04 sin sleep real (<1s wall time).
-- [ ] **TEST-03** — `test/providers/contract.test.js` — provider-agnostic matrix test corriendo el mismo contract suite contra ambos `plane` y `github` providers; valida que el contrato `TaskProvider` se cumple idéntico en los dos adapters (mismas signatures, mismos error shapes); demuestra el invariante v0.2 con uso real ≠ Plane.
+- [x] **TEST-03** — `test/providers/contract.test.js` — provider-agnostic matrix test corriendo el mismo contract suite contra ambos `plane` y `github` providers; valida que el contrato `TaskProvider` se cumple idéntico en los dos adapters (mismas signatures, mismos error shapes); demuestra el invariante v0.2 con uso real ≠ Plane. ✅ shipped 2026-05-14 (Phase 27-01, +14 tests / 777 suite total).
 
 ---
 
@@ -98,7 +98,7 @@ Mapped to phases by `gsd-roadmapper` 2026-05-13 — see `ROADMAP.md` for full ph
 | CFG-04   | 26       | Complete |
 | TEST-01  | 24       | pending |
 | TEST-02  | 25       | Complete |
-| TEST-03  | 27       | pending |
+| TEST-03  | 27       | Complete |
 
 **Coverage:** 16/16 requirements mapeados a 5 fases (23-27). Zero orphans. Granularity coarse aplicada — Phase 23 dedicada a foundation (GH-01 solo) porque el client es prerequisito de provider+polling; Phase 24 bundle provider+normalizer+registry+contract tests; Phase 25 bundle polling completo + clock-mock tests; Phase 26 bundle config wizard + CLI subgroup + orchestrator flag; Phase 27 aislada para cross-provider matrix (requiere ambos providers verdes).
 

@@ -15,7 +15,7 @@
 - [ ] **Phase 24: GitHubProvider + Normalizer + Registry** — Los 9 métodos `TaskProvider`, normalizer GitHub Issue → `TaskItem`, factory en registry, contract tests offline.
 - [ ] **Phase 25: Polling Trigger Channel** — Loop async + state cache (etag + cursor) + wiring a `dispatchTrigger` + fail-open retry, con clock-mock tests.
 - [ ] **Phase 26: Config Wizard + CLI Integration** — `kodo config` extiende `provider: github`, `kodo polling start/stop/status` daemon y `kodo orchestrator --polling` integrado.
-- [ ] **Phase 27: Cross-Provider Contract Matrix** — Test matrix corriendo el mismo contract suite contra `plane` y `github`, demostrando el invariante v0.2 con uso real ≠ Plane.
+- [x] **Phase 27: Cross-Provider Contract Matrix** — Test matrix corriendo el mismo contract suite contra `plane` y `github`, demostrando el invariante v0.2 con uso real ≠ Plane. ✅ shipped 2026-05-14
 
 ## Phase Details
 
@@ -85,7 +85,7 @@
   2. El test usa fixtures offline para ambos providers (zero live API calls) y falla loud si cualquier provider devuelve un shape inconsistente (e.g. `TaskItem.priority` undefined en uno y string en el otro).
   3. Suite global v0.7 termina en ≥ 614 + N tests pass (baseline v0.6) sin regresiones; el matrix añade un test count derivado (`providers.length × asserts`); zero skip nuevos.
 **Plans**: 1 plan
-  - [ ] 27-01-PLAN.md — Matrix runner `test/providers/contract.test.js` con 7 asserts core × 2 providers (14 nuevos casos) + file-level live-fetch leak guard + helpers inline `instantiateProvider`/`assertTaskItemShape`/`makeFakeGitHubClient`/`stubPlaneFetch` (Wave 1, TEST-03)
+  - [x] 27-01-PLAN.md — Matrix runner `test/providers/contract.test.js` con 7 asserts core × 2 providers (14 nuevos casos) + file-level live-fetch leak guard + helpers inline `instantiateProvider`/`assertTaskItemShape`/`makeFakeGitHubClient`/`stubPlaneFetch` (Wave 1, TEST-03)
 
 ## Progress
 
@@ -98,7 +98,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 | 24. GitHubProvider + Normalizer + Registry | v0.7 | 3/3 | Complete   | 2026-05-14 |
 | 25. Polling Trigger Channel | v0.7 | 2/2 | Complete   | 2026-05-14 |
 | 26. Config Wizard + CLI Integration | v0.7 | 3/3 | Complete   | 2026-05-14 |
-| 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
+| 27. Cross-Provider Contract Matrix | v0.7 | 1/1 | Complete   | 2026-05-14 |
 
 ## Archived Milestones
 
