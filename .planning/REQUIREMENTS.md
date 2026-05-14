@@ -18,10 +18,10 @@
 
 ### Polling trigger channel (POLL-*)
 
-- [ ] **POLL-01** — `src/triggers/polling.js` ejecuta loop async que pollea cada `poll_interval` segundos (default 60s, configurable via `~/.kodo/config.json`) los repos listados en config; usa GitHub Issues API con filtro `labels=kodo&state=open&since=<cursor>`.
-- [ ] **POLL-02** — State cache en `~/.kodo/polling-state.json` persiste `last_updated_at` (ISO) + `etag` por `<owner>/<repo>`; respeta respuesta `304 Not Modified` para ahorrar API quota; el cache es aditivo y migra fail-open (corrupted → reset cursor, no crashea).
-- [ ] **POLL-03** — Polling dispara `dispatchTrigger` con `TaskItem` normalizado al detectar: (a) issue nueva con label `kodo`; (b) issue existente que recibió label `kodo`/`kodo:gsd*` desde el último cursor; (c) cambio de estado relevante. Idempotencia: el dispatcher ya gestiona deduplicación via lock per-repo (Phase 8 GSD-10).
-- [ ] **POLL-04** — Polling fail-open ante errores transitorios (rate limit `429`, network errors, `5xx`) — log warn + retry exponential backoff (max 3 retries, base 2s); nunca crashea el loop ni el proceso parent. Emite evento NDJSON `polling.error` con `{ owner, repo, status, attempt }`.
+- [x] **POLL-01** — `src/triggers/polling.js` ejecuta loop async que pollea cada `poll_interval` segundos (default 60s, configurable via `~/.kodo/config.json`) los repos listados en config; usa GitHub Issues API con filtro `labels=kodo&state=open&since=<cursor>`.
+- [x] **POLL-02** — State cache en `~/.kodo/polling-state.json` persiste `last_updated_at` (ISO) + `etag` por `<owner>/<repo>`; respeta respuesta `304 Not Modified` para ahorrar API quota; el cache es aditivo y migra fail-open (corrupted → reset cursor, no crashea).
+- [x] **POLL-03** — Polling dispara `dispatchTrigger` con `TaskItem` normalizado al detectar: (a) issue nueva con label `kodo`; (b) issue existente que recibió label `kodo`/`kodo:gsd*` desde el último cursor; (c) cambio de estado relevante. Idempotencia: el dispatcher ya gestiona deduplicación via lock per-repo (Phase 8 GSD-10).
+- [x] **POLL-04** — Polling fail-open ante errores transitorios (rate limit `429`, network errors, `5xx`) — log warn + retry exponential backoff (max 3 retries, base 2s); nunca crashea el loop ni el proceso parent. Emite evento NDJSON `polling.error` con `{ owner, repo, status, attempt }`.
 
 ### Config wizard + CLI integration (CFG-*)
 
@@ -33,7 +33,7 @@
 ### Integration tests + fixtures (TEST-*)
 
 - [ ] **TEST-01** — `test/providers/github/provider.test.js` — contract tests validando que `GitHubProvider` cumple los 9 métodos `TaskProvider` con fixtures GitHub API offline (`test/fixtures/github/*.json` JSON snapshots de respuestas reales redactadas); zero live API calls; cobertura ≥ 90% de las branches del normalizer.
-- [ ] **TEST-02** — `test/triggers/polling.test.js` — integration tests del polling loop con clock mock (override de `setTimeout`/`setInterval` o helper `controlledTime`); verifica detection patterns POLL-03 (a)/(b)/(c), 304 handling POLL-02, fail-open retry POLL-04 sin sleep real (<1s wall time).
+- [x] **TEST-02** — `test/triggers/polling.test.js` — integration tests del polling loop con clock mock (override de `setTimeout`/`setInterval` o helper `controlledTime`); verifica detection patterns POLL-03 (a)/(b)/(c), 304 handling POLL-02, fail-open retry POLL-04 sin sleep real (<1s wall time).
 - [ ] **TEST-03** — `test/providers/contract.test.js` — provider-agnostic matrix test corriendo el mismo contract suite contra ambos `plane` y `github` providers; valida que el contrato `TaskProvider` se cumple idéntico en los dos adapters (mismas signatures, mismos error shapes); demuestra el invariante v0.2 con uso real ≠ Plane.
 
 ---
@@ -88,16 +88,16 @@ Mapped to phases by `gsd-roadmapper` 2026-05-13 — see `ROADMAP.md` for full ph
 | GH-03    | 24       | pending |
 | GH-04    | 24       | pending |
 | GH-05    | 24       | pending |
-| POLL-01  | 25       | pending |
-| POLL-02  | 25       | pending |
-| POLL-03  | 25       | pending |
-| POLL-04  | 25       | pending |
+| POLL-01  | 25       | Complete |
+| POLL-02  | 25       | Complete |
+| POLL-03  | 25       | Complete |
+| POLL-04  | 25       | Complete |
 | CFG-01   | 26       | pending |
 | CFG-02   | 26       | pending |
 | CFG-03   | 26       | pending |
 | CFG-04   | 26       | pending |
 | TEST-01  | 24       | pending |
-| TEST-02  | 25       | pending |
+| TEST-02  | 25       | Complete |
 | TEST-03  | 27       | pending |
 
 **Coverage:** 16/16 requirements mapeados a 5 fases (23-27). Zero orphans. Granularity coarse aplicada — Phase 23 dedicada a foundation (GH-01 solo) porque el client es prerequisito de provider+polling; Phase 24 bundle provider+normalizer+registry+contract tests; Phase 25 bundle polling completo + clock-mock tests; Phase 26 bundle config wizard + CLI subgroup + orchestrator flag; Phase 27 aislada para cross-provider matrix (requiere ambos providers verdes).

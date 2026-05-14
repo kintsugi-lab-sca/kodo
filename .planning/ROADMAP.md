@@ -59,8 +59,8 @@
   4. Errores transitorios (`429`, `5xx`, network) entran en backoff exponencial (base 2s, max 3 retries), emiten evento NDJSON `polling.error` con `{ owner, repo, status, attempt }`, y el loop continúa la siguiente iteración fail-open (nunca propaga al proceso parent).
   5. `test/triggers/polling.test.js` valida los 3 patterns + 304 handling + retry exponencial usando clock mock (override `setTimeout`/helper `controlledTime`) con wall-time < 1s; zero live API calls; zero `setTimeout` real en happy path.
 **Plans**: 2 plans
-  - [ ] 25-01-PLAN.md — Logger events extension: 3 helpers `pollingTick`/`pollingDispatch`/`pollingError` + EVENTS taxonomía 15→18 + test contract T-25-02 (Wave 1, TEST-02)
-  - [ ] 25-02-PLAN.md — Core `src/triggers/polling.js` (startPolling + state cache atómico + retry backoff + fire-and-forget) + `test/triggers/polling.test.js` (~25 casos clock-mock) + LOG-12 row para polling.js (Wave 2, POLL-01..04 / TEST-02)
+  - [x] 25-01-PLAN.md — Logger events extension: 3 helpers `pollingTick`/`pollingDispatch`/`pollingError` + EVENTS taxonomía 15→18 + test contract T-25-02 (Wave 1, TEST-02)
+  - [x] 25-02-PLAN.md — Core `src/triggers/polling.js` (startPolling + state cache atómico + retry backoff + fire-and-forget) + `test/triggers/polling.test.js` (~25 casos clock-mock) + LOG-12 row para polling.js (Wave 2, POLL-01..04 / TEST-02)
 
 ### Phase 26: Config Wizard + CLI Integration
 **Goal**: El operador puede configurar `provider: github` desde `kodo config`, arrancar polling como daemon (`kodo polling start`) o integrado al orchestrator (`kodo orchestrator --polling`), y las configs v0.6 siguen leyéndose sin error.
@@ -92,7 +92,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 |-------|-----------|----------------|--------|-----------|
 | 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
 | 24. GitHubProvider + Normalizer + Registry | v0.7 | 3/3 | Complete   | 2026-05-14 |
-| 25. Polling Trigger Channel | v0.7 | 0/2 | Not started | — |
+| 25. Polling Trigger Channel | v0.7 | 2/2 | Complete   | 2026-05-14 |
 | 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
 | 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
 
