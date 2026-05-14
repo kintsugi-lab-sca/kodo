@@ -42,6 +42,9 @@ const {
   worktreeCleanupError,
   skillSyncAuto,
   skillSyncAutoError,
+  pollingTick,
+  pollingDispatch,
+  pollingError,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
@@ -387,5 +390,130 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
     assert.equal(keys.includes('SKILL_SYNC_AUTO_NOOP'), false);
     // Y tampoco hay literal 'skill.sync.auto.noop' en los valores.
     assert.equal(Object.values(EVENTS).includes('skill.sync.auto.noop'), false);
+  });
+
+  // ─── Phase 25 TEST-02: polling trigger channel helpers ───────────────────
+
+  it('pollingTick emits event=polling.tick at info level with {owner, repo, status, dispatched}', () => {
+    const sessionId = 'sess-ev-pollev-tick';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingTick(log, { owner: 'octocat', repo: 'hello', status: 200, dispatched: 3 });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.POLLING_TICK);
+    assert.equal(line.level, 'info');
+    assert.equal(line.owner, 'octocat');
+    assert.equal(line.repo, 'hello');
+    assert.equal(line.status, 200);
+    assert.equal(line.dispatched, 3);
+    // first_tick key MUST be absent when not provided (truthy-spread guard).
+    assert.equal('first_tick' in line, false);
+  });
+
+  it('pollingTick includes first_tick:true when set; omits the key otherwise', () => {
+    const sessionId = 'sess-ev-pollev-tick-first';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    // First tick → first_tick:true on the record.
+    pollingTick(log, {
+      owner: 'octocat',
+      repo: 'hello',
+      status: 200,
+      dispatched: 0,
+      first_tick: true,
+    });
+    // Second tick without first_tick → key must be absent.
+    pollingTick(log, { owner: 'octocat', repo: 'hello', status: 304, dispatched: 0 });
+    const lines = readAllLines(logPathFor(sessionId));
+    const [first, second] = lines.slice(-2);
+    assert.equal(first.first_tick, true);
+    assert.equal('first_tick' in second, false);
+  });
+
+  it('pollingDispatch emits event=polling.dispatch at info level with {owner, repo, ref, pattern}', () => {
+    const sessionId = 'sess-ev-pollev-dispatch';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingDispatch(log, {
+      owner: 'octocat',
+      repo: 'hello',
+      ref: 'octocat/hello#42',
+      pattern: 'a-new',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.POLLING_DISPATCH);
+    assert.equal(line.level, 'info');
+    assert.equal(line.owner, 'octocat');
+    assert.equal(line.repo, 'hello');
+    assert.equal(line.ref, 'octocat/hello#42');
+    assert.equal(line.pattern, 'a-new');
+  });
+
+  it('pollingDispatch does NOT leak user content (T-25-02 invariant: whitelist-only payload)', () => {
+    // T-25-02: invariante de seguridad — polling.dispatch NDJSON NO debe filtrar
+    // contenido de usuario. Cualquier campo extra que el caller pase (issueBody,
+    // title, raw) tiene que ser descartado silenciosamente por el helper.
+    const sessionId = 'sess-ev-pollev-dispatch-redaction';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingDispatch(
+      log,
+      /** @type {any} */ ({
+        owner: 'octocat',
+        repo: 'hello',
+        ref: 'octocat/hello#42',
+        pattern: 'b-updated',
+        // Campos hostiles que NO deben aparecer en el NDJSON:
+        issueBody: 'super-secret-token: ghp_xxxxxxxxxxxxxxxxxxxx',
+        title: 'leaky title',
+        raw: { token: 'xxx', body: 'pii' },
+        body: 'should not appear',
+      }),
+    );
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    // Whitelist asserted: only the 4 identification fields + the structural
+    // (event, level, time) fields of the logger record.
+    assert.equal(line.event, EVENTS.POLLING_DISPATCH);
+    assert.equal(line.owner, 'octocat');
+    assert.equal(line.repo, 'hello');
+    assert.equal(line.ref, 'octocat/hello#42');
+    assert.equal(line.pattern, 'b-updated');
+    for (const forbidden of ['issueBody', 'title', 'raw', 'body']) {
+      assert.equal(
+        forbidden in line,
+        false,
+        `T-25-02 violation: pollingDispatch leaked '${forbidden}' into NDJSON`,
+      );
+    }
+  });
+
+  it('pollingError emits event=polling.error at warn level with {owner, repo, status, attempt}', () => {
+    const sessionId = 'sess-ev-pollev-error-warn';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingError(log, { owner: 'octocat', repo: 'hello', status: 429, attempt: 2 });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.POLLING_ERROR);
+    assert.equal(line.level, 'warn');
+    assert.equal(line.owner, 'octocat');
+    assert.equal(line.repo, 'hello');
+    assert.equal(line.status, 429);
+    assert.equal(line.attempt, 2);
+    // error key MUST be absent when not provided (truthy-spread guard).
+    assert.equal('error' in line, false);
+  });
+
+  it('pollingError includes error field only when provided', () => {
+    const sessionId = 'sess-ev-pollev-error-no-error-field';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    // Sin `error` → key ausente.
+    pollingError(log, { owner: 'octocat', repo: 'hello', status: 500, attempt: 1 });
+    // Con `error` → key presente con el valor exacto.
+    pollingError(log, {
+      owner: 'octocat',
+      repo: 'hello',
+      status: 429,
+      attempt: 3,
+      error: 'rate limited',
+    });
+    const lines = readAllLines(logPathFor(sessionId));
+    const [withoutErr, withErr] = lines.slice(-2);
+    assert.equal('error' in withoutErr, false);
+    assert.equal(withErr.error, 'rate limited');
   });
 });
