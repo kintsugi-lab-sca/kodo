@@ -35,6 +35,8 @@ const {
   gsdBootstrap,
   planeApiCall,
   planeApiCallFailed,
+  githubApiCall,
+  githubApiCallFailed,
   worktreeCleanupOk,
   worktreeCleanupDirty,
   worktreeCleanupError,
@@ -46,11 +48,13 @@ function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync)', () => {
-  it('EVENTS is frozen and contains the 13 canonical types', () => {
+describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client)', () => {
+  it('EVENTS is frozen and contains the 15 canonical types', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
+      'github.api.call',
+      'github.api.call.failed',
       'gsd.bootstrap',
       'gsd.phase.resolved',
       'orchestrator.review',
