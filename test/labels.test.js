@@ -124,3 +124,46 @@ describe('QUICK-08 — getSessionMode 4-state matrix', () => {
     assert.equal(getSessionMode({ gsd: true, gsd_mode: 'quick' }), 'quick');
   });
 });
+
+// GH-05 invariant: src/labels.js es provider-agnostic; dispatcher.js:65,74 hace
+// .map(name => ({name})) — Phase 24 valida que el flow funciona sin tocar labels.js.
+// Shape REAL (verificado en src/labels.js:12-37): { isKodo, model, flags }
+// GSD mode se deriva via getGsdMode(flags) → 'full' | 'quick' | null.
+describe('GH-05 — GitHub TaskItem cross-provider (parseKodoLabels invariant)', () => {
+  it('recognizes kodo label from GitHub-style string labels mapped via dispatcher pattern', () => {
+    const labelObjs = ['kodo'].map((name) => ({ name }));
+    const result = parseKodoLabels(labelObjs);
+    assert.deepEqual(result, { isKodo: true, model: null, flags: [] });
+  });
+
+  it('extracts model from kodo:sonnet label (GitHub provenance)', () => {
+    const result = parseKodoLabels(['kodo:sonnet'].map((name) => ({ name })));
+    assert.equal(result.isKodo, true);
+    assert.equal(result.model, 'sonnet');
+    assert.deepEqual(result.flags, []);
+  });
+
+  it('detects kodo:gsd-quick → flags has gsd-quick → getGsdMode returns quick', () => {
+    const result = parseKodoLabels(['kodo:gsd-quick'].map((name) => ({ name })));
+    assert.equal(result.isKodo, true);
+    assert.deepEqual(result.flags, ['gsd-quick']);
+    assert.equal(getGsdMode(result.flags), 'quick');
+  });
+
+  it('detects kodo:gsd → flags has gsd → getGsdMode returns full', () => {
+    const result = parseKodoLabels(['kodo:gsd'].map((name) => ({ name })));
+    assert.equal(result.isKodo, true);
+    assert.deepEqual(result.flags, ['gsd']);
+    assert.equal(getGsdMode(result.flags), 'full');
+  });
+
+  it('returns isKodo:false for GitHub labels without kodo presence', () => {
+    const result = parseKodoLabels(['bug', 'priority:high'].map((name) => ({ name })));
+    assert.deepEqual(result, { isKodo: false, model: null, flags: [] });
+  });
+
+  it('handles empty labels array (defensive)', () => {
+    const result = parseKodoLabels([]);
+    assert.deepEqual(result, { isKodo: false, model: null, flags: [] });
+  });
+});

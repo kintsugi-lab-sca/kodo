@@ -105,4 +105,28 @@ describe('LOG-12: vigilante isolation (import-graph)', () => {
       );
     }
   });
+
+  // Phase 24 LOG-12 extension: el provider de GitHub carga config.js (vía GitHubClient
+  // constructor) y normalize.js carga interface.js — ambos fuera del árbol permitido
+  // de `kodo check`. Mantener `check.js` light-weight como en v0.5 (precedente del
+  // logger.js prohibido) es invariante cross-phase (STATE.md).
+  it('kodo check does not import src/providers/github/provider.js transitively', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const violators = [...graph].filter((p) => p.endsWith('/providers/github/provider.js'));
+    assert.deepEqual(
+      violators,
+      [],
+      `check.js transitively imports github/provider.js via:\n  ${violators.map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+
+  it('kodo check does not import src/providers/github/normalize.js transitively', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const violators = [...graph].filter((p) => p.endsWith('/providers/github/normalize.js'));
+    assert.deepEqual(
+      violators,
+      [],
+      `check.js transitively imports github/normalize.js via:\n  ${violators.map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
 });

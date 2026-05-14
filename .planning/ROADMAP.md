@@ -24,7 +24,7 @@
 **Depends on**: Nothing (foundational for v0.7)
 **Requirements**: GH-01
 **Success Criteria** (what must be TRUE):
-  1. `src/providers/github/client.js` exporta `GitHubClient` con métodos `getIssue`, `listIssues`, `addComment`, `updateIssue`, `listLabels` y opera contra `https://api.github.com` con header `Authorization: token <GITHUB_TOKEN>` (token leído via `~/.kodo/.env`, NO config.json — espejo de `getPlaneApiKey`).
+  1. `src/providers/github/client.js` exporta `GitHubClient` con métodos `getIssue`, `listIssues`, `addComment`, `updateIssue`, `listLabels` (estos son métodos del HTTP client de Phase 23 — NO del contrato `TaskProvider`; `listLabels` aquí no es la fantasía-original del roadmapper sino un endpoint REST legítimo) y opera contra `https://api.github.com` con header `Authorization: token <GITHUB_TOKEN>` (token leído via `~/.kodo/.env`, NO config.json — espejo de `getPlaneApiKey`).
   2. El cliente emite warn estructurado NDJSON (`github.api.call` event) cuando `X-RateLimit-Remaining < 100` y rechaza con error canonical `rate_limit_exceeded` en `429`.
   3. `listIssues` acepta opciones `{ since, etag }` y reporta `304 Not Modified` sin levantar excepción — devuelve `{ status: 304, items: [], etag: <returned> }` para que el caller (Phase 25 polling) decida.
   4. Suite añade ≥ 8 tests offline con fixtures `test/fixtures/github/*.json` (issues, rate-limit, 304, 401, 429) — zero live API calls.
@@ -53,7 +53,7 @@
 **Depends on**: Phase 24
 **Requirements**: POLL-01, POLL-02, POLL-03, POLL-04, TEST-02
 **Success Criteria** (what must be TRUE):
-  1. `src/triggers/polling.js` exporta `startPolling({ provider, repos, intervalSec, clock?, logger? })` que pollea cada `intervalSec` segundos (default 60) llamando `provider.listTasks({ labels:['kodo'], state:'open', since:<cursor> })` por cada repo configurado.
+  1. `src/triggers/polling.js` exporta `startPolling({ provider, repos, intervalSec, clock?, logger? })` que pollea cada `intervalSec` segundos (default 60) llamando `provider.listPendingTasks()` (o `client.listIssues(...)` directo con etag para el path optimizado) por cada repo configurado. Corrección 2026-05-14 vía Phase 24 CONTEXT.md D-01: la redacción original `provider.listTasks({ labels:['kodo'], state:'open', since:<cursor> })` era fantasía — `listTasks` no está en el contrato canonical `TASK_PROVIDER_METHODS`.
   2. `~/.kodo/polling-state.json` persiste `{ <owner>/<repo>: { last_updated_at: <iso>, etag: <string> } }`; respuesta `304` no actualiza cursor (no-op observable en NDJSON); cache corrupto → reset (no crashea).
   3. Tres patrones de detección emiten dispatch: (a) issue nuevo con label `kodo`, (b) issue existente que recibió label `kodo`/`kodo:gsd*` desde el último cursor, (c) cambio de estado relevante; idempotencia delegada al lock per-repo Phase 8 GSD-10 (sin nuevo mecanismo de dedup).
   4. Errores transitorios (`429`, `5xx`, network) entran en backoff exponencial (base 2s, max 3 retries), emiten evento NDJSON `polling.error` con `{ owner, repo, status, attempt }`, y el loop continúa la siguiente iteración fail-open (nunca propaga al proceso parent).
