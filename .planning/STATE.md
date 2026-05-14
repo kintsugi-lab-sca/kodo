@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: GitHub Issues Adapter
-status: completed
+status: executing
 stopped_at: Phase 24 context gathered
-last_updated: "2026-05-14T15:07:44.955Z"
-last_activity: 2026-05-14 -- Phase 24 marked complete
+last_updated: "2026-05-14T15:47:03.521Z"
+last_activity: 2026-05-14 -- Phase 25 planning complete
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 6
+  total_plans: 8
   completed_plans: 5
-  percent: 20
+  percent: 63
 ---
 
 # Project State
@@ -32,8 +32,8 @@ See: `.planning/PROJECT.md` (Current Milestone v0.7)
 
 Phase: 24 — COMPLETE
 Plan: 1 of 3
-Status: Phase 24 complete
-Last activity: 2026-05-14 -- Phase 24 marked complete
+Status: Ready to execute
+Last activity: 2026-05-14 -- Phase 25 planning complete
 
 ## Phases (v0.7)
 
