@@ -43,7 +43,10 @@
   3. `src/providers/registry.js` registra factory `github` con singleton lazy init; `getProvider('github')` valida que los 9 métodos existen (`TASK_PROVIDER_METHODS`); arrancar `bin/kodo` con `provider: github` en config no crashea.
   4. `parseKodoLabels` invocado sobre labels de un GitHub Issue reconoce `kodo`, `kodo:sonnet`, `kodo:haiku`, `kodo:gsd`, `kodo:gsd-quick` con la misma semántica que en Plane — invariante: zero cambios en `src/labels.js`.
   5. `test/providers/github/provider.test.js` cubre los 9 métodos con fixtures offline + ≥ 90% branches del normalizer (priority extraction, body→description plain text, missing-field defaults).
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 24-01-PLAN.md — Normalizer puro + 5 fixtures incrementales + normalize tests (Wave 1, GH-03 / TEST-01)
+  - [ ] 24-02-PLAN.md — Provider factory + 9 métodos + contract tests con fakeClient + leak guard (Wave 2, GH-02 / TEST-01)
+  - [ ] 24-03-PLAN.md — Registry factory 'github' + invariant guards (LOG-12 + GH-05) + D-01 doc safety net (Wave 3, GH-04 / GH-05 / TEST-01)
 
 ### Phase 25: Polling Trigger Channel
 **Goal**: Existe un tercer canal de trigger (junto a webhook + manual CLI) que descubre issues con label `kodo` mediante polling periódico, dispara `dispatchTrigger` con `TaskItem` normalizado, y nunca crashea el loop por errores transitorios.
@@ -86,7 +89,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
-| 24. GitHubProvider + Normalizer + Registry | v0.7 | 0/? | Not started | — |
+| 24. GitHubProvider + Normalizer + Registry | v0.7 | 0/3 | Planned | — |
 | 25. Polling Trigger Channel | v0.7 | 0/? | Not started | — |
 | 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
 | 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
@@ -193,4 +196,4 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete | 2026-05-13 |
 
 ---
-*Last updated: 2026-05-13 — Milestone v0.7 (GitHub Issues Adapter) roadmap emitted. 5 phases (23-27), 16/16 requirements mapped, granularity coarse. Próximo: `/gsd-plan-phase 23` para arrancar GitHubClient foundation.*
+*Last updated: 2026-05-14 — Phase 24 planned with 3 plans (Wave 1 normalizer + Wave 2 provider + Wave 3 registry/invariants). Ready for `/gsd-execute-phase 24`.*
