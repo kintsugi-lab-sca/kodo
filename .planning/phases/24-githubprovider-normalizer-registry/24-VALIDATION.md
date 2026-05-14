@@ -2,7 +2,7 @@
 phase: 24
 slug: githubprovider-normalizer-registry
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-14
 ---
@@ -57,14 +57,14 @@ created: 2026-05-14
 | 24-02-10 | 02 | 2 | GH-02 / D-27 | — | `verifySignature(rawBody, headers)` → `false` determinístico | unit | `node --test test/providers/github/provider.test.js` | ❌ W0 | ⬜ pending |
 | 24-02-11 | 02 | 2 | GH-02 / D-28 | — | `listProjects()` returns `config.repos.map(...)`, cero API calls | unit | `node --test test/providers/github/provider.test.js` | ❌ W0 | ⬜ pending |
 | 24-02-12 | 02 | 2 | TEST-01 / D-37 | — | Zero live API calls (leak guard restaura `globalThis.fetch` en before/after) | unit | `node --test test/providers/github/provider.test.js` (top-of-file guard) | ❌ W0 | ⬜ pending |
-| 24-03-01 | 03 | 3 | GH-04 / D-29..D-30 | — | `getProvider('github')` valida el contrato de 9 métodos (vía `registerProvider` injection) | unit | `node --test test/registry.test.js` | ✅ (extend) | ⬜ pending |
-| 24-03-02 | 03 | 3 | invariant LOG-12 | — | `kodo check` NO importa transitivamente `src/providers/github/provider.js` ni `normalize.js` | integration | `node --test test/check-isolation.test.js` | ✅ (extend) | ⬜ pending |
-| 24-03-03 | 03 | 3 | GH-05 / D-32 | — | `parseKodoLabels(task.labels.map(name => ({name})))` reconoce `kodo`/`kodo:sonnet` desde TaskItem GitHub | unit | `node --test test/labels.test.js` | ✅ | ⬜ pending |
+| 24-03-01 | 03 | 3 | invariant LOG-12 | — | `kodo check` NO importa transitivamente `src/providers/github/provider.js` ni `normalize.js` | integration | `node --test test/check-isolation.test.js` | ✅ (extend) | ⬜ pending |
+| 24-03-02 | 03 | 3 | GH-05 / D-32 | — | `parseKodoLabels(task.labels.map(name => ({name})))` reconoce `kodo`/`kodo:sonnet`/`kodo:gsd-quick` desde TaskItem GitHub (shape REAL `{isKodo, model, flags}` + `getGsdMode(flags)`) | unit | `node --test test/labels.test.js` | ✅ | ⬜ pending |
+| 24-03-03 | 03 | 3 | GH-04 / D-29..D-30 | — | `getProvider('github')` valida el contrato de 9 métodos (vía `registerProvider` injection con factory real) | unit | `node --test test/registry.test.js` | ✅ (extend) | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
-> Task IDs are illustrative; the planner finalizes the canonical IDs in PLAN.md.
-> Plan grouping suggestion (RESEARCH.md): 01 normalizer + fixtures (Wave 1), 02 provider factory + provider tests (Wave 2), 03 registry mod + invariants (Wave 3).
+> Task IDs aligned with PLAN.md (W6 alignment 2026-05-14): each row's `Task ID` matches the canonical task ID inside the corresponding `XX-NN-PLAN.md` file.
+> Plan grouping (locked): 01 normalizer + fixtures (Wave 1), 02 provider factory + provider tests (Wave 2), 03 registry/invariants (Wave 3) — see ROADMAP.md Phase 24 plans list.
 
 ---
 
