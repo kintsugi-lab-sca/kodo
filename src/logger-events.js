@@ -1,11 +1,12 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 13 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 15 eventos de ciclo de vida.
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
-// + Phase 19 (worktree cleanup) + Phase 21 (skill sync):
+// + Phase 19 (worktree cleanup) + Phase 21 (skill sync) + Phase 23 (github client):
 //   session.start, session.end, state.transition, orchestrator.review,
 //   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
+//   github.api.call, github.api.call.failed,
 //   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error,
 //   skill.sync.auto, skill.sync.auto.error
 //
@@ -34,6 +35,8 @@ import { join } from 'node:path';
  *   WORKTREE_CLEANUP_ERROR: 'worktree.cleanup.error',
  *   SKILL_SYNC_AUTO: 'skill.sync.auto',
  *   SKILL_SYNC_AUTO_ERROR: 'skill.sync.auto.error',
+ *   GITHUB_API_CALL: 'github.api.call',
+ *   GITHUB_API_CALL_FAILED: 'github.api.call.failed',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -49,6 +52,8 @@ export const EVENTS = Object.freeze({
   WORKTREE_CLEANUP_ERROR:  'worktree.cleanup.error',
   SKILL_SYNC_AUTO:         'skill.sync.auto',
   SKILL_SYNC_AUTO_ERROR:   'skill.sync.auto.error',
+  GITHUB_API_CALL:         'github.api.call',
+  GITHUB_API_CALL_FAILED:  'github.api.call.failed',
 });
 
 /**
