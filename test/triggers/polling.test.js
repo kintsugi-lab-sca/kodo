@@ -450,6 +450,603 @@ describe('startPolling — POLL-02 state cache', () => {
   });
 });
 
+describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-forget', () => {
+  it('first tick skips dispatch (Pitfall #7 / T-25-04)', async () => {
+    // Cache empty for this repo; client returns 5 issues. Expected: dispatchCalls.length === 0,
+    // cursor populated with max(updated_at).
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({ number: 1, updated_at: '2026-05-14T08:00:00Z' }),
+          makeIssue({ number: 2, updated_at: '2026-05-14T09:00:00Z' }),
+          makeIssue({ number: 3, updated_at: '2026-05-14T10:00:00Z' }),
+          makeIssue({ number: 4, updated_at: '2026-05-14T07:00:00Z' }),
+          makeIssue({ number: 5, updated_at: '2026-05-14T11:00:00Z' }),
+        ],
+        etag: 'W/"first"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 0, 'first tick must NOT dispatch');
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(
+      cache['octocat/r1'].last_updated_at,
+      '2026-05-14T11:00:00Z',
+      'cursor populated to max(updated_at)',
+    );
+  });
+
+  it('pattern (a): new issue after cursor fires dispatch', async () => {
+    // Pre-populated cursor — second tick semantics from the start.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({
+            number: 42,
+            created_at: '2026-05-14T10:00:00Z',
+            updated_at: '2026-05-14T10:00:00Z',
+          }),
+        ],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 1);
+    assert.equal(dispatchCalls[0].action, 'polling');
+    assert.equal(dispatchCalls[0].provider, 'github');
+    assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#42');
+  });
+
+  it('pattern (b/c): existing issue updated since cursor fires dispatch', async () => {
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({
+            number: 7,
+            // created BEFORE the cursor; updated AFTER — classic pattern (b/c).
+            created_at: '2026-05-10T01:00:00Z',
+            updated_at: '2026-05-14T10:00:00Z',
+          }),
+        ],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 1);
+    assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#7');
+  });
+
+  it('dispatchTrigger is fire-and-forget (no await)', async () => {
+    // Slow dispatchFn — if the loop awaited, the tick would block and never
+    // reach the saveStateCache call. We assert the cache IS written before
+    // the dispatch promise resolves.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    let dispatchResolve;
+    const dispatchPromise = new Promise((r) => {
+      dispatchResolve = r;
+    });
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [makeIssue({ number: 1, updated_at: '2026-05-14T10:00:00Z' })],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: () => dispatchPromise,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    // Cache was written even though dispatch is still pending — proves not awaited.
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T10:00:00Z');
+    // Cleanup: resolve the hanging promise.
+    dispatchResolve({ action: 'launched' });
+    await drainMicrotasks();
+  });
+
+  it('dispatch rejection does not crash loop', async () => {
+    // dispatchFn rejects; next tick must still fire. captured events must
+    // include the polling.dispatch.failed logger emission.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [makeIssue({ number: 1, updated_at: '2026-05-14T10:00:00Z' })],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async () => {
+        throw new Error('dispatch boom');
+      },
+      logger,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    // Give the .catch handler one more turn to run.
+    await drainMicrotasks();
+    const failed = events.filter((e) => e.msg === 'polling.dispatch.failed');
+    assert.ok(failed.length >= 1, `expected polling.dispatch.failed; got: ${JSON.stringify(events)}`);
+    // Next tick fires.
+    await advance(60_000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 2, 'second tick fired despite dispatch failure');
+  });
+
+  it('PR filter (Pitfall #2 / T-25-05): issues with pull_request !== null are skipped', async () => {
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({
+            number: 10,
+            updated_at: '2026-05-14T10:00:00Z',
+            pull_request: { url: 'https://api.github.com/repos/octocat/r1/pulls/10' },
+          }),
+          makeIssue({ number: 11, updated_at: '2026-05-14T10:00:00Z', pull_request: null }),
+        ],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 1, 'only the issue dispatched, NOT the PR');
+    assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#11');
+  });
+
+  it('provider-only path: listPendingTasks used when no client', async () => {
+    // Pre-populate so we're not in first-tick.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const provider = makeFakeProvider({
+      listPendingTasks: async () => [
+        // Already normalized TaskItem shape (provider returns canonical TaskItems).
+        {
+          id: 'I_test99',
+          ref: 'octocat/r1#99',
+          title: 't',
+          description: '',
+          labels: ['kodo'],
+          projectId: 'octocat/r1',
+          projectName: 'octocat/r1',
+          groups: [],
+          url: 'https://github.com/octocat/r1/issues/99',
+          priority: null,
+          state: 'open',
+          // synthetic timestamp so shouldDispatch sees an update after cursor
+          updated_at: '2026-05-14T10:00:00Z',
+          created_at: '2026-05-14T09:00:00Z',
+        },
+      ],
+    });
+    handle = startPolling({
+      provider,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(provider.calls.listPendingTasks, 1, 'provider path invoked');
+    assert.equal(dispatchCalls.length, 1);
+    assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#99');
+  });
+});
+
+describe('startPolling — POLL-04 retry backoff', () => {
+  it('429 triggers retry with 2s base backoff', async () => {
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    let count = 0;
+    const client = makeFakeClient({
+      listIssues: async () => {
+        count++;
+        if (count === 1) {
+          const err = /** @type {any} */ (new Error('rate limited'));
+          err.status = 429;
+          throw err;
+        }
+        return { status: 200, items: [], etag: undefined, rate_limit_remaining: 1 };
+      },
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(count, 1, 'attempt 1 fired');
+    await advance(2000);
+    await drainMicrotasks();
+    assert.equal(count, 2, 'attempt 2 after 2s backoff');
+    const errors = events.filter((e) => e.msg === 'polling.error');
+    assert.ok(errors.length >= 1, 'polling.error emitted');
+    assert.equal(errors[0].status, 429);
+    assert.equal(errors[0].attempt, 1);
+  });
+
+  it('5xx triggers retry path (500/502/503/504)', async () => {
+    for (const status of [500, 502, 503, 504]) {
+      const localStatePath = tempStatePath();
+      const { clock, advance } = createTestClock();
+      let count = 0;
+      const client = makeFakeClient({
+        listIssues: async () => {
+          count++;
+          if (count === 1) {
+            const err = /** @type {any} */ (new Error(`http ${status}`));
+            err.status = status;
+            throw err;
+          }
+          return { status: 200, items: [], etag: undefined, rate_limit_remaining: 5000 };
+        },
+      });
+      const h = startPolling({
+        client,
+        repos: [{ owner: 'octocat', repo: 'r1' }],
+        intervalSec: 60,
+        clock,
+        statePath: localStatePath,
+      });
+      await drainMicrotasks();
+      assert.equal(count, 1, `status ${status}: attempt 1 fired`);
+      await advance(2000);
+      await drainMicrotasks();
+      assert.equal(count, 2, `status ${status}: attempt 2 after backoff`);
+      h.stop();
+      try {
+        rmSync(localStatePath, { force: true });
+      } catch {}
+    }
+  });
+
+  it('network error (ETIMEDOUT, AbortError) triggers retry', async () => {
+    for (const kind of ['ETIMEDOUT', 'AbortError']) {
+      const localStatePath = tempStatePath();
+      const { clock, advance } = createTestClock();
+      let count = 0;
+      const client = makeFakeClient({
+        listIssues: async () => {
+          count++;
+          if (count === 1) {
+            const err = /** @type {any} */ (new Error('network'));
+            if (kind === 'ETIMEDOUT') err.code = 'ETIMEDOUT';
+            else err.name = 'AbortError';
+            throw err;
+          }
+          return { status: 200, items: [], etag: undefined, rate_limit_remaining: 5000 };
+        },
+      });
+      const h = startPolling({
+        client,
+        repos: [{ owner: 'octocat', repo: 'r1' }],
+        intervalSec: 60,
+        clock,
+        statePath: localStatePath,
+      });
+      await drainMicrotasks();
+      assert.equal(count, 1, `${kind}: attempt 1 fired`);
+      await advance(2000);
+      await drainMicrotasks();
+      assert.equal(count, 2, `${kind}: attempt 2 after backoff`);
+      h.stop();
+      try {
+        rmSync(localStatePath, { force: true });
+      } catch {}
+    }
+  });
+
+  it('exponential backoff sequence 2s/4s/8s — 1+3 calls total per tick', async () => {
+    // T-25-03 invariant: RETRY_BASE_MS=2000, RETRY_MAX_ATTEMPTS=3.
+    // Sequence: attempt 1 immediate → sleep 2s → attempt 2 → sleep 4s → attempt 3 → sleep 8s → attempt 4 → exhausted, return.
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => {
+        const err = /** @type {any} */ (new Error('rate limited'));
+        err.status = 429;
+        throw err;
+      },
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 1, 'attempt 1');
+    await advance(2000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 2, 'attempt 2 after 2s');
+    await advance(4000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 3, 'attempt 3 after 4s');
+    await advance(8000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 4, 'attempt 4 after 8s');
+    // After 4 total attempts (1 initial + 3 retries), warn-and-continue → no more retries this tick.
+    // The next call should ONLY happen when intervalSec elapses.
+    await advance(1000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 4, 'no further retries in same tick');
+    await advance(60_000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 5, 'next tick fires after intervalSec');
+  });
+
+  it('warn-and-continue after 3 retries exhausted (no polling.stopped event)', async () => {
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => {
+        const err = /** @type {any} */ (new Error('rate limited'));
+        err.status = 429;
+        throw err;
+      },
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await advance(2000);
+    await drainMicrotasks();
+    await advance(4000);
+    await drainMicrotasks();
+    await advance(8000);
+    await drainMicrotasks();
+    const errors = events.filter((e) => e.msg === 'polling.error');
+    assert.ok(
+      errors.some((e) => e.attempt === 3),
+      `expected polling.error with attempt:3; got attempts: ${errors.map((e) => e.attempt).join(',')}`,
+    );
+    // Open Q #1 RESOLVED — Option A — no polling.stopped event ever emitted.
+    const stopped = events.filter((e) => e.msg === 'polling.stopped');
+    assert.equal(stopped.length, 0, 'polling.stopped MUST NOT be emitted (warn-and-continue)');
+  });
+
+  it('non-transient error (401, 404) does NOT retry', async () => {
+    for (const status of [401, 404]) {
+      const localStatePath = tempStatePath();
+      const localEvents = /** @type {any[]} */ ([]);
+      const { clock, advance } = createTestClock();
+      const logger = makeFakeLogger(localEvents);
+      const client = makeFakeClient({
+        listIssues: async () => {
+          const err = /** @type {any} */ (new Error(`http ${status}`));
+          err.status = status;
+          throw err;
+        },
+      });
+      const h = startPolling({
+        client,
+        logger,
+        repos: [{ owner: 'octocat', repo: 'r1' }],
+        intervalSec: 60,
+        clock,
+        statePath: localStatePath,
+      });
+      await drainMicrotasks();
+      // Give a chance for retry attempts to fire if they were going to.
+      await advance(2000);
+      await drainMicrotasks();
+      await advance(4000);
+      await drainMicrotasks();
+      assert.equal(client.calls.listIssues.length, 1, `status ${status}: exactly 1 call (no retry)`);
+      const errors = localEvents.filter((e) => e.msg === 'polling.error');
+      assert.equal(errors.length, 1, `status ${status}: exactly 1 polling.error event`);
+      assert.equal(errors[0].status, status);
+      h.stop();
+      try {
+        rmSync(localStatePath, { force: true });
+      } catch {}
+    }
+  });
+});
+
+describe('TEST-02 NDJSON shape + invariants', () => {
+  it('emits polling.tick per repo with {owner, repo, status, dispatched}', async () => {
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [],
+        etag: undefined,
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [
+        { owner: 'octocat', repo: 'r1' },
+        { owner: 'octocat', repo: 'r2' },
+      ],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const ticks = events.filter((e) => e.msg === 'polling.tick');
+    assert.equal(ticks.length, 2, 'one tick event per repo');
+    for (const t of ticks) {
+      assert.equal(typeof t.owner, 'string');
+      assert.equal(typeof t.repo, 'string');
+      assert.equal(typeof t.status, 'number');
+      assert.equal(typeof t.dispatched, 'number');
+    }
+  });
+
+  it('polling.dispatch NDJSON does NOT include issue.body (T-25-02 invariant)', async () => {
+    // T-25-02 guardian: even if user content is in the issue payload, NDJSON must
+    // not surface body / title / raw object.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({
+            number: 42,
+            body: 'SECRET TOKEN ghp_xxx pleaseDoNotLeakMe',
+            title: 'SECRET title content',
+            updated_at: '2026-05-14T10:00:00Z',
+          }),
+        ],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      logger,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const dispatched = events.filter((e) => e.msg === 'polling.dispatch');
+    assert.equal(dispatched.length, 1);
+    const serialized = JSON.stringify(dispatched[0]);
+    assert.equal(serialized.indexOf('SECRET TOKEN'), -1, 'body must not leak to NDJSON');
+    assert.equal(serialized.indexOf('SECRET title'), -1, 'title must not leak to NDJSON');
+    // Positive shape check.
+    assert.equal(dispatched[0].owner, 'octocat');
+    assert.equal(dispatched[0].repo, 'r1');
+    assert.equal(dispatched[0].ref, 'octocat/r1#42');
+    assert.equal(typeof dispatched[0].pattern, 'string');
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // META: wall-time guard. This must remain the LAST it() of the file — Task 2b
 // inserts its new cases BEFORE this block so the elapsed timer captures
