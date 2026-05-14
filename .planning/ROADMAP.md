@@ -46,7 +46,7 @@
 **Plans**: 3 plans
   - [x] 24-01-PLAN.md — Normalizer puro + 5 fixtures incrementales + normalize tests (Wave 1, GH-03 / TEST-01)
   - [x] 24-02-PLAN.md — Provider factory + 9 métodos + contract tests con fakeClient + leak guard (Wave 2, GH-02 / TEST-01)
-  - [ ] 24-03-PLAN.md — Registry factory 'github' + invariant guards (LOG-12 + GH-05) + D-01 doc safety net (Wave 3, GH-04 / GH-05 / TEST-01)
+  - [x] 24-03-PLAN.md — Registry factory 'github' + invariant guards (LOG-12 + GH-05) + D-01 doc safety net (Wave 3, GH-04 / GH-05 / TEST-01)
 
 ### Phase 25: Polling Trigger Channel
 **Goal**: Existe un tercer canal de trigger (junto a webhook + manual CLI) que descubre issues con label `kodo` mediante polling periódico, dispara `dispatchTrigger` con `TaskItem` normalizado, y nunca crashea el loop por errores transitorios.
@@ -89,7 +89,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
-| 24. GitHubProvider + Normalizer + Registry | v0.7 | 2/3 | In Progress|  |
+| 24. GitHubProvider + Normalizer + Registry | v0.7 | 3/3 | Complete   | 2026-05-14 |
 | 25. Polling Trigger Channel | v0.7 | 0/? | Not started | — |
 | 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
 | 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
