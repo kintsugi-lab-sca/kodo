@@ -7,7 +7,7 @@
     "kodo": "./bin/kodo"
   },
   "scripts": {
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test $(find test -name '*.test.js' -type f)"
   },
   "dependencies": {
     "commander": "^13.0.0",

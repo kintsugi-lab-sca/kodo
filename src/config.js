@@ -173,4 +173,30 @@ export function getPlaneApiKey() {
   return getProviderApiKey('plane');
 }
 
+/**
+ * Factory para el shape default de `providers.github` (D-06 verbatim).
+ *
+ * D-08 LOCKED: NO se inyecta en `DEFAULT_CONFIG` — eso forzaría a configs v0.6
+ * (Plane only) a tener la clave aunque no la usen, rompiendo el invariante
+ * CFG-02 zero-breaking-change. El wizard `interactiveConfig` llama este factory
+ * sólo cuando el operador elige `provider: github`.
+ *
+ * @returns {{
+ *   api_key_env: string,
+ *   repos: Array<{owner: string, repo: string}>,
+ *   poll_interval: number,
+ *   mcp_hint: string,
+ *   states: { review: string },
+ * }}
+ */
+export function getDefaultGithubProviderConfig() {
+  return {
+    api_key_env: 'GITHUB_TOKEN',
+    repos: [],
+    poll_interval: 60,
+    mcp_hint: 'GitHub MCP server',
+    states: { review: 'closed' },
+  };
+}
+
 export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG };

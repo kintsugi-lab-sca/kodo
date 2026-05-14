@@ -353,7 +353,7 @@ async function interactiveConfig() {
   console.log('\n  kodo config\n');
 
   // Step 1: Select provider
-  const availableProviders = ['plane'];
+  const availableProviders = ['plane', 'github'];  // D-01 (Phase 26)
   console.log('  Proveedores disponibles:');
   for (let i = 0; i < availableProviders.length; i++) {
     console.log(`    ${i + 1}. ${availableProviders[i]}`);
@@ -386,6 +386,43 @@ async function interactiveConfig() {
     return;
   }
   console.log(`  ✓ API key configurada\n`);
+
+  // ── Phase 26 D-01..D-06: provider:github branch ──
+  // Delegado a helper exportado en src/cli/polling.js (DI-zable para tests).
+  // D-20 LOCKED: TODOS los outputs user-facing del branch van via createFormatter
+  // (color isolation invariante v0.5). Cero `console.log` raw aquí.
+  // D-08: providers.github se inicializa SOLO en runtime (no en DEFAULT_CONFIG).
+  if (selectedProvider === 'github') {
+    const { configureGithubProvider } = await import('./cli/polling.js');
+    const { getDefaultGithubProviderConfig } = await import('./config.js');
+    const { createFormatter } = await import('./cli/format.js');
+    const fmt = createFormatter(process.stdout);
+
+    // D-08 runtime-only inject (NO modificar DEFAULT_CONFIG)
+    config.providers.github = config.providers.github || getDefaultGithubProviderConfig();
+    // Preservar api_key_env ya capturado en la línea 378 (gate pre-check)
+    config.providers.github.api_key_env = providerConfig.api_key_env;
+    await configureGithubProvider({ ask, providerConfig: config.providers.github });
+
+    // D-05 resumen final — todos los outputs via fmt.* (D-20 LOCKED)
+    process.stdout.write('\n  ' + fmt.cyan('Resumen:') + '\n');
+    for (const r of config.providers.github.repos) {
+      process.stdout.write('    ' + fmt.dim('- ') + r.owner + '/' + r.repo + '\n');
+    }
+    process.stdout.write('  ' + fmt.dim('poll_interval: ') + config.providers.github.poll_interval + 's\n');
+
+    const okRaw = await ask('\n  Guardar? [S/n]: ');
+    const okAns = okRaw.trim().toLowerCase();
+    if (okAns !== '' && okAns !== 's') {
+      process.stdout.write('  ' + fmt.warn('Abortado sin guardar.') + '\n');
+      rl.close();
+      return;
+    }
+    saveConfig(config);
+    process.stdout.write('  ' + fmt.ok('Configuracion guardada en ~/.kodo/') + '\n');
+    rl.close();
+    return;  // Pattern H — NO caer al Plane projects listing, NO recursión
+  }
 
   // Workspace slug (provider-specific)
   if (selectedProvider === 'plane') {
