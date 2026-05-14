@@ -103,5 +103,277 @@ function makeSpyLogger() {
 }
 
 describe('GitHubClient', () => {
-  // Task 3 + Task 4 añaden los 12 tests aquí.
+  // ───────────────────────────────────────────────────────────────────────
+  // SC#1 — constructor + auth + headers + 5 método surface
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('constructor throws when token unset (row 23-02-01)', () => {
+    // No token, no env override. getProviderApiKey('github') returns undefined porque
+    // el config v0.6 no tiene `providers.github`. El constructor debe lanzar.
+    assert.throws(
+      () => new GitHubClient({ fetch: makeFetch({ status: 200, body: {} }) }),
+      /GitHub token not found\. Set GITHUB_TOKEN env var\./,
+    );
+  });
+
+  it('getIssue returns raw payload + parses x-ratelimit-remaining (row 23-02-02)', async () => {
+    const { fetch, calls } = makeSpyFetch({
+      status: 200,
+      body: issueFixture,
+      headers: { 'x-ratelimit-remaining': '4998', 'x-ratelimit-reset': '1747200000' },
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    const issue = await client.getIssue('octocat', 'hello-world', 42);
+
+    assert.equal(issue.number, 42);
+    assert.equal(issue.title, 'Test issue');
+    assert.equal(issue.state, 'open');
+    assert.equal(Array.isArray(issue.labels), true);
+    assert.equal(issue.labels[0].name, 'kodo');
+    assert.equal(client._rateRemaining, 4998);
+
+    // Headers correctos
+    assert.equal(calls.length, 1);
+    const headers = calls[0].init.headers;
+    assert.equal(headers['Authorization'], 'token ghp_test');
+    assert.equal(headers['Accept'], 'application/vnd.github+json');
+    assert.equal(headers['X-GitHub-Api-Version'], '2022-11-28');
+    assert.equal(headers['User-Agent'], 'kodo/0.7.x');
+  });
+
+  it('listIssues 200 path returns envelope {status, items, etag, rate_limit_remaining} (row 23-02-03)', async () => {
+    const { fetch } = makeSpyFetch({
+      status: 200,
+      body: issuesListFixture,
+      headers: { 'x-ratelimit-remaining': '4500', 'etag': 'W/"abc123"' },
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    const result = await client.listIssues('octocat', 'hello-world');
+
+    assert.equal(result.status, 200);
+    assert.equal(Array.isArray(result.items), true);
+    assert.equal(result.items.length, 3); // 2 issues + 1 PR (Pitfall #2 — Phase 24 filtra)
+    assert.equal(result.etag, 'W/"abc123"');
+    assert.equal(result.rate_limit_remaining, 4500);
+  });
+
+  it('listIssues 304 path returns envelope {status:304, items:[], etag, rate_limit_remaining} WITHOUT throwing (row 23-02-04 / SC#3)', async () => {
+    const { fetch } = makeSpyFetch({
+      status: 304,
+      headers: { 'x-ratelimit-remaining': '4499', 'etag': 'W/"abc123"' },
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+
+    // El test PRINCIPAL: no throw + envelope correcto.
+    const result = await client.listIssues('octocat', 'hello-world', { etag: 'W/"abc123"' });
+
+    assert.equal(result.status, 304);
+    assert.deepEqual(result.items, []);
+    assert.equal(result.etag, 'W/"abc123"');
+    assert.equal(result.rate_limit_remaining, 4499);
+  });
+
+  it('listIssues sends If-None-Match header when opts.etag provided', async () => {
+    const { fetch, calls } = makeSpyFetch({
+      status: 200,
+      body: [],
+      headers: { 'etag': 'W/"new"' },
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    await client.listIssues('octocat', 'hello-world', { etag: 'W/"old"' });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.headers['If-None-Match'], 'W/"old"');
+  });
+
+  it('listIssues encodes state/labels/since/per_page as query params', async () => {
+    const { fetch, calls } = makeSpyFetch({ status: 200, body: [], headers: {} });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    await client.listIssues('octocat', 'hello-world', {
+      state: 'open',
+      labels: ['kodo', 'priority:high'],
+      since: '2026-05-14T00:00:00Z',
+      per_page: 100,
+    });
+
+    assert.equal(calls.length, 1);
+    const url = calls[0].url;
+    assert.match(url, /state=open/);
+    assert.match(url, /labels=kodo%2Cpriority%3Ahigh/);
+    assert.match(url, /since=2026-05-14T00%3A00%3A00Z/);
+    assert.match(url, /per_page=100/);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // SC#1 / SC#2 — Error mapping table (row 23-02-10)
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('401 throws Error with .code === "unauthorized", .status === 401', async () => {
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      fetch: makeFetch({ status: 401, body: unauthorizedFixture }),
+    });
+    await assert.rejects(
+      () => client.getIssue('octocat', 'hello-world', 42),
+      (err) => {
+        assert.equal(err.code, 'unauthorized');
+        assert.equal(err.status, 401);
+        assert.match(err.message, /GitHub API 401:/);
+        return true;
+      },
+    );
+  });
+
+  it('404 throws Error with .code === "not_found", .status === 404', async () => {
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      fetch: makeFetch({ status: 404, body: notFoundFixture }),
+    });
+    await assert.rejects(
+      () => client.getIssue('octocat', 'missing-repo', 999),
+      (err) => {
+        assert.equal(err.code, 'not_found');
+        assert.equal(err.status, 404);
+        return true;
+      },
+    );
+  });
+
+  it('429 with Retry-After: 60 → .code="rate_limit_exceeded", .retryAfter=60 (row 23-02-05 / SC#2)', async () => {
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      fetch: makeFetch({
+        status: 429,
+        body: rateLimitExceededFixture,
+        headers: { 'retry-after': '60' },
+      }),
+    });
+    await assert.rejects(
+      () => client.getIssue('octocat', 'hello-world', 42),
+      (err) => {
+        assert.equal(err.code, 'rate_limit_exceeded');
+        assert.equal(err.status, 429);
+        assert.equal(err.retryAfter, 60);
+        return true;
+      },
+    );
+  });
+
+  it('403 with X-RateLimit-Remaining: 0 → .code="rate_limit_exceeded" (secondary rate limit map)', async () => {
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      fetch: makeFetch({
+        status: 403,
+        body: forbiddenFixture,
+        headers: { 'x-ratelimit-remaining': '0' },
+      }),
+    });
+    await assert.rejects(
+      () => client.getIssue('octocat', 'hello-world', 42),
+      (err) => {
+        assert.equal(err.code, 'rate_limit_exceeded');
+        assert.equal(err.status, 403);
+        return true;
+      },
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // SC#2 — Rate-limit warn NDJSON (row 23-02-06)
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('emits NDJSON at warn level when X-RateLimit-Remaining < 100 (row 23-02-06 / SC#2)', async () => {
+    const logger = makeSpyLogger();
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      logger,
+      fetch: makeFetch({
+        status: 200,
+        body: rateLimitLowFixture,
+        headers: { 'x-ratelimit-remaining': '50' },
+      }),
+    });
+    await client.getIssue('octocat', 'hello-world', 42);
+
+    // Debe haber un único record con level=warn y rate_limit_remaining=50.
+    const warns = logger.records.filter((r) => r.level === 'warn');
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0].event, 'github.api.call');
+    assert.equal(warns[0].rate_limit_remaining, 50);
+  });
+
+  it('emits NDJSON at info level when X-RateLimit-Remaining >= 100', async () => {
+    const logger = makeSpyLogger();
+    const client = new GitHubClient({
+      token: 'ghp_test',
+      logger,
+      fetch: makeFetch({
+        status: 200,
+        body: issueFixture,
+        headers: { 'x-ratelimit-remaining': '4998' },
+      }),
+    });
+    await client.getIssue('octocat', 'hello-world', 42);
+
+    const infos = logger.records.filter((r) => r.level === 'info');
+    assert.equal(infos.length, 1);
+    assert.equal(infos[0].event, 'github.api.call');
+    assert.equal(infos[0].rate_limit_remaining, 4998);
+    assert.equal(logger.records.filter((r) => r.level === 'warn').length, 0);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // SC#1 — addComment / updateIssue / listLabels (rows 23-02-07, 23-02-08, 23-02-09)
+  // ───────────────────────────────────────────────────────────────────────
+
+  it('addComment POSTs markdown body intact (row 23-02-07)', async () => {
+    const { fetch, calls } = makeSpyFetch({
+      status: 201,
+      body: commentCreatedFixture,
+      headers: {},
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    const result = await client.addComment('octocat', 'hello-world', 42, 'hello **world**');
+
+    assert.equal(result.id, 123);
+    assert.equal(result.author_association, 'OWNER');
+
+    // Verificar el body enviado
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.method, 'POST');
+    const sentBody = JSON.parse(calls[0].init.body);
+    assert.equal(sentBody.body, 'hello **world**');
+    assert.equal(calls[0].init.headers['Content-Type'], 'application/json');
+  });
+
+  it('updateIssue PATCHes with body payload (row 23-02-08)', async () => {
+    const { fetch, calls } = makeSpyFetch({
+      status: 200,
+      body: { ...issueFixture, state: 'closed' },
+      headers: {},
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    const result = await client.updateIssue('octocat', 'hello-world', 42, { state: 'closed' });
+
+    assert.equal(result.state, 'closed');
+    assert.equal(calls[0].init.method, 'PATCH');
+    const sentBody = JSON.parse(calls[0].init.body);
+    assert.deepEqual(sentBody, { state: 'closed' });
+  });
+
+  it('listLabels returns raw array of {id, name, color} (row 23-02-09)', async () => {
+    const { fetch } = makeSpyFetch({
+      status: 200,
+      body: labelsListFixture,
+      headers: {},
+    });
+    const client = new GitHubClient({ token: 'ghp_test', fetch });
+    const labels = await client.listLabels('octocat', 'hello-world');
+
+    assert.equal(Array.isArray(labels), true);
+    assert.equal(labels.length, 3);
+    assert.equal(labels[0].name, 'kodo');
+    assert.equal(labels[0].color, '0e8a16');
+    assert.equal(labels[2].name, 'priority:high');
+  });
 });
