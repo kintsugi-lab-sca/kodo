@@ -1,0 +1,5 @@
+[
+  { "id": 1, "node_id": "LA_TEST001", "url": "https://api.github.com/repos/kodo-test/fixture-repo/labels/kodo", "name": "kodo", "description": "Auto-launched by kodo", "color": "0e8a16", "default": false },
+  { "id": 2, "node_id": "LA_TEST002", "url": "https://api.github.com/repos/kodo-test/fixture-repo/labels/bug", "name": "bug", "description": null, "color": "d73a4a", "default": true },
+  { "id": 3, "node_id": "LA_TEST003", "url": "https://api.github.com/repos/kodo-test/fixture-repo/labels/priority%3Ahigh", "name": "priority:high", "description": null, "color": "ff0000", "default": false }
+]
