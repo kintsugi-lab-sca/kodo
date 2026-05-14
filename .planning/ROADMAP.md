@@ -71,7 +71,10 @@
   2. `~/.kodo/config.json` schema extendido: `providers.github = { repos, poll_interval (default 60), mcp_hint (default "GitHub MCP server"), states: { review: "closed" } }`; configs v0.6 sin clave `github` cargan idéntico (zero breaking change demostrado por test fixture).
   3. CLI `kodo polling start` arranca daemon (PID file `~/.kodo/polling.pid`) o foreground con `--no-daemon`; `kodo polling stop` finaliza via PID file; `kodo polling status` reporta `running`/`idle`; exit codes deterministas `0` ok / `1` ya corriendo / `2` no config / `3` stop sin daemon vivo.
   4. `kodo orchestrator --polling` arranca el polling loop integrado en el mismo proceso (sin daemon separado); el flag es ortogonal a `kodo polling start` daemon path y la operación documenta el contrato "elige uno u otro por repo" (mutex implícito vía lock per-repo Phase 8 GSD-10).
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 26-01-PLAN.md — Wizard branch `provider: github` + `configureGithubProvider` helper DI + `parseGitHubRemote` + `getDefaultGithubProviderConfig` factory + 2 fixtures v0.6/v0.7 + migration test (Wave 1, CFG-01 / CFG-02)
+  - [ ] 26-02-PLAN.md — `src/cli/polling.js` start/stop/status handlers + `src/cli/polling-daemon.js` PID lifecycle + spawn detached + ≥13 casos integration + exit codes D-14 (Wave 2, CFG-03)
+  - [ ] 26-03-PLAN.md — `kodo orchestrate --polling` flag + SIGINT cleanup + mutex implícito doc + ≥4 casos integration (Wave 3, CFG-04)
 
 ### Phase 27: Cross-Provider Contract Matrix
 **Goal**: Existe un test matrix provider-agnostic que corre el mismo contract suite contra `plane` y `github`, demostrando con código real que el invariante v0.2 ("cambiar de provider no requiere reescribir lógica") se mantiene con 2 adapters distintos.
@@ -93,7 +96,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 | 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
 | 24. GitHubProvider + Normalizer + Registry | v0.7 | 3/3 | Complete   | 2026-05-14 |
 | 25. Polling Trigger Channel | v0.7 | 2/2 | Complete   | 2026-05-14 |
-| 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
+| 26. Config Wizard + CLI Integration | v0.7 | 0/3 | Planned | — |
 | 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
 
 ## Archived Milestones
@@ -198,4 +201,4 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete | 2026-05-13 |
 
 ---
-*Last updated: 2026-05-14 — Phase 24 planned with 3 plans (Wave 1 normalizer + Wave 2 provider + Wave 3 registry/invariants). Ready for `/gsd-execute-phase 24`.*
+*Last updated: 2026-05-14 — Phase 26 planned with 3 plans (Wave 1 wizard + CFG-02 / Wave 2 daemon CFG-03 / Wave 3 orchestrate --polling CFG-04). Ready for `/gsd-execute-phase 26`.*
