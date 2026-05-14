@@ -129,4 +129,20 @@ describe('LOG-12: vigilante isolation (import-graph)', () => {
       `check.js transitively imports github/normalize.js via:\n  ${violators.map((p) => relative(REPO, p)).join('\n  ')}`,
     );
   });
+
+  // Phase 25 LOG-12 extension: polling.js carga dispatcher (→ manager.js +
+  // gsd/lock.js), GitHubClient, normalize, logger-events helpers — fuera del
+  // árbol permitido de `kodo check`. El dispatcher (ya excluido transitivamente)
+  // importa machinery cmux/state. Polling es trigger channel, no check primitive
+  // (invariante cross-phase STATE.md). Mantener `check.js` light-weight como en
+  // v0.5 (precedente del logger.js prohibido y de Phase 24 D-29).
+  it('kodo check does not import src/triggers/polling.js transitively', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const violators = [...graph].filter((p) => p.endsWith('/triggers/polling.js'));
+    assert.deepEqual(
+      violators,
+      [],
+      `check.js transitively imports triggers/polling.js via:\n  ${violators.map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
 });
