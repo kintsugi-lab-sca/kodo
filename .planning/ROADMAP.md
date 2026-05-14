@@ -7,8 +7,91 @@
 - ✅ **v0.4 GSD Quick Mode** — Phases 11-13 (shipped 2026-04-30)
 - ✅ **v0.5 CLI Polish & v0.3 Debt Cleanup** — Phases 14-17 + 999.1 (shipped 2026-05-11)
 - ✅ **v0.6 Session Isolation & Skill Sync** — Phases 18-22 (shipped 2026-05-13)
+- 🚧 **v0.7 GitHub Issues Adapter** — Phases 23-27 (planned 2026-05-13)
 
 ## Phases
+
+- [ ] **Phase 23: GitHubClient + Auth Foundation** — REST wrapper sobre `api.github.com` con PAT, rate limit handling y etag/304 conditional fetch.
+- [ ] **Phase 24: GitHubProvider + Normalizer + Registry** — Los 9 métodos `TaskProvider`, normalizer GitHub Issue → `TaskItem`, factory en registry, contract tests offline.
+- [ ] **Phase 25: Polling Trigger Channel** — Loop async + state cache (etag + cursor) + wiring a `dispatchTrigger` + fail-open retry, con clock-mock tests.
+- [ ] **Phase 26: Config Wizard + CLI Integration** — `kodo config` extiende `provider: github`, `kodo polling start/stop/status` daemon y `kodo orchestrator --polling` integrado.
+- [ ] **Phase 27: Cross-Provider Contract Matrix** — Test matrix corriendo el mismo contract suite contra `plane` y `github`, demostrando el invariante v0.2 con uso real ≠ Plane.
+
+## Phase Details
+
+### Phase 23: GitHubClient + Auth Foundation
+**Goal**: Existe un cliente REST aislado capaz de hablar con `api.github.com` con auth PAT, conciencia de rate limits y soporte de fetch condicional via etag/304 — sin acoplarse a `TaskProvider`.
+**Depends on**: Nothing (foundational for v0.7)
+**Requirements**: GH-01
+**Success Criteria** (what must be TRUE):
+  1. `src/providers/github/client.js` exporta `GitHubClient` con métodos `getIssue`, `listIssues`, `addComment`, `updateIssue`, `listLabels` y opera contra `https://api.github.com` con header `Authorization: token <GITHUB_TOKEN>` (token leído via `~/.kodo/.env`, NO config.json — espejo de `getPlaneApiKey`).
+  2. El cliente emite warn estructurado NDJSON (`github.api.call` event) cuando `X-RateLimit-Remaining < 100` y rechaza con error canonical `rate_limit_exceeded` en `429`.
+  3. `listIssues` acepta opciones `{ since, etag }` y reporta `304 Not Modified` sin levantar excepción — devuelve `{ status: 304, items: [], etag: <returned> }` para que el caller (Phase 25 polling) decida.
+  4. Suite añade ≥ 8 tests offline con fixtures `test/fixtures/github/*.json` (issues, rate-limit, 304, 401, 429) — zero live API calls.
+**Plans**: 3 plans (23-01 logger-events extension, 23-02 client + tests + fixtures, 23-03 capture script [optional])
+  - [ ] 23-01-PLAN.md — Extender taxonomía NDJSON con github.api.call + github.api.call.failed
+  - [ ] 23-02-PLAN.md — GitHubClient core + 5 métodos + 14 tests + 10 fixtures JSON
+  - [ ] 23-03-PLAN.md — (opcional) scripts/capture-github-fixtures.js para refresh manual
+
+### Phase 24: GitHubProvider + Normalizer + Registry
+**Goal**: `getProvider('github')` devuelve un `TaskProvider` válido que normaliza issues a `TaskItem` canónico, propaga `parseKodoLabels` sin tocarlo, y supera el mismo gate de validación de interface que `plane`.
+**Depends on**: Phase 23
+**Requirements**: GH-02, GH-03, GH-04, GH-05, TEST-01
+**Success Criteria** (what must be TRUE):
+  1. `src/providers/github/provider.js` exporta `createGitHubProvider(config, opts?)` que implementa los 9 métodos `TaskProvider` (`init`, `getTask`, `listTasks`, `addComment`, `updateTaskState`, `listProjects`, `listLabels`, `listStates`, `transitionTask`); `listStates` devuelve `[{name:'open'},{name:'closed'}]` hardcoded.
+  2. `src/providers/github/normalize.js` convierte un GitHub Issue payload a `TaskItem` canónico con shape contractual: `id` = `node_id` opaco, `ref` = `<owner>/<repo>#<number>`, `labels` array de strings, `priority` derivada de `priority:high|medium|low` (default `'medium'`), `projectId` = `<owner>/<repo>`; cero fugas de campos GitHub-only (`node_id`, `pull_request`, etc.).
+  3. `src/providers/registry.js` registra factory `github` con singleton lazy init; `getProvider('github')` valida que los 9 métodos existen (`TASK_PROVIDER_METHODS`); arrancar `bin/kodo` con `provider: github` en config no crashea.
+  4. `parseKodoLabels` invocado sobre labels de un GitHub Issue reconoce `kodo`, `kodo:sonnet`, `kodo:haiku`, `kodo:gsd`, `kodo:gsd-quick` con la misma semántica que en Plane — invariante: zero cambios en `src/labels.js`.
+  5. `test/providers/github/provider.test.js` cubre los 9 métodos con fixtures offline + ≥ 90% branches del normalizer (priority extraction, body→description plain text, missing-field defaults).
+**Plans**: TBD
+
+### Phase 25: Polling Trigger Channel
+**Goal**: Existe un tercer canal de trigger (junto a webhook + manual CLI) que descubre issues con label `kodo` mediante polling periódico, dispara `dispatchTrigger` con `TaskItem` normalizado, y nunca crashea el loop por errores transitorios.
+**Depends on**: Phase 24
+**Requirements**: POLL-01, POLL-02, POLL-03, POLL-04, TEST-02
+**Success Criteria** (what must be TRUE):
+  1. `src/triggers/polling.js` exporta `startPolling({ provider, repos, intervalSec, clock?, logger? })` que pollea cada `intervalSec` segundos (default 60) llamando `provider.listTasks({ labels:['kodo'], state:'open', since:<cursor> })` por cada repo configurado.
+  2. `~/.kodo/polling-state.json` persiste `{ <owner>/<repo>: { last_updated_at: <iso>, etag: <string> } }`; respuesta `304` no actualiza cursor (no-op observable en NDJSON); cache corrupto → reset (no crashea).
+  3. Tres patrones de detección emiten dispatch: (a) issue nuevo con label `kodo`, (b) issue existente que recibió label `kodo`/`kodo:gsd*` desde el último cursor, (c) cambio de estado relevante; idempotencia delegada al lock per-repo Phase 8 GSD-10 (sin nuevo mecanismo de dedup).
+  4. Errores transitorios (`429`, `5xx`, network) entran en backoff exponencial (base 2s, max 3 retries), emiten evento NDJSON `polling.error` con `{ owner, repo, status, attempt }`, y el loop continúa la siguiente iteración fail-open (nunca propaga al proceso parent).
+  5. `test/triggers/polling.test.js` valida los 3 patterns + 304 handling + retry exponencial usando clock mock (override `setTimeout`/helper `controlledTime`) con wall-time < 1s; zero live API calls; zero `setTimeout` real en happy path.
+**Plans**: TBD
+
+### Phase 26: Config Wizard + CLI Integration
+**Goal**: El operador puede configurar `provider: github` desde `kodo config`, arrancar polling como daemon (`kodo polling start`) o integrado al orchestrator (`kodo orchestrator --polling`), y las configs v0.6 siguen leyéndose sin error.
+**Depends on**: Phase 25
+**Requirements**: CFG-01, CFG-02, CFG-03, CFG-04
+**Success Criteria** (what must be TRUE):
+  1. `kodo config` con `provider: github` pide `GITHUB_TOKEN` (escribe a `~/.kodo/.env`, NO a `config.json` — espejo Plane), pide `repos` array `[{owner, repo}]` con auto-detect desde `git remote get-url origin` (parseo `github.com[:/]owner/repo(.git)?`) y confirmación interactiva antes de añadir.
+  2. `~/.kodo/config.json` schema extendido: `providers.github = { repos, poll_interval (default 60), mcp_hint (default "GitHub MCP server"), states: { review: "closed" } }`; configs v0.6 sin clave `github` cargan idéntico (zero breaking change demostrado por test fixture).
+  3. CLI `kodo polling start` arranca daemon (PID file `~/.kodo/polling.pid`) o foreground con `--no-daemon`; `kodo polling stop` finaliza via PID file; `kodo polling status` reporta `running`/`idle`; exit codes deterministas `0` ok / `1` ya corriendo / `2` no config / `3` stop sin daemon vivo.
+  4. `kodo orchestrator --polling` arranca el polling loop integrado en el mismo proceso (sin daemon separado); el flag es ortogonal a `kodo polling start` daemon path y la operación documenta el contrato "elige uno u otro por repo" (mutex implícito vía lock per-repo Phase 8 GSD-10).
+**Plans**: TBD
+
+### Phase 27: Cross-Provider Contract Matrix
+**Goal**: Existe un test matrix provider-agnostic que corre el mismo contract suite contra `plane` y `github`, demostrando con código real que el invariante v0.2 ("cambiar de provider no requiere reescribir lógica") se mantiene con 2 adapters distintos.
+**Depends on**: Phase 24 + Phase 25 (necesita ambos providers verdes y el polling channel cableado)
+**Requirements**: TEST-03
+**Success Criteria** (what must be TRUE):
+  1. `test/providers/contract.test.js` itera sobre `['plane', 'github']` ejecutando la misma batería de asserts contra cada `getProvider(name)` instance — mismas signatures, mismos error shapes, mismos campos en `TaskItem` devuelto.
+  2. El test usa fixtures offline para ambos providers (zero live API calls) y falla loud si cualquier provider devuelve un shape inconsistente (e.g. `TaskItem.priority` undefined en uno y string en el otro).
+  3. Suite global v0.7 termina en ≥ 614 + N tests pass (baseline v0.6) sin regresiones; el matrix añade un test count derivado (`providers.length × asserts`); zero skip nuevos.
+**Plans**: TBD
+
+## Progress
+
+**Execution Order:**
+Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 25 verde).
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 23. GitHubClient + Auth Foundation | v0.7 | 0/3 | Planned | — |
+| 24. GitHubProvider + Normalizer + Registry | v0.7 | 0/? | Not started | — |
+| 25. Polling Trigger Channel | v0.7 | 0/? | Not started | — |
+| 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
+| 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
+
+## Archived Milestones
 
 <details>
 <summary>✅ v0.6 Session Isolation & Skill Sync (Phases 18-22) — SHIPPED 2026-05-13</summary>
@@ -81,11 +164,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 
 </details>
 
-## Backlog
-
-(deferred to v0.7+ — adapters de GitHub Issues/ClickUp/local, polling trigger channel, file watcher para provider local; ver REQUIREMENTS.md "Future Requirements")
-
-## Progress
+## Historical Progress (shipped phases)
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -107,11 +186,11 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 16. LOG-09 Debt Cleanup | v0.5 | 3/3 | Complete | 2026-05-06 |
 | 17. Phase 7 UAT Automation | v0.5 | 5/5 | Complete | 2026-05-10 |
 | 999.1. Skill kodo-orchestrate al repo | v0.5 | 5/5 | Complete | 2026-05-11 |
-| 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete    | 2026-05-12 |
-| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete    | 2026-05-12 |
-| 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete    | 2026-05-13 |
+| 18. Worktree Runtime Wiring | v0.6 | 3/3 | Complete | 2026-05-12 |
+| 19. Worktree Cleanup & Integration | v0.6 | 3/3 | Complete | 2026-05-12 |
+| 20. HOOK-01 Universal Anti-Push-Fantasma | v0.6 | 2/2 | Complete | 2026-05-12 |
+| 21. Skill Sync CLI + Auto-Sync | v0.6 | 2/2 | Complete | 2026-05-12 |
+| 22. Tech Debt v0.5 Closure | v0.6 | 3/3 | Complete | 2026-05-13 |
 
 ---
-*Last updated: 2026-05-13 — Milestone v0.6 (Session Isolation & Skill Sync) shipped. 5 phases (18-22), 12 plans, 19/19 requirements wired (1 deferred: WR-07). Test suite 614 pass + 1 skip. Archive: `.planning/milestones/v0.6-ROADMAP.md`. Next: `/gsd-new-milestone` para v0.7.*
+*Last updated: 2026-05-13 — Milestone v0.7 (GitHub Issues Adapter) roadmap emitted. 5 phases (23-27), 16/16 requirements mapped, granularity coarse. Próximo: `/gsd-plan-phase 23` para arrancar GitHubClient foundation.*
