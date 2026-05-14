@@ -866,22 +866,22 @@ Wave 2 (1 or 2 plans in parallel):
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿`User-Agent` debe incluir versión hardcoded o leer de `package.json`?**
    - What we know: D-38 locked `kodo/0.7.x`. `package.json` actualmente dice `0.1.0`.
-   - What's unclear: ¿bumping de versión es responsabilidad de Phase 23 o de un milestone release plan?
-   - Recommendation: hardcodear `kodo/0.7.x` literal en Phase 23 (espejo de cómo PlaneClient no incluye UA). Bumping de `package.json` defer a milestone close.
+   - What was unclear: ¿bumping de versión es responsabilidad de Phase 23 o de un milestone release plan?
+   - **RESOLVED:** hardcodear `kodo/0.7.x` literal en Phase 23 (espejo de cómo PlaneClient no incluye UA). Bumping de `package.json` se difiere a milestone close (no scope de Phase 23).
 
 2. **¿El test `check-isolation.test.js` necesita una assertion explícita sobre `github.api.call`?**
    - What we know: el test actual verifica que `src/check.js` no importa `src/logger.js` transitivamente.
-   - What's unclear: si añadir nuevos events triggers algún import indirecto.
-   - Recommendation: el plan ejecuta `check-isolation` después de cada commit de Plan 23-01 y 23-02 como gate. Sin nuevos asserts.
+   - What was unclear: si añadir nuevos events triggers algún import indirecto.
+   - **RESOLVED:** sin nuevos asserts. El plan ejecuta `check-isolation` como gate tras cada commit de Plan 23-01 y 23-02 — el test existente captura cualquier import indirecto que rompa LOG-12 sin necesidad de assertion específica del nuevo event.
 
 3. **¿Capturar fixtures requiere un repo de prueba dedicado en GitHub?**
    - What we know: D-34 dice "respuestas REALES, capturadas vía curl contra un repo personal del usuario, sin info sensible".
-   - What's unclear: si Alex tiene un repo de fixtures listo o si Phase 23 debe crearlo.
-   - Recommendation: documentar en el plan que el dev crea `kodo-test/fixture-repo` con 2-3 issues etiquetadas `kodo` antes de Plan 23-03 (o usar `kodo` mismo si es público).
+   - What was unclear: si Alex tiene un repo de fixtures listo o si Phase 23 debe crearlo.
+   - **RESOLVED:** Plan 23-02 fixtures se construyen manualmente desde las shapes documentadas en §Testing Strategy (zero network dependency en CI). Plan 23-03 sigue marcado `optional: true`; si el dev decide ejecutarlo, crea `kodo-test/fixture-repo` con 2-3 issues etiquetadas `kodo` (o usa `kodo` mismo si es público). No bloqueante para Phase 23.
 
 ---
 
