@@ -222,6 +222,39 @@ export function planeApiCallFailed(logger, fields) {
 }
 
 /**
+ * Emitido cuando una llamada a la GitHub API completa exitosamente (Phase 23 D-15/D-16).
+ * El nivel del record cambia a `warn` cuando `rate_limit_remaining < 100`; default `info`.
+ * Pattern espejo: `orchestratorReview` (switch por field) + `planeApiCall` (shape de payload).
+ *
+ * El cliente (`src/providers/github/client.js`, Plan 23-02) invoca este helper vía dynamic
+ * `await import('../../logger-events.js')` para preservar la invariante LOG-12 (el cliente
+ * solo conoce `logger.js`; los helpers viven en una entry del grafo separada).
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   method: string,
+ *   path: string,
+ *   status: number,
+ *   duration_ms: number,
+ *   rate_limit_remaining: number | undefined,
+ * }} fields
+ */
+export function githubApiCall(logger, fields) {
+  const level =
+    typeof fields.rate_limit_remaining === 'number' && fields.rate_limit_remaining < 100
+      ? 'warn'
+      : 'info';
+  logger[level](EVENTS.GITHUB_API_CALL, {
+    event: EVENTS.GITHUB_API_CALL,
+    method: fields.method,
+    path: fields.path,
+    status: fields.status,
+    duration_ms: fields.duration_ms,
+    rate_limit_remaining: fields.rate_limit_remaining,
+  });
+}
+
+/**
  * Worktree cleanup OK — emitted (info) after a clean worktree was
  * successfully removed and (optionally) its branch deleted (Phase 19 D-08).
  *
