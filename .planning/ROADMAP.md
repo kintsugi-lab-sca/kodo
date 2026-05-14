@@ -84,7 +84,8 @@
   1. `test/providers/contract.test.js` itera sobre `['plane', 'github']` ejecutando la misma batería de asserts contra cada `getProvider(name)` instance — mismas signatures, mismos error shapes, mismos campos en `TaskItem` devuelto.
   2. El test usa fixtures offline para ambos providers (zero live API calls) y falla loud si cualquier provider devuelve un shape inconsistente (e.g. `TaskItem.priority` undefined en uno y string en el otro).
   3. Suite global v0.7 termina en ≥ 614 + N tests pass (baseline v0.6) sin regresiones; el matrix añade un test count derivado (`providers.length × asserts`); zero skip nuevos.
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 27-01-PLAN.md — Matrix runner `test/providers/contract.test.js` con 7 asserts core × 2 providers (14 nuevos casos) + file-level live-fetch leak guard + helpers inline `instantiateProvider`/`assertTaskItemShape`/`makeFakeGitHubClient`/`stubPlaneFetch` (Wave 1, TEST-03)
 
 ## Progress
 
