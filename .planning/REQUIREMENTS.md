@@ -11,8 +11,8 @@
 ### GitHub Issues adapter core (GH-*)
 
 - [ ] **GH-01** — `GitHubClient` (`src/providers/github/client.js`) implementa REST wrapper sobre `https://api.github.com` con auth `Authorization: token <GITHUB_TOKEN>`; maneja rate limit headers (`X-RateLimit-Remaining` warn cuando < 100); respeta 304 Not Modified para condicional fetch via etag.
-- [ ] **GH-02** — `GitHubProvider` (`src/providers/github/provider.js`) implementa los 9 métodos `TaskProvider`: `init`, `getTask`, `listTasks`, `addComment`, `updateTaskState`, `listProjects`, `listLabels`, `listStates` (estados GitHub fijos: `open`/`closed`), `transitionTask`. Contract idéntico al de `PlaneProvider`.
-- [ ] **GH-03** — Normalizer GitHub Issue → `TaskItem` canónico: `id` = issue `node_id` (string opaco); `ref` = `<owner>/<repo>#<number>` (human-readable); `title`, `description` = body; `labels` array; `projectId` = `<owner>/<repo>`; `url` = html_url; `priority` derivada de label `priority:high|medium|low` (default `medium`).
+- [ ] **GH-02** — `GitHubProvider` (`src/providers/github/provider.js`) implementa los **9 métodos REALES** del contrato `TaskProvider` definido en `src/interface.js` (`TASK_PROVIDER_METHODS`): `init`, `getTask`, `updateTaskState`, `addComment`, `listPendingTasks`, `parseTriggerEvent`, `verifySignature`, `resolveRef`, `listProjects`. Contract idéntico al de `PlaneProvider`. GitHub es polling-only en v0.7 → `parseTriggerEvent`/`verifySignature` son no-op (`null`/`false`). `init()` es no-op (labels embedded en cada payload, states fijos). _Corregido 2026-05-14 vía Phase 24 CONTEXT.md D-01 — la lista original (`listTasks`, `listLabels`, `listStates`, `transitionTask`) era fantasía del roadmapper y la validación del registry (`registry.js:73-77`) los rechazaría._
+- [ ] **GH-03** — Normalizer GitHub Issue → `TaskItem` canónico: `id` = issue `node_id` (string opaco); `ref` = `<owner>/<repo>#<number>` (human-readable); `title`, `description` = body Markdown crudo (sin strip); `labels` array de strings; `projectId` = `<owner>/<repo>`; `projectName` = `<owner>/<repo>` (mismo slug); `url` = `html_url`; `state` = `'open'`/`'closed'` literal; `groups` = `[]` (milestone NO se extrae — cierra open question STATE.md); `priority` derivada de label `priority:urgent|high|medium|low` (default `null`, simétrico Plane). _Defaults `description`/`groups`/`priority` actualizados 2026-05-14 vía Phase 24 CONTEXT.md D-10/D-14/D-17 para preservar simetría cross-provider validada en Phase 27 TEST-03._
 - [ ] **GH-04** — Registry update — `src/providers/registry.js` añade factory function para `github` provider con singleton lazy init; tests existentes de registry siguen verdes; bin/kodo arranca con `provider: github` configurado.
 - [ ] **GH-05** — Label canonical `kodo` reconocido (mismo gate que Plane); labels secundarias `kodo:sonnet`/`haiku`/`gsd`/`gsd-quick` propagadas a `Session` via `getModelForFlags` / `getGsdMode` existentes (cero cambios en helpers). `parseKodoLabels` sigue siendo provider-agnostic.
 
@@ -83,25 +83,25 @@ Mapped to phases by `gsd-roadmapper` 2026-05-13 — see `ROADMAP.md` for full ph
 
 | REQ-ID   | Phase    | Status  |
 |----------|----------|---------|
-| GH-01    | TBD      | pending |
-| GH-02    | TBD      | pending |
-| GH-03    | TBD      | pending |
-| GH-04    | TBD      | pending |
-| GH-05    | TBD      | pending |
-| POLL-01  | TBD      | pending |
-| POLL-02  | TBD      | pending |
-| POLL-03  | TBD      | pending |
-| POLL-04  | TBD      | pending |
-| CFG-01   | TBD      | pending |
-| CFG-02   | TBD      | pending |
-| CFG-03   | TBD      | pending |
-| CFG-04   | TBD      | pending |
-| TEST-01  | TBD      | pending |
-| TEST-02  | TBD      | pending |
-| TEST-03  | TBD      | pending |
+| GH-01    | 23       | pending |
+| GH-02    | 24       | pending |
+| GH-03    | 24       | pending |
+| GH-04    | 24       | pending |
+| GH-05    | 24       | pending |
+| POLL-01  | 25       | pending |
+| POLL-02  | 25       | pending |
+| POLL-03  | 25       | pending |
+| POLL-04  | 25       | pending |
+| CFG-01   | 26       | pending |
+| CFG-02   | 26       | pending |
+| CFG-03   | 26       | pending |
+| CFG-04   | 26       | pending |
+| TEST-01  | 24       | pending |
+| TEST-02  | 25       | pending |
+| TEST-03  | 27       | pending |
 
-**Coverage:** 16 requirements pendientes, mapping a phases TBD por `gsd-roadmapper`.
+**Coverage:** 16/16 requirements mapeados a 5 fases (23-27). Zero orphans. Granularity coarse aplicada — Phase 23 dedicada a foundation (GH-01 solo) porque el client es prerequisito de provider+polling; Phase 24 bundle provider+normalizer+registry+contract tests; Phase 25 bundle polling completo + clock-mock tests; Phase 26 bundle config wizard + CLI subgroup + orchestrator flag; Phase 27 aislada para cross-provider matrix (requiere ambos providers verdes).
 
 ---
 
-*Created: 2026-05-13 — milestone v0.7 initialized via `/gsd-new-milestone`. Requirements gathered without research (skip — GitHub Issues API es bien documentada, arquitectura provider-agnostic ya validada en v0.2 con Plane). Traceability filled by `gsd-roadmapper` post-write.*
+*Created: 2026-05-13 — milestone v0.7 initialized via `/gsd-new-milestone`. Requirements gathered without research (skip — GitHub Issues API es bien documentada, arquitectura provider-agnostic ya validada en v0.2 con Plane). Traceability filled by `gsd-roadmapper` 2026-05-13.*
