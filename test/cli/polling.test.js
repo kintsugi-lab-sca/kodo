@@ -383,25 +383,33 @@ describe('runPollingStartCli — Windows fallback (W-2 LOCKED / Pitfall #8)', ()
 
   it('caso 14 — Windows daemon emits warn "Windows daemon unsupported" o "use --no-daemon"', async () => {
     _tmpHome = makeFixture();
-    // Setear HOME para que loadConfig encuentre el fixture; GITHUB_TOKEN propagado por .env loader.
-    const prevHome = process.env.HOME;
     const prevToken = process.env.GITHUB_TOKEN;
-    process.env.HOME = _tmpHome;
-    delete process.env.GITHUB_TOKEN; // forzar lectura del .env del fixture
+    process.env.GITHUB_TOKEN = 'fake_token_for_test'; // gate D-14 exit 2 satisfecho
     const originalPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     try {
-      // Re-import dinámico para garantizar lectura fresca de KODO_DIR/.env tras HOME override.
       const mod = await import(`../../src/cli/polling.js?win-test-${Date.now()}`);
       /** @type {string[]} */
       const errs = [];
       /** @type {string[]} */
       const outs = [];
+      // Inyectar configFn para evitar dependencia del `loadConfig` cached ESM
+      // que apuntaría al HOME original (NO al tmpdir del fixture). Reflejamos
+      // el shape D-06 verbatim.
       const code = await mod.runPollingStartCli(
         { noDaemon: false, json: false },
         {
           writeFn: (s) => outs.push(s),
           errFn: (s) => errs.push(s),
+          configFn: () => ({
+            providers: {
+              github: {
+                api_key_env: 'GITHUB_TOKEN',
+                repos: [{ owner: 'foo', repo: 'bar' }],
+                poll_interval: 60,
+              },
+            },
+          }),
         },
       );
       // a) stderr contiene la guidance canonical.
@@ -415,8 +423,6 @@ describe('runPollingStartCli — Windows fallback (W-2 LOCKED / Pitfall #8)', ()
       assert.ok(code === 0 || code === 1, `windows path returned ${code}`);
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
-      if (prevHome === undefined) delete process.env.HOME;
-      else process.env.HOME = prevHome;
       if (prevToken === undefined) delete process.env.GITHUB_TOKEN;
       else process.env.GITHUB_TOKEN = prevToken;
     }

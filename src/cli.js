@@ -294,6 +294,59 @@ skill
     }
   });
 
+// --- kodo polling <subcommand> --- (Plan 26-02 / CFG-03 / D-09..15)
+const polling = program.command('polling').description('GitHub polling daemon (start/stop/status)');
+
+polling
+  .command('start')
+  .description('Start polling daemon (default: detached background; mac/linux only)')
+  .option('--no-daemon', 'Run in foreground; SIGINT/SIGTERM cancel cleanly (cross-platform)')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    try {
+      // NO ensureConfig() — el handler tiene su propio gate D-14 exit 2 para
+      // config missing (providers.github.repos vacío o GITHUB_TOKEN no set).
+      const { runPollingStartCli } = await import('./cli/polling.js');
+      const code = await runPollingStartCli({
+        // commander: `--no-daemon` se exposes como `opts.daemon === false`.
+        noDaemon: opts.daemon === false,
+        json: opts.json || false,
+      });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+polling
+  .command('stop')
+  .description('Stop polling daemon via PID file (SIGTERM + 5s wait + SIGKILL fallback)')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    try {
+      const { runPollingStopCli } = await import('./cli/polling.js');
+      process.exit(await runPollingStopCli({ json: opts.json || false }));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+polling
+  .command('status')
+  .description('Show polling daemon status (running|idle); --json byte-deterministic')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    try {
+      const { runPollingStatusCli } = await import('./cli/polling.js');
+      process.exit(await runPollingStatusCli({ json: opts.json || false }));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
