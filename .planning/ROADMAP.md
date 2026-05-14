@@ -74,7 +74,7 @@
 **Plans**: 3 plans
   - [x] 26-01-PLAN.md — Wizard branch `provider: github` + `configureGithubProvider` helper DI + `parseGitHubRemote` + `getDefaultGithubProviderConfig` factory + 2 fixtures v0.6/v0.7 + migration test (Wave 1, CFG-01 / CFG-02)
   - [x] 26-02-PLAN.md — `src/cli/polling.js` start/stop/status handlers + `src/cli/polling-daemon.js` PID lifecycle + spawn detached + 15 casos integration + exit codes D-14 + 5 casos unit daemon (Wave 2, CFG-03)
-  - [ ] 26-03-PLAN.md — `kodo orchestrate --polling` flag + SIGINT cleanup + mutex implícito doc + ≥4 casos integration (Wave 3, CFG-04)
+  - [x] 26-03-PLAN.md — `kodo orchestrate --polling` flag + SIGINT cleanup + mutex implícito doc + ≥4 casos integration (Wave 3, CFG-04)
 
 ### Phase 27: Cross-Provider Contract Matrix
 **Goal**: Existe un test matrix provider-agnostic que corre el mismo contract suite contra `plane` y `github`, demostrando con código real que el invariante v0.2 ("cambiar de provider no requiere reescribir lógica") se mantiene con 2 adapters distintos.
@@ -96,7 +96,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 | 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
 | 24. GitHubProvider + Normalizer + Registry | v0.7 | 3/3 | Complete   | 2026-05-14 |
 | 25. Polling Trigger Channel | v0.7 | 2/2 | Complete   | 2026-05-14 |
-| 26. Config Wizard + CLI Integration | v0.7 | 2/3 | In progress | — |
+| 26. Config Wizard + CLI Integration | v0.7 | 3/3 | Complete   | 2026-05-14 |
 | 27. Cross-Provider Contract Matrix | v0.7 | 0/? | Not started | — |
 
 ## Archived Milestones
