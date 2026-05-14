@@ -27,7 +27,7 @@
 
 - [ ] **CFG-01** — `kodo config` reconoce `provider: github`, pide `GITHUB_TOKEN` (guardado en `~/.kodo/.env`, no en config.json), y `repos: [{owner, repo}]` array. Auto-detect del cwd via `git remote get-url origin` (si parsea a github.com URL); ofrece confirmación antes de añadir.
 - [ ] **CFG-02** — `~/.kodo/config.json` schema extiende `providers.github` con `repos`, `poll_interval` (default 60), `mcp_hint` (default `"GitHub MCP server"`), `states.review` (default `"closed"`). Migración aditiva — configs v0.6 sin clave `github` siguen leyéndose idéntico (zero breaking change).
-- [ ] **CFG-03** — CLI `kodo polling start` arranca el polling loop en background daemon (PID file en `~/.kodo/polling.pid`) o foreground con `--no-daemon`; `kodo polling stop` finaliza vía PID file; `kodo polling status` reporta running/idle. Exit codes deterministas: 0 ok, 1 ya corriendo, 2 no config, 3 stop sin daemon vivo.
+- [x] **CFG-03** — CLI `kodo polling start` arranca el polling loop en background daemon (PID file en `~/.kodo/polling.pid`) o foreground con `--no-daemon`; `kodo polling stop` finaliza vía PID file; `kodo polling status` reporta running/idle. Exit codes deterministas: 0 ok, 1 ya corriendo, 2 no config, 3 stop sin daemon vivo.
 - [ ] **CFG-04** — `kodo orchestrator --polling` flag arranca polling integrado en el mismo proceso del orchestrator (sin daemon separado). Ortogonal a `kodo polling start` daemon path — el operador elige uno u otro (NO ambos simultáneos por el mismo repo, sería doble dispatch).
 
 ### Integration tests + fixtures (TEST-*)
@@ -94,7 +94,7 @@ Mapped to phases by `gsd-roadmapper` 2026-05-13 — see `ROADMAP.md` for full ph
 | POLL-04  | 25       | Complete |
 | CFG-01   | 26       | pending |
 | CFG-02   | 26       | pending |
-| CFG-03   | 26       | pending |
+| CFG-03   | 26       | Complete |
 | CFG-04   | 26       | pending |
 | TEST-01  | 24       | pending |
 | TEST-02  | 25       | Complete |
