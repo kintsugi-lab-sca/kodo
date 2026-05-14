@@ -229,6 +229,62 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
     assert.equal(line.error, 'ECONNREFUSED');
   });
 
+  // ─── Phase 23 D-15/D-16: github api call helpers ─────────────────────────
+
+  it('githubApiCall emits at info level when rate_limit_remaining >= 100', () => {
+    const sessionId = 'sess-ev-ghac-info';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    githubApiCall(log, {
+      method: 'GET',
+      path: '/repos/octocat/hello-world/issues/42',
+      status: 200,
+      duration_ms: 123,
+      rate_limit_remaining: 4998,
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.GITHUB_API_CALL);
+    assert.equal(line.level, 'info');
+    assert.equal(line.method, 'GET');
+    assert.equal(line.path, '/repos/octocat/hello-world/issues/42');
+    assert.equal(line.status, 200);
+    assert.equal(line.duration_ms, 123);
+    assert.equal(line.rate_limit_remaining, 4998);
+  });
+
+  it('githubApiCall emits at warn level when rate_limit_remaining < 100 (D-16 threshold)', () => {
+    const sessionId = 'sess-ev-ghac-warn';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    githubApiCall(log, {
+      method: 'GET',
+      path: '/repos/octocat/hello-world/issues',
+      status: 200,
+      duration_ms: 80,
+      rate_limit_remaining: 50,
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.GITHUB_API_CALL);
+    assert.equal(line.level, 'warn');
+    assert.equal(line.rate_limit_remaining, 50);
+  });
+
+  it('githubApiCallFailed emits event=github.api.call.failed + method/path/status/error at error level', () => {
+    const sessionId = 'sess-ev-ghacf';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    githubApiCallFailed(log, {
+      method: 'GET',
+      path: '/repos/octocat/hello-world/issues/42',
+      status: 404,
+      error: 'Not Found',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.GITHUB_API_CALL_FAILED);
+    assert.equal(line.level, 'error');
+    assert.equal(line.method, 'GET');
+    assert.equal(line.path, '/repos/octocat/hello-world/issues/42');
+    assert.equal(line.status, 404);
+    assert.equal(line.error, 'Not Found');
+  });
+
   it('worktreeCleanupOk emits event=worktree.cleanup.ok at info level', () => {
     const sessionId = 'sess-ev-wtok';
     const log = createLogger({ sessionId, minLevel: 'info' });
