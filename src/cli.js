@@ -121,20 +121,79 @@ program
     uninstallHooks();
   });
 
-// --- kodo orchestrate ---
+// --- kodo orchestrate --- (Phase 26 Plan 03 / CFG-04 / D-16..19 / W-5 LOCKED)
 program
   .command('orchestrate')
   .description('Launch the orchestrator Claude session')
-  .action(async () => {
+  .option(
+    '--polling',
+    'Arranca polling integrado en el orchestrator (mismo proceso). NO usar con `kodo polling start` simultáneo sobre el mismo repo — mutex implícito vía lock per-repo Phase 8 GSD-10.',
+  )
+  .action(async (opts) => {
+    // W-5 LOCKED — ORDEN ESTRICTO:
+    //   PASO 0: SIGINT/SIGTERM handlers ANTES de cualquier setup async (T-26-04 race mitigation).
+    //   PASO 1: runOrchestratePollingSetup({...}) ANTES de launchOrchestrator.
+    //   PASO 2: launchOrchestrator(opts) DESPUÉS de polling activo.
+    //   PASO 3: outer catch limpia pollingHandle?.stop() antes de process.exit(1).
+    //   PASO 4: cleanup() handler invoca pollingHandle?.stop() + process.exit(0); idempotente.
+    /** @type {{ stop: () => void } | null} */
+    let pollingHandle = null;
+
+    // PASO 0: instalar SIGINT/SIGTERM handlers antes de cualquier async work.
+    // Idempotente: si SIGINT llega antes de `pollingHandle = await ...`, el handler
+    // ve `pollingHandle === null` y solo hace process.exit(0). Si llega después,
+    // invoca handle.stop() envuelto en try/catch (T-26-CRASH).
+    const cleanup = () => {
+      try { if (pollingHandle) pollingHandle.stop(); } catch { /* idempotent */ }
+      process.exit(0);
+    };
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+
     try {
-      const { launchOrchestrator } = await import('./orchestrator/launch.js');
-      const result = await launchOrchestrator();
-      if (result.existing) {
-        console.log(`Orchestrator already running at ${result.workspace}`);
-      } else {
-        console.log(`✓ Orchestrator launched at ${result.workspace}`);
+      // PASO 1: polling setup ANTES de launchOrchestrator (W-5 LOCKED).
+      // Razón: si SIGINT llega durante launchOrchestrator setup, cleanup ya limpia polling.
+      if (opts.polling) {
+        const { runOrchestratePollingSetup } = await import('./cli/orchestrate.js');
+        try {
+          pollingHandle = await runOrchestratePollingSetup({ polling: true });
+        } catch (e) {
+          // exitCode propagated por el helper (2 si config gate, undefined si crash).
+          if (e && /** @type {any} */ (e).exitCode) {
+            console.error(`Error: ${e.message}`);
+            process.exit(/** @type {any} */ (e).exitCode);
+          }
+          throw e;
+        }
+      }
+
+      // PASO 2: launchOrchestrator — el polling YA está corriendo en este punto.
+      // Si --polling está activo, un fallo de launchOrchestrator NO debe matar el
+      // polling: el operador pidió polling integrado explícitamente; orchestrator
+      // session es la capa opcional. Log + continuamos al block-forever (Pattern D).
+      // Sin --polling, comportamiento idéntico a hoy (D-19 zero breaking change).
+      try {
+        const { launchOrchestrator } = await import('./orchestrator/launch.js');
+        const result = await launchOrchestrator();
+        if (result.existing) {
+          console.log(`Orchestrator already running at ${result.workspace}`);
+        } else {
+          console.log(`✓ Orchestrator launched at ${result.workspace}`);
+        }
+      } catch (launchErr) {
+        if (!opts.polling) throw launchErr; // D-19: comportamiento idéntico sin --polling.
+        // Con --polling: log + sigue. El polling ya está activo y SIGINT lo limpiará.
+        console.error(`Warning: orchestrator launch failed (${launchErr.message}); polling continúa activo.`);
+      }
+
+      // Si --polling, mantener el proceso vivo hasta SIGINT/SIGTERM (Pattern D).
+      // El cleanup() handler instalado en PASO 0 hará process.exit(0) cuando llegue.
+      if (opts.polling) {
+        await new Promise(() => { /* block forever — cleanup() exit drains it */ });
       }
     } catch (err) {
+      // W-5 LOCKED PASO 3+4: outer catch limpia pollingHandle antes de exit 1.
+      try { if (pollingHandle) pollingHandle.stop(); } catch { /* idempotent */ }
       console.error(`Error: ${err.message}`);
       process.exit(1);
     }
