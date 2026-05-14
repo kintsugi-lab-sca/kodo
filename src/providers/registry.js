@@ -10,9 +10,14 @@ const instances = new Map();
 let defaultsRegistered = false;
 
 /**
- * Lazily register built-in provider factories.
+ * Lazily register built-in provider factories (defaults: plane + github).
+ *
  * Deferred so that test code calling clearRegistry() + registerProvider()
  * does not trigger config file reads or module resolution errors.
+ *
+ * Phase 24 D-29 / Pitfall #6: el bloque github vive en su propio try/catch
+ * separado del bloque plane — un fallo en `import('./github/provider.js')`
+ * NO debe abortar el registro de plane (fail-isolation por-provider).
  */
 async function registerDefaults() {
   if (defaultsRegistered) return;
@@ -38,6 +43,30 @@ async function registerDefaults() {
     });
   } catch {
     // Config or provider module not available — skip default registration
+  }
+
+  // Phase 24 D-29: bloque github en try/catch separado (Pitfall #6 fail-isolation).
+  // `loadConfig` se re-importa porque cada try debe ser auto-contenido si el
+  // anterior falló.
+  try {
+    const { loadConfig } = await import('../config.js');
+    const { createGitHubProvider } = await import('./github/provider.js');
+
+    factories.set('github', () => {
+      const config = loadConfig();
+      // D-31: optional chaining — config v0.6 sin clave github devuelve undefined;
+      // el GitHubClient constructor (Phase 23 D-04) lanzará el mensaje canonical
+      // si lo invoca un caller real. Phase 24 verde implica config con github
+      // presente.
+      const github = config.providers?.github;
+      // D-29: snake_case raw passthrough — el factory consume el sub-objeto tal
+      // cual; sin transformación a camelCase (divergencia justificada vs plane).
+      // logger se inyecta vía opts en callers (precedente PlaneProvider — el
+      // registry no construye logger aquí).
+      return createGitHubProvider(github);
+    });
+  } catch {
+    // Config or provider module not available — skip github registration
   }
 }
 
