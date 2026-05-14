@@ -1,47 +1,46 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.6
-milestone_name: Session Isolation & Skill Sync
-status: milestone_complete
-stopped_at: Phase 22 context gathered (auto)
-last_updated: "2026-05-13T08:00:35.132Z"
-last_activity: 2026-05-13 -- Phase 22 execution started
+milestone: v0.7
+milestone_name: GitHub Issues Adapter
+status: Roadmap defined; awaiting `/gsd-plan-phase 23`
+stopped_at: Phase 23 context gathered (--auto)
+last_updated: "2026-05-14T07:50:48.746Z"
+last_activity: 2026-05-13 — v0.7 roadmap emitido (5 fases, 16/16 requirements mapeados)
 progress:
   total_phases: 5
-  completed_phases: 5
-  total_plans: 13
-  completed_plans: 10
-  percent: 100
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 **Project:** kodo
-**Active milestone:** v0.6 — Session Isolation & Skill Sync (roadmap defined 2026-05-11; Phases 18-22 derived from REQUIREMENTS.md)
-**Last updated:** 2026-05-11
+**Active milestone:** v0.7 — GitHub Issues Adapter (roadmap defined 2026-05-13; Phases 23-27 derived from REQUIREMENTS.md)
+**Last updated:** 2026-05-13
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (Current Milestone v0.6)
+See: `.planning/PROJECT.md` (Current Milestone v0.7)
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo, disparando dos modos GSD (full multi-fase / quick one-shot) sin acoplar el código GSD al proveedor.
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. v0.7 valida la promesa de v0.2 implementando GitHub Issues como segundo adapter junto al de Plane.
 
-**Current focus:** Phase 22 — tech-debt-v0-5-closure
+**Current focus:** Phase 23 — github-client-auth-foundation (planificación pendiente)
 
 ## Current Position
 
-Phase: 22
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-05-13
+Phase: 23 (next up — roadmap emitido, plans pendientes)
+Plan: —
+Status: Roadmap defined; awaiting `/gsd-plan-phase 23`
+Last activity: 2026-05-13 — v0.7 roadmap emitido (5 fases, 16/16 requirements mapeados)
 
-## Phases (v0.6)
+## Phases (v0.7)
 
-- [ ] Phase 18: Worktree Runtime Wiring (WT-01, WT-02, WT-03)
-- [ ] Phase 19: Worktree Cleanup & Integration (WT-04, WT-05, WT-06)
-- [ ] Phase 20: HOOK-01 Universal Anti-Push-Fantasma (HOOK-01, HOOK-02, HOOK-03)
-- [ ] Phase 21: Skill Sync CLI + Auto-Sync (SKILL-01, SKILL-02, SKILL-03, SKILL-04)
-- [ ] Phase 22: Tech Debt v0.5 Closure (DEBT-01..DEBT-06)
+- [ ] Phase 23: GitHubClient + Auth Foundation (GH-01)
+- [ ] Phase 24: GitHubProvider + Normalizer + Registry (GH-02, GH-03, GH-04, GH-05, TEST-01)
+- [ ] Phase 25: Polling Trigger Channel (POLL-01, POLL-02, POLL-03, POLL-04, TEST-02)
+- [ ] Phase 26: Config Wizard + CLI Integration (CFG-01, CFG-02, CFG-03, CFG-04)
+- [ ] Phase 27: Cross-Provider Contract Matrix (TEST-03)
 
 ## Accumulated Context
 
@@ -49,8 +48,9 @@ Last activity: 2026-05-13
 
 - **v0.2 Provider Abstraction** — shipped 2026-04-13. See `milestones/v0.2-ROADMAP.md`.
 - **v0.3 GSD Integration + Structured Logging** — shipped 2026-04-22. See `milestones/v0.3-ROADMAP.md`.
-- **v0.4 GSD Quick Mode** — shipped 2026-04-30. See `milestones/v0.4-ROADMAP.md`. Phase artifacts: `milestones/v0.4-phases/`.
-- **v0.5 CLI Polish & v0.3 Debt Cleanup** — shipped 2026-05-11. See `milestones/v0.5-ROADMAP.md`, `milestones/v0.5-REQUIREMENTS.md`, `milestones/v0.5-MILESTONE-AUDIT.md`.
+- **v0.4 GSD Quick Mode** — shipped 2026-04-30. See `milestones/v0.4-ROADMAP.md`.
+- **v0.5 CLI Polish & v0.3 Debt Cleanup** — shipped 2026-05-11. See `milestones/v0.5-ROADMAP.md`.
+- **v0.6 Session Isolation & Skill Sync** — shipped 2026-05-13. See `milestones/v0.6-ROADMAP.md`, `v0.6-MILESTONE-AUDIT.md`.
 
 ### Open Blockers
 
@@ -58,35 +58,47 @@ None.
 
 ### Open Questions
 
-- ¿Auto-sync de SKILL-01 en `kodo orchestrator` rompe la Constraint cwd=repo (Phase 999.1 D-04/D-05/D-06)? → Reflejado en SC#3 de Phase 21; resolver en plan de fase.
-- ¿El worktree always-on requiere cambios en el lock per-repo (Phase 8 GSD-10), `KODO_ROOT` (Phase 999.1) o auto-commit path (`stop.js`)? → Cubierto explícitamente: lock NO toca worktree (Phase 18 SC#3), `KODO_ROOT` y auto-commit cwd cableados en Phase 19 SC#2.
-- ¿HOOK-01 universal altera bytes del prompt en sesiones GSD? → Cubierto por Phase 20 SC#2 (golden bytes invariante).
+- ¿GH-03 normalizer debe extraer milestone GitHub a algún campo de TaskItem? → Decisión en plan Phase 24 (default: ignorar; TaskItem.priority cubre el ordering signal).
+- ¿POLL-04 retry debe escalar a `polling.stopped` event si los 3 retries agotan? → Decisión en plan Phase 25 (probable: warn-and-continue, el siguiente tick reintenta).
+- ¿CFG-04 `--polling` debe rechazar arrancar si detecta `polling.pid` activo (mutex explícito) o documentarlo en help text (mutex implícito)? → Decisión en plan Phase 26.
 
-### Critical Invariants to Preserve (cross-phase)
+### Critical Invariants to Preserve (cross-phase v0.7)
 
-- **LOG-12 guard**: `kodo check` NO debe cargar `src/logger.js` transitivamente. Reafirmado por Phase 14 (helper aislado) y Phase 15 (`kodo check` cableado sin importar logger). Aplica a Phase 22 al retirar `ANSI_*` exports.
-- **Color isolation**: `picocolors` solo se importa desde `src/cli/format.js`. Cualquier nuevo callsite que necesite color DEBE consumir `createFormatter(stream)` — `test/format-isolation.test.js` blinda con grep + walker.
-- **`--json` determinismo**: bytes idénticos entre TTY y no-TTY (DX-06 invariante). Aplica a `kodo skill sync` cuando emita JSON (Phase 21).
-- **Source-hygiene D-09/D-10/D-11**: anti-inline anti-direct-access para `gsd_mode` derivation. Cualquier consumer de modo va por `getGsdMode(flags)` / `getSessionMode(session)`.
-- **Lock release idempotente** (Phase 8 GSD-10): preservado tras cableado de `markSessionStatus` en `stop.js` (Phase 16) — emit BEFORE mutation (D-08). Phase 19 cleanup del worktree NO debe alterar la idempotencia del release.
-- **Orchestrator cwd = repo kodo** (Phase 999.1 D-04..D-06): `kodo orchestrator` debe lanzarse desde el repo para que `.claude/skills/kodo-orchestrate/skill.md` se auto-cargue. Phase 21 SKILL-02 auto-sync NO debe romper este contrato (skill local sigue ganando; sync solo asegura que home no quede stale).
-- **Golden bytes GSD tags**: `[GSD quick]`, `[GSD phase N]`, `[GSD bootstrap]` no mutan en shape ni offset relativo. Phase 20 HOOK-02 lo blinda con golden bytes test modo-por-modo.
+- **TaskProvider 9-method contract**: `init`, `getTask`, `listTasks`, `addComment`, `updateTaskState`, `listProjects`, `listLabels`, `listStates`, `transitionTask`. `getProvider('github')` valida con `TASK_PROVIDER_METHODS`. Phase 24 SC#3.
+- **TaskItem/TriggerEvent shapes provider-agnostic** (v0.2): `parseKodoLabels` opera sobre `string[]` sin saber si vino de Plane labels o GitHub labels. Phase 24 SC#4 — zero cambios en `src/labels.js`.
+- **Constraint cwd=repo Phase 999.1**: orchestrator se lanza desde el repo para auto-cargar skill. `kodo orchestrator --polling` (Phase 26 SC#4) NO debe alterar este contrato — el polling vive en el mismo proceso, no en un worktree.
+- **Lock per-repo Phase 8 GSD-10**: el dispatcher coalesce sesiones por repo. POLL-03 (Phase 25 SC#3) delega idempotencia al lock — no introduce nuevo mecanismo de dedup.
+- **Dispatcher fire-and-forget** (v0.2): el polling channel emula el patrón webhook — la detección emite `dispatchTrigger` y continúa el loop, sin esperar al launch.
+- **LOG-12 guard**: `kodo check` no carga `src/logger.js` transitivamente. Phase 25 polling.js es independiente — `kodo check` NO importa polling.js. Validar en plan.
+- **Color isolation**: `picocolors` solo desde `src/cli/format.js`. Phase 26 CLI handlers (`kodo polling start/stop/status`) consumen `createFormatter(stream)`, NO importan `picocolors` directo.
+- **`--json` byte-determinismo** (DX-06): si Phase 26 añade `--json` flag a `kodo polling status`, debe respetar bytes idénticos TTY/no-TTY.
+- **Worktree always-on Phase 18**: polling dispara `dispatchTrigger` que sigue el path Launch → `computeWorktreePath` → spawn. Phase 25 NO toca el path del worktree.
+- **HOOK-01 universal Phase 20**: el bloque anti-push-fantasma se inyecta en TODAS las sesiones (full + quick + no-GSD). Una sesión disparada por polling sobre un GitHub Issue debe recibirlo idéntico. Validación en TEST-03 matrix Phase 27.
+
+### v0.6 Deferred (carried, NOT in v0.7 scope)
+
+- Phase 19 CR-01 — `findSession` no busca en `state.history` (latent bug). Defer a phase dedicada al lifecycle SessionRecord.
+- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. Defer.
+- Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup. Defer.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-13T07:43:35.664Z
-- **Stopped at:** Phase 22 context gathered (auto)
-- **Next action:** `/gsd-plan-phase 18` para arrancar Worktree Runtime Wiring
+- **Last session:** 2026-05-14T07:50:48.735Z
+- **Stopped at:** Phase 23 context gathered (--auto)
+- **Next action:** `/gsd-plan-phase 23` para arrancar GitHubClient + Auth Foundation
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone v0.6, scope confirmado)
-  - `.planning/REQUIREMENTS.md` (19 requirements en 4 categorías, traceability completo)
-  - `.planning/ROADMAP.md` (5 fases v0.6 + historicos colapsados)
+  - `.planning/PROJECT.md` (Current Milestone v0.7, scope confirmado)
+  - `.planning/REQUIREMENTS.md` (16 requirements en 4 categorías, traceability completo Phases 23-27)
+  - `.planning/ROADMAP.md` (5 fases v0.7 + 5 milestones archived en details colapsado)
   - `.planning/STATE.md` (este archivo)
-  - `.planning/MILESTONES.md` (v0.5 entry con 5 fases, 13/13 reqs, tech debt)
-  - `.planning/milestones/v0.5-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
+  - `.planning/milestones/v0.6-ROADMAP.md` (precedente — Session Isolation & Skill Sync structure)
+  - `.planning/milestones/v0.2-ROADMAP.md` (precedente — original provider abstraction; reference para patterns)
+  - `src/providers/plane/` (analog para GitHub provider; misma shape esperada)
+  - `src/providers/registry.js` (factory function pattern)
+  - `src/triggers/` (existing trigger channels — `dispatcher.js`, `webhook.js`; polling será el 3rd canal)
 
 ---
-*v0.6 roadmap emitido: 2026-05-11. 5 fases (18-22), 19 requirements, 100% coverage. Granularity coarse aplicada (bundle de tech debt, split worktree por surface area).*
+*v0.7 roadmap emitido: 2026-05-13. 5 fases (23-27), 16 requirements, 100% coverage. Granularity coarse aplicada (bundle provider+normalizer+registry+tests en P24, bundle polling completo en P25, bundle config wizard + CLI en P26; P23 aislada como foundation; P27 aislada para cross-provider matrix).*
 
 ## Deferred Items
 
