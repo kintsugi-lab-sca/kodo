@@ -65,7 +65,7 @@ None.
 
 ### Critical Invariants to Preserve (cross-phase v0.7)
 
-- **TaskProvider 9-method contract**: `init`, `getTask`, `listTasks`, `addComment`, `updateTaskState`, `listProjects`, `listLabels`, `listStates`, `transitionTask`. `getProvider('github')` valida con `TASK_PROVIDER_METHODS`. Phase 24 SC#3.
+- **TaskProvider 9-method contract** (canonical en `src/interface.js:50-60`): `init`, `getTask`, `updateTaskState`, `addComment`, `listPendingTasks`, `parseTriggerEvent`, `verifySignature`, `resolveRef`, `listProjects`. `getProvider('github')` valida con `TASK_PROVIDER_METHODS`. Phase 24 SC#3. _Corregido 2026-05-14 vía Phase 24 CONTEXT.md D-01 — la lista anterior (`listTasks`, `listLabels`, `listStates`, `transitionTask`) era fantasía del roadmapper inicial; el registry los rechazaría._
 - **TaskItem/TriggerEvent shapes provider-agnostic** (v0.2): `parseKodoLabels` opera sobre `string[]` sin saber si vino de Plane labels o GitHub labels. Phase 24 SC#4 — zero cambios en `src/labels.js`.
 - **Constraint cwd=repo Phase 999.1**: orchestrator se lanza desde el repo para auto-cargar skill. `kodo orchestrator --polling` (Phase 26 SC#4) NO debe alterar este contrato — el polling vive en el mismo proceso, no en un worktree.
 - **Lock per-repo Phase 8 GSD-10**: el dispatcher coalesce sesiones por repo. POLL-03 (Phase 25 SC#3) delega idempotencia al lock — no introduce nuevo mecanismo de dedup.
