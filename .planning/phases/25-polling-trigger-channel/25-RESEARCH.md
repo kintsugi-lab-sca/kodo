@@ -771,7 +771,7 @@ dispatchFn({
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 ### Open Q #1 — POLL-04 retry exhaustion behavior
 
@@ -782,9 +782,11 @@ dispatchFn({
 - **Option B — emit `polling.stopped`:** Same as A, but also emit a distinct `polling.stopped{owner, repo, reason:'retry_exhausted'}` event so operator can configure alerting on "stuck repos".
 - **Option C — per-repo circuit breaker:** Track consecutive-failure count; after N consecutive tick failures (e.g., 10), stop polling that repo until manual restart. Add `polling.repo.disabled` event.
 
+**RESOLVED:** Option A — warn-and-continue (no `polling.stopped` event, no circuit breaker). Applied in Plan 25-02 Task 1 `processRepo` catch-branch (return after retry exhaustion, no extra event emission) and asserted by Plan 25-02 Task 2b case #22 (`warn-and-continue after 3 retries exhausted` — verifies next tick re-fires AND `polling.stopped` is NOT emitted).
+
 **Recommendation:** **Option A for Phase 25.** Operator observability via `kodo logs --event polling.error --owner=X --repo=Y` is sufficient. Defer B and C to v0.8 if real operational need emerges. Rationale: simplicity-first (rule 2 of CLAUDE.md global), and adding circuit-breaker logic now is speculative feature.
 
-**Decision needed by:** plan 25-02 (polling.js core implementation).
+**Decision needed by:** plan 25-02 (polling.js core implementation). **STATUS: RESOLVED in plan 25-02.**
 
 ### Open Q #2 — Provider abstraction vs etag optimization
 
@@ -796,9 +798,11 @@ dispatchFn({
 - **`client.listIssues(...etag)`:** GitHub-specific. 304 path = ~zero quota cost. But couples polling to GitHub (v0.7 is GitHub-only, so fine).
 - **HYBRID (RECOMMENDED):** Accept both `provider` and `client` in `startPolling` opts. Prefer `client` when provided; fall back to `provider`. This is **the path the roadmap explicitly leaves open** ("o `client.listIssues(...)` directo con etag para el path optimizado"). Phase 27 contract matrix can exercise the provider path; production uses client path.
 
+**RESOLVED:** HYBRID with `client` priority. Signature locked as `startPolling({provider?, client?, repos, intervalSec?, clock?, logger?, statePath?, dispatchTriggerFn?})`. Applied in Plan 25-02 Task 1 `processRepo` (client → `client.listIssues` envelope path; provider-only → `provider.listPendingTasks()` + synthetic envelope) and asserted by Plan 25-02 Task 2a case #17 (`provider-only path: listPendingTasks used when no client`).
+
 **Recommendation:** **HYBRID with `client` priority.** Signature: `startPolling({ provider, client, repos, ... })`. If `client` is set → use direct path with etag. If only `provider` is set → fallback to `listPendingTasks()` (no etag, no cursor benefit but works). This gives Phase 27 the provider-agnostic test surface AND production gets the optimized path.
 
-**Decision needed by:** plan 25-02 (locked in CONTEXT.md or plan).
+**Decision needed by:** plan 25-02 (locked in CONTEXT.md or plan). **STATUS: RESOLVED in plan 25-02 signature.**
 
 ### Open Q #3 — Clock mock strategy
 
@@ -809,9 +813,11 @@ dispatchFn({
 - **Option B — Module-level `setTimeout` override via `controlledTime` helper:** Test helper that monkey-patches `setTimeout` for the duration of the test. **Pro:** no signature change. **Con:** global state, beforeEach/afterEach cleanup required, harder to reason about parallel tests.
 - **Option C — `process.binding('timer_wrap')` or similar low-level hook:** Engine-level. **Pro:** catches everything. **Con:** unstable API, complex.
 
+**RESOLVED:** Option A — duck-typed `clock` arg `{setTimeout, clearTimeout, now}`. Applied in Plan 25-02 Task 1 (`DEFAULT_CLOCK` constant + `clock = opts.clock || DEFAULT_CLOCK`; the **only** `Date.now()` permitted in polling.js lives inside `DEFAULT_CLOCK.now`) and asserted by Plan 25-02 Task 2a/2b via `createTestClock()` helper (used in ≥10 test cases per acceptance criterion).
+
 **Recommendation:** **Option A — inject `clock` arg.** Precedent: `dispatcher.js:43` accepts `deps` object with `existsSyncFn`, `acquireGsdLockFn`, etc. — same DI idiom. Signature already calls for `clock?` per roadmap SC#1. Tests get scope-local control without polluting global state.
 
-**Decision needed by:** plan 25-02 (signature lock-in).
+**Decision needed by:** plan 25-02 (signature lock-in). **STATUS: RESOLVED in plan 25-02 signature + DEFAULT_CLOCK constant.**
 
 ### Open Q #4 — State cache write frequency
 
@@ -819,9 +825,11 @@ dispatchFn({
 
 **What's unclear:** Save once per tick (end of all repos), or once per repo within a tick?
 
+**RESOLVED:** Once per repo. Applied in Plan 25-02 Task 1 `processRepo` (calls `saveStateCache(cache, statePath)` after the for-loop over `result.items` for each repo, before emitting `polling.tick`). Asserted by Plan 25-02 Task 2a cases #8 (`atomic write: tmp file gone post-tick`) and #10 (`200 advances cursor to max(updated_at)`).
+
 **Recommendation:** **Once per repo.** Reasoning: if tick processes 3 repos and crashes mid-tick (between repo 2 and repo 3), saving once at end means repos 1+2's work is lost. Saving per-repo bounds the loss. Cost: 3 writes instead of 1 — negligible (small JSON, < 1KB typical).
 
-**Decision needed by:** plan 25-02.
+**Decision needed by:** plan 25-02. **STATUS: RESOLVED in plan 25-02 per-repo save site.**
 
 ---
 
