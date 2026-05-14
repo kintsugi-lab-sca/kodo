@@ -45,7 +45,7 @@ describe('polling-daemon: writePidFile / readPidFile / removePidFile', () => {
       started_at: '2026-05-14T19:00:00.000Z',
       repos: ['a/b'],
     });
-    const pidPath = mod.PID_PATH;
+    const pidPath = mod.getPidPath();
     assert.equal(existsSync(pidPath), true, 'PID file debe existir');
     const mode = statSync(pidPath).mode & 0o777;
     assert.equal(mode, 0o600, `mode esperado 0o600, got 0o${mode.toString(8)}`);
@@ -62,7 +62,7 @@ describe('polling-daemon: writePidFile / readPidFile / removePidFile', () => {
     _prevHome = process.env.HOME;
     process.env.HOME = _tmpHome;
     const mod = await import(`../../src/cli/polling-daemon.js?corrupt-test-${Date.now()}`);
-    writeFileSync(mod.PID_PATH, 'not valid json {{{\n', 'utf-8');
+    writeFileSync(mod.getPidPath(), 'not valid json {{{\n', 'utf-8');
     const result = mod.readPidFile();
     assert.equal(result, null, 'JSON corrupto → null');
   });
@@ -74,7 +74,7 @@ describe('polling-daemon: writePidFile / readPidFile / removePidFile', () => {
     process.env.HOME = _tmpHome;
     const mod = await import(`../../src/cli/polling-daemon.js?shape-test-${Date.now()}`);
     writeFileSync(
-      mod.PID_PATH,
+      mod.getPidPath(),
       JSON.stringify({ pid: 'malicious; rm -rf', started_at: 'x', repos: [] }) + '\n',
       'utf-8',
     );
@@ -99,9 +99,9 @@ describe('polling-daemon: writePidFile / readPidFile / removePidFile', () => {
     const mod = await import(`../../src/cli/polling-daemon.js?remove-test-${Date.now()}`);
     mod.removePidFile();
     mod.writePidFile({ pid: 1, started_at: 'now', repos: [] });
-    assert.equal(existsSync(mod.PID_PATH), true);
+    assert.equal(existsSync(mod.getPidPath()), true);
     mod.removePidFile();
-    assert.equal(existsSync(mod.PID_PATH), false);
+    assert.equal(existsSync(mod.getPidPath()), false);
     mod.removePidFile();
   });
 });
