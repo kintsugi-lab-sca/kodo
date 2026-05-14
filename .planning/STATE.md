@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v0.7
 milestone_name: GitHub Issues Adapter
 status: completed
-stopped_at: Phase 23 context gathered (--auto)
-last_updated: "2026-05-14T08:40:22.033Z"
+stopped_at: Phase 24 context gathered
+last_updated: "2026-05-14T11:39:28.787Z"
 last_activity: 2026-05-14 -- Phase 23 marked complete
 progress:
   total_phases: 5
@@ -84,8 +84,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-14T07:50:48.735Z
-- **Stopped at:** Phase 23 context gathered (--auto)
+- **Last session:** 2026-05-14T11:39:28.773Z
+- **Stopped at:** Phase 24 context gathered
 - **Next action:** `/gsd-plan-phase 23` para arrancar GitHubClient + Auth Foundation
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.7, scope confirmado)
