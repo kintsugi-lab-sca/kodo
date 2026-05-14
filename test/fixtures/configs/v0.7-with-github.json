@@ -1,0 +1,15 @@
+{
+  "provider": "github",
+  "providers": {
+    "github": {
+      "api_key_env": "GITHUB_TOKEN",
+      "repos": [{"owner": "klab", "repo": "kodo"}],
+      "poll_interval": 60,
+      "mcp_hint": "GitHub MCP server",
+      "states": { "review": "closed" }
+    }
+  },
+  "cmux": { "binary": "/Applications/cmux.app/Contents/Resources/bin/cmux" },
+  "claude": { "default_model": "opus", "max_parallel": 3 },
+  "server": { "port": 9090 }
+}

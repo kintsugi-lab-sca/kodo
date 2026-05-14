@@ -1,9 +1,15 @@
 // @ts-check
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { migrateState } from '../src/session/state.js';
-import { migrateConfig, getProviderApiKey } from '../src/config.js';
+import { migrateConfig, getProviderApiKey, DEFAULT_CONFIG } from '../src/config.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const FIXTURES_DIR = join(__dirname, 'fixtures', 'configs');
 
 // ── State migration tests ──────────────────────────────────────────
 
@@ -174,5 +180,36 @@ describe('getProviderApiKey', () => {
   it('returns undefined when provider not configured', () => {
     const result = getProviderApiKey('nonexistent');
     assert.equal(result, undefined);
+  });
+});
+
+// ── Phase 26: config v0.6 → v0.7 zero-breaking-change ──────────────
+
+describe('config v0.6 → v0.7 zero-breaking-change (Phase 26)', () => {
+  it('CFG-02: fixture v0.6 (sin providers.github) carga idéntica via migrateConfig', () => {
+    const raw = JSON.parse(
+      readFileSync(join(FIXTURES_DIR, 'v0.6-no-github.json'), 'utf-8'),
+    );
+    const result = migrateConfig(raw);
+    // Ya tiene providers.plane → short-circuit en src/config.js:83 (mismo reference)
+    assert.equal(result, raw, 'mismo reference — sin migration');
+    // NO se inyecta providers.github (D-07/D-08 invariante)
+    assert.equal('github' in (result.providers || {}), false);
+  });
+
+  it('CFG-02: fixture v0.7-with-github carga idempotente (segundo migrate === primero)', () => {
+    const raw = JSON.parse(
+      readFileSync(join(FIXTURES_DIR, 'v0.7-with-github.json'), 'utf-8'),
+    );
+    const once = migrateConfig(raw);
+    const twice = migrateConfig(once);
+    assert.equal(once, twice, 'idempotente: mismo reference');
+    assert.deepEqual(once.providers.github.repos, [{ owner: 'klab', repo: 'kodo' }]);
+    assert.equal(once.providers.github.api_key_env, 'GITHUB_TOKEN');
+    assert.equal(once.providers.github.poll_interval, 60);
+  });
+
+  it('D-08: DEFAULT_CONFIG NO contiene providers.github', () => {
+    assert.equal('github' in (DEFAULT_CONFIG.providers || {}), false);
   });
 });

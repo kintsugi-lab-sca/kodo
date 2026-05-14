@@ -1,0 +1,15 @@
+{
+  "provider": "plane",
+  "providers": {
+    "plane": {
+      "base_url": "https://tasks.kintsugi-lab.com",
+      "api_key_env": "PLANE_API_KEY",
+      "workspace_slug": "klab",
+      "projects": [{"id": "abc", "identifier": "KL", "name": "klab"}],
+      "states": { "trigger": "In Progress", "review": "In review", "done": "Done" }
+    }
+  },
+  "cmux": { "binary": "/Applications/cmux.app/Contents/Resources/bin/cmux" },
+  "claude": { "default_model": "opus", "max_parallel": 3 },
+  "server": { "port": 9090 }
+}
