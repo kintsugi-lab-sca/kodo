@@ -1,14 +1,16 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 15 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 18 eventos de ciclo de vida.
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
-// + Phase 19 (worktree cleanup) + Phase 21 (skill sync) + Phase 23 (github client):
+// + Phase 19 (worktree cleanup) + Phase 21 (skill sync) + Phase 23 (github client)
+// + Phase 25 (polling trigger channel):
 //   session.start, session.end, state.transition, orchestrator.review,
 //   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
 //   github.api.call, github.api.call.failed,
 //   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error,
-//   skill.sync.auto, skill.sync.auto.error
+//   skill.sync.auto, skill.sync.auto.error,
+//   polling.tick, polling.dispatch, polling.error
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -37,6 +39,9 @@ import { join } from 'node:path';
  *   SKILL_SYNC_AUTO_ERROR: 'skill.sync.auto.error',
  *   GITHUB_API_CALL: 'github.api.call',
  *   GITHUB_API_CALL_FAILED: 'github.api.call.failed',
+ *   POLLING_TICK: 'polling.tick',
+ *   POLLING_DISPATCH: 'polling.dispatch',
+ *   POLLING_ERROR: 'polling.error',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -54,6 +59,9 @@ export const EVENTS = Object.freeze({
   SKILL_SYNC_AUTO_ERROR:   'skill.sync.auto.error',
   GITHUB_API_CALL:         'github.api.call',
   GITHUB_API_CALL_FAILED:  'github.api.call.failed',
+  POLLING_TICK:            'polling.tick',
+  POLLING_DISPATCH:        'polling.dispatch',
+  POLLING_ERROR:           'polling.error',
 });
 
 /**
@@ -368,5 +376,110 @@ export function skillSyncAutoError(logger, fields) {
     source: fields.source,
     dest: fields.dest,
     error: fields.error,
+  });
+}
+
+// ─── Phase 25: polling trigger channel ─────────────────────────────────────
+//
+// Tres helpers que espejan el patrón Phase 23 (`githubApiCall` /
+// `githubApiCallFailed`): payload con campos whitelisted, JSDoc typedef
+// explícito, level fijo por evento (info / info / warn).
+//
+// Invariante de seguridad T-25-02: `pollingDispatch` SOLO acepta y emite
+// `{event, owner, repo, ref, pattern}`. Cualquier campo extra del caller
+// queda descartado silenciosamente — no se accede a contenido de usuario
+// (body, título, raw object) ni en la firma JSDoc ni en el cuerpo del
+// helper. El sink NDJSON (`~/.kodo/logs/*.ndjson`) es append-only y queda
+// expuesto al consumer (`kodo logs`); por tanto cualquier filtración aquí
+// persiste en disco.
+//
+// Invariante LOG-12: cero imports nuevos. Los únicos imports del módulo
+// siguen siendo `node:os` + `node:path` declarados en líneas 21-22.
+
+/**
+ * Emitido en cada tick del polling loop por (owner, repo). El consumer
+ * (`src/triggers/polling.js`, Plan 25-02) llama a este helper exactamente
+ * una vez por repo por tick, después de procesar el response del client
+ * (200 = lista de items o 304 = cursor preservado). `dispatched` es el
+ * count de issues que dispararon `dispatchTrigger` en este tick (0 cuando
+ * `first_tick:true` o cuando no hubo deltas).
+ *
+ * `first_tick:true` se emite solo en el primer tick por repo del proceso
+ * (post-warmup, antes de aplicar el cursor) — patrón "skip-first-tick"
+ * de POLL-03 para evitar storm de dispatches en arranque.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   owner: string,
+ *   repo: string,
+ *   status: number,
+ *   dispatched: number,
+ *   first_tick?: boolean,
+ * }} fields
+ */
+export function pollingTick(logger, fields) {
+  logger.info(EVENTS.POLLING_TICK, {
+    event: EVENTS.POLLING_TICK,
+    owner: fields.owner,
+    repo: fields.repo,
+    status: fields.status,
+    dispatched: fields.dispatched,
+    ...(fields.first_tick ? { first_tick: true } : {}),
+  });
+}
+
+/**
+ * Emitido cada vez que el polling loop dispara `dispatchTrigger(event)`
+ * para una issue (pattern a/b/c de POLL-03: new label, updated since cursor,
+ * state change). El payload es estrictamente de identificación — `owner`,
+ * `repo`, `ref` (formato `owner/repo#number`), `pattern` (literal a-new /
+ * b-updated / c-state).
+ *
+ * Invariante de seguridad T-25-02: NO se incluye ningún campo de contenido
+ * de usuario (body, título, raw object). El helper toma SOLO los 4 campos
+ * de identificación; cualquier campo extra del caller queda descartado.
+ *
+ * @param {Logger} logger
+ * @param {{ owner: string, repo: string, ref: string, pattern: string }} fields
+ */
+export function pollingDispatch(logger, fields) {
+  logger.info(EVENTS.POLLING_DISPATCH, {
+    event: EVENTS.POLLING_DISPATCH,
+    owner: fields.owner,
+    repo: fields.repo,
+    ref: fields.ref,
+    pattern: fields.pattern,
+  });
+}
+
+/**
+ * Emitido (warn) en cualquier branch de error del polling loop: 429, 5xx,
+ * timeout, abort, o exhaustion tras N retries (POLL-04). `attempt` es el
+ * intento 1-indexed dentro de la secuencia de retry exponencial; cuando
+ * el loop hace warn-and-continue post-3-retries, se emite un último evento
+ * con `attempt:3`. `error` opcional contiene un snippet truncado del mensaje
+ * (el caller en polling.js debe truncar a ≤ 200 chars para evitar fugas).
+ *
+ * Nivel `warn` (no `error`) porque el loop es fail-open: un tick fallido
+ * NO termina el proceso; el siguiente tick se agenda igual. El operador
+ * detecta el patrón vía `kodo logs | grep polling.error`.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   owner: string,
+ *   repo: string,
+ *   status: number,
+ *   attempt: number,
+ *   error?: string,
+ * }} fields
+ */
+export function pollingError(logger, fields) {
+  logger.warn(EVENTS.POLLING_ERROR, {
+    event: EVENTS.POLLING_ERROR,
+    owner: fields.owner,
+    repo: fields.repo,
+    status: fields.status,
+    attempt: fields.attempt,
+    ...(fields.error ? { error: fields.error } : {}),
   });
 }

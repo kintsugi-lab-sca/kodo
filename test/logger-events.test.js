@@ -48,8 +48,8 @@ function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client)', () => {
-  it('EVENTS is frozen and contains the 15 canonical types', () => {
+describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel)', () => {
+  it('EVENTS is frozen and contains the 18 canonical types', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -60,6 +60,9 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'orchestrator.review',
       'plane.api.call',
       'plane.api.call.failed',
+      'polling.dispatch',
+      'polling.error',
+      'polling.tick',
       'session.end',
       'session.start',
       'skill.sync.auto',
