@@ -11,7 +11,7 @@
 
 ## Phases
 
-- [ ] **Phase 23: GitHubClient + Auth Foundation** — REST wrapper sobre `api.github.com` con PAT, rate limit handling y etag/304 conditional fetch.
+- [x] **Phase 23: GitHubClient + Auth Foundation** — REST wrapper sobre `api.github.com` con PAT, rate limit handling y etag/304 conditional fetch. ✅ shipped 2026-05-14
 - [ ] **Phase 24: GitHubProvider + Normalizer + Registry** — Los 9 métodos `TaskProvider`, normalizer GitHub Issue → `TaskItem`, factory en registry, contract tests offline.
 - [ ] **Phase 25: Polling Trigger Channel** — Loop async + state cache (etag + cursor) + wiring a `dispatchTrigger` + fail-open retry, con clock-mock tests.
 - [ ] **Phase 26: Config Wizard + CLI Integration** — `kodo config` extiende `provider: github`, `kodo polling start/stop/status` daemon y `kodo orchestrator --polling` integrado.
@@ -85,7 +85,7 @@ Phase 23 → 24 → 25 → 26 → 27 (lineal; 27 puede solaparse con 26 una vez 
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 23. GitHubClient + Auth Foundation | v0.7 | 0/3 | Planned | — |
+| 23. GitHubClient + Auth Foundation | v0.7 | 2/3 (23-03 optional, skipped) | Complete | 2026-05-14 |
 | 24. GitHubProvider + Normalizer + Registry | v0.7 | 0/? | Not started | — |
 | 25. Polling Trigger Channel | v0.7 | 0/? | Not started | — |
 | 26. Config Wizard + CLI Integration | v0.7 | 0/? | Not started | — |
