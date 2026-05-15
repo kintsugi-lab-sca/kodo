@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
-status: between_milestones
-stopped_at: v0.7 archived (commit pending) — awaiting /gsd-new-milestone
-last_updated: "2026-05-15T06:50:00.000Z"
-last_activity: 2026-05-15 -- v0.7 milestone archived; awaiting next milestone scope
+milestone: v0.8
+milestone_name: Consolidación + GSD Provider Reporting
+status: planning
+last_updated: "2026-05-15T09:42:23.215Z"
+last_activity: 2026-05-15
 progress:
   total_phases: 0
   completed_phases: 0
@@ -17,7 +16,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** _(none — v0.7 shipped & archived; awaiting `/gsd-new-milestone` to scope v0.8)_
+**Active milestone:** v0.8 Consolidación + GSD Provider Reporting (planning)
 **Last updated:** 2026-05-15
 
 ## Project Reference
@@ -28,14 +27,15 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: _(none)_
-Plan: _(none)_
-Status: between milestones
-Last activity: 2026-05-15 -- v0.7 archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-15 — Milestone v0.8 started
 
 ## Most recent shipped milestone
 
 **v0.7 GitHub Issues Adapter** — shipped 2026-05-14 (5 phases / 11 plans / 80 commits / +89 nuevos tests sobre baseline v0.6).
+
 - Roadmap archive: `milestones/v0.7-ROADMAP.md`
 - Requirements archive: `milestones/v0.7-REQUIREMENTS.md`
 - Audit: `v0.7-MILESTONE-AUDIT.md`
@@ -73,28 +73,32 @@ _(reset for next milestone)_
 - **HOOK-01 universal Phase 20**: el bloque anti-push-fantasma se inyecta en TODAS las sesiones (full + quick + no-GSD). Verificado v0.7 — sesiones disparadas por polling lo heredan automáticamente.
 - **cwd=repo Phase 999.1**: orchestrator se lanza desde el repo para auto-cargar skill. `kodo orchestrator --polling` (Phase 26) preserva este contrato — el polling vive en el mismo proceso, no en un worktree.
 
-### v0.7 Tech Debt Carried Forward (NOT in milestone, candidates for v0.8 scope)
+### v0.7 Tech Debt (now IN v0.8 scope)
 
-- **Phase 25 provider-only path:** `normalizeIssue` excluye `updated_at`/`created_at` del TaskItem canónico (D-18 leak guard); `shouldDispatch` evaluaría contra `undefined` si el caller usa provider-only path en producción real. Path productivo es client-direct.
-- **Phase 26-02 T-26-DIAG:** silent daemon crash sin logfile. Prep `--verbose` flag para v0.8.
-- **Phase 26-02 timing-sensitive caso 2:** 700ms SIGINT race no-emerged en ejecución; prep `--polling`-status liveness check para v0.8.
+- **Phase 25 provider-only path:** `normalizeIssue` excluye `updated_at`/`created_at` del TaskItem canónico (D-18 leak guard); `shouldDispatch` evaluaría contra `undefined` si el caller usa provider-only path en producción real. → v0.8.
+- **Phase 26-02 T-26-DIAG:** silent daemon crash sin logfile. → `--verbose` flag + log rotation v0.8.
+- **Phase 26-02 timing-sensitive caso 2:** 700ms SIGINT race no-emerged en ejecución; prep `--polling`-status liveness check → v0.8 (parte de DAEMON DX).
 
-### v0.6 Deferred (still deferred, NOT in v0.7 scope)
+### v0.6 Deferred (now IN v0.8 scope)
 
-- Phase 19 CR-01 — `findSession` no busca en `state.history` (latent bug). Defer a phase dedicada al lifecycle SessionRecord.
-- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. Defer.
-- Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup. Defer.
+- Phase 19 CR-01 — `findSession` debe escanear `state.history` (latent bug; driver real ROMAN-132 2026-05-15 confirmó state.json desync). → v0.8 lifecycle phase.
+- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. → v0.8 lifecycle phase.
+- Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup, test `launchOrchestrator` real. → v0.8 advisory cleanup phase.
+
+### v0.7 Bookkeeping (doc-only, in v0.8 scope)
+
+- 8 IDs `pending` → `Complete` en `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table (GH-01..05, CFG-01, CFG-02, TEST-01).
+- Phase 23 `VERIFICATION.md` backfill por uniformidad documental (única phase v0.7 sin él; los 2 SUMMARYs son detallados).
+- `nyquist_compliant: true` toggle en VALIDATION.md de phases 23/25/26/27 (solo Phase 24 lo tiene).
 
 ## Session Continuity
 
-- **Last session:** 2026-05-15T06:50:00Z
-- **Stopped at:** v0.7 milestone archived; awaiting next milestone scope
-- **Next action:** `/gsd-new-milestone` para arrancar v0.8 con scope definido
+- **Last session:** 2026-05-15T09:42:23Z
+- **Stopped at:** v0.8 milestone initialized — PROJECT.md updated, STATE.md reset, awaiting REQUIREMENTS + ROADMAP
+- **Next action:** definir REQUIREMENTS.md v0.8 y spawn gsd-roadmapper para crear ROADMAP.md (continúa numeración desde Phase 28)
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current State actualizado con v0.7 shipped + v0.8 candidates)
-  - `.planning/ROADMAP.md` (v0.7 collapsed; awaiting v0.8 phases)
-  - `.planning/STATE.md` (este archivo)
-  - `.planning/v0.7-MILESTONE-AUDIT.md` (final audit — passed)
-  - `.planning/milestones/v0.7-ROADMAP.md` (full milestone archive)
-  - `.planning/milestones/v0.7-REQUIREMENTS.md` (requirements archive — 16/16 satisfied)
-  - `.planning/milestones/v0.7-phases/` (5 phase directories archived)
+  - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section actualizada)
+  - `.planning/STATE.md` (este archivo, reseteado para v0.8)
+  - `.planning/PENDING-INTEGRATIONS.md` (rama `gsd-provider-reporting` ready para cherry-pick + planning regen v0.8)
+  - `.planning/v0.7-MILESTONE-AUDIT.md` (final audit v0.7 — passed)
+  - `.planning/milestones/v0.7-*` (full milestone v0.7 archive)

@@ -14,20 +14,21 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProvider` y valida empíricamente la promesa arquitectónica de v0.2 ("cambiar de provider no requiere reescribir lógica"). Cuatro capas: (1) `GitHubClient` (`src/providers/github/client.js`) — REST wrapper contra `api.github.com` con auth PAT (token leído de `~/.kodo/.env`, NUNCA escrito a `config.json`), rate-limit warn cuando `X-RateLimit-Remaining < 100`, etag/304 conditional fetch retornando envelope `{status, items, etag, rate_limit_remaining}`. (2) `createGitHubProvider` (`src/providers/github/provider.js`) + `normalizeIssue` (`normalize.js`) — los 9 métodos canónicos `TASK_PROVIDER_METHODS` con `init`/`parseTriggerEvent`/`verifySignature` no-op (polling-only en v0.7); registry factory `github` con singleton lazy + 9-method validation. (3) `startPolling` (`src/triggers/polling.js`) — tercer canal de trigger junto a webhook + manual CLI: loop async con `clock` injectable, state cache atómico (`~/.kodo/polling-state.json` tmp+rename + 304 preserva cursor), retry exponencial 2s/4s/8s + warn-and-continue fail-open, fire-and-forget dispatch delegando idempotencia al lock per-repo Phase 8 GSD-10, first-tick skip evita storm; CLI `kodo polling start/stop/status` con daemon (`spawn detached` + PID file `chmod 0o600` shape `{pid, started_at, repos}`) o `--no-daemon` foreground, exit codes deterministas 0/1/2/3, Windows guard refuse-with-guidance, `--json` byte-determinista DX-06, lazy import de `startPolling` solo en path real. (4) `kodo config` wizard reconoce `provider: github` con auto-detect del git remote (3 URL formats SSH/HTTPS/HTTPS.git); `kodo orchestrate --polling` flag integrado con `runOrchestratePollingSetup` DI helper y SIGINT cleanup orden estricto (handler→polling.start→launchOrchestrator); mutex implícito daemon ↔ orchestrator vía lock per-repo, documentado en `--help`. Cross-provider contract matrix (`test/providers/contract.test.js`) itera Plane + GitHub × 7 asserts core = 14 nuevos casos demostrando con código real que ambos adapters cumplen idéntico contrato. Invariantes preservadas: zero changes a `src/labels.js`/`src/triggers/dispatcher.js`/`src/interface.js`; closed NDJSON taxonomy 15 → 18 events (POLLING_TICK/DISPATCH/ERROR + GITHUB_API_CALL/FAILED); LOG-12 walker extendido (`provider.js`/`normalize.js`/`polling.js` filters); color isolation v0.5; cwd=repo Phase 999.1; HOOK-01 universal Phase 20 + worktree always-on Phase 18 heredados automáticamente por sesiones disparadas via polling. Suite global: 777 pass + 1 skip + 0 fail (+89 vs baseline v0.6).
 
-## Next Milestone Goals
+## Current Milestone: v0.8 Consolidación + GSD Provider Reporting
 
-Por definir vía `/gsd-new-milestone`. Candidatos (de v0.7 tech debt + v0.6 deferred + REQUIREMENTS.md "Future"):
+**Goal:** Cerrar tech debt v0.7 (POLL provider-only path + DAEMON `--verbose` + bookkeeping doc-only), integrar la rama paralela `gsd-provider-reporting` con regeneración de planning, resolver bugs reales de lifecycle SessionRecord (CR-01 Phase 19 + WR-07 Phase 22), y limpiar advisory follow-up de Phases 21/22. Cero adapters nuevos.
 
-**v0.8 candidates:**
-- **Adapters TaskProvider adicionales:** ClickUp adapter (precedente de uso real); local provider (JSON/Markdown) + file watcher trigger.
-- **Polling provider-only path fix (v0.7 tech debt):** `normalizeIssue` excluye `updated_at`/`created_at` del TaskItem canónico; `shouldDispatch` evaluaría contra `undefined` en producción si el caller usa provider-only path. Path productivo es client-direct; fix queda pendiente.
-- **Daemon DX (v0.7 tech debt):** T-26-DIAG silent crash sin logfile → añadir `--verbose` flag + log file rotation.
-- **Webhook GitHub ingress real-time:** evaluar si la latencia del polling (60s default) emerge como restricción operativa.
-- **GitHub Enterprise self-hosted (`base_url` configurable):** depende de demanda.
-- **OAuth GitHub App:** evaluar vs PAT clásico actual.
-- **Phase dedicada al lifecycle del SessionRecord:** resolver CR-01 Phase 19 (findSession en state.history) + WR-07 Phase 22 (markSessionStatus early-return refactor estructural).
-- **Phase 21 advisory follow-up:** pureza `syncSkill` (console.warn → callback), `runSkillSyncCli` async cleanup, test launchOrchestrator real.
-- **`kodo gsd doctor`:** limpiar zombies pre-existentes (worktrees huérfanos, sesiones legacy).
+**Target areas:**
+- **Polling/Daemon hardening** — `normalizeIssue` incluye `updated_at`/`created_at` canónicos (cierra D-18 leak guard del Phase 25); `kodo polling start` gana `--verbose` flag + log file con rotación (cierra T-26-DIAG silent crash).
+- **GSD Provider Reporting integration** — cherry-pick selectivo de 9 commits de la rama `gsd-provider-reporting` (`KODO_LABEL_GSD_CHILD`, anti-recursión en dispatcher, `isReportToProviderEnabled` opt-in, `applyReportingGate` + prosa ES en `prompt.md`) + regeneración manual de planning v0.8. 38 tests heredados.
+- **SessionRecord lifecycle** — CR-01 Phase 19 (`findSession` debe escanear `state.history`, no solo activas) + WR-07 Phase 22 (`markSessionStatus` early-return refactor estructural). Memoria reciente: ROMAN-132 2026-05-15 confirma state.json desync real (sesión viva en cmux mientras `state.json` reporta sessions={}).
+- **Phase 21/22 advisory follow-up** — pureza `syncSkill` (console.warn → callback inyectable), `runSkillSyncCli` async cleanup correcto, test `launchOrchestrator` real.
+- **Bookkeeping doc-only** — 8 IDs `pending` → `Complete` en v0.7 REQUIREMENTS traceability; backfill `VERIFICATION.md` Phase 23; toggle `nyquist_compliant` en phases 23/25/26/27.
+
+**Out of v0.8 scope (deferidos a v0.9+):**
+- Adapters TaskProvider adicionales: ClickUp, local (JSON/Markdown) + file watcher trigger.
+- Webhook GitHub ingress real-time, GitHub Enterprise self-hosted (`base_url`), OAuth GitHub App.
+- `kodo gsd doctor` (limpieza zombies worktrees/sesiones legacy).
 
 ## Requirements
 
@@ -75,22 +76,28 @@ Por definir vía `/gsd-new-milestone`. Candidatos (de v0.7 tech debt + v0.6 defe
 
 ### Active
 
-**In scope for v0.6:**
-- [ ] **HOOK-01 (universal)**: `buildSessionContext` añade recordatorio anti-push-fantasma a TODAS las sesiones (GSD + no-GSD). Exige verificar push real o redactar en condicional las afirmaciones de deploy/publicación. Driver: ROMAN-125 / ROMAN-126.
-- [ ] **SKILL-01**: `kodo skill sync` CLI manual + auto-sync en `kodo orchestrator` (detecta drift entre `<repo>/.claude/skills/` y `~/.claude/skills/` y sincroniza antes de lanzar). Puede impactar la Constraint cwd=repo introducida en Phase 999.1 — reevaluar contrato si auto-sync vuelve a poblar `~/.claude/skills/`.
-- [ ] **Tech debt v0.5 closure**: Phase 14 (`SECURITY.md` + WR-01 spawnSync timeout + IN-01 regex ANSI defensiva + IN-02 test `FORCE_COLOR=''`), Phase 15 (retirar `ANSI_*` exports de `src/logger.js`), Phase 16 (8 WR + 4 IN del Resolution Log: doble logger en `stop.js`, eager EVENTS + dynamic helpers en `dispatcher.js`, etc.).
+**In scope for v0.8 (placeholders — REQ-IDs canónicos en `.planning/REQUIREMENTS.md`):**
+- [ ] **POLL fix**: `normalizeIssue` incluye `updated_at`/`created_at` canónicos para que `shouldDispatch` no evalúe `undefined` en provider-only path. Cierra D-18 leak guard de Phase 25.
+- [ ] **DAEMON DX**: `kodo polling start` con flag `--verbose` + log file (con rotación). Cierra T-26-DIAG silent crash sin logfile.
+- [ ] **GSD Provider Reporting integration**: cherry-pick selectivo + regeneración planning v0.8 + 38 tests heredados de la rama `gsd-provider-reporting`.
+- [ ] **SessionRecord lifecycle**: `findSession` escanea `state.history` (CR-01 Phase 19) + `markSessionStatus` early-return refactor estructural (WR-07 Phase 22).
+- [ ] **Phase 21/22 advisory cleanup**: pureza `syncSkill` (callback inyectable), `runSkillSyncCli` async cleanup, test `launchOrchestrator` real.
+- [ ] **Bookkeeping doc-only**: REQUIREMENTS traceability v0.7 (8 IDs pending → Complete), Phase 23 VERIFICATION.md backfill, nyquist_compliant flag en phases 23/25/26/27.
 
-**Deferred to v0.7+ (no necesarios aún):**
-- [ ] Adapter de GitHub Issues que implementa TaskProvider
+**Deferred to v0.9+ (no necesarios aún):**
 - [ ] Adapter de ClickUp que implementa TaskProvider
-- [ ] Adapter local (JSON/Markdown) que implementa TaskProvider
-- [ ] Polling trigger channel para providers sin webhook
-- [ ] File watcher trigger para provider local
+- [ ] Adapter local (JSON/Markdown) que implementa TaskProvider + file watcher trigger
+- [ ] Webhook GitHub ingress real-time (depende de si latencia 60s polling emerge como restricción)
+- [ ] GitHub Enterprise self-hosted (`base_url` configurable) — depende de demanda
+- [ ] OAuth GitHub App (vs PAT actual)
+- [ ] `kodo gsd doctor` — limpieza zombies (worktrees huérfanos + sesiones legacy)
 
-**Tech debt v0.5 (ahora in scope v0.6, ver arriba):**
-- Phase 14 — `SECURITY.md` + WR-01 + IN-01 + IN-02 → cierra en v0.6
-- Phase 15 — `ANSI_*` exports back-compat → retiro en v0.6
-- Phase 16 — 8 WR + 4 IN Resolution Log → cierra en v0.6
+**Tech debt v0.7 (ahora in scope v0.8, ver arriba):**
+- POLL provider-only path fix (Phase 25 D-18)
+- DAEMON `--verbose` + log rotation (T-26-DIAG)
+- v0.7 REQUIREMENTS traceability (8 IDs pending → Complete)
+- Phase 23 VERIFICATION.md backfill
+- Phase 25 nyquist_compliant flag toggle (+ 23/26/27)
 
 ### Out of Scope
 
@@ -197,4 +204,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 — Phase 19 (Worktree Cleanup & Integration) complete: WT-04/05/06 satisfied (WT-05 satisfied-by-design D-05), stop hook cleanup fail-open con `<wt>.dirty` (lstatSync-safe CR-03), `markSessionStatus('done')` universal pre-sessionEnd (CR-02), `kodo gsd verify` lee del worktree con fallback transparente, suite 567/568 pass. CR-01 (orchestrator-led verify post-stop) deferido a Phase 21+ por override D-07. 3 smoke UATs persistidos. Próximo: Phase 20 — HOOK-01 universal anti-push-fantasma.*
+*Last updated: 2026-05-15 — Milestone v0.8 (Consolidación + GSD Provider Reporting) initialized via `/gsd-new-milestone`. v0.7 GitHub Issues Adapter shipped (2026-05-14, audit PASSED) y archivado (2026-05-15). v0.8 cierra tech debt v0.7 (POLL + DAEMON + bookkeeping), integra rama paralela `gsd-provider-reporting` con cherry-pick + planning regen, resuelve lifecycle SessionRecord (CR-01 Phase 19 + WR-07 Phase 22 — driver real: ROMAN-132 state.json desync 2026-05-15), y limpia advisory follow-up Phases 21/22. Adapters nuevos (ClickUp/local) y `kodo gsd doctor` deferidos a v0.9+. Próximo: REQUIREMENTS.md + ROADMAP.md (continúa numeración desde Phase 28).*
