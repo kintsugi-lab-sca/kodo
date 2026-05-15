@@ -73,33 +73,33 @@ Explícitamente excluidos de v0.8 para preservar el tema "consolidación".
 
 ## Traceability
 
-Empty inicialmente. Lo llena `gsd-roadmapper` durante creación de ROADMAP.md.
+Mapeo completo asignado por `gsd-roadmapper` durante creación de ROADMAP.md (2026-05-15). 5 phases (28-32) cubren los 17 REQ-IDs sin orphans ni duplicados.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POLL-FIX-01 | TBD | Pending |
-| DAEMON-01 | TBD | Pending |
-| DAEMON-02 | TBD | Pending |
-| REPORT-01 | TBD | Pending |
-| REPORT-02 | TBD | Pending |
-| REPORT-03 | TBD | Pending |
-| REPORT-04 | TBD | Pending |
-| REPORT-05 | TBD | Pending |
-| REPORT-06 | TBD | Pending |
-| LIFE-01 | TBD | Pending |
-| LIFE-02 | TBD | Pending |
-| ADVISORY-01 | TBD | Pending |
-| ADVISORY-02 | TBD | Pending |
-| ADVISORY-03 | TBD | Pending |
-| BOOK-01 | TBD | Pending |
-| BOOK-02 | TBD | Pending |
-| BOOK-03 | TBD | Pending |
+| POLL-FIX-01 | Phase 28 | Pending |
+| DAEMON-01 | Phase 28 | Pending |
+| DAEMON-02 | Phase 28 | Pending |
+| REPORT-01 | Phase 29 | Pending |
+| REPORT-02 | Phase 29 | Pending |
+| REPORT-03 | Phase 29 | Pending |
+| REPORT-04 | Phase 29 | Pending |
+| REPORT-05 | Phase 29 | Pending |
+| REPORT-06 | Phase 29 | Pending |
+| LIFE-01 | Phase 30 | Pending |
+| LIFE-02 | Phase 30 | Pending |
+| ADVISORY-01 | Phase 31 | Pending |
+| ADVISORY-02 | Phase 31 | Pending |
+| ADVISORY-03 | Phase 31 | Pending |
+| BOOK-01 | Phase 32 | Pending |
+| BOOK-02 | Phase 32 | Pending |
+| BOOK-03 | Phase 32 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0 (TBD por roadmapper)
-- Unmapped: 17 ⚠️ (será 0 tras roadmap)
+- Mapped to phases: 17 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-15*
-*Last updated: 2026-05-15 after initial v0.8 definition*
+*Last updated: 2026-05-15 — Traceability table populated by `gsd-roadmapper`. 17/17 v1 REQ-IDs mapped to 5 phases (28-32). 100% coverage achieved.*

@@ -8,10 +8,88 @@
 - ✅ **v0.5 CLI Polish & v0.3 Debt Cleanup** — Phases 14-17 + 999.1 (shipped 2026-05-11)
 - ✅ **v0.6 Session Isolation & Skill Sync** — Phases 18-22 (shipped 2026-05-13)
 - ✅ **v0.7 GitHub Issues Adapter** — Phases 23-27 (shipped 2026-05-14)
+- 🟢 **v0.8 Consolidación + GSD Provider Reporting** — Phases 28-32 (planning, started 2026-05-15)
 
 ## Phases
 
-_No active milestone — next milestone bootstrap via `/gsd-new-milestone`._
+- [ ] **Phase 28: Polling/Daemon Hardening** — Cierra v0.7 tech debt (POLL provider-only path + DAEMON `--verbose` + log file con rotación).
+- [ ] **Phase 29: GSD Provider Reporting Integration** — Cherry-pick selectivo de rama paralela `gsd-provider-reporting` + 38 tests heredados + planning regen.
+- [ ] **Phase 30: SessionRecord Lifecycle** — `findSession` escanea `state.history` (CR-01) + `markSessionStatus` early-return refactor (WR-07). Driver real ROMAN-132.
+- [ ] **Phase 31: Phase 21/22 Advisory Cleanup** — Pureza `syncSkill` + async cleanup `runSkillSyncCli` + test `launchOrchestrator` real.
+- [ ] **Phase 32: v0.7 Bookkeeping (Doc-Only)** — Reconciliación traceability v0.7 + Phase 23 VERIFICATION backfill + nyquist toggle 23/25/26/27.
+
+## Phase Details
+
+### Phase 28: Polling/Daemon Hardening
+**Goal**: Cerrar el tech debt operacional v0.7 que dejó al daemon de polling sin observabilidad cuando algo va mal — el operador puede diagnosticar crashes, ver decisiones por tick, y confiar en que el provider-only path no descarta timestamps.
+**Depends on**: Nothing (heredado state v0.7 verde, baseline 777 tests).
+**Requirements**: POLL-FIX-01, DAEMON-01, DAEMON-02
+**Success Criteria** (what must be TRUE):
+  1. Operador ejecuta `kodo polling start --verbose` (foreground) y ve en stdout una línea estructurada por tick con `timestamp ISO`, `repos_polled`, `dispatch_decisions[]`, `rate_limit_remaining` (formato consistente con `kodo logs`).
+  2. Cuando el daemon crashea (SIGSEGV simulado, throw no capturado, etc.), el operador encuentra stack trace inspectable via `cat ~/.kodo/logs/polling-YYYY-MM-DD.log` — el archivo existe con permisos 0o600 y contiene el error completo.
+  3. Cualquier consumer que llame `getProvider('github').listPendingTasks()` y luego `shouldDispatch(task)` evalúa contra `task.updated_at` y `task.created_at` reales (ISO strings), nunca `undefined`. `test/providers/github/normalize.test.js` lo asserta directo y `test/triggers/polling.test.js` añade caso provider-only path GREEN.
+  4. Suite global ≥780 pass + 0 fail (777 baseline + ≥3 nuevos: 1 normalize + 1 polling provider-only + 1 daemon `--verbose` integration). 1 skip pre-existente preservado.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 29: GSD Provider Reporting Integration
+**Goal**: Cerrar la cadena de visibilidad GSD → proveedor reutilizando los 9 commits de código y 38 tests heredados de la rama paralela `gsd-provider-reporting`. El operador activa `workflow.report_to_provider: true` y el agente Claude crea sub-issues `kodo:gsd-child` por phase con comentarios plan-by-plan, sin que kodo cree/lea/borre issues directamente. Anti-recursión blindada en dispatcher.
+**Depends on**: Phase 28 (suite verde como baseline antes del cherry-pick masivo).
+**Requirements**: REPORT-01, REPORT-02, REPORT-03, REPORT-04, REPORT-05, REPORT-06
+**Success Criteria** (what must be TRUE):
+  1. Operador crea/etiqueta una tarea con label `kodo:gsd-child` y al disparar webhook/polling/CLI manual (incluso con `--force`), `kodo` log emite `dispatcher.skip reason=gsd-child` SIN llegar a `parseKodoLabels` / lock acquire / resolver / launch — ni una sub-issue creada por el agente puede recursar y arrancar otra sesión.
+  2. Operador con `workflow.report_to_provider: true` en `~/.kodo/config.json` lanza una sesión GSD y verifica que `src/orchestrator/prompt.md` renderizado contiene la sección "Sub-issue reporting" entre marcadores `<!-- BEGIN reporting -->` / `<!-- END reporting -->` con prosa ES provider-agnostic (vía `{{provider_name}}`); el mismo operador con la flag `false`, `undefined` o ausente recibe el prompt SIN esa sección.
+  3. Cualquier consumer importa `KODO_LABEL_GSD_CHILD` desde `src/labels.js` (NUNCA inline string `'kodo:gsd-child'`) y usa `isGsdChild(labels)` helper — source-hygiene test grep en `src/` retorna 0 matches inline fuera de `labels.js`.
+  4. Cherry-pick aplicado de los 9 SHAs documentados en `PENDING-INTEGRATIONS.md` (`5a41d8f`, `cbd8f9c`, `e1f82c9`, `7c28c06`, `5feb578`, `38c7a2e`, `d030547`, `4d67312`, `81c848c`); planning artifacts (PLAN/SUMMARY/VERIFICATION/VALIDATION) regenerados con numeración v0.8 (Phase 29) — NO Phase 14-15 que colisionaba con v0.5 main.
+  5. Suite global ≥818 pass (≥780 post-Phase-28 + 38 tests heredados de la rama: SR1..SR6 gating + RC1..RC15 + RA1..RA6 content + 4 dispatcher anti-recursión + matriz config 5 estados + source-hygiene). 0 regresiones, 0 nuevos skips.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 30: SessionRecord Lifecycle
+**Goal**: Resolver el desync state.json ↔ realidad cmux que ROMAN-132 confirmó empíricamente el 2026-05-15: una sesión seguía viva en cmux mientras `state.sessions = {}`. `findSession` debe ver TODO el ciclo (activas + history) y `markSessionStatus` debe emitir warn observable cuando el caller le pasa task_id falsy en vez de bail-out silencioso.
+**Depends on**: Phase 29 (consolidar suite tras el cherry-pick antes de tocar state lifecycle).
+**Requirements**: LIFE-01, LIFE-02
+**Success Criteria** (what must be TRUE):
+  1. Operador ejecuta `kodo gsd verify <session-id>` para una sesión que YA terminó (presente en `state.history`, ausente en `state.sessions`) y obtiene el `SessionRecord` histórico — NO el error "session not found". Idéntico comportamiento para `kodo logs --session-of <task-id>` cuando la sesión cerró.
+  2. Cuando `markSessionStatus(taskId, status, reason, log)` recibe `taskId` falsy (`null`, `undefined`, `''`), emite `log.warn('markSessionStatus: missing task_id', {session_id, status, reason})` y retorna `{ok: false, reason: 'missing-task-id'}`. Los callers existentes (`verify.js#finalize`, `stop.js`) preservan su semántica externa (try/catch silencioso intacto).
+  3. `test/session/mark-status.test.js` cubre 4 escenarios (task_id presente OK, null → warn, undefined → warn, empty string → warn); `test/session/find-session.test.js` cubre 3 escenarios (en sessions, en history, en ambos = priority sessions, en ninguno = not found).
+  4. Suite global ≥825 pass + 0 fail. CR-01 Phase 19 deferred y WR-07 Phase 22 deferred CERRADOS en `STATE.md` v0.7 deferred section.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 31: Phase 21/22 Advisory Cleanup
+**Goal**: Limpiar las 3 advisory observations de las phases 21 y 22 v0.6 que quedaron como tech debt no-bloqueante. Pureza de `syncSkill` (warn callback inyectable), `runSkillSyncCli` con await correcto del cleanup async, y test `launchOrchestrator` real (no mockSpawn-only) que valida observable post-launch.
+**Depends on**: Phase 30 (state lifecycle estable).
+**Requirements**: ADVISORY-01, ADVISORY-02, ADVISORY-03
+**Success Criteria** (what must be TRUE):
+  1. `syncSkill({onConsoleWarn})` acepta callback opcional y usa `console.warn` por default cuando no se inyecta — back-compat preservada para `runSkillSyncCli`. Tests capturan warnings sin spy global ni monkey-patch de `console.warn`.
+  2. `runSkillSyncCli` ejecuta `await cleanupFn()` ANTES de `process.exit(N)` — verificable con test que asserta exit ordering (cleanup callback completa observablemente antes del exit code retornado al shell).
+  3. Test `test/orchestrator/launch.test.js` (o equivalente) ejecuta `launchOrchestrator` con spawn real (NO mockSpawn) + stdin canónico y asserta observables post-launch: `state.json` contiene la nueva session record + NDJSON contiene evento `session.start` con `transcript_path` populated.
+  4. Suite global ≥830 pass + 0 fail. Phase 21 WR-04/WR-05/WR-06 entries CERRADAS en `v0.6-MILESTONE-AUDIT.md` (o equivalente tracker); STATE.md v0.6 deferred section reduce a 0 items.
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 32: v0.7 Bookkeeping (Doc-Only)
+**Goal**: Cerrar los 3 items de bookkeeping drift identificados en `v0.7-MILESTONE-AUDIT.md` — pure doc-only, cero código tocado. Reconciliación REQUIREMENTS traceability, backfill VERIFICATION.md Phase 23 por uniformidad documental, y toggle `nyquist_compliant: true` en VALIDATION.md de las 4 phases v0.7 que quedaron en `false`.
+**Depends on**: Phase 31 (último gate antes del milestone audit v0.8).
+**Requirements**: BOOK-01, BOOK-02, BOOK-03
+**Success Criteria** (what must be TRUE):
+  1. `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table tiene 16/16 IDs marcados `Complete` — `grep -c "Complete"` retorna 16 y `grep -c "pending"` retorna 0 (en la tabla, no en prosa adyacente). Reconciliados: GH-01..05, CFG-01, CFG-02, TEST-01.
+  2. `.planning/milestones/v0.7-phases/23-githubclient-auth-foundation/VERIFICATION.md` existe con contenido coherente con los 2 SUMMARYs de Phase 23 (placeholder estructural OK; ya hay cobertura funcional empírica documentada en SUMMARYs).
+  3. VALIDATION.md de phases 23/25/26/27 contiene `nyquist_compliant: true` en su YAML frontmatter — `grep -l "nyquist_compliant: true" .planning/milestones/v0.7-phases/*/VALIDATION.md` lista las 5 phases (24 ya tenía, ahora 23/25/26/27 también).
+  4. Phase es 100% commits doc-only — `git diff <phase-base>..<phase-head> -- src/ test/ bin/` retorna vacío (cero líneas tocadas en código). Suite global ≥830 pass (sin cambio numérico vs Phase 31).
+**Plans**: TBD
+**UI hint**: no
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 28. Polling/Daemon Hardening | 0/TBD | Not started | - |
+| 29. GSD Provider Reporting Integration | 0/TBD | Not started | - |
+| 30. SessionRecord Lifecycle | 0/TBD | Not started | - |
+| 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
+| 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
 
 ## Archived Milestones
 
@@ -135,4 +213,4 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 27. Cross-Provider Contract Matrix | v0.7 | 1/1 | Complete | 2026-05-14 |
 
 ---
-*Last updated: 2026-05-15 — v0.7 milestone archived. Awaiting `/gsd-new-milestone` to scope v0.8.*
+*Last updated: 2026-05-15 — v0.8 milestone roadmap created. 5 phases (28-32) cover 17 v1 REQ-IDs (POLL-FIX-01 + DAEMON-01/02 + REPORT-01..06 + LIFE-01/02 + ADVISORY-01/02/03 + BOOK-01/02/03). Numeración continúa desde Phase 27 (último cierre v0.7). Granularity: coarse (5 phases — borde superior aceptable). BOOK preserved como phase distinta de ADVISORY a pesar de ser doc-only por verificación semántica diferente (state-correctness vs test-green).*

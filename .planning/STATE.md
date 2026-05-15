@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Consolidación + GSD Provider Reporting
 status: planning
-last_updated: "2026-05-15T09:42:23.215Z"
-last_activity: 2026-05-15
+last_updated: "2026-05-15T12:01:00.000Z"
+last_activity: 2026-05-15 — roadmap created
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -27,10 +27,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap created, ready for `/gsd-plan-phase 28`)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-15 — Milestone v0.8 started
+Status: Roadmap defined — 5 phases (28-32) cubren 17 REQ-IDs
+Last activity: 2026-05-15 — roadmap created
 
 ## Most recent shipped milestone
 
@@ -63,8 +63,8 @@ _(reset for next milestone)_
 ### Critical Invariants to Preserve (cross-milestone, must survive next milestone)
 
 - **TaskProvider 9-method contract** (canonical en `src/interface.js`): `init`, `getTask`, `updateTaskState`, `addComment`, `listPendingTasks`, `parseTriggerEvent`, `verifySignature`, `resolveRef`, `listProjects`. `getProvider(<name>)` valida con `TASK_PROVIDER_METHODS`. Cualquier adapter nuevo (v0.8 candidates: ClickUp, local) DEBE cumplir el contrato — empíricamente verificado por `test/providers/contract.test.js` (Phase 27 matrix).
-- **TaskItem/TriggerEvent shapes provider-agnostic** (v0.2): canonical 11-field shape ancla `D-18` (Phase 24). `parseKodoLabels` opera sobre `string[]` sin saber el origen del provider. Zero changes a `src/labels.js`.
-- **Lock per-repo Phase 8 GSD-10**: el dispatcher coalesce sesiones por repo. Polling channel v0.7 delega idempotencia al lock — no introduce nuevo mecanismo de dedup.
+- **TaskItem/TriggerEvent shapes provider-agnostic** (v0.2): canonical 11-field shape ancla `D-18` (Phase 24). `parseKodoLabels` opera sobre `string[]` sin saber el origen del provider. Zero changes a `src/labels.js` (Phase 29 REPORT-05 añade `KODO_LABEL_GSD_CHILD` + `isGsdChild` SIN tocar `parseKodoLabels`).
+- **Lock per-repo Phase 8 GSD-10**: el dispatcher coalesce sesiones por repo. Polling channel v0.7 delega idempotencia al lock — no introduce nuevo mecanismo de dedup. Phase 29 anti-recursión REPORT-01 cortes ANTES del lock acquire (no afecta el invariante).
 - **Dispatcher fire-and-forget** (v0.2): polling channel emula el patrón webhook — la detección emite `dispatchTrigger` y continúa el loop, sin esperar al launch.
 - **LOG-12 guard**: `kodo check` no carga `src/logger.js` transitivamente. Walker en `test/check-isolation.test.js` extendido en v0.7 con filtros para `provider.js`, `normalize.js`, `polling.js`. Cualquier módulo nuevo en path "no-logger" debe añadir su row.
 - **Color isolation**: `picocolors` solo desde `src/cli/format.js`. CLI handlers nuevos consumen `createFormatter(stream)`.
@@ -73,32 +73,38 @@ _(reset for next milestone)_
 - **HOOK-01 universal Phase 20**: el bloque anti-push-fantasma se inyecta en TODAS las sesiones (full + quick + no-GSD). Verificado v0.7 — sesiones disparadas por polling lo heredan automáticamente.
 - **cwd=repo Phase 999.1**: orchestrator se lanza desde el repo para auto-cargar skill. `kodo orchestrator --polling` (Phase 26) preserva este contrato — el polling vive en el mismo proceso, no en un worktree.
 
-### v0.7 Tech Debt (now IN v0.8 scope)
+### v0.7 Tech Debt (now IN v0.8 scope — Phase 28)
 
-- **Phase 25 provider-only path:** `normalizeIssue` excluye `updated_at`/`created_at` del TaskItem canónico (D-18 leak guard); `shouldDispatch` evaluaría contra `undefined` si el caller usa provider-only path en producción real. → v0.8.
-- **Phase 26-02 T-26-DIAG:** silent daemon crash sin logfile. → `--verbose` flag + log rotation v0.8.
-- **Phase 26-02 timing-sensitive caso 2:** 700ms SIGINT race no-emerged en ejecución; prep `--polling`-status liveness check → v0.8 (parte de DAEMON DX).
+- **Phase 25 provider-only path:** `normalizeIssue` excluye `updated_at`/`created_at` del TaskItem canónico (D-18 leak guard); `shouldDispatch` evaluaría contra `undefined` si el caller usa provider-only path en producción real. → POLL-FIX-01 / Phase 28.
+- **Phase 26-02 T-26-DIAG:** silent daemon crash sin logfile. → DAEMON-02 (`--verbose` + log rotation) / Phase 28.
+- **Phase 26-02 timing-sensitive caso 2:** 700ms SIGINT race no-emerged en ejecución; prep `--polling`-status liveness check → DAEMON-01 surface (parte de DAEMON DX) / Phase 28.
 
-### v0.6 Deferred (now IN v0.8 scope)
+### v0.6 Deferred (now IN v0.8 scope — Phases 30 + 31)
 
-- Phase 19 CR-01 — `findSession` debe escanear `state.history` (latent bug; driver real ROMAN-132 2026-05-15 confirmó state.json desync). → v0.8 lifecycle phase.
-- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. → v0.8 lifecycle phase.
-- Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup, test `launchOrchestrator` real. → v0.8 advisory cleanup phase.
+- Phase 19 CR-01 — `findSession` debe escanear `state.history` (latent bug; driver real ROMAN-132 2026-05-15 confirmó state.json desync). → LIFE-01 / Phase 30.
+- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. → LIFE-02 / Phase 30.
+- Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup, test `launchOrchestrator` real. → ADVISORY-01/02/03 / Phase 31.
 
-### v0.7 Bookkeeping (doc-only, in v0.8 scope)
+### v0.7 Bookkeeping (doc-only, in v0.8 scope — Phase 32)
 
-- 8 IDs `pending` → `Complete` en `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table (GH-01..05, CFG-01, CFG-02, TEST-01).
-- Phase 23 `VERIFICATION.md` backfill por uniformidad documental (única phase v0.7 sin él; los 2 SUMMARYs son detallados).
-- `nyquist_compliant: true` toggle en VALIDATION.md de phases 23/25/26/27 (solo Phase 24 lo tiene).
+- 8 IDs `pending` → `Complete` en `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table (GH-01..05, CFG-01, CFG-02, TEST-01). → BOOK-01.
+- Phase 23 `VERIFICATION.md` backfill por uniformidad documental (única phase v0.7 sin él; los 2 SUMMARYs son detallados). → BOOK-02.
+- `nyquist_compliant: true` toggle en VALIDATION.md de phases 23/25/26/27 (solo Phase 24 lo tiene). → BOOK-03.
+
+### Pending parallel branch (Phase 29)
+
+- **`gsd-provider-reporting`** branch con 9 SHAs literales + 38 tests heredados ready para cherry-pick + planning regen. Detalle completo en `.planning/PENDING-INTEGRATIONS.md`. → REPORT-01..06 / Phase 29.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-15T09:42:23Z
-- **Stopped at:** v0.8 milestone initialized — PROJECT.md updated, STATE.md reset, awaiting REQUIREMENTS + ROADMAP
-- **Next action:** definir REQUIREMENTS.md v0.8 y spawn gsd-roadmapper para crear ROADMAP.md (continúa numeración desde Phase 28)
+- **Last session:** 2026-05-15T12:01:00Z
+- **Stopped at:** v0.8 ROADMAP.md creado — 5 phases (28-32) mapean 17/17 REQ-IDs sin orphans
+- **Next action:** `/gsd-plan-phase 28` para arrancar Phase 28 (Polling/Daemon Hardening: POLL-FIX-01 + DAEMON-01 + DAEMON-02)
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section actualizada)
-  - `.planning/STATE.md` (este archivo, reseteado para v0.8)
-  - `.planning/PENDING-INTEGRATIONS.md` (rama `gsd-provider-reporting` ready para cherry-pick + planning regen v0.8)
-  - `.planning/v0.7-MILESTONE-AUDIT.md` (final audit v0.7 — passed)
+  - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section)
+  - `.planning/REQUIREMENTS.md` (17 v1 REQ-IDs + traceability completa)
+  - `.planning/ROADMAP.md` (5 phases 28-32 con success criteria observables)
+  - `.planning/STATE.md` (este archivo)
+  - `.planning/PENDING-INTEGRATIONS.md` (rama `gsd-provider-reporting` ready para cherry-pick + planning regen v0.8 — input crítico Phase 29)
+  - `.planning/v0.7-MILESTONE-AUDIT.md` (final audit v0.7 — passed; tech debt items son input para Phases 28 + 32)
   - `.planning/milestones/v0.7-*` (full milestone v0.7 archive)
