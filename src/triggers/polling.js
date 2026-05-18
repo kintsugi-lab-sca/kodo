@@ -255,6 +255,29 @@ async function processRepo({
   isFirstTick,
   statePath,
 }) {
+  // Phase 28 D-13 test seam (Plan 28-03 Task 3): integration test del daemon
+  // crash usa esta env var para forzar un crash POST-spawn del hijo,
+  // permitiendo que el fd redirect (D-13) capture el stack trace en el
+  // logfile. Doble guard NODE_ENV=test para que NUNCA se active en
+  // producción incluso si el operador la define accidentalmente.
+  //
+  // El crash se emite via `process.nextTick(throw)` (NO throw síncrono) para
+  // escapar del `.catch(...)` del kick-off `Promise.resolve().then(tick)` —
+  // ese catch convierte el throw en un `polling.loop.error` estructurado,
+  // suprimiendo el stack trace nativo de Node. Con `process.nextTick`, el
+  // throw se manifiesta como `uncaughtException` que Node imprime al
+  // stderr con stack trace completo (frames `at ...`) → fd redirect (D-13)
+  // → logfile. Esta es exactamente la forma de crash que T-26-DIAG quería
+  // diagnosticar: errores asíncronos fuera del event loop manejado.
+  if (
+    process.env.NODE_ENV === 'test' &&
+    process.env.KODO_TEST_FORCE_THROW === 'true'
+  ) {
+    process.nextTick(() => {
+      throw new Error('KODO_TEST_FORCE_THROW: test-induced crash');
+    });
+  }
+
   const key = `${owner}/${repo}`;
   const prev = cache[key] || {};
   let attempt = 0;

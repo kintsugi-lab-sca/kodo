@@ -26,6 +26,7 @@ import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { openSync, closeSync } from 'node:fs';
 
 import { createFormatter } from './format.js';
 import { isPidAlive } from '../gsd/lock.js';
@@ -38,6 +39,11 @@ import {
   removePidFile,
   getPidPath,
 } from './polling-daemon.js';
+import {
+  resolveLogfilePath,
+  ensureLogsDir,
+  sweepRetention,
+} from './polling-logfile.js';
 
 /**
  * Parsea una URL de remote git de GitHub a `{owner, repo}`.
@@ -233,6 +239,23 @@ export async function runPollingStartCli(opts, deps = {}) {
     return 1;
   }
 
+  // Phase 28 D-13..D-16 Plan 28-03 Task 2: logfile lifecycle pre-flight.
+  //   1. ensureLogsDir() — mkdir -p ~/.kodo/logs/ con mode 0o700 (D-16).
+  //   2. sweepRetention() — D-15 cleanup pasivo fail-open: borra polling-*.log
+  //      con mtime > 7 días al arrancar. NO bloquea el spawn si throws.
+  //   3. PID check (existente) — preserva su posición tras ensure+sweep.
+  //   4. openSync(logfilePath, 'a', 0o600) — abre fd append-only con mode
+  //      restrictivo (D-13 + D-16). El fd se pasará al spawn detached para
+  //      capturar stdout/stderr crudo del hijo (incluido stack trace post-crash).
+  ensureLogsDir();
+  try {
+    sweepRetention();
+  } catch {
+    // D-15 fail-open: cleanup pasivo NO debe abortar el daemon start.
+    // El sweep ya hace fail-open per archivo internamente, pero este wrap
+    // exterior cubre cualquier error catastrófico (e.g. permisos del dir).
+  }
+
   // Pre-flight Pitfall #3: check en padre antes del spawn (NO en hijo).
   const existing = readPidFile();
   if (existing && isPidAlive(existing.pid)) {
@@ -244,22 +267,50 @@ export async function runPollingStartCli(opts, deps = {}) {
     removePidFile();
   }
 
+  // D-13/D-16 Phase 28: fd redirect captura stdout/stderr crudo del hijo a
+  // logfile mode 0o600. El kernel duplica el fd al hijo via spawn detached —
+  // cero código de captura en el hijo, robust ante SIGSEGV/OOM/throw fuera
+  // del event loop.
+  const logfilePath = resolveLogfilePath();
+  const logFd = openSync(logfilePath, 'a', 0o600);
+
   // Spawn detached child con argv absolute (Security T-26-EOP elevation mitigation).
   // Phase 28 D-07: propagate --verbose to the daemon child so its summary lines
-  // surface in the logfile (via fd redirect, owned by Plan 28-03 / D-13).
+  // surface in the logfile (via fd redirect, D-13).
+  // T-28-14: si spawn throws (ENOENT, EAGAIN), cerrar logFd ANTES de re-throw
+  // para evitar fd leak. child.unref() vive dentro del try porque sin spawn
+  // exitoso `child` es undefined.
   const KODO_BIN = resolveKodoBin();
-  const child = spawn(
-    process.execPath,
-    [
-      KODO_BIN,
-      'polling',
-      'start',
-      '--no-daemon',
-      ...(opts.verbose === true ? ['--verbose'] : []),
-    ],
-    { detached: true, stdio: 'ignore', env: process.env },
-  );
-  child.unref(); // Pitfall #2 crítico — sin esto el padre cuelga.
+  let child;
+  try {
+    child = spawn(
+      process.execPath,
+      [
+        KODO_BIN,
+        'polling',
+        'start',
+        '--no-daemon',
+        ...(opts.verbose === true ? ['--verbose'] : []),
+      ],
+      {
+        detached: true,
+        // D-13: stdio[1]=stdout, stdio[2]=stderr → mismo fd preserva interleaving
+        // cronológico de stdout y stderr del hijo en el logfile.
+        stdio: ['ignore', logFd, logFd],
+        env: process.env,
+      },
+    );
+    child.unref(); // Pitfall #2 crítico — sin esto el padre cuelga.
+  } catch (spawnErr) {
+    // T-28-14 mitigation: fd leak protegido. Cerrar logFd explícitamente
+    // antes de re-throw para no dejar el descriptor huérfano.
+    try {
+      closeSync(logFd);
+    } catch {
+      // defensive — closeSync sobre fd ya cerrado no debe propagar
+    }
+    throw spawnErr;
+  }
 
   // Bounded wait D-10 timeout 2s: poll PID file + isPidAlive.
   const deadline = Date.now() + 2000;

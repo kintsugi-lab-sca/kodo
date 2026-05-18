@@ -22,7 +22,15 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  statSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -199,6 +207,243 @@ describe('kodo polling start --verbose (Phase 28 DAEMON-01)', () => {
       existsSync(ndjsonPath),
       true,
       'baseLogger SIEMPRE creates NDJSON sink at ~/.kodo/logs/polling.ndjson',
+    );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 28 Plan 28-03 Task 4 — DAEMON-02 logfile lifecycle integration.
+// Validates ROADMAP AC#2:
+//   - Daemon crash → logfile contains stack trace (D-13 fd redirect).
+//   - Logfile mode 0o600 + filename `polling-YYYY-MM-DD.log` (D-14/D-16).
+//   - Daemon --verbose writes NDJSON summary lines to logfile (D-17).
+//   - D-18 separation of concerns: daemon logfile path ≠ NDJSON sink raíz path.
+//
+// Pattern: spawn `kodo polling start` as DAEMON (sin --no-daemon) with fixture
+// HOME-isolated. Opción B (resuelve blocker checker #3): la env var
+// `KODO_TEST_FORCE_THROW` (Task 3) fuerza throw POST-spawn del hijo dentro de
+// `processRepo`. El fd redirect (D-13) captura el stack trace en el logfile.
+// La env var requiere `NODE_ENV=test` como doble guard — NUNCA se activa en
+// producción.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Construye el path del logfile esperado para la fecha local actual,
+ * espejo de `src/cli/polling-logfile.js#resolveLogfilePath`. Lo hacemos
+ * inline aquí para evitar acoplamiento con el cache ESM del módulo bajo
+ * test (que vive en otro proceso — el child daemon).
+ *
+ * @param {string} tmpHome
+ * @returns {string}
+ */
+function expectedLogfilePath(tmpHome) {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return join(tmpHome, '.kodo', 'logs', `polling-${y}-${m}-${d}.log`);
+}
+
+/**
+ * Spawnea `kodo polling start` (DAEMON path — sin --no-daemon) con env vars
+ * inyectables. Retorna cuando el padre exitea (debe ser ≤2s exit 0 normalmente,
+ * o exit 1 si el PID write times out).
+ *
+ * Captura stderr del PADRE para diagnóstico de fallos del spawn. NO captura
+ * stdout del HIJO — ese va al logfile via fd redirect (D-13).
+ *
+ * @param {{
+ *   tmpHome: string,
+ *   extraEnv?: Record<string, string>,
+ *   verbose?: boolean,
+ * }} opts
+ * @returns {Promise<{ stderr: string, exitCode: number | null }>}
+ */
+async function spawnDaemon({ tmpHome, extraEnv = {}, verbose = false }) {
+  const args = [KODO_BIN, 'polling', 'start'];
+  if (verbose) args.push('--verbose');
+  const child = spawn(process.execPath, args, {
+    env: {
+      ...process.env,
+      HOME: tmpHome,
+      NO_COLOR: '1',
+      GITHUB_TOKEN: '',
+      ...extraEnv,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', (d) => {
+    stderr += d.toString();
+  });
+  // El padre exitea cuando el PID file está escrito o cuando timeout (≤2s).
+  const exitCode = await new Promise((resolve) => {
+    child.on('exit', (code) => resolve(code));
+  });
+  return { stderr, exitCode };
+}
+
+/**
+ * Kill safe del daemon spawneado (lee PID file y manda SIGTERM, fail-open).
+ *
+ * @param {string} tmpHome
+ */
+function killDaemon(tmpHome) {
+  const pidPath = join(tmpHome, '.kodo', 'polling.pid');
+  if (!existsSync(pidPath)) return;
+  try {
+    const payload = JSON.parse(readFileSync(pidPath, 'utf-8'));
+    if (typeof payload?.pid === 'number') {
+      try {
+        process.kill(payload.pid, 'SIGTERM');
+      } catch {
+        // proceso ya muerto — OK
+      }
+    }
+  } catch {
+    // PID file corrupto — OK
+  }
+}
+
+describe('kodo polling start daemon logfile (Phase 28 DAEMON-02)', () => {
+  /** @type {string | undefined} */
+  let _tmpHome;
+  afterEach(() => {
+    if (_tmpHome) {
+      killDaemon(_tmpHome);
+      try {
+        rmSync(_tmpHome, { recursive: true, force: true });
+      } catch {}
+    }
+    _tmpHome = undefined;
+  });
+
+  it('AC#2: daemon crash → logfile contiene stack trace + mode 0o600 + filename `polling-YYYY-MM-DD.log` (D-13/D-14/D-16)', async () => {
+    _tmpHome = makeFixture({ pollInterval: 1 });
+    // Opción B (resuelve blocker checker #3): la env var KODO_TEST_FORCE_THROW
+    // (Task 3) fuerza throw POST-spawn del hijo dentro de processRepo. El fd
+    // redirect (D-13) captura el stack trace en el logfile. La env var
+    // requiere NODE_ENV=test como doble guard — NUNCA se activa en producción.
+    const { exitCode: parentExit } = await spawnDaemon({
+      tmpHome: _tmpHome,
+      extraEnv: {
+        GITHUB_TOKEN: 'fake_token_for_test',
+        NODE_ENV: 'test',
+        KODO_TEST_FORCE_THROW: 'true',
+      },
+      verbose: false,
+    });
+    // El padre puede exit 0 (PID file escrito antes del crash) o 1 (timeout
+    // si el hijo crasheó antes del writePidFile). AMBOS son aceptables para
+    // este test — lo que importa es que el LOGFILE capturó el stack trace
+    // via fd redirect del padre.
+    assert.ok(
+      parentExit === 0 || parentExit === 1,
+      `parent exit ${parentExit} debe ser 0 o 1 (PID-written o timeout)`,
+    );
+
+    // Esperar a que el hijo arranque, throw, y cierre. El logfile fue abierto
+    // por el padre PRE-spawn, así que existe desde el inicio.
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const logfilePath = expectedLogfilePath(_tmpHome);
+
+    // D-14: filename format `polling-YYYY-MM-DD.log`.
+    assert.match(
+      logfilePath,
+      /polling-\d{4}-\d{2}-\d{2}\.log$/,
+      'D-14: filename format correcto',
+    );
+
+    // D-13 + D-16: archivo creado por openSync del padre con mode 0o600.
+    assert.equal(existsSync(logfilePath), true, 'logfile existe (creado por openSync del padre)');
+    const mode = statSync(logfilePath).mode & 0o777;
+    assert.equal(mode, 0o600, `D-16: logfile mode 0o600, got 0o${mode.toString(8)}`);
+
+    // D-13: contenido del logfile incluye el mensaje del throw + stack trace
+    // de Node. El uncaught exception del hijo se imprime a stderr → fd redirect
+    // → logfile.
+    const content = readFileSync(logfilePath, 'utf-8');
+    assert.match(
+      content,
+      /KODO_TEST_FORCE_THROW.*test-induced crash/,
+      `logfile debe contener el mensaje del throw, got: ${JSON.stringify(content).slice(0, 500)}`,
+    );
+    assert.match(
+      content,
+      /at\s+\S+|Error:/,
+      `logfile debe contener stack trace de Node ('at ' frames o 'Error:'), got: ${JSON.stringify(content).slice(0, 500)}`,
+    );
+  });
+
+  it('D-17: daemon --verbose escribe NDJSON polling.tick.summary al logfile (no-TTY → JSON)', async () => {
+    _tmpHome = makeFixture({ pollInterval: 1 });
+    // SIN KODO_TEST_FORCE_THROW — flow normal: hijo arranca, hace ≥1 tick,
+    // emite polling.tick.summary que el wrapLoggerForSummary duplica a stdout.
+    // El stdout del hijo va al logfile via fd redirect (D-13). Como el hijo
+    // detached no es TTY (stdio['ignore', logFd, logFd]), el wrapper toma la
+    // branch NDJSON (DX-06).
+    const { exitCode: parentExit } = await spawnDaemon({
+      tmpHome: _tmpHome,
+      extraEnv: { GITHUB_TOKEN: 'fake_token_for_test' },
+      verbose: true,
+    });
+    assert.equal(parentExit, 0, 'parent exit 0 (PID file escrito ≤2s)');
+
+    // Wait para ≥1 tick (poll_interval=1s).
+    await new Promise((r) => setTimeout(r, 3500));
+
+    // Kill el daemon para que cierre y flushee el stdout buffer al logfile.
+    killDaemon(_tmpHome);
+    await new Promise((r) => setTimeout(r, 500));
+
+    const logfilePath = expectedLogfilePath(_tmpHome);
+    assert.equal(existsSync(logfilePath), true, 'logfile existe');
+    const content = readFileSync(logfilePath, 'utf-8');
+    assert.match(
+      content,
+      /"event":\s*"polling\.tick\.summary"|polling\.tick\.summary/,
+      `D-17: logfile debe contener polling.tick.summary NDJSON, got: ${JSON.stringify(content).slice(0, 500)}`,
+    );
+  });
+
+  it('D-18: separation of concerns — daemon logfile path ≠ NDJSON sink raíz path', async () => {
+    _tmpHome = makeFixture({ pollInterval: 1 });
+    // Spawn normal (sin crash, sin verbose) — flujo happy path para verificar
+    // que daemon logfile y NDJSON sink raíz son ARCHIVOS DISTINTOS y AMBOS se
+    // crean.
+    const { exitCode: parentExit } = await spawnDaemon({
+      tmpHome: _tmpHome,
+      extraEnv: { GITHUB_TOKEN: 'fake_token_for_test' },
+      verbose: false,
+    });
+    assert.equal(parentExit, 0, 'parent exit 0');
+
+    // Wait para ≥1 tick — asegura que el NDJSON sink raíz reciba al menos
+    // un evento (polling.tick.summary del baseLogger SIEMPRE).
+    await new Promise((r) => setTimeout(r, 3500));
+    killDaemon(_tmpHome);
+    await new Promise((r) => setTimeout(r, 500));
+
+    const logfilePath = expectedLogfilePath(_tmpHome);
+    const ndjsonSinkPath = join(_tmpHome, '.kodo', 'logs', 'polling.ndjson');
+
+    assert.notEqual(
+      logfilePath,
+      ndjsonSinkPath,
+      'D-18: daemon logfile path ≠ NDJSON sink path (separation of concerns)',
+    );
+    // El logfile daemon (fd redirect) existe.
+    assert.equal(
+      existsSync(logfilePath),
+      true,
+      'daemon logfile existe (fd redirect del padre)',
+    );
+    // El NDJSON sink raíz también existe (baseLogger SIEMPRE propagado, Plan 28-02).
+    assert.equal(
+      existsSync(ndjsonSinkPath),
+      true,
+      'NDJSON sink raíz existe (baseLogger del hijo)',
     );
   });
 });
