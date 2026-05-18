@@ -1428,38 +1428,69 @@ describe('startPolling — DAEMON-02 KODO_TEST_FORCE_THROW seam (Phase 28)', () 
     assert.equal(client.calls.listIssues.length, 1, 'flow normal — listIssues fue invocado');
   });
 
-  it('NODE_ENV === "test" + KODO_TEST_FORCE_THROW === "true": processRepo throws ANTES de listIssues', async () => {
+  it('NODE_ENV === "test" + KODO_TEST_FORCE_THROW === "true": seam emite throw via process.nextTick (uncaughtException)', async () => {
     process.env.NODE_ENV = 'test';
     process.env.KODO_TEST_FORCE_THROW = 'true';
     const { clock } = createTestClock();
     const client = makeFakeClient();
     const captured = [];
     const logger = makeFakeLogger(captured);
-    handle = startPolling({
-      client,
-      repos: [{ owner: 'octocat', repo: 'hello-world' }],
-      intervalSec: 60,
-      clock,
-      statePath,
-      logger,
-    });
-    await drainMicrotasks();
-    // El throw ocurre ANTES del client.listIssues (primera línea de processRepo).
-    assert.equal(client.calls.listIssues.length, 0, 'listIssues NO fue invocado — throw pre-network');
-    // El throw está FUERA del try/catch interno del retry loop (que está dentro
-    // del `while`), así que propaga al kick-off `Promise.resolve().then(tick)`
-    // y se emite via la branch top-level `polling.loop.error`. En el child
-    // daemon real (Task 4 integration), este flow se manifiesta como stack
-    // trace de Node a stderr → capturado por fd redirect (D-13) al logfile.
-    const errorEvents = captured.filter((e) => e.msg === 'polling.loop.error');
-    assert.ok(
-      errorEvents.length >= 1,
-      `al menos 1 polling.loop.error capturado, got: ${JSON.stringify(captured)}`,
+
+    // Intercepta uncaughtException temporalmente. process.nextTick(throw)
+    // escapa al .catch() del Promise top-level y va al handler global —
+    // exactamente el flow que en el child daemon real se traduce en stack
+    // trace de Node a stderr → fd redirect (D-13) → logfile.
+    /** @type {Error[]} */
+    const uncaughtErrors = [];
+    /** @type {Array<((err: Error) => void) | NodeJS.UncaughtExceptionListener>} */
+    const previousListeners = process.listeners('uncaughtException').slice();
+    process.removeAllListeners('uncaughtException');
+    const intercept = (err) => {
+      uncaughtErrors.push(err);
+    };
+    process.on('uncaughtException', intercept);
+
+    try {
+      handle = startPolling({
+        client,
+        repos: [{ owner: 'octocat', repo: 'hello-world' }],
+        intervalSec: 60,
+        clock,
+        statePath,
+        logger,
+      });
+      // Esperar al primer tick (microtask) Y al process.nextTick del seam.
+      await drainMicrotasks();
+      await drainMicrotasks();
+    } finally {
+      process.removeListener('uncaughtException', intercept);
+      // Restaurar listeners previos.
+      for (const l of previousListeners) {
+        process.on('uncaughtException', /** @type {any} */ (l));
+      }
+    }
+
+    // El seam corre en processRepo ANTES del client.listIssues — el throw
+    // va via process.nextTick, así que el throw NO bloquea el resto del tick
+    // (que SÍ procede a listIssues). En el child daemon real, este throw
+    // será uncaughtException (sin handler) y Node imprimirá el stack trace
+    // a stderr → logfile via fd redirect.
+    assert.equal(
+      uncaughtErrors.length,
+      1,
+      `exactamente 1 uncaughtException, got: ${JSON.stringify(uncaughtErrors.map((e) => e.message))}`,
     );
     assert.match(
-      errorEvents[0].error || '',
+      uncaughtErrors[0].message,
       /KODO_TEST_FORCE_THROW: test-induced crash/,
-      `polling.loop.error debe contener el mensaje del throw, got: ${JSON.stringify(errorEvents[0])}`,
+      `mensaje del throw, got: ${uncaughtErrors[0].message}`,
+    );
+    // Sanity: el stack trace existe (Task 4 integration valida esto en el
+    // logfile real via fd redirect).
+    assert.match(
+      uncaughtErrors[0].stack || '',
+      /at\s+/,
+      'Error.stack debe contener frames "at ..."',
     );
   });
 
