@@ -29,7 +29,10 @@
   2. Cuando el daemon crashea (SIGSEGV simulado, throw no capturado, etc.), el operador encuentra stack trace inspectable via `cat ~/.kodo/logs/polling-YYYY-MM-DD.log` — el archivo existe con permisos 0o600 y contiene el error completo.
   3. Cualquier consumer que llame `getProvider('github').listPendingTasks()` y luego `shouldDispatch(task)` evalúa contra `task.updated_at` y `task.created_at` reales (ISO strings), nunca `undefined`. `test/providers/github/normalize.test.js` lo asserta directo y `test/triggers/polling.test.js` añade caso provider-only path GREEN.
   4. Suite global ≥780 pass + 0 fail (777 baseline + ≥3 nuevos: 1 normalize + 1 polling provider-only + 1 daemon `--verbose` integration). 1 skip pre-existente preservado.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 28-01-PLAN.md — POLL-FIX-01: TaskItem 11→13 fields canónicos + normalizers GitHub/Plane simétricos + contract matrix +2 type asserts × 2 providers + test polling provider-only GREEN
+- [ ] 28-02-PLAN.md — DAEMON-01: evento polling.tick.summary (closed taxonomy 18→19) + emisión cross-repo al final del tick + flag Commander --verbose + foreground subscriber via createFormatter + test integration spawn
+- [ ] 28-03-PLAN.md — DAEMON-02: módulo polling-logfile.js (resolveLogfilePath + ensureLogsDir + sweepRetention) + fd redirect en daemon spawn (stdio: [ignore, logFd, logFd]) + test unit logfile HOME-isolated + test integration daemon crash
 **UI hint**: no
 
 ### Phase 29: GSD Provider Reporting Integration
@@ -85,7 +88,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 28. Polling/Daemon Hardening | 0/TBD | Not started | - |
+| 28. Polling/Daemon Hardening | 0/3 | Planned | - |
 | 29. GSD Provider Reporting Integration | 0/TBD | Not started | - |
 | 30. SessionRecord Lifecycle | 0/TBD | Not started | - |
 | 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
