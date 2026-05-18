@@ -1391,6 +1391,97 @@ describe('startPolling — DAEMON-01 polling.tick.summary (Phase 28)', () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// Phase 28 Plan 28-03 Task 3 — KODO_TEST_FORCE_THROW test seam coverage.
+// ────────────────────────────────────────────────────────────────────────────
+describe('startPolling — DAEMON-02 KODO_TEST_FORCE_THROW seam (Phase 28)', () => {
+  /** @type {string | undefined} */
+  let _prevForce;
+  /** @type {string | undefined} */
+  let _prevNodeEnv;
+
+  beforeEach(() => {
+    _prevForce = process.env.KODO_TEST_FORCE_THROW;
+    _prevNodeEnv = process.env.NODE_ENV;
+  });
+
+  afterEach(() => {
+    if (_prevForce === undefined) delete process.env.KODO_TEST_FORCE_THROW;
+    else process.env.KODO_TEST_FORCE_THROW = _prevForce;
+    if (_prevNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = _prevNodeEnv;
+  });
+
+  it('NODE_ENV !== "test": KODO_TEST_FORCE_THROW ignorado completamente (defense in depth)', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.KODO_TEST_FORCE_THROW = 'true';
+    const { clock } = createTestClock();
+    const client = makeFakeClient();
+    handle = startPolling({
+      client,
+      repos: [{ owner: 'octocat', repo: 'hello-world' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    // Flow normal: client.listIssues fue invocado, sin throw.
+    assert.equal(client.calls.listIssues.length, 1, 'flow normal — listIssues fue invocado');
+  });
+
+  it('NODE_ENV === "test" + KODO_TEST_FORCE_THROW === "true": processRepo throws ANTES de listIssues', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.KODO_TEST_FORCE_THROW = 'true';
+    const { clock } = createTestClock();
+    const client = makeFakeClient();
+    const captured = [];
+    const logger = makeFakeLogger(captured);
+    handle = startPolling({
+      client,
+      repos: [{ owner: 'octocat', repo: 'hello-world' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+      logger,
+    });
+    await drainMicrotasks();
+    // El throw ocurre ANTES del client.listIssues (primera línea de processRepo).
+    assert.equal(client.calls.listIssues.length, 0, 'listIssues NO fue invocado — throw pre-network');
+    // El throw está FUERA del try/catch interno del retry loop (que está dentro
+    // del `while`), así que propaga al kick-off `Promise.resolve().then(tick)`
+    // y se emite via la branch top-level `polling.loop.error`. En el child
+    // daemon real (Task 4 integration), este flow se manifiesta como stack
+    // trace de Node a stderr → capturado por fd redirect (D-13) al logfile.
+    const errorEvents = captured.filter((e) => e.msg === 'polling.loop.error');
+    assert.ok(
+      errorEvents.length >= 1,
+      `al menos 1 polling.loop.error capturado, got: ${JSON.stringify(captured)}`,
+    );
+    assert.match(
+      errorEvents[0].error || '',
+      /KODO_TEST_FORCE_THROW: test-induced crash/,
+      `polling.loop.error debe contener el mensaje del throw, got: ${JSON.stringify(errorEvents[0])}`,
+    );
+  });
+
+  it('NODE_ENV === "test" pero KODO_TEST_FORCE_THROW unset: flow normal (sin throw)', async () => {
+    process.env.NODE_ENV = 'test';
+    delete process.env.KODO_TEST_FORCE_THROW;
+    const { clock } = createTestClock();
+    const client = makeFakeClient();
+    handle = startPolling({
+      client,
+      repos: [{ owner: 'octocat', repo: 'hello-world' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    // Sin la env var, el guard NO se activa: flow normal.
+    assert.equal(client.calls.listIssues.length, 1, 'flow normal — listIssues invocado');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // META: wall-time guard. This must remain the LAST it() of the file — Task 2b
 // inserts its new cases BEFORE this block so the elapsed timer captures
 // everything (~22-27 total cases including this one).

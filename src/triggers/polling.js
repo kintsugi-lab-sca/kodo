@@ -255,6 +255,20 @@ async function processRepo({
   isFirstTick,
   statePath,
 }) {
+  // Phase 28 D-13 test seam (Plan 28-03 Task 3): integration test del daemon
+  // crash usa esta env var para forzar throw post-spawn del hijo, permitiendo
+  // que el fd redirect (D-13) capture el stack trace en el logfile. Doble
+  // guard NODE_ENV=test para que NUNCA se active en producción incluso si el
+  // operador la define accidentalmente. El throw propaga up del processRepo →
+  // tick closure → uncaught rejection del proceso del hijo → stderr crudo →
+  // fd redirect (D-13) → logfile.
+  if (
+    process.env.NODE_ENV === 'test' &&
+    process.env.KODO_TEST_FORCE_THROW === 'true'
+  ) {
+    throw new Error('KODO_TEST_FORCE_THROW: test-induced crash');
+  }
+
   const key = `${owner}/${repo}`;
   const prev = cache[key] || {};
   let attempt = 0;
