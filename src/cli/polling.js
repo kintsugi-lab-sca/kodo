@@ -30,6 +30,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { createFormatter } from './format.js';
 import { isPidAlive } from '../gsd/lock.js';
 import { loadConfig } from '../config.js';
+import { createLogger } from '../logger.js';
+import { EVENTS } from '../logger-events.js';
 import {
   writePidFile,
   readPidFile,
@@ -175,7 +177,7 @@ function resolveKodoBin() {
 }
 
 /**
- * @typedef {{ noDaemon?: boolean, json?: boolean }} PollingStartCliOpts
+ * @typedef {{ noDaemon?: boolean, json?: boolean, verbose?: boolean }} PollingStartCliOpts
  *
  * @typedef {{
  *   writeFn?: (s: string) => void,
@@ -222,7 +224,7 @@ export async function runPollingStartCli(opts, deps = {}) {
 
   // --no-daemon (foreground) path — cross-platform.
   if (opts.noDaemon === true) {
-    return runForegroundPolling({ config, reposRaw });
+    return runForegroundPolling({ config, reposRaw, verbose: opts.verbose === true });
   }
 
   // Daemon path — Windows refuse-with-guidance FIRST (W-2 LOCKED / Pitfall #8).
@@ -243,10 +245,18 @@ export async function runPollingStartCli(opts, deps = {}) {
   }
 
   // Spawn detached child con argv absolute (Security T-26-EOP elevation mitigation).
+  // Phase 28 D-07: propagate --verbose to the daemon child so its summary lines
+  // surface in the logfile (via fd redirect, owned by Plan 28-03 / D-13).
   const KODO_BIN = resolveKodoBin();
   const child = spawn(
     process.execPath,
-    [KODO_BIN, 'polling', 'start', '--no-daemon'],
+    [
+      KODO_BIN,
+      'polling',
+      'start',
+      '--no-daemon',
+      ...(opts.verbose === true ? ['--verbose'] : []),
+    ],
     { detached: true, stdio: 'ignore', env: process.env },
   );
   child.unref(); // Pitfall #2 crítico — sin esto el padre cuelga.
@@ -269,20 +279,44 @@ export async function runPollingStartCli(opts, deps = {}) {
  * via `await import(...)` para que el parent module no pague el coste si solo
  * se llama `status` o `stop`.
  *
- * @param {{ config: any, reposRaw: Array<{owner: string, repo: string}> }} ctx
+ * Phase 28 D-07/D-09 changes:
+ *   - `createLogger` se construye SIEMPRE (BLOCKER #1 fix de la phase: pre-28
+ *     foreground NO propagaba logger → polling.tick / polling.dispatch nunca
+ *     llegaban al sink NDJSON raíz). Cambio adyacente acceptable declarado en
+ *     el plan 28-02 objective: el sink raíz `~/.kodo/logs/<session>.ndjson` es
+ *     el diseñado para telemetría estructurada (D-18 Phase 28 separation of
+ *     concerns), así que propagar logger en foreground es desiderable.
+ *   - Cuando `verbose === true`, wrapeamos el logger con un proxy que duplica
+ *     `polling.tick.summary` a `process.stdout`: TTY → columnar humano via
+ *     `createFormatter` (D-09), no-TTY → NDJSON byte-determinístico (DX-06).
+ *   - Cualquier otro evento que pase por logger.info (polling.tick per-repo,
+ *     polling.dispatch) sigue al sink NDJSON sin tocar stdout — el operador
+ *     foreground solo ve la summary line por tick, mantenemos signal:noise.
+ *
+ * @param {{ config: any, reposRaw: Array<{owner: string, repo: string}>, verbose?: boolean }} ctx
  * @returns {Promise<number>}
  */
-async function runForegroundPolling({ config, reposRaw }) {
+async function runForegroundPolling({ config, reposRaw, verbose = false }) {
   // W-6 LOCKED — lazy import dentro del branch foreground.
   const { startPolling } = await import('../triggers/polling.js');
   const { initRegistry, getProvider } = await import('../providers/registry.js');
   await initRegistry();
   const provider = getProvider('github');
 
+  // Phase 28 D-07: SIEMPRE construir baseLogger para propagar telemetría al
+  // sink NDJSON raíz, independientemente de --verbose. Pre-Phase-28 foreground
+  // ejecutaba startPolling SIN logger, perdiendo polling.tick / polling.dispatch
+  // / polling.tick.summary del archivo de telemetría diseñado para recogerlos.
+  const baseLogger = createLogger({ sessionId: 'polling', minLevel: 'info' });
+  const logger = verbose
+    ? wrapLoggerForSummary(baseLogger, createFormatter(process.stdout), process.stdout)
+    : baseLogger;
+
   const handle = startPolling({
     provider,
     repos: reposRaw,
     intervalSec: config?.providers?.github?.poll_interval || 60,
+    logger,
   });
 
   // Write PID file (D-15 shape: human-readable "owner/repo" strings).
@@ -304,6 +338,89 @@ async function runForegroundPolling({ config, reposRaw }) {
   // Block forever — startPolling tiene su propio timer loop.
   await new Promise(() => {});
   return 0; // unreachable; satisfaces TS contract.
+}
+
+/**
+ * Logger wrapper para `--verbose`: delega todo al baseLogger Y duplica
+ * `polling.tick.summary` al stream provisto. Mirror del patrón "tap" de
+ * Phase 16 `markSessionStatus` — interceptamos solo el evento específico,
+ * el resto pasa transparente.
+ *
+ * Rendering:
+ *   - TTY (`stream.isTTY === true` y NO `KODO_JSON`/`KODO_VERBOSE_JSON` env)
+ *     → línea columnar humana via `createFormatter`. Mirror del patrón D-09
+ *     Phase 14: `dim(timestamp) · cyan(event) · key=value · key=value · ...`.
+ *   - No-TTY o `--json` → NDJSON byte-determinístico (`JSON.stringify(record) + '\n'`).
+ *     Preserva DX-06 invariant (mismos bytes TTY/no-TTY cuando `--json`).
+ *
+ * Color isolation D-07 (Phase 14): el rendering pasa por `createFormatter`
+ * provisto por el caller — NO importamos `picocolors` aquí. El test guard
+ * `test/format-isolation.test.js` blinda esto.
+ *
+ * @param {import('../logger.js').Logger} baseLogger
+ * @param {import('./format.js').Formatter} fmt
+ * @param {NodeJS.WriteStream} stream
+ * @returns {import('../logger.js').Logger}
+ */
+function wrapLoggerForSummary(baseLogger, fmt, stream) {
+  /** @type {import('../logger.js').Logger} */
+  const wrapped = {
+    info(msg, ctx) {
+      baseLogger.info(msg, ctx);
+      if (msg === EVENTS.POLLING_TICK_SUMMARY) {
+        const record = ctx || {};
+        // No-TTY → NDJSON byte-determinístico (DX-06).
+        // TTY + no --json → columnar humano via createFormatter (D-09).
+        const isTTY = Boolean(stream && stream.isTTY);
+        const useJsonOverride = process.env.KODO_JSON === '1';
+        if (isTTY && !useJsonOverride) {
+          const ts = new Date().toISOString();
+          const rl =
+            record.rate_limit_remaining == null ? '—' : String(record.rate_limit_remaining);
+          const line =
+            fmt.dim(ts) +
+            ' · ' +
+            fmt.cyan(EVENTS.POLLING_TICK_SUMMARY) +
+            ' · repos=' +
+            String(record.repos_polled) +
+            ' · dispatched=' +
+            String(record.total_dispatches) +
+            ' · rl=' +
+            rl +
+            '\n';
+          stream.write(line);
+        } else {
+          // NDJSON: stringify SOLO los 4 fields D-10 + el event tag para que el
+          // consumer pueda parsear sin ambigüedad. NO incluimos `level` ni `timestamp`
+          // del logger record (esos viven en el sink NDJSON raíz).
+          const payload = {
+            event: EVENTS.POLLING_TICK_SUMMARY,
+            repos_polled: record.repos_polled,
+            total_dispatches: record.total_dispatches,
+            rate_limit_remaining: record.rate_limit_remaining,
+            repos: record.repos,
+          };
+          stream.write(JSON.stringify(payload) + '\n');
+        }
+      }
+    },
+    warn(msg, ctx) {
+      baseLogger.warn(msg, ctx);
+    },
+    error(msg, ctx) {
+      baseLogger.error(msg, ctx);
+    },
+    debug(msg, ctx) {
+      baseLogger.debug(msg, ctx);
+    },
+    child(bindings) {
+      // Child loggers delegan al baseLogger.child (sin tap — child no debería
+      // estar en el path crítico de polling.tick.summary, pero por consistencia
+      // de la interfaz Logger lo exponemos).
+      return baseLogger.child(bindings);
+    },
+  };
+  return wrapped;
 }
 
 /**
