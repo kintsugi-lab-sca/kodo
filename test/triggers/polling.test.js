@@ -1212,6 +1212,184 @@ describe('TEST-02 NDJSON shape + invariants', () => {
   });
 });
 
+describe('startPolling — DAEMON-01 polling.tick.summary (Phase 28)', () => {
+  // Phase 28 D-10/D-12: cross-repo aggregate emitted at the end of every tick
+  // (once per tick). processRepo now returns {dispatched, rate_limit_remaining}
+  // on ALL 4 branches (304, 200, non-transient error, retries-exhausted) so the
+  // tick loop can sum dispatches and compute min cross-repo rate-limit.
+
+  it('emits exactly 1 polling.tick.summary per tick with 2 successful repos (D-10 shape)', async () => {
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient(); // default returns rate_limit_remaining: 5000
+    handle = startPolling({
+      client,
+      logger,
+      repos: [
+        { owner: 'a', repo: 'b' },
+        { owner: 'c', repo: 'd' },
+      ],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(summaries.length, 1, 'exactly 1 summary per tick');
+    assert.equal(summaries[0].repos_polled, 2);
+    assert.equal(summaries[0].total_dispatches, 0);
+    assert.equal(summaries[0].rate_limit_remaining, 5000);
+    assert.deepEqual(summaries[0].repos, ['a/b', 'c/d']);
+  });
+
+  it('D-12: rate_limit_remaining is the MIN cross-repo (most conservative)', async () => {
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async (owner /*, repo, opts */) =>
+        owner === 'a'
+          ? { status: 200, items: [], etag: undefined, rate_limit_remaining: 4823 }
+          : { status: 200, items: [], etag: undefined, rate_limit_remaining: 1500 },
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [
+        { owner: 'a', repo: 'b' },
+        { owner: 'c', repo: 'd' },
+      ],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(summaries.length, 1);
+    assert.equal(
+      summaries[0].rate_limit_remaining,
+      1500,
+      'min(4823, 1500) === 1500 — most conservative cross-repo',
+    );
+  });
+
+  it('D-12: null fallback when provider-only path (no rate-limit in envelope)', async () => {
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const provider = makeFakeProvider({ listPendingTasks: async () => [] });
+    handle = startPolling({
+      provider,
+      logger,
+      repos: [{ owner: 'x', repo: 'y' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(summaries.length, 1);
+    assert.equal(
+      summaries[0].rate_limit_remaining,
+      null,
+      'provider-only synthetic envelope has no rate_limit → summary null',
+    );
+    assert.deepEqual(summaries[0].repos, ['x/y']);
+  });
+
+  it('branch 304 surfaces envelope rate_limit_remaining (fixes "all-304 → null" bug)', async () => {
+    // Pre-populate state with etag so the next request will return 304 path.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'a/b': { last_updated_at: '2026-05-15T10:00:00Z', etag: 'W/"abc"' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 304,
+        items: [],
+        etag: 'W/"abc"',
+        rate_limit_remaining: 3777,
+      }),
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [{ owner: 'a', repo: 'b' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(summaries.length, 1);
+    assert.equal(
+      summaries[0].rate_limit_remaining,
+      3777,
+      '304 path must surface envelope rate_limit (NOT null)',
+    );
+    assert.equal(summaries[0].total_dispatches, 0);
+  });
+
+  it('error branch returns {0, null}: summary preserved with total_dispatches=0', async () => {
+    // 500 ∈ TRANSIENT_STATUSES → exhausts retries → returns {0, null}.
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => {
+        const e = /** @type {any} */ (new Error('boom'));
+        e.status = 500;
+        throw e;
+      },
+    });
+    handle = startPolling({
+      client,
+      logger,
+      repos: [{ owner: 'a', repo: 'b' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    // Drain retries: 2s + 4s + 8s. Generous advance to cover all backoffs.
+    await drainMicrotasks();
+    await advance(2000);
+    await drainMicrotasks();
+    await advance(4000);
+    await drainMicrotasks();
+    await advance(8000);
+    await drainMicrotasks();
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(summaries.length, 1, 'summary still emitted despite retries exhausted');
+    assert.equal(summaries[0].total_dispatches, 0);
+    assert.equal(summaries[0].rate_limit_remaining, null);
+    assert.deepEqual(summaries[0].repos, ['a/b'], 'repo appears in list (push BEFORE-await)');
+  });
+
+  it('D-11: per-repo polling.tick coexists with cross-repo polling.tick.summary', async () => {
+    // Two repos, two pollingTick events + exactly one pollingTickSummary.
+    const { clock } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient();
+    handle = startPolling({
+      client,
+      logger,
+      repos: [
+        { owner: 'a', repo: 'b' },
+        { owner: 'c', repo: 'd' },
+      ],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const ticks = events.filter((e) => e.msg === 'polling.tick');
+    const summaries = events.filter((e) => e.msg === 'polling.tick.summary');
+    assert.equal(ticks.length, 2, 'D-11: per-repo polling.tick preserved (one per repo)');
+    assert.equal(summaries.length, 1, 'D-10: exactly one cross-repo summary');
+  });
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // META: wall-time guard. This must remain the LAST it() of the file — Task 2b
 // inserts its new cases BEFORE this block so the elapsed timer captures

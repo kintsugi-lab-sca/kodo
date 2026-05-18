@@ -361,6 +361,11 @@ polling
   .description('Start polling daemon (default: detached background; mac/linux only)')
   .option('--no-daemon', 'Run in foreground; SIGINT/SIGTERM cancel cleanly (cross-platform)')
   .option('--json', 'Emit structured result as JSON (scriptable)')
+  .option(
+    '--verbose',
+    'Emit polling.tick.summary line per tick to stdout (foreground) or logfile (daemon). Orthogonal to --daemon. Phase 28 DAEMON-01.',
+    false,
+  )
   .action(async (opts) => {
     try {
       // NO ensureConfig() — el handler tiene su propio gate D-14 exit 2 para
@@ -370,6 +375,8 @@ polling
         // commander: `--no-daemon` se exposes como `opts.daemon === false`.
         noDaemon: opts.daemon === false,
         json: opts.json || false,
+        // Phase 28 D-07/D-08: --verbose is orthogonal to --daemon.
+        verbose: opts.verbose || false,
       });
       process.exit(code);
     } catch (err) {

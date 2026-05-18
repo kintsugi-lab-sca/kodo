@@ -1,16 +1,16 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 18 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 19 eventos de ciclo de vida.
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
 // + Phase 19 (worktree cleanup) + Phase 21 (skill sync) + Phase 23 (github client)
-// + Phase 25 (polling trigger channel):
+// + Phase 25 (polling trigger channel) + Phase 28 (polling.tick.summary cross-repo aggregate, D-10):
 //   session.start, session.end, state.transition, orchestrator.review,
 //   gsd.phase.resolved, gsd.bootstrap, plane.api.call, plane.api.call.failed,
 //   github.api.call, github.api.call.failed,
 //   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error,
 //   skill.sync.auto, skill.sync.auto.error,
-//   polling.tick, polling.dispatch, polling.error
+//   polling.tick, polling.dispatch, polling.error, polling.tick.summary
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -42,6 +42,7 @@ import { join } from 'node:path';
  *   POLLING_TICK: 'polling.tick',
  *   POLLING_DISPATCH: 'polling.dispatch',
  *   POLLING_ERROR: 'polling.error',
+ *   POLLING_TICK_SUMMARY: 'polling.tick.summary',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -62,6 +63,7 @@ export const EVENTS = Object.freeze({
   POLLING_TICK:            'polling.tick',
   POLLING_DISPATCH:        'polling.dispatch',
   POLLING_ERROR:           'polling.error',
+  POLLING_TICK_SUMMARY:    'polling.tick.summary',
 });
 
 /**
@@ -481,5 +483,53 @@ export function pollingError(logger, fields) {
     status: fields.status,
     attempt: fields.attempt,
     ...(fields.error ? { error: fields.error } : {}),
+  });
+}
+
+/**
+ * Emitido AL FINAL de cada tick agregado del polling loop, una vez por tick
+ * (D-10 Phase 28). Mientras `pollingTick` emite per-repo (granular drill-down),
+ * este emite cross-repo (agregado) para soportar el `--verbose` foreground
+ * summary line y el resumen estructurado en el logfile del daemon.
+ *
+ * Shape D-10 canónico:
+ *   {
+ *     event: 'polling.tick.summary',
+ *     repos_polled: number,          // count, NO la lista en sí
+ *     total_dispatches: number,      // suma cross-repo de dispatches en este tick
+ *     rate_limit_remaining: number | null,  // D-12: mínimo cross-repo (más conservador);
+ *                                            // null cuando ningún repo retornó header
+ *     repos: string[],               // lista de keys `owner/repo` polled en este tick
+ *   }
+ *
+ * D-11 (preserve drill-down): `pollingTick` per-repo se sigue emitiendo
+ * sin cambios — el dispatcher/--verbose es aditivo, no reemplaza al granular.
+ *
+ * D-12 (rate_limit_remaining null fallback): si ningún repo del tick retornó
+ * `rate_limit_remaining` (p.ej. todos los repos pasaron por path provider-only
+ * que no propaga rate-limit, o todos errored antes del envelope), el caller
+ * pasa `null` explícito. El helper lo preserva tal cual — NO sustituye por 0.
+ *
+ * Invariante T-25-02 (Information disclosure): el helper SOLO emite contadores
+ * + lista de repos string keys (`owner/repo`). JAMÁS body, título, ref completo
+ * (esa info ya viaja en `pollingDispatch` per-event), ni payload raw del issue.
+ * Whitelist explícito field-by-field — NO spread `...fields` para evitar leaks
+ * accidentales si el caller pasa propiedades extra.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   repos_polled: number,
+ *   total_dispatches: number,
+ *   rate_limit_remaining: number | null,
+ *   repos: string[],
+ * }} fields
+ */
+export function pollingTickSummary(logger, fields) {
+  logger.info(EVENTS.POLLING_TICK_SUMMARY, {
+    event: EVENTS.POLLING_TICK_SUMMARY,
+    repos_polled: fields.repos_polled,
+    total_dispatches: fields.total_dispatches,
+    rate_limit_remaining: fields.rate_limit_remaining,
+    repos: fields.repos,
   });
 }
