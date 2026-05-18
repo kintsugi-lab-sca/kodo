@@ -76,6 +76,8 @@ export function normalizeWorkItem(workItem, context) {
     url: `${context.baseUrl}/${context.workspaceSlug}/browse/${ref}`,
     priority: VALID_PRIORITIES.includes(workItem.priority) ? workItem.priority : null,
     state: workItem.state_detail?.name || context.stateMap?.get(workItem.state) || undefined,
+    updated_at: workItem.updated_at,    // D-03 Phase 28: paridad cross-provider
+    created_at: workItem.created_at,    // D-03 Phase 28: paridad cross-provider
   };
 }
 

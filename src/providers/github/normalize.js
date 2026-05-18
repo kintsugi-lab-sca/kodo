@@ -16,8 +16,9 @@
  * - D-16: TaskItem.state = issue.state literal ('open'|'closed', no transformation).
  * - D-17: TaskItem.priority extracted from `priority:<value>` label, whitelist
  *         urgent/high/medium/low (case-insensitive, no aliases, default null).
- * - D-18: ZERO leaks — TaskItem has EXACTLY the 11 canonical fields, no GitHub-only
- *         fields (pull_request, assignees, milestone, user, comments, locked, etc.).
+ * - D-18: ZERO leaks — TaskItem has EXACTLY the 13 canonical fields (Phase 28 D-01:
+ *         updated_at + created_at added), no GitHub-only fields (pull_request,
+ *         assignees, milestone, user, comments, locked, state_reason, reactions, etc.).
  */
 
 import { VALID_PRIORITIES } from '../../interface.js';
@@ -70,11 +71,11 @@ export function extractPriority(labels) {
  *
  * Pure function — no API calls, no side effects (D-06).
  *
- * The returned object has EXACTLY the 11 canonical TaskItem fields (D-18):
- * id, ref, title, description, labels, projectId, projectName, groups, url,
- * priority, state. No GitHub-only fields (pull_request, assignees, milestone,
- * user, comments, locked, state_reason, created_at, updated_at, reactions, etc.)
- * leak through.
+ * The returned object has EXACTLY the 13 canonical TaskItem fields (D-18 reformulado
+ * por Phase 28 D-01): id, ref, title, description, labels, projectId, projectName,
+ * groups, url, priority, state, updated_at, created_at. No GitHub-only fields
+ * (pull_request, assignees, milestone, user, comments, locked, state_reason,
+ * reactions, etc.) leak through.
  *
  * @param {object} issue - Raw GitHub API issue payload (response from /repos/:owner/:repo/issues/:number)
  * @param {NormalizeContext} context - Resolution context (projectId = 'owner/repo')
@@ -101,5 +102,7 @@ export function normalizeIssue(issue, context) {
     url: issue.html_url,                            // D-15
     priority: extractPriority(issue.labels),        // D-17
     state: issue.state,                             // D-16: 'open'|'closed' literal
+    updated_at: issue.updated_at,                   // D-02 Phase 28: ISO 8601 (always present)
+    created_at: issue.created_at,                   // D-02 Phase 28: ISO 8601 (always present)
   };
 }
