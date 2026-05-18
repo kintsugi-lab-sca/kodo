@@ -17,7 +17,8 @@ import issueNoLabelsFixture from '../../fixtures/github/issue-no-labels.json' wi
 /** @type {import('../../../src/providers/github/normalize.js').NormalizeContext} */
 const defaultContext = { projectId: 'octocat/hello-world' };
 
-// D-18 leak guard (W9): TaskItem must have EXACTLY these 11 canonical fields,
+// D-18 leak guard (W9), reformulado por Phase 28 D-01: TaskItem must have
+// EXACTLY these 13 canonical fields (updated_at + created_at añadidos),
 // no GitHub-only leaks (pull_request, assignees, user, milestone, comments, etc.).
 const CANONICAL_KEYS = [
   'id',
@@ -31,6 +32,8 @@ const CANONICAL_KEYS = [
   'url',
   'priority',
   'state',
+  'updated_at',  // D-01 Phase 28
+  'created_at',  // D-01 Phase 28
 ];
 
 describe('normalizeIssue', () => {
@@ -52,15 +55,25 @@ describe('normalizeIssue', () => {
     );
     assert.equal(result.state, 'open', 'D-16: state literal');
     assert.equal(result.priority, null, 'D-17: no priority label → null');
+    assert.equal(
+      result.updated_at,
+      '2026-05-14T08:00:00Z',
+      'D-02 Phase 28: updated_at passthrough literal',
+    );
+    assert.equal(
+      result.created_at,
+      '2026-05-14T07:00:00Z',
+      'D-02 Phase 28: created_at passthrough literal',
+    );
   });
 
-  it('D-18 leak guard: result has EXACTLY 11 canonical TaskItem keys, no GitHub-only fields', () => {
+  it('D-18 leak guard: result has EXACTLY 13 canonical TaskItem keys, no GitHub-only fields', () => {
     const result = normalizeIssue(issueFixture, defaultContext);
     const actualKeys = Object.keys(result).sort();
     assert.deepEqual(
       actualKeys,
       [...CANONICAL_KEYS].sort(),
-      'D-18: TaskItem must have exactly the 11 canonical fields (no pull_request, assignees, user, comments, locked, state_reason, created_at, updated_at, milestone, etc.)',
+      'D-18 (reformulado Phase 28 D-01): TaskItem must have exactly the 13 canonical fields (no pull_request, assignees, user, comments, locked, state_reason, milestone, reactions, etc.)',
     );
   });
 

@@ -10,7 +10,11 @@
  * INVARIANTE ESTRUCTURAL (Pitfall #3): TODOS los `it(...)` viven DENTRO del
  * `for (const providerName of PROVIDERS) describe(...)` loop. Cero `it()` top-level.
  * Plan-checker valida con grep que no haya tests asimétricos. El test count se
- * deriva por construcción: `PROVIDERS.length × N_asserts` (7 × 2 = 14 casos).
+ * deriva por construcción: `PROVIDERS.length × N_asserts` (7 × 2 = 14 casos en
+ * el plan original; Phase 28 D-04 extiende `assertTaskItemShape` con 2 type
+ * asserts sobre `updated_at`/`created_at`, manteniendo el mismo 7 `it()` por
+ * provider pero validando ahora 9 type asserts × 2 providers = 18 cases dentro
+ * del helper compartido).
  *
  * DI divergence (Pitfall #2 + #7):
  *   - Plane: `globalThis.fetch` stub (no acepta `opts.client` injection nativa).
@@ -22,10 +26,11 @@
  * Shape diff (W-1 acceptance):
  *   El plan original asertaba "exactly 11 canonical fields"; tras revisar los
  *   normalizers Plane (`state: workItem.state_detail?.name || … || undefined`)
- *   y GitHub (`state: issue.state` literal), AMBOS emiten 11 keys consistentes
- *   (la key existe aunque el valor sea undefined). Aún así, `assertTaskItemShape`
- *   usa SUBSET check (keys ⊆ CANONICAL) + required-present check para tolerar
- *   futuras divergencias legítimas y mantener fail-loud en field leaks (D-18).
+ *   y GitHub (`state: issue.state` literal), AMBOS emiten 13 keys consistentes
+ *   post-Phase-28 D-01 (updated_at + created_at REQUIRED; la key existe aunque
+ *   el valor de state sea undefined). Aún así, `assertTaskItemShape` usa SUBSET
+ *   check (keys ⊆ CANONICAL) + required-present check para tolerar futuras
+ *   divergencias legítimas y mantener fail-loud en field leaks (D-18 reformulado).
  */
 
 import { describe, it, beforeEach, afterEach, before, after } from 'node:test';
@@ -69,8 +74,9 @@ after(() => {
 const PROVIDERS = Object.freeze(['plane', 'github']);
 
 /**
- * Los 11 fields canonical del TaskItem typedef (`src/interface.js:11-24`).
- * Anclado en D-18 cross-provider leak guard. Si se añade un campo al typedef,
+ * Los 13 fields canonical del TaskItem typedef (`src/interface.js:11-26`, Phase 28 D-01).
+ * Anclado en D-18 cross-provider leak guard (reformulado por Phase 28 D-01: 11 → 13
+ * fields, `updated_at` + `created_at` REQUIRED). Si se añade un campo al typedef,
  * este array DEBE actualizarse y los normalizers DEBEN emitirlo — el matrix
  * revienta loud en caso contrario.
  */
@@ -86,6 +92,8 @@ const CANONICAL_TASK_ITEM_KEYS = Object.freeze([
   'url',
   'priority',
   'state',
+  'updated_at',  // D-04 Phase 28
+  'created_at',  // D-04 Phase 28
 ]);
 
 /** Los 5 priority values válidos (subset de VALID_PRIORITIES + null). */
@@ -164,6 +172,17 @@ function assertTaskItemShape(task, providerName) {
   assert.ok(
     task.priority === null || VALID_PRIORITY_VALUES.includes(task.priority),
     `[${providerName}] priority must be null or one of ${JSON.stringify(VALID_PRIORITY_VALUES)}, got: ${task.priority}`,
+  );
+  // D-04 Phase 28: timestamps REQUIRED como string ISO 8601 UTC en ambos providers.
+  assert.equal(
+    typeof task.updated_at,
+    'string',
+    `[${providerName}] updated_at must be string ISO`,
+  );
+  assert.equal(
+    typeof task.created_at,
+    'string',
+    `[${providerName}] created_at must be string ISO`,
   );
 }
 

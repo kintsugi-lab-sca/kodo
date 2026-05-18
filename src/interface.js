@@ -20,6 +20,8 @@
  *   url: string,
  *   priority: 'urgent'|'high'|'medium'|'low'|'none'|null,
  *   state?: string,
+ *   updated_at: string,    // D-01 Phase 28: REQUIRED ISO 8601 UTC string
+ *   created_at: string,    // D-01 Phase 28: REQUIRED ISO 8601 UTC string
  * }} TaskItem
  */
 
