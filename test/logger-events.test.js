@@ -45,14 +45,15 @@ const {
   pollingTick,
   pollingDispatch,
   pollingError,
+  pollingTickSummary,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
   return join(fixture.homeDir, '.kodo', 'logs', `${sessionId}.ndjson`);
 }
 
-describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel)', () => {
-  it('EVENTS is frozen and contains the 18 canonical types', () => {
+describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
+  it('EVENTS is frozen and contains the 19 canonical types (Phase 28 D-10 grew 18 → 19)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -66,6 +67,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'polling.dispatch',
       'polling.error',
       'polling.tick',
+      'polling.tick.summary',
       'session.end',
       'session.start',
       'skill.sync.auto',
@@ -75,6 +77,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
+    assert.equal(Object.keys(EVENTS).length, 19, 'EVENTS key count must equal 19 post-Phase-28');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
@@ -515,5 +518,78 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
     const [withoutErr, withErr] = lines.slice(-2);
     assert.equal('error' in withoutErr, false);
     assert.equal(withErr.error, 'rate limited');
+  });
+
+  // ─── Phase 28 D-10: polling.tick.summary cross-repo aggregate helper ─────
+
+  it('EVENTS.POLLING_TICK_SUMMARY === "polling.tick.summary" (Phase 28 D-10)', () => {
+    assert.equal(EVENTS.POLLING_TICK_SUMMARY, 'polling.tick.summary');
+  });
+
+  it('pollingTickSummary emits event=polling.tick.summary at info level with the 4 D-10 fields', () => {
+    const sessionId = 'sess-ev-pollev-summary';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingTickSummary(log, {
+      repos_polled: 2,
+      total_dispatches: 5,
+      rate_limit_remaining: 4823,
+      repos: ['octocat/r1', 'octocat/r2'],
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.POLLING_TICK_SUMMARY);
+    assert.equal(line.level, 'info');
+    assert.equal(line.repos_polled, 2);
+    assert.equal(line.total_dispatches, 5);
+    assert.equal(line.rate_limit_remaining, 4823);
+    assert.deepEqual(line.repos, ['octocat/r1', 'octocat/r2']);
+  });
+
+  it('pollingTickSummary preserves rate_limit_remaining=null (D-12 null fallback)', () => {
+    const sessionId = 'sess-ev-pollev-summary-null';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingTickSummary(log, {
+      repos_polled: 1,
+      total_dispatches: 0,
+      rate_limit_remaining: null,
+      repos: ['octocat/r1'],
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.rate_limit_remaining, null);
+    assert.equal(line.event, EVENTS.POLLING_TICK_SUMMARY);
+  });
+
+  it('pollingTickSummary does NOT leak user content (T-25-02 invariant: whitelist-only payload)', () => {
+    // T-25-02 mirror del test pollingDispatch (líneas 449-484): si el caller
+    // pasa campos hostiles, el helper NO debe propagarlos al NDJSON. Whitelist
+    // explícito field-by-field, NO spread.
+    const sessionId = 'sess-ev-pollev-summary-redaction';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    pollingTickSummary(
+      log,
+      /** @type {any} */ ({
+        repos_polled: 1,
+        total_dispatches: 0,
+        rate_limit_remaining: 5000,
+        repos: ['octocat/r1'],
+        // Campos hostiles que NO deben aparecer en el NDJSON:
+        body: 'super-secret-token: ghp_xxxxxxxxxxxxxxxxxxxx',
+        title: 'leaky title',
+        raw: { token: 'xxx', body: 'pii' },
+        payload: { sensitive: 'data' },
+      }),
+    );
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.POLLING_TICK_SUMMARY);
+    assert.equal(line.repos_polled, 1);
+    assert.equal(line.total_dispatches, 0);
+    assert.equal(line.rate_limit_remaining, 5000);
+    assert.deepEqual(line.repos, ['octocat/r1']);
+    for (const forbidden of ['body', 'title', 'raw', 'payload']) {
+      assert.equal(
+        forbidden in line,
+        false,
+        `T-25-02 violation: pollingTickSummary leaked '${forbidden}' into NDJSON`,
+      );
+    }
   });
 });
