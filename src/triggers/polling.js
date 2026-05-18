@@ -69,7 +69,7 @@ import { join, dirname } from 'node:path';
 
 import { dispatchTrigger } from './dispatcher.js';
 import { normalizeIssue } from '../providers/github/normalize.js';
-import { EVENTS, pollingTick, pollingDispatch, pollingError } from '../logger-events.js';
+import { EVENTS, pollingTick, pollingDispatch, pollingError, pollingTickSummary } from '../logger-events.js';
 import { KODO_DIR } from '../config.js';
 
 // Suppress unused-warning for EVENTS (re-exported reference; primary use is
@@ -212,6 +212,23 @@ function sleep(clock, ms) {
  *   - After RETRY_MAX_ATTEMPTS retries exhausted (= 4 total calls): warn-and-continue.
  *     Cursor is NOT updated; next tick will retry from current cursor.
  *
+ * Phase 28 D-10: signature changes from `Promise<void>` →
+ * `Promise<{dispatched: number, rate_limit_remaining: number|null}>`. All 4
+ * return paths (304 cache-hit / 200 success / non-transient fail-fast / retries
+ * exhausted) return the same shape so the cross-repo aggregator in `tick()`
+ * can sum dispatches and compute the min rate-limit (D-12 conservative).
+ *
+ * Branches:
+ *   - 304: captures `result.rate_limit_remaining` from the envelope so the
+ *     "all-304 tick" case still surfaces a non-null rate_limit (fixes a subtle
+ *     bug where the summary would report `null` when every repo was a cache-hit).
+ *   - 200 success: same passthrough from envelope.
+ *   - error fail-fast (non-transient throw) / retries-exhausted: no envelope
+ *     accessible → `rate_limit_remaining: null`. The summary preserves the
+ *     repo in `repos[]` but reports `total_dispatches=0` for it.
+ *   - provider-only path: synthetic envelope built locally has no
+ *     `rate_limit_remaining`, so `result.rate_limit_remaining ?? null` → null.
+ *
  * @param {{
  *   owner: string,
  *   repo: string,
@@ -224,6 +241,7 @@ function sleep(clock, ms) {
  *   isFirstTick: boolean,
  *   statePath: string,
  * }} params
+ * @returns {Promise<{dispatched: number, rate_limit_remaining: number|null}>}
  */
 async function processRepo({
   owner,
@@ -243,7 +261,7 @@ async function processRepo({
 
   while (attempt <= RETRY_MAX_ATTEMPTS) {
     try {
-      /** @type {{ status: number, items: any[], etag?: string }} */
+      /** @type {{ status: number, items: any[], etag?: string, rate_limit_remaining?: number }} */
       let result;
       if (client) {
         // Hybrid path A (RESOLVED Open Q #2): direct optimized — `since`+`etag`.
@@ -277,7 +295,13 @@ async function processRepo({
             ...(isFirstTick ? { first_tick: true } : {}),
           });
         }
-        return;
+        // Phase 28 D-10/D-12: surface envelope rate_limit even on 304 so the
+        // "all-304 tick" case still reports a non-null min cross-repo. The
+        // client envelope (src/providers/github/client.js:160-164) populates
+        // `rate_limit_remaining` from the response headers even on cache hits.
+        const rateLimit =
+          typeof result.rate_limit_remaining === 'number' ? result.rate_limit_remaining : null;
+        return { dispatched: 0, rate_limit_remaining: rateLimit };
       }
 
       // 200 path: iterate items, filter PRs (Pitfall #2 / T-25-05), decide dispatch.
@@ -356,7 +380,12 @@ async function processRepo({
           ...(isFirstTick ? { first_tick: true } : {}),
         });
       }
-      return;
+      // Phase 28 D-10/D-12: 200 path passes through envelope rate_limit_remaining.
+      // Provider-only path builds a synthetic envelope without rate_limit (line
+      // 257-262 above), so `?? null` yields null for that path.
+      const rateLimit =
+        typeof result.rate_limit_remaining === 'number' ? result.rate_limit_remaining : null;
+      return { dispatched, rate_limit_remaining: rateLimit };
     } catch (err) {
       const status = err && typeof err.status === 'number' ? err.status : 0;
       const isTransient =
@@ -377,16 +406,22 @@ async function processRepo({
 
       // Non-transient → fail-fast, NO retry. Loop's next tick will retry from
       // current cursor (warn-and-continue across ticks).
-      if (!isTransient) return;
+      // Phase 28 D-10: shape `{dispatched, rate_limit_remaining}` aligned with
+      // success branches — no envelope accessible from throw, so rate_limit=null.
+      if (!isTransient) return { dispatched: 0, rate_limit_remaining: null };
 
       // Retries exhausted → warn-and-continue (Open Q #1 RESOLVED — Option A).
       // NO `polling.stopped` event; the next tick retries naturally.
-      if (attempt > RETRY_MAX_ATTEMPTS) return;
+      if (attempt > RETRY_MAX_ATTEMPTS) return { dispatched: 0, rate_limit_remaining: null };
 
       // Exponential backoff: 2s, 4s, 8s. T-25-03 bounded.
       await sleep(clock, RETRY_BASE_MS * Math.pow(2, attempt - 1));
     }
   }
+  // Defensive fallthrough — unreachable because the while loop has explicit returns
+  // on every branch (304, 200, non-transient, retries-exhausted). Kept to satisfy
+  // the TS contract `Promise<{dispatched, rate_limit_remaining}>`.
+  return { dispatched: 0, rate_limit_remaining: null };
 }
 
 /**
@@ -437,11 +472,27 @@ export function startPolling(opts) {
     if (stopped) return;
     const cache = loadStateCache(statePath);
 
+    // Phase 28 D-10/D-12: cross-repo aggregators for the tick summary.
+    //   - totalDispatched: sum of dispatches across all repos this tick.
+    //   - minRateLimit: most conservative (min) rate_limit_remaining cross-repo;
+    //     null when no repo reported a rate-limit header (e.g. all provider-only,
+    //     all errored, or all returned envelopes without it).
+    //   - reposPolled: `owner/repo` keys polled this tick. Push BEFORE the await
+    //     so the repo appears in the summary even if processRepo throws (defense
+    //     in depth — processRepo's catch block handles its own errors and returns
+    //     a shape, but the early push gives forensic continuity if anything escapes).
+    let totalDispatched = 0;
+    /** @type {number | null} */
+    let minRateLimit = null;
+    /** @type {string[]} */
+    const reposPolled = [];
+
     for (const { owner, repo } of opts.repos) {
       if (stopped) break;
       const key = `${owner}/${repo}`;
+      reposPolled.push(key);
       const isFirstTick = !firstTickPerRepo.has(key);
-      await processRepo({
+      const repoSummary = await processRepo({
         owner,
         repo,
         cache,
@@ -453,7 +504,26 @@ export function startPolling(opts) {
         isFirstTick,
         statePath,
       });
+      totalDispatched += repoSummary.dispatched;
+      if (repoSummary.rate_limit_remaining != null) {
+        minRateLimit =
+          minRateLimit == null
+            ? repoSummary.rate_limit_remaining
+            : Math.min(minRateLimit, repoSummary.rate_limit_remaining);
+      }
       firstTickPerRepo.add(key);
+    }
+
+    // Phase 28 D-10: emit cross-repo summary AT END of the tick (once per tick).
+    // Guard `!stopped` prevents a final summary fire after stop() between the
+    // last repo and the setTimeout reschedule.
+    if (opts.logger && !stopped) {
+      pollingTickSummary(opts.logger, {
+        repos_polled: reposPolled.length,
+        total_dispatches: totalDispatched,
+        rate_limit_remaining: minRateLimit,
+        repos: reposPolled,
+      });
     }
 
     if (!stopped) {
