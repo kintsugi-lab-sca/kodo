@@ -154,19 +154,24 @@ function saveStateCache(cache, path = DEFAULT_STATE_PATH) {
 }
 
 /**
- * Decide whether an issue should fire dispatch given the previous cursor.
+ * Decide whether an issue/task should fire dispatch given the previous cursor.
  *
  * Pitfall #7 / T-25-04: first tick (`!prev.last_updated_at`) → `false`. Cursor
  * is populated from `max(updated_at)` but NO dispatch fires. Subsequent ticks
- * fire dispatch only when `issue.updated_at > prev.last_updated_at`.
+ * fire dispatch only when `task.updated_at > prev.last_updated_at`.
  *
- * @param {{ updated_at: string }} issue
+ * D-05 Phase 28: el parámetro se renombra `issue → task` porque el call site
+ * vive en `processRepo` y puede ser raw GitHub issue (path client) o TaskItem
+ * normalizado (path provider-only). Ambos exponen `updated_at` ISO string
+ * post-Phase-28 (D-02 GitHub, D-03 Plane), así que el cuerpo es idéntico.
+ *
+ * @param {{ updated_at: string }} task
  * @param {{ last_updated_at?: string }} prev
  * @returns {boolean}
  */
-function shouldDispatch(issue, prev) {
-  if (!prev.last_updated_at) return false; // first-tick skip
-  return issue.updated_at > prev.last_updated_at;
+function shouldDispatch(task, prev) {
+  if (!prev.last_updated_at) return false; // first-tick skip (T-25-04)
+  return task.updated_at > prev.last_updated_at;
 }
 
 /**

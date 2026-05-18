@@ -964,6 +964,171 @@ describe('startPolling — POLL-04 retry backoff', () => {
   });
 });
 
+describe('startPolling — POLL-FIX-01 provider-only path', () => {
+  // Phase 28 D-05: cierra el bug v0.7 tech debt — antes de D-01..D-03,
+  // normalizeIssue/normalizeWorkItem excluían updated_at/created_at del TaskItem
+  // canónico, por lo que el path provider-only invocaba `shouldDispatch` con
+  // `task.updated_at === undefined`. La comparación `undefined > cursor` siempre
+  // retornaba false → dispatches silenciados. Estos tests blindan el contrato
+  // post-D-01: TaskItem expone updated_at REAL y shouldDispatch lo evalúa.
+
+  it('TaskItem.updated_at > cursor dispara dispatch en path provider-only', async () => {
+    // Pre-poblar cursor para evitar first-tick skip (T-25-04).
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const dispatched = /** @type {any[]} */ ([]);
+    // TaskItem mock con los 13 campos canónicos D-01 — espejo exacto del
+    // shape que `normalizeIssue` / `normalizeWorkItem` emiten post-Phase-28.
+    const taskItem = {
+      id: 'I_pollfix01',
+      ref: 'octocat/hello#1',
+      title: 't',
+      description: '',
+      labels: ['kodo'],
+      projectId: 'octocat/hello',
+      projectName: 'octocat/hello',
+      groups: [],
+      url: 'https://github.com/octocat/hello/issues/1',
+      priority: null,
+      state: 'open',
+      updated_at: '2026-05-15T10:00:00Z',  // POST cursor → debe disparar
+      created_at: '2026-05-15T09:00:00Z',
+    };
+    const provider = makeFakeProvider({
+      listPendingTasks: async () => [taskItem],
+    });
+    handle = startPolling({
+      provider,
+      dispatchTriggerFn: async (event) => {
+        dispatched.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'hello' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(
+      dispatched.length,
+      1,
+      'D-05: TaskItem.updated_at > cursor → shouldDispatch evalúa real, dispara',
+    );
+    assert.equal(dispatched[0].taskRef, 'octocat/hello#1');
+    assert.equal(dispatched[0].action, 'polling');
+    assert.equal(dispatched[0].provider, 'github');
+  });
+
+  it('TaskItem.updated_at ≤ cursor NO dispara dispatch (paridad client path)', async () => {
+    // Cursor reciente; el TaskItem trae timestamp MENOR. shouldDispatch debe
+    // retornar false — exactamente como lo hace en el path client raw.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/hello': { last_updated_at: '2026-05-15T12:00:00Z' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const dispatched = /** @type {any[]} */ ([]);
+    const taskItem = {
+      id: 'I_pollfix02',
+      ref: 'octocat/hello#2',
+      title: 't',
+      description: '',
+      labels: ['kodo'],
+      projectId: 'octocat/hello',
+      projectName: 'octocat/hello',
+      groups: [],
+      url: 'https://github.com/octocat/hello/issues/2',
+      priority: null,
+      state: 'open',
+      updated_at: '2026-05-15T10:00:00Z',  // PRE cursor → NO debe disparar
+      created_at: '2026-05-15T09:00:00Z',
+    };
+    const provider = makeFakeProvider({
+      listPendingTasks: async () => [taskItem],
+    });
+    handle = startPolling({
+      provider,
+      dispatchTriggerFn: async (event) => {
+        dispatched.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'hello' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(
+      dispatched.length,
+      0,
+      'TaskItem.updated_at ≤ cursor → shouldDispatch retorna false, cero dispatches',
+    );
+  });
+
+  it('D-06: cursor avanza a max(TaskItem.updated_at) en path provider-only', async () => {
+    // Mismo paradigma que POLL-02 "200 advances cursor", pero en path provider.
+    // Verifica que extractMaxUpdatedAt lee task.updated_at correctamente
+    // (no undefined) y persiste el cursor al cache.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const provider = makeFakeProvider({
+      listPendingTasks: async () => [
+        {
+          id: 'I_a', ref: 'octocat/hello#10', title: 't', description: '',
+          labels: ['kodo'], projectId: 'octocat/hello', projectName: 'octocat/hello',
+          groups: [], url: 'https://github.com/octocat/hello/issues/10',
+          priority: null, state: 'open',
+          updated_at: '2026-05-15T11:00:00Z',
+          created_at: '2026-05-15T09:00:00Z',
+        },
+        {
+          id: 'I_b', ref: 'octocat/hello#11', title: 't', description: '',
+          labels: ['kodo'], projectId: 'octocat/hello', projectName: 'octocat/hello',
+          groups: [], url: 'https://github.com/octocat/hello/issues/11',
+          priority: null, state: 'open',
+          updated_at: '2026-05-15T14:00:00Z',  // max
+          created_at: '2026-05-15T09:00:00Z',
+        },
+        {
+          id: 'I_c', ref: 'octocat/hello#12', title: 't', description: '',
+          labels: ['kodo'], projectId: 'octocat/hello', projectName: 'octocat/hello',
+          groups: [], url: 'https://github.com/octocat/hello/issues/12',
+          priority: null, state: 'open',
+          updated_at: '2026-05-15T13:00:00Z',
+          created_at: '2026-05-15T09:00:00Z',
+        },
+      ],
+    });
+    handle = startPolling({
+      provider,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+      repos: [{ owner: 'octocat', repo: 'hello' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(
+      cache['octocat/hello'].last_updated_at,
+      '2026-05-15T14:00:00Z',
+      'D-06: cursor avanza a max(task.updated_at) cross-TaskItem en path provider-only',
+    );
+  });
+});
+
 describe('TEST-02 NDJSON shape + invariants', () => {
   it('emits polling.tick per repo with {owner, repo, status, dispatched}', async () => {
     const { clock } = createTestClock();
