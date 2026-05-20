@@ -344,12 +344,48 @@ function truncate(str, max) {
  * logger is provided. Retrocompatible: callers that do not pass a logger
  * behave identically to a direct updateSession() call.
  *
+ * Phase 30 LIFE-02 (WR-07 Phase 22 closure): el path de falsy `taskId` ya
+ * NO es un no-op silencioso. Emite un warn observable cuando hay logger y
+ * retorna un shape determinístico discriminado para facilitar drift-debugging
+ * futuro. Callers existentes (verify.js#267, stop.js#188) NO capturan el
+ * return value — fire-and-forget dentro de try/catch — por lo que la
+ * semántica externa se preserva intacta (D-06).
+ *
  * @param {string} taskId
  * @param {'running'|'done'|'error'|'review'|'interrupted'} nextStatus
  * @param {string} reason
  * @param {import('../logger.js').Logger} [logger]
+ * @param {string} [sessionId] - Phase 30 D-07: opcional, para observability del
+ *   falsy-taskId warn payload. Defaults a 'unknown' string literal cuando no se
+ *   provee. Callers en producción (verify.js + stop.js) ya tienen `session.session_id`
+ *   en scope y lo pasan como 5º arg.
+ * @returns {{ok: true, from: string, to: string} | {ok: false, reason: 'missing-task-id'}}
+ *   Discriminated union (D-05). Success path expone `from`/`to` para observabilidad
+ *   downstream; falsy path expone `reason: 'missing-task-id'` (kebab-case literal).
  */
-export function markSessionStatus(taskId, nextStatus, reason, logger) {
+export function markSessionStatus(taskId, nextStatus, reason, logger, sessionId) {
+  // Phase 30 D-09: falsy guard PRIMERO. Cubre null, undefined, '' simultáneamente
+  // (mismo idiom defensivo que isGsdChild en src/labels.js#114). NO se llama a
+  // listSessions ni updateSession en el falsy path — early return preserva la
+  // semántica de no-op silencioso pero ahora con observabilidad observable.
+  if (!taskId) {
+    if (logger) {
+      // SC#2 ROADMAP literal byte-exact (single space después del colon).
+      // Keys locked: {session_id, status, reason}.
+      // D-07 fallback: sessionId opcional → 'unknown' string literal.
+      // NO `logger.child(...)` aquí — no hay task_id válido para el child context.
+      logger.warn('markSessionStatus: missing task_id', {
+        session_id: sessionId || 'unknown',
+        status: nextStatus,
+        reason,
+      });
+    }
+    return { ok: false, reason: 'missing-task-id' };
+  }
+
+  // Success path (D-05): preservado del comportamiento Phase 16/19.
+  // listSessions() scan ONLY state.sessions — fromStatus de sesiones archivadas
+  // reporta 'unknown' (pitfall #3 de PATTERNS.md — out of scope para Phase 30).
   const current = listSessions().find((s) => s.task_id === taskId || s.task_ref === taskId);
   const fromStatus = current?.status || 'unknown';
   updateSession(taskId, { status: nextStatus });
@@ -357,4 +393,5 @@ export function markSessionStatus(taskId, nextStatus, reason, logger) {
     const log = logger.child({ component: 'session', task_id: taskId });
     stateTransition(log, { from: fromStatus, to: nextStatus, reason });
   }
+  return { ok: true, from: fromStatus, to: nextStatus };
 }

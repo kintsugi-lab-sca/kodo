@@ -185,7 +185,7 @@ export async function runStopHook(input, deps = {}) {
 
     try {
       const { markSessionStatus } = await import('../session/manager.js');
-      markSessionStatus(session.task_id, 'done', 'session-stop', log);
+      markSessionStatus(session.task_id, 'done', 'session-stop', log, session.session_id);
     } catch (err) {
       // WR-03: state.json mutation failure merits explicit diagnostic (NOT silent).
       // Still fail-open — runStopHook never crashes Claude Code.
