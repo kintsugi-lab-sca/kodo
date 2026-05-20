@@ -48,7 +48,7 @@
 **Plans**: 4 plans
 - [x] 29-01-PLAN.md — Anti-recursion foundation (REPORT-01 + REPORT-05): cherry-pick 5a41d8f + cbd8f9c + new test/labels-hygiene.test.js walker. 15 tests heredados + 2-3 hygiene net-new. Wave 1.
 - [x] 29-02-PLAN.md — Opt-in config helper (REPORT-02): cherry-pick e1f82c9 con manual reapply ANTES de getDefaultGithubProviderConfig (Phase 26 drift). 10 tests heredados (5-state matrix + anti-mutation + source-hygiene). Wave 2.
-- [ ] 29-03-PLAN.md — Reporting gate infrastructure (REPORT-03): manual reapply 7c28c06 (markers + placeholder en prompt.md, severa por Phase 999.1 rewrite) + cherry-pick 5feb578 + 38c7a2e + 4d67312. 17 tests heredados (LG1..LG8 + LH1..LH3 + SR1..SR6). Wave 3.
+- [x] 29-03-PLAN.md — Reporting gate infrastructure (REPORT-03): manual reapply 7c28c06 (markers + placeholder en prompt.md, severa por Phase 999.1 rewrite) + cherry-pick 5feb578 + 38c7a2e + 4d67312. 17 tests heredados (LG1..LG8 + LH1..LH3 + SR1..SR6). Wave 3.
 - [ ] 29-04-PLAN.md — Sub-issue reporting prose (REPORT-04 + REPORT-06): manual reapply d030547 (prosa ES de ~65 líneas reemplaza placeholder) + cherry-pick 81c848c + VERIFICATION.md phase-level. 21 tests heredados (RC1..RC15 + RA1..RA6). Wave 4.
 **UI hint**: no
 
@@ -93,7 +93,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
-| 29. GSD Provider Reporting Integration | 2/4 | In Progress|  |
+| 29. GSD Provider Reporting Integration | 3/4 | In Progress|  |
 | 30. SessionRecord Lifecycle | 0/TBD | Not started | - |
 | 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
