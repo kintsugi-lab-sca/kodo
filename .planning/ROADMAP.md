@@ -45,7 +45,11 @@
   3. Cualquier consumer importa `KODO_LABEL_GSD_CHILD` desde `src/labels.js` (NUNCA inline string `'kodo:gsd-child'`) y usa `isGsdChild(labels)` helper — source-hygiene test grep en `src/` retorna 0 matches inline fuera de `labels.js`.
   4. Cherry-pick aplicado de los 9 SHAs documentados en `PENDING-INTEGRATIONS.md` (`5a41d8f`, `cbd8f9c`, `e1f82c9`, `7c28c06`, `5feb578`, `38c7a2e`, `d030547`, `4d67312`, `81c848c`); planning artifacts (PLAN/SUMMARY/VERIFICATION/VALIDATION) regenerados con numeración v0.8 (Phase 29) — NO Phase 14-15 que colisionaba con v0.5 main.
   5. Suite global ≥818 pass (≥780 post-Phase-28 + 38 tests heredados de la rama: SR1..SR6 gating + RC1..RC15 + RA1..RA6 content + 4 dispatcher anti-recursión + matriz config 5 estados + source-hygiene). 0 regresiones, 0 nuevos skips.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 29-01-PLAN.md — Anti-recursion foundation (REPORT-01 + REPORT-05): cherry-pick 5a41d8f + cbd8f9c + new test/labels-hygiene.test.js walker. 15 tests heredados + 2-3 hygiene net-new. Wave 1.
+- [ ] 29-02-PLAN.md — Opt-in config helper (REPORT-02): cherry-pick e1f82c9 con manual reapply ANTES de getDefaultGithubProviderConfig (Phase 26 drift). 10 tests heredados (5-state matrix + anti-mutation + source-hygiene). Wave 2.
+- [ ] 29-03-PLAN.md — Reporting gate infrastructure (REPORT-03): manual reapply 7c28c06 (markers + placeholder en prompt.md, severa por Phase 999.1 rewrite) + cherry-pick 5feb578 + 38c7a2e + 4d67312. 17 tests heredados (LG1..LG8 + LH1..LH3 + SR1..SR6). Wave 3.
+- [ ] 29-04-PLAN.md — Sub-issue reporting prose (REPORT-04 + REPORT-06): manual reapply d030547 (prosa ES de ~65 líneas reemplaza placeholder) + cherry-pick 81c848c + VERIFICATION.md phase-level. 21 tests heredados (RC1..RC15 + RA1..RA6). Wave 4.
 **UI hint**: no
 
 ### Phase 30: SessionRecord Lifecycle
@@ -89,7 +93,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
-| 29. GSD Provider Reporting Integration | 0/TBD | Not started | - |
+| 29. GSD Provider Reporting Integration | 0/4 | Planning complete | - |
 | 30. SessionRecord Lifecycle | 0/TBD | Not started | - |
 | 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
