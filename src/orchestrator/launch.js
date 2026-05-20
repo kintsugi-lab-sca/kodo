@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { loadConfig } from '../config.js';
+import { loadConfig, isReportToProviderEnabled } from '../config.js';
 import { listSessions } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
 import { getSessionMode } from '../labels.js';
@@ -33,6 +33,30 @@ export function resolvePromptTemplate(template, config) {
     .replaceAll('{{provider_name}}', providerName)
     .replaceAll('{{provider}}', config.provider)
     .replaceAll('{{mcp_tool}}', mcpTool);
+}
+
+/**
+ * Strip the reporting section from the prompt when reporting is disabled.
+ * Block delimiters: <!-- BEGIN reporting --> ... <!-- END reporting -->
+ * Markers included in the strip. When enabled === true, returns the prompt
+ * unchanged. Idempotent: applying with enabled=false twice on the same
+ * prompt yields identical output.
+ *
+ * Why a separate helper (not extending resolvePromptTemplate): placeholder
+ * substitution and conditional gating are different concerns. Keeping them
+ * separate makes each unit-testable in isolation and allows future gates
+ * (other markers) without inflating resolvePromptTemplate.
+ *
+ * @param {string} prompt - Prompt content (may already be post-resolvePromptTemplate)
+ * @param {boolean} enabled - true keeps the section, false strips it (markers included)
+ * @returns {string}
+ */
+export function applyReportingGate(prompt, enabled) {
+  if (enabled) return prompt;
+  return prompt.replace(
+    /<!-- BEGIN reporting -->[\s\S]*?<!-- END reporting -->\n?/g,
+    '',
+  );
 }
 
 /**
@@ -111,7 +135,10 @@ export async function launchOrchestrator(opts = {}) {
 
   // Read orchestrator prompt and resolve provider placeholders
   const rawPrompt = readFileSync(PROMPT_PATH, 'utf-8');
-  const basePrompt = resolvePromptTemplate(rawPrompt, { provider: config.provider || 'plane' });
+  const basePrompt = applyReportingGate(
+    resolvePromptTemplate(rawPrompt, { provider: config.provider || 'plane' }),
+    isReportToProviderEnabled(),
+  );
 
   // Create workspace
   const workspaceRef = await cmux.newWorkspace({
