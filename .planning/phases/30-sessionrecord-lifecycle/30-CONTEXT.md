@@ -49,7 +49,7 @@ Cerrar el desync `state.json ↔ cmux` que ROMAN-132 confirmó empíricamente el
 
 ### Scope Boundaries
 
-- **D-12:** cmux RPC cross-check **diferido**. Si tras LIFE-01 el desync persiste empíricamente (nuevo incidente tipo ROMAN-132), se planifica Phase 30.1 con `cmux rpc workspace.list` cross-check. La memoria del usuario `kodo_state_json_desync.md` registra la observación; Phase 30 no la cierra estructuralmente.
+- **D-12 [deferred]:** cmux RPC cross-check **diferido**. Si tras LIFE-01 el desync persiste empíricamente (nuevo incidente tipo ROMAN-132), se planifica Phase 30.1 con `cmux rpc workspace.list` cross-check. La memoria del usuario `kodo_state_json_desync.md` registra la observación; Phase 30 no la cierra estructuralmente.
 - **D-13:** Phase 30 cierra **CR-01 Phase 19 deferred** (findSession debe escanear state.history) y **WR-07 Phase 22 deferred** (markSessionStatus early-return refactor) en STATE.md v0.7 deferred section. SC#4 lo lockea.
 
 ### Suite Floor
