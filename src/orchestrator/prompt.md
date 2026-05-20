@@ -36,3 +36,9 @@ Las sesiones con `gsd: true` siguen un flujo estructurado de fase. Cuando entran
 - Las sesiones con tag `[GSD quick]` (lanzadas por `kodo:gsd-quick`) son one-shot y **NO** soportan `kodo gsd verify` — revísalas manualmente como cualquier sesión no-GSD.
 - Para dudas previas al verify: `kodo gsd inspect <task-id>` (dry-run forense del resolver).
 - **No dupliques el gate** en comentarios manuales al provider — el CLI es la única fuente para `gsd verify`.
+
+<!-- BEGIN reporting -->
+## Sub-issue reporting
+
+_Section body added in plan 29-04._
+<!-- END reporting -->
