@@ -149,10 +149,12 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
     assert.equal(warns.length, 1);
     assert.equal(warns[0].msg, 'markSessionStatus: missing task_id');
 
-    // D-07 fallback string literal
-    assert.equal(warns[0].fields.session_id, 'unknown');
-    assert.equal(warns[0].fields.status, 'done');
-    assert.equal(warns[0].fields.reason, 'reason');
+    // D-07 fallback: cuando 5º arg ausente, warn registra session_id: 'unknown'
+    assert.deepEqual(warns[0].fields, {
+      session_id: 'unknown',
+      status: 'done',
+      reason: 'reason',
+    });
   });
 
   // -------------------------------------------------------------------------
