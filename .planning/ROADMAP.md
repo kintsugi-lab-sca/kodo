@@ -62,8 +62,8 @@
   3. `test/session/mark-status.test.js` cubre 4 escenarios (task_id presente OK, null → warn, undefined → warn, empty string → warn); `test/session/find-session.test.js` cubre 3 escenarios (en sessions, en history, en ambos = priority sessions, en ninguno = not found).
   4. Suite global ≥825 pass + 0 fail. CR-01 Phase 19 deferred y WR-07 Phase 22 deferred CERRADOS en `STATE.md` v0.7 deferred section.
 **Plans**: 2 plans
-- [ ] 30-01-PLAN.md — LIFE-01: findSession extendido (scan sessions + history, tagged return shape `{id, session, source}`) + test/session/find-session.test.js (4 escenarios HOME-isolated) + verificación empírica pitfall #1 (session-lookup.js step-2 cubre archived NDJSON). Wave 1.
-- [ ] 30-02-PLAN.md — LIFE-02: markSessionStatus refactor (falsy guard observable + discriminated union return + 5º param sessionId opcional) + 2 callsites actualizados (verify.js#267 + stop.js#188) + test/session/mark-status.test.js (4 escenarios fakeLogger memSink). Wave 1.
+- [x] 30-01-PLAN.md — LIFE-01: findSession extendido (scan sessions + history, tagged return shape `{id, session, source}`) + test/session/find-session.test.js (4 escenarios HOME-isolated) + verificación empírica pitfall #1 (session-lookup.js step-2 cubre archived NDJSON). Wave 1.
+- [x] 30-02-PLAN.md — LIFE-02: markSessionStatus refactor (falsy guard observable + discriminated union return + 5º param sessionId opcional) + 2 callsites actualizados (verify.js#267 + stop.js#188) + test/session/mark-status.test.js (4 escenarios fakeLogger memSink). Wave 1.
 **UI hint**: no
 
 ### Phase 31: Phase 21/22 Advisory Cleanup
@@ -96,7 +96,7 @@
 |-------|----------------|--------|-----------|
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
 | 29. GSD Provider Reporting Integration | 4/4 | Complete    | 2026-05-20 |
-| 30. SessionRecord Lifecycle | 0/2 | Planned | - |
+| 30. SessionRecord Lifecycle | 2/2 | Complete   | 2026-05-20 |
 | 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
 
