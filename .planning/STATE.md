@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Consolidación + GSD Provider Reporting
-status: executing
+status: ready_to_plan
 stopped_at: Phase 30 context gathered
 last_updated: "2026-05-20T11:33:14.022Z"
 last_activity: 2026-05-20 -- Phase 30 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
   completed_plans: 7
-  percent: 78
+  percent: 60
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: 30 (SessionRecord Lifecycle) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 30
-Last activity: 2026-05-20 -- Phase 30 execution started
+Phase: 31
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-20
 
 ## Most recent shipped milestone
 

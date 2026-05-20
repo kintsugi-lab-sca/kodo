@@ -25,8 +25,8 @@
 
 ### LIFE — SessionRecord lifecycle (cierra v0.6 deferred + driver real ROMAN-132)
 
-- [ ] **LIFE-01**: `findSession(sessionId)` (en `src/session/state.js` o equivalente) escanea tanto `state.sessions` (activas) como `state.history` (terminadas) y retorna el SessionRecord encontrado en cualquiera. User puede invocar `kodo gsd verify <session-id>` o `kodo logs --session-of <task-id>` y obtener resultado correcto incluso si la sesión ya pasó por el stop hook. Driver: ROMAN-132 (2026-05-15) confirmó state.json desync — `sessions: {}` mientras la sesión seguía viva en cmux. Resolución parcial: cross-check con `cmux rpc workspace.list` antes de declarar terminada. Cierra CR-01 Phase 19.
-- [ ] **LIFE-02**: `markSessionStatus(taskId, status, reason, log)` refactorea su early-return: cuando `task_id` es falsy/missing, en vez de bail-out silencioso emite `log.warn('markSessionStatus: missing task_id', {session_id, status, reason})` y retorna explícitamente con `{ok: false, reason: 'missing-task-id'}`. Misma semántica externa para callers existentes (verify.js#finalize, stop.js); observabilidad mejorada para drift futuro. Test: `test/session/mark-status.test.js` 4 escenarios (task_id presente OK, falsy → warn + return, undefined → warn + return, empty string → warn + return). Cierra WR-07 Phase 22.
+- [x] **LIFE-01**: `findSession(sessionId)` (en `src/session/state.js` o equivalente) escanea tanto `state.sessions` (activas) como `state.history` (terminadas) y retorna el SessionRecord encontrado en cualquiera. User puede invocar `kodo gsd verify <session-id>` o `kodo logs --session-of <task-id>` y obtener resultado correcto incluso si la sesión ya pasó por el stop hook. Driver: ROMAN-132 (2026-05-15) confirmó state.json desync — `sessions: {}` mientras la sesión seguía viva en cmux. Resolución parcial: cross-check con `cmux rpc workspace.list` antes de declarar terminada. Cierra CR-01 Phase 19.
+- [x] **LIFE-02**: `markSessionStatus(taskId, status, reason, log)` refactorea su early-return: cuando `task_id` es falsy/missing, en vez de bail-out silencioso emite `log.warn('markSessionStatus: missing task_id', {session_id, status, reason})` y retorna explícitamente con `{ok: false, reason: 'missing-task-id'}`. Misma semántica externa para callers existentes (verify.js#finalize, stop.js); observabilidad mejorada para drift futuro. Test: `test/session/mark-status.test.js` 4 escenarios (task_id presente OK, falsy → warn + return, undefined → warn + return, empty string → warn + return). Cierra WR-07 Phase 22.
 
 ### ADVISORY — Phase 21/22 advisory follow-up
 
@@ -86,8 +86,8 @@ Mapeo completo asignado por `gsd-roadmapper` durante creación de ROADMAP.md (20
 | REPORT-04 | Phase 29 | Complete |
 | REPORT-05 | Phase 29 | Complete |
 | REPORT-06 | Phase 29 | Complete |
-| LIFE-01 | Phase 30 | Pending |
-| LIFE-02 | Phase 30 | Pending |
+| LIFE-01 | Phase 30 | Complete |
+| LIFE-02 | Phase 30 | Complete |
 | ADVISORY-01 | Phase 31 | Pending |
 | ADVISORY-02 | Phase 31 | Pending |
 | ADVISORY-03 | Phase 31 | Pending |
