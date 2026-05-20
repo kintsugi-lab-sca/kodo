@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Consolidación + GSD Provider Reporting
-status: executing
+status: ready_to_plan
 stopped_at: Phase 29 plans verified — 4 plans ready
 last_updated: "2026-05-20T08:37:12.721Z"
 last_activity: 2026-05-20 -- Phase 29 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
   completed_plans: 3
-  percent: 43
+  percent: 40
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: 29 (gsd-provider-reporting-integration) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 29
-Last activity: 2026-05-20 -- Phase 29 execution started
+Phase: 30
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-20
 
 ## Most recent shipped milestone
 

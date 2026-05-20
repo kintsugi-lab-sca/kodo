@@ -93,7 +93,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
-| 29. GSD Provider Reporting Integration | 4/4 | Complete   | 2026-05-20 |
+| 29. GSD Provider Reporting Integration | 4/4 | Complete    | 2026-05-20 |
 | 30. SessionRecord Lifecycle | 0/TBD | Not started | - |
 | 31. Phase 21/22 Advisory Cleanup | 0/TBD | Not started | - |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |

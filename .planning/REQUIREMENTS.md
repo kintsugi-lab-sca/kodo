@@ -16,12 +16,12 @@
 
 ### REPORT — GSD Provider Reporting integration (rama paralela `gsd-provider-reporting`)
 
-- [ ] **REPORT-01**: Dispatcher filtra labels `kodo:gsd-child` (anti-recursión). Tareas creadas por el agente como sub-issues NUNCA disparan nuevas sesiones, ni siquiera con `--force`. Cortes ANTES de `parseKodoLabels` / lock acquire / resolver / launch. Test: `test/triggers/dispatcher.test.js` 3 escenarios (label sola, label + `kodo:gsd`, `--force` con label).
-- [ ] **REPORT-02**: User puede activar `workflow.report_to_provider: true` en `~/.kodo/config.json`. Helper `isReportToProviderEnabled()` retorna `true` SOLO con strict equality `=== true` (any otro valor → false). DEFAULT_CONFIG NO contiene la key `workflow` (anti-mutation invariant). Test: `test/config.test.js` matriz 5 estados (true, "true", 1, undefined, missing key).
-- [ ] **REPORT-03**: `applyReportingGate(prompt, enabled)` (pure function idempotente) inserta/quita la sección "Sub-issue reporting" entre marcadores `<!-- BEGIN reporting -->` / `<!-- END reporting -->` en `src/orchestrator/prompt.md`. Test: SR1..SR6 gating asserts.
-- [ ] **REPORT-04**: `src/orchestrator/prompt.md` contiene prosa ES provider-agnostic (vía `{{provider_name}}`) cubriendo: just-in-time creation de sub-issue por phase con label `kodo:gsd-child`, comentarios plan-by-plan en el sub-issue, lifecycle abstracto, append-only (NUNCA `delete-issue`), HARD STEP pre-transición phase, log literal `[kodo:reporting] MCP failure on phase N: <error>`. Test: RC1..RC15 + RA1..RA6 content asserts.
-- [ ] **REPORT-05**: `KODO_LABEL_GSD_CHILD = 'kodo:gsd-child'` exportado desde `src/labels.js` + helper `isGsdChild(labels)` con tests source-hygiene anti-inline (cualquier consumer DEBE usar el helper, no comparar string literal).
-- [ ] **REPORT-06**: Planning artifacts v0.8 regenerados manualmente (PLAN/SUMMARY/VERIFICATION/VALIDATION) con la numeración de phases v0.8 correspondiente (NO Phase 14-15 de la rama, que colisionaba con v0.5 main). Cherry-pick selectivo aplicado de los 9 commits de código de la rama `gsd-provider-reporting` documentados en `.planning/PENDING-INTEGRATIONS.md`. Suite global verde tras integración (≥819 tests = 777 actual + 38 heredados + 4 nuevos REPORT-01..05 mínimo, ajustar tras phase real).
+- [x] **REPORT-01**: Dispatcher filtra labels `kodo:gsd-child` (anti-recursión). Tareas creadas por el agente como sub-issues NUNCA disparan nuevas sesiones, ni siquiera con `--force`. Cortes ANTES de `parseKodoLabels` / lock acquire / resolver / launch. Test: `test/triggers/dispatcher.test.js` 3 escenarios (label sola, label + `kodo:gsd`, `--force` con label).
+- [x] **REPORT-02**: User puede activar `workflow.report_to_provider: true` en `~/.kodo/config.json`. Helper `isReportToProviderEnabled()` retorna `true` SOLO con strict equality `=== true` (any otro valor → false). DEFAULT_CONFIG NO contiene la key `workflow` (anti-mutation invariant). Test: `test/config.test.js` matriz 5 estados (true, "true", 1, undefined, missing key).
+- [x] **REPORT-03**: `applyReportingGate(prompt, enabled)` (pure function idempotente) inserta/quita la sección "Sub-issue reporting" entre marcadores `<!-- BEGIN reporting -->` / `<!-- END reporting -->` en `src/orchestrator/prompt.md`. Test: SR1..SR6 gating asserts.
+- [x] **REPORT-04**: `src/orchestrator/prompt.md` contiene prosa ES provider-agnostic (vía `{{provider_name}}`) cubriendo: just-in-time creation de sub-issue por phase con label `kodo:gsd-child`, comentarios plan-by-plan en el sub-issue, lifecycle abstracto, append-only (NUNCA `delete-issue`), HARD STEP pre-transición phase, log literal `[kodo:reporting] MCP failure on phase N: <error>`. Test: RC1..RC15 + RA1..RA6 content asserts.
+- [x] **REPORT-05**: `KODO_LABEL_GSD_CHILD = 'kodo:gsd-child'` exportado desde `src/labels.js` + helper `isGsdChild(labels)` con tests source-hygiene anti-inline (cualquier consumer DEBE usar el helper, no comparar string literal).
+- [x] **REPORT-06**: Planning artifacts v0.8 regenerados manualmente (PLAN/SUMMARY/VERIFICATION/VALIDATION) con la numeración de phases v0.8 correspondiente (NO Phase 14-15 de la rama, que colisionaba con v0.5 main). Cherry-pick selectivo aplicado de los 9 commits de código de la rama `gsd-provider-reporting` documentados en `.planning/PENDING-INTEGRATIONS.md`. Suite global verde tras integración (≥819 tests = 777 actual + 38 heredados + 4 nuevos REPORT-01..05 mínimo, ajustar tras phase real).
 
 ### LIFE — SessionRecord lifecycle (cierra v0.6 deferred + driver real ROMAN-132)
 
@@ -80,12 +80,12 @@ Mapeo completo asignado por `gsd-roadmapper` durante creación de ROADMAP.md (20
 | POLL-FIX-01 | Phase 28 | Pending |
 | DAEMON-01 | Phase 28 | Pending |
 | DAEMON-02 | Phase 28 | Pending |
-| REPORT-01 | Phase 29 | Pending |
-| REPORT-02 | Phase 29 | Pending |
-| REPORT-03 | Phase 29 | Pending |
-| REPORT-04 | Phase 29 | Pending |
-| REPORT-05 | Phase 29 | Pending |
-| REPORT-06 | Phase 29 | Pending |
+| REPORT-01 | Phase 29 | Complete |
+| REPORT-02 | Phase 29 | Complete |
+| REPORT-03 | Phase 29 | Complete |
+| REPORT-04 | Phase 29 | Complete |
+| REPORT-05 | Phase 29 | Complete |
+| REPORT-06 | Phase 29 | Complete |
 | LIFE-01 | Phase 30 | Pending |
 | LIFE-02 | Phase 30 | Pending |
 | ADVISORY-01 | Phase 31 | Pending |
