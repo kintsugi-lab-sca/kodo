@@ -33,7 +33,7 @@ Las sesiones con `gsd: true` siguen un flujo estructurado de fase. Cuando entran
 
 - Ejecuta `kodo gsd verify <session-id>`. El CLI lee `VERIFICATION.md`, postea el comentario en {{provider_name}} y transiciona el work item. Verdicts canónicos en stdout/JSON: `pass`, `fail`, `missing` (VERIFICATION.md ausente), `malformed` (frontmatter inválido). Exit codes del CLI: `0` gate corrió (verdict en stdout), `1` error interno, `2` fetch transient retryable.
 - Artefactos GSD canónicos en `.planning/`: `PROJECT.md`, `ROADMAP.md`, `PLAN.md` (por fase) y `VERIFICATION.md` (gate de la fase). El CLI sólo consume `VERIFICATION.md`; el resto es contexto para humanos y para `kodo gsd inspect`.
-- Las sesiones con tag `[GSD quick]` (lanzadas por `kodo:gsd-quick`) son one-shot y **NO** soportan `kodo gsd verify` — revísalas manualmente como cualquier sesión no-GSD.
+- **Sesiones quick.** Las sesiones con tag `[GSD quick]` (lanzadas por `kodo:gsd-quick`) son one-shot y **NO** soportan `kodo gsd verify` — revísalas manualmente como cualquier sesión no-GSD.
 - Para dudas previas al verify: `kodo gsd inspect <task-id>` (dry-run forense del resolver).
 - **No dupliques el gate** en comentarios manuales al provider — el CLI es la única fuente para `gsd verify`.
 
