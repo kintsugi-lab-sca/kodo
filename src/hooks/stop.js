@@ -144,6 +144,15 @@ export async function runStopHook(input, deps = {}) {
       return;
     }
 
+    // Phase 30 LIFE-01 CR-01: findSession ahora escanea state.history. El stop
+    // hook NO debe re-procesar sesiones archivadas — el primer trigger ya hizo
+    // cleanup. Re-procesar emite eventos duplicados (state.transition, session.end,
+    // segundo nudge) y puede tocar workspaces reasignados o worktrees ya removidos.
+    if (result && result.source === 'history') {
+      console.error(`[kodo:stop] Session ${result.session.task_ref} already archived — skip`);
+      return;
+    }
+
     const { id, session } = result;
 
     // The active Claude session owns all Plane interactions (comments +
