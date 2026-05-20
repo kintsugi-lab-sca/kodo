@@ -269,3 +269,179 @@ describe('QUICK-08 — launch.js source hygiene', () => {
     );
   });
 });
+
+import { applyReportingGate, resolvePromptTemplate } from '../src/orchestrator/launch.js';
+import { KODO_LABEL_GSD_CHILD } from '../src/labels.js';
+
+describe('REPORT-04..08 — Sub-issue reporting block content', () => {
+  // We assert on the FULLY RESOLVED prompt (post placeholders + flag=true).
+  // This mirrors what the agent will actually read at runtime.
+  const raw = readFileSync('src/orchestrator/prompt.md', 'utf-8');
+  const resolved = applyReportingGate(
+    resolvePromptTemplate(raw, { provider: 'plane' }),
+    true,
+  );
+
+  // Convenience: extract just the block content for some asserts.
+  const beginIdx = resolved.indexOf('<!-- BEGIN reporting -->');
+  const endIdx = resolved.indexOf('<!-- END reporting -->');
+  const block = resolved.substring(beginIdx, endIdx);
+
+  it('RC1 (REPORT-04): block references kodo:gsd-child literal coupled to KODO_LABEL_GSD_CHILD constant', () => {
+    // Hard coupling: if Phase 14 changes the constant value, this test
+    // breaks immediately. Intentional cross-phase dependency (CONTEXT.md
+    // <domain> "Constraint cross-phase").
+    assert.equal(KODO_LABEL_GSD_CHILD, 'kodo:gsd-child',
+      'sanity: Phase 14 constant must hold the documented value');
+    assert.ok(block.includes(KODO_LABEL_GSD_CHILD),
+      `block must reference KODO_LABEL_GSD_CHILD literal ('${KODO_LABEL_GSD_CHILD}') — found labels: ${block.match(/kodo:[a-z-]+/g)?.join(', ') ?? 'none'}`);
+  });
+
+  it('RC2 (REPORT-04): block instructs creating sub-issue with parent_id', () => {
+    assert.ok(block.includes('parent_id'),
+      'block must mention parent_id (linking sub-issue to parent task)');
+  });
+
+  it('RC3 (REPORT-04): block instructs Phase N: title format', () => {
+    assert.ok(block.includes('Phase N:'),
+      'block must specify the title format "Phase N: <name>"');
+  });
+
+  it('RC4 (REPORT-05): block instructs plan-by-plan as comments (not new sub-issues)', () => {
+    // D-11: comentarios plan-by-plan con header "## Plan N-MM:".
+    assert.ok(/Plan N-?MM/.test(block) || block.includes('Plan N-MM'),
+      'block must define the comment header format "Plan N-MM"');
+    assert.ok(/Plan\s*=\s*comentario/i.test(block) || /comentario/i.test(block),
+      'block must explicitly state plan == comment (not separate sub-issue)');
+  });
+
+  it('RC5 (REPORT-06): block uses abstract lifecycle vocabulary in progress / done / verified', () => {
+    for (const word of ['in progress', 'done', 'verified']) {
+      assert.ok(new RegExp(`\\b${word}\\b`).test(block),
+        `lifecycle vocabulary "${word}" must appear in block`);
+    }
+  });
+
+  it('RC6 (REPORT-06): block includes pragmatic Plane parens for status mapping', () => {
+    // D-05: paréntesis pragmático "(en Plane: `In Progress` / `In Review` / `Done`)".
+    // After resolvePromptTemplate, "{{provider_name}}" → "Plane".
+    assert.ok(block.includes('Plane'),
+      'resolved block must mention Plane in pragmatic parens (D-05)');
+    assert.ok(/In Progress/.test(block),
+      'pragmatic Plane mapping must include "In Progress"');
+    assert.ok(/Done/.test(block),
+      'pragmatic Plane mapping must include "Done"');
+  });
+
+  it('RC7 (REPORT-07): block enforces append-only with NUNCA capitalized near delete-issue', () => {
+    // D-07: "NUNCA `delete-issue`". Capitalized for emphasis.
+    assert.ok(/\bNUNCA\b/.test(block),
+      'block must contain "NUNCA" capitalized (append-only emphasis)');
+    // Sanity: "NUNCA" is near "delete-issue" — within 200 chars.
+    const nuncaIdx = block.search(/\bNUNCA\b/);
+    const deleteIdx = block.indexOf('delete-issue');
+    assert.ok(deleteIdx >= 0,
+      'block must mention `delete-issue` literally (the forbidden call)');
+    assert.ok(Math.abs(nuncaIdx - deleteIdx) < 200,
+      `NUNCA and delete-issue must be near each other (NUNCA at ${nuncaIdx}, delete-issue at ${deleteIdx})`);
+  });
+
+  it('RC8 (REPORT-07): block instructs cancelled status for orphaned phases', () => {
+    assert.ok(/\bcancelled\b/.test(block),
+      'block must instruct transitioning to "cancelled" for re-planned phases');
+  });
+
+  it('RC9 (REPORT-08): block opens validation section with HARD STEP marker', () => {
+    // D-13: "HARD STEP" capitalized to ensure agent does not skip.
+    assert.ok(/HARD STEP/.test(block),
+      'block must contain "HARD STEP" (validation reminder D-13)');
+  });
+
+  it('RC10 (REPORT-04..08, D-14): block defines MCP failure log with exact literal', () => {
+    // D-14: log literal "[kodo:reporting] MCP failure on phase N: <error>".
+    assert.ok(block.includes('[kodo:reporting] MCP failure on phase N:'),
+      'block must define MCP failure log line exactly');
+  });
+
+  it('RC11 (REPORT-04..08, D-15): block defines capability gap log with exact literal', () => {
+    // D-15: log literal "[kodo:reporting] Provider MCP lacks sub-issue capability — reporting disabled".
+    assert.ok(block.includes('[kodo:reporting] Provider MCP lacks sub-issue capability — reporting disabled'),
+      'block must define capability gap log line exactly (em-dash included)');
+  });
+
+  it('RC12 (REPORT-04, D-08): block clarifies quick mode does NOT create sub-issues', () => {
+    // D-08: quick lifecycle differs; D-CONTEXT specifies "En sesiones GSD `quick` ... NO crees sub-issue".
+    assert.ok(/quick/i.test(block),
+      'block must mention quick mode handling');
+    // Either "no crees sub-issue" or "no se crea" or similar negation near "quick".
+    assert.ok(/quick[\s\S]{0,200}(no\s+cre|no\s+se\s+crea|no\s+aplica)/i.test(block),
+      'block must instruct that quick sessions do not create sub-issues');
+  });
+
+  it('RC13 (D-12): block specifies initial body with Goal:, PLAN dir:, Plans:', () => {
+    for (const field of ['Goal:', 'PLAN dir:', 'Plans:']) {
+      assert.ok(block.includes(field),
+        `initial sub-issue body must include "${field}" field (D-12)`);
+    }
+  });
+
+  it('RC14 (D-10): block instructs dedup via list-issues filtered by parent_id and label', () => {
+    assert.ok(block.includes('list-issues'),
+      'dedup step must reference list-issues call');
+    // Already verified parent_id (RC2) and kodo:gsd-child (RC1) are in block;
+    // here we just verify dedup verb appears.
+    assert.ok(/REUSA|dedup|reuses?|reusar/i.test(block),
+      'dedup intent must be verbalized');
+  });
+
+  it('RC15: source-hygiene — block does NOT contain forbidden English prompt phrases (PM7 sub-scoped)', () => {
+    for (const phrase of [/\byou must\b/i, /\bplease\b/i, /\bexecute your\b/i]) {
+      assert.ok(!phrase.test(block),
+        `forbidden English phrase found INSIDE the reporting block: ${phrase}`);
+    }
+  });
+});
+
+describe('REPORT-03 — Sub-issue reporting block ABSENT when flag=false', () => {
+  const raw = readFileSync('src/orchestrator/prompt.md', 'utf-8');
+  const stripped = applyReportingGate(
+    resolvePromptTemplate(raw, { provider: 'plane' }),
+    false,
+  );
+
+  it('RA1: stripped prompt has no Sub-issue reporting heading', () => {
+    assert.ok(!stripped.includes('Sub-issue reporting'),
+      'flag=false must remove the entire reporting section');
+  });
+
+  it('RA2: stripped prompt has no kodo:gsd-child references', () => {
+    // The label only appears inside the gated block (Phase 15 design).
+    // If it appears elsewhere later, this test guides us to keep it gated.
+    assert.ok(!stripped.includes('kodo:gsd-child'),
+      'flag=false must remove kodo:gsd-child references (only appear in the gated block today)');
+  });
+
+  it('RA3: stripped prompt has no NUNCA capitalized', () => {
+    assert.ok(!/\bNUNCA\b/.test(stripped),
+      'flag=false must remove the NUNCA append-only directive (only inside gated block)');
+  });
+
+  it('RA4: stripped prompt has no HARD STEP marker', () => {
+    assert.ok(!/HARD STEP/.test(stripped),
+      'flag=false must remove the HARD STEP validation reminder');
+  });
+
+  it('RA5: stripped prompt has no [kodo:reporting] log directives', () => {
+    assert.ok(!stripped.includes('[kodo:reporting]'),
+      'flag=false must remove all [kodo:reporting] log directives');
+  });
+
+  it('RA6: stripped prompt PRESERVES the unrelated "## Sesiones GSD" section intact', () => {
+    assert.ok(stripped.includes('## Sesiones GSD'),
+      'pre-existing GSD section must survive');
+    assert.ok(stripped.includes('kodo gsd verify <session-id>'),
+      'pre-existing GSD command snippet must survive');
+    assert.ok(stripped.includes('Sesiones quick'),
+      'pre-existing quick subsection must survive');
+  });
+});
