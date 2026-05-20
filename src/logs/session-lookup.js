@@ -4,9 +4,18 @@
 //
 // Dos pasos (D-20):
 //   1. loadState() — match rápido en ~/.kodo/state.json por task_id o task_ref.
+//      DUAL-SCAN (Phase 30 Plan 04 gap closure SC#1 Truth 2): escanea ambos
+//      buckets `state.sessions` (sesiones vivas) Y `state.history` (sesiones
+//      terminadas, FIFO 50-slot mantenido por removeSession). Priority
+//      sessions > history — mismo idiom que LIFE-01 findSession D-02.
+//      Driver: HUMAN-UAT Test #2 — `kodo logs --session-of LIKEN-113` fallaba
+//      tras stop hook porque step-1 sólo veía `sessions` y step-2 (NDJSON
+//      head-line) sólo matchea por task_id UUID, no por task_ref humano.
 //   2. Fallback: scan de ~/.kodo/logs/*.ndjson.
 //      Para cada archivo: head-line-read (readFirstLine) → parse → match
-//      registro con event === 'session.start' y task_id === taskId.
+//      registro con event === 'session.start' y task_id === taskId. Sin
+//      cambios — preserva cobertura de sesiones huérfanas (logs presentes
+//      pero state.json limpiado).
 //
 // Multi-match (D-21): ordenar por timestamp ISO-8601 DESC (comparación
 // lexicográfica === cronológica), devolver el más reciente, warn a stderr
@@ -27,14 +36,30 @@ import { readFirstLine } from './head-line.js';
  * @returns {Promise<string | null>} sessionId o null si no hay match
  */
 export async function resolveSessionIdFromTaskId(taskId) {
-  // Step 1 — state.json index (rápido, O(sessions)).
+  // Step 1 — state.json index dual-scan (rápido, O(sessions + history)).
+  // SC#1 Truth 2 closure: tanto sesiones vivas como archivadas resuelven
+  // por task_id UUID o task_ref humano (idéntico CLI behavior).
   const state = loadState();
   const sessions = state.sessions || {};
+  // Defensive Array.isArray guard idéntico a LIFE-01 findSession#213 y
+  // listHistory#150 — state.json legacy sin field `history` se lee como [].
+  const history = Array.isArray(state.history) ? state.history : [];
+
+  // Priority sessions (LIFE-01 D-02 idiom): match en sessions gana sobre
+  // history en la ventana degenerada del removeSession (unshift history →
+  // delete sessions[taskId]).
   for (const s of Object.values(sessions)) {
     /** @type {any} */
     const sess = s;
     if (sess.task_id === taskId || sess.task_ref === taskId) {
       return sess.session_id;
+    }
+  }
+  for (const h of history) {
+    /** @type {any} */
+    const entry = h;
+    if (entry.task_id === taskId || entry.task_ref === taskId) {
+      return entry.session_id;
     }
   }
 
