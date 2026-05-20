@@ -264,7 +264,7 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
         // state.transition es observability-only; orchestratorReview es el contractual
         // signal que consume el orquestador. Silenciar fallos de fs aquí preserva D-17.
         try {
-          markSessionStatus(session.task_id, 'review', 'gate-passed', log);
+          markSessionStatus(session.task_id, 'review', 'gate-passed', log, session.session_id);
         } catch {
           // intencionalmente vacío — ver comentario CR-01 arriba.
         }
