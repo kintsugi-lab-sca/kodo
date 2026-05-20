@@ -323,47 +323,55 @@ CONTEXT D-04 lista `7c28c06` (markers + placeholder) en 29-03 y `d030547` (prosa
 
 **How to avoid:** Verificar tras cherry-pick que línea 4 quedó `import { readFileSync } from 'node:fs';` no duplicado (Phase 28 puede haberlo añadido para otros tests — verificar).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿Squash o no squash de `7c28c06` + `d030547`?**
    - What we know: Cherry-pick literal de `7c28c06` falla (Pitfall 1). Manual reapply funciona. `d030547` literal también falla (depende del placeholder de `7c28c06`).
    - What's unclear: Si squashear conceptualmente reduce risk o destruye audit trail.
    - Recommendation: Preservar separados (CONTEXT D-04 mantenido). Aplicar 29-03 con manual reapply de markers + placeholder vacío; 29-04 con manual replace del placeholder por la prosa. Commit message documenta `[manual reapply of <sha>]` en cada uno.
+   - **RESOLVED:** Preserve separados (CONTEXT D-04 plan decomposition). Plan 29-03 hace manual reapply de `7c28c06` (markers + heading + placeholder renumbered `15-02` → `29-04`); plan 29-04 hace manual reapply de `d030547` (placeholder → prosa ES de ~65 líneas). Audit trail preservado en commit messages literales `[manual reapply of <sha>]`.
 
 2. **¿Aplicar el cherry-pick directamente en main o usar worktree?**
    - What we know: Worktree always-on Phase 18 lo recomienda. CONTEXT no especifica. Plan-by-plan implica 4 cherry-pick clusters secuenciales.
    - What's unclear: Si conviene un worktree por plan o uno único para los 4 planes.
    - Recommendation: Worktree único `worktree-phase-29-cherry-picks/` con commits cronológicos preservados. Merge a main solo cuando 29-04 termina y suite verde.
+   - **RESOLVED:** Worktree único — 4 plans secuenciales en el mismo working tree. Commits cronológicos preservados; merge a main al cerrar 29-04 con suite verde.
 
 3. **¿Tests LG7/LG8 (commit `38c7a2e`) son sensibles al orden 29-03 vs 29-04?**
    - What we know: Pitfall 3 documenta la inquietud. Sin leer el contenido exacto del test, no se puede confirmar.
    - What's unclear: Si LG7 asserta "Sub-issue reporting" heading explícitamente.
    - Recommendation: Como **acción primera del plan 29-03**, leer `git show gsd-provider-reporting:test/launch.test.js` y mapear cada test LG1..LG8 + LH1..LH3 a aserciones concretas. Si LG7/LG8 dependen de la prosa, moverlos a 29-04 (con nota en SUMMARY).
+   - **RESOLVED:** Heading `## Sub-issue reporting` insertado en 29-03 junto con markers + placeholder. LG7/LG8 funcionales desde 29-03 sin necesidad de mover tests; dependen del heading, NO de la prosa específica. Task 1 de 29-03 ya hace inspección preventiva (Wave 0 read-only) para confirmar.
 
 4. **¿Rollback strategy si 29-03 lands y suite rojo en 29-04?**
    - What we know: D-23 dice "detener y diagnosticar antes de avanzar". Cherry-pick produce commits separados → `git reset --hard HEAD~N` o `git revert <sha>` son opciones.
    - What's unclear: Si conviene revertir 29-03 también o solo 29-04.
    - Recommendation: Si suite rojo SOLO por aserts de prosa (RC1..RC15), revertir solo 29-04. Si rojo por aserts de markers (SR1..SR6) o gate (LG1..LG8), revertir 29-03 + 29-04. Marcar phase como blocked, abrir Plan 29-05 cleanup.
+   - **RESOLVED:** Revert solo 29-04 si fallan RC1..RC15 (content tests aislados a la prosa). Revert 29-03 + 29-04 si fallan SR1..SR6 (markers) o LG1..LG8 (gate). Plan 29-05 cleanup queda como opción habilitada en CONTEXT Discretion si emerge necesidad.
 
 5. **¿`test/labels-hygiene.test.js` (CONTEXT D-17, NEW) puede ser parte de 29-01 o requiere plan separado?**
    - What we know: CONTEXT D-17 dice "nuevo archivo `test/labels-hygiene.test.js` mirroring patrón Phase 14 `test/format-isolation.test.js` + Phase 16 `test/dispatcher-isolation.test.js`". El test NO viene del branch.
    - What's unclear: Si la phase debe escribir este test, en qué plan, y si conta hacia los "38 tests heredados".
    - Recommendation: Incluir como Task final del plan **29-01** (junto al cherry-pick de `5a41d8f` + `cbd8f9c`). NO cuenta hacia los 38 heredados — es test net-nuevo (suma a la baseline). Target suite ajustado: 806 + 38 + 3-5 hygiene tests = ~847-849.
+   - **RESOLVED:** Incluir como Task final del plan 29-01 (Task 3). Mínimo 2 tests net-new (walker source-hygiene multi-archivo + sanity test sobre `src/labels.js`). NO cuenta hacia los 38 heredados; suma a baseline. Plan 29-01 success_criteria documenta `+2 tests net-new`.
 
 6. **¿Phase 28 mutó `test/dispatcher.test.js` haciendo que el append de `cbd8f9c` colisione?**
    - What we know: Phase 28 introdujo `polling.tick.summary` evento, TaskItem 13 fields. Es plausible (pero no verificado en este research) que añadiera tests al dispatcher.
    - What's unclear: Si el cherry-pick de `cbd8f9c` (que añade tests al final del archivo) entrará en conflict con tests Phase 28.
    - Recommendation: Verificar con `git log --oneline --since="2026-05-15" -- test/dispatcher.test.js`. Si Phase 28 modificó las últimas líneas, manual append en su lugar al cherry-pick.
+   - **RESOLVED:** Verificar pre-cherry-pick en plan 29-01 Wave 0 (read_first incluye estado actual de `test/dispatcher.test.js` 1038 líneas + describes Phase 18/Phase 28). Si el final del archivo mutó, manual append per CONTEXT D-24-1 (trivial whitespace).
 
 7. **¿El comportamiento del dispatcher con `--force` y un label `kodo:gsd-child` interactúa con el bloque Phase 18 worktree_collision?**
    - What we know: El guard REPORT-01 corta ANTES del lock (línea base 64-72 dispatcher pre-Phase 18). Phase 18 worktree_collision check vive DESPUÉS del lock (líneas main 147-215). Filtrado REPORT-01 retornará antes de tocar worktree.
    - What's unclear: Si un test heredado hace asserts sobre comportamiento Phase 18 worktree que ahora se cortocircuita.
    - Recommendation: Confirmed safe — el guard REPORT-01 corta tan temprano que worktree_collision nunca se evalúa para `kodo:gsd-child` tasks. No hay regresión.
+   - **RESOLVED:** Cortocircuita — el guard sale ANTES del check worktree_collision (CONTEXT D-06: guard insertion entre log "Task:" línea 61 y `if (!opts.force)` línea 64; worktree_collision vive en líneas 147-215 main, mucho después). Confirmed safe. No hay regresión Phase 18.
 
 8. **¿La línea-literal del log `[kodo:dispatch] Ignored — kodo:gsd-child filtered (anti-recursion)` está blindada contra typos?**
    - What we know: CONTEXT D-07 fija el log line literal. Test SC#1 espera grepear esta línea.
    - What's unclear: Si tests dependen del em-dash (`—` U+2014) vs hyphen (`-`).
    - Recommendation: Branch HEAD uses em-dash explícito (verificado en `git show cbd8f9c`). Cherry-pick preserva bytes. Si el test usa regex `—` o em-dash literal, no hay drift.
+   - **RESOLVED:** Byte-equal asserts en `test/dispatcher.test.js` (describe `REPORT-01 — kodo:gsd-child anti-recursion filter` log capture test) capturan U+2014 literal. Cherry-pick `cbd8f9c` preserva bytes. Plan 29-01 Task 2 verify incluye grep literal del log line para guardia adicional.
 
 ## Validation Architecture
 
@@ -403,10 +411,6 @@ CONTEXT D-04 lista `7c28c06` (markers + placeholder) en 29-03 y `d030547` (prosa
 - [ ] Cherry-pick infraestructura (no test framework gap — `node:test` ya en uso)
 
 *(No framework install needed — `node:test` built-in, ya en uso post-Phase-6.)*
-
-## Open Questions
-
-(see numbered list above)
 
 ## Sources
 
