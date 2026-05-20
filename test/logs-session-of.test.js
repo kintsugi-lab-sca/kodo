@@ -120,3 +120,75 @@ describe('LOG-11: no match → null', () => {
     assert.equal(out, null);
   });
 });
+
+describe('session-lookup step-1 — history scan (LIFE-01 closure)', () => {
+  it('resolves archived session by humano task_ref via state.history', async () => {
+    // HUMAN-UAT Test #2 gap closure (SC#1 Truth 2):
+    //   - Sesión vive en state.history (removeSession ya la movió ahí).
+    //   - Operador busca con task_ref humano `GAP-30` (NO el task_id UUID).
+    //   - Pre-fix: step-1 solo escanea state.sessions → no match.
+    //              step-2 (NDJSON head-line) solo matchea por task_id UUID → null.
+    //   - Post-fix: step-1 escanea sessions + history con check task_id || task_ref.
+    seedState({
+      schema_version: 2,
+      sessions: {},
+      history: [
+        {
+          session_id: 'sess-archived-gap30',
+          task_id: 'uuid-archived-001',
+          task_ref: 'GAP-30',
+          workspace_ref: 'ws-1',
+          provider: 'plane',
+          project_id: 'proj-1',
+          summary: 'archived session for SC#1 Truth 2',
+          status: 'done',
+          started_at: '2026-05-20T10:00:00.000Z',
+          project_path: '/tmp/repo',
+          ended_at: '2026-05-20T11:00:00.000Z',
+        },
+      ],
+    });
+    const out = await resolveSessionIdFromTaskId('GAP-30');
+    assert.equal(out, 'sess-archived-gap30');
+  });
+
+  it('priority sessions over history (D-02 idiom — degenerate window)', async () => {
+    // Si la misma task vive en ambos buckets (ventana degenerada durante
+    // removeSession entre el unshift de history y el delete de sessions),
+    // sessions debe ganar. Mismo invariante que LIFE-01 findSession D-02.
+    seedState({
+      schema_version: 2,
+      sessions: {
+        'uuid-active-002': {
+          session_id: 'sess-active-priority',
+          task_id: 'uuid-active-002',
+          task_ref: 'GAP-30B',
+          status: 'running',
+          provider: 'plane',
+          project_id: 'proj-1',
+          workspace_ref: 'ws-2',
+          summary: 'active',
+          started_at: '2026-05-20T12:00:00.000Z',
+          project_path: '/tmp/repo',
+        },
+      },
+      history: [
+        {
+          session_id: 'sess-history-loser',
+          task_id: 'uuid-active-002',
+          task_ref: 'GAP-30B',
+          status: 'done',
+          provider: 'plane',
+          project_id: 'proj-1',
+          workspace_ref: 'ws-2',
+          summary: 'stale duplicate',
+          started_at: '2026-05-20T08:00:00.000Z',
+          project_path: '/tmp/repo',
+          ended_at: '2026-05-20T09:00:00.000Z',
+        },
+      ],
+    });
+    const out = await resolveSessionIdFromTaskId('GAP-30B');
+    assert.equal(out, 'sess-active-priority');
+  });
+});
