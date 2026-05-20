@@ -29,7 +29,11 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   worktree_path?: string,    // Phase 18 (D-03c, aditivo opcional — mismo patrón que gsd_mode Phase 11 D-08). Path determinístico derivado del session-id (`<projectPath>/.bg-shell/<sessionId>`) computado por computeWorktreePath. Sesiones legacy v0.5 sin este campo se leen como undefined; consumers downstream deben tolerar falsy. NO bump de schema_version.
  * }} Session
  *
- * @typedef {{ schema_version: number, sessions: Record<string, Session> }} State
+ * @typedef {{
+ *   schema_version: number,
+ *   sessions: Record<string, Session>,
+ *   history?: Array<Session & { ended_at: string }>  // Phase 30 (D-09 cleanup): aditivo opcional. Mantenido por removeSession (FIFO 50-slot cap). Legacy state.json files sin history se leen como ausente — callers usan `Array.isArray(state.history) ? state.history : []` defensive guard.
+ * }} State
  */
 
 /**
@@ -174,22 +178,77 @@ export function listSessions() {
 }
 
 /**
- * Find session by workspace ref or project path
- * @param {{ cwd?: string, workspaceRef?: string }} query
+ * Find session by sessionId, workspace ref, or project path. Scans BOTH
+ * `state.sessions` (active) AND `state.history` (terminated, FIFO 50-slot
+ * cap maintained by removeSession).
+ *
+ * Returns a tagged discriminated union with `source: 'sessions' | 'history'`
+ * (Phase 30 D-01). Legacy callers that only read `r.session` keep working
+ * — `source` is additive.
+ *
+ * Priority (D-02): when an entry appears in both buckets (degenerate window
+ * between removeSession's `unshift` and `delete state.sessions[taskId]`),
+ * `sessions` wins. SC#3 ROADMAP lockea this invariant.
+ *
+ * For history entries (D-03), `id = session.task_id` is synthesized from the
+ * record itself because `state.history` is an array with no real keys.
+ *
+ * The 3 lookup keys (`sessionId`, `workspaceRef`, `cwd`) operate identically
+ * over history entries (D-04) — removeSession preserves the original shape
+ * via `{...removed, ended_at: ISO}`.
+ *
+ * Closes CR-01 Phase 19 deferred. Driver: ROMAN-132 (2026-05-15) confirmed
+ * state.json desync — `state.sessions = {}` while session lived in
+ * `state.history`. `kodo gsd verify <session-id>` and `kodo logs
+ * --session-of <task-id>` must work for archived sessions.
+ *
+ * @param {{ sessionId?: string, cwd?: string, workspaceRef?: string }} query
+ * @returns {{ id: string, session: Session, source: 'sessions' | 'history' } | null}
  */
 export function findSession(query) {
-  const sessions = loadState().sessions;
-  // Prefer exact session_id match (unique, no ambiguity)
+  const state = loadState();
+  const sessions = state.sessions;
+  // D-04 defensive Array.isArray guard — legacy state.json files have no
+  // `history` field (same pattern as listHistory line 146).
+  const history = Array.isArray(state.history) ? state.history : [];
+
+  // D-02 priority sessions: scan active sessions FIRST. Any match here
+  // wins over history (degenerate window during removeSession).
   if (query.sessionId) {
     for (const [id, session] of Object.entries(sessions)) {
-      if (session.session_id === query.sessionId) return { id, session };
+      if (session.session_id === query.sessionId) {
+        return { id, session, source: 'sessions' };
+      }
     }
   }
-  // Fall back to workspace ref or cwd
   for (const [id, session] of Object.entries(sessions)) {
-    if (query.workspaceRef && session.workspace_ref === query.workspaceRef) return { id, session };
-    if (query.cwd && session.project_path === query.cwd) return { id, session };
+    if (query.workspaceRef && session.workspace_ref === query.workspaceRef) {
+      return { id, session, source: 'sessions' };
+    }
+    if (query.cwd && session.project_path === query.cwd) {
+      return { id, session, source: 'sessions' };
+    }
   }
+
+  // D-03 history scan: id sintetizado desde session.task_id (history es
+  // array sin key real). Mismas 3 lookup keys que sessions (D-04 — shape
+  // preservado por removeSession).
+  if (query.sessionId) {
+    for (const session of history) {
+      if (session.session_id === query.sessionId) {
+        return { id: session.task_id, session, source: 'history' };
+      }
+    }
+  }
+  for (const session of history) {
+    if (query.workspaceRef && session.workspace_ref === query.workspaceRef) {
+      return { id: session.task_id, session, source: 'history' };
+    }
+    if (query.cwd && session.project_path === query.cwd) {
+      return { id: session.task_id, session, source: 'history' };
+    }
+  }
+
   return null;
 }
 
