@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKodoLabels, getGsdMode, getSessionMode } from '../src/labels.js';
+import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD } from '../src/labels.js';
 
 describe('parseKodoLabels', () => {
   it('returns isKodo=false when no labels', () => {
@@ -165,5 +165,51 @@ describe('GH-05 — GitHub TaskItem cross-provider (parseKodoLabels invariant)',
   it('handles empty labels array (defensive)', () => {
     const result = parseKodoLabels([]);
     assert.deepEqual(result, { isKodo: false, model: null, flags: [] });
+  });
+});
+
+describe('REPORT-01 — isGsdChild + KODO_LABEL_GSD_CHILD', () => {
+  it('REPORT-01: KODO_LABEL_GSD_CHILD const value is "kodo:gsd-child"', () => {
+    assert.equal(KODO_LABEL_GSD_CHILD, 'kodo:gsd-child');
+  });
+
+  it('REPORT-01: isGsdChild([]) returns false (empty array)', () => {
+    assert.equal(isGsdChild([]), false);
+  });
+
+  it('REPORT-01: isGsdChild defensive — null/undefined/non-array returns false', () => {
+    assert.equal(isGsdChild(null), false);
+    assert.equal(isGsdChild(undefined), false);
+    assert.equal(isGsdChild('kodo:gsd-child'), false, 'plain string is not an array');
+    assert.equal(isGsdChild(42), false);
+  });
+
+  it('REPORT-01: isGsdChild(["kodo:gsd-child"]) returns true (string form)', () => {
+    assert.equal(isGsdChild(['kodo:gsd-child']), true);
+  });
+
+  it('REPORT-01: isGsdChild([{name: "kodo:gsd-child"}]) returns true (object form)', () => {
+    assert.equal(isGsdChild([{ name: 'kodo:gsd-child' }]), true);
+  });
+
+  it('REPORT-01: isGsdChild case-insensitive (string and object forms)', () => {
+    assert.equal(isGsdChild(['KODO:GSD-CHILD']), true);
+    assert.equal(isGsdChild([{ name: 'Kodo:Gsd-Child' }]), true);
+  });
+
+  it('REPORT-01: isGsdChild(["kodo:gsd", "kodo:gsd-child"]) returns true (child wins, D-07 structural)', () => {
+    assert.equal(isGsdChild(['kodo:gsd', 'kodo:gsd-child']), true);
+    assert.equal(isGsdChild(['kodo:gsd-child', 'kodo:gsd']), true, 'order-independent');
+  });
+
+  it('REPORT-01: isGsdChild rejects similar-but-different labels', () => {
+    assert.equal(isGsdChild(['kodo:gsd-children']), false, 'plural is not the marker');
+    assert.equal(isGsdChild(['kodo:gsd-quick-child']), false, 'compound is not the marker');
+    assert.equal(isGsdChild(['gsd-child']), false, 'missing kodo: prefix');
+  });
+
+  it('REPORT-01: isGsdChild tolerates mixed garbage in array', () => {
+    assert.equal(isGsdChild([null, undefined, 42, true, 'kodo:gsd-child']), true);
+    assert.equal(isGsdChild([null, undefined, 42, true, {}, { name: null }]), false);
   });
 });

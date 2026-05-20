@@ -83,3 +83,41 @@ export function getSessionMode(session) {
   if (!session?.gsd) return null;
   return session.gsd_mode || 'full';
 }
+
+/**
+ * Sub-issue marker label. Tasks tagged with this label are sub-issues created
+ * by the agent (Phase 15+) for GSD progress reporting. The dispatcher (Phase 14
+ * D-06) drops them BEFORE any further processing — even under --force — to
+ * prevent a webhook-triggered recursion loop where the agent's own report
+ * spawns another Claude session.
+ *
+ * Phase 14 D-09: standalone constant (not nested in a KODO_LABELS object) —
+ * the rest of label literals ('kodo', 'sonnet', 'haiku', 'gsd', 'gsd-quick')
+ * are intentionally NOT touched in Phase 14 to avoid scope creep. Refactor
+ * to an aggregate object becomes worthwhile when a 4th/5th label appears.
+ */
+export const KODO_LABEL_GSD_CHILD = 'kodo:gsd-child';
+
+/**
+ * Returns true iff the labels array contains the `kodo:gsd-child` marker.
+ * Defensive parity with `parseKodoLabels`: tolerates both `string[]` and
+ * `Array<{name: string}>` inputs (dispatcher passes string[]; provider
+ * adapters typically pass {name} objects). Case-insensitive.
+ *
+ * Phase 14 D-08: única fuente de verdad para el check `gsd-child`. Callsites
+ * MUST use this helper, not `task.labels.some(l => l === 'kodo:gsd-child')`
+ * inline. Source-hygiene blinda el invariante en `src/triggers/*.js`.
+ *
+ * @param {Array<any>} labels
+ * @returns {boolean}
+ */
+export function isGsdChild(labels) {
+  if (!Array.isArray(labels)) return false;
+  return labels.some((l) => {
+    const name =
+      typeof l === 'object' && l !== null ? l.name :
+      typeof l === 'string' ? l :
+      null;
+    return typeof name === 'string' && name.toLowerCase() === KODO_LABEL_GSD_CHILD;
+  });
+}

@@ -1,6 +1,7 @@
 // @ts-check
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 /**
  * Build a fake TaskProvider with sensible defaults.
@@ -735,7 +736,6 @@ describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () =>
     assert.equal(releaseCalled, true, 'lock must be released on fail-closed (Phase 11 D-13)');
   });
 });
-
 describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)', () => {
   const uuidV4Re = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -1034,5 +1034,156 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     assert.equal(fields.phase_id, '5', 'IN-02: phase_id presente');
     assert.equal(fields.match_heading, '### Phase 5: Foo', 'IN-02: match_heading presente');
     assert.equal(fields.mode, 'full', 'IN-02: mode presente');
+  });
+});
+
+describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
+  const baseEvent = { provider: 'test', taskRef: 'KL-CHILD', action: 'state_change', raw: {} };
+  const childTask = {
+    id: 'task-child-1',
+    ref: 'KL-CHILD',
+    title: 'Sub-issue from agent',
+    state: 'In Progress',
+    labels: ['kodo:gsd-child'],
+    description: '',
+    projectId: 'proj-1',
+    projectName: 'Test',
+    groups: [],
+    url: 'https://example.com/KL-CHILD',
+    priority: 'medium',
+  };
+
+  function makeDeps({
+    verdict,
+    acquireResult = { acquired: true },
+    launchResult = { session_id: 'sess-1' },
+    task = childTask,
+  } = {}) {
+    const inspectState = {
+      releaseCalled: false,
+      launchCalledWith: null,
+      acquireCalled: false,
+      resolveCalled: false,
+      removeCalled: false,
+    };
+    return {
+      getProviderFn: () => ({
+        getTask: async () => task,
+        init: async () => {},
+        updateTaskState: async () => {},
+        addComment: async () => {},
+        listPendingTasks: async () => [],
+        parseTriggerEvent: () => null,
+        verifySignature: () => true,
+        resolveRef: async () => '',
+      }),
+      resolveProjectPathFn: () => '/tmp/fake-project',
+      acquireGsdLockFn: () => { inspectState.acquireCalled = true; return acquireResult; },
+      releaseGsdLockFn: () => { inspectState.releaseCalled = true; },
+      resolvePhaseFn: () => { inspectState.resolveCalled = true; return verdict; },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => { inspectState.removeCalled = true; },
+      launchWorkItemFn: async (_ref, opts) => { inspectState.launchCalledWith = opts; return launchResult; },
+      _inspect: () => inspectState,
+    };
+  }
+
+  it('REPORT-01: returns {action:"ignored", code:"gsd_child"} for kodo:gsd-child task', async () => {
+    const deps = makeDeps({ task: childTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
+  });
+
+  it('REPORT-01: filter cuts BEFORE acquireGsdLock / resolvePhase / launchWorkItem (D-06)', async () => {
+    const deps = makeDeps({ task: childTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const { acquireCalled, resolveCalled, launchCalledWith, removeCalled } = deps._inspect();
+    assert.equal(acquireCalled, false, 'acquireGsdLock must not be called');
+    assert.equal(resolveCalled, false, 'resolvePhase must not be called');
+    assert.equal(launchCalledWith, null, 'launchWorkItem must not be called');
+    assert.equal(removeCalled, false, 'removeSession must not be called');
+  });
+
+  it('REPORT-01: filter applies even under opts.force:true (D-07 hard safety)', async () => {
+    const deps = makeDeps({ task: childTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, { force: true }, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
+    const { acquireCalled, resolveCalled, launchCalledWith } = deps._inspect();
+    assert.equal(acquireCalled, false);
+    assert.equal(resolveCalled, false);
+    assert.equal(launchCalledWith, null);
+  });
+
+  it('REPORT-01: filter applies when kodo:gsd-child + kodo:gsd both present (success criterion 2 — child wins structural)', async () => {
+    const bothTask = { ...childTask, labels: ['kodo:gsd-child', 'kodo:gsd'] };
+    const deps = makeDeps({ task: bothTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
+  });
+
+  it('REPORT-01: emits console.log with [kodo:dispatch] Ignored — prefix and gsd-child + anti-recursion mentions (success criterion 1)', async (t) => {
+    const lines = [];
+    t.mock.method(console, 'log', (msg) => { lines.push(String(msg)); });
+    const deps = makeDeps({ task: childTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const filterLine = lines.find((l) => /\[kodo:dispatch\] Ignored —/.test(l) && /gsd-child/i.test(l));
+    assert.ok(filterLine, `expected [kodo:dispatch] Ignored — ... gsd-child line. Got:\n${lines.join('\n')}`);
+    assert.match(filterLine, /anti-recursion|filtered/i, 'log line must mention anti-recursion or filtered');
+  });
+
+  it('REPORT-01: control test — non-child kodo:gsd task DOES reach resolver (no false positive)', async () => {
+    const gsdTask = { ...childTask, ref: 'KL-GSD', labels: ['kodo', 'kodo:gsd'] };
+    const deps = makeDeps({
+      task: gsdTask,
+      verdict: { action: 'phase', phase_id: '1', match_heading: '### Phase 1: x', match_reason: 'exact' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const { resolveCalled } = deps._inspect();
+    assert.equal(resolveCalled, true, 'kodo:gsd (without -child) must reach the resolver');
+  });
+});
+
+describe('REPORT-01 — dispatcher.js source hygiene', () => {
+  const DISPATCHER_PATH = 'src/triggers/dispatcher.js';
+
+  it('REPORT-01: dispatcher imports isGsdChild from ../labels.js (D-08 contract)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    assert.match(
+      source,
+      /import\s*\{[^}]*isGsdChild[^}]*\}\s*from\s*['"]\.\.\/labels\.js['"]/,
+      'dispatcher.js must import isGsdChild from ../labels.js',
+    );
+  });
+
+  it('REPORT-01: dispatcher does NOT inline `labels.some(... gsd-child ...)` (D-08 anti-inline)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(
+      !/labels\.some\([^)]*gsd-child/.test(stripped),
+      'dispatcher.js must use isGsdChild(task.labels), not inline labels.some(... gsd-child ...)',
+    );
+  });
+
+  it('REPORT-01: filter inserted BEFORE if (!opts.force) block (D-06 — hard safety property)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    const filterIdx = source.indexOf('isGsdChild(task.labels)');
+    const forceIdx = source.search(/if\s*\(!opts\.force\)/);
+    assert.ok(filterIdx > 0, 'isGsdChild(task.labels) must appear in dispatcher.js');
+    assert.ok(forceIdx > 0, 'if (!opts.force) must appear in dispatcher.js');
+    assert.ok(
+      filterIdx < forceIdx,
+      `gsd-child filter (idx ${filterIdx}) must precede the if (!opts.force) block (idx ${forceIdx}) — D-06 hard safety, --force must NOT bypass anti-recursion`,
+    );
   });
 });
