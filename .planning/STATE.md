@@ -82,8 +82,8 @@ _(reset for next milestone)_
 
 ### v0.6 Deferred (now IN v0.8 scope — Phases 30 + 31)
 
-- Phase 19 CR-01 — `findSession` debe escanear `state.history` (latent bug; driver real ROMAN-132 2026-05-15 confirmó state.json desync). → LIFE-01 / Phase 30.
-- Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. → LIFE-02 / Phase 30.
+- ✅ Phase 19 CR-01 — `findSession` debe escanear `state.history` (latent bug; driver real ROMAN-132 2026-05-15 confirmó state.json desync). → LIFE-01 / Phase 30 **CLOSED 2026-05-20** (plan 30-01 + 30-03 stop hook idempotency + 30-04 session-lookup dual-scan).
+- ✅ Phase 22 WR-07 — `markSessionStatus` early-return refactor estructural. → LIFE-02 / Phase 30 **CLOSED 2026-05-20** (plan 30-02 falsy guard observable + discriminated union return).
 - Phase 21 WR-04/05/06 advisory — pureza `syncSkill`, async cleanup, test `launchOrchestrator` real. → ADVISORY-01/02/03 / Phase 31.
 
 ### v0.7 Bookkeeping (doc-only, in v0.8 scope — Phase 32)
