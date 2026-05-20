@@ -174,6 +174,32 @@ export function getPlaneApiKey() {
 }
 
 /**
+ * Returns true iff the user has opted into provider sub-issue reporting via
+ * `~/.kodo/config.json` `workflow.report_to_provider: true`.
+ *
+ * Default-safe (Phase 14 D-03): missing config file, missing `workflow`
+ * section, missing `report_to_provider` key, or non-boolean values all
+ * return `false`. Strict equality `=== true` is fail-closed against string
+ * `"true"` and number `1` — only the JSON boolean `true` activates the flag.
+ *
+ * Phase 14 D-04: única fuente para el check. Cualquier consumer (Phase 15
+ * orchestrator prompt builder) DEBE llamar a este helper, NO leer
+ * `config.workflow.report_to_provider` inline. Source-hygiene D-05 blinda
+ * el invariante anti-inline en `src/**\/*.js \ {config.js}`.
+ *
+ * El parámetro `_loadConfig` es DI opcional para testabilidad (research
+ * Open Question 1 — research recomienda esta variante sobre fixture
+ * filesystem por menor invasividad y zero-touch sobre `~/.kodo/config.json`
+ * real del dev). Producción siempre usa el default `loadConfig`.
+ *
+ * @param {() => typeof DEFAULT_CONFIG} [_loadConfig] - Optional injected loader for tests.
+ * @returns {boolean}
+ */
+export function isReportToProviderEnabled(_loadConfig = loadConfig) {
+  return _loadConfig().workflow?.report_to_provider === true;
+}
+
+/**
  * Factory para el shape default de `providers.github` (D-06 verbatim).
  *
  * D-08 LOCKED: NO se inyecta en `DEFAULT_CONFIG` — eso forzaría a configs v0.6
