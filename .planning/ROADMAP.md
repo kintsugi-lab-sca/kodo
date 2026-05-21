@@ -104,7 +104,7 @@
 | 29. GSD Provider Reporting Integration | 4/4 | Complete    | 2026-05-20 |
 | 30. SessionRecord Lifecycle | 4/4 | Complete    | 2026-05-20 |
 | 31. Phase 21/22 Advisory Cleanup | 3/3 | Complete   | 2026-05-21 |
-| 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
+| 32. v0.7 Bookkeeping (Doc-Only) | 3/3 | Complete   | 2026-05-21 |
 
 ## Archived Milestones
 
