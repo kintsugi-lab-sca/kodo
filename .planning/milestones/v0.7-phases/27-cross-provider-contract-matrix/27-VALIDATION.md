@@ -2,7 +2,7 @@
 phase: 27
 slug: cross-provider-contract-matrix
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-14
 ---
