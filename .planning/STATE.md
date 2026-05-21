@@ -4,8 +4,8 @@ milestone: v0.8
 milestone_name: Bookkeeping
 status: executing
 stopped_at: Phase 32 context gathered
-last_updated: "2026-05-21T11:33:12.723Z"
-last_activity: 2026-05-21 -- Phase 32 planning complete
+last_updated: "2026-05-21T12:20:09.570Z"
+last_activity: 2026-05-21 -- Phase 32 execution started
 progress:
   total_phases: 5
   completed_phases: 4
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: 31 — COMPLETE
+Phase: 32 (v0-7-bookkeeping-doc-only) — EXECUTING
 Plan: 1 of 3
-Status: Ready to execute
-Last activity: 2026-05-21 -- Phase 32 planning complete
+Status: Executing Phase 32
+Last activity: 2026-05-21 -- Phase 32 execution started
 
 ## Most recent shipped milestone
 
