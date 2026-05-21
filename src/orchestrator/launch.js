@@ -62,7 +62,27 @@ export function applyReportingGate(prompt, enabled) {
 /**
  * Launch the orchestrator Claude session in a dedicated cmux workspace.
  *
- * @param {{ logger?: import('../logger.js').Logger }} [opts]
+ * ADVISORY-03 / Plan 31-03 — Opción A "Lifecycle Simulator Hook".
+ * `opts.spawnFn` es un DI hook OPCIONAL invocado post-cmux.send/notify y
+ * pre-return en el branch new-workspace. Default `undefined` preserva el
+ * comportamiento byte-exact pre-Phase-31: en producción, el lifecycle real
+ * (addSession + sessionStart + NDJSON emission) lo realiza el binario
+ * `claude` que cmux arranca DENTRO del workspace cmux tras `cmux.send`.
+ * Los tests del ADVISORY-03 inyectan `spawnFn` para simular ese lifecycle
+ * downstream y validar observables reales (state.json + NDJSON head-line
+ * con event=session.start + transcript_path populated) sin requerir claude
+ * ni cmux reales.
+ *
+ * @param {{
+ *   logger?: import('../logger.js').Logger,
+ *   spawnFn?: (ctx: {
+ *     workspaceRef: string,
+ *     sessionId: string,
+ *     projectPath: string,
+ *     kodoDir: string,
+ *     taskRef: string,
+ *   }) => Promise<void> | void,
+ * }} [opts]
  */
 export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
@@ -191,6 +211,31 @@ export async function launchOrchestrator(opts = {}) {
   });
 
   console.log(`[kodo] Orchestrator launched → ${workspaceRef}`);
+
+  // ─── ADVISORY-03 (Plan 31-03) Opción A — Lifecycle Simulator Hook ──────
+  // `opts.spawnFn` es un DI hook opcional. Default `undefined` → if-guard
+  // lo elide y producción mantiene comportamiento byte-exact pre-Phase-31:
+  // el lifecycle real (addSession + sessionStart + NDJSON) lo hace el
+  // binario `claude` que cmux arranca dentro del workspace tras `cmux.send`
+  // (ver línea ~184). Los tests del ADVISORY-03 inyectan `spawnFn` para
+  // simular ese lifecycle downstream y verificar observables reales
+  // (state.json mutado + NDJSON head-line con event=session.start +
+  // transcript_path populated) sin claude ni cmux reales.
+  //
+  // Solo se invoca en la rama new-workspace (NO en la rama "existing" línea
+  // ~128 refresh-nudge): el hook simula el PRIMER lifecycle de sesión, y
+  // el refresh-nudge no crea sesión nueva.
+  // ────────────────────────────────────────────────────────────────────────
+  if (opts.spawnFn) {
+    await opts.spawnFn({
+      workspaceRef,
+      sessionId,
+      projectPath: process.cwd(),
+      kodoDir: join(homedir(), '.kodo'),
+      taskRef: ORCHESTRATOR_WORKSPACE_NAME,
+    });
+  }
+
   return { workspace: workspaceRef, existing: false };
 }
 
