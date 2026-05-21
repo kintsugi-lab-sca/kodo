@@ -25,30 +25,21 @@
 <decisions>
 ## Implementation Decisions
 
-### Plan structure
-- **D-01:** **3 planes**, uno por BOOK-item (`32-01` BOOK-01, `32-02` BOOK-02, `32-03` BOOK-03). Mantiene el patrón "1 plan = 1 REQ-ID" usado en Phase 31. Permite trazabilidad 1:1 con REQUIREMENTS.md y commits granulares.
-
-### Wave structure
-- **D-02:** **Wave 1 = los 3 planes en paralelo.** Verificación de overlap:
-  - BOOK-01 toca: `.planning/milestones/v0.7-REQUIREMENTS.md`
-  - BOOK-02 toca: `.planning/milestones/v0.7-phases/23-githubclient-auth-foundation/VERIFICATION.md` (archivo nuevo)
-  - BOOK-03 toca: `.planning/milestones/v0.7-phases/{23,25,26,27}-*/VALIDATION.md` (4 archivos distintos)
-  - **Cero overlap** → paralelizable con worktrees aislados. Phase entera estimada en ~10 min.
-
 ### VERIFICATION.md backfill content (BOOK-02)
 - **D-03:** **Retro-verificación estructural completa**. El `VERIFICATION.md` de Phase 23 debe auditar los 2 SUMMARYs existentes (`23-01-SUMMARY.md`, `23-02-SUMMARY.md`) contra los requirements declarados de Phase 23 (`GH-01..05`, `CFG-01`, `CFG-02`, `TEST-01`) y producir verdicts must-have por requirement. Patrón consistente con phases 24-27 que ya tienen `VERIFICATION.md`.
 - **D-04:** **No re-ejecución de tests.** El audit del milestone v0.7 ya validó empíricamente que la suite v0.7 está verde. El backfill cita el audit como evidencia, no re-corre tests.
 
-### Commit strategy
-- **D-05:** **1 commit por BOOK-item** (3 commits funcionales totales + 1 commit por SUMMARY.md = ~6 commits totales en la phase). Convención: `docs(32-XX): close BOOK-NN — <one-liner>`. Alineado con commit standard ya en uso (Phase 31 commits granulares).
-
 ### Scope discipline
 - **D-06:** **Scope fijo a BOOK-01/02/03 exactos del audit.** Cualquier otro drift descubierto durante ejecución va a `<deferred>` para futuras phases — NO se mete en Phase 32 sin re-roadmap. Especialmente: NO auditar phases anteriores al v0.7, NO tocar phases v0.6 o anteriores, NO refactorizar plantillas.
 
-### Tier 1 política (Git Workflow)
-- **D-07:** Phase 32 es **Tier 1** según política CLAUDE.md global (docs, config, fixes de lint). Fast-forward a main local sin PR. Coherente con el resto de phases doc-only del proyecto.
-
 ### Claude's Discretion
+
+Las siguientes decisiones son **meta-process / structural** sobre el workflow de planning mismo (no implementables como contratos por-plan). Se documentan aquí por trazabilidad histórica de la discussion, pero no requieren citation explícita en `must_haves` de los plans — su cumplimiento se observa en la existencia de los plans, su YAML frontmatter, los commits del executor, y la política Tier 1 de CLAUDE.md.
+
+- **3 planes, 1 por BOOK-item** (`32-01` BOOK-01, `32-02` BOOK-02, `32-03` BOOK-03) — patrón "1 plan = 1 REQ-ID" heredado de Phase 31. *Encoded by the existence of the 3 PLAN.md files.*
+- **Wave 1 = los 3 planes en paralelo**, cero overlap entre BOOK-01/02/03 (toca archivos disjuntos). *Encoded by `wave: 1` + `depends_on: []` in each plan's frontmatter.*
+- **1 commit por BOOK-item** (3 commits funcionales + 1 commit por SUMMARY.md ≈ 6 commits). Convención: `docs(32-XX): close BOOK-NN — <one-liner>`. *Process/convention — enforced at commit time by executor, alineada con commit standard ya en uso (Phase 31).*
+- **Tier 1** según política CLAUDE.md global (docs, config, fixes de lint) — fast-forward a main local sin PR. *Process/git-policy — enforced at merge time, citada en `<output>` de cada plan.*
 - Formato exacto del verdict block dentro de `VERIFICATION.md` Phase 23 (encabezado, bullets, tabla por REQ-ID) — el planner escoge un template consistente con phases 24-27.
 - Plan task granularity dentro de cada BOOK-plan — el planner decide si BOOK-01 son 2 tasks (toggle + verify) o 1 task (toggle bulk).
 
