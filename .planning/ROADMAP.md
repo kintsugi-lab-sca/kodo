@@ -76,9 +76,9 @@
   3. Test `test/orchestrator/launch.test.js` (o equivalente) ejecuta `launchOrchestrator` con spawn real (NO mockSpawn) + stdin canónico y asserta observables post-launch: `state.json` contiene la nueva session record + NDJSON contiene evento `session.start` con `transcript_path` populated.
   4. Suite global ≥830 pass + 0 fail. Phase 21 WR-04/WR-05/WR-06 entries CERRADAS en `v0.6-MILESTONE-AUDIT.md` (o equivalente tracker); STATE.md v0.6 deferred section reduce a 0 items.
 **Plans**: 3 plans
-- [ ] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
+- [x] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
 - [ ] 31-02-PLAN.md — ADVISORY-02: runSkillSyncCli cleanupFn DI + try/finally wrapper en 3 ramas (return 0/1/2) + describe 'runSkillSyncCli cleanupFn ordering' (3 tests netos, process.hrtime.bigint ordering). Wave 1, depends_on [31-01] (overlap controlado en test/skill-sync.test.js).
-- [ ] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
+- [x] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
 **UI hint**: no
 
 ### Phase 32: v0.7 Bookkeeping (Doc-Only)
@@ -91,9 +91,9 @@
   3. VALIDATION.md de phases 23/25/26/27 contiene `nyquist_compliant: true` en su YAML frontmatter — `grep -l "nyquist_compliant: true" .planning/milestones/v0.7-phases/*/VALIDATION.md` lista las 5 phases (24 ya tenía, ahora 23/25/26/27 también).
   4. Phase es 100% commits doc-only — `git diff <phase-base>..<phase-head> -- src/ test/ bin/` retorna vacío (cero líneas tocadas en código). Suite global ≥830 pass (sin cambio numérico vs Phase 31).
 **Plans**: 3 plans
-- [ ] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
+- [x] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
 - [ ] 31-02-PLAN.md — ADVISORY-02: runSkillSyncCli cleanupFn DI + try/finally wrapper en 3 ramas (return 0/1/2) + describe 'runSkillSyncCli cleanupFn ordering' (3 tests netos, process.hrtime.bigint ordering). Wave 1, depends_on [31-01] (overlap controlado en test/skill-sync.test.js).
-- [ ] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
+- [x] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
 **UI hint**: no
 
 ## Progress
@@ -103,7 +103,7 @@
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
 | 29. GSD Provider Reporting Integration | 4/4 | Complete    | 2026-05-20 |
 | 30. SessionRecord Lifecycle | 4/4 | Complete    | 2026-05-20 |
-| 31. Phase 21/22 Advisory Cleanup | 0/3 | Not started | - |
+| 31. Phase 21/22 Advisory Cleanup | 2/3 | In Progress|  |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
 
 ## Archived Milestones
