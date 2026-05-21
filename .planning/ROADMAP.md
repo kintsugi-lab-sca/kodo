@@ -77,7 +77,7 @@
   4. Suite global ≥830 pass + 0 fail. Phase 21 WR-04/WR-05/WR-06 entries CERRADAS en `v0.6-MILESTONE-AUDIT.md` (o equivalente tracker); STATE.md v0.6 deferred section reduce a 0 items.
 **Plans**: 3 plans
 - [x] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
-- [ ] 31-02-PLAN.md — ADVISORY-02: runSkillSyncCli cleanupFn DI + try/finally wrapper en 3 ramas (return 0/1/2) + describe 'runSkillSyncCli cleanupFn ordering' (3 tests netos, process.hrtime.bigint ordering). Wave 1, depends_on [31-01] (overlap controlado en test/skill-sync.test.js).
+- [x] 31-02-PLAN.md — ADVISORY-02: runSkillSyncCli cleanupFn DI + try/finally wrapper en 3 ramas (return 0/1/2) + describe 'runSkillSyncCli cleanupFn ordering' (3 tests netos, process.hrtime.bigint ordering). Wave 1, depends_on [31-01] (overlap controlado en test/skill-sync.test.js).
 - [x] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
 **UI hint**: no
 
@@ -103,7 +103,7 @@
 | 28. Polling/Daemon Hardening | 3/3 | Complete   | 2026-05-18 |
 | 29. GSD Provider Reporting Integration | 4/4 | Complete    | 2026-05-20 |
 | 30. SessionRecord Lifecycle | 4/4 | Complete    | 2026-05-20 |
-| 31. Phase 21/22 Advisory Cleanup | 2/3 | In Progress|  |
+| 31. Phase 21/22 Advisory Cleanup | 3/3 | Complete   | 2026-05-21 |
 | 32. v0.7 Bookkeeping (Doc-Only) | 0/TBD | Not started | - |
 
 ## Archived Milestones
