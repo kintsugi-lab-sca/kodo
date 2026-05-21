@@ -27,11 +27,22 @@ import { createFormatter } from './format.js';
  *   errFn?: (s: string) => void,
  *   formatterFn?: () => import('./format.js').Formatter,
  *   cwdFn?: () => string,
+ *   cleanupFn?: () => Promise<void> | void,
  * }} RunSkillSyncCliDeps
  */
 
 /**
  * Thin CLI handler que orquesta el gate D-07 + syncSkill + render.
+ *
+ * Si `deps.cleanupFn` se provee, se ejecuta `await deps.cleanupFn()` ANTES de
+ * retornar en cada path de salida (return 0/1/2). D-04/D-05/D-08 ADVISORY-02.
+ * Cuando `cleanupFn` es undefined, el comportamiento es byte-exact vs
+ * pre-Phase-31 (back-compat blindada por Suite 1+2). El cleanup corre en un
+ * try/finally externo que envuelve todo el cuerpo, garantizando ejecución
+ * incluso en el early-gate del exit 2 y en paths de error fs (exit 1).
+ *
+ * D-07 invariante: NUNCA invoca el helper de exit del runtime — retorna el
+ * código. bin/kodo (caller) ejecuta el exit con el returnValue post-return.
  *
  * @param {RunSkillSyncCliOpts} opts
  * @param {RunSkillSyncCliDeps} [deps]
@@ -44,43 +55,52 @@ export async function runSkillSyncCli(opts, deps = {}) {
   const cwd = deps.cwdFn ? deps.cwdFn() : process.cwd();
   // Lazy: createFormatter solo si entramos al render TTY (no se invoca para --json).
   const fmt = (deps.formatterFn || (() => createFormatter(process.stdout)))();
+  // ADVISORY-02 D-04/D-05: cleanupFn sin default — el `if (cleanupFn)` lo elide
+  // para callers que no inyectan, preservando back-compat byte-exact.
+  const cleanupFn = deps.cleanupFn;
 
   const source = join(cwd, '.claude', 'skills', 'kodo-orchestrate');
   const dest = join(homedir(), '.claude', 'skills', 'kodo-orchestrate');
 
-  // Gate D-07 exit 2: stderr canonical message exacto.
-  if (!existsSync(join(source, 'skill.md'))) {
-    err('Error: not a kodo repository (no .claude/skills/kodo-orchestrate/skill.md found)\n');
-    return 2;
-  }
-
-  /** @type {import('../skill/sync.js').SyncSkillResult} */
-  let result;
   try {
-    result = syncFn({ source, dest, prune: opts.prune === true });
-  } catch (e) {
-    err(`Error: filesystem error: ${/** @type {Error} */ (e).message}\n`);
-    return 1;
-  }
-  if (result.status === 'error') {
-    err(`Error: filesystem error: ${result.error || 'unknown'}\n`);
-    return 1;
-  }
+    // Gate D-07 exit 2: stderr canonical message exacto.
+    if (!existsSync(join(source, 'skill.md'))) {
+      err('Error: not a kodo repository (no .claude/skills/kodo-orchestrate/skill.md found)\n');
+      return 2;
+    }
 
-  if (opts.json === true) {
-    // D-06b: single-line JSON byte-deterministic (LOG-12 + DX-06 invariante).
-    /** @type {Record<string, any>} */
-    const payload = {
-      status: result.status,
-      files_changed: result.files_changed,
-    };
-    if (opts.prune === true) payload.files_pruned = result.files_pruned ?? 0;
-    if (result.symlink_replaced === true) payload.symlink_replaced = true;
-    write(JSON.stringify(payload) + '\n');
-  } else {
-    renderHuman(result, dest, write, fmt);
+    /** @type {import('../skill/sync.js').SyncSkillResult} */
+    let result;
+    try {
+      result = syncFn({ source, dest, prune: opts.prune === true });
+    } catch (e) {
+      err(`Error: filesystem error: ${/** @type {Error} */ (e).message}\n`);
+      return 1;
+    }
+    if (result.status === 'error') {
+      err(`Error: filesystem error: ${result.error || 'unknown'}\n`);
+      return 1;
+    }
+
+    if (opts.json === true) {
+      // D-06b: single-line JSON byte-deterministic (LOG-12 + DX-06 invariante).
+      /** @type {Record<string, any>} */
+      const payload = {
+        status: result.status,
+        files_changed: result.files_changed,
+      };
+      if (opts.prune === true) payload.files_pruned = result.files_pruned ?? 0;
+      if (result.symlink_replaced === true) payload.symlink_replaced = true;
+      write(JSON.stringify(payload) + '\n');
+    } else {
+      renderHuman(result, dest, write, fmt);
+    }
+    return 0;
+  } finally {
+    // ADVISORY-02 D-05/D-08: cleanup corre ANTES del return value en las 3 ramas
+    // (return 0 happy-path, return 1 fs error / result.error, return 2 early-gate).
+    if (cleanupFn) await cleanupFn();
   }
-  return 0;
 }
 
 /**

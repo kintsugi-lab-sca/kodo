@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { syncSkill } from '../src/skill/sync.js';
+import { runSkillSyncCli } from '../src/cli/skill-sync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
@@ -331,6 +332,132 @@ describe('syncSkill onConsoleWarn DI (ADVISORY-01)', () => {
       warns.some((w) => /removing foreign/.test(w)),
       `expected default fallback a console.warn, got: ${JSON.stringify(warns)}`,
     );
+  });
+});
+
+// ─── Suite 1.6: cleanupFn ordering DI (ADVISORY-02) ──────────────────────────
+//
+// Phase 31 Plan 02 — cierra Phase 21 WR-05. runSkillSyncCli acepta cleanupFn
+// como DI dep; cuando se inyecta, el helper try/finally ejecuta await
+// cleanupFn() ANTES de retornar el exit code en cada una de las 3 ramas
+// (return 0 happy-path, return 1 fs error / result.error, return 2 early-gate
+// not-a-kodo-repo). Tests in-process via import directo de runSkillSyncCli
+// (NO spawnSync, NO monkey-patch de process.exit). Ordering observable via
+// process.hrtime.bigint() — D-06 patrón emergente.
+//
+// HOME isolation (CR-02): los 3 tests inyectan syncFn stub (o caen en
+// early-gate / fs-error path) — NUNCA invocan el syncSkill real, que mutaría
+// el HOME del usuario porque dest = homedir() + '.claude/skills/...'.
+
+describe('runSkillSyncCli cleanupFn ordering (ADVISORY-02)', () => {
+  let _tmpHome;
+  let _tmpRepo;
+
+  afterEach(() => {
+    if (_tmpHome) {
+      try { chmodSync(destOf(_tmpHome), 0o755); } catch {}
+      rmSync(_tmpHome, { recursive: true, force: true });
+    }
+    if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
+    _tmpHome = undefined;
+    _tmpRepo = undefined;
+  });
+
+  /**
+   * Helper: invoca runSkillSyncCli con cleanupFn que push timestamp + writeFn
+   * que también push timestamp (cuando lo provee este helper). El caller puede
+   * pasar su propio writeFn (Tests 2/3 lo hacen para silenciar el render que
+   * no aplica en sus paths de error).
+   */
+  async function captureOrdering({ opts, deps, captureWrites = false }) {
+    /** @type {Array<{tag: string, t: bigint}>} */
+    const ts = [];
+    const cleanupFn = async () => {
+      // setImmediate fuerza un tick async para diferenciar timestamps
+      // observable (nanos resolution evita colisión en máquinas rápidas).
+      await new Promise((r) => setImmediate(r));
+      ts.push({ tag: 'cleanup', t: process.hrtime.bigint() });
+    };
+    /** @type {(s: string) => void} */
+    const writeFn = captureWrites
+      ? (_s) => { ts.push({ tag: 'write', t: process.hrtime.bigint() }); }
+      : (deps && deps.writeFn) || (() => {});
+    const mergedDeps = { ...deps, cleanupFn, writeFn };
+    const code = await runSkillSyncCli(opts, mergedDeps);
+    ts.push({ tag: 'return', t: process.hrtime.bigint() });
+    return { code, ts };
+  }
+
+  it('Test 1 (return 0 happy path): cleanupFn corre DESPUÉS del render y ANTES de return', async () => {
+    // HOME isolation: usar syncFn stub para evitar mutar ~/.claude/skills/.
+    // El _tmpRepo se conserva sólo para satisfacer el early-gate existsSync.
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const { code, ts } = await captureOrdering({
+      opts: {},
+      deps: {
+        cwdFn: () => _tmpRepo,
+        syncFn: () => ({ status: 'ok', files_changed: 2 }),
+        errFn: () => {},
+      },
+      captureWrites: true,
+    });
+
+    assert.equal(code, 0);
+    // ≥1 write (renderHuman puede emitir varios) + 1 cleanup + 1 return.
+    assert.ok(ts.length >= 3, `ts.length = ${ts.length}, ts = ${JSON.stringify(ts.map(x => x.tag))}`);
+    assert.ok(ts.some((x) => x.tag === 'write'), 'render TTY debe haber escrito al menos 1 vez');
+    assert.equal(ts[ts.length - 2].tag, 'cleanup');
+    assert.equal(ts[ts.length - 1].tag, 'return');
+    // Ordering completo: render → cleanup → return.
+    const writeTs = ts.find((x) => x.tag === 'write');
+    const cleanupTs = ts[ts.length - 2];
+    const returnTs = ts[ts.length - 1];
+    assert.ok(writeTs.t < cleanupTs.t, `write_ts (${writeTs.t}) < cleanup_ts (${cleanupTs.t})`);
+    assert.ok(cleanupTs.t < returnTs.t, `cleanup_ts (${cleanupTs.t}) < return_ts (${returnTs.t})`);
+  });
+
+  it('Test 2 (return 2 early gate not-a-kodo-repo): cleanupFn corre ANTES de return', async () => {
+    const emptyCwd = mkdtempSync(join(tmpdir(), 'kodo-not-a-repo-'));
+    try {
+      const { code, ts } = await captureOrdering({
+        opts: {},
+        deps: {
+          cwdFn: () => emptyCwd,
+          writeFn: () => {},
+          errFn: () => {},
+        },
+      });
+
+      assert.equal(code, 2);
+      // No render en early-gate — sólo cleanup + return.
+      assert.equal(ts.length, 2, `ts = ${JSON.stringify(ts.map(x => x.tag))}`);
+      assert.equal(ts[0].tag, 'cleanup');
+      assert.equal(ts[1].tag, 'return');
+      assert.ok(ts[0].t < ts[1].t, `cleanup_ts (${ts[0].t}) < return_ts (${ts[1].t})`);
+    } finally {
+      rmSync(emptyCwd, { recursive: true, force: true });
+    }
+  });
+
+  it('Test 3 (return 1 fs error via syncFn stub): cleanupFn corre ANTES de return', async () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const { code, ts } = await captureOrdering({
+      opts: {},
+      deps: {
+        cwdFn: () => _tmpRepo,
+        writeFn: () => {},
+        errFn: () => {},
+        // result.error path (no excepción del catch — el otro path de return 1
+        // está cubierto estructuralmente por la misma rama try/finally externa).
+        syncFn: () => ({ status: 'error', files_changed: 0, error: 'simulated fs error' }),
+      },
+    });
+
+    assert.equal(code, 1);
+    assert.equal(ts.length, 2, `ts = ${JSON.stringify(ts.map(x => x.tag))}`);
+    assert.equal(ts[0].tag, 'cleanup');
+    assert.equal(ts[1].tag, 'return');
+    assert.ok(ts[0].t < ts[1].t, `cleanup_ts (${ts[0].t}) < return_ts (${ts[1].t})`);
   });
 });
 
