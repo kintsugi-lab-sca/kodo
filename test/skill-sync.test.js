@@ -249,6 +249,91 @@ describe('syncSkill (unit, in-process)', () => {
   });
 });
 
+// ─── Suite 1.5: onConsoleWarn callback DI (ADVISORY-01) ──────────────────────
+//
+// Phase 31 Plan 01 — cierra Phase 21 WR-04. El callsite del prune foreign-removal
+// pasa por el callback cuando se inyecta; default fallback a `console.warn`
+// preserva back-compat byte-exact (Test 6 de Suite 1 sigue ejerciendo el path
+// default). Test A confirma DI sin mutar `console.warn` global; Test B blinda
+// regresión del `?? console.warn` (si alguien rompe el default, Test B falla).
+
+describe('syncSkill onConsoleWarn DI (ADVISORY-01)', () => {
+  let _tmpHome;
+  let _tmpRepo;
+
+  afterEach(() => {
+    if (_tmpHome) {
+      try { chmodSync(destOf(_tmpHome), 0o755); } catch {}
+      rmSync(_tmpHome, { recursive: true, force: true });
+    }
+    if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
+    _tmpHome = undefined;
+    _tmpRepo = undefined;
+  });
+
+  it('Test A: captura warning vía callback sin spy global de console.warn', () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const source = sourceOf(_tmpRepo);
+    const dest = destOf(_tmpHome);
+
+    // Sembrar dest sin prune.
+    syncSkill({ source, dest });
+    // Crear foráneo que prune debe detectar.
+    writeFileSync(join(dest, 'foreign.md'), 'local override\n', 'utf-8');
+
+    // Snapshot de console.warn ANTES de la invocación — debe quedar inmutable
+    // (verifica que el patrón DI no toca la referencia global).
+    const beforeConsoleWarn = console.warn;
+
+    /** @type {string[]} */
+    const warns = [];
+    const result = syncSkill({
+      source,
+      dest,
+      prune: true,
+      onConsoleWarn: (msg) => warns.push(msg),
+    });
+
+    // Assert observable: prune se ejecutó + el callback recibió el string.
+    assert.equal(result.files_pruned, 1);
+    assert.equal(existsSync(join(dest, 'foreign.md')), false);
+    assert.equal(warns.length, 1);
+    assert.match(warns[0], /\[kodo skill sync --prune\] removing foreign: foreign\.md/);
+
+    // Assert source-hygiene: console.warn REFERENCIA no fue mutada (no se hizo
+    // monkey-patch global). El patrón DI evita el spy.
+    assert.equal(console.warn, beforeConsoleWarn, 'console.warn debe permanecer intacta');
+  });
+
+  it('Test B: default fallback usa console.warn cuando onConsoleWarn no se inyecta (regression guard de `?? console.warn`)', () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const source = sourceOf(_tmpRepo);
+    const dest = destOf(_tmpHome);
+
+    syncSkill({ source, dest });
+    writeFileSync(join(dest, 'foreign.md'), 'local override\n', 'utf-8');
+
+    // Override transitorio de console.warn — patrón Suite 1 Test 6.
+    /** @type {string[]} */
+    const warns = [];
+    const origWarn = console.warn;
+    console.warn = (m) => { warns.push(String(m)); };
+    let result;
+    try {
+      // Sin onConsoleWarn — debe caer al default `console.warn`.
+      result = syncSkill({ source, dest, prune: true });
+    } finally {
+      console.warn = origWarn;
+    }
+
+    assert.equal(result.files_pruned, 1);
+    assert.ok(
+      warns.some((w) => /removing foreign/.test(w)),
+      `expected default fallback a console.warn, got: ${JSON.stringify(warns)}`,
+    );
+  });
+});
+
 // ─── Suite 2: runSkillSyncCli (integration spawnSync) ────────────────────────
 
 describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => {

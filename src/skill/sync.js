@@ -28,6 +28,7 @@ import { join, dirname, relative } from 'node:path';
  *   dest: string,
  *   prune?: boolean,
  *   logger?: import('../logger.js').Logger,
+ *   onConsoleWarn?: (msg: string) => void,
  * }} SyncSkillOpts
  *
  * @typedef {{
@@ -44,11 +45,19 @@ import { join, dirname, relative } from 'node:path';
  * (D-01). Función pura: NO emite eventos NDJSON; el caller decide qué hacer con el
  * return value (D-08 single-source-of-truth).
  *
+ * Cuando `opts.onConsoleWarn` se inyecta, reemplaza la llamada a `console.warn` del
+ * prune; D-01 ADVISORY-01. Si no se provee, default fallback a `console.warn`
+ * directo (back-compat byte-exact con callers pre-Phase-31).
+ *
  * @param {SyncSkillOpts} opts
  * @returns {SyncSkillResult}
  */
 export function syncSkill(opts) {
-  const { source, dest, prune = false } = opts;
+  const { source, dest, prune = false, onConsoleWarn } = opts;
+  // ADVISORY-01 D-01: callback opcional para warning de prune. Default
+  // `console.warn` preserva back-compat byte-exact (D-03). El callback recibe
+  // el string ya formateado — el módulo no importa color libraries (color isolation).
+  const warn = onConsoleWarn ?? console.warn;
   let filesChanged = 0;
   let filesPruned = 0;
   let symlinkReplaced = false;
@@ -114,7 +123,7 @@ export function syncSkill(opts) {
       for (const relPath of destFiles) {
         if (!sourceSet.has(relPath)) {
           // D-05b: warn explícito ANTES de borrar para que el operador vea qué se pierde.
-          console.warn(`[kodo skill sync --prune] removing foreign: ${relPath}`);
+          warn(`[kodo skill sync --prune] removing foreign: ${relPath}`);
           rmSync(join(dest, relPath), { force: true });
           filesPruned += 1;
         }
