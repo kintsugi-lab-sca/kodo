@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Bookkeeping
-status: executing
-stopped_at: Phase 32 context gathered
-last_updated: "2026-05-21T12:38:53.704Z"
+status: completed
+stopped_at: Phase 33 context gathered
+last_updated: "2026-05-23T18:13:42.535Z"
 last_activity: 2026-05-21 -- Phase 32 marked complete
 progress:
   total_phases: 5
@@ -43,6 +43,10 @@ Last activity: 2026-05-21 -- Phase 32 marked complete
 - Phase artifacts: `milestones/v0.7-phases/`
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 33 added: v0.8 Bookkeeping & Nyquist Backfill (Doc + Surgical Fix)
 
 ### Roadmap (archived milestones)
 
@@ -98,8 +102,8 @@ _(reset for next milestone)_
 
 ## Session Continuity
 
-- **Last session:** 2026-05-21T10:42:06.357Z
-- **Stopped at:** Phase 32 context gathered
+- **Last session:** 2026-05-23T18:13:42.513Z
+- **Stopped at:** Phase 33 context gathered
 - **Next action:** `/gsd-plan-phase 28` para arrancar Phase 28 (Polling/Daemon Hardening: POLL-FIX-01 + DAEMON-01 + DAEMON-02)
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section)
