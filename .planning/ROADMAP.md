@@ -232,12 +232,12 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 **Goal:** Cerrar los ~14 items de tech debt del audit v0.8 (verdict TECH_DEBT, no blockers) antes de archivar el milestone: reconciliar doc-drift en REQUIREMENTS/SUMMARYs/ROADMAP, hacer backfill de nyquist VALIDATION.md para 3 phases (28/30/31) + Phase 32 N/A, y consumir el return discriminado de markSessionStatus en sus 2 callers (robustness gap LIFE-02-FOLLOWUP). Analogo estructural a Phase 32 (v0.7 doc-only), extendido con 1 surgical fix.
 **Requirements**: N/A (reconcilia REQ-IDs de phases CERRADas 28-31 como data; contrato vinculante = CONTEXT D-01..D-04)
 **Depends on:** Phase 32
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans executed — Phase COMPLETE
 
 Plans:
 - [x] 33-01-PLAN.md — Bloque A (doc-drift, Tier 1 doc-only): 9 REQ-IDs Pending->Complete en REQUIREMENTS.md + 5 SUMMARYs frontmatter reconciliados + fix copy-paste seccion Phase 32 en ROADMAP. Wave 1. (D-04)
 - [x] 33-02-PLAN.md — Bloque B (nyquist backfill, Tier 1 doc-only): 3 VALIDATION.md nuevos (28/30/31) citation-based + NYQ-32-NA en audit; 4/5 compliant + 1/5 N/A. Wave 1. (D-02)
-- [ ] 33-03-PLAN.md — Bloque C (surgical fix, Tier 1 extendido): consumir return {ok,reason} de markSessionStatus en verify.js + stop.js con log.warn(markSessionStatus.skipped) + 2-4 tests netos. Wave 1. (D-01)
+- [x] 33-03-PLAN.md — Bloque C (surgical fix, Tier 1 extendido): consumir return {ok,reason} de markSessionStatus en verify.js + stop.js con log.warn(markSessionStatus.skipped) + 4 tests netos (verify 13/13, stop 22/22). Wave 1. (D-01)
 
 ---
 *Last updated: 2026-05-25 — Phase 33 planning complete. 3 plans, todos Wave 1 paralelo (depends_on: [], cero file overlap) per CONTEXT D-03: 33-01 Bloque A doc-drift (D-04), 33-02 Bloque B nyquist backfill (D-02), 33-03 Bloque C surgical fix markSessionStatus consumers (D-01). Tier 1 (A+B doc-only, C extendido). Cierra los ~14 items de tech debt del v0.8 audit.*

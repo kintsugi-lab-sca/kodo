@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Bookkeeping
 status: executing
-stopped_at: Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
-last_updated: "2026-05-25T07:33:00.000Z"
-last_activity: 2026-05-25 -- Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
+stopped_at: Completed 33-03-PLAN.md (Bloque C surgical fix markSessionStatus consumers)
+last_updated: "2026-05-25T07:50:00.000Z"
+last_activity: 2026-05-25 -- Completed 33-03-PLAN.md (Bloque C surgical fix markSessionStatus consumers)
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 67
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: 33 (v0-8-bookkeeping-nyquist-backfill-doc-surgical-fix) — EXECUTING
-Plan: 3 of 3
-Status: 33-01 + 33-02 complete (Bloque A doc-drift + Bloque B nyquist backfill closed); 33-03 pending (Bloque C surgical fix)
-Last activity: 2026-05-25 -- Completed 33-02-PLAN.md
+Phase: 33 (v0-8-bookkeeping-nyquist-backfill-doc-surgical-fix) — COMPLETE
+Plan: 3 of 3 (all complete)
+Status: 33-01 + 33-02 + 33-03 complete (Bloque A doc-drift + Bloque B nyquist backfill + Bloque C surgical fix closed). Phase 33 done — v0.8 tech-debt closure (~14 items) cerrado.
+Last activity: 2026-05-25 -- Completed 33-03-PLAN.md
 
 ## Most recent shipped milestone
 
@@ -59,6 +59,12 @@ Last activity: 2026-05-25 -- Completed 33-02-PLAN.md
 - 3 VALIDATION.md backfill creados (28/30/31) con `nyquist_compliant: true` citation-based (D-02): tabla dimension->cobertura->evidencia citando VERIFICATION.md + tests reales + audit. CERO re-ejecucion de tests (suite ya verde 894). Phase 30 lleva fila HUMAN-UAT explicita (2/2 pass empirico).
 - Citas ajustadas al nombre REAL de los VERIFICATION.md: phases 28/31 usan `VERIFICATION.md` SIN prefijo (el plan los citaba con prefijo); solo phase 30 usa `30-VERIFICATION.md`. Tests citados verificados contra el arbol real `test/` — cero inventados (integration daemon de Phase 28 vive en `test/cli/polling-verbose.test.js`).
 - NYQ-32-NA documentado en opcion A (audit, no STATE.md): Phase 32 Tier 1 doc-only = N/A explicito; cero `32-VALIDATION.md` creado. Sign-off v0.8: 1/5 -> 4/5 compliant + 1/5 N/A. frontmatter `scores.nyquist` del audit actualizado por consistencia.
+
+### Decisions (Phase 33-03 — Bloque C surgical fix LIFE-02-FOLLOWUP, 2026-05-25)
+
+- Los 2 callers de `markSessionStatus` (verify.js#finalize rama pass + stop.js#runStopHook) consumen el return discriminado `{ok, reason}` con consumo simétrico log+continue (D-01): `const result = markSessionStatus(...)` + `if (!result?.ok) log.warn('markSessionStatus.skipped', {reason, session_id})`. Event name patrón `<componente>.<situacion>`. Optional chaining defensivo contra mocks undefined.
+- El fix vive DENTRO de los try/catch existentes (CR-01 en verify.js, WR-03 en stop.js) — cero try/catch nuevos. CONTEXT.md afirmaba erróneamente que verify.js:267 no estaba envuelto; el PLAN lo corrigió y se confirmó leyendo el archivo. `markSessionStatus` es non-throwing por contrato, el warn no dispara el catch. `src/session/manager.js` (contrato Phase 30 LIFE-02) NO modificado — el fix CONSUME, no muta.
+- Tests fuerzan ok:false vía `session.task_id = ''` (falsy → early-return de manager.js#371 sin tocar state.json), evitando mockear la función y contaminar state real. +4 tests netos. Gate corrido solo sobre los 2 archivos modificados (verify 13/13, stop 22/22), no la suite global. Cero cambio E2E (task_id siempre presente hoy).
 
 ### Roadmap (archived milestones)
 
@@ -114,9 +120,9 @@ _(reset for next milestone)_
 
 ## Session Continuity
 
-- **Last session:** 2026-05-25T07:33:00.000Z
-- **Stopped at:** Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
-- **Next action:** Ejecutar 33-03-PLAN.md (Bloque C surgical fix LIFE-02-FOLLOWUP — markSessionStatus return consumption en verify.js + stop.js) — Wave 1 paralelo, cero overlap de archivos con 33-01/33-02
+- **Last session:** 2026-05-25T07:50:00.000Z
+- **Stopped at:** Completed 33-03-PLAN.md (Bloque C surgical fix markSessionStatus consumers — LIFE-02-FOLLOWUP cerrado)
+- **Next action:** Phase 33 completa (3/3). v0.8 tech-debt closure (~14 items: A doc-drift + B nyquist backfill + C surgical fix) cerrado — milestone v0.8 listo para audit final / archivado.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section)
   - `.planning/REQUIREMENTS.md` (17 v1 REQ-IDs + traceability completa)
