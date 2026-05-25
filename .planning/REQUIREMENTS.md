@@ -7,12 +7,12 @@
 
 ### POLL — Polling/Daemon hardening (cierra v0.7 tech debt)
 
-- [ ] **POLL-FIX-01**: `normalizeIssue` (`src/providers/github/normalize.js`) incluye `updated_at` y `created_at` canónicos en el TaskItem retornado, de modo que `shouldDispatch` evalúa contra timestamps reales (no `undefined`) cuando el caller usa el provider-only path. Test: `test/providers/github/normalize.test.js` aserción de ambos campos presentes; `test/triggers/polling.test.js` añade caso provider-only path que dispara correctamente. Cierra D-18 leak guard de Phase 25.
+- [x] **POLL-FIX-01**: `normalizeIssue` (`src/providers/github/normalize.js`) incluye `updated_at` y `created_at` canónicos en el TaskItem retornado, de modo que `shouldDispatch` evalúa contra timestamps reales (no `undefined`) cuando el caller usa el provider-only path. Test: `test/providers/github/normalize.test.js` aserción de ambos campos presentes; `test/triggers/polling.test.js` añade caso provider-only path que dispara correctamente. Cierra D-18 leak guard de Phase 25.
 
 ### DAEMON — Polling daemon DX (cierra v0.7 tech debt)
 
-- [ ] **DAEMON-01**: User puede invocar `kodo polling start --verbose` y ver stdout estructurado por tick (timestamp ISO, repos polled, dispatch decisions, rate-limit remaining). Sin `--verbose`, comportamiento actual (silent/quiet) preservado. Test: integration test spawn real con `--verbose` + assert ≥1 línea por tick.
-- [ ] **DAEMON-02**: El daemon escribe stderr/stdout a `~/.kodo/logs/polling-YYYY-MM-DD.log` con rotación diaria (un archivo por día, retención últimos 7 días). User puede inspeccionar crashes pasadas via `cat ~/.kodo/logs/polling-*.log`. Cierra T-26-DIAG silent crash. Test: spawn daemon que crashea intencionalmente + assert logfile contiene stack trace.
+- [x] **DAEMON-01**: User puede invocar `kodo polling start --verbose` y ver stdout estructurado por tick (timestamp ISO, repos polled, dispatch decisions, rate-limit remaining). Sin `--verbose`, comportamiento actual (silent/quiet) preservado. Test: integration test spawn real con `--verbose` + assert ≥1 línea por tick.
+- [x] **DAEMON-02**: El daemon escribe stderr/stdout a `~/.kodo/logs/polling-YYYY-MM-DD.log` con rotación diaria (un archivo por día, retención últimos 7 días). User puede inspeccionar crashes pasadas via `cat ~/.kodo/logs/polling-*.log`. Cierra T-26-DIAG silent crash. Test: spawn daemon que crashea intencionalmente + assert logfile contiene stack trace.
 
 ### REPORT — GSD Provider Reporting integration (rama paralela `gsd-provider-reporting`)
 
@@ -30,15 +30,15 @@
 
 ### ADVISORY — Phase 21/22 advisory follow-up
 
-- [ ] **ADVISORY-01**: `syncSkill` (en `src/skill-sync.js` o equivalente) acepta callback opcional `onConsoleWarn` inyectable (defaults a `console.warn` para back-compat). Tests pueden capturar warnings sin spy global. Cierra Phase 21 WR-04.
-- [ ] **ADVISORY-02**: `runSkillSyncCli` await async cleanup correctamente — no fire-and-forget en el path de salida. Tests verifican exit ordering: cleanup completo ANTES de `process.exit(N)`. Cierra Phase 21 WR-05.
-- [ ] **ADVISORY-03**: `launchOrchestrator` test real (no mockSpawn-only): spawn child con stdin canónico + assert observable post-launch (state.json muta, NDJSON evento `session.start` emitido). Cierra Phase 21 WR-06.
+- [x] **ADVISORY-01**: `syncSkill` (en `src/skill-sync.js` o equivalente) acepta callback opcional `onConsoleWarn` inyectable (defaults a `console.warn` para back-compat). Tests pueden capturar warnings sin spy global. Cierra Phase 21 WR-04.
+- [x] **ADVISORY-02**: `runSkillSyncCli` await async cleanup correctamente — no fire-and-forget en el path de salida. Tests verifican exit ordering: cleanup completo ANTES de `process.exit(N)`. Cierra Phase 21 WR-05.
+- [x] **ADVISORY-03**: `launchOrchestrator` test real (no mockSpawn-only): spawn child con stdin canónico + assert observable post-launch (state.json muta, NDJSON evento `session.start` emitido). Cierra Phase 21 WR-06.
 
 ### BOOK — Bookkeeping doc-only (cierra v0.7 audit notes)
 
-- [ ] **BOOK-01**: `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table tiene 16/16 IDs marcados `Complete` (no `pending`). Reconciliar GH-01..05, CFG-01, CFG-02, TEST-01. Wire-up funcional ya verificado en v0.7 audit; este es commit doc-only.
-- [ ] **BOOK-02**: `.planning/milestones/v0.7-phases/23-githubclient-auth-foundation/VERIFICATION.md` backfill por uniformidad documental (única phase v0.7 sin él). Los 2 SUMMARYs de Phase 23 cubren funcionalmente; backfill es placeholder de cumplimiento estructural.
-- [ ] **BOOK-03**: VALIDATION.md de phases 23/25/26/27 toggle `nyquist_compliant: true` (actualmente solo Phase 24 lo tiene). Tests verdes y VALIDATION.md completos ya — flag de sign-off no toggled, sin impacto funcional.
+- [x] **BOOK-01**: `.planning/milestones/v0.7-REQUIREMENTS.md` traceability table tiene 16/16 IDs marcados `Complete` (no `pending`). Reconciliar GH-01..05, CFG-01, CFG-02, TEST-01. Wire-up funcional ya verificado en v0.7 audit; este es commit doc-only.
+- [x] **BOOK-02**: `.planning/milestones/v0.7-phases/23-githubclient-auth-foundation/VERIFICATION.md` backfill por uniformidad documental (única phase v0.7 sin él). Los 2 SUMMARYs de Phase 23 cubren funcionalmente; backfill es placeholder de cumplimiento estructural.
+- [x] **BOOK-03**: VALIDATION.md de phases 23/25/26/27 toggle `nyquist_compliant: true` (actualmente solo Phase 24 lo tiene). Tests verdes y VALIDATION.md completos ya — flag de sign-off no toggled, sin impacto funcional.
 
 ## v2 Requirements (deferidos a v0.9+)
 
@@ -77,9 +77,9 @@ Mapeo completo asignado por `gsd-roadmapper` durante creación de ROADMAP.md (20
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POLL-FIX-01 | Phase 28 | Pending |
-| DAEMON-01 | Phase 28 | Pending |
-| DAEMON-02 | Phase 28 | Pending |
+| POLL-FIX-01 | Phase 28 | Complete |
+| DAEMON-01 | Phase 28 | Complete |
+| DAEMON-02 | Phase 28 | Complete |
 | REPORT-01 | Phase 29 | Complete |
 | REPORT-02 | Phase 29 | Complete |
 | REPORT-03 | Phase 29 | Complete |
@@ -88,12 +88,12 @@ Mapeo completo asignado por `gsd-roadmapper` durante creación de ROADMAP.md (20
 | REPORT-06 | Phase 29 | Complete |
 | LIFE-01 | Phase 30 | Complete |
 | LIFE-02 | Phase 30 | Complete |
-| ADVISORY-01 | Phase 31 | Pending |
-| ADVISORY-02 | Phase 31 | Pending |
-| ADVISORY-03 | Phase 31 | Pending |
-| BOOK-01 | Phase 32 | Pending |
-| BOOK-02 | Phase 32 | Pending |
-| BOOK-03 | Phase 32 | Pending |
+| ADVISORY-01 | Phase 31 | Complete |
+| ADVISORY-02 | Phase 31 | Complete |
+| ADVISORY-03 | Phase 31 | Complete |
+| BOOK-01 | Phase 32 | Complete |
+| BOOK-02 | Phase 32 | Complete |
+| BOOK-03 | Phase 32 | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total
