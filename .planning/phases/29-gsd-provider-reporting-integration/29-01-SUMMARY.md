@@ -1,6 +1,7 @@
 ---
 phase: 29-gsd-provider-reporting-integration
 plan: 01
+requirements: [REPORT-01, REPORT-05]
 subsystem: triggers/labels
 tags: [anti-recursion, source-hygiene, cherry-pick, REPORT-01, REPORT-05]
 dependency_graph:

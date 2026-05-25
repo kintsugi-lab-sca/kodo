@@ -50,6 +50,8 @@ metrics:
 
 Step-1 de `resolveSessionIdFromTaskId` extendido para escanear ambos buckets (`state.sessions` + `state.history`) con priority sessions y matching por `task_id || task_ref`, cerrando byte-exact el gap empírico de HUMAN-UAT Test #2 donde `kodo logs --session-of <task_ref-humano>` fallaba para sesiones archivadas.
 
+> **Cobertura de requisitos:** este es un plan de gap-closure (extensión de LIFE-01). El REQ-ID LIFE-01 ya está declarado en `30-01-SUMMARY.md`; este SUMMARY deliberadamente NO lo re-declara en su frontmatter para evitar doble conteo en la traceability (Phase 33 Bloque A, decisión Task 2).
+
 ## Driver
 
 HUMAN-UAT Test #2 (SC#1 Truth 2 ROADMAP): el operador descubrió empíricamente que `kodo logs --session-of LIKEN-113` retornaba `No session found` tras el stop hook (sesión movida a `state.history` por `removeSession`). Causa raíz:
