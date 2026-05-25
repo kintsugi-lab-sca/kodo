@@ -1,5 +1,27 @@
 # Milestones
 
+## v0.8 Consolidación + GSD Provider Reporting (Shipped: 2026-05-25)
+
+**Delivered:** v0.8 consolida la promesa arquitectónica de kodo cerrando el tech debt de v0.7 (POLL provider-only path + DAEMON observabilidad), integrando la cadena de reporting GSD → proveedor (opt-in, anti-recursión blindada) reutilizando una rama paralela vía cherry-pick selectivo + planning regen, resolviendo bugs reales de lifecycle SessionRecord (desync state.json ↔ cmux confirmado por ROMAN-132), y limpiando el advisory follow-up de Phases 21/22. Cierra con dos phases de bookkeeping (v0.7 + v0.8) que reconcilian doc-drift y nyquist coverage. Cero adapters nuevos — tema "consolidación" preservado.
+
+**Phases completed:** 6 phases (28-33), 20 plans
+**Git range:** `36a68b7` (2026-05-15) → `b5c9859` (2026-05-25) — 10 días, 152 commits (23 feat/fix)
+**LOC:** +21,462 / -169 (123 files changed)
+**Requirements:** 17/17 satisfied (POLL-FIX-01, DAEMON-01/02, REPORT-01..06, LIFE-01/02, ADVISORY-01..03, BOOK-01..03)
+**Suite:** 895 pass + 1 skip + 0 fail (777 baseline v0.7 → +118 netos)
+**Audit:** PASSED (re-auditado 2026-05-25 tras Phase 33; verdict original TECH_DEBT → cerrado)
+
+**Key accomplishments:**
+
+- **Polling/Daemon Hardening (Phase 28)** — TaskItem canónico extendido 11 → 13 fields (`updated_at` + `created_at` REQUIRED), normalizers GitHub/Plane simétricos y contract matrix Phase 27 a 18 asserts; `shouldDispatch` opera sobre timestamps reales en el provider-only path (cierra D-18 leak guard de Phase 25). `kodo polling start --verbose` emite stdout estructurado por tick (evento `polling.tick.summary`, taxonomy 18 → 19). Módulo `polling-logfile.js` redirige el daemon a `~/.kodo/logs/polling-YYYY-MM-DD.log` (chmod 0o600 + retención diaria 7 días), cerrando T-26-DIAG silent crash. POLL-FIX-01, DAEMON-01, DAEMON-02.
+- **GSD Provider Reporting Integration (Phase 29)** — cherry-pick selectivo de los 9 SHAs de la rama `gsd-provider-reporting` + 38 tests heredados + planning regen con numeración v0.8. Anti-recursión `kodo:gsd-child` cortada ANTES de `parseKodoLabels` / lock / resolver / launch (ni `--force` recursa); opt-in `workflow.report_to_provider` con strict `=== true` (DEFAULT_CONFIG anti-mutation); `applyReportingGate(prompt, enabled)` pure idempotente entre marcadores `<!-- BEGIN/END reporting -->`; prosa ES provider-agnostic (`{{provider_name}}`) en `prompt.md`; `KODO_LABEL_GSD_CHILD` + `isGsdChild` con source-hygiene anti-inline. REPORT-01..06.
+- **SessionRecord Lifecycle (Phase 30)** — `findSession` escanea `state.sessions` (activas) + `state.history` (terminadas) con tagged return `{id, session, source}`, resolviendo el desync state.json ↔ cmux que ROMAN-132 confirmó empíricamente (cierra CR-01 Phase 19). `markSessionStatus` refactor: falsy guard observable + discriminated union return `{ok, reason}` (cierra WR-07 Phase 22). HUMAN-UAT 2/2. LIFE-01, LIFE-02.
+- **Phase 21/22 Advisory Cleanup (Phase 31)** — pureza `syncSkill({onConsoleWarn})` callback DI (defaults a `console.warn`, tests sin spy global); `runSkillSyncCli` await `cleanupFn()` ANTES de `process.exit(N)` (exit ordering verificable); test `launchOrchestrator` con spawn REAL (no mockSpawn) + observables post-launch (state.json muta + NDJSON `session.start` con `transcript_path`). ADVISORY-01, ADVISORY-02, ADVISORY-03.
+- **v0.7 Bookkeeping Doc-Only (Phase 32)** — traceability `v0.7-REQUIREMENTS.md` a 16/16 Complete (GH-01..05, CFG-01/02, TEST-01); backfill `VERIFICATION.md` Phase 23 por uniformidad documental; toggle `nyquist_compliant: true` en VALIDATION.md de phases 23/25/26/27. Tier 1 doc-only invariant respetado (`git diff -- src/ test/ bin/` vacío). BOOK-01, BOOK-02, BOOK-03.
+- **v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix (Phase 33)** — cierre de los ~14 items de tech debt del audit v0.8 en 3 bloques paralelos: **A** doc-drift (9 REQ-IDs Pending → Complete en REQUIREMENTS.md, 5 SUMMARYs reconciliados, fix copy-paste sección Phase 32 en ROADMAP); **B** 3 VALIDATION.md backfill citation-based (28/30/31) `nyquist_compliant: true` + NYQ-32-NA, elevando sign-off de 1/5 a 4/5 compliant + 1/5 N/A sin re-ejecutar la suite; **C** surgical fix LIFE-02-FOLLOWUP — los 2 callers de `markSessionStatus` (`verify.js#finalize` rama pass + `stop.js#runStopHook`) consumen el return discriminado `{ok, reason}` y emiten `log.warn('markSessionStatus.skipped', {reason, session_id})` dentro de los try existentes, haciendo observable el drift `missing-task-id` sin cambiar el comportamiento E2E.
+
+---
+
 ## v0.5 CLI Polish & v0.3 Debt Cleanup (Shipped: 2026-05-11)
 
 **Delivered:** El CLI de kodo pasa de output mono a TTY-aware con colores semánticos y columnas alineadas (helper `src/cli/format.js` + `picocolors`), preservando `--json` byte-deterministic y el guard LOG-12 sobre `kodo check`. En paralelo se cierra la deuda v0.3 (EVENTS migration + `markSessionStatus` real en runtime) y se automatizan los 3 UATs humanos de Phase 7 como integration tests. Cierra con la migración del skill `kodo-orchestrate` al repo como source canonical provider-agnostic.

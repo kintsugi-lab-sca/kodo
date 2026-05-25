@@ -197,6 +197,52 @@
 
 ---
 
+## Milestone: v0.8 — Consolidación + GSD Provider Reporting
+
+**Shipped:** 2026-05-25
+**Phases:** 6 (28-33) | **Plans:** 20 | **Tasks:** ~60
+**Audit:** PASSED (re-auditado tras Phase 33; verdict original TECH_DEBT cerrado)
+
+### What Was Built
+- Polling/Daemon hardening: TaskItem canónico 11→13 fields (`updated_at`/`created_at` REQUIRED, cierra D-18 leak guard); `kodo polling start --verbose` con `polling.tick.summary` por tick; daemon log file `~/.kodo/logs/polling-YYYY-MM-DD.log` (0o600 + retención 7 días) (Phase 28 — POLL-FIX-01, DAEMON-01/02)
+- GSD Provider Reporting: anti-recursión `kodo:gsd-child` (corte pre-lock/resolver/launch), opt-in `workflow.report_to_provider` strict `=== true`, `applyReportingGate` pure idempotente + prosa ES en `prompt.md`, `KODO_LABEL_GSD_CHILD`/`isGsdChild` source-hygiene; cherry-pick de 9 SHAs de rama paralela + 38 tests heredados (Phase 29 — REPORT-01..06)
+- SessionRecord lifecycle: `findSession` escanea `state.sessions` + `state.history` (cierra desync ROMAN-132 / CR-01); `markSessionStatus` falsy guard observable + discriminated union return `{ok, reason}` (Phase 30 — LIFE-01/02; HUMAN-UAT 2/2)
+- Advisory cleanup: `syncSkill({onConsoleWarn})` DI, `runSkillSyncCli` await cleanup pre-exit, test `launchOrchestrator` spawn real (Phase 31 — ADVISORY-01..03)
+- Bookkeeping doble: v0.7 traceability 16/16 + Phase 23 VERIFICATION backfill + nyquist toggle (Phase 32); v0.8 doc-drift reconciliado + 3 VALIDATION.md citation-based (28/30/31) + NYQ-32-NA + surgical fix consumiendo el return de `markSessionStatus` en verify.js/stop.js (Phase 33 — cierra ~14 items del audit)
+
+### What Worked
+- **Cherry-pick selectivo + planning regen (Phase 29):** rescatar 9 commits de código de la rama paralela `gsd-provider-reporting` SIN mergear sus `.planning/` (que colisionaban por numeración v0.5) fue la vía limpia. 38 tests heredados entraron verdes. Documentar los SHAs literales en `PENDING-INTEGRATIONS.md` antes de empezar hizo el cherry-pick mecánico.
+- **Driver real → fix dirigido (Phase 30):** ROMAN-132 (sesión viva en cmux mientras `state.sessions={}`) dio el caso empírico exacto que justificó el scan de `state.history`. Un bug latente de Phase 19 se cerró con evidencia de producción, no con especulación.
+- **Nyquist backfill citation-based (Phase 33 Bloque B):** en vez de re-ejecutar la suite para 3 phases ya verdes, los VALIDATION.md citan la cobertura empírica existente (VERIFICATION.md + tests + HUMAN-UAT). Cero re-trabajo, sign-off de 1/5 → 4/5+1 N/A.
+- **Phase de cierre de tech-debt como patrón (32 → 33):** análogo a cómo Phase 32 cerró el drift de v0.7, Phase 33 cerró el de v0.8 en 3 bloques paralelos (doc / nyquist / surgical fix) con `depends_on: []` y cero file overlap. El audit re-corrido confirmó el cierre contra disco.
+- **Surgical fix dentro de los try/catch existentes (Phase 33 Bloque C):** consumir el return discriminado de `markSessionStatus` con `log.warn` no introdujo try/catch nuevos ni mutó el contrato de `manager.js` — el fix CONSUME, no muta. Optional chaining defensivo contra mocks.
+
+### What Was Inefficient
+- **`gsd-sdk milestone.complete` volvió a contar mal (1 phase / 3 plans):** idéntico al bug documentado en la retro de v0.5 — el SDK leyó `total_phases: 1` de STATE.md (que reflejaba sólo la última phase activa) y extrajo accomplishments sólo de Phase 33. Hubo que reescribir la entrada de MILESTONES.md a mano con las 6 phases. **Dos milestones (v0.5, v0.8) con el mismo bug del SDK — es momento de arreglarlo en herramienta.**
+- **Checkbox/frontmatter drift recurrente:** 9/17 REQ-IDs quedaron `[ ]` Pending en REQUIREMENTS.md + 5 SUMMARYs con `requirements_completed: []`, aunque las VERIFICATION.md los marcaban SATISFIED. Mismo patrón que v0.3/v0.4/v0.5/v0.7. Esta vez requirió una phase entera (33 Bloque A) para reconciliar. La deuda de `requirements mark-complete` automatizado sigue abierta tras 5+ milestones.
+- **El audit necesitó re-corrida manual:** el audit original (2026-05-21) emitió TECH_DEBT con ~14 items; tras Phase 33 hubo que re-auditar a mano para flipear el verdict a PASSED. Misma lección que v0.5: el audit debería invalidarse/re-correrse automáticamente al cerrar.
+- **Nyquist coverage arrancó en 1/5:** sólo Phase 29 generó VALIDATION.md durante la ejecución; las otras 4 quedaron MISSING hasta el backfill de Phase 33. El toggle `nyquist_validation: true` en config no se traduce en un artefacto por-phase automático.
+
+### Patterns Established
+- **Discriminated union return CONSUMIDO, no descartado:** `markSessionStatus` retorna `{ok, reason}` y los callers emiten `log.warn('<componente>.<situacion>', {reason, …})` cuando `!result?.ok`. Hace observable el drift en NDJSON sin cambiar la semántica. Patrón replicable para cualquier helper non-throwing con early-return.
+- **Anti-recursión = cortar ANTES del lock/resolver/launch:** el filtro `isGsdChild(labels)` actúa al inicio del dispatcher, no después. El único punto seguro para garantizar que una sub-issue del agente jamás recurse, ni con `--force`.
+- **Opt-in strict `=== true` (DEFAULT_CONFIG sin la key):** para features que NO deben cambiar el comportamiento por defecto, strict equality + ausencia de la key en defaults evita activación accidental por valores truthy.
+- **Cherry-pick + planning regen para integrar ramas paralelas:** cuando una rama tiene código bueno pero `.planning/` colisionante, rescatar SHAs de código + regenerar planning limpio. Documentar SHAs en `PENDING-INTEGRATIONS.md` antes de empezar.
+
+### Key Lessons
+1. **El bug del SDK `milestone.complete` (count parcial) es ahora reproducible en 2 milestones — arreglar en herramienta, no a mano cada vez.** Debería leer el grupo de phases del milestone activo del ROADMAP, no `total_phases` de STATE.md.
+2. **El checkbox/frontmatter drift es un impuesto recurrente de 5+ milestones.** Costó una phase entera (33-A) esta vez. `requirements mark-complete` debe correr dentro del verifier o execute-plan, no diferirse al milestone close.
+3. **Backfill citation-based > re-ejecutar suites verdes.** Para artefactos de validación retroactivos sobre código ya verificado, citar la evidencia existente es honesto y barato. Re-correr tests verdes no añade señal.
+4. **Una phase explícita de cierre de tech-debt (análoga a 32/33) es un patrón sano, no un fallo.** Concentra el drift documental + robustez menor en un Tier 1 acotado, con audit re-corrido como gate.
+5. **Un driver de producción concreto (ROMAN-132) vale más que N especulaciones.** El fix de `findSession` esperó hasta tener el caso empírico exacto; eso lo hizo dirigido y verificable.
+
+### Cost Observations
+- Phases 28-31 ejecutadas con executors en worktree + verifier + code-reviewer; Phases 32-33 Tier 1 doc-only (+ surgical fix en 33-C) más ligeras.
+- Phase 33: 3 plans Wave 1 paralelo (`depends_on: []`, cero file overlap) — el patrón de máxima paralelización para cierres de debt independientes.
+- Notable: el grueso del coste de v0.8 NO fue feature nuevo sino consolidación (cherry-pick, lifecycle fix, bookkeeping). El milestone confirma que "consolidación" es un tema de milestone legítimo y acotable.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -207,6 +253,9 @@
 | v0.3 | 25 | 5 | Added CONTEXT/PATTERNS/DISCUSSION-LOG + worktree parallelism + code review gate |
 | v0.4 | 11 | 3 | Source-hygiene grep tests anti-drift + sequential-no-worktree para fases test-only |
 | v0.5 | 21 | 5 | Helper-as-single-source patrón replicado (createFormatter) + spawnSync child con tmpdir aislado como canon para tests de hooks + skill canonical en `<repo>/.claude/skills/` |
+| v0.6 | 13 | 5 | Worktree always-on para TODAS las sesiones + cleanup fail-open con `.dirty` rename + HOOK-01 universal anti-push-fantasma |
+| v0.7 | 11 | 5 | 2º adapter (GitHub) validando la promesa provider-agnostic + 3er canal trigger (polling daemon) + cross-provider contract matrix |
+| v0.8 | 20 | 6 | Cherry-pick selectivo de rama paralela + planning regen + discriminated union return CONSUMIDO + phase de cierre de tech-debt (32/33) como patrón |
 
 ### Cumulative Quality
 
@@ -216,6 +265,9 @@
 | v0.3 | 366+ | ~5,400 | ~6,280 |
 | v0.4 | 415 | ~5,400 | ~7,760 |
 | v0.5 | 511+ | ~6,500 | ~9,855 |
+| v0.6 | ~688 | ~8,000 | ~13,000 |
+| v0.7 | 777 | ~9,500 | ~16,500 |
+| v0.8 | 895 | ~10,374 (src+bin) | ~19,297 |
 
 ### Top Lessons (Verified Across Milestones)
 
