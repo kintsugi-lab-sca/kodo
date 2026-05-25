@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Bookkeeping
-status: executing
-stopped_at: Completed 33-03-PLAN.md (Bloque C surgical fix markSessionStatus consumers)
-last_updated: "2026-05-25T07:50:00.000Z"
+status: milestone_complete
+stopped_at: Milestone complete (Phase 33 was final phase)
+last_updated: 2026-05-25T07:42:57.053Z
 last_activity: 2026-05-25 -- Completed 33-03-PLAN.md (Bloque C surgical fix markSessionStatus consumers)
 progress:
   total_phases: 1
   completed_phases: 1
   total_plans: 3
-  completed_plans: 3
+  completed_plans: 20
   percent: 100
 ---
 
@@ -28,10 +28,10 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 
 ## Current Position
 
-Phase: 33 (v0-8-bookkeeping-nyquist-backfill-doc-surgical-fix) — COMPLETE
-Plan: 3 of 3 (all complete)
-Status: 33-01 + 33-02 + 33-03 complete (Bloque A doc-drift + Bloque B nyquist backfill + Bloque C surgical fix closed). Phase 33 done — v0.8 tech-debt closure (~14 items) cerrado.
-Last activity: 2026-05-25 -- Completed 33-03-PLAN.md
+Phase: 33
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-05-25
 
 ## Most recent shipped milestone
 

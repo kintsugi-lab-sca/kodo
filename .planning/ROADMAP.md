@@ -232,7 +232,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 **Goal:** Cerrar los ~14 items de tech debt del audit v0.8 (verdict TECH_DEBT, no blockers) antes de archivar el milestone: reconciliar doc-drift en REQUIREMENTS/SUMMARYs/ROADMAP, hacer backfill de nyquist VALIDATION.md para 3 phases (28/30/31) + Phase 32 N/A, y consumir el return discriminado de markSessionStatus en sus 2 callers (robustness gap LIFE-02-FOLLOWUP). Analogo estructural a Phase 32 (v0.7 doc-only), extendido con 1 surgical fix.
 **Requirements**: N/A (reconcilia REQ-IDs de phases CERRADas 28-31 como data; contrato vinculante = CONTEXT D-01..D-04)
 **Depends on:** Phase 32
-**Plans:** 3/3 plans executed — Phase COMPLETE
+**Plans:** 3/3 plans complete
 
 Plans:
 - [x] 33-01-PLAN.md — Bloque A (doc-drift, Tier 1 doc-only): 9 REQ-IDs Pending->Complete en REQUIREMENTS.md + 5 SUMMARYs frontmatter reconciliados + fix copy-paste seccion Phase 32 en ROADMAP. Wave 1. (D-04)
