@@ -1,7 +1,8 @@
 // @ts-check
-import { describe, it } from 'node:test';
+import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildStopNudgeText } from '../src/hooks/stop.js';
@@ -234,5 +235,135 @@ describe('QUICK-08 — buildStopNudgeText switch', () => {
     assert.match(text, /Revisa el resultado y decide si pasa a Done/);
     assert.ok(!text.includes('kodo gsd verify'), 'non-GSD must not suggest verify');
     assert.ok(!text.includes('quick'), 'non-GSD must not mention quick');
+  });
+});
+
+// Phase 33-03 LIFE-02-FOLLOWUP (Bloque C): el callsite de markSessionStatus en
+// runStopHook consume el return discriminado {ok, reason} (simétrico con verify.js,
+// D-01). Cuando ok === false (task_id falsy → 'missing-task-id'), stop.js emite
+// log.warn('markSessionStatus.skipped', {reason, session_id}) DENTRO del try WR-03
+// existente y continúa (fail-open preservado, cero throws nuevos).
+//
+// Patrón de logger memSink + cmux stub + HOME override idéntico a
+// test/stop-state-transition.test.js (DI completa W-4 vía runStopHook).
+describe('Phase 33-03: stop hook consume markSessionStatus return (markSessionStatus.skipped)', () => {
+  let tmpHome;
+  let origHome;
+  let addSession;
+  let removeSession;
+
+  before(async () => {
+    origHome = process.env.HOME;
+    tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-stop-skipped-'));
+    process.env.HOME = tmpHome;
+    mkdirSync(join(tmpHome, '.kodo'), { recursive: true });
+    const stateMod = await import('../src/session/state.js');
+    addSession = stateMod.addSession;
+    removeSession = stateMod.removeSession;
+  });
+
+  after(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  const writtenTaskIds = [];
+  afterEach(() => {
+    while (writtenTaskIds.length > 0) {
+      const tid = writtenTaskIds.pop();
+      try { removeSession(tid); } catch {}
+    }
+  });
+
+  function makeLogger() {
+    const events = [];
+    const logger = {
+      info: (m, f) => events.push({ level: 'info', msg: m, fields: f }),
+      warn: (m, f) => events.push({ level: 'warn', msg: m, fields: f }),
+      error: (m, f) => events.push({ level: 'error', msg: m, fields: f }),
+      debug: (m, f) => events.push({ level: 'debug', msg: m, fields: f }),
+      child: () => logger,
+    };
+    return { logger, events };
+  }
+
+  function makeCmuxStub() {
+    return {
+      setColor: async () => {},
+      notify: async () => {},
+      listWorkspaces: async () => '',
+      send: async () => {},
+    };
+  }
+
+  it('Phase 33-03: markSessionStatus ok===false → emite markSessionStatus.skipped con {reason, session_id}', async () => {
+    // task_id '' (falsy) → markSessionStatus early-return {ok:false,
+    // reason:'missing-task-id'} sin tocar state.json.
+    const session = {
+      session_id: 's-skip-1',
+      task_id: '',
+      task_ref: 'KL-skip-1',
+      gsd: true,
+      gsd_mode: 'full',
+      status: 'review',
+      project_path: '/tmp/repo-skip',
+      provider: 'plane',
+      project_id: 'p-skip',
+      workspace_ref: 'workspace:1',
+      started_at: new Date().toISOString(),
+      summary: 'test session skipped',
+    };
+    const { logger, events } = makeLogger();
+    const findSessionFn = ({ sessionId }) =>
+      sessionId === session.session_id ? { id: session.task_id, session } : null;
+    const removeSessionFn = () => {};
+
+    const { runStopHook } = await import('../src/hooks/stop.js');
+    await runStopHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      { findSessionFn, removeSessionFn, cmux: makeCmuxStub(), loggerFactory: () => logger },
+    );
+
+    const skipped = events.find((e) => e.msg === 'markSessionStatus.skipped');
+    assert.ok(skipped, 'debe emitir markSessionStatus.skipped cuando ok === false');
+    assert.equal(skipped.level, 'warn', 'markSessionStatus.skipped es nivel warn');
+    assert.equal(skipped.fields.reason, 'missing-task-id', 'payload reason del union discriminado');
+    assert.equal(skipped.fields.session_id, session.session_id, 'payload session_id en scope local');
+  });
+
+  it('Phase 33-03: markSessionStatus ok===true → NO emite markSessionStatus.skipped (no-regresión happy path)', async () => {
+    const session = {
+      session_id: 's-ok-1',
+      task_id: 'kodo-test-stop-skipped-ok-1',
+      task_ref: 'KL-ok-1',
+      gsd: true,
+      gsd_mode: 'full',
+      status: 'review',
+      project_path: '/tmp/repo-ok',
+      provider: 'plane',
+      project_id: 'p-ok',
+      workspace_ref: 'workspace:2',
+      started_at: new Date().toISOString(),
+      summary: 'test session ok',
+    };
+    writtenTaskIds.push(session.task_id);
+    addSession(session.task_id, session); // persistido → ok:true
+    const { logger, events } = makeLogger();
+    const findSessionFn = ({ sessionId }) =>
+      sessionId === session.session_id ? { id: session.task_id, session } : null;
+    const removeSessionFn = () => {};
+
+    const { runStopHook } = await import('../src/hooks/stop.js');
+    await runStopHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      { findSessionFn, removeSessionFn, cmux: makeCmuxStub(), loggerFactory: () => logger },
+    );
+
+    // Sanity: el happy path sí emite state.transition (markSessionStatus ok).
+    const transition = events.find((e) => e.fields?.event === 'state.transition');
+    assert.ok(transition, 'happy path debe emitir state.transition (markSessionStatus ok)');
+    const skipped = events.find((e) => e.msg === 'markSessionStatus.skipped');
+    assert.equal(skipped, undefined, 'happy path (ok===true) NO debe emitir markSessionStatus.skipped');
   });
 });
