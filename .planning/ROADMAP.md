@@ -91,9 +91,9 @@
   3. VALIDATION.md de phases 23/25/26/27 contiene `nyquist_compliant: true` en su YAML frontmatter — `grep -l "nyquist_compliant: true" .planning/milestones/v0.7-phases/*/VALIDATION.md` lista las 5 phases (24 ya tenía, ahora 23/25/26/27 también).
   4. Phase es 100% commits doc-only — `git diff <phase-base>..<phase-head> -- src/ test/ bin/` retorna vacío (cero líneas tocadas en código). Suite global ≥830 pass (sin cambio numérico vs Phase 31).
 **Plans**: 3 plans
-- [x] 31-01-PLAN.md — ADVISORY-01: syncSkill onConsoleWarn callback DI + describe 'syncSkill onConsoleWarn DI' (2 tests netos, in-process unit). Wave 1.
-- [ ] 31-02-PLAN.md — ADVISORY-02: runSkillSyncCli cleanupFn DI + try/finally wrapper en 3 ramas (return 0/1/2) + describe 'runSkillSyncCli cleanupFn ordering' (3 tests netos, process.hrtime.bigint ordering). Wave 1, depends_on [31-01] (overlap controlado en test/skill-sync.test.js).
-- [x] 31-03-PLAN.md — ADVISORY-03: launchOrchestrator spawnFn DI hook (Opción A — Lifecycle Simulator) + describe 'launchOrchestrator real spawn observables' (1+ test integration end-to-end: state.json + NDJSON session.start + transcript_path). Wave 1.
+- [x] 32-01-PLAN.md — BOOK-01: reconciliación traceability `v0.7-REQUIREMENTS.md` a 16/16 Complete (GH-01..05, CFG-01, CFG-02, TEST-01). Wave 1.
+- [x] 32-02-PLAN.md — BOOK-02: backfill `VERIFICATION.md` Phase 23 githubclient-auth-foundation por uniformidad documental. Wave 1.
+- [x] 32-03-PLAN.md — BOOK-03: toggle `nyquist_compliant: true` en VALIDATION.md de phases 23/25/26/27. Wave 1.
 **UI hint**: no
 
 ## Progress
