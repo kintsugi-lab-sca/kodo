@@ -264,7 +264,20 @@ async function finalize({ verdict, session, log, getProviderFn, loadConfigFn }) 
         // state.transition es observability-only; orchestratorReview es el contractual
         // signal que consume el orquestador. Silenciar fallos de fs aquí preserva D-17.
         try {
-          markSessionStatus(session.task_id, 'review', 'gate-passed', log, session.session_id);
+          // Phase 33-03 LIFE-02-FOLLOWUP: consumir el return discriminado de
+          // markSessionStatus (D-05) en vez de descartarlo. Si ok === false
+          // (task_id falsy → 'missing-task-id'), emitir warn observable y
+          // continuar (log+continue simétrico con stop.js — D-01). Optional
+          // chaining defensivo contra mocks que retornan undefined; producción
+          // siempre retorna el union. Sigue DENTRO del catch CR-01: markSessionStatus
+          // es non-throwing por contrato, así que el warn no dispara el catch.
+          const result = markSessionStatus(session.task_id, 'review', 'gate-passed', log, session.session_id);
+          if (!result?.ok) {
+            log.warn('markSessionStatus.skipped', {
+              reason: result?.reason,
+              session_id: session.session_id,
+            });
+          }
         } catch {
           // intencionalmente vacío — ver comentario CR-01 arriba.
         }

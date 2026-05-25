@@ -484,4 +484,58 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       'phasesRoot must use session.worktree_path ?? session.project_path (D-06 + D-09 fallback)',
     );
   });
+
+  // Phase 33-03 LIFE-02-FOLLOWUP (Bloque C): el callsite de markSessionStatus en
+  // la rama pass consume el return discriminado {ok, reason}. Cuando ok === false
+  // (task_id falsy → 'missing-task-id'), verify.js emite log.warn observable
+  // 'markSessionStatus.skipped' con {reason, session_id} y continúa (cero throws).
+  // Para forzar ok:false sin mockear markSessionStatus, la sesión lleva task_id ''
+  // (falsy) — el early-return de markSessionStatus (manager.js#371) NO toca
+  // state.json. task_ref sigue presente para que getTask del provider mock retorne
+  // un task y se llegue a la rama pass + updateTaskState donde vive el callsite.
+  it('Phase 33-03: markSessionStatus ok===false → emite markSessionStatus.skipped con {reason, session_id}', async () => {
+    writeFileSync(
+      join(tmpRoot, '.planning', 'phases', '10-orchestrator-verification-gate', '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: passed',
+        'must_haves_total: 8',
+        'must_haves_verified: 8',
+        'gaps_count: 0',
+        '---',
+      ].join('\n'),
+    );
+    const session = { ...makeSession(), task_id: '' };
+    const { deps, calls, events } = makeDeps(session);
+    const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
+    // Sanity: llegamos a la rama pass + Plane OK (donde vive el callsite).
+    assert.equal(result.verdict.action, 'pass');
+    assert.equal(calls.updateTaskState.length, 1);
+    const skipped = events.find((e) => e.msg === 'markSessionStatus.skipped');
+    assert.ok(skipped, 'debe emitir markSessionStatus.skipped cuando ok === false');
+    assert.equal(skipped.level, 'warn', 'markSessionStatus.skipped es nivel warn');
+    assert.equal(skipped.fields.reason, 'missing-task-id', 'payload reason del union discriminado');
+    assert.equal(skipped.fields.session_id, session.session_id, 'payload session_id en scope local');
+  });
+
+  it('Phase 33-03: markSessionStatus ok===true → NO emite markSessionStatus.skipped (no-regresión happy path)', async () => {
+    writeFileSync(
+      join(tmpRoot, '.planning', 'phases', '10-orchestrator-verification-gate', '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: passed',
+        'must_haves_total: 8',
+        'must_haves_verified: 8',
+        'gaps_count: 0',
+        '---',
+      ].join('\n'),
+    );
+    const session = makeSession(); // task_id 'task-int' (truthy) → ok:true
+    const { deps, calls, events } = makeDeps(session);
+    const result = await runGsdVerify({ sessionId: 'sess-int' }, deps);
+    assert.equal(result.verdict.action, 'pass');
+    assert.equal(calls.updateTaskState.length, 1);
+    const skipped = events.find((e) => e.msg === 'markSessionStatus.skipped');
+    assert.equal(skipped, undefined, 'happy path (ok===true) NO debe emitir markSessionStatus.skipped');
+  });
 });
