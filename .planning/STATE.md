@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.8
 milestone_name: Bookkeeping
 status: executing
-stopped_at: Completed 33-01-PLAN.md (Bloque A doc-drift closure)
-last_updated: "2026-05-25T07:25:19.608Z"
-last_activity: 2026-05-25 -- Completed 33-01-PLAN.md (Bloque A doc-drift closure)
+stopped_at: Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
+last_updated: "2026-05-25T07:33:00.000Z"
+last_activity: 2026-05-25 -- Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: `.planning/PROJECT.md` (Current State — v0.7 shipped).
 ## Current Position
 
 Phase: 33 (v0-8-bookkeeping-nyquist-backfill-doc-surgical-fix) — EXECUTING
-Plan: 2 of 3
-Status: 33-01 complete (Bloque A doc-drift closed); 33-02 + 33-03 pending (Wave 1 paralelo)
-Last activity: 2026-05-25 -- Completed 33-01-PLAN.md
+Plan: 3 of 3
+Status: 33-01 + 33-02 complete (Bloque A doc-drift + Bloque B nyquist backfill closed); 33-03 pending (Bloque C surgical fix)
+Last activity: 2026-05-25 -- Completed 33-02-PLAN.md
 
 ## Most recent shipped milestone
 
@@ -53,6 +53,12 @@ Last activity: 2026-05-25 -- Completed 33-01-PLAN.md
 - 9 REQ-IDs v0.8 reconciliados Pending->Complete manualmente en REQUIREMENTS.md (POLL-FIX-01, DAEMON-01/02, ADVISORY-01/02/03, BOOK-01/02/03). Reconciliacion manual (no via SDK) porque cubren phases CERRADAS 28-31 y se editan como data; marcador phase-local `requirements: []` — Phase 33 NO los posee (CONTEXT D-04). REQUIREMENTS.md ahora 17/17 Complete.
 - 30-04-SUMMARY.md usa nota de prosa en vez de forzar `[LIFE-01]` en frontmatter para evitar doble conteo (LIFE-01 declarado solo en 30-01). 30-03 / 31-01 / 31-02 confirmados no-op (ya tenian sus IDs).
 - ROADMAP.md seccion Phase 32 corregida: copy-paste residual `31-01/02/03-PLAN.md` -> `32-01/02/03-PLAN.md` con one-liners BOOK-01/02/03. Tier 1 doc-only respetado (cero src/test/bin).
+
+### Decisions (Phase 33-02 — Bloque B nyquist backfill, 2026-05-25)
+
+- 3 VALIDATION.md backfill creados (28/30/31) con `nyquist_compliant: true` citation-based (D-02): tabla dimension->cobertura->evidencia citando VERIFICATION.md + tests reales + audit. CERO re-ejecucion de tests (suite ya verde 894). Phase 30 lleva fila HUMAN-UAT explicita (2/2 pass empirico).
+- Citas ajustadas al nombre REAL de los VERIFICATION.md: phases 28/31 usan `VERIFICATION.md` SIN prefijo (el plan los citaba con prefijo); solo phase 30 usa `30-VERIFICATION.md`. Tests citados verificados contra el arbol real `test/` — cero inventados (integration daemon de Phase 28 vive en `test/cli/polling-verbose.test.js`).
+- NYQ-32-NA documentado en opcion A (audit, no STATE.md): Phase 32 Tier 1 doc-only = N/A explicito; cero `32-VALIDATION.md` creado. Sign-off v0.8: 1/5 -> 4/5 compliant + 1/5 N/A. frontmatter `scores.nyquist` del audit actualizado por consistencia.
 
 ### Roadmap (archived milestones)
 
@@ -108,9 +114,9 @@ _(reset for next milestone)_
 
 ## Session Continuity
 
-- **Last session:** 2026-05-25T07:23:43.216Z
-- **Stopped at:** Completed 33-01-PLAN.md (Bloque A doc-drift closure)
-- **Next action:** Ejecutar 33-02-PLAN.md (nyquist VALIDATION.md backfill) y 33-03-PLAN.md (markSessionStatus return consumption) — Wave 1 paralelo, cero overlap de archivos con 33-01
+- **Last session:** 2026-05-25T07:33:00.000Z
+- **Stopped at:** Completed 33-02-PLAN.md (Bloque B nyquist backfill closure)
+- **Next action:** Ejecutar 33-03-PLAN.md (Bloque C surgical fix LIFE-02-FOLLOWUP — markSessionStatus return consumption en verify.js + stop.js) — Wave 1 paralelo, cero overlap de archivos con 33-01/33-02
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone v0.8 + Active section)
   - `.planning/REQUIREMENTS.md` (17 v1 REQ-IDs + traceability completa)

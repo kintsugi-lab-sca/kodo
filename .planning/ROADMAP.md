@@ -236,7 +236,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 
 Plans:
 - [x] 33-01-PLAN.md — Bloque A (doc-drift, Tier 1 doc-only): 9 REQ-IDs Pending->Complete en REQUIREMENTS.md + 5 SUMMARYs frontmatter reconciliados + fix copy-paste seccion Phase 32 en ROADMAP. Wave 1. (D-04)
-- [ ] 33-02-PLAN.md — Bloque B (nyquist backfill, Tier 1 doc-only): 3 VALIDATION.md nuevos (28/30/31) citation-based + NYQ-32-NA en audit; 4/5 compliant + 1/5 N/A. Wave 1. (D-02)
+- [x] 33-02-PLAN.md — Bloque B (nyquist backfill, Tier 1 doc-only): 3 VALIDATION.md nuevos (28/30/31) citation-based + NYQ-32-NA en audit; 4/5 compliant + 1/5 N/A. Wave 1. (D-02)
 - [ ] 33-03-PLAN.md — Bloque C (surgical fix, Tier 1 extendido): consumir return {ok,reason} de markSessionStatus en verify.js + stop.js con log.warn(markSessionStatus.skipped) + 2-4 tests netos. Wave 1. (D-01)
 
 ---
