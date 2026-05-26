@@ -11,7 +11,13 @@
   },
   "dependencies": {
     "commander": "^13.0.0",
-    "picocolors": "^1.1.1"
+    "ink": "^6.8.0",
+    "picocolors": "^1.1.1",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "ink-testing-library": "^4.0.0"
   },
   "engines": {
     "node": ">=20.0.0"
