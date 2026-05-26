@@ -1,18 +1,23 @@
 # Feature Research
 
-**Domain:** AI-workflow automation bridge (Plane ↔ Claude Code via GSD) + structured logging for local dev CLI
-**Researched:** 2026-04-15
-**Milestone:** kodo v0.3 (GSD integration + structured logging)
-**Confidence:** MEDIUM-HIGH (GSD integration grounded in existing kodo + GSD skill; logging patterns are industry standard)
+**Domain:** Live session-monitoring TUI (`kodo dashboard`) — an "ambient" terminal panel over kodo's existing `/status`, `/logs`, `/comments/<id>` JSON endpoints. Comparables: lazygit, k9s, lazydocker, btop, htop, gh dash.
+**Researched:** 2026-05-26
+**Milestone:** kodo v0.9 (kodo TUI — sesiones en vivo)
+**Confidence:** HIGH (data contract verified against `src/server.js` + `src/session/state.js`; TUI patterns verified against ink/bubbletea docs + k9s/lazygit issue trackers)
 
-## Scope
+---
 
-Milestone v0.3 adds two orthogonal capability sets to kodo:
+## Critical data-contract findings (read first)
 
-1. **GSD Integration** — bridge Plane tasks to the Get-Shit-Done multi-phase workflow so that a single Plane task drives a single GSD phase, with auto-bootstrap when `.planning/` is absent, roadmap-aware phase resolution, and orchestrator awareness of verification artifacts.
-2. **Structured Logging** — replace ad-hoc `console.log` / stdout noise with leveled, JSON-formatted per-session logs and a `kodo logs <session-id>` CLI for retrieval.
+The TUI consumes ONLY existing endpoints. Three facts from reading the source change scope materially:
 
-These are independent features but will ship in the same milestone because both feed operator trust in long-running, autonomous Claude sessions.
+1. **`/logs` has NO `session_id`.** The ring buffer (`src/server.js:13-29`) pushes `{ ts, level, msg }`, where `msg` is a flattened string of `console.*` args (last 200 lines). There is **no structured session key** to filter by. The seed's phrase "filtrado client-side de `/logs` por session_id" is **not directly supported** by the shape. The only client-side filter possible is **substring matching** `msg` against the selected session's `task_ref` / `task_id` / `workspace_ref`. This is best-effort and may show partial or zero matches. The requirements author must scope `l` (tail logs) as a **substring grep over a shared 200-line buffer**, not a true per-session stream. (HIGH — read from source.)
+
+2. **`DELETE /sessions/<id>` is pure bookkeeping, NOT a kill.** `removeSession` (`src/session/state.js:131-145`) moves the SessionRecord to `history` and deletes it from `state.sessions`. It does **not** stop the Claude process, does **not** touch the cmux workspace, does **not** remove the git worktree. Calling it from the TUI would "forget" a session that may still be `alive` in cmux — orphaning a live process from kodo's bookkeeping. This is the decisive fact for the deletion recommendation below. (HIGH — read from source.)
+
+3. **`/comments/<id>` is keyed by `task_id`, not `task_ref`.** The handler (`src/server.js:421-441`) slices the URL and matches `s.task_id === taskId`. The visible column the user navigates is `task_ref` ("#42"/"KL-7"), but the comments fetch needs `task_id`. The session object from `/status` must therefore carry `task_id` (it does — it's the SessionRecord key). The TUI must call `/comments/<task_id>`, never `/comments/<task_ref>`. (HIGH — read from source.)
+
+Everything else the v1 scope needs (`task_ref`, `project_path`, `provider`, `status`, `phase_id`, `gsd_mode`, `started_at`, `alive`, `elapsed_min`, `workspace_ref`, `task_url`, `summary`) is present on each `/status` session object. No new endpoints required for the decided v1 scope.
 
 ---
 
@@ -20,146 +25,148 @@ These are independent features but will ship in the same milestone because both 
 
 ### Table Stakes (Users Expect These)
 
-Features that are assumed to exist. Missing these makes the feature set feel half-finished.
+A "live monitor" TUI that lacks these feels broken or janky. These are non-negotiable for a tool meant to run all day.
 
-#### GSD Integration
+| Feature | Why Expected | Complexity | Notes / Data dependency |
+|---------|--------------|------------|-------------------------|
+| **Auto-refresh on a fixed cadence (~2s)** | A "live" panel that needs manual refresh isn't ambient. 2s is the de-facto default (k9s default 2s; btop `update_ms=2000`). | LOW | Poll `GET /status` on `setInterval`. 2-3s is correct; faster wastes CPU + hammers `listPendingTasks` (already cached 30s server-side). |
+| **Visible "live / last refreshed" indicator** | The operator must trust the data is fresh. A spinner, a "↻ 2s ago" stamp, or a heartbeat dot is the universal tell that the loop is alive vs frozen. | LOW | Render from local clock + last successful poll timestamp. No data dependency. |
+| **Stable, deterministic row order ("lazy sort")** | Rows that re-sort every tick make the cursor unusable — you select row 3, it jumps. btop's `cpu lazy` exists precisely to stop this. | LOW–MEDIUM | Sort by a **stable key** that doesn't churn (e.g. `started_at` ascending, or `task_ref`). Do NOT sort by `elapsed_min`/`status` (both mutate every tick → rows reorder). Resolve rows by `task_id` identity, not array index. |
+| **Selection that survives refresh** | The single biggest "janky vs good" differentiator. On every poll the data array is rebuilt; if you track the cursor by index, the highlighted row drifts under the user. | MEDIUM | Track selection by **`task_id` (stable identity)**, re-derive the index after each poll. If the selected session disappears (moved to history / removed), fall back to nearest neighbor, not index 0. |
+| **Selected-row highlight** | Navigation is meaningless without a clear "you are here." | LOW | ink: inverse/background color on the active row. |
+| **Header + footer with keybinding hints** | Discoverability. lazygit/k9s always show contextual keybindings at the bottom; nobody memorizes them cold. | LOW | Static footer: `↑↓ nav · enter attach · c comments · l logs · / search · q quit`. Context-aware footer (different hints in comments/logs view) is a cheap nicety. |
+| **Empty state** | Zero sessions is the *normal* idle state for kodo, not an error. A blank screen reads as "broken." | LOW | "No active sessions" + a hint (e.g. "waiting for tasks…"). Distinguish from the down state below. |
+| **Graceful degradation when the server is down** | The seed's explicit requirement (PROJECT.md). The kodo daemon may be stopped; the TUI must NOT crash, must keep the last frame or show a clear banner, and recover when the server returns. | MEDIUM | `fetch` to `localhost:9090` fails → catch, show "⚠ server unreachable (localhost:9090) — retrying" banner, keep polling. Never let an unhandled rejection unmount the app. This is a known footgun: a single poll exception kills an ink app if uncaught. |
+| **`q` to quit cleanly** | Universal. Must restore the terminal (cursor, raw mode) on exit. | LOW | ink `useApp().exit()` + `exitOnCtrlC`. Ensure raw mode is released so the shell isn't left broken. |
+| **↑↓ navigation** | Decided v1 scope. The core interaction. | LOW | ink `useInput`. Clamp at list bounds (don't wrap unless desired). |
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Label-triggered GSD mode (`kodo:gsd`) | Consistent with existing `kodo:sonnet` / `kodo:haiku` / `kodo:yolo` label-driven model/permission pattern | LOW | Reuse existing label parser in dispatcher; add `gsd` to known-label enum. Depends on existing webhook → session pipeline. |
-| Auto-bootstrap `/gsd:new-project` when `.planning/` missing | If GSD requires planning artifacts and none exist, session would error; user expects "just work" on first run | MEDIUM | Claude session must detect absence and invoke the slash command as its first instruction. Plane task body is the natural project-brief input. |
-| Phase resolver reading `ROADMAP.md` | 1 Plane task = 1 GSD phase only works if the system knows which phase this task maps to | MEDIUM | Parse `.planning/ROADMAP.md`, match task title/ID to a phase entry. Needs a stable convention for linking Plane task → phase (phase ID in title, or Plane custom field). |
-| Orchestrator verifies `VERIFICATION.md` before approving In Review | The whole point of GSD is gated phases; orchestrator approving without checking verification defeats it | MEDIUM | Orchestrator skill already exists; add a branch: if task is GSD, require `.planning/phases/<phase>/VERIFICATION.md` present and passing before sign-off. |
-| 1 Plane task = 1 GSD phase (strict mapping) | Prevents scope creep inside a session; keeps phases atomic | LOW | Enforced by phase resolver — refuse to run if task spans multiple phases or no phase matches. |
-| GSD session failure surfaces in Plane (comment + state) | Silent failures break trust; existing kodo already comments on state transitions | LOW | Reuse existing Plane comment hook. Differentiator is including which phase/verification step failed. |
+### Differentiators (Cheap to add, high value)
 
-#### Structured Logging
+These set the tool apart from `kodo status` (a static dump). All are low-cost because the data already exists on `/status`. They directly serve the Core Value: *ambient, at-a-glance control of N parallel sessions.*
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Log levels (`debug` / `info` / `warn` / `error`) | Industry standard since syslog; every serious CLI has them | LOW | Single logger module; level configurable via env (`KODO_LOG_LEVEL`) and CLI flag. |
-| JSON output (NDJSON, one event per line) | Expected for anything that might be shipped to Loki/Datadog/CloudWatch or parsed with `jq` | LOW | Include `timestamp`, `level`, `session_id`, `component`, `msg`, plus arbitrary context. Newline-delimited, grep-friendly. |
-| Per-session log file | Sessions run in parallel; interleaved global log is unreadable | LOW | Path convention: `~/.kodo/logs/<session-id>.ndjson`. Rotation/cleanup deferred. |
-| `kodo logs <session-id>` CLI | Operators expect to retrieve logs by ID without knowing the file layout | LOW | Thin wrapper: resolve session-id → path, stream file. Support `--follow` (tail -f) and `--level` filter. |
-| Human-readable console output alongside JSON file | JSON is for machines; terminal output should stay readable during interactive runs | LOW | Pretty-print to stderr at INFO+ by default; full JSON to file always. |
-| Timestamps in ISO-8601 / RFC 3339 | Any other format is a bug; required for log aggregation | LOW | `new Date().toISOString()` — zero dependency. |
-| Context propagation (session_id, task_id, phase) | Without correlation IDs, multi-session debugging is impossible | LOW | Child loggers per session; bind `session_id`, `plane_task_id`, and (when GSD) `phase_id` at session creation. |
+| Feature | Value Proposition | Complexity | Notes / Data dependency |
+|---------|-------------------|------------|-------------------------|
+| **Color-code rows by `status` + `alive`** | The single highest signal-per-pixel feature. Green=running/alive, yellow=review, red=error, dim/grey=done or `alive:false`. Lets the operator triage 10 rows in one glance — exactly what k9s/lazydocker do with status columns. | LOW | Both `status` and `alive` are on every session object. Pure presentation. **Highlight the `alive:false` + `status:'running'` combo** (zombie: kodo thinks it runs, cmux says dead) — that's the most actionable state and unique to kodo's merged view. |
+| **Live age column (`elapsed_min`)** | "How long has this been going?" is the first question for a parallel-session operator. A stale/runaway session jumps out. | LOW | `elapsed_min` is server-computed on every `/status`. Render as `12m` / `1h03m`. Updates naturally each poll. |
+| **Count summary in header** | "3 running · 1 review · 1 error · 4 pending" gives the whole-fleet state without scanning rows. k9s/htop all surface aggregate counts. | LOW | Derive from `sessions[]` (group by `status`) + `pending_count`. `/status` already returns `count` and `pending_count`. |
+| **GSD mode / phase badge** | Distinguishes `full` (multi-phase) vs `quick` (one-shot) and shows `phase_id`. This is kodo-specific context cmux can't show — the seed explicitly says the value is "lo que cmux NO sabe." | LOW | `gsd` (bool), `gsd_mode`, `phase_id` all present. Compact badge: `[GSD p34]` / `[quick]` / `—`. |
+| **Filters: `/` search + `r:<repo>` + `s:<state>`** | Decided v1 scope. With 3-10 rows it's a nicety; the operator wants it for habit/scale. Far simpler than the LLM the seed rejected. | MEDIUM | Pure client-side filter over the in-memory `sessions[]`. `r:` matches `project_path` (basename), `s:` matches `status`. `/` does substring over `task_ref`+`project_path`+`summary`. **Filter must NOT reset the cursor to top on every keystroke** (k9s issues #3220 / #3652 are exactly this pain) — keep the selected `task_id` selected if it still matches; otherwise select first match. |
+| **`summary` as a detail line / column** | Each session carries a `summary`; showing it (truncated in the table, full in a detail strip) turns the table from "refs" into "what's actually happening." | LOW | `summary` present on session object. Truncate to terminal width; show full on the selected row footer. |
 
-### Differentiators (Competitive Advantage)
+### Anti-Features (Tempting, but OUT OF SCOPE for "lo más simple" v1)
 
-Features that make kodo's GSD and logging story noticeably better than rolling your own wrapper.
+The seed and PROJECT.md set an explicit "deliberately reduced" boundary. These are the tempting additions that would bloat v1; each has a verified reason to defer.
 
-#### GSD Integration
+| Feature | Why Requested / Surface Appeal | Why Problematic for v1 | Alternative |
+|---------|-------------------------------|------------------------|-------------|
+| **LLM/AI ranking, summarizing, or "ask the dashboard"** | "AI-powered" everything is fashionable. | The seed kills this explicitly: with 3-10 rows it adds nothing; with 100 you want filters, not embeddings. Metadata is already structured (provider/label/phase). Costs tokens (violates "vigilante consume 0 tokens" constraint). | Filters + color-coding. Revisit only if a real "classify/order" case appears that filters can't solve (seed: v0.10+). |
+| **Killing / stopping sessions from the TUI** | An operator watching a runaway session naturally wants a `k`-to-kill. lazydocker/k9s have it. | There is **no kill endpoint**. `DELETE /sessions/<id>` does NOT kill — it only deletes bookkeeping (`removeSession`), leaving the cmux process + worktree orphaned. Building a real kill would require new endpoints (forbidden) + cmux teardown + worktree cleanup logic — a whole feature, not a keybinding. | To intervene, the operator uses `Enter` to attach and stops the session inside cmux, or uses existing CLI (`kodo gsd verify` / stop hook). The future `kodo gsd doctor` (already deferred in PROJECT.md) is the right home for zombie cleanup. |
+| **Calling `DELETE /sessions/<id>` ("remove from list")** | "Done sessions clutter the table; let me dismiss them." | See finding #2: it's destructive bookkeeping that can orphan a *live* session, and `/status` already only lists active `state.sessions` (done sessions fall to `history`, not the live table). So clutter is largely self-solving. A `d` key here is a footgun that desyncs state vs reality (the exact ROMAN-132 class of bug in the project's memory). | **Recommend: OUT of v1.** Let sessions leave the table naturally when the stop hook removes them. If dismissal is ever wanted, gate it behind a confirmation and only for `alive:false` rows — but that's a v1.x decision, not v1. |
+| **Mouse support (click rows, scroll wheel)** | Modern TUIs (k9s) support it. | Doubles input-handling complexity in ink, conflicts with terminal text selection, and the decided interaction model is keyboard-only. No user request. | Keyboard nav only. |
+| **Config file / themes / customizable keybindings** | Power-user expectation; htop/btop/k9s all have config. | Premature for a personal one-operator tool. PROJECT.md radiates "no config files" ("herramienta personal"). Adds parsing, precedence, docs, tests for zero current value. | Hardcode sensible defaults (2s refresh, fixed keys). `NO_COLOR`/`FORCE_COLOR` already respected via the existing `format.js` discipline — reuse it, don't add config. |
+| **Editing / mutating sessions or tasks beyond existing actions** | "Move task to review", "add a comment from the TUI". | PROJECT.md "Out of Scope": kodo does not do CRUD of tasks; it reads + updates state via the orchestrator, not via an operator UI. Comment-writing would need a new endpoint (forbidden). | Read-only TUI. Mutations stay in the orchestrator/GSD flow. `c` *views* comments; it does not write them. |
+| **Persistent log streaming / real per-session log files** | "I want a true tail -f per session." | `/logs` is a shared 200-line ring buffer with no session key (finding #1). A real per-session stream would need new endpoints + structured logging changes. | `l` = client-side substring grep of the shared buffer against `task_ref`/`workspace_ref`. Honest, cheap, and clearly labeled as "matching lines," not a guaranteed complete stream. For full logs, the existing `kodo logs --session-of` CLI already exists. |
+| **Sorting controls (Shift+C/M/S like k9s/top)** | Power feature. | Adds UI state + the row-stability problem the table-stakes section just solved (sorting by a mutating field reintroduces row-jumping). Not in decided scope. | One stable default sort. Defer interactive sort to v1.x if asked. |
+| **Pending-tasks pane / history pane / metrics pane** | `/status` returns `pending`, `history`, and `metrics` — tempting to show all of it. | Scope creep. v1 is the **live sessions** table. Three more panes = three more layouts, nav modes, and empty states. | A single header count can borrow `pending_count` (one number). Full pending/history/metrics panes → v1.x tabs if the single table proves too thin. |
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Phase-aware orchestrator prompts | Orchestrator knows it's supervising a GSD phase and loads `PROJECT.md` + `ROADMAP.md` + phase-specific `PLAN.md` into context, so its review is phase-contextual not generic | MEDIUM | Dispatcher passes GSD metadata to orchestrator session at spawn; orchestrator skill branches on presence. |
-| Verification artifact as hard gate | Most AI-task tools let the agent self-declare "done"; kodo requires an artifact the orchestrator can inspect, raising the quality floor | MEDIUM | Tie "In Progress → In Review" transition to VERIFICATION.md existing and its checklist being ticked. |
-| Auto-bootstrap uses Plane task body as project description | Zero-config first run: user labels an epic-sized task `kodo:gsd`, kodo bootstraps the whole plan | MEDIUM | Feed Plane task description into `/gsd:new-project` as project brief. Guardrail: only bootstrap on the *first* GSD task in a repo. |
-| Phase inference from task title when no explicit mapping | Plane tasks named "Phase 2: Plane Adapter" resolve automatically without custom fields | LOW | Regex/fuzzy match on `ROADMAP.md` phase headings. Fall back to failing loudly if ambiguous. |
+---
 
-#### Structured Logging
+## The "attach" UX — concrete behavior (quality-gate item)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| `kodo logs <session-id> --follow` with live tail | Operators watch a session unfold without attaching to the running process; rare in AI-agent tooling which tends to dump to terminal and lose history | LOW | `fs.watchFile` or tail semantics; trivial. |
-| Log redaction of secrets (Plane API key, webhook signatures) | Dev tools routinely leak tokens in logs; building redaction from day one is a real differentiator | MEDIUM | Central allow/deny list of keys; redact before write. Strip `Authorization` headers from any HTTP trace. |
-| Structured events for lifecycle transitions (`session.start`, `state.transition`, `plane.api.call`, `orchestrator.review`) | Makes logs queryable: "show me all failed orchestrator reviews this week" becomes a `jq` one-liner | LOW-MEDIUM | Define a small event taxonomy (~10 event types) to avoid churn. |
-| Correlation between kodo log and Claude session transcript | Link each `session.start` entry to the Claude session's JSONL transcript path so operators can pivot between kodo's view and Claude's view | LOW | Log `transcript_path` at session start. |
-| `kodo logs --session-of <plane-task-id>` | Operators think in Plane task IDs, not kodo session IDs; saves a lookup | LOW | Index by task-id on session creation (small sqlite or flat index file). |
+This is the highest-risk feature to get right. The requirement: `Enter` on a row hands the whole terminal to `cmux attach <workspace_ref>` (a full-screen interactive child), then returns the operator to the live table when they detach.
 
-### Anti-Features (Commonly Requested, Often Problematic)
+### How comparable TUIs do it
 
-Things that look reasonable but should be avoided.
+- **lazygit / gh dash / any bubbletea app:** use `tea.ExecProcess(cmd, ...)` — it "runs the given `*exec.Cmd` in a blocking fashion, effectively pausing the Program," explicitly "for spawning other interactive applications such as editors and shells." Under the hood that's `Program.ReleaseTerminal()` (gives input/terminal back to the child) → child runs → `Program.RestoreTerminal()` (re-acquires input, triggers a repaint). This is the canonical "suspend → hand off → restore" cycle. (HIGH — bubbletea docs + PR #237.)
+- **k9s:** `s` to shell / `a` to attach into a pod spawns `kubectl exec`/`attach` as a foreground child; on exit you return to the table. (Known rough edges on some terminals — see below — but the model is the same: suspend TUI, inherit terminal, restore on exit.)
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Web dashboard for logs | "I want to see everything in a nice UI" | Scope explosion; duplicates Loki/Grafana/CloudWatch; pulls kodo away from "local CLI bridge" identity | `kodo logs --follow` + document the NDJSON schema so users ship to their own stack |
-| Multi-phase per task | Feels flexible | Breaks atomicity guarantee; orchestrator can't gate verification cleanly; a task secretly spanning 3 phases can't be reviewed coherently | Enforce 1:1; if task is too big, bootstrap creates child tasks per phase |
-| Auto-bootstrap on every GSD-labeled task | "Make it always work" | Silently re-runs `/gsd:new-project` in already-planned repos, corrupting `.planning/` | Bootstrap only when `.planning/` is truly absent. If present but incomplete, fail loudly with remediation hint |
-| Custom log format (proprietary schema) | "We can optimize for our needs" | Every log-aggregation tool assumes NDJSON + common field names; proprietary schemas force custom parsers forever | NDJSON + small documented schema matching pino/bunyan conventions |
-| Log levels beyond the standard four | `trace`, `fatal`, `notice`, `critical`, `verbose` seen in many loggers | Paralysis of choice; `debug` covers `trace`; `error` + process.exit covers `fatal` | Stick to `debug` / `info` / `warn` / `error` |
-| Two-way sync of GSD plan ↔ Plane sub-tasks | "Plane should mirror the roadmap" | Two-way sync is a distributed-systems tarpit; conflict resolution hell | Plane = task queue, `.planning/` = plan. One-way link (task references phase) |
-| Orchestrator auto-creates Plane tasks for next phase | "Chain phases automatically" | Removes the human checkpoint that makes GSD trustworthy; runaway orchestrator could burn through a whole roadmap | Human creates next Plane task manually (or via `/gsd:next-phase`) |
-| Log rotation / retention policy in v0.3 | "Disk will fill up" | Premature; NDJSON compresses well and sessions are short-lived. Adding rotation now means choosing a policy without data | Document `~/.kodo/logs/`; let operators clean up. Add rotation in a later milestone |
-| Log shipping built into kodo (Datadog/Loki agents) | "Send logs to our stack" | Coupling kodo to specific vendors | NDJSON on disk is enough — operators point their existing agent at `~/.kodo/logs/*.ndjson` |
+### The ink-specific pattern (this project's stack)
+
+ink has **no** built-in `ExecProcess`. The verified, correct sequence is:
+
+1. On `Enter`: stop the poll interval, then **`unmount()`** the ink app (or `app.exit()` and await `waitUntilExit()`). This releases ink's raw-mode hold on `process.stdin`.
+2. **`spawn('cmux', ['attach', workspace_ref], { stdio: 'inherit' })`** — `stdio: 'inherit'` gives the child the real TTY so cmux's own UI takes over completely.
+3. **`await` the child's exit** (operator detaches from cmux).
+4. **Re-`render()` a fresh ink instance** and restart polling. (Ink docs: reusing the same stdout across `render()` calls without unmounting is unsupported — so the unmount→spawn→re-render order is mandatory.)
+
+**The footgun to avoid:** spawning the interactive child *without* unmounting first triggers ink's classic *"Raw mode is not supported on the current process.stdin"* error and/or pushes the process to the background — both ink and Node have well-documented issues here (ink #378, node/help #3084). The fix is precisely "unmount before spawn." (HIGH.)
+
+**Recommendation for the requirements author:** Specify attach as **full-screen handoff** (unmount → `stdio:'inherit'` spawn → await → re-render), NOT a split/embedded pane. A split-pane "attach" is far more complex (PTY multiplexing) and unnecessary — every comparable TUI suspends fully for shell/attach. Data dependency: `workspace_ref` (present on session object). Guard the `alive:false` case: attaching to a dead workspace should show a graceful message, not a hang.
+
+---
+
+## Detail-view UX patterns (`c` comments, `l` logs)
+
+How lazygit/k9s present detail vs the main table informs the `c`/`l` views:
+
+- **lazygit/k9s pattern:** main list stays; detail opens as a **focused panel or a full-screen overlay** that you `Esc` out of, returning to the same cursor position. For "lo más simple," a **full-screen overlay** (replace the table while viewing comments/logs, `Esc`/`q` to return) is the least layout-fiddly and matches the operator's mental model.
+- **`c` (comments):** fetch `GET /comments/<task_id>` (NOT `task_ref` — finding #3) on keypress, show a scrollable read-only list, `Esc` to return. Handle: 404 (session not found server-side → "no comments"), empty list (provider has none), and fetch error (show message, don't crash). One-shot fetch is fine; live-refreshing comments is unnecessary.
+- **`l` (logs):** client-side substring filter of `GET /logs` (shared 200-line buffer) against the selected session's `task_ref`/`workspace_ref`/`task_id` (finding #1). **Auto-scroll vs frozen:** the good-vs-janky line is *auto-scroll to the newest line by default, but freeze auto-scroll the moment the user scrolls up* (so they can read history without the view yanking them to the bottom on the next poll) — and show an indicator when frozen. Label the view honestly as "matching log lines," since completeness isn't guaranteed by the buffer.
 
 ---
 
 ## Feature Dependencies
 
 ```
-[kodo:gsd label detection]
-    └──requires──> [existing label parser / dispatcher]  (already built)
+Auto-refresh poll (/status)
+    └──required by──> Live table
+                          └──required by──> ↑↓ navigation
+                                                └──required by──> Selection-survives-refresh (track by task_id)
+                                                       └──required by──> Enter → attach (needs selected workspace_ref)
+                                                       └──required by──> c → comments (needs selected task_id)
+                                                       └──required by──> l → logs (needs selected task_ref/workspace_ref)
 
-[Phase resolver]
-    └──requires──> [.planning/ROADMAP.md exists]
-                       └──requires──> [auto-bootstrap OR pre-existing planning]
+Selection-by-task_id ──enables──> Filters (cursor must stay on the same task_id post-filter)
 
-[Auto-bootstrap /gsd:new-project]
-    └──requires──> [Plane task description → project brief mapping]
-    └──requires──> [presence check for .planning/]
+Stable sort ──required by──> Selection-survives-refresh
+   (if order churns, identity-tracking still works but the row visibly jumps; both needed)
 
-[Orchestrator verification gate]
-    └──requires──> [Phase resolver]  (knows which VERIFICATION.md to check)
-    └──requires──> [existing orchestrator skill]  (already built)
-    └──enhances──> [existing In Progress → In Review flow]
+Graceful-degradation ──wraps──> every fetch (/status, /comments, /logs)
 
-[kodo logs CLI]
-    └──requires──> [Per-session log file with stable path convention]
-                       └──requires──> [Session-id → file mapping]
-
-[Log redaction]
-    └──requires──> [Structured logger]  (regex-redacting free-form strings is fragile)
-
-[--session-of <plane-task-id>]
-    └──requires──> [task-id ↔ session-id index]
-    └──enhances──> [kodo logs CLI]
-
-[Structured logging]
-    └──enhances──> [GSD integration]  (phase transitions become queryable events)
-    └──enhances──> [Orchestrator]     (review decisions become audit trail)
+DELETE /sessions/<id> ──conflicts──> kodo state integrity
+   (orphans live cmux sessions; do NOT wire to a keybinding in v1)
 ```
 
 ### Dependency Notes
 
-- **Phase resolver requires ROADMAP.md:** If bootstrap hasn't run and ROADMAP.md doesn't exist, phase resolution fails. Bootstrap path must run *before* phase resolution on first-run sessions.
-- **Auto-bootstrap must be idempotent-guarded:** The presence check is the dependency — removing it turns the feature into a footgun.
-- **Orchestrator gate requires phase resolver:** The orchestrator needs to know *which* phase's VERIFICATION.md to inspect. Without phase resolution, the gate is unimplementable.
-- **Log redaction requires structured logging:** Context objects can be walked and sanitized cleanly; free-form strings cannot.
-- **Structured logging enhances GSD:** Phase transitions, orchestrator reviews, and verification gate outcomes are the highest-signal events and benefit most from structured emission.
+- **Selection-survives-refresh requires identity tracking, not index:** because each `/status` poll rebuilds the array. Track the cursor as a `task_id`; recompute the index every frame. This is the linchpin that makes everything below it (attach/comments/logs) reliable.
+- **Attach/comments/logs all require a stable selection:** they act on "the selected row." If selection drifts on refresh, the operator attaches to / inspects the *wrong* session — a correctness bug, not a cosmetic one.
+- **Filters depend on selection-by-identity:** so the cursor stays put while the filtered set changes (avoids the k9s `/`-resets-cursor annoyance, issues #3220/#3652).
+- **Stable sort and identity-tracking are complementary:** identity-tracking keeps the *correct* row selected; stable sort keeps it from *visibly jumping*. Ship both.
+- **DELETE conflicts with state integrity:** keep it out of the input map entirely in v1.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v0.3)
+### Launch With (v1) — "lo más simple"
 
-Minimum to validate "kodo + GSD + observable sessions":
+The decided scope, tightened by the data findings:
 
-- [ ] `kodo:gsd` label detection — plumbing into existing dispatcher
-- [ ] Auto-bootstrap `/gsd:new-project` when `.planning/` absent, guarded by presence check
-- [ ] Phase resolver reading `ROADMAP.md` with title/heading matching
-- [ ] Orchestrator verification gate (reads `VERIFICATION.md`, blocks In Review transition if missing/incomplete)
-- [ ] Structured logger with 4 levels, NDJSON output, per-session file
-- [ ] `kodo logs <session-id>` with `--follow` and `--level`
-- [ ] ISO-8601 timestamps, session_id correlation, basic event taxonomy (`session.start`, `session.end`, `state.transition`, `orchestrator.review`, `gsd.phase.resolved`, `gsd.bootstrap`)
-- [ ] Console pretty-print at INFO+ for interactive use
-- [ ] Secret redaction for Plane API key and webhook signatures
+- [ ] **Live table** polling `GET /status` every ~2s — columns: `task_ref · repo(basename of project_path) · phase/mode · status · age(elapsed_min)` — *essential, this is the product.*
+- [ ] **↑↓ navigation with selection tracked by `task_id`** — *essential, makes the rest reliable.*
+- [ ] **Stable default sort** (by `started_at`) — *essential, prevents row-jumping.*
+- [ ] **Color-code rows by `status` + `alive`** (incl. the zombie `running`+`!alive` highlight) — *cheap, highest at-a-glance value.*
+- [ ] **Count summary in header** + **live indicator** — *cheap, makes it feel "live."*
+- [ ] **`Enter` → attach** (unmount → `cmux attach <workspace_ref>` with `stdio:'inherit'` → await → re-render) — *essential, the killer interaction.*
+- [ ] **`c` → comments overlay** via `GET /comments/<task_id>` — *decided scope.*
+- [ ] **`l` → logs overlay** via client-side substring filter of `GET /logs` (labeled "matching lines"; auto-scroll-with-freeze) — *decided scope, but scoped honestly per finding #1.*
+- [ ] **Filters: `/` search + `r:<repo>` + `s:<state>`** (client-side; cursor-preserving) — *decided scope.*
+- [ ] **Empty state** + **graceful server-down banner** + **`q` clean quit** — *essential, non-crash requirement.*
 
-### Add After Validation (v0.3.x)
+### Add After Validation (v1.x)
 
-- [ ] `kodo logs --session-of <plane-task-id>` — add once operators ask "which session was that?"
-- [ ] Phase inference from Plane task title — only if explicit-mapping convention proves painful
-- [ ] Expanded event taxonomy (`plane.api.call`, `claude.tool.use`) — driven by actual debugging needs
-- [ ] Correlation to Claude transcript path — add when operators pivot between views regularly
+- [ ] **Context-aware footer** (different hints per overlay) — *trigger: footer feels stale in overlays.*
+- [ ] **`s:`/`r:` filter chips shown in header** — *trigger: operator forgets active filters.*
+- [ ] **Pending-tasks tab** (reuse `/status.pending`) — *trigger: the single table proves too thin / operator wants the queue.*
+- [ ] **Interactive sort toggle** — *trigger: row count regularly exceeds ~15.*
 
-### Future Consideration (v0.4+)
+### Future Consideration (v2+)
 
-- [ ] Log rotation/retention — only once disk usage is a proven problem
-- [ ] Metrics export (Prometheus-style) — only if someone operates kodo at scale
-- [ ] GSD multi-project support (monorepo with multiple `.planning/` roots) — defer until kodo has more than one GSD user
-- [ ] Slash command from Plane comment to trigger orchestrator re-review — nice but not core
+- [ ] **Session dismissal `d`** (only for `alive:false`, with confirmation) — *defer: needs the orphan-safety argument resolved; tied to `kodo gsd doctor`.*
+- [ ] **True per-session log stream** — *defer: requires structured logging + new endpoints (currently forbidden).*
+- [ ] **Config file / themes** — *defer until a second operator or real customization need exists.*
+- [ ] **LLM assist** — *defer to v0.10+ only if a filter-unsolvable classify/order case appears (seed's bar).*
 
 ---
 
@@ -167,69 +174,63 @@ Minimum to validate "kodo + GSD + observable sessions":
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| `kodo:gsd` label detection | HIGH | LOW | P1 |
-| Auto-bootstrap with guard | HIGH | MEDIUM | P1 |
-| Phase resolver (ROADMAP.md) | HIGH | MEDIUM | P1 |
-| Orchestrator verification gate | HIGH | MEDIUM | P1 |
-| Structured logger (levels + NDJSON + per-session file) | HIGH | LOW | P1 |
-| `kodo logs <session-id>` CLI | HIGH | LOW | P1 |
-| Console pretty-print | MEDIUM | LOW | P1 |
-| Secret redaction | HIGH | MEDIUM | P1 |
-| `--follow` / `--level` flags | MEDIUM | LOW | P1 |
-| Phase inference from title | MEDIUM | LOW | P2 |
-| `--session-of <task-id>` | MEDIUM | LOW | P2 |
-| Expanded event taxonomy | MEDIUM | LOW | P2 |
-| Transcript-path correlation | MEDIUM | LOW | P2 |
-| Log rotation | LOW | MEDIUM | P3 |
-| Web dashboard | LOW | HIGH | P3 (anti-feature — do not build) |
-| Log shipping integrations | LOW | HIGH | P3 (anti-feature — do not build) |
+| Live table + 2s poll | HIGH | LOW | P1 |
+| Selection tracked by `task_id` | HIGH | MEDIUM | P1 |
+| Stable sort (no row-jump) | HIGH | LOW | P1 |
+| Color-code by `status`/`alive` | HIGH | LOW | P1 |
+| `Enter` → attach (handoff) | HIGH | MEDIUM | P1 |
+| Graceful server-down + empty state | HIGH | MEDIUM | P1 |
+| Header counts + live indicator | MEDIUM | LOW | P1 |
+| `c` comments overlay | MEDIUM | LOW | P1 |
+| `l` logs overlay (substring) | MEDIUM | MEDIUM | P1 |
+| Filters `/` `r:` `s:` (cursor-safe) | MEDIUM | MEDIUM | P1 |
+| Context-aware footer | LOW | LOW | P2 |
+| Pending/history/metrics panes | MEDIUM | MEDIUM | P2 |
+| Interactive sort | LOW | MEDIUM | P3 |
+| Session dismissal `d` | LOW | MEDIUM (+ risk) | P3 |
+| Kill session | MEDIUM | HIGH (needs new endpoints) | OUT |
+| LLM assist | LOW | HIGH | OUT |
+| Mouse / config / themes | LOW | MEDIUM | OUT |
 
 ---
 
-## Dependencies on Existing kodo Capabilities
+## Competitor Feature Analysis
 
-Explicit list of what the new features lean on (already built in v0.1–v0.2):
-
-| New feature | Depends on existing |
-|-------------|---------------------|
-| `kodo:gsd` label | Label parser, webhook dispatcher, session spawner |
-| Auto-bootstrap | Claude session spawner with slash-command-as-first-instruction; Plane task-body fetch |
-| Phase resolver | Target-repo working-directory resolution (already per-session) |
-| Orchestrator verification gate | Existing orchestrator skill / supervision session; existing In Progress → In Review hook |
-| Per-session logging | Session-id generation; session lifecycle hooks (start/end) |
-| `kodo logs` CLI | Session-id persistence / lookup (small addition if not already present) |
-| Secret redaction | Central config module where Plane API key lives |
-
-No feature in this milestone requires new infrastructure outside these existing primitives — it's composition plus one new CLI subcommand.
+| Behavior | k9s / lazydocker | lazygit / gh dash | btop / htop | kodo TUI (our approach) |
+|----------|------------------|-------------------|-------------|--------------------------|
+| Refresh cadence | 2s default, configurable | event + manual | 2s default | Fixed ~2s poll of `/status` (no config in v1) |
+| Row stability | sort keys; selection by resource id | list re-render keeps cursor | "cpu lazy" sort to avoid jumping | stable sort by `started_at` + selection by `task_id` |
+| Attach/shell | suspend TUI → `kubectl exec`/`attach` foreground → return | `tea.ExecProcess` (Release/RestoreTerminal) for editor/shell | n/a | ink `unmount()` → `spawn(cmux attach, stdio:'inherit')` → await → re-`render()` |
+| Detail view | focused panel / overlay, `Esc` returns | overlay, `Esc` returns | inline panels | full-screen overlay for `c`/`l`, `Esc` returns to same cursor |
+| Filtering | `/` filter (known to reset state on view-switch) | `/` fuzzy filter, `Esc` clears | n/a | client-side `/`+`r:`+`s:`, cursor-preserving (fixes the k9s reset annoyance) |
+| Destructive ops | yes (delete/kill, with confirm) | yes (git ops) | kill signal | NONE in v1 (no kill endpoint; DELETE orphans state) |
 
 ---
 
-## Competitor / Prior-Art Feature Analysis
+## Recommendation on `DELETE /sessions/<id>` (quality-gate item)
 
-| Feature | GitHub Copilot Workspaces | Devin / Cognition | Aider / Claude Code CLI | Our Approach |
-|---------|---------------------------|-------------------|-------------------------|--------------|
-| Multi-phase task decomposition | Implicit in "plan" step, not persisted | Implicit, agent-internal | None | Explicit: GSD roadmap as on-disk artifact, human-editable |
-| Verification gate before "done" | Self-declared | Self-declared | Self-declared | Orchestrator inspects VERIFICATION.md artifact — human-editable gate |
-| Structured logs for agent runs | Proprietary dashboard | Proprietary dashboard | Transcript file, unstructured | NDJSON on disk, `jq`-friendly, operator-owned |
-| Task-tracker integration | GitHub Issues (native) | Linear/Jira (proprietary) | None | Plane (self-hosted, label-driven) |
-| Self-hostable / local-first | No | No | Yes | Yes — core value |
+**Verdict: OUT of v1.** Reasons, in order of weight:
 
-Differentiation story: **artifact-based gates + operator-owned logs + self-hosted task tracker**. Every other tool in this space hides state in a vendor dashboard. kodo keeps state on disk where operators can grep, edit, and version it.
+1. **It does not do what an operator would expect.** A `d`/kill key implies "stop this session." `removeSession` only mutates bookkeeping (`state.sessions` → `history`); the cmux workspace and Claude process keep running. The operator would believe a session is gone while it is silently still alive — the exact desync class the project already hit (ROMAN-132 in memory, `state.json` lying about live sessions).
+2. **It can orphan a live session.** Calling DELETE on an `alive:true` row removes kodo's only handle on it. There is no kill endpoint to pair it with (forbidden to add new endpoints in v1).
+3. **The clutter it would "solve" doesn't exist.** The live table is sourced from `state.sessions`; finished sessions already fall out via the stop hook into `history`, which the v1 table does not show. So there is nothing to dismiss.
+4. **It contradicts the read-only spirit** the seed and PROJECT.md set ("NO crear endpoints," "read `/status` and `/logs`," personal read-only ambient panel).
+
+If session-cleanup is ever genuinely needed, it belongs in the already-deferred **`kodo gsd doctor`** (PROJECT.md deferred list: "limpieza de worktrees huérfanos + sesiones zombie"), which can do it *correctly* (kill cmux + remove worktree + then DELETE bookkeeping) — not in an ambient monitor.
 
 ---
 
 ## Sources
 
-- Existing kodo codebase (`.planning/PROJECT.md` timeline, `README.md` timeline) — confirms current capability set
-- GSD skill (`~/.claude/get-shit-done/`) — defines `/gsd:new-project`, `ROADMAP.md`, `VERIFICATION.md` conventions
-- Industry logging conventions: pino, bunyan, Go's slog, Rust's tracing (all converge on leveled + structured + NDJSON)
-- Prior commits: `dab86bc feat: Claude session owns Plane lifecycle`, `8e1bcd3 fix: in-memory lock` — confirm lifecycle hook model the new features plug into
-
-**Confidence rationale:**
-- HIGH on logging table-stakes and anti-features — decades of industry convergence
-- MEDIUM-HIGH on GSD integration — grounded in the existing GSD skill contract and kodo dispatcher, but the phase-resolver heuristic and bootstrap trigger have real design choices that only testing will validate
-- MEDIUM on the orchestrator verification gate — depends on how strictly VERIFICATION.md is structured across phases (may need a sub-spec in the phase PLAN.md for this milestone)
+- [vadimdemedes/ink — README](https://github.com/vadimdemedes/ink) — `unmount()`, `waitUntilExit()`, `useApp().exit()`, `exitOnCtrlC`, raw-mode behavior. (HIGH)
+- [ink — Raw Mode and Input Processing (DeepWiki)](https://deepwiki.com/vadimdemedes/ink/7.3-raw-mode-and-input-processing) — `isRawModeSupported`, reference-counted raw mode, why `setRawMode` must come from ink. (HIGH)
+- [ink #378 — Raw Mode and Subprocesses](https://github.com/vadimdemedes/ink/issues/378) + [node/help #3084](https://github.com/nodejs/help/issues/3084) — the "Raw mode is not supported" footgun when spawning interactive children; unmount-before-spawn is the fix. (HIGH)
+- [bubbletea — tea package docs (ExecProcess / ReleaseTerminal / RestoreTerminal)](https://pkg.go.dev/github.com/charmbracelet/bubbletea) + [PR #237](https://github.com/charmbracelet/bubbletea/pull/237) — canonical suspend→handoff→restore model used by lazygit/gh dash. (HIGH)
+- [k9scli.io — Shell topic](https://k9scli.io/topics/shell/) + [k9s #1761](https://github.com/derailed/k9s/issues/1761) / [warp #1705](https://github.com/warpdotdev/Warp/issues/1705) — `s`/`a` to shell/attach, suspend-and-return model + real-world rough edges on some terminals. (MEDIUM)
+- [k9s repo (refresh + sort)](https://github.com/derailed/k9s) + [btop/htop guide](https://32blog.com/en/cli/cli-htop-btop) — 2s default cadence, `proc_sorting = "cpu lazy"` to stop row-jumping. (MEDIUM)
+- [k9s #3220 (preserve filter state)](https://github.com/derailed/k9s/issues/3220) + [#3652 (log filter sometimes doesn't work)](https://github.com/derailed/k9s/issues/3652) — filter/cursor reset pain points to design around. (MEDIUM)
+- **Source of truth (HIGH):** `src/server.js:354-449` (`/status`, `/logs`, `/comments/<id>`, `DELETE /sessions/<id>`), `src/server.js:13-29` (log ring buffer shape), `src/session/state.js:131-145` (`removeSession` = bookkeeping only). Read directly.
 
 ---
-*Feature research for: GSD integration + structured logging (kodo v0.3)*
-*Researched: 2026-04-15*
+*Feature research for: live session-monitoring TUI (`kodo dashboard`) over existing kodo JSON endpoints.*
+*Researched: 2026-05-26*

@@ -1,411 +1,390 @@
-# Architecture Research — kodo v0.3 (GSD Integration + Structured Logging)
+# Architecture Research
 
-**Domain:** Task-dispatch automation for Claude Code sessions (Node.js CLI + HTTP webhook service)
-**Researched:** 2026-04-15
-**Confidence:** HIGH (based on direct reading of existing v0.2 codebase; all integration points verified against current module layout)
+**Domain:** ink (React-for-CLI) TUI subcommand integrated into an existing ESM Node.js CLI (`kodo dashboard`)
+**Researched:** 2026-05-26
+**Confidence:** HIGH
+
+> Scope note: the existing kodo architecture (ESM, no-build-step, `commander`, `src/cli/format.js` color isolation, the HTTP `/status`·`/logs`·`/comments` contract, `cmux attach`) is treated as **fixed**. This document specifies only how the new TUI hangs off it. STACK (ink@6.8.0 + react@19 + `React.createElement`, no JSX) and FEATURES decisions from the parallel researchers are taken as given and are not re-litigated.
+
+---
 
 ## Standard Architecture
 
-### System Overview (v0.3 after integration)
+### System Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              ENTRY POINTS                                    │
-│  ┌────────────┐   ┌────────────────┐   ┌──────────────┐   ┌──────────────┐  │
-│  │ server.js  │   │ hooks/stop.js  │   │ hooks/       │   │ cli.js       │  │
-│  │ (webhook)  │   │                │   │ session-start│   │ (logs/launch)│  │
-│  └──────┬─────┘   └────────┬───────┘   └──────┬───────┘   └──────┬───────┘  │
-├─────────┼──────────────────┼──────────────────┼──────────────────┼──────────┤
-│         │          ORCHESTRATION / CONTROL PLANE                 │          │
-│  ┌──────▼──────────┐   ┌───▼───────────┐   ┌──▼──────────────┐   │          │
-│  │ triggers/       │   │ session/      │   │ session-start   │   │          │
-│  │ dispatcher      │──▶│ manager       │   │ (injects GSD    │   │          │
-│  │ (webhook route) │   │ (spawn Claude)│   │  instructions)  │   │          │
-│  └─────────┬───────┘   └───┬─────┬─────┘   └──────┬──────────┘   │          │
-│            │               │     │                │              │          │
-│            │      ┌────────▼─────▼──┐   ┌─────────▼──────────┐   │          │
-│            │      │ session/state   │   │ gsd/phase-resolver │   │          │
-│            │      │ (active map)    │   │ (reads ROADMAP.md) │◀──┘          │
-│            │      └─────────────────┘   └────────────────────┘   NEW        │
-├────────────┼─────────────────────────────────────────────────────────────────┤
-│            │                DOMAIN / ABSTRACTIONS                            │
-│  ┌─────────▼──────┐   ┌──────────────┐   ┌──────────────┐   ┌─────────────┐ │
-│  │ providers/     │   │ labels.js    │   │ interface.js │   │ orchestrator│ │
-│  │ registry       │   │ (+ gsd flag) │   │ (typedefs)   │   │ launch/prompt│ │
-│  │  ├─plane/      │   │  MODIFIED    │   │              │   │  MODIFIED   │ │
-│  │  └─(future)    │   └──────────────┘   └──────────────┘   └─────────────┘ │
-│  └────────────────┘                                                          │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                         CROSS-CUTTING (NEW)                                  │
-│  ┌────────────────────────────────────────────────────────────────────────┐ │
-│  │ logger.js — createLogger({ sessionId? }) → { info, warn, error, child }│ │
-│  │  ├─ stdout transport (JSON, always)                                    │ │
-│  │  └─ file transport (~/.kodo/logs/<session-id>.log, when sessionId set) │ │
-│  └────────────────────────────────────────────────────────────────────────┘ │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                              PERSISTENCE                                     │
-│  ┌──────────────────┐   ┌────────────────────┐   ┌──────────────────────┐   │
-│  │ ~/.kodo/         │   │ ~/.kodo/logs/      │   │ Target repo          │   │
-│  │  sessions.json   │   │  <session>.log NEW │   │  .planning/ROADMAP.md│   │
-│  └──────────────────┘   └────────────────────┘   └──────────────────────┘   │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  bin/kodo  →  src/cli.js  (commander)                                  │
+│     program.command('dashboard').action(lazy import → runDashboard())  │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                 │ (entry, owns process lifecycle + exit code)
+┌────────────────────────────────▼─────────────────────────────────────┐
+│  src/cli/dashboard/index.js   — runDashboard(deps)                     │
+│    • resolves base URL (http://localhost:<config.server.port>)         │
+│    • render(<App/>)  /  unmount → cmux attach → re-render (attach loop) │
+└──────────┬───────────────────────────────────────────┬────────────────┘
+           │ (ink owns the TTY)                          │ (process spawn)
+┌──────────▼───────────────────┐          ┌──────────────▼────────────────┐
+│  PRESENTATION (ink/react)     │          │  ATTACH HANDOFF                │
+│  src/cli/dashboard/App.js     │          │  src/cli/dashboard/attach.js   │
+│   ├─ Header   (count + live)  │          │   unmount() → waitUntilExit()  │
+│   ├─ Table → Row              │          │   → spawn('cmux',['attach',r], │
+│   ├─ DetailPanel (comments/   │          │      {stdio:'inherit'})        │
+│   │   logs)                   │          │   → await child → re-render()  │
+│   ├─ FilterInput              │          └────────────────────────────────┘
+│   └─ Footer (keybindings)     │
+└──────────┬────────────────────┘
+           │ (calls pure functions / hook; NO direct picocolors, NO cmux rpc)
+┌──────────▼───────────────────┐   ┌────────────────────────────────────┐
+│  DATA LAYER (pure, no React)  │   │  DERIVE LAYER (pure, no React)      │
+│  src/cli/dashboard/client.js  │   │  src/cli/dashboard/select.js        │
+│   fetchStatus(baseUrl,fetch?) │   │   sortSessions(rows)                │
+│   fetchComments(baseUrl,id)   │   │   filterSessions(rows, filterText)  │
+│   fetchLogs(baseUrl,fetch?)   │   │   resolveSelection(rows, taskId)    │
+│   → {ok, data} | {ok:false,   │   │   rowCells(session) (display strs)  │
+│      error}  (never throws)   │   │   taskRefToTaskId(rows, ref)        │
+└──────────┬────────────────────┘   └────────────────────────────────────┘
+           │ HTTP GET (global fetch, injectable)
+┌──────────▼────────────────────────────────────────────────────────────┐
+│  EXISTING kodo server  (src/server.js, localhost:9090) — READ ONLY      │
+│   GET /status   → {sessions[{...,alive,elapsed_min}], count, pending...} │
+│   GET /comments/<task_id> → {comments}                                  │
+│   GET /logs     → {logs: string[]}  (shared 200-line ring, no session)  │
+│   ── NO NEW ENDPOINTS (hard constraint) ──                              │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | Status in v0.3 |
-|-----------|----------------|----------------|
-| `server.js` | HTTP shell; forwards requests to `triggers/webhook` | UNCHANGED (modulo logger) |
-| `triggers/dispatcher.js` | Decide if a task event should spawn a session; dedup; call `session/manager` | MODIFIED — emit structured logs, pass `gsd` flag into session record |
-| `session/manager.js` | Spawn Claude Code CLI, persist session, own lifecycle | MODIFIED — writes `gsd` flag into session record; attaches per-session logger |
-| `session/state.js` | Read/write `~/.kodo/sessions.json` | MODIFIED — session schema gains optional `gsd` boolean |
-| `hooks/session-start.js` | Called by Claude Code at boot; injects system context | MODIFIED — if `session.gsd`, resolve phase and inject GSD instructions |
-| `hooks/stop.js` | Called by Claude Code at exit; owns task lifecycle | MODIFIED — structured logs only (behavior unchanged) |
-| `labels.js` | Parse `kodo:*` labels → `{ isKodo, model, flags }` | MODIFIED — `flags` includes `'gsd'` when `kodo:gsd` present |
-| `providers/*` | Provider-agnostic task access | UNCHANGED — GSD must NOT leak here |
-| `orchestrator/prompt.md` | Supervisor session prompt template | MODIFIED — GSD supervision guidance |
-| `orchestrator/launch.js` | Spawn supervisor session | UNCHANGED (modulo logger) |
-| `cli.js` | Commander entry; subcommands | MODIFIED — add `kodo logs <id>` |
-| `gsd/phase-resolver.js` | Read target repo's `.planning/ROADMAP.md`; return current/next phase | **NEW** |
-| `logger.js` | Structured logging primitive used everywhere | **NEW** |
+| Component | Responsibility | Typical Implementation |
+|-----------|----------------|------------------------|
+| `src/cli.js` registration | Declare `kodo dashboard`, lazy-import the entry, own `process.exitCode` | `program.command('dashboard').action(async () => { const {runDashboard} = await import('./cli/dashboard/index.js'); await runDashboard(); })` — mirrors every existing subcommand |
+| `dashboard/index.js` (`runDashboard`) | Process-level orchestration: resolve base URL, `render()`, host the attach loop, exit code hygiene | Plain `.js`, DI deps `{ render, spawn, fetch, baseUrl, config }` for testability |
+| `dashboard/App.js` | Root ink component: owns React state, polling hook, `useInput` key routing, panel switching | `React.createElement` tree, no JSX (no-build invariant) |
+| `dashboard/client.js` | Pure HTTP client; one function per endpoint; never throws (returns result objects) | `async fetchStatus(baseUrl, fetchFn = globalThis.fetch)` |
+| `dashboard/select.js` | Pure derive helpers: sort, filter, selection-by-id, row→display-cells | Pure functions, zero React, zero I/O |
+| `dashboard/usePoll.js` | Cancellable self-scheduling poll hook (no stacked requests) | Custom React hook wrapping `useEffect` + recursive `setTimeout` |
+| `dashboard/attach.js` | The unmount→spawn→re-render handoff (extracted so it is unit-testable with fakes) | Pure-ish orchestrator taking `{instance, spawn, ref}` |
+| `Header/Table/Row/DetailPanel/FilterInput/Footer` | Dumb presentational components; receive props, render `<Box>`/`<Text>` | One file each under `dashboard/components/` (or co-located if truly minimal) |
 
-## Recommended Project Structure (v0.3)
+---
+
+## Recommended Project Structure
 
 ```
-src/
-├── interface.js              # typedefs (TaskProvider, TaskItem, TriggerEvent, SessionRecord)
-├── config.js                 # config + getProviderApiKey                  MODIFIED (logger)
-├── labels.js                 # parseKodoLabels (+ gsd flag)                 MODIFIED
-├── logger.js                 # createLogger, transports                    NEW
-├── server.js                 # HTTP shell                                   MODIFIED (logger)
-├── cli.js                    # Commander CLI                                MODIFIED (logs cmd)
-│
-├── gsd/                      # GSD-specific concerns (isolated)            NEW FOLDER
-│   └── phase-resolver.js     # reads .planning/ROADMAP.md
-│
-├── providers/                # provider-agnostic abstraction — DO NOT TOUCH
-│   ├── registry.js
-│   └── plane/*
-│
-├── triggers/
-│   ├── dispatcher.js         # MODIFIED — structured logs, carry gsd flag
-│   └── webhook.js            # MODIFIED — logger
-│
-├── session/
-│   ├── state.js              # MODIFIED — schema adds optional gsd:boolean
-│   ├── manager.js            # MODIFIED — passes gsd to session record
-│   └── health.js             # MODIFIED — logger
-│
-├── hooks/
-│   ├── session-start.js      # MODIFIED — consumes gsd + calls phase-resolver
-│   ├── stop.js               # MODIFIED — logger
-│   └── install.js            # UNCHANGED
-│
-└── orchestrator/
-    ├── prompt.md             # MODIFIED — GSD supervision section
-    └── launch.js             # MODIFIED — logger
-
-test/
-├── gsd/phase-resolver.test.js     NEW
-├── logger.test.js                 NEW
-├── labels.test.js                 MODIFIED (gsd flag)
-└── hooks/session-start.test.js    MODIFIED (GSD injection path)
+src/cli/dashboard/
+├── index.js            # runDashboard(deps) — commander entry, render() + attach loop, exit code
+├── App.js              # root ink component: state, usePoll, useInput routing, panel switch
+├── client.js           # PURE: fetchStatus / fetchComments / fetchLogs (result objects, no throw)
+├── select.js           # PURE: sortSessions, filterSessions, resolveSelection, taskRefToTaskId, rowCells
+├── usePoll.js          # custom hook: cancellable self-scheduling poll (no stacking)
+├── attach.js           # unmount → waitUntilExit → spawn('cmux','attach') → rerender
+└── components/
+    ├── Header.js       # count summary + live/poll indicator + connection status
+    ├── Table.js        # column header + maps rows → <Row>
+    ├── Row.js          # one session line; highlights when selected
+    ├── DetailPanel.js  # renders comments (c) or logs (l) for the selected task
+    ├── FilterInput.js  # ink-text-input wrapper for `/` search + r:/s: prefixes
+    └── Footer.js       # static keybinding hints (↑↓ Enter c l / q)
 ```
 
 ### Structure Rationale
 
-- **`src/gsd/` as its own folder:** GSD is a vertical feature that sits *above* the provider abstraction. Keeping it outside `providers/`, `session/`, and `triggers/` preserves the provider-agnostic invariant earned in v0.2 — a future GitHub Issues or Linear provider must not touch GSD, and GSD must not assume Plane.
-- **`logger.js` at `src/` root:** Cross-cutting concern imported by nearly every module. Placing it at the root avoids awkward relative paths and signals its universality.
-- **No `src/utils/` dumping ground:** logger earns a named module; phase-resolver is domain logic, not utility.
-- **Tests mirror `src/`:** existing v0.2 convention — maintained.
+- **`src/cli/dashboard/` (a folder, not a single file):** every other subcommand is a single file (`gsd-inspect.js`, `polling.js`), but the TUI is the first multi-module surface. A folder keeps the component/data/hook split visible and keeps `src/cli/` flat for the simple commands. This is the smallest structure that still separates the four testability tiers (pure data, pure derive, ink components, process orchestration).
+- **`client.js` and `select.js` are React-free on purpose:** they are imported by tests with zero ink/terminal involvement. This is the direct application of the project's "pure helpers + DI for testability" decision (the Node test runner lacks `mock.module`).
+- **`index.js` owns the process, `App.js` owns the UI:** the attach handoff (unmount/spawn/re-render) must live *outside* the React tree because it tears the tree down and rebuilds it — it cannot live in a component. `index.js` holds the `render()` instance and is the only place that touches `spawn`/`process.exitCode`.
+- **`components/` subfolder:** keeps `dashboard/` top level scannable (entry + data + derive + hook + attach) and groups the dumb presentational pieces. If "lo más simple" wins in planning, Header/Footer/Row could collapse into `App.js`; keep Table/DetailPanel/FilterInput separate because they carry the most logic.
+
+---
 
 ## Architectural Patterns
 
-### Pattern 1: Cross-cutting Logger via Factory + Child Loggers
+### Pattern 1: Pure HTTP client returning result objects (never throws)
 
-**What:** A single `createLogger({ sessionId, module })` factory returns a logger that writes JSON lines to stdout and (optionally) to a per-session file. `logger.child({ module: 'dispatcher' })` adds contextual fields without re-opening transports.
+**What:** Each endpoint gets one async function that wraps `fetch`, parses JSON, and returns a discriminated result `{ ok: true, data }` or `{ ok: false, error }`. The fetch implementation is injectable (defaults to `globalThis.fetch`, native in Node 20+ — no dependency added).
 
-**When to use:** Every module that currently calls `console.log`/`console.error`. Non-negotiable for dispatcher, manager, hooks, server.
+**When to use:** All three reads. The TUI's "degradación elegante si el server no responde (no crash)" requirement is satisfied *here*, not in the components — components just render `lastError`/connection status from state.
 
-**Trade-offs:**
-- Pro: One format, one place to change output; greppable; enables `kodo logs <id>` tail.
-- Pro: Zero dependencies (`fs.createWriteStream` + `JSON.stringify` is enough); avoids pino/winston weight.
-- Con: Must pass `sessionId` at the boundary — solved by passing a logger argument through constructors rather than importing a global.
+**Trade-offs:** Returning result objects instead of throwing means callers must check `ok`, but it makes the no-crash invariant structural and the client trivially unit-testable with a fake fetch (no network, no ink).
 
 **Example:**
 ```js
-// src/logger.js
-import { createWriteStream } from 'node:fs';
-import { mkdirSync } from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
-
-export function sessionLogPath(id) {
-  return path.join(os.homedir(), '.kodo', 'logs', `${id}.log`);
-}
-
-export function createLogger({ sessionId = null, module = null } = {}) {
-  const base = { sessionId, module };
-  let fileStream = null;
-  if (sessionId) {
-    mkdirSync(path.dirname(sessionLogPath(sessionId)), { recursive: true });
-    fileStream = createWriteStream(sessionLogPath(sessionId), { flags: 'a' });
+// src/cli/dashboard/client.js — pure, no React, no picocolors
+// @ts-check
+export async function fetchStatus(baseUrl, fetchFn = globalThis.fetch) {
+  try {
+    const res = await fetchFn(`${baseUrl}/status`);
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    return { ok: true, data: await res.json() };
+  } catch (err) {
+    return { ok: false, error: err.message }; // server down → graceful
   }
-
-  function emit(level, msg, fields = {}) {
-    const line = JSON.stringify({
-      ts: new Date().toISOString(), level, msg, ...base, ...fields,
-    });
-    process.stdout.write(line + '\n');
-    if (fileStream) fileStream.write(line + '\n');
-  }
-
-  return {
-    info:  (msg, f) => emit('info',  msg, f),
-    warn:  (msg, f) => emit('warn',  msg, f),
-    error: (msg, f) => emit('error', msg, f),
-    child: (extra) => createLogger({ sessionId, module: extra.module ?? module }),
-  };
 }
+// fetchComments(baseUrl, taskId, fetchFn) → GET /comments/<task_id>
+// fetchLogs(baseUrl, fetchFn)             → GET /logs
 ```
 
-### Pattern 2: Feature Flag on Session Record (not on Provider)
+### Pattern 2: Self-scheduling cancellable poll (NOT a fixed `setInterval`)
 
-**What:** The `gsd` boolean lives on the `SessionRecord` in `~/.kodo/sessions.json`, decided at dispatch time from labels. Providers never know GSD exists.
+**What:** A custom hook polls with a recursive `setTimeout` that schedules the *next* tick only after the current fetch resolves. This prevents request stacking when the server is slow (a fixed `setInterval(fetch, 2500)` fires regardless of whether the previous request returned). A `cancelled` flag guards against `setState` after unmount.
 
-**When to use:** Any feature that depends on *how Claude runs*, not on *where the task came from*.
+**When to use:** The live `/status` table (~2-3s). Reuse the same hook shape for on-demand comment/log fetches (or fetch those once on panel-open rather than polling).
 
-**Trade-offs:**
-- Pro: Preserves provider-agnostic design (the hard-won v0.2 invariant).
-- Pro: `hooks/session-start.js` reads one field to decide injection — no provider round-trip.
-- Con: Session schema migration. Low risk: additive optional boolean, defaults to false.
+**Trade-offs:** Slightly more code than `setInterval`, but it is the correct primitive: no overlapping in-flight requests, clean teardown on unmount, and it naturally backs off when the server is slow. The existing web `dashboardHtml` uses `setInterval(refresh, 5000)` — acceptable in a browser tab, **not** appropriate here because the attach handoff unmounts/remounts the tree and a stray interval would keep firing.
 
 **Example:**
 ```js
-// session/manager.js — at session creation
-const { isKodo, model, flags } = parseKodoLabels(task.labels);
-const record = {
-  id: sessionId,
-  taskId: task.id,
-  providerName: task.providerName,
-  model,
-  gsd: flags.includes('gsd'),   // <-- the only new line
-  startedAt: Date.now(),
-};
-await state.upsert(record);
-```
-
-### Pattern 3: Lazy Phase Resolution at Hook Time (not at Dispatch Time)
-
-**What:** `phase-resolver.js` is called by `hooks/session-start.js`, not by the dispatcher. The dispatcher only records `gsd: true`; actually reading `.planning/ROADMAP.md` happens inside the Claude session's cwd.
-
-**When to use:** When context depends on the target repo's filesystem state, which may change between dispatch and session start.
-
-**Trade-offs:**
-- Pro: Always sees current ROADMAP.md (user may have edited it between webhook and session start).
-- Pro: Dispatcher stays fast and stateless about repo contents.
-- Pro: Bootstrap detection (no `.planning/` yet) is naturally handled — resolver returns `{ bootstrap: true }` and the hook injects "run `/gsd:new-project`" instead.
-- Con: Slightly more work inside the hook, but it's already reading session state.
-
-**Example:**
-```js
-// src/gsd/phase-resolver.js
-import { readFile, access } from 'node:fs/promises';
-import path from 'node:path';
-
-export async function resolvePhase({ cwd }) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  try { await access(roadmapPath); }
-  catch { return { bootstrap: true, roadmapPath }; }
-
-  const md = await readFile(roadmapPath, 'utf8');
-  return {
-    bootstrap: false,
-    roadmapPath,
-    current: parseCurrentPhase(md),
-    next: parseNextPhase(md),
-  };
+// src/cli/dashboard/usePoll.js
+// @ts-check
+import { useEffect, useRef } from 'react';
+export function usePoll(fn, intervalMs, deps = []) {
+  const savedFn = useRef(fn); savedFn.current = fn;
+  useEffect(() => {
+    let cancelled = false; let timer;
+    const tick = async () => {
+      await savedFn.current();           // awaits → no stacking
+      if (!cancelled) timer = setTimeout(tick, intervalMs);
+    };
+    tick();
+    return () => { cancelled = true; clearTimeout(timer); }; // teardown
+  }, deps);
 }
 ```
 
-### Pattern 4: Hook-Time Context Injection (existing pattern, extended)
+### Pattern 3: Selection by `task_id` identity, re-derived every poll
 
-**What:** `hooks/session-start.js` already returns additional system context to Claude Code. Extend it to conditionally append a GSD block when `session.gsd === true`.
+**What:** `/status` rebuilds the `sessions` array on every request, so an array index is not stable. The TUI stores `selectedTaskId` (a string), and on every render derives the selected row by *finding* it in the freshly-sorted array. Sort is stable by `started_at`. If the selected task disappeared (session ended) `resolveSelection` clamps to the nearest valid row.
 
-**When to use:** Whenever per-session behavior must shape Claude's prompt without touching the orchestrator or provider layers.
+**When to use:** Cursor navigation (↑↓), `Enter` (attach to the selected row's `workspace_ref`), and `c`/`l` (map selected `task_ref` → `task_id` for `/comments`).
 
-**Trade-offs:**
-- Pro: Single, testable decision point.
-- Pro: No change to Claude Code invocation in `session/manager.js`.
-- Con: session-start.js accumulates feature-flag branches over time — acceptable until there are 3+ flags, then extract `hooks/context-builders/`.
+**Trade-offs:** Re-deriving selection each render is O(n) per poll, trivially cheap for the expected N (single-digit sessions). It is the only correct approach given the server re-emits the array.
+
+**Example:**
+```js
+// src/cli/dashboard/select.js — pure
+// @ts-check
+export function sortSessions(rows) {
+  return [...rows].sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+}
+export function resolveSelection(sortedRows, selectedTaskId) {
+  const idx = sortedRows.findIndex((r) => r.task_id === selectedTaskId);
+  if (idx !== -1) return { index: idx, row: sortedRows[idx] };
+  // selected session vanished → clamp to first row (or null if empty)
+  return sortedRows.length ? { index: 0, row: sortedRows[0] } : { index: -1, row: null };
+}
+// taskRefToTaskId(rows, taskRef) → string|null   (for /comments lookup)
+// filterSessions(rows, filterText) → rows         ('/' substring, r:<repo>, s:<state>)
+```
+
+### Pattern 4: Attach handoff lives in `index.js`, outside the React tree
+
+**What:** ink owns the TTY in raw mode. Spawning `cmux attach` with `stdio:'inherit'` while ink is mounted fights over the terminal (ink's raw-mode footgun). The correct sequence: capture the `render()` return `{ unmount, waitUntilExit, rerender }`; on `Enter`, the component signals the chosen `workspace_ref` up to `index.js` via `useApp().exit(value)`; `index.js` does `await waitUntilExit()` (which resolves with that value after the tree unmounts), then `spawn('cmux', ['attach', ref], { stdio:'inherit' })`, awaits child exit, then `render(<App/>)` again (fresh tree).
+
+**When to use:** `Enter` on a selected row. This is the one flow that cannot be an ink component because it destroys and recreates the ink instance.
+
+**Trade-offs:** Requires threading the attach intent out of the component. Idiomatic ink: `exit(value)` → `waitUntilExit()` resolves with that value (verified against ink docs), keeping a single control loop in `index.js`. The alternative (an injected `onAttach(ref)` prop) works too but splits the lifecycle owner.
+
+**Example:**
+```js
+// src/cli/dashboard/index.js — the attach loop
+// @ts-check
+import { render } from 'ink';
+import { spawn } from 'node:child_process';
+export async function runDashboard(deps = {}) {
+  const { renderFn = render, spawnFn = spawn, baseUrl, cmuxBin = 'cmux' } = deps;
+  let attachRef = null;
+  do {
+    const inst = renderFn(/* createElement(App, { baseUrl, onAttach:(ref)=>inst.exit({attachTo:ref}) }) */);
+    const result = await inst.waitUntilExit(); // {attachTo} | undefined (quit)
+    attachRef = result?.attachTo ?? null;
+    if (attachRef) {
+      await new Promise((res) => {
+        const child = spawnFn(cmuxBin, ['attach', attachRef], { stdio: 'inherit' });
+        child.on('exit', res);
+      });
+    }
+  } while (attachRef);
+  process.exitCode = 0; // clean quit
+}
+```
+> Note: with `exit(value)`, `unmount()` is implicit — `exit()` tears the tree down and `waitUntilExit()` resolves after unmount-related stdout writes complete (verified against ink docs). The loop re-`render()`s a brand-new instance after `cmux attach` returns, so no stale interval/raw-mode state survives.
+
+---
 
 ## Data Flow
 
-### Flow A — `kodo:gsd`-labeled task, webhook to session exit
+### Poll → render flow
 
 ```
-Plane webhook
-    │
-    ▼
-server.js  ──────── logger.info("webhook received")
-    │
-    ▼
-triggers/webhook.js  (validate, normalize TriggerEvent)
-    │
-    ▼
-triggers/dispatcher.js
-    │   1. provider.getTask(event.taskId)    → TaskItem { labels, ... }
-    │   2. parseKodoLabels(task.labels)      → { isKodo:true, model, flags:['gsd'] }
-    │   3. dedup check (state.findActive)
-    │   4. logger.info("dispatching", { gsd: true })
-    ▼
-session/manager.js
-    │   1. create SessionRecord { ..., gsd: true }
-    │   2. state.upsert(record)
-    │   3. spawn `claude` CLI with cwd = repo, env = { KODO_SESSION_ID }
-    ▼
-Claude Code starts
-    │
-    ▼
-hooks/session-start.js    (invoked by Claude)
-    │   1. session = state.get(KODO_SESSION_ID)
-    │   2. if (session.gsd):
-    │        phase = await resolvePhase({ cwd: process.cwd() })
-    │        if (phase.bootstrap)  inject "run /gsd:new-project ..."
-    │        else                  inject "current phase: X, next: Y, use /gsd:* ..."
-    │   3. logger.info("context injected", { gsd, bootstrap })
-    ▼
-[Claude session runs — user work happens — all log calls route through logger]
-    │
-    ▼
-hooks/stop.js  (existing behavior: task lifecycle transitions via provider)
-    │   logger.info("session stopped")
-    ▼
-End — ~/.kodo/logs/<session-id>.log is closed
-```
-
-Key invariant: **the `gsd` flag crosses exactly two boundaries** — labels → session record (at dispatcher) and session record → hook (at session-start). Providers never see it.
-
-### Flow B — A log line from any module to disk + CLI tail
-
-```
-[any module]
-  const log = createLogger({ sessionId, module: 'dispatcher' })
-  log.info("dispatching", { taskId, gsd: true })
-        │
-        ▼
-  logger.js emit()
-        │   JSON.stringify({ ts, level:'info', msg:'dispatching',
-        │                    sessionId, module:'dispatcher', taskId, gsd:true })
-        │
-        ├──▶ process.stdout   (always — visible in server console / PM2)
-        │
-        └──▶ fs.WriteStream for ~/.kodo/logs/<session-id>.log   (if sessionId)
+usePoll(2500ms) ──► client.fetchStatus(baseUrl)
+                         │ {ok:true, data}                 │ {ok:false, error}
+                         ▼                                  ▼
+                  setSessions(sortSessions(data.sessions))   setLastError(error)
+                  setConnected(true)                         setConnected(false)
                          │
                          ▼
-              File persists after session exit
+        filterSessions(sessions, filterText)  →  resolveSelection(.., selectedTaskId)
                          │
                          ▼
-              kodo logs <session-id>        (new CLI command)
-                  │
-                  ├─ default: `tail -n 200` equivalent + pretty-print JSON
-                  ├─ --follow: fs.watch + stream
-                  └─ --raw:    emit JSON unchanged (pipe to jq)
+            App renders Header + Table(rows, selectedIndex) + Footer
 ```
 
-Backpressure / rotation: out of scope for v0.3. File is append-only per session; total volume bounded by session count. A future `kodo logs --prune` can handle cleanup.
+### Key-press → action flow
+
+```
+useInput(input, key)
+  ├ key.upArrow/downArrow → setSelectedTaskId(neighbour row's task_id)
+  ├ key.return (Enter)    → exit({ attachTo: selectedRow.workspace_ref })  → index.js attach loop
+  ├ input === 'c'         → setActivePanel('comments'); fetchComments(baseUrl, selectedRow.task_id)
+  ├ input === 'l'         → setActivePanel('logs');     fetchLogs(baseUrl) then client-side grep
+  ├ input === '/'         → setActivePanel('table' + filter focus); FilterInput captures text
+  └ input === 'q'/escape  → exit()  (no attachTo → loop ends → exitCode 0)
+```
+
+### State Management
+
+```
+App state (useState):
+  sessions:        SessionRow[]   // sorted copy from last successful /status
+  selectedTaskId:  string|null    // identity-stable selection (survives array rebuild)
+  filterText:      string         // '/' search + r:<repo> + s:<state> prefixes
+  activePanel:     'table'|'comments'|'logs'
+  detail:          { comments?, logs? }   // fetched on panel open
+  connected:       boolean        // last poll ok?
+  lastError:       string|null    // shown in Header when !connected
+```
 
 ### Key Data Flows
 
-1. **Label → behavior flag:** `parseKodoLabels(task.labels).flags` contains `'gsd'` → dispatcher stores `session.gsd = true` → session-start hook reads and injects GSD prompt.
-2. **Session ID propagation for logging:** dispatcher generates `sessionId` → passes to `createLogger({ sessionId })` for its own logs AND into spawn env `KODO_SESSION_ID` → hooks reconstruct the same logger and write to the same file.
-3. **ROADMAP read:** only `gsd/phase-resolver.js` reads `.planning/ROADMAP.md`; all other modules stay filesystem-ignorant about project state.
+1. **Live table:** `usePoll` → `fetchStatus` → sort → store; selection re-resolved by `task_id` each render so a session ending mid-poll degrades gracefully (cursor clamps, no crash).
+2. **Comments:** `c` maps selected `task_ref` → `task_id` (via `taskRefToTaskId`) → `fetchComments(baseUrl, task_id)` → `DetailPanel`. (The `/comments` endpoint is keyed by `task_id`, not `task_ref` — the mapping is mandatory.)
+3. **Logs:** `l` → `fetchLogs` → `DetailPanel` does a *best-effort substring grep* by the row's identifying tokens. `/logs` is a shared 200-line ring with no `session_id`, so this is explicitly not a true per-session tail — surface that honestly in the UI label.
 
-## Build Order (respects dependencies)
+---
 
-1. **`src/logger.js` + tests** — zero internal deps; everything else will import it. Build first so subsequent modules can adopt it as they are touched.
-2. **`labels.js` — surface `gsd` flag + tests** — trivial change; unblocks dispatcher/manager schema work. `parseKodoLabels` already puts unknown tags into `flags`, so `'gsd'` will land there naturally; add an explicit test asserting that.
-3. **`session/state.js` — schema extension** (`gsd?: boolean`) — additive, backward-compatible.
-4. **`session/manager.js` — write `gsd` into record** — depends on (2) and (3).
-5. **`triggers/dispatcher.js` — adopt logger + pass label parse through** — depends on (1), (2), (4).
-6. **`src/gsd/phase-resolver.js` + tests** — standalone pure function over filesystem; no runtime deps on other new code.
-7. **`hooks/session-start.js` — GSD injection branch** — depends on (3), (6).
-8. **`orchestrator/prompt.md` — GSD supervision section** — doc-only; any time after (7).
-9. **`cli.js` — `kodo logs <id>` command** — depends on (1)'s `sessionLogPath()` convention being stable.
-10. **Adopt logger in remaining modules** (`server.js`, `hooks/stop.js`, `session/health.js`, `orchestrator/launch.js`, `triggers/webhook.js`, `config.js`) — parallelizable, mechanical migration.
+## Color / Formatting: the `picocolors` single-source invariant
 
-Rationale: logger is foundational (1). Labels must expose `gsd` before session code decides on it (2→4). Phase resolver is pure and can be built in parallel but must exist before session-start consumes it (6→7). CLI logs command (9) only needs the file path contract from (1).
+**Ruling: ink's `<Text color="...">` does NOT violate the color-isolation invariant, and the TUI must NOT route through `src/cli/format.js`. The existing `test/format-isolation.test.js` stays green with zero changes.**
 
-## Scaling Considerations
+Evidence, from reading the test itself:
 
-Kodo is single-user / single-host by design; "scale" here means feature scale, not traffic.
+- The invariant is specifically about the **`picocolors`** import specifier. The test (`test/format-isolation.test.js:99-115`) asserts `importers === ['src/cli/format.js']` where `importers` is computed by scanning every `.js` under `src/` for an import whose specifier is literally `'picocolors'`. ink colors are produced by ink's own renderer (it ships its own ANSI generation via `chalk`/`ansi-styles` internally), **not** by importing `picocolors`. So ink components emitting `<Text color="green">` add zero `picocolors` importers → the assertion is untouched.
+- The first isolation test (`format.js` must not transitively import `logger.js`) walks the import graph *starting from `format.js`*. The dashboard does not sit on that graph, so it is irrelevant.
+- The `listJsFiles` walker recurses all of `src/` including the new `src/cli/dashboard/` folder. **Therefore the one hard rule for the TUI is: no file under `src/cli/dashboard/` may `import ... from 'picocolors'`.** ink supplies all color via `<Text>`/`<Box>` props; `picocolors` would be redundant anyway.
 
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| 1 provider, 1 behavior flag | Current design is correct. |
-| 2+ providers | No change — GSD is provider-agnostic. |
-| 3+ behavior flags (`gsd`, `review`, `design`, …) | Promote `hooks/session-start.js` branches into `hooks/context-builders/*.js`. |
-| Multi-machine dispatch | Logger needs remote transport (syslog/vector). Out of scope. |
+**Why NOT funnel ink through `format.js`:** `format.js` returns *strings with embedded ANSI escapes* sized for a flat `console.log` columnar layout. ink does its own Flexbox layout and color compositing on a virtual DOM; feeding it pre-ANSI'd strings would double-encode colors and break ink's width math (`visibleWidth` and ink's layout would disagree). The two color systems are orthogonal by design:
 
-### Scaling Priorities
+| Surface | Color source | Layout |
+|---------|--------------|--------|
+| Classic CLI (`kodo logs`, `check`, `gsd verify`) | `picocolors` via `createFormatter` | manual `formatRow`/`formatTable` strings |
+| TUI (`kodo dashboard`) | ink `<Text color>` (ink's internal chalk) | ink Flexbox `<Box>` |
 
-1. **First bottleneck (feature):** `hooks/session-start.js` bloats with flag branches. Fix by extracting per-flag context builders.
-2. **Second bottleneck (ops):** log file directory grows unbounded. Fix with `kodo logs --prune --older-than 30d`.
+**Recommendation for planning:** Add a *second* isolation guard (cheap, optional) asserting that `src/cli/dashboard/**` contains zero `picocolors` imports — symmetrical to the existing invariant but pointed at the new folder. This documents intent and prevents a future contributor from "reusing" `createFormatter` inside the TUI. It is additive and does not modify the existing test. The existing `picocolors` single-source test continues to pass because ink is not `picocolors`. (Confidence: HIGH — verified by reading the assertion logic directly.)
+
+---
+
+## Build Order (dependency-ordered phasing)
+
+Each step is independently testable and leaves the tree green. Ordered by hard dependency, simplest-first.
+
+1. **Data client (`client.js`) + derive helpers (`select.js`)** — pure, zero ink, zero terminal. Unit-test with fake `fetch` and fixture `/status` JSON. *No dependency on anything ink.* Build first; everything else consumes these.
+2. **Static table render (`App.js` minimal + Table/Row/Header/Footer)** — render a *static* sessions array (no polling yet) and assert `lastFrame()` with `ink-testing-library`. Depends on (1)'s `select.js` for row cells. Land the commander registration here so `bin/kodo dashboard` is invokable end-to-end as early as possible.
+3. **Polling / live (`usePoll.js` wired into `App`)** — add the cancellable poll, connection status, `lastError` rendering. Test the hook's no-stack/teardown behaviour with a fake clock + fake client.
+4. **Navigation (`useInput` ↑↓ + selection-by-task_id)** — inject arrow-key escape sequences via `ink-testing-library`'s `stdin.write` and assert the highlighted row moves and survives a simulated array rebuild (re-`rerender` with a reordered array, assert selection follows `task_id`).
+5. **Attach handoff (`attach.js` + `index.js` loop)** — unit-test the loop with fake `render`/`spawn` (assert: exit value `{attachTo}` triggers `spawn('cmux',['attach',ref])` then re-render; `q` ends the loop with exitCode 0). Real TTY handoff is manual UAT.
+6. **Detail panels (`DetailPanel` + `c`/`l`)** — comments (`task_ref`→`task_id` mapping) and best-effort log grep. Depends on (1)'s `fetchComments`/`fetchLogs` and (4)'s selection.
+7. **Filters (`FilterInput` + `/`, `r:`, `s:`)** — `ink-text-input`-driven; depends on (4) for panel/focus routing and (1)'s `filterSessions`.
+
+> Commander registration (one-liner in `src/cli.js`) lands in step 2 so the command is invokable end-to-end as early as possible (`bin/kodo dashboard` renders the static table), then each later step is purely additive to `App.js`/`index.js`.
+
+---
+
+## Testability Map (pure / ink-testing-library / manual-UAT)
+
+| Surface | Tier | How |
+|---------|------|-----|
+| `client.fetchStatus/fetchComments/fetchLogs` | **Pure unit** (`node:test`) | Inject fake `fetch` returning fixtures + a throwing fake → assert `{ok}` discriminant and no-throw graceful path |
+| `select.sortSessions / filterSessions / resolveSelection / taskRefToTaskId / rowCells` | **Pure unit** | Plain in/out assertions; the `resolveSelection`-survives-array-rebuild case is the load-bearing one |
+| `usePoll` no-stack + teardown | **Pure-ish unit** | Drive with a fake async fn + fake timer; assert next tick only after prior resolves and `clearTimeout` on teardown (test the effect logic via a tiny harness component, or extract the scheduler core into a pure function) |
+| `index.js` attach loop | **Unit with fakes** | Inject fake `renderFn` (returns `{waitUntilExit, exit}`) + fake `spawnFn`; assert `{attachTo}` → spawn `cmux attach` → re-render; `undefined` (quit) → loop ends, `process.exitCode === 0` |
+| `App` static render | **ink-testing-library** | `render(createElement(App,{sessions:fixture}))` → assert `lastFrame()` contains expected columns/rows |
+| Keyboard nav, panel switch, filter input | **ink-testing-library** | `stdin.write('\x1b[B')` (down arrow), `stdin.write('c')`, `stdin.write('/')` → assert `lastFrame()` reflects selection/panel/filter; `rerender` with reordered array to prove selection follows `task_id` |
+| Color correctness (ink `<Text color>`) | **ink-testing-library (frames)** | Assert presence/absence of ANSI in `frames` if needed; mostly visual, low value to over-test |
+| **Real `cmux attach` TTY handoff** | **Manual UAT** | The actual raw-mode unmount → `cmux attach` → re-render against a live cmux workspace cannot be faked; this is the one human smoke test (mirrors the project's pattern of automating UATs where possible but accepting a manual TTY smoke). Optionally a spawn-real `bin/kodo dashboard` smoke that asserts it renders and quits cleanly on `q` (no live cmux), leaving only the attach itself manual. |
+
+**Pure-vs-ink boundary is the whole point:** every piece of *logic* (fetch, sort, filter, selection, the attach control flow) is pure/DI and lives outside React, so the bulk of coverage is fast `node:test` with no terminal. `ink-testing-library` is reserved for render assertions and key routing. Only the live `cmux attach` TTY swap stays manual.
+
+---
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Pushing GSD awareness into providers
+### Anti-Pattern 1: Selecting rows by array index
+**What people do:** Track `selectedIndex` and read `sessions[selectedIndex]`.
+**Why it's wrong:** `/status` rebuilds the `sessions` array every poll (the server `.map()`s fresh each request — see `src/server.js:379`). The row under a fixed index changes out from under the cursor, and a vanished session shifts everything.
+**Do this instead:** Track `selectedTaskId` and re-derive the index via `resolveSelection` each render (Pattern 3).
 
-**What people do:** Add a `provider.getRoadmap()` or special-case `kodo:gsd` inside `providers/plane/*`.
-**Why it's wrong:** Violates the v0.2 provider abstraction — GSD is a Claude-session behavior, not a task-provider concept. Recouples consumers to Plane-like providers.
-**Do this instead:** Keep GSD logic inside `src/gsd/` and `hooks/session-start.js`. Providers only return labels.
+### Anti-Pattern 2: Spawning `cmux attach` while ink is still mounted
+**What people do:** `spawn('cmux',['attach',ref],{stdio:'inherit'})` from inside a `useInput` handler.
+**Why it's wrong:** ink holds the TTY in raw mode; the child and ink both grab stdin/stdout → garbled terminal, stuck raw mode, broken exit (ink's documented raw-mode footgun).
+**Do this instead:** `exit({attachTo:ref})` → `index.js` `await waitUntilExit()` (tree fully unmounted) → spawn → on child exit, fresh `render()` (Pattern 4).
 
-### Anti-Pattern 2: Global logger singleton imported everywhere
+### Anti-Pattern 3: `setInterval` polling
+**What people do:** `setInterval(fetchStatus, 2500)` like the existing web `dashboardHtml`.
+**Why it's wrong:** A slow/hung server lets requests stack; an interval also survives the unmount/remount of the attach handoff if not perfectly cleared, firing into a torn-down tree (`setState` after unmount warnings / leaks).
+**Do this instead:** Self-scheduling `setTimeout` that re-arms only after the prior fetch resolves, with a `cancelled` teardown flag (Pattern 2).
 
-**What people do:** `export const logger = createLogger(); import logger from '../logger.js'`
-**Why it's wrong:** Logger needs per-session context (sessionId) not known at import time; a global forces either no session context or mutable global state.
-**Do this instead:** Instantiate `createLogger({ sessionId, module })` at entry points (dispatcher, hook, CLI command) and pass it down. Leaf utilities with no sessionId get a module-scoped logger without the file transport.
+### Anti-Pattern 4: Routing ink colors through `createFormatter`
+**What people do:** Import `createFormatter` and pre-color strings before passing them to `<Text>`.
+**Why it's wrong:** Double-encodes ANSI and breaks ink's Flexbox width math; `format.js` is built for flat `console.log`, not a virtual DOM.
+**Do this instead:** Use ink `<Text color>`/`<Box>` directly. `format.js` stays the classic-CLI color source; the TUI is a separate color domain (see Color section). Never `import 'picocolors'` under `src/cli/dashboard/`.
 
-### Anti-Pattern 3: Resolving phase at dispatch time
+### Anti-Pattern 5: Calling `cmux rpc` from the TUI for liveness
+**What people do:** Have the TUI query cmux directly to know which sessions are `alive`.
+**Why it's wrong:** The server already merges live cmux workspace state into `/status` (each session carries `alive` + `elapsed_min` — `src/server.js:379-383`). Duplicating it in the client adds a second source of truth and an external dependency. The milestone decision explicitly states "la TUI NO llama a `cmux rpc`".
+**Do this instead:** Render `alive`/`elapsed_min` straight from the `/status` payload. The TUI is a pure read-only HTTP client.
 
-**What people do:** Have `triggers/dispatcher.js` read `.planning/ROADMAP.md` and stuff the phase into the session record.
-**Why it's wrong:** Captures a stale snapshot (user may edit ROADMAP.md between webhook and session start). Pushes filesystem concerns into the dispatcher.
-**Do this instead:** Store only `gsd: true` at dispatch time; resolve phase lazily in `hooks/session-start.js`.
-
-### Anti-Pattern 4: Mixing `console.*` with the new logger
-
-**What people do:** Add the new logger in some places, keep `console.log` elsewhere "to avoid churn."
-**Why it's wrong:** Split-brain output formats defeat structured logging and break `kodo logs <id>` (console output bypasses the file transport).
-**Do this instead:** Complete step (10) in the build order. Lint-level grep for `console\.(log|warn|error)` outside `logger.js` and `cli.js` user-facing prints.
+---
 
 ## Integration Points
 
-### External Services
+### External / process boundaries
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Claude Code CLI | spawn subprocess from `session/manager.js`; pass `KODO_SESSION_ID` via env | Hooks receive this env; used to reconstruct per-session logger |
-| Target repo filesystem | read-only, scoped to `<cwd>/.planning/ROADMAP.md` | Only accessed from `src/gsd/phase-resolver.js` |
-| Plane API | via `providers/plane/*` only | Untouched by v0.3 work |
+| Boundary | Integration Pattern | Notes |
+|----------|---------------------|-------|
+| kodo HTTP server | `fetch` GET only, base URL `http://localhost:${config.server.port}` (default 9090, `src/config.js:63`) | READ ONLY — no new endpoints (hard constraint). Resolve port from `loadConfig().server.port`, not a literal. Server down → `{ok:false}` → graceful UI |
+| `cmux attach <ref>` | `child_process.spawn(cmuxBin, ['attach', ref], {stdio:'inherit'})` after ink unmount | Binary path: existing code reads `loadConfig().cmux.binary` (see `src/cmux/client.js:5`); reuse it rather than hardcoding `'cmux'`. The dashboard does NOT use the `execFile`-based `src/cmux/client.js` helpers (those capture output; attach needs `stdio:'inherit'` + interactive lifetime) |
+| Node global `fetch` | Native in Node 20+ | No new dependency; injectable for tests |
 
-### Internal Boundaries
+### Internal boundaries
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| dispatcher ↔ manager | direct call; `TriggerEvent` + parsed labels | `gsd` flag crosses here |
-| manager ↔ Claude Code | subprocess spawn + env vars | `KODO_SESSION_ID` is the only env contract |
-| hooks ↔ session state | `session/state.js` read | Single source of truth for `gsd` flag |
-| hooks ↔ gsd/phase-resolver | direct call in session-start only | phase-resolver has no reverse dependency |
-| any module ↔ logger | constructor/arg injection of logger instance | No global import |
-| cli.js `logs` ↔ log files | direct fs read of `~/.kodo/logs/<id>.log` | Path convention owned by `logger.js` (export `sessionLogPath(id)`) |
+| Boundary | Communication | Considerations |
+|----------|---------------|----------------|
+| `src/cli.js` ↔ `dashboard/index.js` | `await import()` lazy load in the `.action()` | Identical to all existing subcommands; keeps startup budget unaffected and the `kodo check` logger-isolation guard (LOG-12) untouched since dashboard isn't on that graph |
+| `dashboard/App.js` ↔ `client.js`/`select.js` | Direct import of pure functions | App holds state; logic stays pure and React-free |
+| `dashboard/App.js` ↔ `index.js` | `useApp().exit(value)` resolving `waitUntilExit()` | Single control loop in `index.js` owns process lifecycle + exit code |
+| `dashboard/**` ↔ `picocolors` | **forbidden** | ink owns TUI color; keeps `test/format-isolation.test.js` green (single `picocolors` importer remains `src/cli/format.js`) |
+| `package.json` deps | add `ink`, `react`, `ink-text-input` as prod deps | First deps beyond `commander`+`picocolors`; aligns with STACK decision (ink@6.8.0 keeps Node 20 floor). No build step: `React.createElement`, no JSX |
+
+---
+
+## New vs Modified Modules (explicit)
+
+**New (all under `src/cli/dashboard/`):** `index.js`, `App.js`, `client.js`, `select.js`, `usePoll.js`, `attach.js`, `components/{Header,Table,Row,DetailPanel,FilterInput,Footer}.js`.
+
+**Modified:**
+- `src/cli.js` — one `program.command('dashboard')...action(lazy import)` block (~8 lines, mirrors existing commands).
+- `package.json` — add `ink`, `react`, `ink-text-input` to `dependencies`.
+
+**Untouched (and must stay so):** `src/server.js` (no new endpoints), `src/cli/format.js` (color isolation), `test/format-isolation.test.js` (stays green unmodified), `src/cmux/client.js` (attach uses its own `spawn` for `stdio:'inherit'`, but may read the binary path from `loadConfig().cmux.binary`).
+
+---
 
 ## Sources
 
-- Direct read of `/Users/alex/dev/klab/kodo/src/labels.js` (current shape of `parseKodoLabels`)
-- Hook-observation outlines for `src/session/manager.js`, `src/hooks/session-start.js`, `src/triggers/dispatcher.js`, `src/cli.js` (v0.2 provider abstraction complete; dispatcher has in-flight dedup lock; CLI wizard already has Plane-neutralization debt noted)
-- `.planning/PROJECT.md` timeline — v0.2 provider abstraction complete (obs 16110), PROJECT.md updated post-v0.2 (obs 16315), v0.3 research phase initiated (obs 16976)
-- Recent commits (`dab86bc feat: Claude session owns Plane lifecycle`, `8e1bcd3 in-memory lock`) — confirm current dispatcher/session-start contracts
+- **kodo codebase (HIGH):** `src/server.js` (lines 354-455 — `/status`·`/logs`·`/comments` contract, array rebuilt per request, `alive`/`elapsed_min` merge), `src/cli/format.js` (createFormatter / single picocolors import), `test/format-isolation.test.js` (lines 98-129 — the assertion that defines the invariant), `src/cli.js` (subcommand registration + lazy-import pattern), `src/config.js:62-66` (`server.port: 9090`), `src/cmux/client.js:5` (cmux binary resolution from config), `.planning/PROJECT.md` (constraints: color isolation, no-build-step, DI-for-testability; milestone v0.9 stack decision).
+- **ink official docs via Context7 `/vadimdemedes/ink` (HIGH):** `render()` returns `{rerender, unmount, waitUntilExit}`; `useApp().exit(value)` → `waitUntilExit()` resolves with that value after unmount-related stdout flushes; `useInput((input,key)=>...)` with `key.upArrow/downArrow/return/escape`; `ink-testing-library` `render()` exposes `{lastFrame, frames, stdin, rerender, unmount}` with `stdin.write()` for raw input (incl. ANSI arrow sequences).
+- **STACK/FEATURES sibling research (carried forward, MEDIUM→HIGH):** ink@6.8.0 + react@19 + `React.createElement` (no JSX, preserves no-build-step); attach = unmount→waitUntilExit→spawn→re-render; `/logs` is a shared ring with no `session_id` (best-effort grep); `/comments` keyed by `task_id`; selection by `task_id` not index.
 
 ---
-*Architecture research for: kodo v0.3 — GSD integration + structured logging*
-*Researched: 2026-04-15*
+*Architecture research for: ink TUI subcommand in an existing ESM Node.js CLI*
+*Researched: 2026-05-26*

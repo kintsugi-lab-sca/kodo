@@ -1,241 +1,217 @@
 # Pitfalls Research
 
-**Domain:** Webhook-driven Node.js CLI bridge integrating external agent framework (GSD) and structured logging
-**Researched:** 2026-04-15
-**Confidence:** HIGH (rooted in kodo's known architecture + prior v0.2 retrospective; integration patterns verified against GSD command surface)
+**Domain:** Adding an `ink` (React-for-CLI) live-monitoring TUI (`kodo dashboard`) to an existing mature Node.js CLI
+**Researched:** 2026-05-26
+**Confidence:** HIGH (ink lifecycle/raw-mode/exit verified against Context7 ink docs + GitHub issues; app-specific traps verified against `src/server.js`, `src/cli/format.js`, `package.json`)
+
+> Scope note: these are pitfalls specific to wiring THIS TUI into THIS app. They build on the parallel researchers' stack findings (ink@6.8.0 / Node 20 floor / `React.createElement` no-build / hand-rolled table / unmount→spawn→re-render attach). Generic React advice is omitted. Every pitfall is phrased so it can become a plan task, a guard, or a test.
+>
+> **Phase shorthand** (final numbers assigned by roadmapper; continues from Phase 34):
+> - **P-scaffold** = `kodo dashboard` subcommand + render bootstrap + non-TTY refusal + lifecycle/cleanup
+> - **P-poll** = polling client (fetch loop, AbortController, error UX)
+> - **P-table** = live table render + selection/cursor identity + filters
+> - **P-attach** = `Enter` → `cmux attach` TTY handoff
+> - **P-aux** = `c` comments / `l` logs-grep
+> - **P-test** = test harness (DI clock + fetch, ink-testing-library)
+
+---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Phase Resolver Brittleness on Non-Canonical ROADMAP.md
+### Pitfall 1: `cmux attach` TTY handoff leaves the terminal in a broken state
 
 **What goes wrong:**
-The GSD phase resolver (the code that reads `.planning/ROADMAP.md` in the target repo to determine which `/gsd:phase-N-execute` to inject) hard-codes the Markdown shape GSD currently emits. Target repos that (a) predate current GSD, (b) were hand-authored, (c) have renamed phases, or (d) use `## Milestone N` instead of `## Phase N` silently fall back to the wrong phase — or worse, phase 1 — causing the agent to redo completed work.
+`Enter` spawns `cmux attach <workspace_ref>` as an interactive foreground child with `stdio: 'inherit'`. If the handoff order is wrong, three things break: (a) spawning while ink still owns the TTY throws ink's `Raw mode is not supported` / produces doubled key echo because both ink's raw-mode stdin listener and the child are reading the same fd; (b) if `cmux attach` errors or the workspace is gone, the terminal is left in raw mode / alternate screen / cursor-hidden and the user gets a dead shell; (c) Ctrl-C during attach can kill `kodo` instead of detaching, or orphan the child.
 
 **Why it happens:**
-"ROADMAP.md" feels like a standard, but GSD's own template has evolved (phases vs. milestones, numeric vs. named, checkbox vs. status emoji). Developers write a regex against the current repo they're testing and ship it. The resolver is invoked per webhook with no user in the loop to catch the mismatch.
+ink puts `process.stdin` into raw mode and (if `alternateScreen`) takes over the screen. Developers spawn the child from inside a `useInput` handler without first releasing the TTY. The naive mental model "ink is just rendering, I can spawn alongside it" is wrong — raw mode is process-global state on a single fd.
 
 **How to avoid:**
-- Define an explicit `ROADMAP_SCHEMA_VERSION` marker in GSD-generated roadmaps; resolver refuses to proceed on unrecognized/missing version and logs a structured error instead of guessing.
-- Parse with a tolerant AST (e.g., `remark` + `unified`) not regex. Extract all `## ` headings and match by normalized slug, not exact string.
-- Provide a `kodo gsd inspect <repo>` dry-run command that prints resolved phase + matched heading, so operators can verify before live webhooks hit it.
-- Fail closed: if two headings match or zero match, abort the session and surface the error to Plane as a comment. Do NOT start Claude.
+Strict, sequenced handoff with `finally`-guaranteed restoration:
+1. In the `Enter` handler, call `unmount()` (or `useApp().exit()`).
+2. `await waitUntilExit()` — verified in ink docs: it settles only *after* unmount-related stdout writes complete and (per `cleanup()` semantics) terminal state including the alternate screen is torn down. This is the correct sync point; do NOT `spawn` before it resolves.
+3. `spawn('cmux', ['attach', ref], { stdio: 'inherit' })` and `await` its close inside a `try`.
+4. In `finally`, `render(<App/>)` again (fresh instance) — never inside the `try`, so a thrown/rejected attach still restores the UI.
+5. Pre-flight guard: if the selected row's `alive === false` (server already merged cmux state into `/status`), do NOT attach — show "workspace gone" inline and stay mounted. This avoids the worst case (spawn a doomed child after tearing down the UI).
+6. Wrap spawn errors (ENOENT for `cmux` not on PATH, non-zero exit) and surface them in the re-rendered UI, not as an uncaught throw.
 
 **Warning signs:**
-- Sessions starting with phase 1 on a repo that has 4 completed phases (look for repeated `phase-1-execute` invocations in logs across one repo).
-- Claude output contains "I'm not sure which phase this is" or re-asks about already-decided architecture.
-- Plane task comments from kodo referencing wrong phase number vs. task title.
+Doubled characters when typing after the first attach; `Raw mode is not supported` thrown on `Enter`; shell prompt with no echo / invisible cursor after `cmux attach` to a dead workspace; Ctrl-C during attach kills the dashboard.
 
-**Phase to address:** Phase 1 (GSD integration foundation) — resolver must be built with tolerance + dry-run from day one, not retrofitted.
+**Phase to address:** P-attach (with the lifecycle primitives built in P-scaffold). Highest-risk integration — give it its own plan with a manual UAT (see Pitfall 13).
 
 ---
 
-### Pitfall 2: Per-Repo Concurrency Collision on `.planning/`
+### Pitfall 2: Request stacking when a poll is slower than the 2-3s interval
 
 **What goes wrong:**
-Two Plane tasks that map to the same target repo arrive close in time. The current dedup lock is keyed by Plane `task_id`, so both pass. Two Claude Code sessions launch in the same working directory. They race on `.planning/ROADMAP.md`, `.planning/research/*`, and git operations — producing interleaved commits, lost edits, or a rebase nightmare. The `/gsd:*` workflow assumes a single author on `.planning/` per repo at a time.
+A `setInterval(poll, 2500)` fires the next fetch regardless of whether the previous one finished. If `/status` is slow (provider `listPendingTasks` is on the hot path of `/status` — see `src/server.js:368`, it calls the Plane/GitHub API behind a TTL cache, and `cmux.listWorkspaces()` at line 378), requests pile up, responses arrive out of order, and the table flickers between stale and fresh data or renders a response that's already superseded.
 
 **Why it happens:**
-The in-memory lock was added in commit `8e1bcd3` to prevent duplicate-webhook sessions for the *same* task. The mental model ("one session per task") is correct for Plane but wrong for GSD, which arbitrates over a shared `.planning/` directory per repo.
+`setInterval` is fire-and-forget; it has no backpressure. Devs reach for it because it's the obvious "every N seconds" primitive.
 
 **How to avoid:**
-- Add a second lock tier keyed by **resolved target repo path** (absolute, realpath-resolved). Acquire both `task_id` lock and `repo_path` lock; release in reverse order.
-- On repo-path contention, do NOT drop the second webhook — queue it (FIFO per repo) so the second task runs after the first completes. Dropping causes silent task starvation.
-- Use a filesystem lock (`proper-lockfile` or a `.planning/.kodo.lock` sentinel with PID + start time) so even an accidentally-launched manual `claude` session collides visibly instead of corrupting git state.
-- Reject concurrent launches with a Plane comment: "Queued behind task X (started HH:MM)" so the human sees why nothing is happening.
+Self-scheduling loop, never overlapping:
+- Use a recursive `setTimeout` (or `await sleep` loop), and only schedule the next tick in the `finally` of the current fetch — never `setInterval`.
+- Attach an `AbortController` per request; abort the in-flight fetch on unmount and on a manual refresh (`r:` change). Re-create the controller each tick.
+- Add a `fetch` timeout (the controller's `signal` + a `setTimeout(abort, ~2000ms)`) so a hung server doesn't freeze the loop forever.
+- Guard against late responses: tag each tick with a monotonically increasing id; if a response arrives whose id is not the latest dispatched, drop it.
 
 **Warning signs:**
-- Git log on target repo shows two commits within seconds of each other, one reverting/conflicting with the other.
-- `.planning/ROADMAP.md` has merge-conflict markers that no human introduced.
-- Two kodo log files for the same repo path with overlapping timestamp ranges.
-- Plane comments from two tasks both claim "starting phase 3."
+Table "jumps" between two states; CPU climbs over time; multiple concurrent connections to `localhost:9090` visible in `lsof`; the UI updates after the server briefly recovers from a stall with a burst of stale frames.
 
-**Phase to address:** Phase 1 (GSD integration) — the lock must exist before the first GSD session ships; retrofitting after a collision means investigating a corrupted repo.
+**Phase to address:** P-poll. Make "no overlapping requests" a success criterion with a test that injects a slow fetch fn and asserts only one is in flight.
 
 ---
 
-### Pitfall 3: Context Injection Collision Between Plane Instructions and `/gsd:*`
+### Pitfall 3: Cursor/selection bound to array index instead of `task_id` identity
 
 **What goes wrong:**
-kodo currently injects "document progress in Plane via MCP" instructions into every session. When it also injects `/gsd:phase-N-execute`, the GSD command has its own completion protocol (commit, update ROADMAP.md, run its own verifier). The two sets of instructions compete: Claude either (a) ignores Plane updates because GSD didn't mention them, (b) commits mid-GSD-phase because Plane instructions said "document progress after each step," or (c) writes phase updates into Plane comments that duplicate the ROADMAP.md history.
+`/status` rebuilds the `sessions` array every poll (`listSessions().map(...)` at `src/server.js:379`). If the cursor is an integer index into the current array, then when a session ends (row vanishes), a new one starts, or the list reorders, the cursor silently points at a *different* session — so `Enter` attaches to the wrong workspace, `c` opens the wrong comments, `l` greps the wrong substring. This is the exact class of bug the project already hit (ROMAN-132 state-desync) but now in the UI layer.
 
 **Why it happens:**
-System/user prompt layering is invisible at runtime. The Plane instructions were written assuming Claude is the only author of the session's behavior. GSD commands assume the same. Neither was designed to co-exist.
+Index-based selection is the path of least resistance in a list UI, and it works fine until the underlying list mutates between renders — which here happens every 2-3s by design.
 
 **How to avoid:**
-- Define an explicit precedence: GSD phase command owns the **work lifecycle** (what to build, when to commit, how to verify). Plane instructions own **status reporting only** (state transitions, not progress narration).
-- Rewrite the Plane context block for GSD sessions: strip "commit when done" (GSD handles it) and "document each step" (noisy); keep only "on session end, set task state to X."
-- Detect GSD mode explicitly via a flag (e.g., `--gsd-phase` on the session launcher) and branch the context template — don't try to make one template serve both modes.
-- Add an end-of-session reconciliation hook: after Claude exits, kodo (not Claude) posts a single structured comment to Plane summarizing the phase outcome from the logs. Removes the dependency on Claude remembering to update Plane.
+- Track selection as the **`task_id`** (stable identity), not an index. On each poll, re-derive the cursor's array position by finding the row whose `task_id === selectedTaskId`.
+- Stable sort rows by `started_at` (then `task_id` as tiebreaker) so order doesn't churn on equal timestamps.
+- React keys on rows = `task_id` (not index) so reconciliation is correct and the table doesn't visually shuffle.
+- If `selectedTaskId` is no longer present after a poll, clamp: select the nearest surviving row by prior position, or clear selection if the list is now empty (see Pitfall 6).
 
 **Warning signs:**
-- Plane task has 20+ comments from one session (narration spam) or 0 comments (silence).
-- Git commits happen but Plane task stays "In Progress."
-- Commit messages contain "as requested by Plane task" (Claude is conflating the two instruction sources).
-- ROADMAP.md phase status disagrees with Plane task status.
+`Enter` attaches to a different session than the highlighted one after a session ends; the highlight "jumps" rows on refresh without user input; selecting works at startup but breaks after the first session completes.
 
-**Phase to address:** Phase 1 (GSD integration) — context templating must be split before the first real run; otherwise every session produces muddled behavior that's hard to untangle retroactively.
+**Phase to address:** P-table. Unit-testable: feed two successive `/status` payloads (one with a removed row) to the selection reducer and assert the cursor still points at the same `task_id`.
 
 ---
 
-### Pitfall 4: Logger Initialization Breaking `kodo check` Zero-Token Path
+### Pitfall 4: TUI crashes instead of refusing gracefully in a non-TTY environment
 
 **What goes wrong:**
-`kodo check` is the 0-token vigilante path — it must stay fast and cheap because it runs on every stop hook. A naive structured-logger addition (pino/winston) imports transports, opens file handles, resolves log paths, and maybe spins up a worker thread during module load. `kodo check` now pays 50-200ms + FD overhead for a command that should be ~10ms and touch no disk.
+Running `kodo dashboard | cat`, in CI, or with redirected stdin throws ink's `Raw mode is not supported on the current process.stdin` and exits with a stack trace. For a tool whose other surfaces (`kodo logs --json`, `kodo check`) are scripting-friendly and byte-deterministic, an unhandled crash here is a regression in the project's CLI-hygiene culture.
 
 **Why it happens:**
-Logger modules are typically initialized at top-of-file import. The CLI entry point imports a shared `logger.js` that eagerly configures file destinations. Every subcommand pays the cost, even ones that never log.
+`useInput`/`setRawMode` require `stdin.isTTY`. ink only throws *when input is actually used*; devs test interactively (always a TTY) and never hit the pipe path.
 
 **How to avoid:**
-- Lazy-init the logger: `getLogger()` is a function that constructs on first call; import is free. `kodo check` never calls it.
-- Split CLI entry points: `bin/kodo-check` is a minimal script with no logger import at all — it requires only what it needs, like the existing vigilante does. Do NOT route `check` through the same subcommand dispatcher as `webhook` or `session`.
-- Add a boot-time budget test: `time kodo check` in CI must stay under a threshold (e.g., 50ms). Fail the build on regression.
-- If a shared entry is unavoidable, gate logger construction on `process.argv[2] !== 'check'` before any transport setup.
+- **Pre-render guard** in the subcommand entry: if `!process.stdout.isTTY || !process.stdin.isTTY`, print a clear one-liner to stderr (`kodo dashboard requires an interactive terminal; use 'kodo status --json' for scripting`) and `process.exit(1)` — before calling `render()`. This is cheaper and clearer than ink's runtime throw.
+- Belt-and-suspenders inside the component: gate `useInput` behind `useStdin().isRawModeSupported` (official ink API, verified) so any residual non-TTY path degrades to a static frame instead of throwing.
+- Decide and document the contract: `kodo dashboard` is interactive-only; there is no `--json` mode (that already exists as `kodo status`).
 
 **Warning signs:**
-- `kodo check` wall-clock time creeping up between commits (track it).
-- `kodo check` writes a log file (it shouldn't log anything — if a log exists, the import chain is wrong).
-- Stop hook latency complaints or timeouts from the Claude Code harness.
-- Profiler shows `require('pino')` or similar in `check`'s call graph.
+Stack trace mentioning `setRawMode` / `Raw mode is not supported`; the command works in your terminal but fails in a script or under `| head`.
 
-**Phase to address:** Phase 2 (structured logging) — must ship with the boot-time budget test; without it, regression is invisible and creeps.
+**Phase to address:** P-scaffold. Test: spawn `bin/kodo dashboard` with a piped (non-TTY) stdin/stdout and assert exit code 1 + the canonical stderr message (mirrors the project's existing spawn-based UAT pattern, e.g. `test/session-of-resolver.test.js`).
 
 ---
 
-### Pitfall 5: Unbounded Per-Session Log Accumulation
+### Pitfall 5: Server-down handled at startup but not mid-session (and vice versa)
 
 **What goes wrong:**
-Per-session log files (e.g., `~/.kodo/logs/session-<id>.log`) look clean during dev — one file per run, easy to grep. After 3 months of production webhook traffic (10-50 sessions/day), the directory holds 3000+ files, some multi-MB. `readdir` on the log dir starts taking seconds; disk fills on the developer laptop; `find` queries for debugging are slow.
+Two distinct failure modes get conflated:
+- **At startup**, the kodo server isn't running → first `/status` fetch is `ECONNREFUSED`. If unhandled, the TUI shows an empty table forever or crashes.
+- **Mid-session**, the daemon dies (the documented weakness of "Opción A: muere si daemon kodo cae") → polls start failing after the UI was already populated. If the code clears the table on the first error, the operator loses all context the instant the server hiccups.
 
 **Why it happens:**
-"One file per session" is the obvious design for debuggability. Rotation and retention are "later problems." There's no backpressure — the file grows as long as the session does, and sessions don't self-limit.
+Devs write one happy-path fetch with a single `catch` that does the same thing regardless of whether data was ever loaded.
 
 **How to avoid:**
-- Retention policy defined **before** first log write, not after filesystem full: e.g., keep 7 days of per-session logs, then compress to a daily rollup, delete rollups older than 90 days.
-- Implement retention as a startup check, not a cron: every webhook trigger, kodo (async, non-blocking) prunes older-than-threshold files. No external scheduler dependency.
-- Cap per-session log size (e.g., 50MB hard cap); on overflow, rotate to `session-<id>.log.1` and warn in a structured error. Prevents a runaway session from eating the disk.
-- Use a date-partitioned directory structure (`logs/YYYY-MM-DD/session-<id>.log`) so `readdir` on the top level stays O(days), not O(sessions). Trivial to delete an entire day's directory.
-- Document the log location and retention policy in the README so users can opt to ship logs elsewhere (syslog, journald) before retention kicks in.
+- **Keep-last-good** UX: on a failed poll after at least one success, retain the last good rows, dim them, and show a status line `⚠ server unreachable — last update 12s ago (retrying)`. Do NOT blank the table.
+- **Startup** with no data yet: show a distinct "waiting for kodo server at localhost:9090…" state with the retry indicator, never a stack trace.
+- Distinguish error classes: `ECONNREFUSED`/`fetch failed` → "server down, retrying"; HTTP 5xx → "server error"; (these inform the status line copy, not different recovery).
+- Backoff without hammering: on consecutive failures, widen the interval (e.g. 2.5s → 5s → 10s, capped) and reset to base on first success. Never tighter than the base interval.
 
 **Warning signs:**
-- `ls ~/.kodo/logs | wc -l` > 500.
-- Any single log file > 10MB (session should never produce that much; indicates a loop or noisy debug).
-- Disk usage of logs dir growing faster than 100MB/week on a normal workload.
-- `kodo logs <session-id>` CLI command (if built) gets slow.
+Table goes blank the moment the server blips; tight reconnect loop hammering a down port (visible in logs/`lsof`); no visual difference between "loading" and "connection lost".
 
-**Phase to address:** Phase 2 (structured logging) — retention policy ships with the first log line, not as a follow-up task.
+**Phase to address:** P-poll. Test with an injected fetch fn that succeeds twice then throws — assert rows are retained and a status flag flips to `stale`.
 
 ---
 
-### Pitfall 6: Log Writes Blocking the Event Loop During Active Sessions
+### Pitfall 6: Filter active while the underlying list changes; empty-list cursor
 
 **What goes wrong:**
-Synchronous `fs.appendFileSync` or unflushed stream writes during a high-traffic moment (Plane webhook burst, or a chatty `/gsd:research` phase with lots of structured events) back up on the event loop. Webhook responses slow down. Plane retries the webhook. kodo receives the same webhook 2-3 times. The existing `task_id` lock handles this, but under enough pressure, the lock itself is held waiting for I/O and contends.
+With a `/` search or `r:`/`s:` filter active, the displayed subset is recomputed each poll. Bugs: (a) the cursor points at a row that the new filter result no longer contains; (b) the filter matches zero rows and the cursor is `undefined` but `Enter`/`c`/`l` still try to act on `rows[cursor]` → crash or no-op on garbage; (c) a row matching the filter ends, the list shrinks, and the cursor index now exceeds `length-1`.
 
 **Why it happens:**
-Node.js file-I/O footguns: `fs.appendFileSync` feels safe (no callback, no promise), but it blocks the loop. `fs.createWriteStream` is async but needs explicit backpressure handling via `.write()` return values.
+Filtering and selection are computed independently; the invariant "selection ∈ filtered set" isn't enforced after every data/filter change.
 
 **How to avoid:**
-- Use pino's default async transport or `fs.createWriteStream` with `highWaterMark` tuning. Never `appendFileSync` in a handler path.
-- Handle `.write() === false` by pausing structured event emission until `drain`, not by buffering unbounded in memory (that just moves the OOM point).
-- Benchmark: simulate 100 webhooks/minute in a test and verify the event loop lag stays under 50ms (`perf_hooks.monitorEventLoopDelay`).
-- Prefer append-only JSONL with one-line-per-event over pretty-printed JSON — simpler to flush, easier to grep, no close-brace bookkeeping.
+- Compute filtered rows first, then reconcile selection against the *filtered* set by `task_id` (Pitfall 3 applies post-filter).
+- If the selected `task_id` falls outside the filtered set, move selection to the first filtered row, or null it if empty.
+- Hard-guard every action: `Enter`/`c`/`l` early-return if there is no current selection or the filtered set is empty. Render an explicit "no sessions match" state.
+- Filter string is plain substring (no regex) to avoid injection of a bad pattern crashing the render; `r:`/`s:` are exact-ish field matches.
 
 **Warning signs:**
-- Plane webhook retry rate > 0 (Plane sends the same event more than once because kodo didn't 200 fast enough).
-- Event-loop-delay metric rising during session activity.
-- Webhook handler tail latency spikes correlating with log volume spikes.
+Crash or no-op when pressing `Enter` on an empty filtered list; highlight disappears when typing a filter that matches nothing; arrow keys move an invisible cursor.
 
-**Phase to address:** Phase 2 (structured logging) — must be verified under load before shipping, not discovered in production.
+**Phase to address:** P-table (selection reconciliation) + P-aux (action guards). Unit-test the reducer with empty and shrinking filtered sets.
 
 ---
 
-### Pitfall 7: Secret Leakage via Structured Logs
+### Pitfall 7: `l` (logs) implies a per-session tail but is a shared-buffer substring grep
 
 **What goes wrong:**
-Structured logging is tempting to feed raw webhook bodies, raw Claude context blocks, and raw Plane API responses for debuggability. These contain: Plane API tokens (in retry headers), GitHub PATs (if user embeds them in task descriptions), OpenAI/Anthropic keys (in MCP server configs injected into sessions), and user prompts with PII. Logs land in plaintext on disk, potentially committed if a dev runs `kodo` inside a repo, potentially shared when a user sends a "bug report bundle."
+`/logs` returns one flat 200-line ring buffer with **no `session_id`** (`src/server.js:417`, `getLogBuffer()` → `{ logs: [...] }`). The roadmap seed and PROJECT.md both phrase `l` as "tail de logs de **esa** sesión / filtrado por session_id" — but that key does not exist. Any per-session filter is a best-effort substring grep (e.g. by `task_ref` or `repo` appearing in the line). Presenting it as a precise per-session tail is a correctness lie: the user will trust lines that belong to another session and miss lines that don't contain the substring.
 
 **Why it happens:**
-"Log everything, redact later" is the default DX. The structured logger gets a `context` object and calls `JSON.stringify` — no one audits what's in the object graph.
+The feature was specified against an assumed log shape; nobody re-checked that `/logs` lines carry a session key. PROJECT.md line 32 literally says "filtrado client-side de `GET /logs` por session_id" — which is impossible with the current shape.
 
 **How to avoid:**
-- Define an explicit allowlist of fields per event type. The logger rejects (or drops with a warning) unknown fields. This inverts the default: you have to opt a field in.
-- Centralize a redaction function: known secret-looking keys (`*token*`, `*secret*`, `authorization`, `api_key`, `cookie`) replaced with `[REDACTED]` before serialization. Pino's `redact` option is designed for this — configure it at logger construction.
-- NEVER log raw webhook body or raw Claude stdin/stdout. Log metadata (length, event type, task id) and a stable hash of the content if correlation is needed.
-- Add a pre-commit check / test that scans recent log samples for common secret patterns and fails if found.
+- Implement `l` as an honest substring grep over the shared buffer, matched against `task_ref` (and/or `repo`) of the selected row.
+- **Label it honestly in the UI:** header like `logs (shared buffer, grep "<task_ref>" — may include other sessions)`. Do not title it "Session logs".
+- Do NOT add a `session_id` to `/logs` server-side — that violates the hard "NO new endpoints / NO server changes" constraint. Document the limitation as accepted v1 scope.
+- Correct the requirement text (`TUI-*` in REQUIREMENTS.md and PROJECT.md line 32) to say "best-effort grep", so downstream phases don't re-introduce the false-precision framing.
 
 **Warning signs:**
-- `grep -E 'sk-|pat_|ghp_' ~/.kodo/logs/` returns hits.
-- Log files flagged by repo secret scanners if accidentally committed.
-- Users attach log files to bug reports and secrets are visible.
+A plan task or test asserts "logs filtered by session_id"; UI copy says "Session logs"; users report log lines that don't belong to the session they selected.
 
-**Phase to address:** Phase 2 (structured logging) — redaction shipped with first log write. Retrofitting redaction after logs exist on user disks is too late.
+**Phase to address:** P-aux. Cheap to get right; expensive in trust if shipped as false precision. Also a documentation fix in the requirements phase.
 
 ---
 
-### Pitfall 8: GSD Command Drift Breaking kodo's Phase Injection
+### Pitfall 8: Re-render flicker / full-screen thrash under polling
 
 **What goes wrong:**
-GSD (separate repo, separate release cadence) renames `/gsd:phase-N-execute` to `/gsd:execute-phase N`, or changes its arguments, or splits into `/gsd:plan` and `/gsd:build`. kodo hard-codes the command string. Next Claude session launches with an invalid slash command; Claude either ignores it or asks the user what to do. No user is watching — the session sits idle until the Claude Code timeout.
+Re-rendering the whole table every 2-3s causes visible flicker, scrollback spam, or CPU thrash if done wrong: (a) calling `console.clear()` or writing escape clears manually fights ink's own diffing; (b) setting fresh React state on every poll even when data is byte-identical forces a full re-render and re-pad of every cell; (c) re-creating row objects/arrays each tick defeats reconciliation.
 
 **Why it happens:**
-Slash commands look like stable API but are just filenames in `~/.claude/commands/`. GSD is allowed to rename them; kodo sees a string, not a contract.
+ink already diffs and only repaints changed cells — but only if you let it. Devs either over-clear (manual ANSI / `console.clear`) or over-update (new state object every tick regardless of change).
 
 **How to avoid:**
-- Version-pin the expected GSD command set in kodo: on startup, scan `~/.claude/get-shit-done/` (or wherever GSD installs) for a `manifest.json` / `VERSION` and check commands exist before launching. Fail with a clear error: "GSD version X installed, kodo expects Y, check compatibility."
-- Contract test: a CI job in kodo clones the GSD repo at its latest tag and asserts the expected commands exist as files.
-- When kodo detects a GSD version mismatch, fall back to launching a plain Claude session with a comment to Plane explaining why — don't inject broken commands.
+- Let ink own the screen; never `console.clear()` or write raw clear sequences. Default `alternateScreen: false` is fine for a single full-frame app; if used, rely on `cleanup()` to tear it down (verified in ink docs).
+- Only `setState` when the data actually changed: compare a cheap signature of the payload (e.g. `JSON.stringify` of the projected fields, or a hash of `task_id+state+elapsed_min` per row) and skip the update if identical to the last frame.
+- Stable React keys (`task_id`) so unchanged rows aren't remounted (ties to Pitfall 3).
+- `React.memo` the row component keyed on its projected props so only changed rows repaint.
+- Respect ink's `maxFps` (default render throttling exists); don't fight it with manual timers that force extra frames.
+- Note: `elapsed_min` / age changes every minute server-side, so frames *will* legitimately change ~once a minute even when nothing else moves — accept that, but don't recompute age client-side on a 1s timer (that would force needless frames).
 
 **Warning signs:**
-- Sessions that start but produce zero git activity and zero Plane updates.
-- Claude session logs containing "I don't recognize this command" or similar.
-- Upgrading GSD in dev suddenly breaks kodo with no code change.
+Visible flash/flicker on each poll; terminal scrollback fills with repeated frames (sign of `debug`-style separate-output rendering or manual clears); CPU usage proportional to poll frequency even when idle.
 
-**Phase to address:** Phase 1 (GSD integration) — compatibility check is part of the integration contract; without it, every GSD release is a potential silent outage.
+**Phase to address:** P-table. Verify by eye in UAT + a unit test that the "did data change" gate returns false for two identical payloads.
 
 ---
 
-### Pitfall 9: Missing Log Correlation Across Session, Webhook, and Plane
+### Pitfall 9: Process lifecycle — dirty exit leaves terminal in raw mode / cursor hidden / intervals leaking
 
 **What goes wrong:**
-A user reports "this task failed weirdly yesterday." You have: Plane task id, a vague timestamp, log files per session, and commits in the target repo. No single identifier ties them together. You grep logs by time window, guess which session file matches, cross-reference commits, and spend 20 minutes reconstructing what happened. Multiply by every incident.
+On `q`, SIGINT, or SIGTERM, if cleanup is incomplete the user is dumped back to a shell with: no cursor, no echo (raw mode still on), the alternate screen still active (their scrollback hidden), a leaked polling timer firing into a torn-down tree, or an in-flight fetch never aborted. ink restores most of this on a clean `unmount()`, but a `process.exit()` mid-render or a signal that bypasses ink's handlers skips the teardown.
 
 **Why it happens:**
-Each subsystem has its own ID: Plane `task_id`, webhook delivery id, session uuid, git commit sha, log filename. Nothing assigns a single trace id at webhook receipt and propagates it.
+Devs call `process.exit(0)` directly on `q` instead of unmounting; or they don't wire SIGTERM (ink's `exitOnCtrlC` only covers Ctrl-C); or the polling timer/AbortController lives outside React and isn't cleared on unmount.
 
 **How to avoid:**
-- Assign a `correlation_id` (ULID or uuidv7 — time-sortable) at webhook ingress. Propagate it into: log filename, every structured log line's `cid` field, Plane comment footer, git commit trailer (`Kodo-Correlation-Id: 01HX...`).
-- Provide `kodo trace <cid>` CLI that assembles the full story: which webhook, which task, which session log, which commits, which Plane comments.
-- For GSD phase injections, pass the correlation id into the Claude session context as a non-secret value so Claude can include it in its own summaries.
+- `q` → `useApp().exit()` (clean unmount), not `process.exit()`. Let `waitUntilExit()` resolve, then the process ends naturally.
+- Clear the polling timer and `abort()` the in-flight controller in the `useEffect` cleanup (return fn) so unmount tears down all side effects.
+- Wire SIGTERM explicitly to call `unmount()` then exit (SIGINT is covered by ink's default `exitOnCtrlC`, but you may want to disable that and handle both uniformly so the same cleanup path runs).
+- Keep `patchConsole` at its default `true` — ink restores native console before React cleanup (verified in ink docs), so teardown-time logging behaves.
+- Exit codes: `0` for clean `q`/signal quit; `1` only for the non-TTY refusal (Pitfall 4) and unrecoverable startup errors. Keep them deterministic, consistent with the project's exit-code discipline (D-19 / Pitfall #6 Opción A elsewhere in the codebase).
 
 **Warning signs:**
-- "How do I find the log for Plane task TKN-123?" has no one-liner answer.
-- Incident investigation regularly takes >10 min of log archaeology.
-- Multiple log files match one timestamp and you don't know which is "the" session.
+After `q` the shell has no cursor or doesn't echo typing; `Ctrl-C` leaves a hung process; the alternate screen "sticks" hiding prior scrollback; a stray fetch hits the server after quit.
 
-**Phase to address:** Phase 2 (structured logging) — correlation id is logging's job; retrofitting means old logs stay un-correlated forever.
-
----
-
-### Pitfall 10: `.planning/` State Divergence Between Plane and Repo
-
-**What goes wrong:**
-Plane says task is "Done." `.planning/ROADMAP.md` in the repo says phase is still "In Progress." Or vice versa. GSD treats ROADMAP.md as source of truth for what to do next; Plane treats its own state as source of truth for dispatch. They drift because the session may complete partially, be killed mid-commit, or the GSD phase verifier rejects work after kodo already moved the Plane task.
-
-**Why it happens:**
-Two systems, two state machines, no transactional boundary. A crash between "commit ROADMAP.md update" and "update Plane state" leaves them inconsistent, with no reconciliation.
-
-**How to avoid:**
-- Declare ROADMAP.md the single source of truth for phase state. Plane state is a **projection** updated from it, not an independent authority.
-- After session end, kodo reads ROADMAP.md to decide the new Plane state. Never trust the in-memory session outcome alone.
-- On webhook ingress for a task, reconcile first: read ROADMAP.md, compare to Plane state, correct Plane if drifted (with a log entry) before dispatching new work.
-- Refuse to start a session on a task whose Plane state contradicts ROADMAP.md beyond a configured tolerance — surface the conflict for human resolution.
-
-**Warning signs:**
-- Tasks "completed" in Plane where the target repo has uncommitted `.planning/` changes.
-- Phases marked `[x]` in ROADMAP.md for tasks still "In Progress" in Plane.
-- Duplicate work: GSD re-runs a phase already marked done because kodo dispatched based on Plane alone.
-
-**Phase to address:** Phase 1 (GSD integration) — reconciliation rule baked into dispatch, not added after the first drift incident.
+**Phase to address:** P-scaffold (lifecycle/cleanup wiring) — the attach handoff (P-attach) reuses the same unmount/restore primitives.
 
 ---
 
@@ -243,109 +219,163 @@ Two systems, two state machines, no transactional boundary. A crash between "com
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Regex-based ROADMAP.md parsing | Ships in 1 hour instead of 1 day | Silent phase misdetection on any format drift; hard to debug | Never — the blast radius (wrong work committed) is too high |
-| `console.log` as structured logging | Zero deps, zero setup | No correlation, no redaction, no rotation, no structure for later querying | Only for `kodo check` (already exempt); never for sessions or webhooks |
-| Single shared lock keyed by task_id only | Solves the observed duplicate-webhook bug | Per-repo collision waiting to happen the moment two tasks share a repo | MVP only if a README note warns ops not to map two tasks to one repo; remove before public release |
-| Hard-coded `/gsd:phase-N-execute` string | Simplest possible integration | Silent breakage on every GSD version bump | Never — add at minimum a startup existence check |
-| Log-to-disk-only (no stdout) | No log noise in webhook terminal | Harder to tail in dev, no journald/syslog path | Acceptable if `--log-stdout` dev flag exists |
-| Eager logger init at module load | Simple imports | Breaks `kodo check` latency budget | Never in the shared CLI entry; acceptable in session-only entries |
+| `setInterval(poll, 2500)` instead of self-scheduling `setTimeout` | One line, "it polls" | Request stacking, out-of-order frames, CPU climb (Pitfall 2) | Never — the no-overlap loop is the same effort |
+| Index-based cursor instead of `task_id` identity | Trivial list nav | Wrong-session attach/comments/logs once a row ends (Pitfall 3, mirrors ROMAN-132) | Never for this app — the list mutates by design |
+| `console.clear()` + full re-print each tick | Mental model "just redraw" | Flicker, scrollback spam, fights ink diffing (Pitfall 8) | Never — let ink diff |
+| `process.exit(0)` on `q` | Immediate quit | Skips ink teardown → raw mode / hidden cursor leak (Pitfall 9) | Never — use `exit()`/`unmount()` |
+| Title `l` as "Session logs" | Matches the seed wording | False precision; user trusts wrong lines (Pitfall 7) | Never — label as shared-buffer grep |
+| Skip non-TTY guard ("nobody pipes a dashboard") | Less code | Crash in CI / under pipe, breaks CLI hygiene (Pitfall 4) | Never — cheap guard, project values scriptability |
+| Bump to `ink@7` for a nicer API | Latest features | Raises Node engines floor above the `>=20` invariant | Only if the whole project moves its Node floor deliberately |
+| Pull in `ink-table` to skip hand-rolling | Less table code | Stale/CJS dep against minimal-deps culture (already rejected by stack research) | Never — hand-roll |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| GSD (slash commands) | Treating command names as stable API | Startup version/existence check; contract tests in CI |
-| GSD (ROADMAP.md) | Parsing with regex against the current template | Markdown AST + schema version marker; tolerant to heading renames |
-| GSD (`.planning/` writes) | Assuming kodo is sole writer | Filesystem lock `.planning/.kodo.lock` with PID/timestamp; detect manual `claude` runs |
-| Plane (webhook retries) | Assuming each delivery is unique work | Idempotency via `task_id` lock + reconciliation against ROADMAP.md on ingress |
-| Plane (state updates) | Mid-session progress narration comments | Single end-of-session summary comment posted by kodo from logs, not by Claude mid-flight |
-| Plane (two tasks → one repo) | Per-task lock is sufficient | Two-tier lock: task_id + resolved repo path; FIFO queue on repo contention |
-| Claude Code session (context) | Layering GSD + Plane instructions without precedence | Mode-specific template; GSD owns lifecycle, Plane owns status transitions only |
-| Claude Code session (exit) | Trusting session's self-reported outcome | Re-read ROADMAP.md + git log after exit; derive truth from artifacts |
-| File logging (Node fs) | `appendFileSync` in webhook handler | `createWriteStream` + pino async transport; event-loop-delay monitoring |
+| `cmux attach` (foreground child) | Spawn while ink owns the TTY → raw-mode error / doubled echo | `unmount()` → `await waitUntilExit()` → `spawn(stdio:'inherit')` → re-`render()` in `finally` (Pitfall 1) |
+| `cmux attach` to a gone workspace | Tear down UI then spawn a doomed child → broken terminal | Pre-flight on `alive===false` (already in `/status`); refuse + stay mounted (Pitfall 1) |
+| `GET /status` | Assume it's cheap/instant | It awaits `provider.listPendingTasks()` (network, TTL-cached) + `cmux.listWorkspaces()`; treat as slow → AbortController + no-overlap (Pitfall 2) |
+| `GET /logs` | Filter by `session_id` (doesn't exist) | Substring grep on `task_ref`/`repo`; label honestly (Pitfall 7) |
+| `GET /comments/<task_id>` | Navigate/key by `task_ref` then call with ref | Endpoint is keyed by **`task_id`**; carry both — display `task_ref`, fetch by `task_id` (server resolves session by `task_id`, `src/server.js:424`) |
+| kodo server lifecycle | Assume server is always up | Handle ECONNREFUSED at startup AND mid-session distinctly; keep-last-good (Pitfall 5) |
+| `localhost:9090` parsing | Garbage/partial JSON crashes render | `try/catch` around `res.json()`; treat parse failure as a failed poll (keep-last-good), never throw into React |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Eager logger import in `kodo check` | Stop-hook latency creep, mystery slowness per-Claude-stop | Split entry points; lazy `getLogger()`; CI budget test | Any time (affects every stop hook from first session) |
-| Flat log directory with `session-<id>.log` | `readdir` slowdowns, directory-listing lag, IDE freezes on folder open | Date-partitioned `logs/YYYY-MM-DD/`; retention pruning on every webhook | ~2000-5000 files (OS/filesystem dependent) |
-| Synchronous file writes in hot path | Webhook tail latency, Plane delivery retries | Async streams, backpressure handling, event-loop-delay monitoring | ~20-50 webhooks/min sustained |
-| Unbounded per-session log growth | Disk fill, slow `kodo trace`, bloated bug report bundles | 50MB per-session cap + rotate; document in README | One runaway session (could happen on day one) |
-| ROADMAP.md re-parse per log line | Session startup latency, event loop blocked while parsing large files | Parse once at session start, cache the AST, invalidate on file change | Any repo with >20 phases or long descriptions |
+| New state object every poll even when unchanged | Constant repaint, CPU ∝ poll rate | Diff payload signature; skip `setState` if identical (Pitfall 8) | Immediately at idle (always-on tool) |
+| Client-side age timer recomputing every 1s | Extra frames/min for cosmetic age | Use server `elapsed_min`; only repaint on real data change | Any always-on session |
+| Re-creating row arrays/objects each tick | React remounts rows, table shuffles | Stable `task_id` keys + `React.memo` rows | As soon as >a few rows |
+| Unbounded log grep render | Slow paint if buffer grows | Buffer is fixed 200 lines server-side; render a capped slice | N/A at current 200-line cap, but cap client render anyway |
+
+> Scale note: expected scale is 3-10 active sessions (per the seed), occasionally up to ~100 with filters. Do not over-engineer virtualization; correct keys + memo + diff-gate is sufficient. The 200-line `/logs` cap is server-enforced.
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Logging raw webhook body | Plane signing secret, embedded PATs, user PII on disk | Log metadata only (length, type, hash); pino `redact` config |
-| Logging raw Claude stdin/stdout | MCP server credentials, session API keys, user prompt PII | Allowlist-based structured events; never pipe stdio to the logger |
-| Storing correlation ids that embed secrets | Secrets in filenames, grep hits | Use ULID/uuidv7 — opaque, time-sortable, non-secret by construction |
-| Default-permissive log file mode | Other users on shared dev machine read logs | `fs.chmod(0o600)` on create; document in install |
-| Shipping logs in bug report bundles unredacted | Credential exfil via support channel | `kodo trace --redact` mode that scrubs and bundles; default to redacted |
-| Trusting target repo path from Plane custom field without canonicalization | Path traversal to write `.planning/` in unintended repo | `path.resolve` + allowlist of permitted repo roots; reject symlinks |
+| Importing `picocolors` directly in TUI code for color | Breaks the color-isolation invariant + `test/format-isolation.test.js` (grep + walker) fails | Color comes from ink (`<Text color>`); if any plain-string ANSI is needed, route through `createFormatter` from `src/cli/format.js`. Add the TUI dir to the isolation walker's scan so a stray `picocolors` import is caught (Pitfall 10) |
+| Rendering raw provider/comment text into the terminal unescaped | A malicious task title/comment with ANSI escapes could move the cursor / clear screen / spoof UI | ink `<Text>` does not interpret embedded escapes as control by default, but strip/sanitize known CSI sequences from untrusted `/comments` and `/status` fields before display |
+| Logging the `localhost:9090` payloads (could contain task content) | Leaks task data to scrollback/files | Don't `console.log` payloads; ink already owns the screen |
+
+> Note: no auth/secrets in the TUI path — it only reads localhost JSON the server already exposes. The real "security-flavored" risk here is the color-isolation invariant (a project-defining test), covered as Pitfall 10.
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Silent failure when GSD command missing | Task sits "In Progress" forever, no feedback | Fail fast with Plane comment explaining the version mismatch |
-| No way to find logs for a given task | Debugging takes 20+ minutes of archaeology | `kodo trace <task-id>` or `<correlation-id>` CLI assembles full story |
-| Unclear which phase is "next" for a repo | User re-runs dispatch manually, gets wrong phase | `kodo gsd inspect <repo>` dry-run prints resolved phase + heading |
-| GSD session produces mid-flight Plane spam | Task comments unusable; real comments drowned | Single end-of-session structured summary posted by kodo |
-| Two tasks for one repo → silent queue | User wonders why second task isn't starting | Explicit Plane comment: "Queued behind task X, started HH:MM" |
-| Log retention deletes evidence mid-investigation | User loses logs while debugging | Retention runs in background; `kodo logs pin <cid>` prevents deletion |
+| Blank table the instant the server blips | Operator loses all context | Keep-last-good + dim + "stale 12s ago" status line (Pitfall 5) |
+| `l` titled "Session logs" | Trusts lines from other sessions | "shared buffer, grep — may include other sessions" (Pitfall 7) |
+| No "no sessions match" / "waiting for server" states | Looks frozen/broken | Explicit empty + loading + error states (Pitfalls 5, 6) |
+| Cursor jumps rows on auto-refresh | Disorienting; wrong attach | `task_id` identity + stable sort (Pitfall 3) |
+| Flicker every poll | Looks janky, hard to read | Diff-gate + ink diffing, no manual clears (Pitfall 8) |
+| NO_COLOR / dumb terminal ignored | Unreadable in some terminals | ink respects `NO_COLOR`; verify a `NO_COLOR=1` UAT renders monochrome; degrade box-drawing if needed |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **GSD phase resolver:** Often missing tolerance for renamed/versioned roadmaps — verify with 3 real roadmaps from different eras
-- [ ] **Per-repo lock:** Often missing even when per-task lock exists — verify by launching 2 tasks mapped to same repo simultaneously
-- [ ] **Context injection split:** Often missing mode branching — verify GSD sessions do NOT see Plane "document progress" text
-- [ ] **Logger in `kodo check`:** Often accidentally imported transitively — verify with `time kodo check` and a CI budget test
-- [ ] **Log retention:** Often "planned for later" — verify by running 500 simulated sessions and checking disk/dir counts
-- [ ] **Secret redaction:** Often assumes devs won't log sensitive things — verify by `grep -E` on a sample of production logs for known secret patterns
-- [ ] **Correlation id:** Often added to logs but not to Plane comments or git trailers — verify full round-trip from webhook to commit
-- [ ] **GSD version check:** Often omitted because "GSD is stable" — verify startup aborts on missing command
-- [ ] **ROADMAP.md as source of truth:** Often tacitly assumed but not enforced — verify reconciliation runs on every webhook, not just on failure
-- [ ] **Async log writes:** Often "it's async because I used `fs.promises`" — verify with event-loop-delay metric under simulated burst load
+- [ ] **Attach handoff:** Works on the *first* `Enter`, but verify the *second* attach after returning (re-`render` must produce a fresh, working raw-mode instance — no doubled echo).
+- [ ] **Attach to dead workspace:** Select a row, kill its cmux workspace, press `Enter` — terminal must survive (cursor + echo intact), not just the happy path.
+- [ ] **Ctrl-C during attach:** Confirm it detaches/returns cleanly, doesn't kill `kodo` or orphan the child.
+- [ ] **Mid-session server death:** Kill the kodo daemon while the dashboard is up — table dims + stale banner, no crash, recovers on restart.
+- [ ] **Non-TTY:** `kodo dashboard | cat` exits 1 with a clear message, no stack trace.
+- [ ] **Quit cleanliness:** After `q` and after Ctrl-C, the shell has a visible cursor, echoes input, and scrollback is intact (alternate screen torn down).
+- [ ] **Selection identity:** Highlight a row, let a *different* session end, confirm the highlight still tracks the same `task_id`.
+- [ ] **Empty/filtered actions:** `Enter`/`c`/`l` on an empty or zero-match filter are no-ops, not crashes.
+- [ ] **Color isolation:** `test/format-isolation.test.js` still green; TUI imports no `picocolors`.
+- [ ] **No build step / Node floor:** `bin/kodo dashboard` runs straight from `.js` (no transpile); `ink@6` keeps `engines.node >=20`.
+- [ ] **No new endpoints:** `git diff` on `src/server.js` is empty.
+- [ ] **comments fetch:** Uses `task_id` (not `task_ref`) for the `/comments/<id>` call.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Phase resolver picked wrong phase | MEDIUM | `git revert` the bad commits; fix resolver + schema version; re-dispatch task |
-| Two sessions collided on `.planning/` | HIGH | Manually reconcile git state (likely hard reset + replay); add per-repo lock; audit for corrupt commits |
-| `kodo check` slowed from logger import | LOW | Split entry point; verify with budget test; no data corruption |
-| Log directory blew up | LOW | Delete old files; add retention + partitioning; no data loss of useful logs |
-| Secrets leaked to logs | HIGH | Rotate affected credentials; scrub log files on all machines; add redaction + post-facto scanner |
-| GSD command rename broke sessions | MEDIUM | Pin GSD version; add compatibility check; replay affected tasks after fix |
-| Plane/ROADMAP drift | MEDIUM | Manually reconcile affected tasks; implement reconciliation-on-ingress; audit for duplicate work |
-| Context injection confusion | MEDIUM | Review recent commits + Plane comments for muddled behavior; split templates; re-test |
+| Terminal left broken after bad attach (Pitfall 1) | LOW (user) / MEDIUM (fix) | User: `reset` / `stty sane`. Fix: enforce `finally`-re-render + pre-flight `alive` guard |
+| Index-based selection shipped (Pitfall 3) | MEDIUM | Refactor selection state to `task_id`; add the two-payload reducer test before re-shipping |
+| `setInterval` request stacking (Pitfall 2) | LOW | Swap to self-scheduling `setTimeout` + AbortController; add slow-fetch single-flight test |
+| `picocolors` leaked into TUI (Pitfall 10) | LOW | Remove import, use `<Text color>` / `createFormatter`; isolation test catches it |
+| `l` shipped as "Session logs" (Pitfall 7) | LOW | Re-label header; correct REQUIREMENTS/PROJECT wording |
+| Accidental `ink@7` Node-floor bump | LOW (if caught pre-merge) | Pin `ink@6.x`; add an engines/floor assertion to the smoke test |
+
+## Project-Invariant Traps (kodo-specific)
+
+These are the "don't break the existing project contracts" traps the roadmapper must bake into success criteria:
+
+1. **Color isolation (`picocolors` single-source):** Only `src/cli/format.js` may import `picocolors`; `test/format-isolation.test.js` enforces via grep + module walker. The TUI must get color from ink's `<Text color>`, not `picocolors`. **Action for roadmapper:** ensure the isolation walker's scan path includes the new TUI directory so a stray import is caught, and the new subcommand entry in `bin/kodo` doesn't pull `picocolors` transitively. (Pitfall 10)
+
+2. **No build step:** Project is plain `.js` + JSDoc `@ts-check`, no transpile (PROJECT.md "TypeScript migration … sin build step"). The TUI must use `React.createElement` in `.js` (per stack research) — **no JSX, no Babel/esbuild, no `tsx`**. A build step would be a new architectural cost the project explicitly rejected. **Verify:** `bin/kodo dashboard` runs directly under `node`.
+
+3. **Node engines floor `>=20`:** `ink@6.8.0` keeps the floor (stack research). Picking `ink@7` (or any dep requiring Node 22+) silently raises the floor — a breaking runtime change. **Verify:** keep `engines.node: ">=20.0.0"`; pin ink major to 6.
+
+4. **Minimal deps culture:** Prod deps are exactly `commander` + `picocolors`. The TUI adds `ink`, `react`, `ink-text-input` (per stack research) — that's the agreed, scoped expansion. **Trap:** scope-creeping in extra ink-ecosystem packages (`ink-table` already rejected, spinners, gradient, big-text, etc.). Each added dep must be justified; default to hand-rolling (consistent with the hand-rolled table decision).
+
+5. **DI-for-testability (Node test runner has no `mock.module`):** The project's established pattern is pure helpers + injected deps (Key Decision: "Pure helper extraction + DI for testability"). The TUI must inject its **clock** (poll interval) and **fetch fn** so tests are hermetic — no real timers, no real network (Pitfall 11). Don't reach for a mocking lib.
+
+6. **`--json` / byte-determinism culture:** Other surfaces are scriptable and deterministic. The dashboard is interactive-only by design; the trap is *implying* a machine mode. Point scripters at the existing `kodo status` / `--json`, don't half-build a non-interactive dashboard.
+
+### Pitfall 10: Accidental `picocolors` import breaks color isolation
+
+**What goes wrong:** A TUI file imports `picocolors` (or a transitive dep does) to colorize a string outside `<Text>`. `test/format-isolation.test.js` (grep + walker) goes red — a project-defining invariant breaks.
+**How to avoid:** All color via ink `<Text color="...">`; any plain-string ANSI via `createFormatter(stream)` from `src/cli/format.js`. Extend the isolation walker to scan the TUI dir.
+**Warning signs:** `format-isolation` test failure after adding TUI code; a `from 'picocolors'` import outside `src/cli/format.js`.
+**Phase to address:** P-scaffold (set the import discipline up front; extend the walker as part of scaffolding).
+
+### Pitfall 11: Tests that depend on real timers/network → flaky, non-hermetic
+
+**What goes wrong:** ink components are tested with real `setTimeout` polling and a real `fetch` to `localhost:9090`. Tests flake (timing), require a running server, and can't run in CI. Testing input/raw-mode without a TTY throws.
+**How to avoid:**
+- Inject the **clock** (the poll scheduler) and the **fetch fn** as deps (project DI pattern). Tests advance the clock manually and return canned payloads — no real timers, no network.
+- Use `ink-testing-library` (`render` returns `lastFrame()` / `stdin.write()`), which renders to a fake stdout and feeds input without needing a TTY — so `useInput` works in tests.
+- Drive interaction by writing to the test `stdin` (arrow keys = escape sequences); assert on `lastFrame()`.
+- Mark what genuinely can't be unit-tested — the real `cmux attach` TTY handoff (raw-mode handoff to a foreground child) — as **manual UAT** (Pitfall 13), consistent with the project's spawn-real-child UAT pattern where feasible.
+**Warning signs:** tests that `await sleep(3000)`; tests that fail without the kodo server up; `Raw mode is not supported` in the test runner.
+**Phase to address:** P-test (harness), with each feature phase contributing its own injected-dep tests.
+
+### Pitfall 12: Partial / garbage JSON from `/status` crashes the render
+
+**What goes wrong:** A truncated response, an HTML error page, or a 500 with non-JSON body makes `res.json()` throw inside the poll; if unhandled it becomes an uncaught rejection that tears down the ink tree.
+**How to avoid:** `try/catch` `res.json()`; on parse failure treat the tick as a failed poll (keep-last-good, Pitfall 5), increment the failure counter for backoff, never let it reach React as a throw. Validate the shape minimally (`Array.isArray(payload.sessions)`) before using it.
+**Warning signs:** unhandled-rejection crash; table tears down on a transient server error.
+**Phase to address:** P-poll.
+
+### Pitfall 13: The attach handoff can't be unit-tested — no UAT planned
+
+**What goes wrong:** The single highest-risk behavior (real raw-mode handoff to an interactive `cmux attach`, then restoration) is unobservable in `ink-testing-library` (fake stdout, no real TTY). If no manual UAT is scheduled, it ships untested and breaks in the operator's hands.
+**How to avoid:** Schedule an explicit manual UAT in P-attach covering the four scenarios in the "Looks Done But Isn't" checklist (first attach, second attach, dead-workspace attach, Ctrl-C during attach). This mirrors the project's existing practice of HUMAN-UAT for things that can't be automated. Automate what *can* be: the pre-flight `alive` guard and the unmount-before-spawn ordering are unit-testable with an injected spawn fn that records call order relative to `unmount`.
+**Warning signs:** P-attach has no UAT artifact; "tested" claim rests only on `lastFrame()` assertions.
+**Phase to address:** P-attach.
 
 ## Pitfall-to-Phase Mapping
 
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| Phase resolver brittleness | Phase 1 (GSD integration) | `kodo gsd inspect` against 3 diverse roadmaps returns correct phase |
-| Per-repo concurrency collision | Phase 1 (GSD integration) | Simulate 2 tasks → 1 repo; second queues, first completes cleanly |
-| Context injection collision | Phase 1 (GSD integration) | Snapshot test of GSD-mode vs. plain-mode context template diff |
-| Logger breaking `kodo check` | Phase 2 (structured logging) | CI budget test: `time kodo check` < 50ms |
-| Unbounded log accumulation | Phase 2 (structured logging) | 500-session simulation; dir count + disk usage within policy |
-| Event-loop-blocking writes | Phase 2 (structured logging) | Burst load test (100 webhooks/min) with event-loop-delay < 50ms |
-| Secret leakage in logs | Phase 2 (structured logging) | Secret-pattern scanner test on log samples returns zero matches |
-| GSD command drift | Phase 1 (GSD integration) | Startup check test: missing command → clear abort, no session launch |
-| Missing log correlation | Phase 2 (structured logging) | `kodo trace <cid>` assembles webhook + session + commits + Plane comments |
-| Plane/ROADMAP drift | Phase 1 (GSD integration) | Reconciliation-on-ingress test; inconsistent state → human-resolvable error, not silent dispatch |
+| # | Pitfall | Prevention Phase | Verification |
+|---|---------|------------------|--------------|
+| 1 | `cmux attach` TTY handoff breaks terminal | P-attach | Manual UAT (4 scenarios) + injected-spawn ordering test |
+| 2 | Poll request stacking | P-poll | Slow-fetch single-flight test (only 1 in flight) |
+| 3 | Index-based selection (wrong session) | P-table | Two-payload reducer test: cursor tracks `task_id` |
+| 4 | Non-TTY crash instead of graceful refuse | P-scaffold | Spawn with piped stdin → exit 1 + canonical stderr |
+| 5 | Server-down startup vs mid-session | P-poll | Injected fetch succeed×2 then throw → keep-last-good |
+| 6 | Filter/empty-list cursor bugs | P-table + P-aux | Reducer test on empty/shrinking filtered set; action no-op guards |
+| 7 | `l` false-precision logs | P-aux (+ requirements doc fix) | UI header labeled "shared buffer grep"; REQUIREMENTS corrected |
+| 8 | Re-render flicker/thrash | P-table | Diff-gate returns false for identical payloads; visual UAT |
+| 9 | Dirty exit (raw mode/cursor/intervals) | P-scaffold | Post-`q` and post-Ctrl-C terminal sane; cleanup clears timer+abort |
+| 10 | `picocolors` color-isolation leak | P-scaffold | `test/format-isolation.test.js` green; walker scans TUI dir |
+| 11 | Non-hermetic timer/network tests | P-test | Tests inject clock+fetch; `ink-testing-library`; no real net |
+| 12 | Garbage JSON crashes render | P-poll | Injected fetch returns bad JSON → treated as failed poll |
+| 13 | Attach handoff untested | P-attach | Manual UAT artifact exists |
+| — | No build step / Node floor / minimal deps | P-scaffold | `bin/kodo dashboard` runs under node; `engines.node` unchanged; dep list reviewed |
+| — | No new server endpoints | all | `git diff src/server.js` empty at milestone close |
 
 ## Sources
 
-- kodo `.planning/PROJECT.md` + `RETROSPECTIVE.md` timeline (v0.2 provider-abstraction milestone, Apr 2026)
-- Recent kodo commits: `8e1bcd3` (in-memory lock), `dab86bc` (Claude session owns Plane lifecycle), `4278931` (rate-limit-driven caching)
-- GSD command surface (`~/.claude/get-shit-done/`) — slash command filenames, phase-execute pattern, ROADMAP.md template evolution
-- Node.js logging footguns: pino docs on `redact` and async transports; `perf_hooks.monitorEventLoopDelay` pattern
-- Webhook idempotency patterns: two-tier locking (resource-scoped), reconciliation-on-ingress
-- Milestone context: known concerns listed by orchestrator (phase resolver, dedup granularity, context conflict, `kodo check` latency, log retention)
+- [Ink — Context7 `/vadimdemedes/ink`](https://context7.com/vadimdemedes/ink) — `render` options (`exitOnCtrlC`, `patchConsole`, `alternateScreen`, `maxFps`, `debug`), `waitUntilExit()` settle-after-unmount semantics, `cleanup()` terminal/alt-screen teardown, `useApp().exit()` (HIGH)
+- [ink `useStdin().isRawModeSupported` / raw mode & input processing — DeepWiki](https://deepwiki.com/vadimdemedes/ink/7.3-raw-mode-and-input-processing) (HIGH)
+- [setRawMode fails when running with non-TTY stdin · ink#166](https://github.com/vadimdemedes/ink/issues/166) — the canonical non-TTY crash + `isRawModeSupported` fallback pattern (HIGH)
+- [Raw mode is not supported when piping input · claude-code#5925](https://github.com/anthropics/claude-code/issues/5925) and [#404](https://github.com/anthropics/claude-code/issues/404) — real-world manifestation of the same crash in a shipped Node+ink CLI (MEDIUM)
+- kodo `src/server.js:355-441` — verified `/status` (sessions enriched with `alive`/`elapsed_min`, awaits `listPendingTasks` + `cmux.listWorkspaces`), `/logs` (flat ring buffer, no `session_id`), `/comments/<task_id>` (keyed by `task_id`) (HIGH — read directly)
+- kodo `src/cli/format.js` + `package.json` — color-isolation single-source, `engines.node >=20`, prod deps `commander`+`picocolors` only (HIGH — read directly)
+- kodo `.planning/PROJECT.md` / `PENDING-INTEGRATIONS.md` — Opción A decision, NO new endpoints constraint, DI-for-testability, ROMAN-132 desync history, `l` "filtrado por session_id" wording to correct (HIGH — read directly)
 
 ---
-*Pitfalls research for: kodo v0.3 GSD integration + structured logging*
-*Researched: 2026-04-15*
+*Pitfalls research for: ink TUI added to the kodo Node.js CLI (`kodo dashboard`, v0.9)*
+*Researched: 2026-05-26*
