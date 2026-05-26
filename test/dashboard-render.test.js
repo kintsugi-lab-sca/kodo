@@ -6,14 +6,24 @@
 // falso, sin necesidad de terminal real) y verifica:
 //   1. El chrome D-01: banner "kodo dashboard", placeholder "starting…"
 //      (U+2026, NO tres puntos ASCII) y footer hint "q quit".
-//   2. (TUI-03 parcial) que pulsar `q` desmonta el componente limpio:
-//      `instance.waitUntilExit()` resuelve ANTES de un timeout de ~1s.
+//   2. (TUI-03 parcial) que pulsar `q` dispara un desmonte limpio vía
+//      useApp().exit() (D-08): ink emite un frame de unmount adicional que una
+//      tecla ignorada (p. ej. `x`) NO produce.
 //
 // La aserción de q→exit es de comportamiento OBSERVABLE (no un stdin.write('q')
-// hueco): se corre una carrera entre `waitUntilExit()` y un timeout; si el
-// timeout gana, el await lanza y el test falla. Esto da cobertura automatizada
-// real a TUI-03 (la restauración de terminal tras Ctrl-C/SIGTERM en TTY real
-// sigue siendo UAT manual — no automatizable sin PTY).
+// hueco) y CONTROLADA: se compara el conteo de frames tras `q` (desmonte → +1
+// frame) contra una tecla que App ignora (sin re-render). Si `q` no desmontara
+// (regresión: process.exit en vez de exit(), o binding roto), no habría frame
+// extra y el test falla. Esto da cobertura automatizada real a TUI-03 (la
+// restauración de terminal tras Ctrl-C/SIGTERM en TTY real sigue siendo UAT
+// manual — no automatizable sin PTY).
+//
+// NOTA (Plan 02 — RESEARCH A3 / Plan 01 Decisión 2): la firma concreta de la
+// aserción q→exit se delegó al implementador. `ink-testing-library@4.0.0` NO
+// expone `waitUntilExit()` en el instance que retorna (solo rerender/unmount/
+// cleanup/stdout/stderr/stdin/frames/lastFrame); ese método vive en el render()
+// real de `ink`, no en el harness. La aserción observable equivalente bajo este
+// harness es el frame de unmount que `exit()` emite.
 //
 // Estado Wave 0: ROJO por diseño hasta que Plan 02 cree
 // `src/cli/dashboard/App.js` (default export del componente). Hoy el import
@@ -35,25 +45,34 @@ describe('TUI-01: dashboard chrome (D-01)', () => {
     assert.match(frame, /q quit/, `footer hint "q quit" missing\nframe:\n${frame}`);
   });
 
-  it('q triggers clean exit (waitUntilExit resolves before ~1s timeout)', async () => {
-    const instance = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
-    instance.stdin.write('q');
+  it('q triggers clean exit (extra unmount frame vs an ignored key)', async () => {
+    // Espera breve para que ink procese el keystroke y re-renderice/desmonte.
+    const tick = () => new Promise((r) => setTimeout(r, 80));
 
-    // Carrera: si `q` desmonta limpio, waitUntilExit() resuelve y gana.
-    // Si NO desmonta (regresión), el timeout rechaza a ~1s y el await lanza
-    // → el test falla con un mensaje accionable. Aserción de comportamiento
-    // observable concreto, NO un stdin.write sin assert.
-    /** @type {NodeJS.Timeout} */
-    let timer;
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('q no salió en 1s (waitUntilExit no resolvió)')), 1000);
-    });
+    // Control: una tecla que App ignora (D-11 — solo `q` sale). No re-render.
+    const ignored = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
+    const baselineFrames = ignored.frames.length; // render inicial
+    ignored.stdin.write('x');
+    await tick();
+    assert.equal(
+      ignored.frames.length,
+      baselineFrames,
+      `una tecla ignorada NO debe producir frames extra\nframes: ${ignored.frames.length} (baseline ${baselineFrames})`,
+    );
+    ignored.unmount();
 
-    try {
-      await Promise.race([instance.waitUntilExit(), timeout]);
-    } finally {
-      clearTimeout(timer);
-    }
-    // Si llegamos aquí sin lanzar, waitUntilExit() ganó la carrera → q desmontó.
+    // `q` → useApp().exit() → ink desmonta y emite un frame adicional (clear).
+    // Si `q` NO desmontara (regresión: process.exit en vez de exit(), o binding
+    // roto), no habría frame extra → este assert falla con mensaje accionable.
+    const quitting = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
+    const beforeQuit = quitting.frames.length; // render inicial (== baseline)
+    quitting.stdin.write('q');
+    await tick();
+    assert.ok(
+      quitting.frames.length > beforeQuit,
+      `q debe disparar un desmonte limpio (frame extra de unmount)\n` +
+        `frames antes: ${beforeQuit}, después: ${quitting.frames.length}`,
+    );
+    quitting.unmount();
   });
 });

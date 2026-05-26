@@ -297,6 +297,18 @@ program
     }
   });
 
+// --- kodo dashboard ---
+program
+  .command('dashboard')
+  .description('Live TUI dashboard of active kodo sessions')
+  .option('--url <baseUrl>', 'Base URL del server kodo (default: http://localhost:<config.server.port>)')
+  .action(async (opts) => {
+    // Sin gate de provider (D-07) — el dashboard resuelve baseUrl en memoria y no
+    // requiere provider configurado en Phase 34. Lazy import aísla ink al subcomando.
+    const { runDashboard } = await import('./cli/dashboard/index.js');
+    await runDashboard({ url: opts.url });
+  });
+
 // --- kodo gsd <subcommand> ---
 const gsd = program.command('gsd').description('GSD subcommands (inspect resolver, etc.)');
 
