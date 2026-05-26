@@ -195,3 +195,26 @@ describe('DEBT-04 source-hygiene: ANSI exports retired (Phase 15 IN-01 closed vi
     );
   });
 });
+
+describe('TUI-04 (D-13): cero picocolors bajo src/cli/dashboard/', () => {
+  // Invariante D-12: todo el color del TUI sale de ink <Text color>, CERO
+  // picocolors bajo src/cli/dashboard/**. Reutiliza los helpers existentes
+  // (listJsFiles / extractImports / REPO / SRC) — no redefine nada.
+  //
+  // En Wave 1 src/cli/dashboard/ aún no existe → listJsFiles no lo encuentra
+  // → la lista filtrada es vacía → este test pasa trivialmente. Gana mordida
+  // cuando Plan 02 cree los archivos del TUI: si alguno importase picocolors
+  // (directo), este test se pondría rojo.
+  it('ningún archivo de src/cli/dashboard/ importa picocolors', () => {
+    const dashFiles = listJsFiles(SRC).filter((f) => f.includes('/cli/dashboard/'));
+    const leakers = dashFiles
+      .filter((f) => extractImports(readFileSync(f, 'utf-8')).includes('picocolors'))
+      .map((f) => relative(REPO, f));
+    assert.deepEqual(
+      leakers,
+      [],
+      `Color del TUI debe salir de ink <Text>, no de picocolors (D-12).\n` +
+        `Archivos bajo src/cli/dashboard/ que importan picocolors:\n  ${leakers.join('\n  ')}`,
+    );
+  });
+});
