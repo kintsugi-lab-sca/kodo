@@ -75,28 +75,28 @@ Mapeo requirement → fase. Los grupos A–E reflejan el orden de build de la in
 
 | Requirement | Grupo (build order) | Phase | Status |
 |-------------|---------------------|-------|--------|
-| TUI-01 | A — Fundación | TBD | Pending |
-| TUI-02 | A — Fundación | TBD | Pending |
-| TUI-03 | A — Fundación | TBD | Pending |
-| TUI-04 | A — Fundación | TBD | Pending |
-| TUI-05 | B — Datos/polling | TBD | Pending |
-| TUI-06 | B — Datos/polling | TBD | Pending |
-| TUI-07 | C — Tabla/selección | TBD | Pending |
-| TUI-08 | C — Tabla/selección | TBD | Pending |
-| TUI-09 | C — Tabla/selección | TBD | Pending |
-| TUI-10 | C — Tabla/selección | TBD | Pending |
-| TUI-11 | C — Tabla/selección | TBD | Pending |
-| TUI-12 | C — Tabla/selección | TBD | Pending |
-| TUI-13 | D — Attach | TBD | Pending |
-| TUI-14 | D — Attach | TBD | Pending |
-| TUI-15 | E — Paneles aux | TBD | Pending |
-| TUI-16 | E — Paneles aux | TBD | Pending |
+| TUI-01 | A — Fundación | Phase 34 | Pending |
+| TUI-02 | A — Fundación | Phase 34 | Pending |
+| TUI-03 | A — Fundación | Phase 34 | Pending |
+| TUI-04 | A — Fundación | Phase 34 | Pending |
+| TUI-05 | B — Datos/polling | Phase 35 | Pending |
+| TUI-06 | B — Datos/polling | Phase 35 | Pending |
+| TUI-07 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-08 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-09 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-10 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-11 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-12 | C — Tabla/selección | Phase 36 | Pending |
+| TUI-13 | D — Attach | Phase 37 | Pending |
+| TUI-14 | D — Attach | Phase 37 | Pending |
+| TUI-15 | E — Paneles aux | Phase 38 | Pending |
+| TUI-16 | E — Paneles aux | Phase 38 | Pending |
 
 **Coverage:**
 - v1 requirements: 16 total
-- Mapped to phases: 0 (pendiente — lo asigna el roadmapper)
-- Unmapped: 16 ⚠️ (se resuelve al crear el roadmap)
+- Mapped to phases: 16 (Phases 34-38, build order A→E)
+- Unmapped: 0 ✓ (100% coverage — cada TUI-* mapea a exactamente una fase)
 
 ---
 *Requirements defined: 2026-05-26*
-*Last updated: 2026-05-26 after initial definition (research-grounded, milestone v0.9)*
+*Last updated: 2026-05-26 — traceability rellenada por gsd-roadmapper: 16/16 TUI-* mapeadas a Phases 34-38, 100% coverage.*

@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: planning
-last_updated: "2026-05-26T08:48:18.518Z"
+status: ready_to_plan
+last_updated: "2026-05-26T12:41:00.000Z"
 last_activity: 2026-05-26
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,7 +16,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** None — v0.8 shipped 2026-05-25, awaiting v0.9 definition
+**Active milestone:** v0.9 kodo TUI — sesiones en vivo (Phases 34-38). Roadmap creado 2026-05-26.
 
 ## Project Reference
 
@@ -24,14 +24,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Planning next milestone (v0.9). Candidato primario: kodo TUI de sesiones en vivo (seed en `.planning/PENDING-INTEGRATIONS.md`).
+**Current focus:** Phase 34 — Fundación (subcomando `kodo dashboard` + ciclo de vida + guards). Build order A→E verificado en `.planning/research/SUMMARY.md`.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-26 — Milestone v0.9 started
+Phase: 34 of 38 (Fundación — subcomando + ciclo de vida)
+Plan: — (no plans yet)
+Status: Ready to plan
+Last activity: 2026-05-26 — Roadmap v0.9 creado (Phases 34-38, 16/16 TUI-* mapeadas, 100% coverage)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Most recent shipped milestone
 
@@ -50,7 +52,8 @@ None.
 
 ### Open Questions
 
-- **v0.9 stack decision (kodo TUI):** opción A (Node+ink) / B (Go+bubbletea reusando `code-tui`) / C (híbrido). Resolver antes de discuss-phase. Detalle en `PENDING-INTEGRATIONS.md`.
+- **Phase 37 (attach) UAT manual:** la fase de mayor riesgo del milestone exige un artefacto de UAT manual con 4 escenarios (primer attach + vuelta · segundo attach consecutivo · workspace muerto · Ctrl-C durante attach). Sin ese artefacto la fase NO está completa (research flag).
+- _Resuelto:_ stack decision v0.9 = Opción A (Node + ink), subcomando `kodo dashboard`. `ink@^6.8.0` + `react@^19.2.0` + `ink-text-input@^6.0.0`, `React.createElement` sin build step, Node ≥20.
 
 ### Roadmap (archived milestones)
 
@@ -81,13 +84,15 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-25 — `/gsd-complete-milestone v0.8`
-- **Stopped at:** Milestone v0.8 archived (ROADMAP/REQUIREMENTS → milestones/, PROJECT.md evolved, RETROSPECTIVE updated, tagged v0.8).
-- **Next action:** `/gsd-new-milestone` para v0.9.
+- **Last session:** 2026-05-26 — `/gsd-new-milestone` v0.9 (requirements + research + roadmap).
+- **Stopped at:** Roadmap v0.9 creado por gsd-roadmapper — 5 phases (34-38) mapeando 16/16 requirements TUI-*, 100% coverage. ROADMAP.md + REQUIREMENTS.md traceability + STATE.md actualizados.
+- **Next action:** `/gsd-plan-phase 34` (Fundación — subcomando + ciclo de vida).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current State: v0.8 shipped + candidatos v0.9)
   - `.planning/ROADMAP.md` (v0.8 colapsado en Archived Milestones)
   - `.planning/MILESTONES.md` (entrada v0.8 completa)
   - `.planning/RETROSPECTIVE.md` (sección v0.8 + trends actualizados)
+  - `.planning/REQUIREMENTS.md` (v0.9 TUI-* requirements + traceability 16/16 → Phases 34-38)
+  - `.planning/research/SUMMARY.md` (build order A→E + 13 pitfalls, confidence HIGH)
   - `.planning/PENDING-INTEGRATIONS.md` (seed v0.9: kodo TUI de sesiones en vivo)
   - `.planning/milestones/v0.8-*` (full milestone v0.8 archive)
