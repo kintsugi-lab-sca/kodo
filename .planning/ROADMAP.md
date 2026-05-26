@@ -41,7 +41,7 @@
 Plans:
 **Wave 1**
 
-- [ ] 34-01-PLAN.md — Stack ink/react + tests Wave 0 (non-TTY, render) + walker color-isolation extendido
+- [x] 34-01-PLAN.md — Stack ink/react + tests Wave 0 (non-TTY, render) + walker color-isolation extendido
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -253,7 +253,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 31. Phase 21/22 Advisory Cleanup | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
-| 34. Fundación — subcomando + ciclo de vida | v0.9 | 0/2 | Not started | - |
+| 34. Fundación — subcomando + ciclo de vida | v0.9 | 1/2 | In Progress|  |
 | 35. Datos — cliente HTTP + polling | v0.9 | 0/TBD | Not started | - |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
