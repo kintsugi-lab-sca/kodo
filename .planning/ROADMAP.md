@@ -26,67 +26,88 @@
 - [ ] **Phase 38: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
 
 #### Phase 34: Fundación — subcomando + ciclo de vida
+
 **Goal**: El operador puede lanzar y salir del panel `kodo dashboard` de forma segura, con el esqueleto, los guards y las invariantes de disciplina (non-TTY, color-isolation, ciclo de vida limpio) establecidos desde el primer commit antes de cualquier lógica de negocio.
 **Depends on**: Phase 33 (v0.8 shipped — primera fase del milestone v0.9)
 **Requirements**: TUI-01, TUI-02, TUI-03, TUI-04
 **Success Criteria** (what must be TRUE):
+
   1. El operador ejecuta `kodo dashboard` en una terminal TTY y ve montarse el panel en vivo (esqueleto mínimo via `render()`).
   2. Si el operador redirige stdout a un pipe o lo ejecuta en CI (no-TTY), el comando se niega a arrancar con un mensaje claro y exit code ≠ 0 — sin crash ni error de raw-mode.
   3. El operador pulsa `q` (o Ctrl-C / SIGTERM) y la terminal queda intacta: cursor visible, echo restaurado, scrollback sin corromper.
   4. Ningún archivo bajo `src/cli/dashboard/` importa `picocolors`, y `test/format-isolation.test.js` lo verifica (walker extendido al directorio TUI).
+
 **Plans**: 2 plans
 Plans:
+**Wave 1**
+
 - [ ] 34-01-PLAN.md — Stack ink/react + tests Wave 0 (non-TTY, render) + walker color-isolation extendido
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 34-02-PLAN.md — Subcomando `kodo dashboard`: registro + runDashboard (guard/lifecycle) + App.js (chrome + q->exit)
+
 **UI hint**: yes
 
 #### Phase 35: Datos — cliente HTTP + polling
+
 **Goal**: El panel obtiene y refresca las sesiones desde el server de forma resiliente: cliente HTTP puro que nunca lanza, loop de polling que no apila requests, y degradación elegante (keep-last-good + backoff) cuando el server no responde.
 **Depends on**: Phase 34
 **Requirements**: TUI-05, TUI-06
 **Success Criteria** (what must be TRUE):
+
   1. El panel refresca las sesiones desde `GET /status` cada ~2s; cuando un poll tarda más que el intervalo, el siguiente NO se encola (loop self-scheduling, una request en vuelo a la vez).
   2. Si el server kodo está caído al arrancar, el panel muestra un estado "server caído" claro en lugar de crashear.
   3. Si el server cae a mitad de sesión, el panel conserva el último dato bueno (keep-last-good), reintenta con backoff progresivo y se recupera solo cuando el server vuelve.
   4. Una respuesta JSON corrupta del server se trata como un poll fallido (keep-last-good), nunca como un crash del render.
+
 **Plans**: TBD
 **UI hint**: yes
 
 #### Phase 36: Tabla viva — render + selección + filtros
+
 **Goal**: El operador ve y navega la lista viva de sesiones con una tabla legible, selección estable por identidad, orden que no salta, color semántico, resumen de contadores y filtros — la capa de presentación central sobre la que actúan attach/comments/logs.
 **Depends on**: Phase 35
 **Requirements**: TUI-07, TUI-08, TUI-09, TUI-10, TUI-11, TUI-12
 **Success Criteria** (what must be TRUE):
+
   1. El operador ve una tabla de sesiones activas con columnas `task_ref · repo · phase/mode · status · age`.
   2. El operador mueve el cursor con ↑/↓ y la selección sigue a la misma sesión por `task_id` aunque la lista se reordene o una fila desaparezca en el refresh (nunca apunta a la sesión equivocada).
   3. Las filas mantienen un orden estable por `started_at` (no saltan en cada poll) y se colorean por `status` + `alive`, distinguiendo visualmente el caso zombie `running` + `!alive`.
   4. El header muestra un indicador "live" + contadores por estado (p. ej. "3 running · 1 review"); la lista vacía muestra "no active sessions".
   5. El operador filtra filas con `/` (substring) y los prefijos `r:<repo>` / `s:<state>`, y la posición del cursor se preserva al aplicar o limpiar el filtro.
+
 **Plans**: TBD
 **UI hint**: yes
 
 #### Phase 37: Attach — handoff a cmux (FASE DE MAYOR RIESGO)
+
 **Goal**: El operador hace handoff completo del TTY desde el panel a `cmux attach <workspace_ref>` y vuelve al dashboard intacto al hacer detach — la integración más arriesgada del milestone, aislada en su propia fase con UAT manual obligatorio porque falla de maneras que los tests automáticos no detectan.
 **Depends on**: Phase 36 (el attach actúa sobre la fila seleccionada — la selección por `task_id` debe ser estable primero)
 **Requirements**: TUI-13, TUI-14
 **Success Criteria** (what must be TRUE):
+
   1. El operador pulsa `Enter` sobre la fila seleccionada y entra al workspace cmux de esa sesión (secuencia `unmount` → `waitUntilExit` → `spawn` con `stdio:'inherit'` → re-`render`); al hacer detach vuelve al dashboard sin terminal rota ni raw-mode residual.
   2. Un segundo attach consecutivo funciona igual que el primero (el re-render no deja estado de raw-mode colgando entre handoffs).
   3. Si la sesión seleccionada no está viva (`alive === false`), el panel rechaza el attach con un mensaje y permanece montado en lugar de spawnar sobre un workspace muerto.
   4. Si `cmux` no está en PATH (ENOENT), el panel muestra el error y permanece montado — nunca rompe la terminal.
   5. Existe un artefacto de UAT manual documentado que cubre los 4 escenarios críticos (primer attach + vuelta limpia · segundo attach consecutivo · attach a workspace muerto · Ctrl-C durante attach = detach sin matar kodo); sin ese artefacto la fase NO está completa.
+
 **Plans**: TBD
 **UI hint**: yes
 
 #### Phase 38: Paneles auxiliares — comentarios + logs
+
 **Goal**: El operador inspecciona el detalle de una sesión sin salir del panel: overlay de comentarios de la tarea (resuelto correctamente por `task_id`) y overlay de logs (grep best-effort sobre el buffer compartido, etiquetado honestamente como no-per-session), volviendo siempre al mismo cursor.
 **Depends on**: Phase 37 (additive sobre la infraestructura de selección + overlays; orden E al final por dependencia de build)
 **Requirements**: TUI-15, TUI-16
 **Success Criteria** (what must be TRUE):
+
   1. El operador pulsa `c` sobre la fila seleccionada y ve los comentarios de la tarea (`GET /comments/<task_id>`, resuelto vía mapping `task_ref`→`task_id`), con manejo limpio de 404/vacío/error; `Esc` vuelve al mismo cursor.
   2. El operador pulsa `l` sobre la fila seleccionada y ve las líneas de log coincidentes por grep de substring (`task_ref`/`workspace_ref`) sobre el buffer compartido de `GET /logs`; `Esc` vuelve al mismo cursor.
   3. El overlay de logs está etiquetado honestamente como grep de un buffer compartido ("may include other sessions"), no como un tail real por sesión.
   4. El wording de PROJECT.md (línea ~32, "filtrado por session_id") queda corregido a "best-effort substring grep" para reflejar que `/logs` no tiene `session_id`.
+
 **Plans**: TBD
 **UI hint**: yes
 
