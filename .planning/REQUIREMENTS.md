@@ -1,0 +1,102 @@
+# Requirements: kodo — v0.9 TUI sesiones en vivo
+
+**Defined:** 2026-05-26
+**Core Value:** Observabilidad ambient de las N sesiones kodo en vivo, desde la terminal donde el operador ya vive, consumiendo el contrato JSON existente del server sin añadir endpoints.
+
+> **Stack decidido (Opción A):** subcomando `kodo dashboard` con `ink@^6.8.0` (mantiene `engines.node >=20`; `ink@7` exigiría Node 22) + `react@^19.2.0` + `ink-text-input@^6.0.0`, en `.js` plano con `React.createElement` (sin build step). Tabla hand-rolled (`ink-table` descartado: stale/CJS). HTTP vía `fetch` built-in (sin dep nueva). Detalle y fuentes en `.planning/research/SUMMARY.md`.
+
+## v1 Requirements
+
+Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de build sugerido por la investigación (Phase A→E, numeración real desde Phase 34 la asigna el roadmapper).
+
+### Fundación — subcomando + ciclo de vida (Phase A)
+
+- [ ] **TUI-01**: El usuario lanza el panel en vivo con `kodo dashboard`
+- [ ] **TUI-02**: Si stdout no es un TTY (pipe/CI), el dashboard se niega a arrancar con mensaje claro y exit code ≠ 0 (no crash, no raw-mode error)
+- [ ] **TUI-03**: El usuario sale limpiamente con `q` (y Ctrl-C / SIGTERM): cursor, echo y scrollback de la terminal quedan intactos
+- [ ] **TUI-04**: El color del TUI proviene exclusivamente de ink (`<Text color>`); ningún archivo bajo `src/cli/dashboard/` importa `picocolors` — invariante de color-isolation preservada y verificada por test
+
+### Datos — cliente HTTP + polling (Phase B)
+
+- [ ] **TUI-05**: El dashboard refresca las sesiones desde `GET /status` cada ~2s con un loop self-scheduling que nunca apila requests solapadas (poll lento no encola)
+- [ ] **TUI-06**: Si el server kodo no responde (al arrancar o a mitad de sesión), el dashboard muestra estado "server caído", conserva el último dato bueno (keep-last-good), reintenta con backoff y nunca crashea — incluyendo respuesta JSON corrupta
+
+### Tabla viva — render + selección + filtros (Phase C)
+
+- [ ] **TUI-07**: El dashboard muestra una tabla de sesiones activas con columnas `task_ref · repo · phase/mode · status · age`
+- [ ] **TUI-08**: El usuario mueve el cursor con ↑/↓; la selección se rastrea por identidad `task_id` y sobrevive al refresh/reordenamiento de la lista (nunca apunta a la sesión equivocada cuando una fila desaparece)
+- [ ] **TUI-09**: Las filas se ordenan de forma estable por `started_at` (no saltan en cada poll)
+- [ ] **TUI-10**: Las filas se colorean por `status` + `alive`, incluyendo el caso zombie `running` + `!alive`
+- [ ] **TUI-11**: El header muestra indicador "live" + resumen de contadores por estado (p. ej. "3 running · 1 review"); la lista vacía muestra un estado claro "no active sessions"
+- [ ] **TUI-12**: El usuario filtra filas con `/` (substring) + prefijos `r:<repo>` y `s:<state>`, preservando la posición del cursor al filtrar
+
+### Attach — handoff a cmux (Phase D — mayor riesgo)
+
+- [ ] **TUI-13**: El usuario pulsa `Enter` sobre la fila seleccionada para hacer attach a su workspace cmux (`cmux attach <workspace_ref>`); al hacer detach el dashboard vuelve intacto (handoff TTY: `unmount` → `waitUntilExit` → `spawn stdio:'inherit'` → re-`render`)
+- [ ] **TUI-14**: El attach está guardado: si la sesión no está viva (`alive===false`) o `cmux` no está en PATH (ENOENT), el dashboard muestra un mensaje y permanece montado en lugar de romper la terminal
+
+### Paneles auxiliares — comentarios + logs (Phase E)
+
+- [ ] **TUI-15**: El usuario pulsa `c` sobre la fila seleccionada para ver los comentarios de la tarea (`GET /comments/<task_id>`, con mapping `task_ref`→`task_id`); `Esc` vuelve al mismo cursor
+- [ ] **TUI-16**: El usuario pulsa `l` sobre la fila seleccionada para ver las líneas de log coincidentes (grep best-effort por `task_ref`/`workspace_ref` sobre el buffer compartido de `GET /logs`, etiquetado honestamente como no-per-session); `Esc` vuelve al mismo cursor
+
+## v2 Requirements
+
+Reconocidas pero diferidas — no entran en el roadmap de v0.9.
+
+### Navegación / vistas adicionales
+
+- **TUI-F1**: Tab de pending tasks (el `/status` ya devuelve `pending[]`)
+- **TUI-F2**: Toggle de ordenamiento interactivo (por edad / estado / repo)
+- **TUI-F3**: Footer contextual por panel (hints distintos en table vs comments vs logs)
+
+### Acciones de mutación
+
+- **TUI-F4**: Dismissal de sesiones con `d` — requiere orphan-safety (matar proceso + worktree) y depende del candidato diferido `kodo gsd doctor`; no es un simple `DELETE /sessions/<id>`
+
+## Out of Scope
+
+Excluidos explícitamente para frenar scope creep.
+
+| Feature | Razón |
+|---------|-------|
+| `DELETE /sessions/<id>` como acción del TUI | Es bookkeeping-only (`removeSession` no mata proceso ni toca cmux/worktree); llamarlo "olvidaría" una sesión viva → reintroduce la desincronización clase ROMAN-132. Pertenece a `kodo gsd doctor` |
+| Endpoints nuevos en `src/server.js` | Constraint dura del milestone: la TUI es cliente read-only del contrato existente |
+| Stream de logs real por sesión | El buffer `/logs` es un ring compartido de 200 líneas sin `session_id`; un stream per-session exigiría endpoints nuevos |
+| Llamar a `cmux rpc workspace.list` desde la TUI | El server ya mergea estado cmux en `/status` (`alive`, `elapsed_min`) — la TUI no duplica esa llamada |
+| ink@7 / bump de `engines.node` a 22 | Se fija `ink@6.8.0` para mantener el floor Node ≥20 del proyecto |
+| JSX / paso de build (Babel/esbuild/tsx) | Rompe la invariante "no build step"; se usa `React.createElement` en `.js` plano |
+| Soporte de ratón, temas, ficheros de config, LLM/AI assist | Con 3-10 filas no aporta; "lo más simple" en v1 |
+| Columna `last-hook` (del seed original) | No existe ese campo en `SessionRecord`; derivarlo del log buffer es complejidad innecesaria → se usa `status` |
+
+## Traceability
+
+Mapeo requirement → fase. Los grupos A–E reflejan el orden de build de la investigación; el roadmapper asigna los números reales (continúan desde Phase 34) y rellena esta tabla.
+
+| Requirement | Grupo (build order) | Phase | Status |
+|-------------|---------------------|-------|--------|
+| TUI-01 | A — Fundación | TBD | Pending |
+| TUI-02 | A — Fundación | TBD | Pending |
+| TUI-03 | A — Fundación | TBD | Pending |
+| TUI-04 | A — Fundación | TBD | Pending |
+| TUI-05 | B — Datos/polling | TBD | Pending |
+| TUI-06 | B — Datos/polling | TBD | Pending |
+| TUI-07 | C — Tabla/selección | TBD | Pending |
+| TUI-08 | C — Tabla/selección | TBD | Pending |
+| TUI-09 | C — Tabla/selección | TBD | Pending |
+| TUI-10 | C — Tabla/selección | TBD | Pending |
+| TUI-11 | C — Tabla/selección | TBD | Pending |
+| TUI-12 | C — Tabla/selección | TBD | Pending |
+| TUI-13 | D — Attach | TBD | Pending |
+| TUI-14 | D — Attach | TBD | Pending |
+| TUI-15 | E — Paneles aux | TBD | Pending |
+| TUI-16 | E — Paneles aux | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 16 total
+- Mapped to phases: 0 (pendiente — lo asigna el roadmapper)
+- Unmapped: 16 ⚠️ (se resuelve al crear el roadmap)
+
+---
+*Requirements defined: 2026-05-26*
+*Last updated: 2026-05-26 after initial definition (research-grounded, milestone v0.9)*

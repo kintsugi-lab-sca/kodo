@@ -29,7 +29,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 **Target features:**
 - Tabla viva por polling a `GET /status` (~2-3s): `task_ref / repo / phase / mode / state / age`
 - Navegación con cursor (↑↓) + `Enter` → attach al workspace cmux de la fila (`cmux attach <workspace_ref>`)
-- `c` → comentarios de la tarea (`GET /comments/<task_id>`); `l` → tail de logs de esa sesión (filtrado client-side de `GET /logs` por session_id)
+- `c` → comentarios de la tarea (`GET /comments/<task_id>`); `l` → líneas de log que coinciden con la sesión (grep best-effort sobre el buffer compartido de `GET /logs` — no hay `session_id` real en el buffer)
 - Filtros básicos: `/` search + `r:<repo>` + `s:<state>`
 - Degradación elegante si el server kodo no responde (no crash)
 
