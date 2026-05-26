@@ -34,7 +34,10 @@
   2. Si el operador redirige stdout a un pipe o lo ejecuta en CI (no-TTY), el comando se niega a arrancar con un mensaje claro y exit code ≠ 0 — sin crash ni error de raw-mode.
   3. El operador pulsa `q` (o Ctrl-C / SIGTERM) y la terminal queda intacta: cursor visible, echo restaurado, scrollback sin corromper.
   4. Ningún archivo bajo `src/cli/dashboard/` importa `picocolors`, y `test/format-isolation.test.js` lo verifica (walker extendido al directorio TUI).
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 34-01-PLAN.md — Stack ink/react + tests Wave 0 (non-TTY, render) + walker color-isolation extendido
+- [ ] 34-02-PLAN.md — Subcomando `kodo dashboard`: registro + runDashboard (guard/lifecycle) + App.js (chrome + q->exit)
 **UI hint**: yes
 
 #### Phase 35: Datos — cliente HTTP + polling
@@ -229,7 +232,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 31. Phase 21/22 Advisory Cleanup | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
-| 34. Fundación — subcomando + ciclo de vida | v0.9 | 0/TBD | Not started | - |
+| 34. Fundación — subcomando + ciclo de vida | v0.9 | 0/2 | Not started | - |
 | 35. Datos — cliente HTTP + polling | v0.9 | 0/TBD | Not started | - |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
