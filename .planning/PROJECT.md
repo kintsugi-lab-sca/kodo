@@ -11,7 +11,7 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 ## Current State
 
 **Shipped:** v0.8 (2026-05-25) — Consolidación + GSD Provider Reporting · audit PASSED
-**Next:** v0.9 — planning (candidato primario: kodo TUI para sesiones en vivo — ver `.planning/PENDING-INTEGRATIONS.md`)
+**Next:** v0.9 — kodo TUI sesiones en vivo (en definición: requirements + roadmap)
 
 v0.8 consolida la promesa arquitectónica cerrando tech debt y robusteciendo el lifecycle sin añadir adapters. Seis phases (28-33), 20 plans, 17/17 requirements satisfechas, suite 895 pass + 1 skip. (1) **Polling/Daemon hardening (Phase 28)** — TaskItem canónico 11 → 13 fields (`updated_at`/`created_at` REQUIRED) con normalizers GitHub/Plane simétricos, cerrando el D-18 leak guard de Phase 25 para que `shouldDispatch` nunca evalúe `undefined` en el provider-only path; `kodo polling start --verbose` emite stdout estructurado por tick (`polling.tick.summary`, taxonomy 18 → 19) y el daemon redirige a `~/.kodo/logs/polling-YYYY-MM-DD.log` (0o600 + retención 7 días, cierra T-26-DIAG silent crash). (2) **GSD Provider Reporting (Phase 29)** — cherry-pick selectivo de 9 SHAs de la rama paralela `gsd-provider-reporting` + 38 tests heredados: anti-recursión `kodo:gsd-child` cortada ANTES de parseKodoLabels/lock/resolver/launch (ni `--force` recursa), opt-in `workflow.report_to_provider` strict `=== true`, `applyReportingGate` pure idempotente entre marcadores + prosa ES provider-agnostic en `prompt.md`, `KODO_LABEL_GSD_CHILD`/`isGsdChild` con source-hygiene anti-inline. (3) **SessionRecord lifecycle (Phase 30)** — `findSession` escanea `state.sessions` + `state.history` (cierra el desync state.json ↔ cmux que ROMAN-132 confirmó empíricamente, CR-01 Phase 19); `markSessionStatus` con falsy guard observable + discriminated union return `{ok, reason}` (WR-07 Phase 22); HUMAN-UAT 2/2. (4) **Advisory cleanup (Phase 31)** — pureza `syncSkill({onConsoleWarn})` DI, `runSkillSyncCli` await cleanup pre-exit, test `launchOrchestrator` con spawn real + observables NDJSON. (5+6) **Bookkeeping (Phases 32-33)** — reconciliación v0.7 + cierre de los ~14 items del audit v0.8 (doc-drift + nyquist VALIDATION backfill citation-based + surgical fix consumiendo el return discriminado de `markSessionStatus` en `verify.js`/`stop.js`, robustness gap LIFE-02-FOLLOWUP). Invariantes v0.7 preservadas: contrato `TaskProvider` 9 métodos, `--json` byte-determinismo, LOG-12 walker, color isolation, cwd=repo, HOOK-01 universal, worktree always-on.
 
@@ -22,14 +22,20 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Next Milestone Goals (v0.9 — planning)
+## Current Milestone: v0.9 kodo TUI — sesiones en vivo
 
-v0.8 cerró tech debt y consolidó la arquitectura. v0.9 está sin definir formalmente (`/gsd-new-milestone` pendiente). Candidatos capturados:
+**Goal:** Superficie en terminal (subcomando `kodo dashboard`, Node + ink) que monitoriza en vivo las N sesiones kodo activas consumiendo el contrato JSON existente del server, sin añadir endpoints.
 
-- **kodo TUI — sesiones en vivo (candidato primario):** superficie en terminal para N sesiones kodo en paralelo (tabla viva session-id/repo/task-ref/phase/state/last-hook/age, filtros, attach a workspace cmux con Enter). Lee el contrato JSON existente de `/status` + `/logs` + `cmux rpc workspace.list`. Decisión de stack pendiente (A: Node+ink / B: Go+bubbletea reusando `code-tui` / C: híbrido). Seed completo en `.planning/PENDING-INTEGRATIONS.md`.
-- **Adapters TaskProvider adicionales:** ClickUp, local (JSON/Markdown) + file watcher trigger.
-- **Channels/auth:** webhook GitHub ingress real-time (si la latencia 60s del polling emerge como restricción), GitHub Enterprise self-hosted (`base_url`), OAuth GitHub App.
-- **Operacional:** `kodo gsd doctor` (limpieza de worktrees huérfanos + sesiones legacy en state.json sin proceso vivo).
+**Target features:**
+- Tabla viva por polling a `GET /status` (~2-3s): `task_ref / repo / phase / mode / state / age`
+- Navegación con cursor (↑↓) + `Enter` → attach al workspace cmux de la fila (`cmux attach <workspace_ref>`)
+- `c` → comentarios de la tarea (`GET /comments/<task_id>`); `l` → tail de logs de esa sesión (filtrado client-side de `GET /logs` por session_id)
+- Filtros básicos: `/` search + `r:<repo>` + `s:<state>`
+- Degradación elegante si el server kodo no responde (no crash)
+
+**Stack decision:** Opción A — Node + ink, subcomando dentro de kodo (descartadas B Go+bubbletea / C híbrido con `code-tui`). Rationale: kodo ya es Node, un solo proyecto/release, máxima simplicidad. El server ya mergea estado cmux server-side (`alive`, `elapsed_min` en `/status`) → la TUI NO llama a `cmux rpc`. Constraint heredada: NO crear endpoints nuevos. Columna `last-hook` del seed descartada (no existe en SessionRecord) → se usa `status`.
+
+**Deferred candidates (post-v0.9):** adapters TaskProvider (ClickUp, local JSON/Markdown + file watcher) · webhook GitHub ingress real-time · GitHub Enterprise self-hosted (`base_url`) · OAuth GitHub App · `kodo gsd doctor` (limpieza de worktrees huérfanos + sesiones zombie).
 
 ## Requirements
 
@@ -83,14 +89,12 @@ v0.8 cerró tech debt y consolidó la arquitectura. v0.9 está sin definir forma
 
 ### Active
 
-**Candidatos v0.9 (sin priorizar — `/gsd-new-milestone` definirá REQ-IDs canónicos):**
-- [ ] **kodo TUI — sesiones en vivo (candidato primario):** tabla viva en terminal de las N sesiones kodo en cmux, lectura del contrato JSON existente `/status` + `/logs` + `cmux rpc workspace.list`, attach con Enter. Decisión de stack A/B/C pendiente. Seed en `.planning/PENDING-INTEGRATIONS.md`.
-- [ ] Adapter de ClickUp que implementa TaskProvider
-- [ ] Adapter local (JSON/Markdown) que implementa TaskProvider + file watcher trigger
-- [ ] Webhook GitHub ingress real-time (depende de si latencia 60s polling emerge como restricción)
-- [ ] GitHub Enterprise self-hosted (`base_url` configurable) — depende de demanda
-- [ ] OAuth GitHub App (vs PAT actual)
-- [ ] `kodo gsd doctor` — limpieza zombies (worktrees huérfanos + sesiones legacy)
+**v0.9 kodo TUI — sesiones en vivo** (REQ-IDs canónicos en `.planning/REQUIREMENTS.md`, prefijo `TUI-*`):
+- [ ] Subcomando `kodo dashboard` (Node + ink) con tabla viva por polling a `/status`
+- [ ] Navegación + attach a cmux (`Enter`), comentarios (`c`), tail de logs (`l`)
+- [ ] Filtros básicos (`/`, `r:`, `s:`) y degradación elegante sin server
+
+**Deferred (post-v0.9):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · `kodo gsd doctor` (limpieza zombies)
 
 ### Out of Scope
 
@@ -204,4 +208,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-25 after v0.8 milestone — Consolidación + GSD Provider Reporting SHIPPED (6 phases 28-33, 20 plans, 17/17 requirements, audit PASSED). Full evolution review: 17 requirements movidas a Validated, Active reseteada a candidatos v0.9, Key Decisions +7 rows v0.8, Context actualizado (29.671 LOC, suite 895 pass). Próximo: `/gsd-new-milestone` para v0.9 (candidato primario: kodo TUI de sesiones en vivo — seed en PENDING-INTEGRATIONS.md).*
+*Last updated: 2026-05-26 — milestone v0.9 kodo TUI sesiones en vivo iniciado vía `/gsd-new-milestone`. Stack decidido (Opción A: Node + ink, subcomando `kodo dashboard`). Active reseteada a scope TUI (REQ-IDs `TUI-*` en REQUIREMENTS.md); resto de candidatos diferidos a post-v0.9. Numeración de fases continúa desde Phase 34.*

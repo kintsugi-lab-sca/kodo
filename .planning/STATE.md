@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.8
-milestone_name: Consolidación + GSD Provider Reporting
-status: shipped
-stopped_at: Milestone v0.8 archived (Phases 28-33). Awaiting /gsd-new-milestone for v0.9.
-last_updated: "2026-05-25T12:00:00.000Z"
-last_activity: 2026-05-25 — Milestone v0.8 completed, archived, and tagged
+milestone: v0.9
+milestone_name: kodo TUI — sesiones en vivo
+status: planning
+last_updated: "2026-05-26T08:48:18.518Z"
+last_activity: 2026-05-26
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 ## Current Position
 
-Phase: — (between milestones)
-Status: v0.8 shipped & archived
-Last activity: 2026-05-25
-Next action: `/gsd-new-milestone` para v0.9 (continúa numeración desde Phase 34)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-26 — Milestone v0.9 started
 
 ## Most recent shipped milestone
 
