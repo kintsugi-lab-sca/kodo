@@ -1,6 +1,6 @@
 // @ts-check
 //
-// test/dashboard-table.test.js — Phase 36 Plan 02 Wave 0 (TUI-07/09/10/11).
+// test/dashboard-table.test.js — Phase 36 Plan 02 + Plan 03 Wave 0 (TUI-07/08/09/10/11/12).
 //
 // Renderiza el componente `App` del dashboard con ink-testing-library y verifica la TABLA VIVA
 // columnar que reemplaza la status line de Phase 35:
@@ -253,5 +253,169 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
       /no active sessions/,
       `el estado degradado (waiting) tiene precedencia sobre el vacío de la lista\n${frame}`,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan 03 Wave 0 — interacción de teclado (TUI-08 navegación + TUI-12 filtro modal).
+//
+// Se conduce el teclado con `stdin.write(...)` del handle de render (el fake Stdin de
+// ink-testing-library tiene `isTTY=true`, así que `isRawModeSupported` es true y el useInput
+// gateado está ACTIVO). Códigos verificados contra ink@6.8.0 (parse-keypress.js / input-parser.js):
+//   ↑ = '\x1b[A'   ↓ = '\x1b[B'   Esc = '\x1b'   Enter = '\r'   Backspace = '\x7f'
+// El Esc solitario se emite vía un flush diferido con `setImmediate` (App.js schedulePendingInputFlush),
+// que el doble-`setImmediate` de `drain()` ya absorbe — por eso basta `await drain()` tras cada write.
+// Char imprimible multi-byte ('s:running') llega como UN solo evento `input` → el handler lo
+// concatena de golpe a la query (live append, D-13).
+//
+// Estado Wave 0: ROJO hasta Task 2 — hoy App.js solo maneja `q` (sin mode/query state) y
+// SessionTable no tiene línea de filtro ni la rama `no sessions match`.
+describe('TUI-08: navegación ↑/↓ — mueve el cursor por identidad, clamp sin wrap (D-07)', () => {
+  it('↓ mueve el gutter de KL-1 (newest) a KL-2; otro ↓ clampa (sin wrap); ↑ vuelve a KL-1; otro ↑ clampa', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    // Estado inicial (D-07): gutter en KL-1 (la más reciente, arriba).
+    assert.match(lastFrame(), /›\s+KL-1/, `inicial: el gutter debe estar en KL-1\n${lastFrame()}`);
+
+    // ↓ → el gutter baja a KL-2.
+    stdin.write('\x1b[B');
+    await drain();
+    assert.match(lastFrame(), /›\s+KL-2/, `tras ↓ el gutter debe estar en KL-2\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /›\s+KL-1/, `tras ↓ el gutter ya NO debe estar en KL-1\n${lastFrame()}`);
+
+    // ↓ de nuevo → clamp en el extremo inferior (NO wrap a KL-1).
+    stdin.write('\x1b[B');
+    await drain();
+    assert.match(lastFrame(), /›\s+KL-2/, `otro ↓ debe CLAMPAR en KL-2 (sin wrap-around)\n${lastFrame()}`);
+
+    // ↑ → vuelve a KL-1.
+    stdin.write('\x1b[A');
+    await drain();
+    assert.match(lastFrame(), /›\s+KL-1/, `tras ↑ el gutter debe volver a KL-1\n${lastFrame()}`);
+
+    // ↑ de nuevo → clamp en el extremo superior (NO wrap a KL-2).
+    stdin.write('\x1b[A');
+    await drain();
+    assert.match(lastFrame(), /›\s+KL-1/, `otro ↑ debe CLAMPAR en KL-1 (sin wrap-around)\n${lastFrame()}`);
+  });
+});
+
+describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter confirma, no-match, Esc en lista ignorado (D-13/D-14/D-15/D-16)', () => {
+  it('/ abre la línea de filtro modal (prompt al pie)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    stdin.write('/');
+    await drain();
+    // El prompt modal lleva el cursor `▏` (UI-SPEC:191) — marcador inequívoco de la línea de filtro
+    // (lo distingue del `/ filter` del footer de hints).
+    assert.match(lastFrame(), /▏/, `tras '/' debe abrirse la línea de filtro (prompt con cursor ▏)\n${lastFrame()}`);
+  });
+
+  it('filtra EN VIVO (D-13/D-14): s:running deja ambas; añadir r:kodo deja solo KL-1', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    stdin.write('/');
+    await drain();
+
+    // s:running → ambas sesiones son running (KL-1 alive, KL-2 zombie) → las dos siguen visibles.
+    stdin.write('s:running');
+    await drain();
+    assert.match(lastFrame(), /KL-1/, `con s:running KL-1 (running+alive) debe seguir visible\n${lastFrame()}`);
+    assert.match(lastFrame(), /KL-2/, `con s:running KL-2 (running zombie) debe seguir visible\n${lastFrame()}`);
+
+    // Añadir ' r:kodo' → AND con repo 'kodo' → solo KL-1 (repo kodo); KL-2 (repo 'foo') se oculta.
+    stdin.write(' r:kodo');
+    await drain();
+    assert.match(lastFrame(), /KL-1/, `con r:kodo solo KL-1 (repo kodo) debe quedar\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /KL-2/, `r:kodo debe OCULTAR KL-2 (repo foo) — filtro en vivo AND\n${lastFrame()}`);
+  });
+
+  it('Esc CANCELA el filtro (D-15): limpia query, vuelve a la lista completa, cursor preservado (D-16)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    stdin.write('/');
+    await drain();
+    stdin.write('r:kodo'); // oculta KL-2
+    await drain();
+    assert.doesNotMatch(lastFrame(), /KL-2/, `precondición: r:kodo oculta KL-2\n${lastFrame()}`);
+
+    // Esc → cancela: la línea de filtro desaparece, la lista completa vuelve, el cursor sigue en KL-1.
+    stdin.write('\x1b');
+    await drain();
+    assert.doesNotMatch(lastFrame(), /▏/, `tras Esc la línea de filtro (cursor ▏) debe desaparecer\n${lastFrame()}`);
+    assert.match(lastFrame(), /KL-2/, `tras Esc (cancela) la lista completa vuelve — KL-2 visible de nuevo\n${lastFrame()}`);
+    assert.match(lastFrame(), /›\s+KL-1/, `tras cancelar, el cursor preservado sigue en KL-1 (D-16)\n${lastFrame()}`);
+  });
+
+  it('Enter CONFIRMA (D-15): cierra la línea de filtro pero MANTIENE el filtro aplicado', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    stdin.write('/');
+    await drain();
+    stdin.write('r:kodo'); // oculta KL-2
+    await drain();
+
+    // Enter → confirma: la línea de filtro se cierra pero el resultado filtrado se mantiene (KL-2 oculta).
+    stdin.write('\r');
+    await drain();
+    assert.doesNotMatch(lastFrame(), /▏/, `tras Enter la línea de filtro (cursor ▏) debe cerrarse\n${lastFrame()}`);
+    assert.match(lastFrame(), /KL-1/, `tras Enter KL-1 (matchea r:kodo) sigue visible\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /KL-2/, `tras Enter (confirma) el filtro se MANTIENE — KL-2 sigue oculta\n${lastFrame()}`);
+  });
+
+  it('no-match (D-12b): un filtro sin coincidencias muestra "no sessions match", no "no active sessions"', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    stdin.write('/');
+    await drain();
+    stdin.write('r:zzzznomatch');
+    await drain();
+
+    assert.match(lastFrame(), /no sessions match/, `un filtro sin match debe mostrar "no sessions match" (D-12b)\n${lastFrame()}`);
+    assert.doesNotMatch(
+      lastFrame(),
+      /no active sessions/,
+      `hay sesiones reales (las oculta el filtro) → NO debe decir "no active sessions"\n${lastFrame()}`,
+    );
+  });
+
+  it('Esc en modo LISTA es ignorado (D-15): no sale de la app ni abre la línea de filtro', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    // Esc en modo lista (sin filtro abierto): deliberadamente NO-OP (reservado Phase 38, D-15).
+    stdin.write('\x1b');
+    await drain();
+
+    const frame = lastFrame();
+    assert.match(frame, /KL-1/, `tras Esc en lista la tabla sigue montada (App no se desmonta)\n${frame}`);
+    assert.doesNotMatch(frame, /▏/, `Esc en lista NO debe abrir una línea de filtro (cursor ▏)\n${frame}`);
   });
 });
