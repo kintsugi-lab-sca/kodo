@@ -4,8 +4,10 @@
 //
 // Renderiza el componente `App` del dashboard con ink-testing-library (TTY
 // falso, sin necesidad de terminal real) y verifica:
-//   1. El chrome D-01: banner "kodo dashboard", placeholder "starting…"
-//      (U+2026, NO tres puntos ASCII) y footer hint "q quit".
+//   1. El chrome D-01: banner "kodo dashboard", el nodo central de arranque
+//      (Phase 35: "waiting for server" — reemplazó el placeholder "starting…"
+//      de Phase 34) y footer hint "q quit". La cobertura de los estados vivos
+//      live/stale de la status line vive en test/dashboard-status-line.test.js.
 //   2. (TUI-03 parcial) que pulsar `q` dispara un desmonte limpio vía
 //      useApp().exit() (D-08): ink emite un frame de unmount adicional que una
 //      tecla ignorada (p. ej. `x`) NO produce.
@@ -35,13 +37,24 @@ import { render } from 'ink-testing-library';
 import { createElement } from 'react';
 import App from '../src/cli/dashboard/App.js';
 
+// fetchFn no-op (Phase 35): el placeholder estático `starting…` de Phase 34 se reemplazó por la
+// status line viva (Plan 03). En el frame inicial — antes de que resuelva el primer poll — la
+// status line muestra `waiting for server` (estado de arranque sin dato bueno, D-06). Inyectamos
+// un fetchFn que nunca resuelve para que el chrome se asserte sobre ese frame inicial sin tocar la
+// red (la cobertura de la status line viva vive en test/dashboard-status-line.test.js).
+const NEVER_FETCH = () => new Promise(() => {});
+
 describe('TUI-01: dashboard chrome (D-01)', () => {
-  it('renders banner + starting placeholder + q quit footer', () => {
-    const { lastFrame } = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
+  it('renders banner + waiting placeholder + q quit footer', () => {
+    const { lastFrame } = render(
+      createElement(App, { baseUrl: 'http://localhost:9090', fetchFn: NEVER_FETCH }),
+    );
     const frame = lastFrame();
     assert.match(frame, /kodo dashboard/, `banner missing\nframe:\n${frame}`);
-    // "starting…" usa U+2026 (HORIZONTAL ELLIPSIS), NO tres puntos ASCII.
-    assert.match(frame, /starting…/, `placeholder "starting…" (U+2026) missing\nframe:\n${frame}`);
+    // Phase 35: el nodo central inicial es la status line de arranque `waiting for server`
+    // (reemplaza el `starting…` de Phase 34). Cobertura de los estados live/stale en
+    // test/dashboard-status-line.test.js.
+    assert.match(frame, /waiting for server/, `status line de arranque "waiting for server" missing\nframe:\n${frame}`);
     assert.match(frame, /q quit/, `footer hint "q quit" missing\nframe:\n${frame}`);
   });
 
@@ -50,7 +63,9 @@ describe('TUI-01: dashboard chrome (D-01)', () => {
     const tick = () => new Promise((r) => setTimeout(r, 80));
 
     // Control: una tecla que App ignora (D-11 — solo `q` sale). No re-render.
-    const ignored = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
+    // fetchFn NEVER_FETCH (Phase 35): el poll nunca resuelve → ningún re-render por onResult
+    // contamina el conteo de frames (test hermético, sin red).
+    const ignored = render(createElement(App, { baseUrl: 'http://localhost:9090', fetchFn: NEVER_FETCH }));
     const baselineFrames = ignored.frames.length; // render inicial
     ignored.stdin.write('x');
     await tick();
@@ -64,7 +79,7 @@ describe('TUI-01: dashboard chrome (D-01)', () => {
     // `q` → useApp().exit() → ink desmonta y emite un frame adicional (clear).
     // Si `q` NO desmontara (regresión: process.exit en vez de exit(), o binding
     // roto), no habría frame extra → este assert falla con mensaje accionable.
-    const quitting = render(createElement(App, { baseUrl: 'http://localhost:9090' }));
+    const quitting = render(createElement(App, { baseUrl: 'http://localhost:9090', fetchFn: NEVER_FETCH }));
     const beforeQuit = quitting.frames.length; // render inicial (== baseline)
     quitting.stdin.write('q');
     await tick();
