@@ -74,7 +74,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 35-03-PLAN.md — `App.js` status line viva: keep-last-good + dos estados de degradación (TUI-06)
+- [x] 35-03-PLAN.md — `App.js` status line viva: keep-last-good + dos estados de degradación (TUI-06)
 **UI hint**: yes
 
 #### Phase 36: Tabla viva — render + selección + filtros
@@ -267,7 +267,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
-| 35. Datos — cliente HTTP + polling | v0.9 | 3/4 | In Progress|  |
+| 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete   | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
