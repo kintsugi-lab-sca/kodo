@@ -23,12 +23,12 @@ Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de bui
 
 ### Tabla viva — render + selección + filtros (Phase C)
 
-- [ ] **TUI-07**: El dashboard muestra una tabla de sesiones activas con columnas `task_ref · repo · phase/mode · status · age`
-- [ ] **TUI-08**: El usuario mueve el cursor con ↑/↓; la selección se rastrea por identidad `task_id` y sobrevive al refresh/reordenamiento de la lista (nunca apunta a la sesión equivocada cuando una fila desaparece)
-- [ ] **TUI-09**: Las filas se ordenan de forma estable por `started_at` (no saltan en cada poll)
-- [ ] **TUI-10**: Las filas se colorean por `status` + `alive`, incluyendo el caso zombie `running` + `!alive`
-- [ ] **TUI-11**: El header muestra indicador "live" + resumen de contadores por estado (p. ej. "3 running · 1 review"); la lista vacía muestra un estado claro "no active sessions"
-- [ ] **TUI-12**: El usuario filtra filas con `/` (substring) + prefijos `r:<repo>` y `s:<state>`, preservando la posición del cursor al filtrar
+- [x] **TUI-07**: El dashboard muestra una tabla de sesiones activas con columnas `task_ref · repo · phase/mode · status · age`
+- [x] **TUI-08**: El usuario mueve el cursor con ↑/↓; la selección se rastrea por identidad `task_id` y sobrevive al refresh/reordenamiento de la lista (nunca apunta a la sesión equivocada cuando una fila desaparece)
+- [x] **TUI-09**: Las filas se ordenan de forma estable por `started_at` (no saltan en cada poll)
+- [x] **TUI-10**: Las filas se colorean por `status` + `alive`, incluyendo el caso zombie `running` + `!alive`
+- [x] **TUI-11**: El header muestra indicador "live" + resumen de contadores por estado (p. ej. "3 running · 1 review"); la lista vacía muestra un estado claro "no active sessions"
+- [x] **TUI-12**: El usuario filtra filas con `/` (substring) + prefijos `r:<repo>` y `s:<state>`, preservando la posición del cursor al filtrar
 
 ### Attach — handoff a cmux (Phase D — mayor riesgo)
 
