@@ -137,6 +137,36 @@ describe('TUI-09 (D-04): sortSessions DESC por started_at sobre una COPIA + tieb
     );
   });
 
+  it('WR-01: started_at no parseable no rompe el orden — el tiebreak por task_id sigue mandando (determinista)', () => {
+    // LOAD-BEARING (WR-01 / D-04): new Date('not-a-date').getTime() === NaN; un comparador que
+    // retorna NaN deja el orden INDEFINIDO y anula el tiebreak anti-flicker. El guard normaliza el
+    // timestamp inválido a 0 (epoch), así que las filas corruptas caen al tiebreak por task_id y
+    // dos polls con el array barajado producen SIEMPRE el mismo orden.
+    const first = sortSessions([
+      s({ task_id: 'z', started_at: 'not-a-date' }),
+      s({ task_id: 'a', started_at: 'not-a-date' }),
+      s({ task_id: 'm', started_at: 'garbage' }),
+    ]).map((r) => r.task_id);
+    const shuffled = sortSessions([
+      s({ task_id: 'm', started_at: 'garbage' }),
+      s({ task_id: 'a', started_at: 'not-a-date' }),
+      s({ task_id: 'z', started_at: 'not-a-date' }),
+    ]).map((r) => r.task_id);
+    assert.deepEqual(
+      first,
+      shuffled,
+      `started_at no parseable debe ordenar determinista (mismo orden con input barajado); ${first} vs ${shuffled}`,
+    );
+    assert.deepEqual(first, ['a', 'm', 'z'], `timestamps inválidos → tiebreak lexicográfico por task_id, fue ${first}`);
+
+    // Una fila con started_at válido siempre va ANTES que una con timestamp inválido (tratado como epoch).
+    const mixed = sortSessions([
+      s({ task_id: 'bad', started_at: 'not-a-date' }),
+      s({ task_id: 'good', started_at: '2026-05-27T12:00:00.000Z' }),
+    ]).map((r) => r.task_id);
+    assert.deepEqual(mixed, ['good', 'bad'], `el timestamp válido (newest) debe ir antes del inválido (epoch), fue ${mixed}`);
+  });
+
   it('timestamps iguales: desempate determinista por task_id; nunca intercambian con input barajado', () => {
     const ts = '2026-05-27T10:00:00.000Z';
     const first = sortSessions([

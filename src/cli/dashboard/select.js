@@ -38,9 +38,18 @@
  * @returns {Array<Partial<EnrichedSession>>} copia ordenada.
  */
 export function sortSessions(rows) {
+  // started_at → epoch ms FINITO. El `?? 0` solo cubre null/undefined; un string no parseable
+  // (sesión legacy / dato corrupto) daría NaN, y un comparador que retorna NaN deja el orden
+  // INDEFINIDO (NaN !== x es siempre true → cae a `tb - ta = NaN`), anulando el tiebreak por
+  // task_id de D-04 y reintroduciendo flicker entre polls (WR-01). Normalizamos a 0 (epoch /
+  // más antiguo) para que el desempate determinista por task_id siga mandando.
+  const ts = (/** @type {Partial<EnrichedSession>} */ r) => {
+    const t = new Date(r.started_at ?? 0).getTime();
+    return Number.isFinite(t) ? t : 0;
+  };
   return [...rows].sort((a, b) => {
-    const ta = new Date(a.started_at ?? 0).getTime();
-    const tb = new Date(b.started_at ?? 0).getTime();
+    const ta = ts(a);
+    const tb = ts(b);
     if (ta !== tb) return tb - ta; // DESC: newest primero
     const ka = a.task_id ?? '';
     const kb = b.task_id ?? '';
