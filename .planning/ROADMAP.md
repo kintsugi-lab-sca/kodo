@@ -61,7 +61,20 @@ Plans:
   3. Si el server cae a mitad de sesión, el panel conserva el último dato bueno (keep-last-good), reintenta con backoff progresivo y se recupera solo cuando el server vuelve.
   4. Una respuesta JSON corrupta del server se trata como un poll fallido (keep-last-good), nunca como un crash del render.
 
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+**Wave 1**
+
+- [ ] 35-01-PLAN.md — Cliente HTTP puro `fetchStatus` never-throws (`{ok}`) + tests Wave 0 (TUI-05/06)
+- [ ] 35-04-PLAN.md — Guard WR-01/D-10: baseUrl resuelve con config v1 migrado (fallback 9090, sin TypeError)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 35-02-PLAN.md — Hook `usePoll` self-scheduling: single-flight + backoff 2.5→5→10s + teardown (TUI-05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 35-03-PLAN.md — `App.js` status line viva: keep-last-good + dos estados de degradación (TUI-06)
 **UI hint**: yes
 
 #### Phase 36: Tabla viva — render + selección + filtros
@@ -254,7 +267,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
-| 35. Datos — cliente HTTP + polling | v0.9 | 0/TBD | Not started | - |
+| 35. Datos — cliente HTTP + polling | v0.9 | 0/4 | Planned | - |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
