@@ -65,8 +65,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 35-01-PLAN.md — Cliente HTTP puro `fetchStatus` never-throws (`{ok}`) + tests Wave 0 (TUI-05/06)
-- [ ] 35-04-PLAN.md — Guard WR-01/D-10: baseUrl resuelve con config v1 migrado (fallback 9090, sin TypeError)
+- [x] 35-01-PLAN.md — Cliente HTTP puro `fetchStatus` never-throws (`{ok}`) + tests Wave 0 (TUI-05/06)
+- [x] 35-04-PLAN.md — Guard WR-01/D-10: baseUrl resuelve con config v1 migrado (fallback 9090, sin TypeError)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -267,7 +267,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
-| 35. Datos — cliente HTTP + polling | v0.9 | 0/4 | Planned | - |
+| 35. Datos — cliente HTTP + polling | v0.9 | 2/4 | In Progress|  |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
