@@ -18,8 +18,8 @@ Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de bui
 
 ### Datos — cliente HTTP + polling (Phase B)
 
-- [ ] **TUI-05**: El dashboard refresca las sesiones desde `GET /status` cada ~2s con un loop self-scheduling que nunca apila requests solapadas (poll lento no encola)
-- [ ] **TUI-06**: Si el server kodo no responde (al arrancar o a mitad de sesión), el dashboard muestra estado "server caído", conserva el último dato bueno (keep-last-good), reintenta con backoff y nunca crashea — incluyendo respuesta JSON corrupta
+- [x] **TUI-05**: El dashboard refresca las sesiones desde `GET /status` cada ~2s con un loop self-scheduling que nunca apila requests solapadas (poll lento no encola)
+- [x] **TUI-06**: Si el server kodo no responde (al arrancar o a mitad de sesión), el dashboard muestra estado "server caído", conserva el último dato bueno (keep-last-good), reintenta con backoff y nunca crashea — incluyendo respuesta JSON corrupta
 
 ### Tabla viva — render + selección + filtros (Phase C)
 
