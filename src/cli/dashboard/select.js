@@ -16,8 +16,8 @@
 //   - D-05/D-06/D-16: resolveSelection busca por identidad; si la fila desaparece, clampa al
 //     mismo índice posicional previo en [0, len-1]; lista vacía → { index:-1, taskId:null }.
 //   - D-14 / Security V5 (T-36-01): parseFilter separa r:/s: del texto global; applyFilter hace
-//     AND vía String.includes — JAMÁS `new RegExp` (anti-ReDoS / anti-inyección de regex desde
-//     la query tecleada por el operador).
+//     AND vía String.includes — jamás compila un patrón regex desde la query tecleada por el
+//     operador (anti-ReDoS / anti-inyección).
 //   - D-11: countByStatus cuenta el zombie (running && !alive) APARTE de running.
 //
 // Color-isolation (invariante D-12 Phase 34): este módulo NO importa `picocolors` ni
@@ -99,7 +99,7 @@ export function parseFilter(query) {
 
 /**
  * Filtra las filas haciendo AND de los criterios activos (D-14). El match es por SUBSTRING vía
- * `String.includes` — JAMÁS `new RegExp` (anti-ReDoS / anti-inyección, Security V5 / T-36-01).
+ * `String.includes` — jamás compila un patrón regex (anti-ReDoS / anti-inyección, Security V5 / T-36-01).
  *   - repo: deriveRepo(r) (lowercased) incluye parsed.repo.
  *   - status: r.status (lowercased) === parsed.status (match exacto).
  *   - text: substring global sobre task_ref/repo/phase_id/gsd_mode/summary (lowercased).
