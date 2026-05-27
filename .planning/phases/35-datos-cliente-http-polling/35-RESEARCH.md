@@ -405,7 +405,7 @@ const fakeFetch = (() => {
 
 **Nota:** Estos son los únicos `[ASSUMED]` de la fase. Todo lo demás está `[VERIFIED]` contra el codebase/node_modules o `[CITED]` de la research de milestone (verificada en su sesión). A1 debe confirmarse con un `grep` durante el planning.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿`client.js` con solo `fetchStatus` o ya con `fetchComments`/`fetchLogs`?**
    - What we know: el research de milestone lista las tres en `client.js`; Phase 35 solo necesita `fetchStatus`.
