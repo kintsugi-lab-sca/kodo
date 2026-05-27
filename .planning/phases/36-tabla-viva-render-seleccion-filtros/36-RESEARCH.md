@@ -564,17 +564,19 @@ const FIXTURE = {
 
 **If this table feels long:** all five are LOW-risk and four of them are decisions the CONTEXT.md explicitly delegated to the planner (Claude's Discretion). A1 is the only one worth an explicit planner/user confirmation because it diverges from the milestone STACK's "ink-text-input needed" note.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`ink-text-input` vs. hand-rolled filter input (ties to A1).**
+1. **`ink-text-input` vs. hand-rolled filter input (ties to A1).** — **RESOLVED: hand-roll.**
    - What we know: D-13 describes a single-line modal query with live append/backspace/Esc/Enter. `ink-text-input@6.0.0` is legit and would handle cursor-positioning/paste, but is not installed and not in package.json.
    - What's unclear: whether the planner/user wants in-query cursor editing (left/right within the typed text), which would tip toward the library.
    - Recommendation: hand-roll (Pattern 6). Revisit only if in-query cursor editing is a requirement. If reversed, gate the install behind `checkpoint:human-verify`.
+   - **Resolution (planner):** hand-rolled via `useInput` (~15 LOC, append/backspace/Esc/Enter) adopted in Plan 36-03; zero new prod deps. No in-query cursor editing required.
 
-2. **Component granularity (Claude's Discretion).**
+2. **Component granularity (Claude's Discretion).** — **RESOLVED: one SessionTable.js + two pure modules.**
    - What we know: ARCHITECTURE.md sketched `components/{Header,Table,Row,...}`; CONTEXT.md leaves granularity to the planner.
    - What's unclear: whether a single `SessionTable.js` (or inline in `App.js`) is "simple enough" vs. splitting Header/Row.
    - Recommendation: one `SessionTable.js` + two pure modules (`select.js`, `format.js`); avoid over-decomposition for ~5 columns / ~5-10 rows.
+   - **Resolution (planner):** `SessionTable.js` (render) + `select.js` + `format.js` (pure), adopted across Plans 36-01/36-02; no Header/Row over-decomposition.
 
 ## Environment Availability
 
