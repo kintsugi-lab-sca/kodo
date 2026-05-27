@@ -102,7 +102,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 36-03-PLAN.md — `useInput` mode-gated: navegación ↑/↓ + filtro modal `/` (AND `r:`/`s:`, Esc cancel/Enter confirm, cursor preservado, no-match) (TUI-08/TUI-12)
+- [x] 36-03-PLAN.md — `useInput` mode-gated: navegación ↑/↓ + filtro modal `/` (AND `r:`/`s:`, Esc cancel/Enter confirm, cursor preservado, no-match) (TUI-08/TUI-12)
 
 **UI hint**: yes
 
@@ -281,7 +281,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
-| 36. Tabla viva — render + selección + filtros | v0.9 | 2/3 | In Progress|  |
+| 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete   | 2026-05-27 |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
