@@ -39,9 +39,18 @@
 // de color del CLI clásico / picocolors. Markup via React.createElement plano (no JSX, no build).
 
 import { Box, Text, useApp, useInput, useStdin } from 'ink';
-import { createElement, useCallback, useState } from 'react';
+import { createElement, useCallback, useEffect, useState } from 'react';
 import { fetchStatus } from './client.js';
 import { usePoll } from './usePoll.js';
+import {
+  sortSessions,
+  applyFilter,
+  parseFilter,
+  resolveSelection,
+  countByStatus,
+} from './select.js';
+import { deriveRepo } from './format.js';
+import SessionTable from './SessionTable.js';
 
 /**
  * Componente root del dashboard TUI.
@@ -96,6 +105,12 @@ export default function App({
   const [lastError, setLastError] = useState(/** @type {string | null} */ (null));
   const [lastAttemptAt, setLastAttemptAt] = useState(/** @type {number | null} */ (null));
 
+  // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
+  // y cursor por IDENTIDAD (selectedTaskId, NUNCA un índice — D-05). El índice visible se DERIVA
+  // en cada render via resolveSelection sobre la lista ya ordenada+filtrada (TUI-08).
+  const [sessions, setSessions] = useState(/** @type {Array<any>} */ ([]));
+  const [selectedTaskId, setSelectedTaskId] = useState(/** @type {string | null} */ (null));
+
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
   // (keep-last-good, D-06/Pitfall 5). Siempre actualiza lastAttemptAt (edad por poll, D-08).
   const onResult = useCallback(
@@ -106,6 +121,8 @@ export default function App({
         setLastGoodAt(t);
         setConnected(true);
         setLastError(null);
+        // Phase 36: guarda el array de sesiones para la tabla. En !ok NO se toca (keep-last-good).
+        setSessions(result.data.sessions ?? []);
       } else {
         setConnected(false);
         setLastError(result.error ?? null);
@@ -123,36 +140,38 @@ export default function App({
     { schedule, cancel, scheduleTimeout, cancelTimeout, baseMs, maxMs },
   );
 
-  // Derivación pura del estado de render (D-06):
-  //   connected            → live  (● live + N sessions)
-  //   had good + !connected → stale (⚠ server caído + N sessions + edad + retrying)
-  //   never had good        → waiting (waiting for server, sin contador)
-  let statusNode;
-  if (connected) {
-    statusNode = createElement(
-      Text,
-      null,
-      createElement(Text, { color: 'green' }, '● live'),
-      `  ${lastGoodCount} sessions`,
-    );
-  } else if (lastGoodAt != null) {
-    // stale: keep-last-good. Edad = (lastAttemptAt - lastGoodAt) recalculada por poll (D-08).
-    const ageSec = Math.round(((lastAttemptAt ?? lastGoodAt) - lastGoodAt) / 1000);
-    statusNode = createElement(
-      Text,
-      null,
-      createElement(Text, { color: 'yellow' }, '⚠ server caído'),
-      `  ${lastGoodCount} sessions (last update ${ageSec}s ago, retrying…)`,
-    );
-  } else {
-    statusNode = createElement(Text, { dimColor: true }, 'waiting for server');
-  }
+  // Pipeline de derivación OBLIGATORIO (orden fijo — Pitfall 3 / D-16). La query es vacía en este
+  // plan (Plan 03 cablea la query en vivo); se pasa '' para que la FORMA del pipeline sea ya final.
+  //   sortSessions (copia, DESC, tiebreak task_id) → applyFilter (AND, String.includes) →
+  //   resolveSelection (índice derivado por identidad, clamp fallback).
+  const sorted = sortSessions(sessions);
+  const filtered = applyFilter(sorted, parseFilter(''), deriveRepo);
+  const sel = resolveSelection(filtered, selectedTaskId, 0);
+  const counts = countByStatus(filtered);
+
+  // Selección inicial + write-back (D-07): cuando los datos llegan, fija selectedTaskId al row
+  // resuelto (la primera fila al arrancar) para que el cursor nunca apunte a un id ausente.
+  useEffect(() => {
+    if (selectedTaskId !== sel.taskId) setSelectedTaskId(sel.taskId);
+  }, [sel.taskId, selectedTaskId]);
 
   return createElement(
     Box,
     { flexDirection: 'column', borderStyle: 'round', paddingX: 1 },
     createElement(Text, { bold: true }, 'kodo dashboard'),
-    createElement(Box, { marginY: 1, paddingX: 1 }, statusNode),
-    createElement(Text, { dimColor: true }, 'q quit'),
+    createElement(
+      Box,
+      { marginY: 1, paddingX: 1 },
+      createElement(SessionTable, {
+        rows: filtered,
+        selectedIndex: sel.index,
+        counts,
+        connected,
+        lastGoodCount,
+        lastGoodAt,
+        lastAttemptAt,
+      }),
+    ),
+    createElement(Text, { dimColor: true }, '↑↓ move · / filter · q quit'),
   );
 }
