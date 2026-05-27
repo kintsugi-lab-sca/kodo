@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: planning
-stopped_at: Phase 36 context gathered
-last_updated: "2026-05-27T21:25:33.036Z"
-last_activity: 2026-05-27
+status: executing
+stopped_at: Phase 36 UI-SPEC approved
+last_updated: "2026-05-27T21:56:51.501Z"
+last_activity: 2026-05-27 -- Phase 36 planning complete
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
+  total_plans: 9
   completed_plans: 6
   percent: 40
 ---
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 Phase: 36
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-27
+Status: Ready to execute
+Last activity: 2026-05-27 -- Phase 36 planning complete
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -85,8 +85,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-27T21:25:33.027Z
-- **Stopped at:** Phase 36 context gathered
+- **Last session:** 2026-05-27T21:40:30.324Z
+- **Stopped at:** Phase 36 UI-SPEC approved
 - **Next action:** `/gsd-plan-phase 34` (Fundación — subcomando + ciclo de vida).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current State: v0.8 shipped + candidatos v0.9)
