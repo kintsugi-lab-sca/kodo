@@ -94,7 +94,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 36-01-PLAN.md — Capa derive pura (`select.js` + `format.js`) + Wave 0 RED tests, incl. las dos conductas load-bearing puras `resolveSelection` (TUI-07..12)
+- [x] 36-01-PLAN.md — Capa derive pura (`select.js` + `format.js`) + Wave 0 RED tests, incl. las dos conductas load-bearing puras `resolveSelection` (TUI-07..12)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -281,7 +281,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
-| 36. Tabla viva — render + selección + filtros | v0.9 | 0/3 | Planned | - |
+| 36. Tabla viva — render + selección + filtros | v0.9 | 1/3 | In Progress|  |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 

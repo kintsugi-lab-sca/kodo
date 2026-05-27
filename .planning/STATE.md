@@ -4,8 +4,8 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: executing
 stopped_at: Phase 36 UI-SPEC approved
-last_updated: "2026-05-27T21:56:51.501Z"
-last_activity: 2026-05-27 -- Phase 36 planning complete
+last_updated: "2026-05-27T21:57:34.493Z"
+last_activity: 2026-05-27 -- Phase 36 execution started
 progress:
   total_phases: 5
   completed_phases: 2
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 36 — tabla viva render seleccion filtros
+**Current focus:** Phase 36 — tabla-viva-render-seleccion-filtros
 
 ## Current Position
 
-Phase: 36
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-05-27 -- Phase 36 planning complete
+Phase: 36 (tabla-viva-render-seleccion-filtros) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 36
+Last activity: 2026-05-27 -- Phase 36 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
