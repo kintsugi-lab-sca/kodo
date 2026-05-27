@@ -70,7 +70,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 35-02-PLAN.md — Hook `usePoll` self-scheduling: single-flight + backoff 2.5→5→10s + teardown (TUI-05)
+- [x] 35-02-PLAN.md — Hook `usePoll` self-scheduling: single-flight + backoff 2.5→5→10s + teardown (TUI-05)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -267,7 +267,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
-| 35. Datos — cliente HTTP + polling | v0.9 | 2/4 | In Progress|  |
+| 35. Datos — cliente HTTP + polling | v0.9 | 3/4 | In Progress|  |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
