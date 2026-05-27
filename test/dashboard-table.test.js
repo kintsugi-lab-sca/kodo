@@ -383,6 +383,56 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     assert.doesNotMatch(lastFrame(), /KL-2/, `tras Enter (confirma) el filtro se MANTIENE — KL-2 sigue oculta\n${lastFrame()}`);
   });
 
+  it('CR-01/D-16: filtro que oculta TODA la lista → al limpiar, el cursor vuelve a la sesión seleccionada (no a la primera fila)', async () => {
+    // LOAD-BEARING (CR-01 / D-16 / TUI-12): cubre el agujero que dejó pasar el bug en verde.
+    // Los tests previos de D-16 solo ejercen el filtro que CONSERVA la fila seleccionada; este
+    // ejerce el camino donde el filtro la oculta POR COMPLETO y luego se limpia. El bug vive en el
+    // write-back useEffect de App (sel.taskId === null pisaba selectedTaskId), así que solo se
+    // manifiesta a través del render real — un assert puro de resolveSelection no lo capturaría.
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    // Llevar la selección a KL-2 (la fila INFERIOR, NO la selección inicial KL-1) SIN usar teclas de
+    // flecha: filtrar a un subconjunto que solo contiene KL-2 (repo 'foo') hace que el cursor caiga a
+    // KL-2 por clamp (D-06), fijando selectedTaskId='b'. (Las secuencias de escape '\x1b[A/B' del fake
+    // stdin de ink dejan un flush diferido que interfiere con el texto de filtro posterior; este
+    // camino por filtro es equivalente y ejerce la misma identidad seleccionada.)
+    stdin.write('/');
+    await drain();
+    stdin.write('r:foo');
+    await drain();
+    await drain();
+    assert.match(lastFrame(), /›\s+KL-2/, `precondición: filtrar a repo foo deja el cursor en KL-2\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /KL-1/, `precondición: r:foo oculta KL-1\n${lastFrame()}`);
+
+    // Extender la query a 'r:foozzz' → no matchea NINGUNA fila → lista filtrada vacía → "no sessions match".
+    stdin.write('zzz');
+    await drain();
+    await drain();
+    assert.match(lastFrame(), /no sessions match/, `precondición: el filtro sin match debe vaciar la lista\n${lastFrame()}`);
+
+    // Esc → cancela el filtro: la lista completa vuelve. El cursor debe RE-ENCONTRAR KL-2 por
+    // identidad — NO saltar a KL-1 (la primera fila). Sin el fix de CR-01, selectedTaskId fue
+    // pisado a null mientras la lista estaba vacía y el cursor cae a KL-1 (fallo).
+    stdin.write('\x1b');
+    await drain();
+    await drain();
+    assert.match(lastFrame(), /KL-2/, `tras limpiar el filtro KL-2 debe estar visible de nuevo\n${lastFrame()}`);
+    assert.match(
+      lastFrame(),
+      /›\s+KL-2/,
+      `CR-01/D-16: el cursor debe VOLVER a la sesión seleccionada (KL-2), no saltar a la primera fila\n${lastFrame()}`,
+    );
+    assert.doesNotMatch(
+      lastFrame(),
+      /›\s+KL-1/,
+      `CR-01: el cursor NO debe haber saltado a KL-1 (identidad destruida por el write-back)\n${lastFrame()}`,
+    );
+  });
+
   it('no-match (D-12b): un filtro sin coincidencias muestra "no sessions match", no "no active sessions"', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);

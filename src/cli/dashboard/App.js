@@ -224,8 +224,15 @@ export default function App({
   // resuelto (la primera fila al arrancar) para que el cursor nunca apunte a un id ausente.
   // Además se memoriza el índice posicional visible (prevIndexRef) para el clamp de D-06.
   useEffect(() => {
-    prevIndexRef.current = sel.index >= 0 ? sel.index : 0;
-    if (selectedTaskId !== sel.taskId) setSelectedTaskId(sel.taskId);
+    // Conserva el último índice visible REAL; si la lista filtrada está vacía (sel.index === -1)
+    // NO lo pisa con 0 — preserva el ancla posicional para el clamp de D-06 al volver.
+    prevIndexRef.current = sel.index >= 0 ? sel.index : prevIndexRef.current;
+    // NUNCA pisar la identidad con null (CR-01 / D-16): un filtro que oculta TODA la lista hace
+    // sel.taskId === null; escribirlo borraría selectedTaskId y, al limpiar el filtro, el cursor
+    // saltaría a la primera fila en vez de volver a la sesión seleccionada. Solo se escribe cuando
+    // hay una fila resuelta real (sel.taskId != null). El borrado de identidad por terminación real
+    // de la sesión lo cubre resolveSelection (clamp al vecino), no este write-back.
+    if (sel.taskId != null && selectedTaskId !== sel.taskId) setSelectedTaskId(sel.taskId);
   }, [sel.index, sel.taskId, selectedTaskId]);
 
   return createElement(
