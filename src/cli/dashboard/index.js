@@ -7,8 +7,9 @@
 //   1. Guard non-TTY ANTES de render() (D-03/D-04 / T-34-01): si stdout o
 //      stdin NO son TTY (pipe/CI), escribe el mensaje canónico a stderr y sale
 //      con exit 1 — evita el crash "Raw mode is not supported" de ink.
-//   2. Resolución de baseUrl (D-05): `deps.url` override, o el default
-//      construido desde `loadConfig().server.port`.
+//   2. Resolución de baseUrl (D-05 + guard WR-01 / D-10): `deps.url` override,
+//      o el default construido desde `cfg.server?.port ?? DEFAULT_CONFIG.server.port`
+//      (optional chaining evita el TypeError con un config v1 migrado sin `server`).
 //   3. render() del componente `App` (ink) con la baseUrl resuelta.
 //   4. Ciclo de vida limpio (D-08..D-10): `q` → useApp().exit() (en App.js);
 //      Ctrl-C → exitOnCtrlC default de ink (NO se cablea SIGINT aquí, D-09);
@@ -19,11 +20,42 @@
 // Color-isolation (D-12): este módulo NO importa el helper de color del CLI
 // clásico — verificado por el walker extendido de test/format-isolation.test.js.
 
+// DEFAULT_CONFIG es una constante estática (sin I/O); se importa eager — su
+// módulo (src/config.js) solo depende de node:fs/path/os, ni ink ni picocolors,
+// así que no rompe color-isolation ni encarece el arranque. `loadConfig` (que sí
+// hace I/O de disco) se mantiene lazy dentro de runDashboard (ver más abajo).
+import { DEFAULT_CONFIG } from '../../config.js';
+
 // Mensaje canónico D-04 — string EXACTO que test/dashboard-non-tty.test.js
 // compara con stderr.trim(). Construido en dos líneas concatenadas.
 const NON_TTY_MSG =
   'kodo dashboard requires an interactive terminal (TTY). ' +
   'Run it directly in your terminal, not in a pipe or CI.';
+
+/**
+ * Resuelve el baseUrl del dashboard (D-05 + guard WR-01 / D-10).
+ *
+ * Helper puro y testeable (sin TTY ni ink): el override `--url` tiene
+ * prioridad; en su defecto se construye el default desde `loadConfig()`. El
+ * optional chaining `cfg.server?.port` evita el TypeError cuando `migrateConfig`
+ * (src/config.js:82-102) reconstruyó un config v1 SIN la clave `server`; el
+ * fallback usa el default conocido `DEFAULT_CONFIG.server.port` (9090).
+ *
+ * `loadConfig` se inyecta: runDashboard lo pasa desde el lazy import de
+ * `../../config.js` (no cargar config en el arranque del CLI), los tests pasan
+ * fakes herméticos. `defaultConfig` por defecto es DEFAULT_CONFIG (eager).
+ *
+ * @param {object} args
+ * @param {string} [args.url] - Override de baseUrl (flag --url, D-05).
+ * @param {() => any} args.loadConfig - Lector de config (inyectable para tests).
+ * @param {{ server: { port: number } }} [args.defaultConfig] - Default conocido (DEFAULT_CONFIG).
+ * @returns {string} baseUrl resuelto.
+ */
+export function resolveBaseUrl({ url, loadConfig, defaultConfig = DEFAULT_CONFIG }) {
+  const cfg = loadConfig();
+  const port = cfg.server?.port ?? defaultConfig.server.port;
+  return url ?? `http://localhost:${port}`;
+}
 
 /**
  * Lanza el dashboard TUI de kodo.
@@ -44,9 +76,13 @@ export async function runDashboard(deps = {}) {
     process.exit(1);
   }
 
-  // Resolución de baseUrl (D-05): --url override o default config-driven.
+  // Resolución de baseUrl (D-05 + guard WR-01 / D-10): --url override o default
+  // config-driven. loadConfig se importa lazy (I/O de disco); resolveBaseUrl
+  // aplica el optional chaining `cfg.server?.port ?? DEFAULT_CONFIG.server.port`
+  // para no lanzar TypeError con un config v1 migrado (migrateConfig omite la
+  // clave `server`), cayendo al default conocido 9090.
   const { loadConfig } = await import('../../config.js');
-  const baseUrl = url ?? `http://localhost:${loadConfig().server.port}`;
+  const baseUrl = resolveBaseUrl({ url, loadConfig });
 
   // Lazy import de ink/react/App: mantiene el arranque del CLI ligero y aísla
   // las deps de ink al path del subcomando.
