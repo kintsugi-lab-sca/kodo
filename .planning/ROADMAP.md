@@ -253,7 +253,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 31. Phase 21/22 Advisory Cleanup | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 32. v0.7 Bookkeeping (Doc-Only) | v0.8 | 3/3 | Complete | 2026-05-21 |
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
-| 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete   | 2026-05-27 |
+| 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 0/TBD | Not started | - |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |

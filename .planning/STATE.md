@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: executing
-stopped_at: Phase 34 context gathered
-last_updated: "2026-05-26T16:02:50.886Z"
+status: ready_to_plan
+stopped_at: Phase 34 complete (2/2) — ready to discuss Phase 35
+last_updated: 2026-05-27T08:41:16.008Z
 last_activity: 2026-05-26 -- Phase 34 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 22
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 34 — fundacion-subcomando-ciclo-de-vida
+**Current focus:** Phase 35 — datos cliente http polling
 
 ## Current Position
 
-Phase: 34 (fundacion-subcomando-ciclo-de-vida) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 34
-Last activity: 2026-05-26 -- Phase 34 execution started
+Phase: 35
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-27
 
 Progress: [░░░░░░░░░░] 0%
 

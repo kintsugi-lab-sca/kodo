@@ -11,10 +11,10 @@ Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de bui
 
 ### Fundación — subcomando + ciclo de vida (Phase A)
 
-- [ ] **TUI-01**: El usuario lanza el panel en vivo con `kodo dashboard`
-- [ ] **TUI-02**: Si stdout no es un TTY (pipe/CI), el dashboard se niega a arrancar con mensaje claro y exit code ≠ 0 (no crash, no raw-mode error)
-- [ ] **TUI-03**: El usuario sale limpiamente con `q` (y Ctrl-C / SIGTERM): cursor, echo y scrollback de la terminal quedan intactos
-- [ ] **TUI-04**: El color del TUI proviene exclusivamente de ink (`<Text color>`); ningún archivo bajo `src/cli/dashboard/` importa `picocolors` — invariante de color-isolation preservada y verificada por test
+- [x] **TUI-01**: El usuario lanza el panel en vivo con `kodo dashboard`
+- [x] **TUI-02**: Si stdout no es un TTY (pipe/CI), el dashboard se niega a arrancar con mensaje claro y exit code ≠ 0 (no crash, no raw-mode error)
+- [x] **TUI-03**: El usuario sale limpiamente con `q` (y Ctrl-C / SIGTERM): cursor, echo y scrollback de la terminal quedan intactos
+- [x] **TUI-04**: El color del TUI proviene exclusivamente de ink (`<Text color>`); ningún archivo bajo `src/cli/dashboard/` importa `picocolors` — invariante de color-isolation preservada y verificada por test
 
 ### Datos — cliente HTTP + polling (Phase B)
 
