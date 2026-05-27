@@ -31,36 +31,30 @@ import assert from 'node:assert/strict';
 import { runPollLoop } from '../src/cli/dashboard/usePoll.js';
 
 /**
- * Fake clock con un `schedule` determinista. NO usa timers reales:
- *   - `schedule(fn, interval)` registra `interval` en `intervals[]` y guarda el callback
- *     en `pending` con un handle incremental; devuelve ese handle.
- *   - `flush()` dispara el último callback pendiente (avanza el loop un paso).
- *   - `cancel(handle)` registra el handle cancelado en `cancelled[]` (spy de clearTimeout).
- *   - `abortTimeout` es la rama del timeout de 5s (D-05): la registramos aparte para no
- *     confundirla con el re-arme del loop.
+ * Fake clock con un `schedule` determinista para el RE-ARME del tick (NO usa timers reales):
+ *   - `schedule(fn, interval)` registra `interval` en `intervals[]` (para las aserciones de
+ *     backoff) y guarda el callback en `pending` con un handle incremental; devuelve el handle.
+ *   - `cancel(handle)` registra el handle en `cancelled[]` (spy de clearTimeout) y lo descarta.
+ *   - `flushTick()` dispara (y consume) el último callback de tick pendiente — avanza el loop.
  *
- * El loop hace dos `schedule` por tick: (1) el timeout de abort (5000) y (2) el re-arme
- * del tick (interval de backoff). Distinguimos por el valor de `interval`: 5000 → abort.
+ * El timeout de abort de 5s (D-05) NO pasa por este fake: `runPollLoop` lo programa vía
+ * `scheduleTimeout`/`cancelTimeout` (opciones separadas). El test inyecta un `scheduleTimeout`
+ * no-op para que ese timer ni dispare ni mantenga el proceso vivo, dejando `intervals[]`
+ * conteniendo SOLO los intervals de re-arme (backoff).
  */
 function makeFakeClock() {
   /** @type {number[]} */
-  const intervals = []; // intervals de re-arme del loop (NO el abort de 5s)
-  /** @type {number[]} */
-  const abortIntervals = []; // intervals del timeout de abort (D-05)
+  const intervals = []; // intervals de re-arme del loop (backoff)
   /** @type {any[]} */
   const cancelled = []; // handles pasados a cancel() — spy de clearTimeout
-  /** @type {Array<{ handle: number, fn: Function, interval: number }>} */
+  /** @type {Array<{ handle: number, fn: Function }>} */
   let pending = [];
   let nextHandle = 1;
 
   const schedule = (fn, interval) => {
     const handle = nextHandle++;
-    if (interval === 5000) {
-      abortIntervals.push(interval);
-    } else {
-      intervals.push(interval);
-    }
-    pending.push({ handle, fn, interval });
+    intervals.push(interval);
+    pending.push({ handle, fn });
     return handle;
   };
 
@@ -69,24 +63,23 @@ function makeFakeClock() {
     pending = pending.filter((p) => p.handle !== handle);
   };
 
+  // El timeout de abort (5s) es un no-op en tests: devuelve un handle inerte. Esto evita
+  // timers reales colgando y mantiene `intervals[]` limpio (solo re-armes del tick).
+  let nextTimeoutHandle = 10000;
+  const scheduleTimeout = () => nextTimeoutHandle++;
+  const cancelTimeout = () => {};
+
   /**
-   * Dispara el último tick re-armado pendiente (interval !== 5000) y lo consume.
-   * Retorna true si disparó algo.
+   * Dispara (y consume) el último callback de tick pendiente. Retorna true si disparó algo.
    */
   const flushTick = async () => {
-    // Buscar el último pending que NO sea el abort-timeout.
-    for (let i = pending.length - 1; i >= 0; i--) {
-      if (pending[i].interval !== 5000) {
-        const { fn } = pending[i];
-        pending.splice(i, 1);
-        await fn();
-        return true;
-      }
-    }
-    return false;
+    const entry = pending.pop();
+    if (!entry) return false;
+    await entry.fn();
+    return true;
   };
 
-  return { schedule, cancel, intervals, abortIntervals, cancelled, flushTick, pending: () => pending };
+  return { schedule, cancel, scheduleTimeout, cancelTimeout, intervals, cancelled, flushTick, pending: () => pending };
 }
 
 /**
@@ -125,6 +118,16 @@ function makeFn(results) {
   };
 }
 
+/**
+ * Drena por completo la cola de microtasks pendientes. Un `setImmediate` se ejecuta DESPUÉS
+ * de que todas las microtasks encoladas (incluidas las cadenas de promesas anidadas del
+ * kick-off `Promise.resolve().then(tick)` y del `await fn()` interno) se hayan resuelto.
+ * Más robusto que `await Promise.resolve()` contra cadenas de profundidad variable.
+ */
+function drain() {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (D-03/04/05/09, TUI-05)', () => {
   it('single-flight: maxInFlight === 1 a lo largo de varios ticks', async () => {
     const clock = makeFakeClock();
@@ -134,15 +137,16 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
     const teardown = runPollLoop(f.fn, (r) => results.push(r), {
       schedule: clock.schedule,
       cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
     });
 
-    // El primer tick se lanza inmediatamente (microtask). Drenar microtasks.
-    await Promise.resolve();
-    await Promise.resolve();
+    // El primer tick se lanza inmediatamente (microtask). Drenar el event loop.
+    await drain();
     // Avanzar varios ticks manualmente.
     for (let i = 0; i < 4; i++) {
       await clock.flushTick();
-      await Promise.resolve();
+      await drain();
     }
 
     assert.equal(f.maxInFlight, 1, 'nunca debe haber >1 request en vuelo (single-flight)');
@@ -155,14 +159,15 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
     const teardown = runPollLoop(f.fn, () => {}, {
       schedule: clock.schedule,
       cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await drain();
     // 3 ticks más → 4 re-armes en total.
     for (let i = 0; i < 3; i++) {
       await clock.flushTick();
-      await Promise.resolve();
+      await drain();
     }
 
     assert.deepEqual(
@@ -179,13 +184,14 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
     const teardown = runPollLoop(f.fn, () => {}, {
       schedule: clock.schedule,
       cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await drain();
     for (let i = 0; i < 3; i++) {
       await clock.flushTick();
-      await Promise.resolve();
+      await drain();
     }
 
     // intervals: tick1 fail→2500, tick2 fail→5000, tick3 ok→reset 2500, tick4 ok→2500
@@ -204,12 +210,13 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
     const teardown = runPollLoop(f.fn, (r) => results.push(r), {
       schedule: clock.schedule,
       cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await drain();
     await clock.flushTick();
-    await Promise.resolve();
+    await drain();
 
     const resultsBeforeTeardown = results.length;
     teardown();
@@ -223,7 +230,7 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
 
     // Disparar cualquier pending residual tras cancelled NO debe producir más onResult.
     await clock.flushTick();
-    await Promise.resolve();
+    await drain();
     assert.equal(results.length, resultsBeforeTeardown, 'ningún onResult debe invocarse tras el teardown (cancelled)');
   });
 });
