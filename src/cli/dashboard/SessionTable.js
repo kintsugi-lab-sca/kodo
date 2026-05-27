@@ -108,6 +108,9 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt }) 
  * @param {number|null} props.lastAttemptAt
  * @param {boolean} [props.hasQuery] - hay una query de filtro activa (Plan 03). Distingue los dos
  *   estados vacíos: `no sessions match` (hay query) vs `no active sessions` (lista realmente vacía).
+ * @param {'list'|'filter'} [props.mode] - modo de interacción (Plan 03). En `filter` se muestra la
+ *   línea de filtro modal al pie de la tabla (D-13).
+ * @param {string} [props.query] - texto del filtro EN VIVO (Plan 03), renderizado en la línea modal.
  * @returns {import('react').ReactElement}
  */
 export default function SessionTable({
@@ -119,6 +122,8 @@ export default function SessionTable({
   lastGoodAt,
   lastAttemptAt,
   hasQuery = false,
+  mode = 'list',
+  query = '',
 }) {
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);
@@ -131,12 +136,21 @@ export default function SessionTable({
     label ? h(Text, null, `   ${label}`) : null,
   );
 
+  // Línea de filtro modal (D-13, UI-SPEC:191): prompt `/ <query>▏` al pie, SOLO cuando mode==='filter'.
+  // El cursor `▏` es el marcador inequívoco de que el input de filtro tiene el foco (lo distingue del
+  // `/ filter` del footer de hints). `null` cuando no estamos en modo filtro.
+  const filterLine =
+    mode === 'filter'
+      ? h(Box, { marginTop: 1 }, h(Text, null, `/ ${query}▏`))
+      : null;
+
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):
   //   - waiting/stale (never had good O degradado) gana SIEMPRE → solo el indicador, sin tabla.
   //   - connected + 0 filas + query activa → `no sessions match` (Plan 03).
   //   - connected + 0 filas sin query      → `no active sessions`.
+  // La línea de filtro se anexa al pie en TODAS las ramas (el operador ve su query aunque oculte todo).
   if (!connected && lastGoodAt == null) {
-    return h(Box, { flexDirection: 'column' }, header);
+    return h(Box, { flexDirection: 'column' }, header, filterLine);
   }
   if (rows.length === 0) {
     const emptyCopy = hasQuery ? 'no sessions match' : 'no active sessions';
@@ -145,6 +159,7 @@ export default function SessionTable({
       { flexDirection: 'column' },
       header,
       h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, emptyCopy)),
+      filterLine,
     );
   }
 
@@ -185,5 +200,6 @@ export default function SessionTable({
     { flexDirection: 'column' },
     header,
     h(Box, { marginTop: 1, flexDirection: 'column' }, columnHeader, ...dataRows),
+    filterLine,
   );
 }
