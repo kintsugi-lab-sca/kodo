@@ -96,8 +96,12 @@ function injectProps(clock, fetchFn) {
  * .then(tick)` + `await fn()` + los setState/re-render que ink agenda). Más robusto que
  * `await Promise.resolve()` contra cadenas de profundidad variable.
  */
-function drain() {
-  return new Promise((resolve) => setImmediate(resolve));
+async function drain() {
+  // Doble drain: el primer setImmediate absorbe el onResult del tick; el segundo absorbe el
+  // re-render del write-back de la selección inicial (useEffect en App, Phase 36 D-07). Sin él
+  // el frame podría capturarse entre los dos renders (flakiness de microtasks).
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 /** Response-like mínimo con `ok`/`status`/`json()` (forma del fetch que consume client.js). */
@@ -118,9 +122,11 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
 
     const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
 
-    // Tick 1 (kick-off): ok → "3 sessions" + live.
+    // Tick 1 (kick-off): ok → indicador "● live" (Phase 36: el contador `N sessions` del live
+    // se reemplazó por contadores por estado; en este fixture las sesiones son objetos vacíos sin
+    // status, así que el live no muestra contadores — basta con el indicador ● live).
     await drain();
-    assert.match(lastFrame(), /3 sessions/, `tras primer poll ok debe mostrar 3 sessions\n${lastFrame()}`);
+    assert.match(lastFrame(), /● live/, `tras primer poll ok debe mostrar el indicador ● live\n${lastFrame()}`);
 
     // Tick 2: ok (count:3 de nuevo). Avanzar el reloj para que la edad sea > 0 al caer.
     clock.advance(8000);
@@ -153,7 +159,7 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
     assert.doesNotMatch(frame, /\d+ sessions/, `waiting NO debe mostrar un contador de sessions\n${frame}`);
   });
 
-  it('live: fetch ok muestra "● live" y "N sessions" (N = data.count)', async () => {
+  it('live: fetch ok muestra "● live" y la tabla con las filas (Phase 36 reemplaza el contador del live)', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse({ sessions: [{}, {}, {}, {}, {}], count: 5 });
 
@@ -162,7 +168,9 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
 
     const frame = lastFrame();
     assert.match(frame, /● live/, `poll ok debe mostrar "● live"\n${frame}`);
-    assert.match(frame, /5 sessions/, `poll ok debe mostrar "5 sessions" (data.count)\n${frame}`);
+    // Phase 36: el live ya no muestra `N sessions`; las sesiones se renderizan como filas de la
+    // tabla. La cabecera de columnas confirma que la tabla (no la status line) está montada.
+    assert.match(frame, /task_ref/, `poll ok debe montar la tabla (cabecera de columnas)\n${frame}`);
   });
 
   it('JSON corrupto = poll fallido: json() que lanza no crashea el render (frame sobrevive, estado stale)', async () => {
@@ -183,7 +191,9 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
 
     const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
     await drain();
-    assert.match(lastFrame(), /2 sessions/, `tras primer poll ok debe mostrar 2 sessions\n${lastFrame()}`);
+    // Phase 36: el live muestra el indicador ● live (el contador `N sessions` se movió al estado
+    // stale / a los contadores por estado). Confirma que el primer poll ok montó la tabla viva.
+    assert.match(lastFrame(), /● live/, `tras primer poll ok debe mostrar el indicador ● live\n${lastFrame()}`);
 
     // Tick 2: json() lanza → client.js lo degrada a {ok:false} → estado stale, NUNCA crash.
     clock.advance(5000);

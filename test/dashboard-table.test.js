@@ -97,9 +97,15 @@ function injectProps(clock, fetchFn) {
  * Drena por completo la cola de microtasks pendientes (cadenas del kick-off `Promise.resolve()
  * .then(tick)` + `await fn()` + los setState/re-render que ink agenda). Más robusto que
  * `await Promise.resolve()` contra cadenas de profundidad variable.
+ *
+ * Se drena DOS veces: el primer drain absorbe el `onResult` del kick-off (sets connected +
+ * sessions); el segundo absorbe el re-render del write-back de la selección inicial (`useEffect`
+ * que fija selectedTaskId — D-07). Sin el segundo drain el frame podría capturarse entre los dos
+ * renders (flakiness de profundidad de microtasks en el proceso compartido del test runner).
  */
-function drain() {
-  return new Promise((resolve) => setImmediate(resolve));
+async function drain() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 /** Response-like mínimo con `ok`/`status`/`json()` (forma del fetch que consume client.js). */
