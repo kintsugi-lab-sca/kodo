@@ -90,7 +90,20 @@ Plans:
   4. El header muestra un indicador "live" + contadores por estado (p. ej. "3 running · 1 review"); la lista vacía muestra "no active sessions".
   5. El operador filtra filas con `/` (substring) y los prefijos `r:<repo>` / `s:<state>`, y la posición del cursor se preserva al aplicar o limpiar el filtro.
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 36-01-PLAN.md — Capa derive pura (`select.js` + `format.js`) + Wave 0 RED tests, incl. las dos conductas load-bearing puras `resolveSelection` (TUI-07..12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 36-02-PLAN.md — Render de la tabla viva en `App.js` + `SessionTable.js`: columnas, orden DESC estable, color + zombie, header contadores, estados vacíos (TUI-07/09/10/11)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 36-03-PLAN.md — `useInput` mode-gated: navegación ↑/↓ + filtro modal `/` (AND `r:`/`s:`, Esc cancel/Enter confirm, cursor preservado, no-match) (TUI-08/TUI-12)
+
 **UI hint**: yes
 
 #### Phase 37: Attach — handoff a cmux (FASE DE MAYOR RIESGO)
@@ -268,9 +281,9 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 33. v0.8 Bookkeeping & Nyquist Backfill + Surgical Fix | v0.8 | 3/3 | Complete | 2026-05-25 |
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
-| 36. Tabla viva — render + selección + filtros | v0.9 | 0/TBD | Not started | - |
+| 36. Tabla viva — render + selección + filtros | v0.9 | 0/3 | Planned | - |
 | 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
 ---
-*Last updated: 2026-05-26 — v0.9 kodo TUI sesiones en vivo roadmap creado (Phases 34-38, build order A→E del research). 16/16 requirements TUI-* mapeadas, 100% coverage. Next: `/gsd-plan-phase 34`.*
+*Last updated: 2026-05-27 — Phase 36 planned (3 plans, 3 waves: pure derive layer → table render → keyboard/filter interaction). 6/6 requirements TUI-07..12 cubiertas. Next: `/gsd-execute-phase 36`.*
