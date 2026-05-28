@@ -1,6 +1,6 @@
 // @ts-check
 //
-// src/cli/dashboard/index.js — Phase 34 Plan 02 (TUI-01..03).
+// src/cli/dashboard/index.js — Phase 34 Plan 02 (TUI-01..03) + Phase 36 polish (alt-screen).
 //
 // runDashboard: propietario del proceso del subcomando `kodo dashboard`.
 // Responsabilidades (en orden):
@@ -10,12 +10,21 @@
 //   2. Resolución de baseUrl (D-05 + guard WR-01 / D-10): `deps.url` override,
 //      o el default construido desde `cfg.server?.port ?? DEFAULT_CONFIG.server.port`
 //      (optional chaining evita el TypeError con un config v1 migrado sin `server`).
-//   3. render() del componente `App` (ink) con la baseUrl resuelta.
-//   4. Ciclo de vida limpio (D-08..D-10): `q` → useApp().exit() (en App.js);
+//   3. **Alternate screen buffer** (Phase 36 polish): `\x1b[?1049h` ANTES de render
+//      / `\x1b[?1049l` en el `finally` tras `waitUntilExit`. Sin esto, cada redraw
+//      en un ancho de terminal distinto deja el frame previo en el scrollback como
+//      artefacto (cabeceras `kodo dashboard` apiladas, bordes fragmentados). Con
+//      alt-screen el dashboard renderiza sobre una pantalla alterna que se descarta
+//      al salir, restaurando el scrollback original — patrón estándar (vim/htop/less/
+//      tmux/claude code). Solo se enciende tras el guard non-TTY (línea 75) para no
+//      mandar secuencias ANSI a pipes/CI.
+//   4. render() del componente `App` (ink) con la baseUrl resuelta.
+//   5. Ciclo de vida limpio (D-08..D-10): `q` → useApp().exit() (en App.js);
 //      Ctrl-C → exitOnCtrlC default de ink (NO se cablea SIGINT aquí, D-09);
 //      SIGTERM → handler explícito que llama app.unmount() para restaurar la
-//      terminal (D-10). Salida limpia → process.exitCode = 0 (NO process.exit,
-//      deja drenar stdio).
+//      terminal (D-10). El `try/finally` garantiza que el alt-screen se apague
+//      aunque la app crashee, y `process.exitCode = 0` (NO process.exit, deja
+//      drenar stdio).
 //
 // Color-isolation (D-12): este módulo NO importa el helper de color del CLI
 // clásico — verificado por el walker extendido de test/format-isolation.test.js.
@@ -90,21 +99,33 @@ export async function runDashboard(deps = {}) {
   const { createElement } = await import('react');
   const App = (await import('./App.js')).default;
 
+  // Entrar al alternate screen buffer ANTES de render (post non-TTY guard, así
+  // pipes/CI no reciben secuencias ANSI). Sin esto, cada redraw a un ancho de
+  // terminal distinto deja el frame previo en scrollback como artefacto. El
+  // `try/finally` de más abajo garantiza el `\x1b[?1049l` (alt-screen off +
+  // restaura scrollback original) incluso si la app crashea.
+  stdout.write('\x1b[?1049h');
+
   const app = render(createElement(App, { baseUrl }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
-  // app.unmount() restaura la terminal (cursor/echo/scrollback); NO process.exit
-  // directo (saltaría el teardown de ink). Ctrl-C lo cubre el exitOnCtrlC
-  // default de ink (D-09) — NO se cablea SIGINT aquí.
+  // app.unmount() restaura la terminal (cursor/echo); NO process.exit directo
+  // (saltaría el teardown de ink Y el alt-screen-off del finally). Ctrl-C lo
+  // cubre el exitOnCtrlC default de ink (D-09) — NO se cablea SIGINT aquí.
   const onSigterm = () => {
     app.unmount();
   };
   process.once('SIGTERM', onSigterm);
 
-  await app.waitUntilExit();
-
-  // Salida limpia: remover el listener para no fugarlo y fijar el exit code sin
-  // matar el proceso (deja drenar stdio).
-  process.removeListener('SIGTERM', onSigterm);
-  process.exitCode = 0;
+  try {
+    await app.waitUntilExit();
+  } finally {
+    // Apagar el alt-screen SIEMPRE (q / Ctrl-C / SIGTERM / crash). El orden
+    // importa: ink ya hizo unmount/restauración de cursor antes de que
+    // waitUntilExit resuelva, así que escribir `\x1b[?1049l` aquí restaura el
+    // scrollback original limpio.
+    stdout.write('\x1b[?1049l');
+    process.removeListener('SIGTERM', onSigterm);
+    process.exitCode = 0;
+  }
 }
