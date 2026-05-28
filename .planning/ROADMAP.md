@@ -132,7 +132,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 37-03-PLAN.md — runDashboard DI extension (inyecta exec + lazy import runFocus + cmuxBin + onFocus prop) + 37-HUMAN-UAT.md (2 obligatorios bloqueantes + 2 bonus opcionales)
+- [x] 37-03-PLAN.md — runDashboard DI extension (inyecta exec + lazy import runFocus + cmuxBin + onFocus prop) + 37-HUMAN-UAT.md (2 obligatorios bloqueantes + 2 bonus opcionales)
 
 **UI hint**: yes
 
@@ -296,7 +296,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
-| 37. Focus — invocar cmux select-workspace | v0.9 | 2/3 | In Progress|  |
+| 37. Focus — invocar cmux select-workspace | v0.9 | 3/3 | Complete   | 2026-05-28 |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
 ---
