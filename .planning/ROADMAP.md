@@ -120,7 +120,20 @@ Plans:
   3. Si `cmux` no está en PATH (ENOENT) o `select-workspace` retorna exit code ≠ 0, el panel muestra el error en el footer (`[!] cmux not found in PATH` o `[!] cmux focus failed (code N)`) y permanece montado — nunca rompe el dashboard ni el terminal.
   4. Existe un artefacto de UAT manual documentado (`37-HUMAN-UAT.md`) que cubre los 2 escenarios obligatorios (focus exitoso visible en la GUI + zombie reject sin invocar cmux), y opcionalmente el ENOENT. Sin ese artefacto la fase NO está completa.
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 37-01-PLAN.md — focus.js (orquestador puro never-throws) + test/dashboard/focus.test.js (5 tests Wave 0: ok+args ordering, ENOENT, NON_ZERO_EXIT, SPAWN_ERROR, leak guard)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 37-02-PLAN.md — App.js Enter handler + focusError state + clear-on-any-input + 3 constantes literal-estables, SessionTable.js footer-error rojo, test/dashboard/app-focus.test.js (3 tests Wave 0: alive=false guard, ok path, clear-on-any-input)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 37-03-PLAN.md — runDashboard DI extension (inyecta exec + lazy import runFocus + cmuxBin + onFocus prop) + 37-HUMAN-UAT.md (2 obligatorios bloqueantes + 2 bonus opcionales)
+
 **UI hint**: yes
 
 #### Phase 38: Paneles auxiliares — comentarios + logs
@@ -283,8 +296,8 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
-| 37. Attach — handoff a cmux | v0.9 | 0/TBD | Not started | - |
+| 37. Focus — invocar cmux select-workspace | v0.9 | 0/3 | Planned     | - |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
 ---
-*Last updated: 2026-05-27 — Phase 36 planned (3 plans, 3 waves: pure derive layer → table render → keyboard/filter interaction). 6/6 requirements TUI-07..12 cubiertas. Next: `/gsd-execute-phase 36`.*
+*Last updated: 2026-05-28 — Phase 37 planned (3 plans, 3 waves: focus.js never-throws fundament → App.js+SessionTable.js UX → runDashboard wiring + UAT). 2/2 requirements TUI-13..14 cubiertas. Revisado post-C-01 (cmux select-workspace fire-and-forget, NO TTY handoff). Next: /gsd-execute-phase 37.*
