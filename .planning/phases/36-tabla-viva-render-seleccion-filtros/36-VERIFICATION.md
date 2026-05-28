@@ -1,8 +1,10 @@
 ---
 phase: 36-tabla-viva-render-seleccion-filtros
 verified: 2026-05-28T00:50:00Z
-status: human_needed
+human_verified: 2026-05-28T10:48:00Z
+status: passed
 score: 6/6 must-haves verified
+human_verification_outcome: passed (see 36-HUMAN-UAT.md — fixture-server-driven UAT, 3/3 items passed, hot-patches 116cb1e + ca61733 validated in TTY)
 overrides_applied: 0
 re_verification: false
 human_verification:
