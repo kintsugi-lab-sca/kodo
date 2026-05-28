@@ -124,7 +124,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 37-01-PLAN.md — focus.js (orquestador puro never-throws) + test/dashboard/focus.test.js (5 tests Wave 0: ok+args ordering, ENOENT, NON_ZERO_EXIT, SPAWN_ERROR, leak guard)
+- [x] 37-01-PLAN.md — focus.js (orquestador puro never-throws) + test/dashboard/focus.test.js (5 tests Wave 0: ok+args ordering, ENOENT, NON_ZERO_EXIT, SPAWN_ERROR, leak guard)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -296,7 +296,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
-| 37. Focus — invocar cmux select-workspace | v0.9 | 0/3 | Planned     | - |
+| 37. Focus — invocar cmux select-workspace | v0.9 | 1/3 | In Progress|  |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
 ---

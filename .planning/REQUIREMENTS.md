@@ -34,8 +34,8 @@ Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de bui
 
 > **REVISED 2026-05-28** tras hallazgo C-01 de Phase 37 research: el verbo `cmux attach` no existe; el binario cmux es una app GUI controlada por socket. El verbo real es `cmux select-workspace --workspace <ref>` (fire-and-forget, sin handoff TTY). El alcance original (handoff TTY + UAT 4 escenarios) se reduce a una RPC simple.
 
-- [ ] **TUI-13**: El usuario pulsa `Enter` sobre la fila seleccionada con `alive===true`; kodo ejecuta `cmux select-workspace --workspace <row.workspace_ref>` (fire-and-forget, ~50ms vía `execFile`) y la app cmux cambia foco a ese workspace en su GUI. El dashboard sigue montado y polling continúa sin interrupción (cero unmount, cero re-render desde cero, cero alt-screen toggle).
-- [ ] **TUI-14**: La invocación está guardada: si `alive===false` el dashboard rechaza con footer-error y NO invoca `cmux`; si `cmux` no está en PATH (ENOENT) o `select-workspace` retorna exit code ≠ 0, el dashboard muestra el error en el footer y permanece montado — nunca rompe el panel.
+- [x] **TUI-13**: El usuario pulsa `Enter` sobre la fila seleccionada con `alive===true`; kodo ejecuta `cmux select-workspace --workspace <row.workspace_ref>` (fire-and-forget, ~50ms vía `execFile`) y la app cmux cambia foco a ese workspace en su GUI. El dashboard sigue montado y polling continúa sin interrupción (cero unmount, cero re-render desde cero, cero alt-screen toggle).
+- [x] **TUI-14**: La invocación está guardada: si `alive===false` el dashboard rechaza con footer-error y NO invoca `cmux`; si `cmux` no está en PATH (ENOENT) o `select-workspace` retorna exit code ≠ 0, el dashboard muestra el error en el footer y permanece montado — nunca rompe el panel.
 
 ### Paneles auxiliares — comentarios + logs (Phase E)
 
