@@ -128,7 +128,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 37-02-PLAN.md — App.js Enter handler + focusError state + clear-on-any-input + 3 constantes literal-estables, SessionTable.js footer-error rojo, test/dashboard/app-focus.test.js (3 tests Wave 0: alive=false guard, ok path, clear-on-any-input)
+- [x] 37-02-PLAN.md — App.js Enter handler + focusError state + clear-on-any-input + 3 constantes literal-estables, SessionTable.js footer-error rojo, test/dashboard/app-focus.test.js (3 tests Wave 0: alive=false guard, ok path, clear-on-any-input)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -296,7 +296,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 34. Fundación — subcomando + ciclo de vida | v0.9 | 2/2 | Complete    | 2026-05-27 |
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
-| 37. Focus — invocar cmux select-workspace | v0.9 | 1/3 | In Progress|  |
+| 37. Focus — invocar cmux select-workspace | v0.9 | 2/3 | In Progress|  |
 | 38. Paneles auxiliares — comentarios + logs | v0.9 | 0/TBD | Not started | - |
 
 ---

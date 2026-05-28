@@ -4,13 +4,13 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: executing
 stopped_at: Phase 37 context gathered
-last_updated: "2026-05-28T21:40:35.255Z"
+last_updated: "2026-05-28T22:35:39.519Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 60
 ---
 
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 ## Current Position
 
 Phase: 37 (attach-handoff-cmux) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-05-28
 
-Progress: [████████░░] 83%
+Progress: [█████████░] 92%
 
 ## Most recent shipped milestone
 
@@ -85,7 +85,7 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-28T21:40:27.689Z
+- **Last session:** 2026-05-28T22:35:39.514Z
 - **Stopped at:** Phase 37 context gathered
 - **Next action:** `/gsd-plan-phase 34` (Fundación — subcomando + ciclo de vida).
 - **Files of record:**
