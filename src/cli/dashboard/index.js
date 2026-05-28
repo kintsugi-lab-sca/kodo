@@ -28,6 +28,12 @@
 //
 // Color-isolation (D-12): este módulo NO importa el helper de color del CLI
 // clásico — verificado por el walker extendido de test/format-isolation.test.js.
+//
+// Phase 37 (este archivo): extensión DI mínima — añade `exec` a `deps`, lazy-importa
+// `runFocus` y pasa `onFocus` como prop a `<App />`. CERO modificación al alt-screen toggle
+// (líneas 107/127), CERO loop while(true), CERO mutación de signal handlers (SIGINT/SIGTERM
+// de Phase 34 D-10 preservado al pie de la letra). El verbo `cmux select-workspace` es
+// fire-and-forget RPC al socket Unix (~50ms) — NO toma el TTY (post-C-01).
 
 // DEFAULT_CONFIG es una constante estática (sin I/O); se importa eager — su
 // módulo (src/config.js) solo depende de node:fs/path/os, ni ink ni picocolors,
@@ -73,10 +79,11 @@ export function resolveBaseUrl({ url, loadConfig, defaultConfig = DEFAULT_CONFIG
  * @param {NodeJS.WriteStream} [deps.stdout] - Stream de salida (default process.stdout).
  * @param {NodeJS.ReadStream} [deps.stdin] - Stream de entrada (default process.stdin).
  * @param {string} [deps.url] - Override de baseUrl (flag --url, D-05).
+ * @param {(cmd: string, args: string[], opts: object, cb: (err: any, stdout: string, stderr: string) => void) => any} [deps.exec] - Phase 37 D-01: execFile-shaped inyectable para tests. Default lazy `node:child_process.execFile`.
  * @returns {Promise<void>}
  */
 export async function runDashboard(deps = {}) {
-  const { stdout = process.stdout, stdin = process.stdin, url } = deps;
+  const { stdout = process.stdout, stdin = process.stdin, url, exec } = deps;
 
   // Guard non-TTY PRIMERO (D-03), ANTES de cualquier render(): un crash de
   // raw-mode es un fallo de proceso, no de UI. A stderr (no stdout), exit 1.
@@ -99,6 +106,21 @@ export async function runDashboard(deps = {}) {
   const { createElement } = await import('react');
   const App = (await import('./App.js')).default;
 
+  // Phase 37: runFocus (orquestador puro never-throws del verbo cmux select-workspace, Plan 01).
+  // Lazy import mismo patrón que App/ink/react. Cero overhead en arranque del CLI.
+  const { runFocus } = await import('./focus.js');
+
+  // execFile-shaped default cuando exec no fue inyectado. Lazy: solo se carga si se cablea el TUI
+  // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
+  const execImpl = exec ?? (await import('node:child_process')).execFile;
+
+  // Resolución del binario cmux desde la config (mismo patrón que src/cmux/client.js:5-7). El
+  // default `/Applications/cmux.app/Contents/Resources/bin/cmux` viene de DEFAULT_CONFIG y se
+  // sobreescribe vía ~/.kodo/config.json si el operador apunta a otro binario. Llamada extra a
+  // loadConfig (cero coste real — primera invocación ya cacheó por la lectura de baseUrl arriba;
+  // segunda lectura solo re-deserializa el config en memoria).
+  const cmuxBin = loadConfig().cmux.binary;
+
   // Entrar al alternate screen buffer ANTES de render (post non-TTY guard, así
   // pipes/CI no reciben secuencias ANSI). Sin esto, cada redraw a un ancho de
   // terminal distinto deja el frame previo en scrollback como artefacto. El
@@ -106,7 +128,13 @@ export async function runDashboard(deps = {}) {
   // restaura scrollback original) incluso si la app crashea.
   stdout.write('\x1b[?1049h');
 
-  const app = render(createElement(App, { baseUrl }));
+  const app = render(createElement(App, {
+    baseUrl,
+    // Phase 37 D-01: fire-and-forget al socket cmux. runFocus es never-throws (Plan 01),
+    // App.js maneja el discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el
+    // lifecycle de runDashboard — ink sigue montado durante toda la invocación (~50ms).
+    onFocus: async (ref) => runFocus({ exec: execImpl, ref, binary: cmuxBin }),
+  }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
   // app.unmount() restaura la terminal (cursor/echo); NO process.exit directo
