@@ -10,11 +10,14 @@
 //   (2) precedencia de estados vacíos (D-12, Pitfall 5): waiting/stale gana siempre → connected+0
 //       sesiones → `no active sessions` → (Plan 03) `no sessions match` con query no vacía.
 //   (3) fila de cabecera de columnas (dimColor) con los anchos fijos.
-//   (4) filas de datos: gutter `› ` de selección (redundancia NO_COLOR), celdas en `<Box width>`
-//       fijos, color semántico SOLO en la celda `status` (D-08), marca `(zombie)` no truncada.
+//   (4) filas de datos: gutter `› ` de selección + texto en `bold` para la fila activa (UAT-pulido
+//       post-Phase 36: el `inverse` por celda creaba bloques fragmentados con look 80s; bold + gutter
+//       es el patrón de fzf/vim, mantiene color-isolation y degrada limpio bajo NO_COLOR — el gutter
+//       sigue siendo la pista posicional). Celdas en `<Box width>` fijos, color semántico SOLO en
+//       la celda `status` (D-08), marca `(zombie)` no truncada.
 //
 // Color-isolation (D-12 Phase 34): TODO el color sale de props de <Text> de ink (color name string
-// de statusColor, dimColor, inverse, bold). CERO picocolors, CERO import de src/cli/format.js.
+// de statusColor, dimColor, bold). CERO picocolors, CERO import de src/cli/format.js.
 // Markup via React.createElement plano (sin JSX, sin build step) — patrón Phase 34/35.
 
 import { Box, Text } from 'ink';
@@ -27,7 +30,7 @@ const COLS = { gutter: 2, task_ref: 10, repo: 18, phasemode: 11, status: 18, age
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
- * va sin atributo salvo `inverse` para la fila seleccionada. `wrap='truncate-end'` produce el
+ * va sin atributo salvo `bold` para la fila seleccionada. `wrap='truncate-end'` produce el
  * ellipsis nativo `…` de ink cuando el valor desborda el ancho.
  *
  * @param {object} opts
@@ -35,17 +38,17 @@ const COLS = { gutter: 2, task_ref: 10, repo: 18, phasemode: 11, status: 18, age
  * @param {string} opts.text
  * @param {string} [opts.color] - nombre de color ink (string), nunca ANSI.
  * @param {boolean} [opts.dim]
- * @param {boolean} [opts.inverse]
+ * @param {boolean} [opts.bold] - fila seleccionada (UAT-pulido post-Phase 36).
  * @param {boolean} [opts.truncate]
  * @returns {import('react').ReactElement}
  */
-function cell({ width, text, color, dim, inverse, truncate }) {
+function cell({ width, text, color, dim, bold, truncate }) {
   return h(
     Box,
     { width },
     h(
       Text,
-      { color, dimColor: dim, inverse, wrap: truncate ? 'truncate-end' : undefined },
+      { color, dimColor: dim, bold, wrap: truncate ? 'truncate-end' : undefined },
       text,
     ),
   );
@@ -183,15 +186,18 @@ export default function SessionTable({
     return h(
       Box,
       { key: session.task_id ?? `row-${i}`, flexDirection: 'row' },
-      // Gutter: `› ` cuando seleccionada, 2 espacios si no (redundancia NO_COLOR del highlight).
-      h(Box, { width: COLS.gutter }, h(Text, { inverse: selected }, selected ? '› ' : '  ')),
-      cell({ width: COLS.task_ref, text: cells.task_ref, inverse: selected, truncate: true }),
-      cell({ width: COLS.repo, text: cells.repo, inverse: selected, truncate: true }),
-      cell({ width: COLS.phasemode, text: cells.phasemode, inverse: selected, truncate: true }),
-      // status: color semántico (D-08) + inverse si seleccionada; NO truncar (el `(zombie)` debe
-      // sobrevivir, D-09). ink compone inverse SOBRE el color → la marca sigue legible.
-      cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, inverse: selected, truncate: false }),
-      cell({ width: COLS.age, text: cells.age, inverse: selected, truncate: false }),
+      // Gutter: `› ` cuando seleccionada (también en bold), 2 espacios si no. El glifo `›` es la
+      // pista posicional inequívoca (sobrevive NO_COLOR sin bold); el bold sobre el row añade peso
+      // sin crear bloques inversos (patrón fzf/vim — decisión UAT-pulido post-Phase 36).
+      h(Box, { width: COLS.gutter }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
+      cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
+      cell({ width: COLS.phasemode, text: cells.phasemode, bold: selected, truncate: true }),
+      // status: color semántico (D-08) + bold si seleccionada; NO truncar (el `(zombie)` debe
+      // sobrevivir, D-09). ink compone bold sobre color sin alterar el matiz → la marca queda
+      // legible y enfatizada en la fila activa.
+      cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: false }),
+      cell({ width: COLS.age, text: cells.age, bold: selected, truncate: false }),
     );
   });
 
