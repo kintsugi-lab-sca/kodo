@@ -22,7 +22,7 @@
 - [ ] **Phase 34: Fundación — subcomando + ciclo de vida** - Esqueleto `kodo dashboard`, guard non-TTY, salida limpia, color-isolation
 - [ ] **Phase 35: Datos — cliente HTTP + polling** - Cliente puro never-throws + poll self-scheduling con keep-last-good
 - [ ] **Phase 36: Tabla viva — render + selección + filtros** - Tabla, selección por `task_id`, orden estable, color, header, filtros
-- [ ] **Phase 37: Attach — handoff a cmux** - Handoff TTY a `cmux attach` (FASE DE MAYOR RIESGO — UAT manual obligatorio)
+- [ ] **Phase 37: Focus — invocar `cmux select-workspace`** - Fire-and-forget RPC al socket cmux (revisado tras C-01; no es handoff TTY)
 - [ ] **Phase 38: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
 
 #### Phase 34: Fundación — subcomando + ciclo de vida
@@ -106,18 +106,19 @@ Plans:
 
 **UI hint**: yes
 
-#### Phase 37: Attach — handoff a cmux (FASE DE MAYOR RIESGO)
+#### Phase 37: Focus — invocar `cmux select-workspace`
 
-**Goal**: El operador hace handoff completo del TTY desde el panel a `cmux attach <workspace_ref>` y vuelve al dashboard intacto al hacer detach — la integración más arriesgada del milestone, aislada en su propia fase con UAT manual obligatorio porque falla de maneras que los tests automáticos no detectan.
-**Depends on**: Phase 36 (el attach actúa sobre la fila seleccionada — la selección por `task_id` debe ser estable primero)
+> **REVISED 2026-05-28** tras hallazgo C-01 del research: el verbo `cmux attach <workspace_ref>` NO existe en el binario instalado (`/Applications/cmux.app/Contents/Resources/bin/cmux`). cmux es una app GUI de macOS controlada por socket Unix; sus workspaces son tabs GUI, no sesiones TTY reattachables. El verbo real para "ir a la sesión X" es `cmux select-workspace --workspace <ref>` (fire-and-forget, ~50ms, sin handoff TTY). El alcance original ("fase de mayor riesgo, UAT 4 escenarios, handoff TTY") se reduce a una invocación RPC simple análoga a `src/cmux/client.js`. Ver `37-RESEARCH.md §C-01` para evidencia.
+
+**Goal**: El operador pulsa `Enter` sobre la fila seleccionada del dashboard y la app cmux focusea ese workspace en su GUI mediante una invocación fire-and-forget `cmux select-workspace --workspace <workspace_ref>`. El dashboard sigue corriendo (cero unmount, cero handoff TTY); los guards `alive===false` y errores de `cmux` (ENOENT, exit code ≠ 0) se muestran como footer-error rojo sin romper el panel.
+**Depends on**: Phase 36 (el focus actúa sobre la fila seleccionada — la selección por `task_id` debe ser estable primero)
 **Requirements**: TUI-13, TUI-14
 **Success Criteria** (what must be TRUE):
 
-  1. El operador pulsa `Enter` sobre la fila seleccionada y entra al workspace cmux de esa sesión (secuencia `unmount` → `waitUntilExit` → `spawn` con `stdio:'inherit'` → re-`render`); al hacer detach vuelve al dashboard sin terminal rota ni raw-mode residual.
-  2. Un segundo attach consecutivo funciona igual que el primero (el re-render no deja estado de raw-mode colgando entre handoffs).
-  3. Si la sesión seleccionada no está viva (`alive === false`), el panel rechaza el attach con un mensaje y permanece montado en lugar de spawnar sobre un workspace muerto.
-  4. Si `cmux` no está en PATH (ENOENT), el panel muestra el error y permanece montado — nunca rompe la terminal.
-  5. Existe un artefacto de UAT manual documentado que cubre los 4 escenarios críticos (primer attach + vuelta limpia · segundo attach consecutivo · attach a workspace muerto · Ctrl-C durante attach = detach sin matar kodo); sin ese artefacto la fase NO está completa.
+  1. El operador pulsa `Enter` sobre la fila seleccionada con `alive===true`: kodo ejecuta `cmux select-workspace --workspace <row.workspace_ref>` vía `execFile`; cmux GUI cambia foco al workspace target. El dashboard sigue montado, polling continúa sin interrupción (no se desmonta, no se re-renderiza desde cero).
+  2. Si la sesión seleccionada no está viva (`alive===false`), el panel rechaza el focus con un mensaje en el footer (`[!] workspace gone (alive=false) — press any key`) y NO invoca `cmux`. El TTY ni se toca.
+  3. Si `cmux` no está en PATH (ENOENT) o `select-workspace` retorna exit code ≠ 0, el panel muestra el error en el footer (`[!] cmux not found in PATH` o `[!] cmux focus failed (code N)`) y permanece montado — nunca rompe el dashboard ni el terminal.
+  4. Existe un artefacto de UAT manual documentado (`37-HUMAN-UAT.md`) que cubre los 2 escenarios obligatorios (focus exitoso visible en la GUI + zombie reject sin invocar cmux), y opcionalmente el ENOENT. Sin ese artefacto la fase NO está completa.
 
 **Plans**: TBD
 **UI hint**: yes
