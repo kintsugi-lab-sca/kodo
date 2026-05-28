@@ -65,6 +65,20 @@ import {
 import { deriveRepo } from './format.js';
 import SessionTable from './SessionTable.js';
 
+// Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
+// para que los tests las importen y asseren equality sin duplicar strings (espejo del
+// patrón Phase 34 NON_TTY_MSG). Cualquier cambio aquí rompe los tests automáticamente —
+// elimina drift entre código y assert.
+export const FOCUS_ERR_ZOMBIE = '[!] workspace gone (alive=false) — press any key';
+export const FOCUS_ERR_ENOENT = '[!] cmux not found in PATH — press any key';
+/**
+ * Mensaje paramétrico cuando `runFocus` resuelve con NON_ZERO_EXIT o SPAWN_ERROR. `code`
+ * viene de `result.detail` (number en NON_ZERO_EXIT, string/undefined en SPAWN_ERROR);
+ * cuando es undefined, el handler pasa la string `'unknown'`.
+ * @param {number|string} code
+ */
+export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) — press any key`;
+
 /**
  * Componente root del dashboard TUI.
  *
@@ -84,6 +98,10 @@ import SessionTable from './SessionTable.js';
  * @param {(handle: any) => void} [props.cancelTimeout] - cancela el timeout de abort (usePoll opt).
  * @param {number} [props.baseMs] - override del intervalo base del backoff (usePoll opt).
  * @param {number} [props.maxMs] - override del cap del backoff (usePoll opt).
+ * @param {(ref: string) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onFocus]
+ *   Phase 37 D-01: callback never-throws inyectado por `runDashboard` (Plan 03) que invoca
+ *   `runFocus({exec, ref, binary})`. El handler de Enter lo `await`a tras el guard alive
+ *   (D-02) y mapea `result.code` a uno de los 3 mensajes literal-estables D-05.
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -96,6 +114,7 @@ export default function App({
   cancelTimeout,
   baseMs,
   maxMs,
+  onFocus,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -108,6 +127,13 @@ export default function App({
   // eslint-disable-next-line no-unused-vars
   const [lastError, setLastError] = useState(/** @type {string | null} */ (null));
   const [lastAttemptAt, setLastAttemptAt] = useState(/** @type {number | null} */ (null));
+
+  // Phase 37 D-06: estado local del footer-error rojo. `null` cuando no hay error pendiente.
+  // Se setea en el Enter handler (D-02 zombie pre-flight o D-06 post-runFocus mapping) y se
+  // limpia en el clear-on-any-input al inicio de useInput (D-04). Vive en App (no en
+  // SessionTable) porque la lógica que lo emite (handler de Enter) también vive aquí; el
+  // render lo recibe via prop en SessionTable junto al footer (D-04 consistency).
+  const [focusError, setFocusError] = useState(/** @type {string | null} */ (null));
 
   // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
   // y cursor por IDENTIDAD (selectedTaskId, NUNCA un índice — D-05). El índice visible se DERIVA
@@ -167,8 +193,23 @@ export default function App({
 
   // useInput mode-gated (TUI-08/TUI-12). Declarado DESPUÉS del pipeline para que el closure capture
   // `filtered`/`sel` actuales (su índice derivado es la base del movimiento clamp del cursor).
+  //
+  // Phase 37 D-Claude's-Discretion: callback `async` para que el handler de Enter pueda
+  // `await onFocus(...)` (ink permite handlers async — no awaitea el return; los state
+  // updates del setFocusError llegan cuando la promise resuelve). Simétrico con el patrón
+  // `await fetchStatus(...)` de usePoll (Phase 35 D-07).
   useInput(
-    (input, key) => {
+    async (input, key) => {
+      // Phase 37 D-04: cualquier tecla limpia focusError ANTES de procesar el resto del
+      // routing. La tecla SE CONSUME (early return — no propaga a Enter/q/filter/etc): el
+      // operador hace dismiss del error y vuelve a interactuar con un keystroke separado.
+      // Va ANTES del mode-gate para que el dismiss aplique también si el operador estaba
+      // tipeando en filtro cuando el error apareció. No choca con la reserva D-15 de Esc en
+      // modo lista porque el dismiss es modal del propio error, no del modo de la lista.
+      if (focusError != null) {
+        setFocusError(null);
+        return;
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -215,6 +256,40 @@ export default function App({
         if (filtered[ni]) setSelectedTaskId(filtered[ni].task_id);
         return;
       }
+      if (key.return) {
+        // Phase 37 D-02 + D-06: handler de Enter — guard alive===false + invocación
+        // never-throws de onFocus + mapeo del discriminated union a los 3 mensajes
+        // literal-estables D-05.
+        //
+        // `resolveSelection` retorna `{index, taskId}` SIN `.row` — leemos la fila del
+        // array filtrado por índice (cf. select.js:74-80). Si la lista está vacía,
+        // `sel.index === -1` y `filtered[-1]` es undefined → no-op.
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        if (row.alive === false) {
+          // D-02: cero invocación de cmux sobre workspaces muertos. La marca textual
+          // `(zombie)` ya pinta el estado (Phase 36 D-09); este mensaje confirma el
+          // rechazo en el footer para que el operador vea por qué Enter no hizo nada.
+          setFocusError(FOCUS_ERR_ZOMBIE);
+          return;
+        }
+        // D-06: runFocus es never-throws (Plan 01 D-01 contract) — siempre resuelve con
+        // el discriminado, jamás una excepción. El `?.` cubre el caso donde el caller no
+        // inyectó onFocus (tests del módulo sin DI, contexto degradado).
+        const result = await onFocus?.(row.workspace_ref);
+        if (result && !result.ok) {
+          if (result.code === 'ENOENT') {
+            setFocusError(FOCUS_ERR_ENOENT);
+          } else {
+            // NON_ZERO_EXIT (`detail` = code numérico de exit) o SPAWN_ERROR
+            // (`detail` = string del Error.message). En ambos casos, el operador ve
+            // la pista útil (`code N` o `code unknown`) en el footer.
+            const n = result.detail ?? 'unknown';
+            setFocusError(focusErrFailed(n));
+          }
+        }
+        return;
+      }
       // key.escape: DELIBERADAMENTE ignorado en modo lista (reservado Phase 38 — D-11/D-15).
     },
     { isActive: isRawModeSupported },
@@ -253,6 +328,7 @@ export default function App({
         mode,
         query,
         hasQuery,
+        focusError, // Phase 37 D-04: render condicional del footer-error rojo (espejo de filterLine)
       }),
     ),
     createElement(Text, { dimColor: true }, '↑↓ move · / filter · q quit'),
