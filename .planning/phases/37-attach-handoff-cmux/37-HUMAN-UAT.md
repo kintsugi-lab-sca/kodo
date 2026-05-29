@@ -1,12 +1,12 @@
 ---
-status: pending
+status: passed
 phase: 37-attach-handoff-cmux
 source: [37-CONTEXT.md D-08, 37-VALIDATION.md]
 started: 2026-05-28
-updated: 2026-05-28
-approved_by: pending
-approved_at: pending
-fixture: scripts/dev-dashboard-fixture.mjs
+updated: 2026-05-29
+approved_by: Alex Núñez
+approved_at: 2026-05-29T14:45:38Z
+fixture: scripts/dev-dashboard-fixture.mjs (Phase 36) + /tmp/uat-37-fixture.mjs (Phase 37 ad-hoc, no comiteado)
 blocking_for_phase_close: true
 obligatorios: 2
 bonus: 2
@@ -14,7 +14,7 @@ bonus: 2
 
 ## Current Test
 
-[Escenario 1: Focus exitoso visible — pendiente de ejecutar manualmente]
+[All mandatory scenarios passed 2026-05-29T14:45Z; bonus skipped per operator decision.]
 
 ## Tests
 
@@ -40,8 +40,8 @@ expected:
 - El footer del dashboard sigue siendo `↑↓ move · / filter · q quit` (sin `[!]` rojo).
 - Tiempo del Enter al focus visible: ≤200ms percibido.
 
-result: pending
-verified_via: (pendiente — requiere TTY real + cmux.app visible)
+result: passed
+verified_via: TTY real 2026-05-29 14:45 GMT+2 (cmux.app visible, fixture /tmp/uat-37-fixture.mjs en :9999 sirviendo UAT-37-OK con workspace_ref real workspace:16). cmux GUI focuseó workspace:16 visiblemente al pulsar Enter; dashboard intacto con cursor preservado, ● live siguió, footer normal sin [!] rojo. Operador: Alex Núñez.
 
 ### 2. Zombie reject (obligatorio — bloqueante para cierre de fase)
 
@@ -65,8 +65,8 @@ expected:
 - Tras pulsar 'x': footer rojo se limpia, footer normal `↑↓ move · / filter · q quit` se restaura.
 - El comando `cmux` JAMÁS fue invocado durante este escenario.
 
-result: pending
-verified_via: (pendiente — requiere TTY real + cross-process verification con `ps aux`)
+result: passed
+verified_via: TTY real 2026-05-29 14:45 GMT+2 (fixture sirviendo UAT-37-ZZ con workspace:zzz-fake alive=false). Al pulsar Enter sobre la fila zombie, footer mostró exactamente "[!] workspace gone (alive=false) — press any key" (texto literal byte-stable de la constante FOCUS_ERR_ZOMBIE). El texto delata que guard D-02 cortocircuitó ANTES de llamar a runFocus (de haberse llamado, el footer habría sido "[!] cmux focus failed (code N)" porque workspace:zzz-fake no existe). Tras pulsar 'x' el footer rojo se limpió y volvió "↑↓ move · / filter · q quit". Cross-process ps aux no necesario — la distinción textual lo confirma. Operador: Alex Núñez.
 
 ### 3. ENOENT (bonus, opcional — no bloqueante)
 
@@ -83,8 +83,8 @@ expected:
 - Footer rojo `[!] cmux not found in PATH — press any key`.
 - Dashboard sigue funcional, no crashea.
 
-result: pending (optional, no bloqueante)
-verified_via: (opcional)
+result: skipped (optional, no bloqueante)
+verified_via: skipped per operator decision 2026-05-29 — 2 obligatorios passed son suficientes para cierre de fase.
 
 ### 4. Exit code ≠ 0 (bonus, opcional — no bloqueante)
 
@@ -101,21 +101,21 @@ expected:
 - Footer rojo `[!] cmux focus failed (code N) — press any key` (con N = exit code real de cmux).
 - Dashboard sigue funcional.
 
-result: pending (optional, no bloqueante)
-verified_via: (opcional)
+result: skipped (optional, no bloqueante)
+verified_via: skipped per operator decision 2026-05-29 — 2 obligatorios passed son suficientes para cierre de fase.
 
 ## Summary
 
 total: 4 (2 obligatorios + 2 bonus opcionales)
-passed: 0
+passed: 2 (obligatorios #1 y #2)
 issues: 0
-pending: 2 obligatorios bloqueantes + 2 bonus opcionales
-skipped: 0
+pending: 0
+skipped: 2 (bonus #3 ENOENT y #4 exit code ≠ 0)
 blocked: 0
 
 ## Gaps
 
-(pending — UAT por ejecutar; los 2 obligatorios son bloqueantes para `gsd-verify-work` por D-08).
+Ninguno. Los 2 escenarios obligatorios bloqueantes pasaron en TTY real 2026-05-29 14:45 GMT+2 con cmux.app visible. Bonus #3 y #4 skipped por decisión del operador (covergen invariantes adicionales pero no son bloqueantes per D-08).
 
 ---
 
