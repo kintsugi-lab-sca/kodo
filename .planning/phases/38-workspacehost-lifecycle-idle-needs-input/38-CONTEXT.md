@@ -204,10 +204,13 @@ Auto-selected: zero breaking changes en consumers conocidos.
 - `findSession dual-scan` (v0.8 Phase 30 invariante): sigue funcionando. Escanea `state.sessions` + `state.history`. Con la reconciliación de D-07, idle/needs-input/dead viven en sessions; solo closed vive en history. El dual-scan se mantiene por seguridad (recovery de migración / corrupciones).
 - `markSessionStatus contrato non-throwing` (v0.8 invariante): firma intacta. Acepta los nuevos states (`idle`, `needs-input`, `closed`) además de los existentes. El call existente `markSessionStatus(taskId, 'done', ...)` se REMAPEA internamente a `'idle'` durante un período de transición — esto incluye los 2 callers conocidos (`verify.js#finalize` rama pass + `stop.js`).
 
-**Caller migration plan:**
-- `verify.js#finalize` rama pass → `markSessionStatus(taskId, 'idle', 'gate-passed', log)`. Si el verdict es `pass`, el agente terminó su turno pero la sesión puede retomar.
-- `stop.js` → `markSessionStatus(taskId, 'idle', 'session-stop:lock-released', log)`. El stop hook NO significa "sesión muerta" — significa "lock released, esperando humano".
-- Compat shim: `'done'` se acepta como input y se mapea a `'idle'` con un `log.warn` ("DEPRECATED: status 'done' mapped to 'idle' for back-compat"). Se elimina en v0.10.
+**Caller migration plan (CORREGIDO 2026-05-30 tras R-6 del research):**
+
+Empíricamente solo HAY UN caller de `'done'` — `src/hooks/stop.js:202`. `src/gsd/verify.js:274` emite `'review'` (NO `'done'` como decía la versión inicial del CONTEXT). El planner debe actuar sobre los callers reales:
+
+- `src/hooks/stop.js:202` → `markSessionStatus(session.task_id, 'idle', 'session-stop:lock-released', log, session.session_id)`. El stop hook NO significa "sesión muerta" — significa "lock released, esperando humano".
+- `src/gsd/verify.js:274` (rama pass) → **NO se toca**. Sigue emitiendo `'review'`. El estado `'review'` es ortogonal a la división running/idle/needs-input/dead/closed introducida por Phase 38 — representa "gate passed, awaiting human decision" y queda como un estado adicional no migrado (Phase 38 lo trata como pre-existente sin cambio).
+- Compat shim: `'done'` se acepta como input y se mapea a `'idle'` con un `log.warn` ("DEPRECATED: status 'done' mapped to 'idle' for back-compat"). Se elimina en v0.10. El shim cubre cualquier caller externo / scripts / tests fixtures que aún emitan `'done'`.
 
 ### D-13 — Observabilidad NDJSON
 
