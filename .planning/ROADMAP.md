@@ -22,7 +22,7 @@
 - [ ] **Phase 34: Fundación — subcomando + ciclo de vida** - Esqueleto `kodo dashboard`, guard non-TTY, salida limpia, color-isolation
 - [ ] **Phase 35: Datos — cliente HTTP + polling** - Cliente puro never-throws + poll self-scheduling con keep-last-good
 - [ ] **Phase 36: Tabla viva — render + selección + filtros** - Tabla, selección por `task_id`, orden estable, color, header, filtros
-- [ ] **Phase 37: Focus — invocar `cmux select-workspace`** - Fire-and-forget RPC al socket cmux (revisado tras C-01; no es handoff TTY)
+- [x] **Phase 37: Focus — invocar `cmux select-workspace`** - Fire-and-forget RPC al socket cmux (revisado tras C-01; no es handoff TTY)
 - [ ] **Phase 38: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
 
 #### Phase 34: Fundación — subcomando + ciclo de vida

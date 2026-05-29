@@ -4,14 +4,14 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: verifying
 stopped_at: Phase 37 Plan 03 complete; awaiting human UAT sign-off
-last_updated: "2026-05-28T23:07:36.895Z"
+last_updated: "2026-05-29T22:10:42.913Z"
 last_activity: 2026-05-28
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 4
   total_plans: 12
   completed_plans: 12
-  percent: 80
+  percent: 67
 ---
 
 # Project State
@@ -85,7 +85,7 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-28T23:07:36.890Z
+- **Last session:** 2026-05-29T22:10:42.907Z
 - **Stopped at:** Phase 37 Plan 03 complete; awaiting human UAT sign-off
 - **Next action:** `/gsd-plan-phase 34` (Fundación — subcomando + ciclo de vida).
 - **Files of record:**
