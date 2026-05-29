@@ -9,7 +9,7 @@
 - ✅ **v0.6 Session Isolation & Skill Sync** — Phases 18-22 (shipped 2026-05-13)
 - ✅ **v0.7 GitHub Issues Adapter** — Phases 23-27 (shipped 2026-05-14)
 - ✅ **v0.8 Consolidación + GSD Provider Reporting** — Phases 28-33 (shipped 2026-05-25)
-- 🚧 **v0.9 kodo TUI — sesiones en vivo** — Phases 34-38 (in progress)
+- 🚧 **v0.9 kodo TUI — sesiones en vivo** — Phases 34-39 (in progress)
 
 ## Phases
 
@@ -23,7 +23,8 @@
 - [ ] **Phase 35: Datos — cliente HTTP + polling** - Cliente puro never-throws + poll self-scheduling con keep-last-good
 - [ ] **Phase 36: Tabla viva — render + selección + filtros** - Tabla, selección por `task_id`, orden estable, color, header, filtros
 - [x] **Phase 37: Focus — invocar `cmux select-workspace`** - Fire-and-forget RPC al socket cmux (revisado tras C-01; no es handoff TTY)
-- [ ] **Phase 38: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
+- [ ] **Phase 38: WorkspaceHost provider + ciclo de vida `idle`/`needs-input`** - Provider intercambiable (cmux/orca/…) + estados idle/needs-input/closed + reconciliación host ↔ state
+- [ ] **Phase 39: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
 
 #### Phase 34: Fundación — subcomando + ciclo de vida
 
@@ -136,10 +137,31 @@ Plans:
 
 **UI hint**: yes
 
-#### Phase 38: Paneles auxiliares — comentarios + logs
+#### Phase 38: WorkspaceHost provider + ciclo de vida `idle`/`needs-input`
+
+> **PROMOTED 2026-05-30 desde backlog 999.2** (commit `7f6e041` capturó el seed). Reemplaza el slot Phase 38 anterior; los paneles auxiliares se mueven a Phase 39. Trigger: sesión de diagnóstico 2026-05-29 con ROMAN-151/152 visibles en cmux GUI como `Needs input` pero archivadas como `status: done` en `state.history` y por tanto invisibles en el dashboard. Causa raíz: `markSessionStatus(done)` interpreta exit del proceso Claude como cierre de sesión, pero la tab del workspace host sobrevive y puede retomarse (merge pendiente, push, segunda ronda con dudas).
+
+**Goal**: El dashboard nunca pierde sesiones reanudables (proceso Claude exit pero tab del host viva esperando merge/push/duda) — esas sesiones quedan como `idle` o `needs-input` en `state.sessions`, NO se mueven a `history`. Simultáneamente, la dependencia directa de cmux se elimina vía un `WorkspaceHost` provider contract intercambiable (cmux hoy, orca u otros mañana), análogo al invariante v0.7 `TaskProvider 9-method contract`.
+**Depends on**: Phase 37 (extrae el `runFocus` orchestrator y la lógica `cmux select-workspace` al provider)
+**Requirements**: TUI-17, TUI-18, TUI-19, TUI-20 (TBD — candidatos confirmados en SEED.md)
+**Success Criteria** (what must be TRUE):
+
+  1. `src/host/interface.js` define `HOST_METHODS` + `getHost(name)` con contrato mínimo `listWorkspaces / selectWorkspace / isAlive / needsInput`; `CmuxHost` implementa el contrato; test de contrato análogo a `test/providers/contract.test.js` verde.
+  2. `markSessionStatus` acepta `idle` / `needs-input` / `closed`; el exit del proceso Claude mapea a `idle` (NO a `done`); el state.json migra idempotentemente (schema_version bump) con backup automático; entries de history con tab del host aún viva → vuelven a `sessions` como `idle`.
+  3. El dashboard lista TODOS los estados no-closed con badges visuales (`▶ running`, `⏸ idle`, `🔔 needs-input`, `✗ dead`); los filtros Phase 36 respetan multi-estado; el footer-error Phase 36/37 absorbe errores del host.
+  4. La reconciliación polling cruza `state.sessions + state.history` contra `host.listWorkspaces()`; rescata huérfanos con tab viva; sella `closed` los sin tab; debouncing previene flicker idle↔running.
+  5. Cero referencias directas a `cmux` en `src/cli/dashboard/`, `src/session/`, `src/cli/polling.js` — cmux confinado a `src/host/cmux.js` (style guard análogo a color-isolation walker).
+  6. UAT manual de Phase 37 re-ejecutado sobre `CmuxHost` confirma parity (2 obligatorios siguen pasando).
+
+**Plans**: TBD (4 plans tentativos en `.planning/phases/38-workspacehost-lifecycle-idle-needs-input/SEED.md`)
+**UI hint**: yes
+
+#### Phase 39: Paneles auxiliares — comentarios + logs
+
+> **RENUMBERED 2026-05-30** desde Phase 38 anterior — empujado un slot al insertar la nueva Phase 38 (WorkspaceHost). Sin cambios de scope; sólo cambia el orden por dependencia: los paneles ahora operan sobre la tabla con modelo de ciclo de vida correcto.
 
 **Goal**: El operador inspecciona el detalle de una sesión sin salir del panel: overlay de comentarios de la tarea (resuelto correctamente por `task_id`) y overlay de logs (grep best-effort sobre el buffer compartido, etiquetado honestamente como no-per-session), volviendo siempre al mismo cursor.
-**Depends on**: Phase 37 (additive sobre la infraestructura de selección + overlays; orden E al final por dependencia de build)
+**Depends on**: Phase 38 (additive sobre la infraestructura de selección + overlays + modelo de ciclo de vida multi-estado; orden E al final por dependencia de build)
 **Requirements**: TUI-15, TUI-16
 **Success Criteria** (what must be TRUE):
 
@@ -150,19 +172,6 @@ Plans:
 
 **Plans**: TBD
 **UI hint**: yes
-
-## Backlog
-
-### Phase 999.2: WorkspaceHost provider + ciclo de vida `idle`/`needs-input` (BACKLOG)
-
-**Goal:** El dashboard nunca pierde sesiones reanudables (proceso Claude exit + tab del host viva esperando merge/push/duda) y la dependencia directa de cmux se elimina vía un `WorkspaceHost` provider contract intercambiable (cmux hoy, orca u otros mañana), análogo al invariante `TaskProvider 9-method contract`.
-**Requirements:** TBD (candidatos TUI-17..TUI-20)
-**Plans:** 0 plans
-**Origin:** Sesión de diagnóstico 2026-05-29 — ROMAN-151/152 visibles en cmux GUI con badge `🔔 Needs input` pero archivadas como `status: done` en `state.history`. Detalle completo: `.planning/phases/999.2-workspacehost-lifecycle-idle-needs-input/SEED.md`.
-**Intended slot:** insertar como Phase 38 en v0.9 (empujar paneles auxiliares actuales a Phase 39) — promover con `/gsd-review-backlog` tras UAT sign-off de Phase 37.
-
-Plans:
-- [ ] TBD (promote with /gsd:review-backlog when ready)
 
 ## Archived Milestones
 

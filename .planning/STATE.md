@@ -4,7 +4,7 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: verifying
 stopped_at: Phase 37 Plan 03 complete; awaiting human UAT sign-off
-last_updated: "2026-05-29T22:10:42.913Z"
+last_updated: "2026-05-29T22:17:43.610Z"
 last_activity: 2026-05-28
 progress:
   total_phases: 6
@@ -46,6 +46,11 @@ Progress: [██████████] 100%
 - Phase artifacts: `.planning/phases/` (no archivados a `milestones/v0.8-phases/` — opción Skip; usar `/gsd-cleanup` retroactivo si se desea)
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 38 moved: Phase 38 anterior (paneles auxiliares) renumbered a Phase 39 para hacer hueco al WorkspaceHost provider promovido desde backlog 999.2
+- Phase 38 inserted after Phase 37: Promoted from backlog 999.2 — WorkspaceHost provider + ciclo de vida idle/needs-input. Trigger: diagnóstico ROMAN-151/152 invisibles en dashboard 2026-05-29.
 
 ### Open Blockers
 
