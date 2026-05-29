@@ -151,6 +151,19 @@ Plans:
 **Plans**: TBD
 **UI hint**: yes
 
+## Backlog
+
+### Phase 999.2: WorkspaceHost provider + ciclo de vida `idle`/`needs-input` (BACKLOG)
+
+**Goal:** El dashboard nunca pierde sesiones reanudables (proceso Claude exit + tab del host viva esperando merge/push/duda) y la dependencia directa de cmux se elimina vía un `WorkspaceHost` provider contract intercambiable (cmux hoy, orca u otros mañana), análogo al invariante `TaskProvider 9-method contract`.
+**Requirements:** TBD (candidatos TUI-17..TUI-20)
+**Plans:** 0 plans
+**Origin:** Sesión de diagnóstico 2026-05-29 — ROMAN-151/152 visibles en cmux GUI con badge `🔔 Needs input` pero archivadas como `status: done` en `state.history`. Detalle completo: `.planning/phases/999.2-workspacehost-lifecycle-idle-needs-input/SEED.md`.
+**Intended slot:** insertar como Phase 38 en v0.9 (empujar paneles auxiliares actuales a Phase 39) — promover con `/gsd-review-backlog` tras UAT sign-off de Phase 37.
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
 ## Archived Milestones
 
 <details>
