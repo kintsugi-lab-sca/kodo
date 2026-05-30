@@ -1,0 +1,50 @@
+{
+  "window_ref": "window:1",
+  "workspaces": [
+    {
+      "current_directory": "/Users/alex/dev/klab/kodo",
+      "custom_color": "#283593",
+      "description": null,
+      "index": 0,
+      "latest_conversation_message": "/gsd-discuss-phase 38 --AUTO",
+      "latest_submitted_at": "2026-05-29T22:26:03.108Z",
+      "latest_submitted_message": "/gsd-discuss-phase 38 --AUTO",
+      "listening_ports": [9090],
+      "pinned": true,
+      "ref": "workspace:1",
+      "remote": null,
+      "selected": true,
+      "title": "KODO DEV"
+    },
+    {
+      "current_directory": "/Users/alex/dev/otros/personalchat",
+      "custom_color": null,
+      "description": null,
+      "index": 1,
+      "latest_conversation_message": "Analiza la rentabilidad",
+      "latest_submitted_at": "2026-05-29T10:23:32.000Z",
+      "latest_submitted_message": "Analiza la rentabilidad",
+      "listening_ports": [],
+      "pinned": false,
+      "ref": "workspace:16",
+      "remote": null,
+      "selected": false,
+      "title": "personalchat"
+    },
+    {
+      "current_directory": "/Users/alex/dev/otros/nas",
+      "custom_color": null,
+      "description": null,
+      "index": 2,
+      "latest_conversation_message": null,
+      "latest_submitted_at": null,
+      "latest_submitted_message": null,
+      "listening_ports": [],
+      "pinned": false,
+      "ref": "workspace:21",
+      "remote": null,
+      "selected": false,
+      "title": "nas"
+    }
+  ]
+}

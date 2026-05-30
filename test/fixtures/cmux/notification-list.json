@@ -1,0 +1,26 @@
+{
+  "notifications": [
+    {
+      "body": "Sí, esa es **mejor idea que sacar los discos** ...",
+      "created_at": "2026-05-29T22:28:12Z",
+      "id": "666085D5-8403-48DE-BB6F-990C475C65F0",
+      "is_read": true,
+      "subtitle": "Completed in dev",
+      "surface_ref": "surface:43",
+      "tab_title": "✳ Investigar actividad de disco en NAS Western Digital",
+      "title": "Claude Code",
+      "workspace_ref": "workspace:21"
+    },
+    {
+      "body": "Claude is waiting for your input",
+      "created_at": "2026-05-29T10:23:32Z",
+      "id": "2F8A715B-94ED-4A24-AA2A-6387398F6E7B",
+      "is_read": false,
+      "subtitle": "Waiting",
+      "surface_ref": "surface:32",
+      "tab_title": "✳ Analizar rentabilidad y oportunidad de mercado para personalchat",
+      "title": "Claude Code",
+      "workspace_ref": "workspace:16"
+    }
+  ]
+}
