@@ -157,7 +157,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [x] 38-01-PLAN.md — Contract `WorkspaceHost` + `CmuxHost` impl + contract test + cmux-isolation walker (SC#1 + SC#5; suite 997 pass + 1 skip)
+- [x] 38-01-PLAN.md — Contract `WorkspaceHost` + `CmuxHost` impl + contract test + cmux-isolation walker (SC#1 + SC#5; suite 998 pass + 1 skip)
 
 **Wave 2** *(blocked on Wave 1)*
 
