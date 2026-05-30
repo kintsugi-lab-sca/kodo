@@ -153,7 +153,24 @@ Plans:
   5. Cero referencias directas a `cmux` en `src/cli/dashboard/`, `src/session/`, `src/cli/polling.js` — cmux confinado a `src/host/cmux.js` (style guard análogo a color-isolation walker).
   6. UAT manual de Phase 37 re-ejecutado sobre `CmuxHost` confirma parity (2 obligatorios siguen pasando).
 
-**Plans**: TBD (4 plans tentativos en `.planning/phases/38-workspacehost-lifecycle-idle-needs-input/SEED.md`)
+**Plans**: 4 plans
+Plans:
+**Wave 1**
+
+- [x] 38-01-PLAN.md — Contract `WorkspaceHost` + `CmuxHost` impl + contract test + cmux-isolation walker (SC#1 + SC#5; suite 997 pass + 1 skip)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 38-02-PLAN.md — Estados idle/needs-input/dead/closed + migración v2→v3 + caller updates
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 38-03-PLAN.md — Dashboard render multi-estado: badges + filtros `s:<state>` + footer-error host
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 38-04-PLAN.md — Reconciliación host ↔ state + debouncing + 38-HUMAN-UAT + cierre
+
 **UI hint**: yes
 
 #### Phase 39: Paneles auxiliares — comentarios + logs

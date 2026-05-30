@@ -63,9 +63,10 @@ Contrato `WorkspaceHost` intercambiable (4 métodos, espejo de `TaskProvider`) c
 
 ## TDD Cycle
 
-- **RED** (`8a31c44`): contract + walker fallan limpio (ERR_MODULE_NOT_FOUND en interface.js; leaks en manager/health).
-- **GREEN parcial** (`d2e8e88`): interface.js → shape + impl=null verde, impl=cmux rojo.
-- **GREEN total** (`79c2cf1`): cmux.js + refactor callers → walker 4/4, contract 23/23.
+- **RED** (`1cc7669`): contract + walker fallan limpio (ERR_MODULE_NOT_FOUND en interface.js; leaks en manager/health).
+- **GREEN parcial** (`1cf9af3`): interface.js → shape + impl=null verde, impl=cmux rojo.
+- **GREEN total** (`40b46bd`): cmux.js + refactor callers → walker 4/4, contract 23/23.
+- **Metadata** (`ea98d0a`): SUMMARY + STATE + ROADMAP.
 
 ## Verification
 
@@ -74,7 +75,7 @@ Contrato `WorkspaceHost` intercambiable (4 métodos, espejo de `TaskProvider`) c
 | SC#1 contract | `node --test test/host/contract.test.js` | 23/23 verde |
 | SC#5 walker | `node --test test/host/cmux-isolation.test.js` | 4/4 verde |
 | D-12 color-isolation | `node --test test/format-isolation.test.js` | 2/2 verde |
-| Suite global | `node --test test/**/*.test.js` | 981 pass + 1 skip + 0 fail |
+| Suite global | `npm test` | 998 tests: 997 pass + 1 skip + 0 fail |
 | SC#5 grep negativo | `grep cmux/client en 3 dirs` | 0 matches |
 | LOG-12 | `grep logger.js en src/host/` | 0 matches |
 | Invariantes index.js | alt-screen / SIGTERM / waitUntilExit | preservados |
@@ -113,6 +114,6 @@ Los tests de dashboard (`focus.test.js`, `app-focus.test.js`) que el plan/resear
 - `test/host/cmux-isolation.test.js` — FOUND
 - `test/fixtures/cmux/list-workspaces.json` — FOUND
 - `test/fixtures/cmux/notification-list.json` — FOUND
-- commit `8a31c44` — FOUND
-- commit `d2e8e88` — FOUND
-- commit `79c2cf1` — FOUND
+- commit `1cc7669` (RED) — FOUND
+- commit `1cf9af3` (GREEN parcial) — FOUND
+- commit `40b46bd` (GREEN total) — FOUND
