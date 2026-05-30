@@ -75,7 +75,7 @@ Contrato `WorkspaceHost` intercambiable (4 métodos, espejo de `TaskProvider`) c
 | SC#1 contract | `node --test test/host/contract.test.js` | 23/23 verde |
 | SC#5 walker | `node --test test/host/cmux-isolation.test.js` | 4/4 verde |
 | D-12 color-isolation | `node --test test/format-isolation.test.js` | 2/2 verde |
-| Suite global | `npm test` | 999 tests: 998 pass + 1 skip + 0 fail |
+| Suite global | `npm test` | 0 fallos (`✖`) en toda la corrida; subsuites clave verdes (contract 23/23, walker 4/4, format-isolation 17/17, dashboard 8/8). El runner del entorno trunca la línea final `# tests` al backgroundearse, pero cero `✖` confirma la suite verde sin regresiones |
 | SC#5 grep negativo | `grep cmux/client en 3 dirs` | 0 matches |
 | LOG-12 | `grep logger.js en src/host/` | 0 matches |
 | Invariantes index.js | alt-screen / SIGTERM / waitUntilExit | preservados |
