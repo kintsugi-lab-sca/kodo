@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: verifying
-stopped_at: Phase 37 Plan 03 complete; awaiting human UAT sign-off
-last_updated: "2026-05-29T22:17:43.610Z"
-last_activity: 2026-05-28
+status: executing
+stopped_at: Phase 38 Plan 01 complete (WorkspaceHost contract + CmuxHost + walker SC#5)
+last_updated: "2026-05-30T19:58:33.000Z"
+last_activity: 2026-05-30 -- Phase 38 Plan 01 ejecutado (WorkspaceHost foundation)
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 67
+  total_plans: 16
+  completed_plans: 13
+  percent: 69
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 37 — attach-handoff-cmux
+**Current focus:** Phase 38 — workspacehost-lifecycle-idle-needs-input
 
 ## Current Position
 
-Phase: 37 (attach-handoff-cmux) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-05-28
+Phase: 38 (workspacehost-lifecycle-idle-needs-input) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 38
+Last activity: 2026-05-30 -- Phase 38 execution started
 
 Progress: [██████████] 100%
 
@@ -90,9 +90,9 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-29T22:10:42.907Z
-- **Stopped at:** Phase 37 Plan 03 complete; awaiting human UAT sign-off
-- **Next action:** `/gsd-plan-phase 34` (Fundación — subcomando + ciclo de vida).
+- **Last session:** 2026-05-30T19:58:33.000Z
+- **Stopped at:** Phase 38 Plan 01 complete (WorkspaceHost foundation; commits 8a31c44, d2e8e88, 79c2cf1)
+- **Next action:** ejecutar Plan 38-02 (estados idle/needs-input/dead/closed + migración v2→v3 + caller updates).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current State: v0.8 shipped + candidatos v0.9)
   - `.planning/ROADMAP.md` (v0.8 colapsado en Archived Milestones)
