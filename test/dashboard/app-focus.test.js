@@ -78,7 +78,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
     };
     const fakeFetch = makeFetch([sessionFixture({ task_id: 'Z-1', alive: false })]);
 
-    const { stdin, lastFrame } = render(
+    const { stdin, lastFrame, unmount } = render(
       createElement(App, {
         baseUrl: 'http://localhost:9090',
         fetchFn: fakeFetch,
@@ -86,27 +86,33 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       }),
     );
 
-    await tick(); // primer poll resuelve + render
-    stdin.write('\r'); // Enter
-    await tick();
+    try {
+      await tick(); // primer poll resuelve + render
+      stdin.write('\r'); // Enter
+      await tick();
 
-    assert.equal(
-      focusCalls,
-      0,
-      'onFocus NUNCA debe llamarse con alive:false (D-02 guard pre-flight)',
-    );
-    // Asserta contra la constante exportada (no string duplicada — elimina drift D-05).
-    assert.match(
-      lastFrame(),
-      /workspace gone \(alive=false\) — press any key/,
-      `footer-error rojo D-04 ausente.\nframe:\n${lastFrame()}`,
-    );
-    // Sanity: la constante exportada debe coincidir con el regex assertado.
-    assert.equal(
-      FOCUS_ERR_ZOMBIE,
-      '[!] workspace gone (alive=false) — press any key',
-      'FOCUS_ERR_ZOMBIE debe ser la string canónica D-05',
-    );
+      assert.equal(
+        focusCalls,
+        0,
+        'onFocus NUNCA debe llamarse con alive:false (D-02 guard pre-flight)',
+      );
+      // Asserta contra la constante exportada (no string duplicada — elimina drift D-05).
+      assert.match(
+        lastFrame(),
+        /workspace gone \(alive=false\) — press any key/,
+        `footer-error rojo D-04 ausente.\nframe:\n${lastFrame()}`,
+      );
+      // Sanity: la constante exportada debe coincidir con el regex assertado.
+      assert.equal(
+        FOCUS_ERR_ZOMBIE,
+        '[!] workspace gone (alive=false) — press any key',
+        'FOCUS_ERR_ZOMBIE debe ser la string canónica D-05',
+      );
+    } finally {
+      // Desmonta para que el cleanup de usePoll cancele el setTimeout recursivo (D-09);
+      // sin esto el loop de polling deja el event loop vivo y el runner cuelga.
+      unmount();
+    }
   });
 
   it('ok path: Enter sobre fila alive llama onFocus con workspace_ref literal y NO renderiza error', async () => {
@@ -121,7 +127,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       sessionFixture({ task_id: 'A-1', alive: true, workspace_ref: 'workspace:9' }),
     ]);
 
-    const { stdin, lastFrame } = render(
+    const { stdin, lastFrame, unmount } = render(
       createElement(App, {
         baseUrl: 'http://localhost:9090',
         fetchFn: fakeFetch,
@@ -129,21 +135,25 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       }),
     );
 
-    await tick(); // primer poll + render
-    stdin.write('\r'); // Enter
-    await tick();
+    try {
+      await tick(); // primer poll + render
+      stdin.write('\r'); // Enter
+      await tick();
 
-    assert.equal(focusCalls, 1, 'onFocus invocada exactamente una vez (TUI-13 criterio #1)');
-    assert.equal(
-      capturedRef,
-      'workspace:9',
-      'workspace_ref propagado literal desde row.workspace_ref',
-    );
-    assert.doesNotMatch(
-      lastFrame(),
-      /\[!\]/,
-      `cero footer-error en ok path.\nframe:\n${lastFrame()}`,
-    );
+      assert.equal(focusCalls, 1, 'onFocus invocada exactamente una vez (TUI-13 criterio #1)');
+      assert.equal(
+        capturedRef,
+        'workspace:9',
+        'workspace_ref propagado literal desde row.workspace_ref',
+      );
+      assert.doesNotMatch(
+        lastFrame(),
+        /\[!\]/,
+        `cero footer-error en ok path.\nframe:\n${lastFrame()}`,
+      );
+    } finally {
+      unmount();
+    }
   });
 
   it('clear-on-any-input: cualquier tecla limpia focusError y restaura footer normal (D-04)', async () => {
@@ -154,7 +164,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
     };
     const fakeFetch = makeFetch([sessionFixture({ task_id: 'Z-1', alive: false })]);
 
-    const { stdin, lastFrame } = render(
+    const { stdin, lastFrame, unmount } = render(
       createElement(App, {
         baseUrl: 'http://localhost:9090',
         fetchFn: fakeFetch,
@@ -162,32 +172,36 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       }),
     );
 
-    await tick(); // primer poll + render
-    stdin.write('\r'); // Enter sobre zombie → footer rojo
-    await tick();
-    assert.match(
-      lastFrame(),
-      /workspace gone/,
-      `pre-condition: footer-error D-04 visible tras Enter sobre zombie.\nframe:\n${lastFrame()}`,
-    );
+    try {
+      await tick(); // primer poll + render
+      stdin.write('\r'); // Enter sobre zombie → footer rojo
+      await tick();
+      assert.match(
+        lastFrame(),
+        /workspace gone/,
+        `pre-condition: footer-error D-04 visible tras Enter sobre zombie.\nframe:\n${lastFrame()}`,
+      );
 
-    stdin.write('x'); // cualquier tecla → consume el dismiss
-    await tick();
+      stdin.write('x'); // cualquier tecla → consume el dismiss
+      await tick();
 
-    assert.doesNotMatch(
-      lastFrame(),
-      /workspace gone/,
-      `focusError debe limpiarse en la siguiente tecla (D-04).\nframe:\n${lastFrame()}`,
-    );
-    assert.match(
-      lastFrame(),
-      /↑↓ move · \/ filter · q quit/,
-      `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
-    );
-    assert.equal(
-      focusCalls,
-      0,
-      'la tecla x consume el dismiss (clear-on-any-input), NO propaga al handler de Enter',
-    );
+      assert.doesNotMatch(
+        lastFrame(),
+        /workspace gone/,
+        `focusError debe limpiarse en la siguiente tecla (D-04).\nframe:\n${lastFrame()}`,
+      );
+      assert.match(
+        lastFrame(),
+        /↑↓ move · \/ filter · q quit/,
+        `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
+      );
+      assert.equal(
+        focusCalls,
+        0,
+        'la tecla x consume el dismiss (clear-on-any-input), NO propaga al handler de Enter',
+      );
+    } finally {
+      unmount();
+    }
   });
 });
