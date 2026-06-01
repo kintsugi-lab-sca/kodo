@@ -496,7 +496,11 @@ export async function startServer(opts = {}) {
   const { getHost } = await import('./host/interface.js');
   const { startReconcileLoop } = await import('./session/reconcile.js');
   const { createLogger } = await import('./logger.js');
+  // createLogger exige un sessionId (lo usa como nombre del NDJSON). El server es
+  // un proceso de servicio de larga vida, no una sesión — usamos un id sintético
+  // estable ('reconcile') → ~/.kodo/logs/reconcile.ndjson. NO un sessionId real.
   const reconcileLogger = createLogger({
+    sessionId: 'reconcile',
     minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
   }).child({ component: 'reconcile' });
   const stopReconcile = startReconcileLoop({
