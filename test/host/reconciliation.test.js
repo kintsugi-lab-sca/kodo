@@ -20,7 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { reconcileTick } from '../../src/session/reconcile.js';
+import { reconcileTick, runReconcileTick } from '../../src/session/reconcile.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-05-31T12:00:00.000Z');
@@ -204,5 +204,47 @@ describe('reconcileTick — transiciones + debouncing 2-tick (D-07 / R-2)', () =
     const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
     assert.equal(r2.state.sessions.t1.state, 'idle', 't1 aplica al 2º tick');
     assert.equal(r2.state.sessions.t2.state, 'running', 't2 sigue estable, sin interferencia');
+  });
+});
+
+describe('runReconcileTick — tick con I/O (DI host/loadState/saveState)', () => {
+  it('host OK + cambio → consulta host, reconcilia y persiste', async () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ process_alive: false }) },
+      history: [],
+    };
+    let saved = null;
+    const host = { listWorkspaces: async () => [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }] };
+    const debounceStore = new Map();
+    const { logger, events } = makeLogger();
+
+    // Tick 1: debounce (no persiste — sin cambios).
+    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore, tick: 1, now: () => NOW, logger });
+    assert.equal(saved, null, 'tick 1: sin cambios, no persiste');
+
+    // Tick 2: aplica idle → persiste.
+    let state2 = state;
+    await runReconcileTick({ host, loadState: () => state2, saveState: (s) => { saved = s; state2 = s; }, debounceStore, tick: 2, now: () => NOW, logger });
+    assert.ok(saved, 'tick 2: persiste el cambio');
+    assert.equal(saved.sessions.t1.state, 'idle');
+
+    // Emitió host.list_workspaces.ok + host.reconcile.tick.
+    assert.ok(events.find((e) => e.msg === 'host.list_workspaces.ok'), 'emite host.list_workspaces.ok');
+    assert.ok(events.find((e) => e.msg === 'host.reconcile.tick'), 'emite host.reconcile.tick');
+  });
+
+  it('host throws → fail event + skip (never-throws, no persiste)', async () => {
+    const state = { schema_version: 3, sessions: { t1: session() }, history: [] };
+    let saved = null;
+    const host = { listWorkspaces: async () => { throw Object.assign(new Error('cmux down'), { code: 'ENOENT' }); } };
+    const { logger, events } = makeLogger();
+
+    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore: new Map(), tick: 1, now: () => NOW, logger });
+
+    assert.equal(saved, null, 'host fail → no persiste');
+    const fail = events.find((e) => e.msg === 'host.list_workspaces.fail');
+    assert.ok(fail, 'emite host.list_workspaces.fail');
+    assert.equal(fail.fields.code, 'ENOENT');
   });
 });

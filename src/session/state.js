@@ -33,6 +33,7 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   tab_alive?: boolean,       // Phase 38 D-04/D-11: la tab del workspace host sigue viva. Default false en migrate puro; lo puebla la reconciliación (Plan 04).
  *   last_seen_alive?: string|null,  // Phase 38 D-04/D-11: ISO 8601 del último tick donde tab_alive fue true, o null. Default null en migrate puro.
  *   alive?: boolean,           // Phase 38 D-11: booleano agregado de compat (= state ∈ {running, idle, needs-input}). Poblado por migrateStateV2toV3; consumers que ya lo leen siguen funcionando.
+ *   dead_since?: string,       // Phase 38 D-07: ISO 8601 del tick donde la session transicionó a 'dead'. Lo fija reconcileTick; se usa para sellar a 'closed' tras 30 días.
  * }} Session
  *
  * @typedef {{

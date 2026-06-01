@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
-import { listSessions, listHistory, removeSession } from './session/state.js';
+import { listSessions, listHistory, removeSession, loadState, saveState } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import * as cmux from './cmux/client.js';
 
@@ -487,7 +487,27 @@ export async function startServer(opts = {}) {
     }
   });
 
+  // Phase 38 (Plan 04, D-07): loop de reconciliación host↔state. Vive en el
+  // proceso server — el ÚNICO escritor de state.json (el dashboard es cliente
+  // HTTP read-only de /status; cablearlo allí crearía dos escritores). Cada tick
+  // consulta el WorkspaceHost, aplica transiciones con debouncing 2-tick, rescata
+  // sesiones desde history cuya tab sigue viva (cierra ROMAN-151/152) y sella las
+  // dead viejas a closed. never-throws; .unref() para no bloquear el cierre.
+  const { getHost } = await import('./host/interface.js');
+  const { startReconcileLoop } = await import('./session/reconcile.js');
+  const { createLogger } = await import('./logger.js');
+  const reconcileLogger = createLogger({
+    minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+  }).child({ component: 'reconcile' });
+  const stopReconcile = startReconcileLoop({
+    host: getHost('cmux'),
+    loadState,
+    saveState,
+    logger: reconcileLogger,
+  });
+
   const cleanup = () => {
+    try { stopReconcile(); } catch {}
     try { unlinkSync(PID_PATH); } catch {}
     process.exit(0);
   };
