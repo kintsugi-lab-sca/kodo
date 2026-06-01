@@ -99,13 +99,16 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
     addSession(taskId, session);
 
     const { logger, events } = makeLogger();
+    // Phase 38 D-12: 'done' es input deprecated → el shim lo mapea a 'idle' y emite
+    // un warn 'markSessionStatus.deprecated'. La transición observable es to:'idle'.
     const result = markSessionStatus(taskId, 'done', 'review-gate', logger, 'sess-life02-success');
 
-    assert.deepEqual(result, { ok: true, from: 'running', to: 'done' });
+    assert.deepEqual(result, { ok: true, from: 'running', to: 'idle' });
 
-    // SC#2: no warn event en success path (warn solo en falsy guard)
+    // El único warn esperado es el del shim deprecated (NO el falsy-guard).
     const warns = events.filter((e) => e.level === 'warn');
-    assert.equal(warns.length, 0, `expected 0 warns in success path; got ${warns.length}`);
+    assert.equal(warns.length, 1, `expected 1 deprecated-shim warn; got ${warns.length}`);
+    assert.equal(warns[0].msg, 'markSessionStatus.deprecated');
 
     // state.transition event preservado en el logger child (success path)
     // — el evento se emite via stateTransition() helper, captured como info
@@ -172,5 +175,64 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
     assert.equal(warns[0].fields.session_id, 'sess-empty');
     assert.equal(warns[0].fields.status, 'review');
     assert.equal(warns[0].fields.reason, 'gate-passed');
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 38 SC#3: compat shim 'done' → 'idle' (D-12)
+  // -------------------------------------------------------------------------
+  it("Phase 38: 'done' es shim-mapped a 'idle' con warn DEPRECATED", () => {
+    const taskId = 'task-shim-done';
+    addSession(taskId, {
+      session_id: 'sess-shim-done',
+      task_id: taskId,
+      task_ref: 'KL-shim',
+      gsd: false,
+      status: 'running',
+      provider: 'plane',
+      project_id: 'p1',
+      project_path: tmpHome,
+      workspace_ref: 'workspace:shim',
+      started_at: new Date().toISOString(),
+      summary: 'shim done path',
+    });
+
+    const { logger, events } = makeLogger();
+    const result = markSessionStatus(taskId, 'done', 'session-stop:lock-released', logger, 'sess-shim-done');
+
+    // El shim mapea ANTES de persistir: la transición observable es to:'idle'.
+    assert.equal(result.ok, true);
+    assert.equal(result.to, 'idle', "'done' shim-mapped a 'idle'");
+
+    const deprecated = events.find((e) => e.msg === 'markSessionStatus.deprecated');
+    assert.ok(deprecated, "debe emitir warn 'markSessionStatus.deprecated'");
+    assert.equal(deprecated.level, 'warn');
+    assert.equal(deprecated.fields.input_status, 'done');
+    assert.equal(deprecated.fields.mapped_to, 'idle');
+    assert.equal(deprecated.fields.session_id, 'sess-shim-done');
+  });
+
+  it("Phase 38 SC#3 negative: 'idle' directo NO dispara el shim warn", () => {
+    const taskId = 'task-idle-direct';
+    addSession(taskId, {
+      session_id: 'sess-idle-direct',
+      task_id: taskId,
+      task_ref: 'KL-idle',
+      gsd: false,
+      status: 'running',
+      provider: 'plane',
+      project_id: 'p1',
+      project_path: tmpHome,
+      workspace_ref: 'workspace:idle',
+      started_at: new Date().toISOString(),
+      summary: 'idle direct path',
+    });
+
+    const { logger, events } = makeLogger();
+    const result = markSessionStatus(taskId, 'idle', 'session-stop:lock-released', logger, 'sess-idle-direct');
+
+    assert.equal(result.ok, true);
+    assert.equal(result.to, 'idle');
+    const deprecated = events.filter((e) => e.msg === 'markSessionStatus.deprecated');
+    assert.equal(deprecated.length, 0, "el shim solo dispara con 'done', no con 'idle' directo");
   });
 });
