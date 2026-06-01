@@ -156,14 +156,16 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   }
   history = keptHistory;
 
+  // NO emitir host.reconcile.tick aquí: este es el reconciliador PURO. La
+  // telemetría del tick la emite el caller con I/O (runReconcileTick) — emitir
+  // en ambos sitios duplicaba la línea en el log (cazado en UAT live 2026-06-01).
+
   // Si nada cambió, retornar el state original (referencialmente) para que el
   // caller pueda saltarse la escritura a disco.
   if (transitioned === 0 && rescued === 0 && sealed === 0) {
-    logger?.info?.('host.reconcile.tick', { tick, rescued, sealed, transitioned, total });
     return { state, events: { rescued, sealed, transitioned, total } };
   }
 
-  logger?.info?.('host.reconcile.tick', { tick, rescued, sealed, transitioned, total });
   return {
     state: { ...state, sessions, history },
     events: { rescued, sealed, transitioned, total },
