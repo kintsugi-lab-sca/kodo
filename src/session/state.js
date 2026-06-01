@@ -27,6 +27,12 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
  *   phase_id?: string,         // Phase 9 (D-11): resolved phase identifier. Populated by dispatcher when match succeeds.
  *   brief?: string,            // Phase 9 (D-09, pattern-mapper #4): bootstrap brief rendered by buildBriefFromTask. Persisted so hook SessionStart can read it via findSession(). Only set when resolver returns action='bootstrap'.
  *   worktree_path?: string,    // Phase 18 (D-03c, aditivo opcional — mismo patrón que gsd_mode Phase 11 D-08). Path determinístico derivado del session-id (`<projectPath>/.bg-shell/<sessionId>`) computado por computeWorktreePath. Sesiones legacy v0.5 sin este campo se leen como undefined; consumers downstream deben tolerar falsy. NO bump de schema_version.
+ *   state?: 'running'|'idle'|'needs-input'|'dead'|'closed'|'review'|'error',  // Phase 38 D-04/D-11: ciclo de vida explícito. Aditivo opcional (poblado por migrateStateV2toV3); sesiones v2 sin migrar se leen undefined.
+ *   needs_input?: boolean,     // Phase 38 D-04/D-11: true cuando el host expone "Needs input". Dimensión independiente de state.
+ *   process_alive?: boolean,   // Phase 38 D-04/D-11: el proceso Claude sigue vivo. Derivado de status en la migración.
+ *   tab_alive?: boolean,       // Phase 38 D-04/D-11: la tab del workspace host sigue viva. Default false en migrate puro; lo puebla la reconciliación (Plan 04).
+ *   last_seen_alive?: string|null,  // Phase 38 D-04/D-11: ISO 8601 del último tick donde tab_alive fue true, o null. Default null en migrate puro.
+ *   alive?: boolean,           // Phase 38 D-11: booleano agregado de compat (= state ∈ {running, idle, needs-input}). Poblado por migrateStateV2toV3; consumers que ya lo leen siguen funcionando.
  * }} Session
  *
  * @typedef {{
@@ -48,6 +54,79 @@ export function migrateState(rawState) {
   return {
     schema_version: 2,
     sessions: {},
+  };
+}
+
+/**
+ * Mapea el `status` legacy v2 al `state` del ciclo de vida v3 (D-04).
+ *   'running'     → 'running'
+ *   'done'        → 'idle'   (compat shim D-04 último párrafo — el stop hook ya
+ *                             no significa "muerta", sino "esperando humano")
+ *   'error'       → 'dead'
+ *   'interrupted' → 'dead'
+ *   'review'      → 'review' (ortogonal a Phase 38, preservado — D-12)
+ * Cualquier otro valor (defensivo) cae a 'idle'.
+ * @param {string} status
+ * @returns {'running'|'idle'|'needs-input'|'dead'|'closed'|'review'|'error'}
+ */
+function statusToStateV3(status) {
+  switch (status) {
+    case 'running': return 'running';
+    case 'done': return 'idle';
+    case 'error': return 'dead';
+    case 'interrupted': return 'dead';
+    case 'review': return 'review';
+    default: return 'idle';
+  }
+}
+
+/**
+ * Migra un state object del schema v2 al v3. Función PURA — no hace I/O.
+ *
+ * Phase 38 (D-04/D-05/D-11). A diferencia de la v1→v2 (que hace un destructive
+ * `sessions: {}`), la v2→v3 PRESERVA sessions y history, derivando los 5 campos
+ * nuevos del ciclo de vida de forma aditiva (D-11):
+ *   - `state`          ← statusToStateV3(status)
+ *   - `process_alive`  ← (status === 'running')
+ *   - `tab_alive`      ← false (default; el rescate cross-host vive en la
+ *                        reconciliación de Plan 04, NO en migrate puro —
+ *                        RESEARCH §S1 punto 2)
+ *   - `needs_input`    ← false (default)
+ *   - `last_seen_alive`← null (default)
+ *   - `alive`          ← state ∈ {running, idle, needs-input} (compat con
+ *                        consumers que ya leen el booleano agregado)
+ *
+ * history se preserva SIN modificar — el rescate desde history a sessions
+ * requiere el host de Plan 01 + el reconciliador de Plan 04.
+ *
+ * Idempotente: si `rawState.schema_version === 3` retorna el mismo objeto
+ * referencialmente (D-05 — F6 test).
+ *
+ * @param {object} rawState - state v2 (o v3 ya migrado).
+ * @returns {State}
+ */
+export function migrateStateV2toV3(rawState) {
+  if (rawState.schema_version === 3) return rawState;
+
+  /** @type {Record<string, Session>} */
+  const newSessions = {};
+  for (const [taskId, session] of Object.entries(rawState.sessions || {})) {
+    const state = statusToStateV3(/** @type {any} */ (session).status);
+    newSessions[taskId] = {
+      .../** @type {Session} */ (session),
+      state,
+      process_alive: /** @type {any} */ (session).status === 'running',
+      tab_alive: false,
+      needs_input: false,
+      last_seen_alive: null,
+      alive: state === 'running' || state === 'idle' || state === 'needs-input',
+    };
+  }
+
+  return {
+    schema_version: 3,
+    sessions: newSessions,
+    history: Array.isArray(rawState.history) ? rawState.history : [],
   };
 }
 
@@ -75,10 +154,16 @@ export function computeWorktreePath(projectPath, sessionId) {
 }
 
 /**
- * Lee el state.json del disco; si es schema v1, crea backup y migra.
+ * Lee el state.json del disco; si es schema < 3, crea backup timestamped y migra
+ * encadenando v1→v2→v3 (Phase 38 D-05). Idempotente: si ya es v3, retorna sin
+ * tocar disco (no crea backup redundante).
+ *
+ * @param {import('../logger.js').Logger} [logger] - opcional; si se provee se
+ *   emite `state.migration.v2_to_v3` (D-13). NO se importa logger.js aquí
+ *   (LOG-12 walker) — el caller lo inyecta. Sin logger, console.log fallback.
  * @private
  */
-function migrateStateIfNeeded() {
+function migrateStateIfNeeded(logger) {
   if (!existsSync(STATE_PATH)) return;
   let raw;
   try {
@@ -86,11 +171,36 @@ function migrateStateIfNeeded() {
   } catch {
     return;
   }
-  if (raw.schema_version === 2) return;
-  writeFileSync(STATE_PATH + '.bak', JSON.stringify(raw, null, 2) + '\n');
-  const newState = migrateState(raw);
+  // Idempotencia: ya en v3 → nada que migrar, ningún backup (D-05 + R-1).
+  if (raw.schema_version === 3) return;
+
+  // Backup ANTES de migrar (D-05 + R-1). Timestamp sortable YYYYMMDDTHHMMSS.
+  const ts = new Date().toISOString().replace(/[:.-]/g, '').slice(0, 15);
+  writeFileSync(STATE_PATH + '.bak.' + ts, JSON.stringify(raw, null, 2) + '\n');
+
+  // Encadenar: v1 (sin schema_version) → v2 → v3. v2 → v3 directo.
+  const v2 = raw.schema_version === 2 ? raw : migrateState(raw);
+  const fromCount = Object.keys(v2.sessions || {}).length;
+  const newState = migrateStateV2toV3(v2);
   writeFileSync(STATE_PATH, JSON.stringify(newState, null, 2) + '\n');
-  console.log('[kodo] State migrado a schema_version 2 (backup: state.json.bak)');
+
+  // Logger event (D-13). rescued/sealed son 0 en Plan 02 (rescate vive en Plan 04).
+  if (logger) {
+    // import dinámico evitaría LOG-12; pero el helper vive en logger-events.js
+    // que el caller ya conoce. Aquí solo invocamos si nos pasaron un logger ya
+    // construido. El helper se importa lazy para no acoplar state.js a él.
+    import('../logger-events.js')
+      .then((m) => m.stateMigrationV3(logger, {
+        from_count: fromCount,
+        to_sessions: Object.keys(newState.sessions).length,
+        to_history: (newState.history || []).length,
+        rescued: 0,
+        sealed: 0,
+      }))
+      .catch(() => {});
+  } else {
+    console.log('[kodo] State migrado a schema_version 3 (backup: state.json.bak.' + ts + ')');
+  }
 }
 
 /** @returns {State} */
@@ -100,7 +210,7 @@ export function loadState() {
   try {
     return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
   } catch {
-    return { schema_version: 2, sessions: {} };
+    return { schema_version: 3, sessions: {}, history: [] };
   }
 }
 

@@ -20,11 +20,12 @@
 //   - RESEARCH §S1 punto 2: tab_alive=false en migrate puro (el rescate vive en
 //     la reconciliación de Plan 04, NO en la migración).
 
-import { describe, it, before, after, afterEach } from 'node:test';
+// NOTA: el backup I/O test vive en migration-backup.test.js (requiere
+// HOME-isolation con import dinámico POST-HOME y NO puede coexistir con el
+// import estático de abajo, que cachearía KODO_DIR con el HOME real).
+
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 import { migrateStateV2toV3 } from '../../src/session/state.js';
 
@@ -165,70 +166,5 @@ describe('state migration v2 → v3', () => {
     const v3 = { schema_version: 3, sessions: {}, history: [] };
     const result = migrateStateV2toV3(v3);
     assert.equal(result, v3, 'mismo reference — idempotencia trivial');
-  });
-});
-
-// ── Backup I/O test (D-05) ──────────────────────────────────────────
-//
-// HOME-isolation scaffold: state.js calcula KODO_DIR al module-load desde
-// homedir(). El dynamic import DEBE ocurrir DESPUÉS de fijar HOME. Como el
-// módulo ya fue importado arriba (migrateStateV2toV3 puro), usamos un
-// subproceso-libre approach: import dinámico con un cache-buster por query
-// string para forzar re-evaluación del módulo bajo el HOME aislado.
-
-describe('state migration v2 → v3 — backup I/O (D-05)', () => {
-  let tmpHome;
-  let origHome;
-  let loadState;
-  let STATE_PATH;
-
-  before(async () => {
-    origHome = process.env.HOME;
-    tmpHome = mkdtempSync(join(tmpdir(), 'kodo-migv3-'));
-    process.env.HOME = tmpHome;
-    mkdirSync(join(tmpHome, '.kodo'), { recursive: true });
-    // Dynamic import POST-HOME + cache-buster: state.js ya se importó arriba
-    // (binding estático de migrateStateV2toV3), así que su KODO_DIR apunta al
-    // HOME real. El query string fuerza una instancia nueva del módulo cuyo
-    // KODO_DIR resuelve al tmpHome aislado.
-    const mod = await import('../../src/session/state.js?backup-test');
-    loadState = mod.loadState;
-    STATE_PATH = mod.STATE_PATH;
-  });
-
-  after(() => {
-    if (origHome === undefined) delete process.env.HOME;
-    else process.env.HOME = origHome;
-    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
-  });
-
-  it('migra v2→v3 escribiendo backup timestamped y deja state.json en v3', () => {
-    const statePath = join(tmpHome, '.kodo', 'state.json');
-    writeFileSync(statePath, JSON.stringify(stateV2WithRunning(), null, 2) + '\n');
-
-    // loadState() dispara migrateStateIfNeeded() lazy.
-    const state = loadState();
-    assert.equal(state.schema_version, 3, 'state migrado a v3 tras loadState');
-
-    // Backup timestamped: state.json.bak.YYYYMMDDTHHMMSS
-    const files = readdirSync(join(tmpHome, '.kodo'));
-    const backups = files.filter((f) => /^state\.json\.bak\.\d{8}T\d{6}$/.test(f));
-    assert.equal(backups.length, 1, `esperaba 1 backup timestamped; encontré: ${files.join(', ')}`);
-
-    // El backup conserva el v2 original
-    const backup = JSON.parse(readFileSync(join(tmpHome, '.kodo', backups[0]), 'utf-8'));
-    assert.equal(backup.schema_version, 2, 'backup conserva el v2 original');
-
-    // state.json en disco ya es v3
-    const onDisk = JSON.parse(readFileSync(statePath, 'utf-8'));
-    assert.equal(onDisk.schema_version, 3);
-  });
-
-  it('re-invocar migrate NO crea un segundo backup (idempotencia I/O)', () => {
-    // El test anterior dejó state.json en v3. Segunda loadState detecta v3 y retorna.
-    loadState();
-    const files = readdirSync(join(tmpHome, '.kodo'));
-    const backups = files.filter((f) => /^state\.json\.bak\.\d{8}T\d{6}$/.test(f));
-    assert.equal(backups.length, 1, 'no se crea un segundo backup en la re-invocación');
   });
 });

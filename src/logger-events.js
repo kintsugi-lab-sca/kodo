@@ -1,6 +1,6 @@
 // @ts-check
 //
-// src/logger-events.js — Taxonomía cerrada de 19 eventos de ciclo de vida.
+// src/logger-events.js — Taxonomía cerrada de 20 eventos de ciclo de vida.
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09)
 // + Phase 19 (worktree cleanup) + Phase 21 (skill sync) + Phase 23 (github client)
@@ -43,6 +43,7 @@ import { join } from 'node:path';
  *   POLLING_DISPATCH: 'polling.dispatch',
  *   POLLING_ERROR: 'polling.error',
  *   POLLING_TICK_SUMMARY: 'polling.tick.summary',
+ *   STATE_MIGRATION_V3: 'state.migration.v2_to_v3',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -64,6 +65,7 @@ export const EVENTS = Object.freeze({
   POLLING_DISPATCH:        'polling.dispatch',
   POLLING_ERROR:           'polling.error',
   POLLING_TICK_SUMMARY:    'polling.tick.summary',
+  STATE_MIGRATION_V3:      'state.migration.v2_to_v3',
 });
 
 /**
@@ -531,5 +533,34 @@ export function pollingTickSummary(logger, fields) {
     total_dispatches: fields.total_dispatches,
     rate_limit_remaining: fields.rate_limit_remaining,
     repos: fields.repos,
+  });
+}
+
+// ─── Phase 38: state schema v2 → v3 migration ──────────────────────────────
+//
+// Emitido (info) una vez cuando migrateStateIfNeeded bumpea el schema de v2 a
+// v3 (D-13). Whitelist explícita field-by-field (NO spread — patrón pollingTick).
+// `rescued` y `sealed` son 0 en Plan 02 (el rescate cross-host desde history
+// vive en la reconciliación de Plan 04); quedan como 0 hasta entonces, lo cual
+// es semánticamente correcto. Invariante LOG-12: cero imports nuevos.
+
+/**
+ * @param {Logger} logger
+ * @param {{
+ *   from_count: number,
+ *   to_sessions: number,
+ *   to_history: number,
+ *   rescued: number,
+ *   sealed: number,
+ * }} fields
+ */
+export function stateMigrationV3(logger, fields) {
+  logger.info(EVENTS.STATE_MIGRATION_V3, {
+    event: EVENTS.STATE_MIGRATION_V3,
+    from_count: fields.from_count,
+    to_sessions: fields.to_sessions,
+    to_history: fields.to_history,
+    rescued: fields.rescued,
+    sealed: fields.sealed,
   });
 }
