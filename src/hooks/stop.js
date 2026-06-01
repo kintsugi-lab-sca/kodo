@@ -73,8 +73,10 @@ async function readStdin() {
  * Pure-ish function over (input, deps) — used by tests with memSink loggerFactory.
  * Production callers should use main() which parses stdin first.
  *
- * Phase 16 LOG-15: añade el bloque `markSessionStatus(... 'done' ...)` PRE-release
- * dentro de la rama "session.gsd" del cleanup. El refactor light a (input, deps)
+ * Phase 16 LOG-15: añade el bloque `markSessionStatus(...)` PRE-release dentro
+ * de la rama "session.gsd" del cleanup. Phase 38 D-12: el estado pasó de 'done'
+ * a 'idle' ('session-stop:lock-released') — el stop hook ya no marca la sesión
+ * como muerta, sino como "lock liberado, esperando humano". El refactor light a (input, deps)
  * permite a tests inyectar memSink logger sin spawn de child process — mismo
  * patrón que `runGsdVerify(opts, deps)` en src/gsd/verify.js.
  *
@@ -199,7 +201,7 @@ export async function runStopHook(input, deps = {}) {
       // warn observable y continuar — log+continue simétrico con verify.js (D-01).
       // Optional chaining defensivo; producción siempre retorna el union. Vive DENTRO
       // del try WR-03 existente; markSessionStatus es non-throwing por contrato.
-      const result = markSessionStatus(session.task_id, 'done', 'session-stop', log, session.session_id);
+      const result = markSessionStatus(session.task_id, 'idle', 'session-stop:lock-released', log, session.session_id);
       if (!result?.ok) {
         log.warn('markSessionStatus.skipped', {
           reason: result?.reason,

@@ -133,14 +133,15 @@ describe('stop.js source hygiene', () => {
     );
   });
 
-  it('Phase 19 CR-02: markSessionStatus is invoked OUTSIDE the if (session.gsd) block (applies to all sessions)', () => {
+  it('Phase 19 CR-02 / Phase 38 D-12: markSessionStatus invoked OUTSIDE the if (session.gsd) block, con estado idle', () => {
     const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
-    // El mark debe aparecer en el source y NO estar precedido inmediatamente por
-    // `if (session.gsd) {` sin un cierre intermedio. Estrategia simple: el mark
-    // debe aparecer ANTES de la línea que contiene `if (session.gsd) {` que
-    // envuelve `releaseGsdLock`.
-    const markIdx = source.indexOf("markSessionStatus(session.task_id, 'done', 'session-stop'");
-    assert.ok(markIdx > 0, 'must find markSessionStatus with new reason session-stop (Phase 19 CR-02)');
+    // Phase 38 D-12: el caller migró de 'done'/'session-stop' a
+    // 'idle'/'session-stop:lock-released' — el stop hook ya no marca la sesión
+    // como muerta sino como "lock liberado, esperando humano" (fix raíz de
+    // ROMAN-151/152). El invariante de UBICACIÓN de CR-02 (mark FUERA del bloque
+    // if (session.gsd), aplica a todas las sesiones) se preserva.
+    const markIdx = source.indexOf("markSessionStatus(session.task_id, 'idle', 'session-stop:lock-released'");
+    assert.ok(markIdx > 0, "must find markSessionStatus con estado 'idle' (Phase 38 D-12)");
     // Buscar el `if (session.gsd) {` que contiene `releaseGsdLock`. Patrón robusto:
     // captura el bloque if (session.gsd) seguido (en pocas líneas) de releaseGsdLock.
     const ifGsdRegex = /if\s*\(session\.gsd\)\s*\{[\s\S]{0,500}releaseGsdLock/;
@@ -148,13 +149,14 @@ describe('stop.js source hygiene', () => {
     assert.ok(ifMatch, 'must find if (session.gsd) { ... releaseGsdLock block');
     assert.ok(
       markIdx < ifMatch.index,
-      'markSessionStatus must be invoked BEFORE the if (session.gsd) { releaseGsdLock } block (Phase 19 CR-02)',
+      'markSessionStatus must be invoked BEFORE the if (session.gsd) { releaseGsdLock } block (Phase 19 CR-02 ubicación preservada)',
     );
-    // Sanity: la cadena con la razón antigua ya NO debe aparecer (relocate completo).
+    // Phase 38 D-12: el caller real ya NO emite 'done' (el shim solo cubre
+    // callers legacy externos). Sanity: ningún caller real en stop.js emite 'done'.
     assert.equal(
-      source.indexOf("'session-stop:lock-released'"),
+      source.indexOf("markSessionStatus(session.task_id, 'done'"),
       -1,
-      "old reason 'session-stop:lock-released' must be removed after CR-02 relocate",
+      "Phase 38 D-12: stop.js ya no emite 'done' (migrado a 'idle')",
     );
   });
 

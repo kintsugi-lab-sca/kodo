@@ -163,7 +163,7 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
     // Sanity: primera invocación procesó la sesión completa.
     const transition1 = events1.find((e) => e.fields?.event === 'state.transition');
     assert.ok(transition1, 'primera invocación debe emitir state.transition');
-    assert.equal(transition1.fields.to, 'done', 'primera invocación transita to=done');
+    assert.equal(transition1.fields.to, 'idle', 'Phase 38 D-12: primera invocación transita to=idle (esperando humano)');
     assert.equal(
       cmuxCalls1.filter((c) => c.fn === 'setColor').length,
       1,

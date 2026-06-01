@@ -190,8 +190,8 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       const transition = events.find((e) => e.fields?.event === 'state.transition');
       assert.ok(transition, 'full mode debe emitir state.transition');
       assert.equal(transition.fields.from, 'review', 'D-05: from debe ser el status previo (review post-verify)');
-      assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done"');
-      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado (mark PRE-lock-release)');
+      assert.equal(transition.fields.to, 'idle', 'Phase 38 D-12: to migrado de "done" a "idle" (esperando humano)');
+      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'Phase 38 D-12: reason migrado (lock released, no muerta)');
       assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession se ejecutó (sanity)');
     } finally {
       cleanup();
@@ -232,8 +232,8 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       const transition = events.find((e) => e.fields?.event === 'state.transition');
       assert.ok(transition, 'quick mode debe emitir state.transition');
       assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running — quick no pasa por verify)');
-      assert.equal(transition.fields.to, 'done', 'D-04: to fixed a "done" (mismo para ambos modos)');
-      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado');
+      assert.equal(transition.fields.to, 'idle', 'Phase 38 D-12: to migrado a "idle" (mismo para ambos modos)');
+      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'Phase 38 D-12: reason migrado');
     } finally {
       cleanup();
     }
@@ -278,8 +278,8 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       const transition = events.find((e) => e.fields?.event === 'state.transition');
       assert.ok(transition, 'Phase 19 CR-02: non-GSD ahora emite state.transition (mark fuera de if gsd)');
       assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running)');
-      assert.equal(transition.fields.to, 'done', 'D-04: to fijo a "done" — aplica también a non-GSD post CR-02');
-      assert.equal(transition.fields.reason, 'session-stop', 'Phase 19 CR-02: reason canónico actualizado');
+      assert.equal(transition.fields.to, 'idle', 'Phase 38 D-12: to migrado a "idle" — aplica también a non-GSD');
+      assert.equal(transition.fields.reason, 'session-stop:lock-released', 'Phase 38 D-12: reason migrado');
       assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession sí se ejecuta (sanity)');
     } finally {
       cleanup();
@@ -330,8 +330,8 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
         );
         const transition = events.find((e) => e.fields?.event === 'state.transition');
         assert.ok(transition, `D-04 invariante: modo ${session.gsd_mode} debe emitir state.transition`);
-        assert.equal(transition.fields.to, 'done',
-          `D-04 LOCKED: to debe ser 'done' fijo (modo ${session.gsd_mode}) — D-04 prohíbe inferir modo`);
+        assert.equal(transition.fields.to, 'idle',
+          `Phase 38 D-12: to debe ser 'idle' fijo (modo ${session.gsd_mode}) — el stop hook ya no infiere modo ni marca muerta`);
         const expectedFrom = session.gsd_mode === 'full' ? 'review' : 'running';
         assert.equal(
           transition.fields.from,

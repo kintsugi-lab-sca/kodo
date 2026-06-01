@@ -53,7 +53,7 @@ function logPathFor(sessionId) {
 }
 
 describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
-  it('EVENTS is frozen and contains the 19 canonical types (Phase 28 D-10 grew 18 → 19)', () => {
+  it('EVENTS is frozen and contains the 20 canonical types (Phase 38 grew 19 → 20: state.migration.v2_to_v3)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -72,12 +72,13 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'session.start',
       'skill.sync.auto',
       'skill.sync.auto.error',
+      'state.migration.v2_to_v3',
       'state.transition',
       'worktree.cleanup.dirty',
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
-    assert.equal(Object.keys(EVENTS).length, 19, 'EVENTS key count must equal 19 post-Phase-28');
+    assert.equal(Object.keys(EVENTS).length, 20, 'EVENTS key count must equal 20 post-Phase-38');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
