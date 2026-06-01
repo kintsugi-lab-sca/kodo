@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: executing
-stopped_at: Phase 38 Plan 02 complete (estados idle/needs-input/dead/closed + migración v2→v3 + caller stop.js→idle; commits 4f17079, c87a64a, 56071d7, ff39864)
+stopped_at: Phase 38 Plan 03 complete (dashboard render multi-estado — badges + filtros s:<state> + host-error + Phase 37 parity; commits 5ebf1ec, beca31c)
 last_updated: "2026-06-01T09:25:53.258Z"
-last_activity: 2026-06-01 -- Phase 38 Plan 02 complete (suite 1000/999 pass)
+last_activity: 2026-06-01 -- Phase 38 Plan 03 complete (suite 1019/1018 pass)
 progress:
   total_phases: 6
   completed_phases: 4
@@ -30,9 +30,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 ## Current Position
 
 Phase: 38 (workspacehost-lifecycle-idle-needs-input) — EXECUTING
-Plan: 2 of 4 complete (next: 38-03 dashboard render multi-estado)
+Plan: 3 of 4 complete (next: 38-04 reconciliación host↔state + 38-HUMAN-UAT — checkpoint)
 Status: Executing Phase 38
-Last activity: 2026-06-01 -- Phase 38 Plan 02 complete (suite 1000/999 pass)
+Last activity: 2026-06-01 -- Phase 38 Plan 03 complete (suite 1019/1018 pass)
 
 Progress: [██████████] 100%
 

@@ -165,7 +165,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 38-03-PLAN.md — Dashboard render multi-estado: badges + filtros `s:<state>` + footer-error host
+- [x] 38-03-PLAN.md — Dashboard render multi-estado: badges + filtros `s:<state>` + footer-error host
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -336,7 +336,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
 | 37. Focus — invocar cmux select-workspace | v0.9 | 3/3 | Complete   | 2026-05-28 |
-| 38. Paneles auxiliares — comentarios + logs | v0.9 | 2/4 | In Progress|  |
+| 38. Paneles auxiliares — comentarios + logs | v0.9 | 3/4 | In Progress|  |
 
 ---
 *Last updated: 2026-05-28 — Phase 37 planned (3 plans, 3 waves: focus.js never-throws fundament → App.js+SessionTable.js UX → runDashboard wiring + UAT). 2/2 requirements TUI-13..14 cubiertas. Revisado post-C-01 (cmux select-workspace fire-and-forget, NO TTY handoff). Next: /gsd-execute-phase 37.*
