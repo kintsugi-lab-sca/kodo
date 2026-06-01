@@ -2,8 +2,8 @@
 phase: 38
 plan: 38-04
 title: Reconciliación host↔state + debouncing + NDJSON events + UAT humano
-status: implementation-complete
-uat_status: pending
+status: complete
+uat_status: passed
 wave: 4
 tags: [reconciliation, debouncing, lifecycle, ndjson, uat, tdd, architecture-deviation]
 commits: 2

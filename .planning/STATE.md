@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: executing
-stopped_at: Phase 38 Plan 04 implementación completa — UAT HUMANO PENDIENTE (reconciliación host↔state en el server + NDJSON events + 38-HUMAN-UAT.md; suite 1027/1026 pass). Bloquea cierre de fase.
-last_updated: "2026-06-01T09:25:53.258Z"
+status: ready_to_plan
+stopped_at: Phase 38 complete (4/4) — ready to discuss Phase 39
+last_updated: 2026-06-01T19:54:01.907Z
 last_activity: 2026-06-01 -- Phase 38 Plan 04 impl completa; 4 escenarios UAT pendientes de validación humana con cmux real
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 16
-  completed_plans: 13
-  percent: 69
+  completed_plans: 36
+  percent: 67
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 38 — workspacehost-lifecycle-idle-needs-input
+**Current focus:** Phase 39 — paneles auxiliares comentarios logs
 
 ## Current Position
 
-Phase: 38 (workspacehost-lifecycle-idle-needs-input) — UAT PENDIENTE
-Plan: 4 of 4 implementados (38-04 impl completa; UAT humano bloqueante pendiente)
-Status: Phase 38 implementación completa — esperando firma UAT (38-HUMAN-UAT.md, 4 escenarios)
-Last activity: 2026-06-01 -- Phase 38 Plan 04 impl completa; UAT humano pendiente
+Phase: 39
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-01
 
 Progress: [██████████] 100%
 
