@@ -358,7 +358,10 @@ function truncate(str, max) {
  * semántica externa se preserva intacta (D-06).
  *
  * @param {string} taskId
- * @param {'running'|'done'|'error'|'review'|'interrupted'} nextStatus
+ * @param {'running'|'idle'|'needs-input'|'dead'|'closed'|'done'|'error'|'review'|'interrupted'} nextStatus
+ *   Phase 38 D-04: 4 estados nuevos del ciclo de vida (idle/needs-input/dead/closed)
+ *   sumados a los legacy. `'done'` es input DEPRECATED — el shim lo mapea a `'idle'`
+ *   antes de persistir (D-12; eliminado en v0.10).
  * @param {string} reason
  * @param {import('../logger.js').Logger} [logger]
  * @param {string} [sessionId] - Phase 30 D-07: opcional, para observability del
@@ -368,9 +371,28 @@ function truncate(str, max) {
  * @returns {{ok: true, from: string, to: string} | {ok: false, reason: 'missing-task-id'}}
  *   Discriminated union (D-05). Success path expone `from`/`to` para observabilidad
  *   downstream; falsy path expone `reason: 'missing-task-id'` (kebab-case literal).
+ *   Phase 38: `to` puede ser `'idle'` cuando el caller pasó `'done'` (post-shim).
  */
 export function markSessionStatus(taskId, nextStatus, reason, logger, sessionId) {
-  // Phase 30 D-09: falsy guard PRIMERO. Cubre null, undefined, '' simultáneamente
+  // Phase 38 D-12: compat shim 'done' → 'idle'. Eliminado en v0.10.
+  // El stop hook ya no marca las sesiones como muertas/done — quedan 'idle'
+  // (lock liberado, esperando humano). Los callers legacy externos que aún
+  // emitan 'done' reciben un warn DEPRECATED y el mapeo automático. El shim
+  // corre ANTES del guard !taskId para que el warn refleje el input real.
+  if (nextStatus === 'done') {
+    if (logger) {
+      logger.warn('markSessionStatus.deprecated', {
+        input_status: 'done',
+        mapped_to: 'idle',
+        task_id: taskId,
+        session_id: sessionId || 'unknown',
+        reason,
+      });
+    }
+    nextStatus = 'idle';
+  }
+
+  // Phase 30 D-09: falsy guard. Cubre null, undefined, '' simultáneamente
   // (mismo idiom defensivo que isGsdChild en src/labels.js#114). NO se llama a
   // listSessions ni updateSession en el falsy path — early return preserva la
   // semántica de no-op silencioso pero ahora con observabilidad observable.

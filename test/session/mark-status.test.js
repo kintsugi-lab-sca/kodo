@@ -121,7 +121,9 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
   // -------------------------------------------------------------------------
   it('warns + returns {ok:false} when task_id is null', () => {
     const { logger, events } = makeLogger();
-    const result = markSessionStatus(null, 'done', 'session-stop', logger, 'sess-abc');
+    // Phase 38: usar 'idle' (no 'done') — este test cubre el falsy-guard, NO el
+    // shim deprecated. Pasar 'done' aquí dispararía 2 warns (shim + guard).
+    const result = markSessionStatus(null, 'idle', 'session-stop', logger, 'sess-abc');
 
     assert.deepEqual(result, { ok: false, reason: 'missing-task-id' });
 
@@ -134,7 +136,7 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
     // Keys locked SC#2: {session_id, status, reason}
     assert.deepEqual(warns[0].fields, {
       session_id: 'sess-abc',
-      status: 'done',
+      status: 'idle',
       reason: 'session-stop',
     });
   });
@@ -144,7 +146,9 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
   // -------------------------------------------------------------------------
   it('warns with session_id "unknown" when task_id is undefined and no 5th arg', () => {
     const { logger, events } = makeLogger();
-    const result = markSessionStatus(undefined, 'done', 'reason', logger);
+    // Phase 38: 'idle' (no 'done') — este test cubre el fallback D-07 del
+    // falsy-guard, no el shim deprecated.
+    const result = markSessionStatus(undefined, 'idle', 'reason', logger);
 
     assert.deepEqual(result, { ok: false, reason: 'missing-task-id' });
 
@@ -155,7 +159,7 @@ describe('LIFE-02 — markSessionStatus falsy task_id observability', () => {
     // D-07 fallback: cuando 5º arg ausente, warn registra session_id: 'unknown'
     assert.deepEqual(warns[0].fields, {
       session_id: 'unknown',
-      status: 'done',
+      status: 'idle',
       reason: 'reason',
     });
   });
