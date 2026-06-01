@@ -219,7 +219,7 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const frame = lastFrame();
     assert.match(
       frame,
-      /›\s+KL-1/,
+      /›.*KL-1/,
       `la fila inicialmente seleccionada (KL-1 newest) debe llevar el gutter "› "\n${frame}`,
     );
   });
@@ -282,28 +282,28 @@ describe('TUI-08: navegación ↑/↓ — mueve el cursor por identidad, clamp s
     await drain();
 
     // Estado inicial (D-07): gutter en KL-1 (la más reciente, arriba).
-    assert.match(lastFrame(), /›\s+KL-1/, `inicial: el gutter debe estar en KL-1\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-1/, `inicial: el gutter debe estar en KL-1\n${lastFrame()}`);
 
     // ↓ → el gutter baja a KL-2.
     stdin.write('\x1b[B');
     await drain();
-    assert.match(lastFrame(), /›\s+KL-2/, `tras ↓ el gutter debe estar en KL-2\n${lastFrame()}`);
-    assert.doesNotMatch(lastFrame(), /›\s+KL-1/, `tras ↓ el gutter ya NO debe estar en KL-1\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-2/, `tras ↓ el gutter debe estar en KL-2\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /›.*KL-1/, `tras ↓ el gutter ya NO debe estar en KL-1\n${lastFrame()}`);
 
     // ↓ de nuevo → clamp en el extremo inferior (NO wrap a KL-1).
     stdin.write('\x1b[B');
     await drain();
-    assert.match(lastFrame(), /›\s+KL-2/, `otro ↓ debe CLAMPAR en KL-2 (sin wrap-around)\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-2/, `otro ↓ debe CLAMPAR en KL-2 (sin wrap-around)\n${lastFrame()}`);
 
     // ↑ → vuelve a KL-1.
     stdin.write('\x1b[A');
     await drain();
-    assert.match(lastFrame(), /›\s+KL-1/, `tras ↑ el gutter debe volver a KL-1\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-1/, `tras ↑ el gutter debe volver a KL-1\n${lastFrame()}`);
 
     // ↑ de nuevo → clamp en el extremo superior (NO wrap a KL-2).
     stdin.write('\x1b[A');
     await drain();
-    assert.match(lastFrame(), /›\s+KL-1/, `otro ↑ debe CLAMPAR en KL-1 (sin wrap-around)\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-1/, `otro ↑ debe CLAMPAR en KL-1 (sin wrap-around)\n${lastFrame()}`);
   });
 });
 
@@ -363,7 +363,7 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     await drain();
     assert.doesNotMatch(lastFrame(), /▏/, `tras Esc la línea de filtro (cursor ▏) debe desaparecer\n${lastFrame()}`);
     assert.match(lastFrame(), /KL-2/, `tras Esc (cancela) la lista completa vuelve — KL-2 visible de nuevo\n${lastFrame()}`);
-    assert.match(lastFrame(), /›\s+KL-1/, `tras cancelar, el cursor preservado sigue en KL-1 (D-16)\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-1/, `tras cancelar, el cursor preservado sigue en KL-1 (D-16)\n${lastFrame()}`);
   });
 
   it('Enter CONFIRMA (D-15): cierra la línea de filtro pero MANTIENE el filtro aplicado', async () => {
@@ -408,7 +408,7 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     stdin.write('r:foo');
     await drain();
     await drain();
-    assert.match(lastFrame(), /›\s+KL-2/, `precondición: filtrar a repo foo deja el cursor en KL-2\n${lastFrame()}`);
+    assert.match(lastFrame(), /›.*KL-2/, `precondición: filtrar a repo foo deja el cursor en KL-2\n${lastFrame()}`);
     assert.doesNotMatch(lastFrame(), /KL-1/, `precondición: r:foo oculta KL-1\n${lastFrame()}`);
 
     // Extender la query a 'r:foozzz' → no matchea NINGUNA fila → lista filtrada vacía → "no sessions match".
@@ -426,12 +426,12 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     assert.match(lastFrame(), /KL-2/, `tras limpiar el filtro KL-2 debe estar visible de nuevo\n${lastFrame()}`);
     assert.match(
       lastFrame(),
-      /›\s+KL-2/,
+      /›.*KL-2/,
       `CR-01/D-16: el cursor debe VOLVER a la sesión seleccionada (KL-2), no saltar a la primera fila\n${lastFrame()}`,
     );
     assert.doesNotMatch(
       lastFrame(),
-      /›\s+KL-1/,
+      /›.*KL-1/,
       `CR-01: el cursor NO debe haber saltado a KL-1 (identidad destruida por el write-back)\n${lastFrame()}`,
     );
   });

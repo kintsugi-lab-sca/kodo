@@ -22,11 +22,12 @@
 
 import { Box, Text } from 'ink';
 import { createElement as h } from 'react';
-import { rowCells, statusColor } from './format.js';
+import { rowCells, statusColor, stateBadge, countsLabel } from './format.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
-const COLS = { gutter: 2, task_ref: 10, repo: 18, phasemode: 11, status: 18, age: 7 };
+// Phase 38 D-06: columna `state` (14) para el badge del lifecycle; `🔔 needs-input` cabe exacto.
+const COLS = { gutter: 2, state: 14, task_ref: 10, repo: 18, phasemode: 11, status: 18, age: 7 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
@@ -54,22 +55,8 @@ function cell({ width, text, color, dim, bold, truncate }) {
   );
 }
 
-/**
- * Compone el string compacto de contadores del header (D-11): solo estados con count ≥ 1,
- * separados por ` · `, con el zombie contado aparte de running.
- *
- * @param {{ running: number, review: number, done: number, error: number, zombie: number }} counts
- * @returns {string}
- */
-function countsLabel(counts) {
-  const parts = [];
-  if (counts.running > 0) parts.push(`${counts.running} running`);
-  if (counts.zombie > 0) parts.push(`${counts.zombie} zombie`);
-  if (counts.review > 0) parts.push(`${counts.review} review`);
-  if (counts.error > 0) parts.push(`${counts.error} error`);
-  if (counts.done > 0) parts.push(`${counts.done} done`);
-  return parts.join(' · ');
-}
+// countsLabel (D-11) se movió a format.js (Phase 38) — presentación pura,
+// testeable sin ink. Se importa arriba junto a rowCells/statusColor/stateBadge.
 
 /**
  * Indicador de conexión del header (D-10) — PORT EXACTO de las tres ramas de App.js Phase 35.
@@ -132,6 +119,7 @@ export default function SessionTable({
   mode = 'list',
   query = '',
   focusError = null,
+  hostError = null,
 }) {
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);
@@ -157,9 +145,14 @@ export default function SessionTable({
   // mismo nivel de granularidad. Color del rojo via `<Text color="red">` de ink
   // (color-isolation D-12 Phase 34: cero picocolors, cero ANSI inline). El walker
   // test/format-isolation.test.js cubre este archivo automáticamente.
+  // Phase 38 D-06: el host-error reusa el MISMO footer rojo que focusError
+  // (clear-on-any-input Phase 37 D-04 lo limpia igual). focusError tiene
+  // precedencia (acción directa del operador sobre una fila) sobre hostError
+  // (estado de fondo descubierto por la reconciliación de Plan 04).
+  const footerError = focusError ?? hostError;
   const errorLine =
-    focusError != null
-      ? h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, focusError))
+    footerError != null
+      ? h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, footerError))
       : null;
 
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):
@@ -186,6 +179,7 @@ export default function SessionTable({
     Box,
     { flexDirection: 'row' },
     h(Box, { width: COLS.gutter }, h(Text, { dimColor: true }, '  ')),
+    h(Box, { width: COLS.state }, h(Text, { dimColor: true }, 'state')),
     h(Box, { width: COLS.task_ref }, h(Text, { dimColor: true }, 'task_ref')),
     h(Box, { width: COLS.repo }, h(Text, { dimColor: true }, 'repo')),
     h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode')),
@@ -205,6 +199,15 @@ export default function SessionTable({
       // pista posicional inequívoca (sobrevive NO_COLOR sin bold); el bold sobre el row añade peso
       // sin crear bloques inversos (patrón fzf/vim — decisión UAT-pulido post-Phase 36).
       h(Box, { width: COLS.gutter }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      // Phase 38 D-06: badge del estado v3 entre gutter y task_ref. Fallback a
+      // session.status (legacy v2 sin migrar). Si no hay badge (closed/review/
+      // vacío) la celda queda vacía sin romper el render. Color SOLO del badge
+      // (string name ink, NO picocolors). truncate:false — `🔔 needs-input` cabe.
+      (() => {
+        const badge = stateBadge(session.state ?? session.status ?? '');
+        const text = (badge.glyph || badge.label) ? `${badge.glyph ?? ''} ${badge.label ?? ''}`.trim() : '';
+        return cell({ width: COLS.state, text, color: badge.color, bold: selected, truncate: false });
+      })(),
       cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
       cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
       cell({ width: COLS.phasemode, text: cells.phasemode, bold: selected, truncate: true }),

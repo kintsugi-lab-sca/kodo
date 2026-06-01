@@ -85,11 +85,17 @@ export function resolveSelection(rows, selectedTaskId, prevIndex = 0) {
  *   'r:kodo s:running build' → { repo:'kodo', status:'running', text:'build' }
  *   ''                       → { repo:null, status:null, text:'' }
  *
+ * Phase 38 D-06: `s:active` es un alias OR que expande a `status: ['running',
+ * 'idle', 'needs-input']` (excluye `dead`/`closed`). Los demás `s:<x>` siguen
+ * siendo string escalar (retrocompat Phase 36). `status` es por tanto
+ * `string | string[] | null` — applyFilter acepta ambas formas (Opción A del
+ * plan: menor diff, retro-compatible con los filtros legacy escalares).
+ *
  * @param {string} query
- * @returns {{ repo: string|null, status: string|null, text: string }}
+ * @returns {{ repo: string|null, status: string|string[]|null, text: string }}
  */
 export function parseFilter(query) {
-  /** @type {{ repo: string|null, status: string|null, text: string }} */
+  /** @type {{ repo: string|null, status: string|string[]|null, text: string }} */
   const out = { repo: null, status: null, text: '' };
   const words = (query ?? '').trim().split(/\s+/).filter(Boolean);
   /** @type {string[]} */
@@ -99,8 +105,12 @@ export function parseFilter(query) {
     // a minúsculas para el match case-insensitive (D-14).
     const lower = w.toLowerCase();
     if (lower.startsWith('r:')) out.repo = w.slice(2).toLowerCase();
-    else if (lower.startsWith('s:')) out.status = w.slice(2).toLowerCase();
-    else rest.push(w);
+    else if (lower.startsWith('s:')) {
+      const val = w.slice(2).toLowerCase();
+      // Alias OR `s:active` (D-06): sesiones vivas (running/idle/needs-input),
+      // excluye dead/closed.
+      out.status = val === 'active' ? ['running', 'idle', 'needs-input'] : val;
+    } else rest.push(w);
   }
   out.text = rest.join(' ').toLowerCase();
   return out;
@@ -113,15 +123,26 @@ export function parseFilter(query) {
  *   - status: r.status (lowercased) === parsed.status (match exacto).
  *   - text: substring global sobre task_ref/repo/phase_id/gsd_mode/summary (lowercased).
  *
+ * Phase 38 D-06: el match de `status` se hace contra `r.state` (lifecycle v3)
+ * con fallback a `r.status` (legacy v2 sin migrar). `parsed.status` puede ser
+ * un array (alias `s:active`) → match OR; o un escalar → match exacto.
+ *
  * @param {Array<Partial<EnrichedSession>>} rows
- * @param {{ repo: string|null, status: string|null, text: string }} parsed
+ * @param {{ repo: string|null, status: string|string[]|null, text: string }} parsed
  * @param {(s: Partial<EnrichedSession>) => string} deriveRepo — DI puro (de format.js).
  * @returns {Array<Partial<EnrichedSession>>}
  */
 export function applyFilter(rows, parsed, deriveRepo) {
   return rows.filter((r) => {
     if (parsed.repo && !deriveRepo(r).toLowerCase().includes(parsed.repo)) return false;
-    if (parsed.status && (r.status ?? '').toLowerCase() !== parsed.status) return false;
+    if (parsed.status) {
+      // Match contra el estado v3 (`state`) con fallback al legacy (`status`).
+      const st = (r.state ?? r.status ?? '').toLowerCase();
+      const ok = Array.isArray(parsed.status)
+        ? parsed.status.includes(st)   // alias OR (s:active)
+        : st === parsed.status;        // escalar (s:idle, s:running, …)
+      if (!ok) return false;
+    }
     if (parsed.text) {
       const hay = `${r.task_ref ?? ''} ${deriveRepo(r)} ${r.phase_id ?? ''} ${r.gsd_mode ?? ''} ${r.summary ?? ''}`.toLowerCase();
       if (!hay.includes(parsed.text)) return false;
@@ -134,14 +155,19 @@ export function applyFilter(rows, parsed, deriveRepo) {
  * Cuenta sesiones por estado para el header (D-11). El zombie (`running` && `alive === false`)
  * se cuenta APARTE de running — el operador lo ve en el resumen, no solo en la fila.
  *
+ * Phase 38 D-06: cuenta por el estado v3 (`state`) con fallback al legacy (`status`).
+ * Añade idle/needs-input/dead al contador (zombie sigue derivándose de running+!alive,
+ * que en v3 corresponde a un running cuyo proceso murió — se mantiene la heurística).
+ *
  * @param {Array<Partial<EnrichedSession>>} rows
- * @returns {{ running: number, review: number, done: number, error: number, zombie: number }}
+ * @returns {{ running: number, review: number, done: number, error: number, zombie: number, idle: number, 'needs-input': number, dead: number }}
  */
 export function countByStatus(rows) {
-  const c = { running: 0, review: 0, done: 0, error: 0, zombie: 0 };
+  const c = { running: 0, review: 0, done: 0, error: 0, zombie: 0, idle: 0, 'needs-input': 0, dead: 0 };
   for (const r of rows) {
-    if (r.status === 'running' && r.alive === false) c.zombie++;
-    else if (Object.prototype.hasOwnProperty.call(c, r.status ?? '')) c[/** @type {string} */ (r.status)]++;
+    const st = r.state ?? r.status ?? '';
+    if (st === 'running' && r.alive === false) c.zombie++;
+    else if (Object.prototype.hasOwnProperty.call(c, st)) c[/** @type {string} */ (st)]++;
   }
   return c;
 }

@@ -199,7 +199,8 @@ describe('TUI-11 (D-11): countByStatus cuenta zombie aparte de running', () => {
     ]);
     assert.deepEqual(
       counts,
-      { running: 1, review: 1, done: 1, error: 1, zombie: 1 },
+      // Phase 38 D-06: countByStatus ahora incluye idle/needs-input/dead (en 0 aquí).
+      { running: 1, review: 1, done: 1, error: 1, zombie: 1, idle: 0, 'needs-input': 0, dead: 0 },
       `el zombie debe contarse aparte de running, fue ${JSON.stringify(counts)}`,
     );
   });

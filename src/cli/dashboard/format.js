@@ -110,6 +110,57 @@ export function statusLabel(status, alive) {
 }
 
 /**
+ * Phase 38 D-06: badges por estado del lifecycle (literal-stable). Cada entrada
+ * mapea un `state` v3 a su glyph + color ink (string name, NO ANSI/picocolors) +
+ * label textual. `closed` NO está aquí (vive en history, no se renderiza — D-04);
+ * `review`/`error`/estados legacy tampoco (los cubre statusColor/statusLabel).
+ * Byte-stable: cambiar un glyph o color rompe test/dashboard-table.test.js loud.
+ *
+ * @type {Readonly<Record<string, { glyph: string, color: string, label: string }>>}
+ */
+export const STATE_BADGES = Object.freeze({
+  running: { glyph: '▶', color: 'green', label: 'running' },
+  idle: { glyph: '⏸', color: 'yellow', label: 'idle' },
+  'needs-input': { glyph: '🔔', color: 'cyan', label: 'needs-input' },
+  dead: { glyph: '✗', color: 'red', label: 'dead' },
+});
+
+/**
+ * Badge del estado v3 (D-06). Mirror del patrón statusColor: lookup en
+ * STATE_BADGES con fallback `{}` para estados sin badge (`closed`, `review`,
+ * legacy, undefined) — la celda queda vacía sin romper el render.
+ *
+ * @param {string} [state]
+ * @returns {{ glyph?: string, color?: string, label?: string }}
+ */
+export function stateBadge(state) {
+  return STATE_BADGES[state ?? ''] ?? {};
+}
+
+/**
+ * Compone el string compacto de contadores del header (D-11). Solo estados con
+ * count ≥ 1, separados por ` · `. Orden: running → zombie (Phase 36) → review →
+ * error → done (legacy) → idle → needs-input → dead (Phase 38 D-06, al final
+ * para no alterar el orden pre-existente). Movido aquí desde SessionTable.js
+ * (Phase 38): es presentación pura, testeable sin ink.
+ *
+ * @param {{ running?: number, zombie?: number, review?: number, error?: number, done?: number, idle?: number, 'needs-input'?: number, dead?: number }} counts
+ * @returns {string}
+ */
+export function countsLabel(counts) {
+  const parts = [];
+  if (counts.running > 0) parts.push(`${counts.running} running`);
+  if (counts.zombie > 0) parts.push(`${counts.zombie} zombie`);
+  if (counts.review > 0) parts.push(`${counts.review} review`);
+  if (counts.error > 0) parts.push(`${counts.error} error`);
+  if (counts.done > 0) parts.push(`${counts.done} done`);
+  if (counts.idle > 0) parts.push(`${counts.idle} idle`);
+  if (counts['needs-input'] > 0) parts.push(`${counts['needs-input']} needs-input`);
+  if (counts.dead > 0) parts.push(`${counts.dead} dead`);
+  return parts.join(' · ');
+}
+
+/**
  * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
  * `status` usa `statusLabel` para que un zombie muestre `(zombie)` aun sin color.
  *

@@ -79,6 +79,13 @@ export const FOCUS_ERR_ENOENT = '[!] cmux not found in PATH — press any key';
  */
 export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) — press any key`;
 
+// Phase 38 D-06: errores del WorkspaceHost — literal-stable bytes (mirror del
+// patrón Phase 37 FOCUS_ERR_*). El wire (setHostError cuando el host falla) lo
+// hace Plan 04 desde el callback de reconciliación — Plan 03 solo declara las
+// constantes + el state + la limpieza vía clear-on-any-input.
+export const HOST_ERR_UNAVAILABLE = '[!] host unavailable — check binary path';
+export const HOST_ERR_TIMEOUT = '[!] host timeout — list-workspaces took >5s';
+
 /**
  * Componente root del dashboard TUI.
  *
@@ -134,6 +141,11 @@ export default function App({
   // SessionTable) porque la lógica que lo emite (handler de Enter) también vive aquí; el
   // render lo recibe via prop en SessionTable junto al footer (D-04 consistency).
   const [focusError, setFocusError] = useState(/** @type {string | null} */ (null));
+
+  // Phase 38 D-06/D-07: estado del footer-error del WorkspaceHost. Mirror de focusError.
+  // Se limpia con el mismo clear-on-any-input (Phase 37 D-04). El setHostError se invoca
+  // desde el callback de reconciliación (Plan 04) — Plan 03 solo declara el state + limpieza.
+  const [hostError, setHostError] = useState(/** @type {string | null} */ (null));
 
   // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
   // y cursor por IDENTIDAD (selectedTaskId, NUNCA un índice — D-05). El índice visible se DERIVA
@@ -208,6 +220,11 @@ export default function App({
       // modo lista porque el dismiss es modal del propio error, no del modo de la lista.
       if (focusError != null) {
         setFocusError(null);
+        return;
+      }
+      // Phase 38 D-06: el host-error usa el MISMO dismiss modal que focusError.
+      if (hostError != null) {
+        setHostError(null);
         return;
       }
       if (mode === 'filter') {
@@ -329,6 +346,7 @@ export default function App({
         query,
         hasQuery,
         focusError, // Phase 37 D-04: render condicional del footer-error rojo (espejo de filterLine)
+        hostError, // Phase 38 D-06: footer-error del host (Plan 04 lo wirea vía setHostError)
       }),
     ),
     createElement(Text, { dimColor: true }, '↑↓ move · / filter · q quit'),

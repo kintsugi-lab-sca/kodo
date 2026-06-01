@@ -24,6 +24,7 @@ import assert from 'node:assert/strict';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
 import App, { FOCUS_ERR_ZOMBIE } from '../../src/cli/dashboard/App.js';
+import { createCmuxHost } from '../../src/host/cmux.js';
 
 // 80ms es load-bearing — coincide con el tick de test/dashboard-render.test.js. Por debajo
 // es flakey en CI (ink necesita un frame para procesar el keystroke + el siguiente render);
@@ -200,6 +201,93 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
         0,
         'la tecla x consume el dismiss (clear-on-any-input), NO propaga al handler de Enter',
       );
+    } finally {
+      unmount();
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 38 Plan 03 (SC#6 parcial): Phase 37 parity PROGRAMÁTICA sobre
+// CmuxHost.selectWorkspace. Per RESEARCH §S7: selectWorkspace delega a runFocus
+// y re-exporta su shape sin transformar → enchufado como onFocus, el dashboard
+// se comporta idéntico a Phase 37. El UAT HUMANO (4 escenarios reales) vive en
+// Plan 04 (38-HUMAN-UAT.md): 2 retest Phase 37 + 2 nuevos idle/needs-input.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Phase 38 SC#6: Phase 37 parity vía CmuxHost.selectWorkspace', () => {
+  it('Escenario 1 (focus ok): Enter sobre fila alive → host.selectWorkspace {ok:true}, sin focusError', async () => {
+    // exec fake callback-style (execFile shape): code 0 → runFocus resuelve {ok:true}.
+    const execCalls = [];
+    const fakeExec = (binary, args, opts, cb) => {
+      execCalls.push({ binary, args, opts });
+      cb(null, '', ''); // err=null, stdout, stderr → exit 0 (ok)
+      return { on() {} };
+    };
+    const host = createCmuxHost({ exec: fakeExec, binary: 'cmux-test' });
+
+    let onFocusResult = null;
+    const onFocus = async (ref) => {
+      onFocusResult = await host.selectWorkspace(ref);
+      return onFocusResult;
+    };
+    const fakeFetch = makeFetch([sessionFixture({ task_id: 'A-1', alive: true, workspace_ref: 'workspace:9' })]);
+
+    const { stdin, lastFrame, unmount } = render(
+      createElement(App, { baseUrl: 'http://localhost:9090', fetchFn: fakeFetch, onFocus }),
+    );
+
+    try {
+      await tick();
+      stdin.write('\r'); // Enter
+      await tick();
+
+      assert.deepEqual(onFocusResult, { ok: true }, 'host.selectWorkspace retorna {ok:true} (shape Phase 37)');
+      // exec invocado con los args ordenados verbatim de Phase 37 runFocus.
+      assert.equal(execCalls.length, 1, 'exec invocado exactamente una vez');
+      assert.equal(execCalls[0].binary, 'cmux-test');
+      assert.deepEqual(execCalls[0].args, ['select-workspace', '--workspace', 'workspace:9']);
+      assert.equal(execCalls[0].opts?.timeout, 5000, 'timeout 5s (Phase 37 D-08)');
+      // cero footer-error en el ok path.
+      assert.doesNotMatch(lastFrame(), /\[!\]/, `cero footer-error en focus ok\nframe:\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('Escenario 2 (zombie reject): Enter sobre fila alive=false NO invoca host.selectWorkspace', async () => {
+    const execCalls = [];
+    const fakeExec = (binary, args, opts, cb) => {
+      execCalls.push({ binary, args });
+      cb(null, '', '');
+      return { on() {} };
+    };
+    const host = createCmuxHost({ exec: fakeExec, binary: 'cmux-test' });
+
+    let selectCalls = 0;
+    const onFocus = async (ref) => {
+      selectCalls++;
+      return host.selectWorkspace(ref);
+    };
+    const fakeFetch = makeFetch([sessionFixture({ task_id: 'Z-1', alive: false })]);
+
+    const { stdin, lastFrame, unmount } = render(
+      createElement(App, { baseUrl: 'http://localhost:9090', fetchFn: fakeFetch, onFocus }),
+    );
+
+    try {
+      await tick();
+      stdin.write('\r'); // Enter sobre zombie → guard cortocircuita ANTES de onFocus
+      await tick();
+
+      assert.equal(selectCalls, 0, 'el guard alive=false cortocircuita: onFocus/host.selectWorkspace NUNCA se invoca');
+      assert.equal(execCalls.length, 0, 'exec NO se invoca en el zombie path');
+      assert.match(lastFrame(), /workspace gone \(alive=false\)/, 'footer-error zombie (FOCUS_ERR_ZOMBIE literal Phase 37)');
+
+      // clear-on-any-input Phase 37 D-04 preservado.
+      stdin.write('x');
+      await tick();
+      assert.doesNotMatch(lastFrame(), /workspace gone/, 'cualquier tecla limpia focusError (Phase 37 D-04)');
     } finally {
       unmount();
     }
