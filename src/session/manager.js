@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { loadConfig, loadProjects } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
-import * as cmux from '../cmux/client.js';
+import { getHost } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { stateTransition } from '../logger-events.js';
@@ -212,15 +212,21 @@ export async function launchWorkItem(identifier, opts = {}) {
     console.error(`[kodo] Error moving to In Progress: ${err.message}`);
   }
 
+  // Phase 38 SC#5: cmux confinado a src/host/. Los métodos de lifecycle no-contract
+  // (newWorkspace/setColor/send/notify) se consumen vía host._legacy — passthrough
+  // fiel de cmux/client.js (CONTEXT.md D-09). Comportamiento idéntico al previo
+  // `import * as cmux`; solo cambia el punto de entrada (walker cmux-isolation verde).
+  const host = getHost('cmux');
+
   const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
   const workspaceName = `${prefix}: ${truncate(task.title, 40)}`;
-  const workspaceRef = await cmux.newWorkspace({
+  const workspaceRef = await host._legacy.newWorkspace({
     name: workspaceName,
     cwd: projectPath,
   });
 
   // Set color to "running"
-  await cmux.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
+  await host._legacy.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
   // Build Claude command — prefer opts overrides, fall back to label parsing.
   // CR-01 fix: accept opts.sessionId so the GSD dispatcher can thread the same
@@ -266,10 +272,10 @@ export async function launchWorkItem(identifier, opts = {}) {
   addSession(task.id, session);
 
   // Send Claude command to workspace
-  await cmux.send({ workspace: workspaceRef, text: claudeCmd });
+  await host._legacy.send({ workspace: workspaceRef, text: claudeCmd });
 
   // Notify
-  await cmux.notify({
+  await host._legacy.notify({
     title: `kodo: ${task.ref}`,
     body: `Lanzada sesión para: ${task.title}`,
     workspace: workspaceRef,
@@ -277,10 +283,10 @@ export async function launchWorkItem(identifier, opts = {}) {
 
   // Notify orchestrator if running
   try {
-    const workspaces = await cmux.listWorkspaces();
+    const workspaces = await host._legacy.listWorkspaces();
     const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
     if (orchMatch) {
-      await cmux.send({
+      await host._legacy.send({
         workspace: orchMatch[1],
         text: `Nueva sesión lanzada: ${task.ref} (${task.title}) en ${workspaceRef}. Path: ${projectPath}\\n`,
       });

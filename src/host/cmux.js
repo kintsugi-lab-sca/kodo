@@ -134,32 +134,40 @@ export function createCmuxHost(opts = {}) {
   }
 
   // _legacy: métodos Cmux-specific de lifecycle/management que NO son parte del
-  // contrato D-03 (observation-only) pero que manager.js necesita. Prefijo `_`
-  // marca scope interno: transición temporal hasta que un futuro contract los
-  // absorba o queden out-of-scope con NullHost stubs. (Plan 38-01 deviation
-  // permitida.) Mantiene cmux/client.js confinado a este módulo (SC#5).
-  function makeLegacy() {
-    // require lazy del cliente cmux — confinado a este archivo (SC#5 walker).
-    // eslint-disable-next-line global-require
-    return import('../cmux/client.js');
-  }
-
+  // contrato D-03 (observation-only) pero que manager.js/health.js necesitan.
+  // Prefijo `_` marca scope interno: transición temporal hasta que un futuro
+  // contract los absorba o queden out-of-scope con NullHost stubs (Plan 38-01
+  // deviation permitida, CONTEXT.md D-09). Mantiene cmux/client.js confinado a
+  // este módulo (SC#5 walker).
+  //
+  // Cada método es un passthrough FIEL de la firma de src/cmux/client.js: re-
+  // exporta opts/return sin transformar para preservar el comportamiento exacto
+  // de los callers (la migración semántica al contrato D-03 la hacen 38-02/03/04).
+  // El cliente se carga lazy vía import() — confinado a este archivo (SC#5).
   const _legacy = {
-    async newWorkspace(title) {
-      const cmux = await makeLegacy();
-      return cmux.newWorkspace(title);
+    /** @param {{ name: string, cwd?: string, command?: string }} opts @returns {Promise<string>} */
+    async newWorkspace(opts) {
+      return (await import('../cmux/client.js')).newWorkspace(opts);
     },
-    async setColor(ref, color) {
-      const cmux = await makeLegacy();
-      return cmux.setColor(ref, color);
+    /** @param {{ workspace: string, color: string }} opts */
+    async setColor(opts) {
+      return (await import('../cmux/client.js')).setColor(opts);
     },
-    async send(ref, message) {
-      const cmux = await makeLegacy();
-      return cmux.send(ref, message);
+    /** @param {{ workspace: string, text: string }} opts */
+    async send(opts) {
+      return (await import('../cmux/client.js')).send(opts);
     },
-    async notify(ref, title, body) {
-      const cmux = await makeLegacy();
-      return cmux.notify(ref, title, body);
+    /** @param {{ title: string, body?: string, workspace?: string }} opts */
+    async notify(opts) {
+      return (await import('../cmux/client.js')).notify(opts);
+    },
+    /** @param {{ workspace: string, lines?: number }} opts @returns {Promise<string>} */
+    async readScreen(opts) {
+      return (await import('../cmux/client.js')).readScreen(opts);
+    },
+    /** @returns {Promise<string>} raw stdout de `cmux list-workspaces` (texto, sin --json) */
+    async listWorkspaces() {
+      return (await import('../cmux/client.js')).listWorkspaces();
     },
   };
 

@@ -578,28 +578,33 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 18 D-03: addSession runs BEFORE cmux.send (PRE-spawn persistence ordering)', () => {
+  it('Phase 18 D-03: addSession runs BEFORE the workspace send (PRE-spawn persistence ordering)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     const addIdx = source.indexOf('addSession(task.id, session)');
-    const sendIdx = source.indexOf('cmux.send({ workspace: workspaceRef, text: claudeCmd })');
+    // Phase 38 SC#5: el send migró de `cmux.send` a `host._legacy.send` (cmux
+    // confinado a src/host/). El invariante de ORDEN (persist antes de enviar el
+    // comando claude) es idéntico — solo cambia el punto de entrada del cliente.
+    const sendIdx = source.indexOf('host._legacy.send({ workspace: workspaceRef, text: claudeCmd })');
     assert.ok(addIdx > 0, 'addSession(task.id, session) must be present in launchWorkItem');
-    assert.ok(sendIdx > 0, 'cmux.send({ workspace: workspaceRef, text: claudeCmd }) must be present');
+    assert.ok(sendIdx > 0, 'host._legacy.send({ workspace: workspaceRef, text: claudeCmd }) must be present');
     assert.ok(
       addIdx < sendIdx,
-      `Phase 18 D-03: addSession(task.id, session) must precede cmux.send (got addSession@${addIdx}, cmux.send@${sendIdx})`,
+      `Phase 18 D-03: addSession(task.id, session) must precede the workspace send (got addSession@${addIdx}, send@${sendIdx})`,
     );
   });
 
-  it('Phase 18 D-04 invariant: cmux.newWorkspace still uses cwd: projectPath (NOT worktree path)', () => {
+  it('Phase 18 D-04 invariant: newWorkspace still uses cwd: projectPath (NOT worktree path)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Phase 38 SC#5: newWorkspace migró a host._legacy.newWorkspace; el invariante
+    // D-04 (cwd: projectPath, NO worktreePath) se preserva literal.
     assert.ok(
-      /cmux\.newWorkspace\(\s*\{[^}]*cwd:\s*projectPath/.test(source),
-      'cmux.newWorkspace must keep `cwd: projectPath` (D-04 lockeado — worktree lo materializa claude)',
+      /host\._legacy\.newWorkspace\(\s*\{[^}]*cwd:\s*projectPath/.test(source),
+      'host._legacy.newWorkspace must keep `cwd: projectPath` (D-04 lockeado — worktree lo materializa claude)',
     );
     // Defensive: no accidental swap to worktreePath
     assert.ok(
-      !/cmux\.newWorkspace\(\s*\{[^}]*cwd:\s*worktreePath/.test(source),
-      'cmux.newWorkspace must NOT receive cwd: worktreePath',
+      !/host\._legacy\.newWorkspace\(\s*\{[^}]*cwd:\s*worktreePath/.test(source),
+      'host._legacy.newWorkspace must NOT receive cwd: worktreePath',
     );
   });
 

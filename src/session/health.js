@@ -1,8 +1,7 @@
 // @ts-check
 import { loadConfig } from '../config.js';
 import { loadState, updateSession, removeSession } from './state.js';
-import * as cmux from '../cmux/client.js';
-import { colorForStatus } from '../cmux/colors.js';
+import { getHost } from '../host/interface.js';
 
 /**
  * @typedef {'healthy'|'idle'|'stuck'|'gone'} SessionHealth
@@ -27,10 +26,17 @@ export async function checkHealth() {
 
   if (sessions.length === 0) return [];
 
+  // Phase 38 SC#5: cmux confinado a src/host/. health.js consume el cliente
+  // legacy vía host._legacy (passthrough fiel de cmux/client.js, CONTEXT.md D-09)
+  // — comportamiento idéntico al previo `import * as cmux`; el walker
+  // cmux-isolation queda verde. La migración al contrato D-03 (listWorkspaces
+  // tipado + isAlive) la hace 38-02.
+  const host = getHost('cmux');
+
   // Get current workspaces list once
   let workspaceList = '';
   try {
-    workspaceList = await cmux.listWorkspaces();
+    workspaceList = await host._legacy.listWorkspaces();
   } catch {
     // If cmux is unavailable, skip health checks
     return [];
@@ -56,7 +62,7 @@ export async function checkHealth() {
     // Read last lines of screen to detect activity
     let lastScreen = '';
     try {
-      lastScreen = await cmux.readScreen({ workspace: session.workspace_ref, lines: 5 });
+      lastScreen = await host._legacy.readScreen({ workspace: session.workspace_ref, lines: 5 });
     } catch {
       // Can't read screen — workspace might be closing
       reports.push({
@@ -98,6 +104,8 @@ export async function checkHealth() {
  * @param {HealthReport[]} reports
  */
 export async function actOnHealth(reports) {
+  // Phase 38 SC#5: notify vía host._legacy (passthrough fiel de cmux/client.js).
+  const host = getHost('cmux');
   for (const report of reports) {
     switch (report.health) {
       case 'gone':
@@ -107,7 +115,7 @@ export async function actOnHealth(reports) {
 
       case 'stuck':
         console.log(`[kodo:health] ${report.ref} — stuck (${report.elapsed_min}min)`);
-        await cmux.notify({
+        await host._legacy.notify({
           title: `kodo: ${report.ref} stuck`,
           body: `Lleva ${report.elapsed_min}min sin progreso`,
         }).catch(() => {});
