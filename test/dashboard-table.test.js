@@ -26,7 +26,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
-import App from '../src/cli/dashboard/App.js';
+import App, { HOST_ERR_UNAVAILABLE, HOST_ERR_TIMEOUT } from '../src/cli/dashboard/App.js';
+// Phase 38 Plan 03: pure-function units del render multi-estado (badges + filtros).
+import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/format.js';
+import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
 
 /**
  * Fake clock con un `schedule` determinista para el RE-ARME del tick del loop de polling que
@@ -467,5 +470,109 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     const frame = lastFrame();
     assert.match(frame, /KL-1/, `tras Esc en lista la tabla sigue montada (App no se desmonta)\n${frame}`);
     assert.doesNotMatch(frame, /▏/, `Esc en lista NO debe abrir una línea de filtro (cursor ▏)\n${frame}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 38 Plan 03 (TUI-19 / SC#3): render multi-estado — badges, filtros
+// s:<state> + s:active, countsLabel extendido, HOST_ERR_* literal-stable.
+//
+// Tests PURE-FUNCTION (sin render ink): ejercen las unidades de format.js y
+// select.js directamente. RED hasta Task 2/3.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Phase 38 SC#3: stateBadge + STATE_BADGES (badges literal-stable D-06)', () => {
+  it('badge running → ▶ green', () => {
+    assert.deepEqual(stateBadge('running'), { glyph: '▶', color: 'green', label: 'running' });
+  });
+  it('badge idle → ⏸ yellow', () => {
+    assert.deepEqual(stateBadge('idle'), { glyph: '⏸', color: 'yellow', label: 'idle' });
+  });
+  it('badge needs-input → 🔔 cyan', () => {
+    assert.deepEqual(stateBadge('needs-input'), { glyph: '🔔', color: 'cyan', label: 'needs-input' });
+  });
+  it('badge dead → ✗ red', () => {
+    assert.deepEqual(stateBadge('dead'), { glyph: '✗', color: 'red', label: 'dead' });
+  });
+  it("'closed' NO se renderiza en sessions list → {} (D-06)", () => {
+    assert.deepEqual(stateBadge('closed'), {});
+  });
+  it('estado desconocido → {} (no rompe el render)', () => {
+    assert.deepEqual(stateBadge('review'), {});
+    assert.deepEqual(stateBadge(''), {});
+    assert.deepEqual(stateBadge(undefined), {});
+  });
+  it('STATE_BADGES es literal-stable (byte-determinismo de la UX)', () => {
+    assert.deepEqual(STATE_BADGES, {
+      running: { glyph: '▶', color: 'green', label: 'running' },
+      idle: { glyph: '⏸', color: 'yellow', label: 'idle' },
+      'needs-input': { glyph: '🔔', color: 'cyan', label: 'needs-input' },
+      dead: { glyph: '✗', color: 'red', label: 'dead' },
+    });
+  });
+});
+
+describe('Phase 38 SC#3: filtros s:<state> + s:active (D-06)', () => {
+  // Fixtures: 1 running + 1 idle + 1 needs-input + 1 dead (campo `state` de v3).
+  const rows = [
+    { task_id: 'a', task_ref: 'KL-1', state: 'running', project_name: 'kodo' },
+    { task_id: 'b', task_ref: 'KL-2', state: 'idle', project_name: 'kodo' },
+    { task_id: 'c', task_ref: 'KL-3', state: 'needs-input', project_name: 'kodo' },
+    { task_id: 'd', task_ref: 'KL-4', state: 'dead', project_name: 'kodo' },
+  ];
+  const repo = (s) => s.project_name ?? '';
+
+  it("s:idle matchea SOLO state === 'idle'", () => {
+    const out = applyFilter(rows, parseFilter('s:idle'), repo);
+    assert.deepEqual(out.map((r) => r.task_id), ['b']);
+  });
+  it("s:needs-input matchea SOLO 'needs-input'", () => {
+    const out = applyFilter(rows, parseFilter('s:needs-input'), repo);
+    assert.deepEqual(out.map((r) => r.task_id), ['c']);
+  });
+  it("s:dead matchea SOLO 'dead'", () => {
+    const out = applyFilter(rows, parseFilter('s:dead'), repo);
+    assert.deepEqual(out.map((r) => r.task_id), ['d']);
+  });
+  it("s:active matchea running+idle+needs-input, excluye dead (alias OR D-06)", () => {
+    const out = applyFilter(rows, parseFilter('s:active'), repo);
+    assert.deepEqual(out.map((r) => r.task_id), ['a', 'b', 'c']);
+  });
+  it('s:running sigue matcheando running (Phase 36 retrocompat)', () => {
+    const out = applyFilter(rows, parseFilter('s:running'), repo);
+    assert.deepEqual(out.map((r) => r.task_id), ['a']);
+  });
+  it('no-match: s:zzzz retorna [] (no rompe el render)', () => {
+    const out = applyFilter(rows, parseFilter('s:zzzz'), repo);
+    assert.deepEqual(out, []);
+  });
+});
+
+describe('Phase 38 SC#3: countsLabel extendido (idle/needs-input/dead)', () => {
+  it('incluye los 4 estados nuevos separados por ·, orden running→idle→needs-input→dead', () => {
+    const label = countsLabel({ running: 2, zombie: 0, review: 0, error: 0, done: 0, idle: 1, 'needs-input': 1, dead: 1 });
+    assert.match(label, /2 running/);
+    assert.match(label, /1 idle/);
+    assert.match(label, /1 needs-input/);
+    assert.match(label, /1 dead/);
+    // orden: running antes que idle antes que needs-input antes que dead
+    assert.ok(label.indexOf('running') < label.indexOf('idle'));
+    assert.ok(label.indexOf('idle') < label.indexOf('needs-input'));
+    assert.ok(label.indexOf('needs-input') < label.indexOf('dead'));
+  });
+  it('counts en 0 NO aparecen en el label', () => {
+    const label = countsLabel({ running: 1, zombie: 0, review: 0, error: 0, done: 0, idle: 0, 'needs-input': 0, dead: 0 });
+    assert.doesNotMatch(label, /idle/);
+    assert.doesNotMatch(label, /needs-input/);
+    assert.doesNotMatch(label, /dead/);
+  });
+});
+
+describe('Phase 38 SC#3: HOST_ERR_* constantes literal-stable (D-06)', () => {
+  it('HOST_ERR_UNAVAILABLE byte-stable', () => {
+    assert.equal(HOST_ERR_UNAVAILABLE, '[!] host unavailable — check binary path');
+  });
+  it('HOST_ERR_TIMEOUT byte-stable', () => {
+    assert.equal(HOST_ERR_TIMEOUT, '[!] host timeout — list-workspaces took >5s');
   });
 });
