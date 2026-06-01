@@ -2,13 +2,35 @@
 // Phase 19 WT-04: worktree cleanup en stop hook (fail-open).
 // Cobertura mixta unit (gitFn stub) + E2E smoke (git real con tmpdir).
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runStopHook } from '../src/hooks/stop.js';
+
+// NO importar stop.js estáticamente: arrastra state.js → config.js (KODO_DIR al
+// module-load → ~/.kodo REAL). Aunque estos tests inyectan findSessionFn/
+// removeSessionFn por DI (no tocan state hoy), el import estático fijaría
+// KODO_DIR al HOME real y un test futuro sin DI corrompería el state del usuario.
+// Se carga dinámicamente tras aislar HOME (mismo patrón que stop.test.js,
+// raíz del bug cazado en UAT live de Phase 38).
+/** @type {typeof import('../src/hooks/stop.js').runStopHook} */
+let runStopHook;
+let _origHome;
+let _tmpHome;
+before(async () => {
+  _origHome = process.env.HOME;
+  _tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-wt-cleanup-'));
+  process.env.HOME = _tmpHome;
+  mkdirSync(join(_tmpHome, '.kodo'), { recursive: true });
+  ({ runStopHook } = await import('../src/hooks/stop.js'));
+});
+after(() => {
+  if (_origHome === undefined) delete process.env.HOME;
+  else process.env.HOME = _origHome;
+  if (_tmpHome) rmSync(_tmpHome, { recursive: true, force: true });
+});
 
 function makeMemLogger() {
   const events = [];

@@ -5,7 +5,12 @@ import { readFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildStopNudgeText } from '../src/hooks/stop.js';
+// NO importar stop.js estáticamente: arrastra state.js → config.js, que calcula
+// KODO_DIR = join(homedir(), '.kodo') al module-load. Si se carga ANTES de que
+// un test fije process.env.HOME=tmpHome, KODO_DIR queda apuntando al ~/.kodo REAL
+// y runStopHook/addSession corrompen el state del usuario al correr la suite
+// (bug cazado en UAT live de Phase 38). Los símbolos de stop.js se cargan
+// dinámicamente DESPUÉS de aislar HOME (ver before() de cada describe).
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STOP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'stop.js');
@@ -182,6 +187,28 @@ describe('stop.js source hygiene', () => {
 });
 
 describe('QUICK-08 — buildStopNudgeText switch', () => {
+  // HOME-isolation + carga dinámica POST-HOME: buildStopNudgeText es pura, pero
+  // importar stop.js arrastra state.js (KODO_DIR al module-load). Aislamos HOME
+  // antes de cargarlo para no fijar KODO_DIR al ~/.kodo real (ni siquiera estos
+  // tests puros deben tocar el state del usuario al cargar el módulo).
+  let tmpHome;
+  let origHome;
+  let buildStopNudgeText;
+
+  before(async () => {
+    origHome = process.env.HOME;
+    tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-stop-nudge-'));
+    process.env.HOME = tmpHome;
+    mkdirSync(join(tmpHome, '.kodo'), { recursive: true });
+    ({ buildStopNudgeText } = await import('../src/hooks/stop.js'));
+  });
+
+  after(() => {
+    if (origHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origHome;
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+  });
+
   function makeQuickSession(overrides = {}) {
     return {
       workspace_ref: 'workspace:1',
