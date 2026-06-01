@@ -105,9 +105,16 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     }
 
     if (target === session.state) {
-      // Estable: limpia cualquier debounce pendiente y refresca tab_alive.
+      // Estable: limpia cualquier debounce pendiente. NOTA: NO refrescamos
+      // tab_alive/last_seen_alive aquí — si lo hiciéramos, last_seen_alive
+      // cambiaría cada tick (timestamp) y forzaría una escritura de state.json
+      // cada 2.5s, matando la optimización de no-write. Esos campos son metadata
+      // informativa (NO load-bearing: el target se deriva de `live` fresco, no
+      // del tab_alive almacenado) y se refrescan al transicionar. La rama estable
+      // conserva la session tal cual (mismo objeto) → el state final puede ser
+      // referencialmente idéntico y saltarse la escritura.
       debounceStore.delete(session.workspace_ref);
-      sessions[taskId] = applyLiveFields(session, live, target, now);
+      sessions[taskId] = session;
       continue;
     }
 
