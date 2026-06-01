@@ -1,21 +1,32 @@
 ---
-status: pending
+status: partial
 phase: 38-workspacehost-lifecycle-idle-needs-input
 source: [38-CONTEXT.md D-14, 38-04-PLAN.md]
-started: ~
-updated: ~
+started: 2026-06-01
+updated: 2026-06-01
 approved_by: ~
 approved_at: ~
 fixture: >
-  scripts/dev-dashboard-fixture.mjs (Phase 36) + ad-hoc setup para escenarios
-  A/B (cerrar pane cmux manualmente / inducir needs-input desde Claude Code
-  real). NOTA Phase 38: la reconciliación host↔state corre en el PROCESO SERVER
+  scripts/dev-dashboard-fixture-p38.mjs (Phase 38 — badges multi-estado +
+  filtros + footer host-error degradado) + scripts/dev-dashboard-fixture.mjs
+  (Phase 36). NOTA: la reconciliación host↔state corre en el PROCESO SERVER
   (kodo server / startReconcileLoop), no en el dashboard — el dashboard es
-  cliente HTTP read-only de GET /status. Para A/B debe haber un `kodo server`
-  corriendo además del `kodo dashboard`.
+  cliente HTTP read-only de GET /status. Para los aspectos de comportamiento
+  vivo (A/B reconciliación, focus real) debe haber un `kodo server` corriendo +
+  cmux + sesión real.
 blocking_for_phase_close: true
 obligatorios: 4
 bonus: 0
+verification_note: >
+  VERIFICACIÓN PARCIAL (2026-06-01, sin tareas reales). La capa VISUAL (badges,
+  filtros s:<state>, counts, columna state, closed sin badge) está verificada vía
+  fixture P38 + render programático de SessionTable (frame capturado, evidencia
+  en 38-04-SUMMARY). La capa de COMPORTAMIENTO VIVO (reconciliación derivando
+  idle/needs-input al morir el proceso con tab viva, rescate desde history,
+  focus real a cmux, guard dead) NO se validó con fixtures — requiere cmux +
+  sesión real. Esa lógica está cubierta por tests automatizados
+  (reconciliation.test.js 8/8, app-focus parity 5/5) pero el UAT end-to-end
+  queda PENDIENTE. status:partial — NO firmar como passed hasta el UAT live.
 ---
 
 # Phase 38 — Human UAT (WorkspaceHost + ciclo de vida idle/needs-input)
@@ -56,7 +67,9 @@ expected:
 - Tiempo Enter→focus visible ≤200ms.
 
 result: pending
-verified_via: ~
+verified_via: requires-live-cmux — el focus invoca `cmux select-workspace` real
+  (GUI). No reproducible con fixture. Lógica cubierta por app-focus parity 5/5
+  (test programático de CmuxHost.selectWorkspace).
 
 ### Escenario 2 — Phase 37 parity (Zombie/dead reject vía CmuxHost) — OBLIGATORIO
 
@@ -84,8 +97,13 @@ expected:
 - Tras 'x': footer rojo se limpia.
 - `cmux select-workspace` JAMÁS invocado durante este escenario.
 
-result: pending
-verified_via: ~
+result: partial
+verified_via: >
+  VISUAL ✅ vía fixture P38 + render programático — el badge `✗ dead` (rojo)
+  renderiza correctamente (frame capturado en 38-04-SUMMARY).
+  COMPORTAMIENTO ❌ pendiente live: el guard alive=false que evita invocar cmux
+  está cubierto por app-focus parity (Escenario 2 programático, 5/5) pero el
+  `ps aux` negativo end-to-end requiere cmux real.
 
 ### Escenario A — idle visible — OBLIGATORIO (NUEVO Phase 38)
 
@@ -115,8 +133,15 @@ expected:
 - **Cierra el bug ROMAN-151/152** (CONTEXT.md evidencia 2026-05-29): la sesión
   reanudable NUNCA se pierde de vista.
 
-result: pending
-verified_via: ~
+result: partial
+verified_via: >
+  VISUAL ✅ vía fixture P38 + render programático — el badge `⏸ idle` (amarillo)
+  renderiza, la fila NO desaparece, counts incluye "1 idle", filtro s:idle la
+  aísla. COMPORTAMIENTO ❌ pendiente live: que la RECONCILIACIÓN derive idle al
+  morir el proceso con tab viva (process_alive:false + tab_alive:true) está
+  cubierto por reconciliation.test.js F1 (debouncing) pero el flujo real
+  pkill→poll→idle requiere cmux + sesión real. El rescate desde history (cierre
+  de ROMAN-151/152) está cubierto por F3 pero igualmente pendiente de UAT live.
 
 ### Escenario B — needs-input visible — OBLIGATORIO (NUEVO Phase 38)
 
@@ -142,17 +167,31 @@ expected:
 - El flicker de needs_input intermitente NO causa flicker visual (debouncing
   2-tick R-2).
 
-result: pending
-verified_via: ~
+result: partial
+verified_via: >
+  VISUAL ✅ vía fixture P38 + render programático — el badge `🔔 needs-input`
+  (cyan) renderiza, counts incluye "1 needs-input", filtro s:needs-input la
+  aísla. COMPORTAMIENTO ❌ pendiente live: la derivación de needs_input desde
+  `notification.list` de cmux y el anti-flicker (debouncing 2-tick) están
+  cubiertos por reconciliation.test.js F2 pero el flujo real con cmux requiere
+  UAT live. Observación cosmética: el badge `🔔 needs-input` ocupa los 14 chars
+  de la columna sin espacio de separación visible antes de task_ref (el emoji
+  cuenta 2 celdas); legible, a confirmar en terminal real.
 
 ## Summary
 
 total: 4
 passed: 0
+partial: 4
 issues: 0
-pending: 4
+pending: 0
 skipped: 0
 blocked: 0
+
+> Los 4 escenarios están en `partial`: capa visual verificada vía fixture P38 +
+> render programático (2026-06-01, sin tareas reales); capa de comportamiento
+> vivo (reconciliación + focus real con cmux) PENDIENTE de UAT live. La fase NO
+> se cierra hasta que los 4 lleguen a `passed` con cmux real.
 
 ## Gaps
 
