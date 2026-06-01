@@ -169,7 +169,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 38-04-PLAN.md — Reconciliación host ↔ state + debouncing + 38-HUMAN-UAT + cierre
+- [~] 38-04-PLAN.md — Reconciliación host ↔ state + debouncing + 38-HUMAN-UAT (impl completa; UAT humano bloqueante PENDIENTE — 4 escenarios en 38-HUMAN-UAT.md, suite 1027/1026 pass)
 
 **UI hint**: yes
 

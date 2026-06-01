@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: executing
-stopped_at: Phase 38 Plan 03 complete (dashboard render multi-estado — badges + filtros s:<state> + host-error + Phase 37 parity; commits 5ebf1ec, beca31c)
+stopped_at: Phase 38 Plan 04 implementación completa — UAT HUMANO PENDIENTE (reconciliación host↔state en el server + NDJSON events + 38-HUMAN-UAT.md; suite 1027/1026 pass). Bloquea cierre de fase.
 last_updated: "2026-06-01T09:25:53.258Z"
-last_activity: 2026-06-01 -- Phase 38 Plan 03 complete (suite 1019/1018 pass)
+last_activity: 2026-06-01 -- Phase 38 Plan 04 impl completa; 4 escenarios UAT pendientes de validación humana con cmux real
 progress:
   total_phases: 6
   completed_phases: 4
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 ## Current Position
 
-Phase: 38 (workspacehost-lifecycle-idle-needs-input) — EXECUTING
-Plan: 3 of 4 complete (next: 38-04 reconciliación host↔state + 38-HUMAN-UAT — checkpoint)
-Status: Executing Phase 38
-Last activity: 2026-06-01 -- Phase 38 Plan 03 complete (suite 1019/1018 pass)
+Phase: 38 (workspacehost-lifecycle-idle-needs-input) — UAT PENDIENTE
+Plan: 4 of 4 implementados (38-04 impl completa; UAT humano bloqueante pendiente)
+Status: Phase 38 implementación completa — esperando firma UAT (38-HUMAN-UAT.md, 4 escenarios)
+Last activity: 2026-06-01 -- Phase 38 Plan 04 impl completa; UAT humano pendiente
 
 Progress: [██████████] 100%
 
