@@ -20,7 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { reconcileTick, runReconcileTick } from '../../src/session/reconcile.js';
+import { reconcileTick, runReconcileTick, isSessionProcessAlive } from '../../src/session/reconcile.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-05-31T12:00:00.000Z');
@@ -218,14 +218,16 @@ describe('runReconcileTick — tick con I/O (DI host/loadState/saveState)', () =
     const host = { listWorkspaces: async () => [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }] };
     const debounceStore = new Map();
     const { logger, events } = makeLogger();
+    // pgrep fake: el proceso de la sesión está MUERTO → process_alive se deriva a false.
+    const pgrep = () => '';
 
     // Tick 1: debounce (no persiste — sin cambios).
-    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore, tick: 1, now: () => NOW, logger });
+    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore, tick: 1, now: () => NOW, logger, pgrep });
     assert.equal(saved, null, 'tick 1: sin cambios, no persiste');
 
     // Tick 2: aplica idle → persiste.
     let state2 = state;
-    await runReconcileTick({ host, loadState: () => state2, saveState: (s) => { saved = s; state2 = s; }, debounceStore, tick: 2, now: () => NOW, logger });
+    await runReconcileTick({ host, loadState: () => state2, saveState: (s) => { saved = s; state2 = s; }, debounceStore, tick: 2, now: () => NOW, logger, pgrep });
     assert.ok(saved, 'tick 2: persiste el cambio');
     assert.equal(saved.sessions.t1.state, 'idle');
 
@@ -240,11 +242,72 @@ describe('runReconcileTick — tick con I/O (DI host/loadState/saveState)', () =
     const host = { listWorkspaces: async () => { throw Object.assign(new Error('cmux down'), { code: 'ENOENT' }); } };
     const { logger, events } = makeLogger();
 
-    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore: new Map(), tick: 1, now: () => NOW, logger });
+    await runReconcileTick({ host, loadState: () => state, saveState: (s) => { saved = s; }, debounceStore: new Map(), tick: 1, now: () => NOW, logger, pgrep: () => '' });
 
     assert.equal(saved, null, 'host fail → no persiste');
     const fail = events.find((e) => e.msg === 'host.list_workspaces.fail');
     assert.ok(fail, 'emite host.list_workspaces.fail');
     assert.equal(fail.fields.code, 'ENOENT');
+  });
+});
+
+describe('isSessionProcessAlive — derivación de process_alive por session_id', () => {
+  it('pgrep retorna PIDs → proceso vivo (true)', () => {
+    const pgrep = (sid) => { assert.match(sid, /2731b953/); return '63893\n'; };
+    assert.equal(isSessionProcessAlive('2731b953-548f', pgrep), true);
+  });
+
+  it('pgrep retorna vacío → proceso muerto (false)', () => {
+    assert.equal(isSessionProcessAlive('dead-sess', () => ''), false);
+  });
+
+  it('pgrep lanza (p.ej. exit 1 = sin match) → fail-safe: proceso muerto (false)', () => {
+    // pgrep sale con código 1 cuando no hay match → execFileSync lanza. Tratamos
+    // "lanza por no-match" como muerto. Cualquier otro error también → muerto
+    // (conservador hacia idle es seguro: el peor caso es marcar idle algo vivo,
+    //  que el siguiente tick corrige cuando pgrep vuelva a encontrarlo).
+    assert.equal(isSessionProcessAlive('x', () => { throw new Error('no match'); }), false);
+  });
+});
+
+describe('runReconcileTick — deriva process_alive del proceso real (cierra gap Plan 04)', () => {
+  it('proceso VIVO + tab viva → mantiene running (no transiciona a idle)', async () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ session_id: 'sess-vivo', state: 'running', process_alive: true }) },
+      history: [],
+    };
+    let saved = null;
+    const host = { listWorkspaces: async () => [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }] };
+    const debounceStore = new Map();
+    // pgrep encuentra el proceso → vivo.
+    const pgrep = () => '999\n';
+
+    for (let t = 1; t <= 3; t++) {
+      await runReconcileTick({ host, loadState: () => (saved ?? state), saveState: (s) => { saved = s; }, debounceStore, tick: t, now: () => NOW, pgrep });
+    }
+    // Sigue running: proceso vivo, nunca debe transicionar a idle.
+    assert.equal((saved ?? state).sessions.t1.state, 'running');
+  });
+
+  it('proceso MUERTO + tab viva → deriva process_alive:false → transiciona a idle (Escenario A / ROMAN-151-152)', async () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ session_id: 'sess-muerto', state: 'running', process_alive: true }) },
+      history: [],
+    };
+    let cur = state;
+    const host = { listWorkspaces: async () => [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }] };
+    const debounceStore = new Map();
+    // pgrep NO encuentra el proceso → muerto. El reconciliador debe derivar
+    // process_alive:false y, tras debouncing 2-tick, transicionar a idle.
+    const pgrep = () => '';
+
+    for (let t = 1; t <= 2; t++) {
+      await runReconcileTick({ host, loadState: () => cur, saveState: (s) => { cur = s; }, debounceStore, tick: t, now: () => NOW, pgrep });
+    }
+    assert.equal(cur.sessions.t1.state, 'idle', 'proceso muerto + tab viva → idle (la sesión NO se pierde)');
+    assert.equal(cur.sessions.t1.process_alive, false, 'process_alive derivado a false');
+    assert.equal(cur.sessions.t1.tab_alive, true, 'tab sigue viva');
   });
 });

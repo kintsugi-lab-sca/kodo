@@ -20,6 +20,11 @@
 //   - tab + proceso   → 'running'
 //   - tab + !proceso + needs_input → 'needs-input'
 //   - tab + !proceso + !needs_input → 'idle'
+//
+// LOG-12: NO importa logger.js (se inyecta). El único import es execFileSync,
+// usado SOLO en isSessionProcessAlive (derivación de process_alive vía pgrep).
+
+import { execFileSync } from 'node:child_process';
 
 /** Ventana de retención antes de sellar una `dead` a `closed` (D-07 step 4). */
 const SEAL_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -196,6 +201,34 @@ function applyLiveFields(session, live, effectiveState, now) {
 const RECONCILE_INTERVAL_MS = 2500;
 
 /**
+ * ¿Sigue vivo el proceso Claude de una sesión? (Phase 38 Plan 04 — cierra el gap
+ * detectado en UAT live: `reconcileTick` leía `process_alive` pero nadie lo
+ * derivaba en producción → la transición running→idle nunca disparaba.)
+ *
+ * El proceso Claude se lanza con `--session-id <session_id>` (ver
+ * manager.js buildClaudeCommand), así que `pgrep -f "session-id <id>"` lo
+ * localiza. fail-safe hacia MUERTO: si pgrep no encuentra match sale con código
+ * 1 (execFileSync lanza) → tratamos como muerto. Marcar idle algo vivo por error
+ * es seguro — el siguiente tick lo corrige cuando pgrep vuelva a encontrarlo
+ * (debouncing 2-tick además amortigua un falso negativo puntual).
+ *
+ * @param {string} sessionId
+ * @param {(sessionId: string) => string} [pgrep] - inyectable (tests). Default execFileSync pgrep.
+ * @returns {boolean}
+ */
+export function isSessionProcessAlive(sessionId, pgrep) {
+  const run = pgrep || ((sid) =>
+    execFileSync('pgrep', ['-f', `session-id ${sid}`], { encoding: 'utf-8', timeout: 3000 }));
+  try {
+    const out = run(sessionId);
+    return String(out || '').trim().length > 0;
+  } catch {
+    // pgrep exit 1 (sin match) u otro error → conservador: muerto.
+    return false;
+  }
+}
+
+/**
  * Ejecuta UN tick de reconciliación con I/O: consulta el host, reconcilia, y
  * persiste si cambió. never-throws (D-07). Separado de startReconcileLoop para
  * testear el tick sin timers. El caller del server lo usa vía el loop.
@@ -208,9 +241,10 @@ const RECONCILE_INTERVAL_MS = 2500;
  * @param {number} deps.tick
  * @param {() => number} deps.now - clock inyectable.
  * @param {{ info?: Function, warn?: Function }} [deps.logger]
+ * @param {(sessionId: string) => string} [deps.pgrep] - inyectable (tests) para isSessionProcessAlive.
  * @returns {Promise<{ rescued: number, sealed: number, transitioned: number, total: number }>}
  */
-export async function runReconcileTick({ host, loadState, saveState, debounceStore, tick, now, logger }) {
+export async function runReconcileTick({ host, loadState, saveState, debounceStore, tick, now, logger, pgrep }) {
   const started = now();
   /** @type {LiveRef[]|null} */
   let liveRefs = null;
@@ -229,7 +263,28 @@ export async function runReconcileTick({ host, loadState, saveState, debounceSto
     liveRefs = null; // → reconcileTick skipea el tick (F5)
   }
 
-  const state = loadState();
+  let state = loadState();
+
+  // Phase 38 Plan 04 (gap fix): derivar process_alive del proceso real ANTES de
+  // reconciliar. reconcileTick es puro y solo LEE process_alive; sin este refresh
+  // el campo se queda stale (siempre true) y la transición running→idle nunca
+  // dispara — justo el caso ROMAN-151/152. Comparamos contra el valor previo y
+  // solo clonamos el state si algo cambió (preserva la optimización de no-write).
+  if (liveRefs !== null) {
+    let changed = false;
+    const sessions = {};
+    for (const [taskId, s] of Object.entries(state.sessions)) {
+      const aliveNow = s.session_id ? isSessionProcessAlive(s.session_id, pgrep) : !!s.process_alive;
+      if (aliveNow !== s.process_alive) {
+        sessions[taskId] = { ...s, process_alive: aliveNow };
+        changed = true;
+      } else {
+        sessions[taskId] = s;
+      }
+    }
+    if (changed) state = { ...state, sessions };
+  }
+
   const { state: newState, events } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
   logger?.info?.('host.reconcile.tick', events);
   if (newState !== state) saveState(newState);
