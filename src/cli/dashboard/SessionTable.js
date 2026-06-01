@@ -26,8 +26,11 @@ import { rowCells, statusColor, stateBadge, countsLabel } from './format.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
-// Phase 38 D-06: columna `state` (14) para el badge del lifecycle; `🔔 needs-input` cabe exacto.
-const COLS = { gutter: 2, state: 14, task_ref: 10, repo: 18, phasemode: 11, status: 18, age: 7 };
+// Phase 38 D-06: columna `state` (16) para el badge del lifecycle. width 16 (no 14):
+// el emoji `🔔` de `needs-input` renderiza 2 celdas en terminal pero ink lo mide como 1,
+// así que `🔔 needs-input` (13 medido / 14 visual) llenaba justo width 14 y se pegaba a
+// task_ref. width 16 deja padding visible tras el badge más ancho.
+const COLS = { gutter: 2, state: 16, task_ref: 10, repo: 18, phasemode: 11, status: 18, age: 7 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto

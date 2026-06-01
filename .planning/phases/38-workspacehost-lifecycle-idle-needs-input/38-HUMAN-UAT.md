@@ -174,9 +174,10 @@ verified_via: >
   aísla. COMPORTAMIENTO ❌ pendiente live: la derivación de needs_input desde
   `notification.list` de cmux y el anti-flicker (debouncing 2-tick) están
   cubiertos por reconciliation.test.js F2 pero el flujo real con cmux requiere
-  UAT live. Observación cosmética: el badge `🔔 needs-input` ocupa los 14 chars
-  de la columna sin espacio de separación visible antes de task_ref (el emoji
-  cuenta 2 celdas); legible, a confirmar en terminal real.
+  UAT live. (Observación cosmética RESUELTA: el badge `🔔 needs-input` se pegaba
+  a task_ref con COLS.state=14 porque el emoji renderiza 2 celdas en terminal
+  pero ink lo mide como 1; corregido a width 16 — verificado por el usuario vía
+  fixture P38 + screenshot 2026-06-01.)
 
 ## Summary
 
