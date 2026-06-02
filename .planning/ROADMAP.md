@@ -187,7 +187,16 @@ Plans:
   3. El overlay de logs está etiquetado honestamente como grep de un buffer compartido ("may include other sessions"), no como un tail real por sesión.
   4. El wording de PROJECT.md (línea ~32, "filtrado por session_id") queda corregido a "best-effort substring grep" para reflejar que `/logs` no tiene `session_id`.
 
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+**Wave 1**
+
+- [ ] 39-01-PLAN.md — Capa datos/derive: fetchComments+fetchLogs never-throws (404 discriminable) + grepLogs substring puro + fix doc /logs D-08 (SC#4) (TUI-15/TUI-16)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 39-02-PLAN.md — Overlay UI: mode:'overlay' en App.js (c/l/Esc/scroll, snapshot congelado D-05) + chrome en SessionTable.js (header+body+footer+etiqueta honesta D-04) (SC#1/SC#2/SC#3)
+
 **UI hint**: yes
 
 ## Archived Milestones
