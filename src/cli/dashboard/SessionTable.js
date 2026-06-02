@@ -23,6 +23,19 @@
 import { Box, Text } from 'ink';
 import { createElement as h } from 'react';
 import { rowCells, statusColor, stateBadge, countsLabel } from './format.js';
+import {
+  OVERLAY_COMMENTS_EMPTY,
+  OVERLAY_COMMENTS_NOT_FOUND,
+  OVERLAY_COMMENTS_ERROR,
+  OVERLAY_LOGS_EMPTY,
+  OVERLAY_LOGS_ERROR,
+  OVERLAY_LOGS_LABEL,
+} from './App.js';
+
+// Phase 39: altura del viewport del body scrollable del overlay (D-06). El snapshot congelado se
+// sliceа [scrollOffset, scrollOffset+VIEWPORT) → el render nunca intenta pintar miles de líneas de
+// golpe (mitiga T-39-04, DoS de render); ↑/↓ mueven la ventana sobre el contenido congelado.
+const OVERLAY_VIEWPORT = 18;
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
@@ -88,6 +101,64 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt }) 
 }
 
 /**
+ * Render full-screen de un overlay congelado (Phase 39, TUI-15/TUI-16). Estructura:
+ *   HEADER  — `comments · <taskRef>` (cyan bold) | `logs · <taskRef>` (bold) + la ETIQUETA HONESTA
+ *             OVERLAY_LOGS_LABEL en línea propia (yellow, D-04/SC#3 — load-bearing, no cosmética).
+ *   BODY    — según snapshot.status: 'ok' sliceа `lines` por scrollOffset contra OVERLAY_VIEWPORT
+ *             (un `<Text>` por línea); 'empty'/'not-found'/'error' → una sola línea de copy dim/red.
+ *   FOOTER  — hint `↑↓ scroll · Esc close` (dimColor).
+ * Color SOLO de nombres ink (cyan/yellow/red/dimColor) — color-isolation D-12 (cero picocolors/ANSI).
+ *
+ * @param {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }} snap
+ * @param {number} scrollOffset
+ * @param {'comments'|'logs'|null} kind
+ * @returns {import('react').ReactElement}
+ */
+function renderOverlay(snap, scrollOffset, kind) {
+  const isLogs = (kind ?? snap.kind) === 'logs';
+
+  // HEADER: título + (solo logs) etiqueta honesta del buffer compartido (D-04/SC#3).
+  const titleText = `${isLogs ? 'logs' : 'comments'} · ${snap.taskRef}`;
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: isLogs ? undefined : 'cyan', bold: true }, titleText),
+    isLogs ? h(Text, { color: 'yellow' }, OVERLAY_LOGS_LABEL) : null,
+  );
+
+  // BODY: según el status del snapshot congelado.
+  let body;
+  if (snap.status === 'ok') {
+    const start = Math.max(0, scrollOffset);
+    const visible = snap.lines.slice(start, start + OVERLAY_VIEWPORT);
+    body = h(
+      Box,
+      { flexDirection: 'column' },
+      ...visible.map((line, i) => h(Text, { key: `ov-${start + i}` }, line)),
+    );
+  } else {
+    let copy;
+    let color;
+    if (snap.status === 'not-found') {
+      copy = OVERLAY_COMMENTS_NOT_FOUND;
+      color = 'red';
+    } else if (snap.status === 'error') {
+      copy = isLogs ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
+      color = 'red';
+    } else {
+      // 'empty'
+      copy = isLogs ? OVERLAY_LOGS_EMPTY : OVERLAY_COMMENTS_EMPTY;
+    }
+    body = h(Text, { color, dimColor: color ? undefined : true }, copy);
+  }
+
+  // FOOTER: hint de interacción del sub-modo de scroll (D-06).
+  const footer = h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, '↑↓ scroll · Esc close'));
+
+  return h(Box, { flexDirection: 'column' }, header, body, footer);
+}
+
+/**
  * Tabla viva del dashboard (presentacional). Recibe la lista YA ordenada+filtrada, el índice
  * seleccionado YA derivado, los contadores y el connection state reusado.
  *
@@ -108,6 +179,10 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt }) 
  *   (filterLine y/o footer normal en App.js) por el mensaje rojo del error en la línea modal.
  *   Color SOLO vía `<Text color="red">` (color-isolation D-12 Phase 34, cero picocolors).
  *   Precedencia: errorLine gana a filterLine — el error es modal hasta el clear-on-any-input.
+ * @param {'comments'|'logs'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l) o null.
+ * @param {number} [props.scrollOffset] - Phase 39 D-06: primera línea visible del body del overlay.
+ * @param {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
+ *   Phase 39 D-05: contenido CONGELADO del overlay (no salta bajo el poll). status discrimina la copy.
  * @returns {import('react').ReactElement}
  */
 export default function SessionTable({
@@ -123,7 +198,16 @@ export default function SessionTable({
   query = '',
   focusError = null,
   hostError = null,
+  overlayKind = null,
+  scrollOffset = 0,
+  overlaySnapshot = null,
 }) {
+  // (0) Phase 39 (TUI-15/TUI-16 — D-01/D-04/D-05): OVERLAY full-screen. Early-return ANTES de la
+  // tabla: cuando hay un overlay abierto ocupa el área de la tabla (D-01). Mantiene SessionTable
+  // como único punto de render. Color SOLO vía `<Text color>` de ink (D-12, cero picocolors/ANSI).
+  if (mode === 'overlay' && overlaySnapshot) {
+    return renderOverlay(overlaySnapshot, scrollOffset, overlayKind);
+  }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);
 
