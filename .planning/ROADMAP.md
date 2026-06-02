@@ -191,7 +191,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 39-01-PLAN.md — Capa datos/derive: fetchComments+fetchLogs never-throws (404 discriminable) + grepLogs substring puro + fix doc /logs D-08 (SC#4) (TUI-15/TUI-16)
+- [x] 39-01-PLAN.md — Capa datos/derive: fetchComments+fetchLogs never-throws (404 discriminable) + grepLogs substring puro + fix doc /logs D-08 (SC#4) (TUI-15/TUI-16)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
