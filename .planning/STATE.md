@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: ready_to_plan
-stopped_at: Phase 38 complete (4/4) — ready to discuss Phase 39
-last_updated: 2026-06-01T19:54:01.907Z
-last_activity: 2026-06-01 -- Phase 38 Plan 04 impl completa; 4 escenarios UAT pendientes de validación humana con cmux real
+status: planning
+stopped_at: Phase 39 context gathered
+last_updated: "2026-06-02T07:58:27.849Z"
+last_activity: 2026-06-01
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
-  completed_plans: 36
-  percent: 67
+  completed_plans: 16
+  percent: 83
 ---
 
 # Project State
@@ -90,8 +90,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-05-30T19:58:33.000Z
-- **Stopped at:** Phase 38 Plan 01 complete (WorkspaceHost foundation; commits 8a31c44, d2e8e88, 79c2cf1)
+- **Last session:** 2026-06-02T07:58:27.841Z
+- **Stopped at:** Phase 39 context gathered
 - **Next action:** ejecutar Plan 38-02 (estados idle/needs-input/dead/closed + migración v2→v3 + caller updates).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current State: v0.8 shipped + candidatos v0.9)
