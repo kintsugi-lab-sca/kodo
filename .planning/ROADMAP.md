@@ -195,7 +195,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 39-02-PLAN.md — Overlay UI: mode:'overlay' en App.js (c/l/Esc/scroll, snapshot congelado D-05) + chrome en SessionTable.js (header+body+footer+etiqueta honesta D-04) (SC#1/SC#2/SC#3)
+- [x] 39-02-PLAN.md — Overlay UI: mode:'overlay' en App.js (c/l/Esc/scroll, snapshot congelado D-05) + chrome en SessionTable.js (header+body+footer+etiqueta honesta D-04) (SC#1/SC#2/SC#3)
 
 **UI hint**: yes
 
