@@ -25,8 +25,10 @@
 // ni ningún módulo de color. El color del dashboard sale exclusivamente de los <Text>
 // de ink (App.js). `test/format-isolation.test.js` lo verifica vía walker automático.
 //
-// Scope (YAGNI): solo `fetchStatus`. `fetchComments` / `fetchLogs` quedan diferidos a
-// Phases 36/38 — no se añaden aquí.
+// Scope: `fetchStatus` (Phase 35), más `fetchComments` / `fetchLogs` (Phase 39, TUI-15/TUI-16) —
+// los clientes de los dos overlays auxiliares. Comparten la FORMA never-throws de fetchStatus.
+// `fetchComments` AÑADE un discriminante `code` ('not-found' | 'http' | 'network') porque App.js
+// debe distinguir 404 ("task not found") de 5xx/red ("error fetching comments") (D-07 crítico).
 
 /**
  * Resultado discriminado de `fetchStatus` (D-07).
@@ -53,6 +55,85 @@ export async function fetchStatus(baseUrl, fetchFn = globalThis.fetch, signal) {
     return { ok: true, data };
   } catch (err) {
     // Cubre ECONNREFUSED / abort / parse error — jamás propaga a React.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Resultado discriminado de `fetchComments` (D-07, TUI-15). A diferencia de fetchStatus, el
+ * fallo HTTP/red incluye un `code` para que App.js distinga 404 (task ausente) de 5xx/red.
+ *
+ * @typedef {(
+ *   { ok: true, data: { comments: any[] } }
+ *   | { ok: false, error: string, code?: 'not-found' | 'http' | 'network', status?: number }
+ * )} FetchCommentsResult
+ */
+
+/**
+ * Consume `GET {baseUrl}/comments/{taskId}` del server kodo. NEVER-THROWS (D-07).
+ *
+ * El server resuelve por `task_id` (D-02) y responde 200 `{comments:[...]}`, 404 `{error}` si
+ * la sesión no existe, o 500 `{error}`. El resultado de fallo lleva un discriminante `code`:
+ *   - 404 → `{ ok:false, code:'not-found', status:404 }` (overlay vacío honesto, no es un error
+ *     de red — el operador navegó a una tarea sin sesión registrada).
+ *   - otro HTTP no-ok → `{ ok:false, code:'http', status }`.
+ *   - red/abort/JSON corrupto → `{ ok:false, code:'network' }`.
+ * `comments:[]` (vacío) es `{ ok:true }` — la ausencia de comentarios es estado de UI, no error.
+ *
+ * @param {string} baseUrl — base del server kodo.
+ * @param {string} taskId — id de tarea; se codifica con `encodeURIComponent` (T-39-01, va en el path).
+ * @param {typeof globalThis.fetch} [fetchFn] — fetch inyectable (test/DI).
+ * @param {AbortSignal} [signal] — abort opcional.
+ * @returns {Promise<FetchCommentsResult>}
+ */
+export async function fetchComments(baseUrl, taskId, fetchFn = globalThis.fetch, signal) {
+  try {
+    // T-39-01: el task_id cruza en el path → encodeURIComponent OBLIGATORIO (anti path-traversal
+    // / inyección de segmentos de URL). El server hace decodeURIComponent simétrico.
+    const res = await fetchFn(`${baseUrl}/comments/${encodeURIComponent(taskId)}`, { signal });
+    if (!res.ok) {
+      // D-07 crítico: discriminar 404 ("task not found") de 5xx ("error fetching comments").
+      return {
+        ok: false,
+        error: `HTTP ${res.status}`,
+        status: res.status,
+        code: res.status === 404 ? 'not-found' : 'http',
+      };
+    }
+    const data = await res.json(); // puede lanzar (JSON corrupto) → cae al catch (code:'network')
+    if (!Array.isArray(data.comments)) return { ok: false, error: 'bad shape' };
+    return { ok: true, data };
+  } catch (err) {
+    // Red / abort / parse error: jamás propaga a React. code:'network' (no es un 404 semántico).
+    return { ok: false, error: err instanceof Error ? err.message : String(err), code: 'network' };
+  }
+}
+
+/**
+ * Resultado discriminado de `fetchLogs` (D-07, TUI-16).
+ *
+ * @typedef {{ ok: true, data: { logs: any[] } } | { ok: false, error: string }} FetchLogsResult
+ */
+
+/**
+ * Consume `GET {baseUrl}/logs` del server kodo. NEVER-THROWS (D-07). Trae el buffer COMPARTIDO
+ * crudo (ring newest-first, sin `session_id` por línea); el grep por sesión es un paso SEPARADO
+ * en `select.js#grepLogs`. No necesita discriminante de status: `/logs` siempre existe (no hay
+ * caso 404 semántico).
+ *
+ * @param {string} baseUrl — base del server kodo.
+ * @param {typeof globalThis.fetch} [fetchFn] — fetch inyectable (test/DI).
+ * @param {AbortSignal} [signal] — abort opcional.
+ * @returns {Promise<FetchLogsResult>}
+ */
+export async function fetchLogs(baseUrl, fetchFn = globalThis.fetch, signal) {
+  try {
+    const res = await fetchFn(`${baseUrl}/logs`, { signal });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json(); // puede lanzar (JSON corrupto) → cae al catch
+    if (!Array.isArray(data.logs)) return { ok: false, error: 'bad shape' };
+    return { ok: true, data };
+  } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
