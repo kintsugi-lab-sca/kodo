@@ -320,3 +320,107 @@ describe('D-05: snapshot congelado — el poll sigue por debajo pero el overlay 
     }
   });
 });
+
+describe('D-06/WR-01: scroll del overlay (↑/↓) y clamp del viewport', () => {
+  // 20 comentarios (line-00..line-19) con OVERLAY_VIEWPORT=18 → max scrollOffset correcto = 2.
+  // Con el clamp viejo (lines.length - 1 = 19) el spam de ↓ dejaría solo la última línea visible.
+  function manyComments() {
+    return Array.from({ length: 20 }, (_, i) => ({ body: `line-${String(i).padStart(2, '0')}` }));
+  }
+
+  it('↓ scrollea el viewport y el clamp deja la ÚLTIMA pantalla llena (no una sola línea)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({ comments: () => okResponse({ comments: manyComments() }) });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('c');
+      await drain();
+      const initial = lastFrame();
+      assert.match(initial, /line-00/, `al abrir (offset 0) la primera línea visible es line-00\n${initial}`);
+      assert.doesNotMatch(initial, /line-19/, `al abrir, line-19 cae fuera del viewport de 18\n${initial}`);
+
+      // Spam de ↓ (más allá del fondo): el clamp WR-01 detiene scrollOffset en lines.length - VIEWPORT.
+      for (let i = 0; i < 10; i++) {
+        stdin.write('\x1b[B');
+        await drain();
+      }
+      const scrolled = lastFrame();
+      assert.match(scrolled, /line-19/, `tras bajar al fondo, la última línea (line-19) es visible\n${scrolled}`);
+      // CLAVE WR-01: con el viewport lleno, line-02 sigue visible (offset clampado a 2). Con el bug
+      // viejo (offset hasta 19) solo se vería line-19 y este assert fallaría.
+      assert.match(scrolled, /line-02/, `WR-01: el clamp deja el viewport LLENO — line-02 sigue visible\n${scrolled}`);
+      assert.doesNotMatch(scrolled, /line-00/, `tras scrollear, line-00 ya salió del viewport\n${scrolled}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('↑ revierte el scroll y el clamp inferior se detiene en offset 0', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({ comments: () => okResponse({ comments: manyComments() }) });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('c');
+      await drain();
+      for (let i = 0; i < 5; i++) {
+        stdin.write('\x1b[B');
+        await drain();
+      }
+      assert.doesNotMatch(lastFrame(), /line-00/, `precondición: tras ↓ line-00 no es visible\n${lastFrame()}`);
+      // Spam de ↑ más allá del tope: vuelve a offset 0 sin pasarse (clamp en 0).
+      for (let i = 0; i < 10; i++) {
+        stdin.write('\x1b[A');
+        await drain();
+      }
+      const frame = lastFrame();
+      assert.match(frame, /line-00/, `tras ↑ el viewport vuelve al inicio (line-00 visible)\n${frame}`);
+      assert.doesNotMatch(frame, /line-19/, `de vuelta arriba, line-19 sale del viewport\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('CR-01: handlers async de overlay no reabren contenido obsoleto', () => {
+  it('dos `c` encolados con latencia → gana el ÚLTIMO pedido, el primero no sobrescribe', async () => {
+    const clock = makeFakeClock();
+    /** @type {Array<() => void>} */
+    const resolvers = [];
+    let callIdx = 0;
+    const fetchFn = async (/** @type {string} */ url) => {
+      const u = String(url);
+      if (u.endsWith('/status')) return okResponse(STATUS_FIXTURE);
+      if (u.includes('/comments/')) {
+        const which = callIdx++;
+        // Promise controlada manualmente: la resolvemos en orden inverso para forzar la race.
+        return new Promise((resolve) => {
+          resolvers[which] = () =>
+            resolve(okResponse({ comments: [{ body: which === 0 ? 'FIRST payload' : 'SECOND payload' }] }));
+        });
+      }
+      if (u.endsWith('/logs')) return okResponse({ logs: [] });
+      return okResponse(STATUS_FIXTURE);
+    };
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      // Dos `c` mientras mode sigue 'list' (ninguna request resolvió aún): handler1 reqId=1, handler2 reqId=2.
+      stdin.write('c');
+      await drain();
+      stdin.write('c');
+      await drain();
+      // Resolvemos PRIMERO el segundo pedido (gana, reqId vigente), luego el primero (obsoleto → descartado).
+      resolvers[1]();
+      await drain();
+      resolvers[0]();
+      await drain();
+      const frame = lastFrame();
+      assert.match(frame, /SECOND payload/, `el overlay debe mostrar el último pedido\n${frame}`);
+      assert.doesNotMatch(frame, /FIRST payload/, `CR-01: el handler obsoleto no debe sobrescribir el overlay\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+});

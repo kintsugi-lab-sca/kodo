@@ -30,12 +30,8 @@ import {
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
+  OVERLAY_VIEWPORT,
 } from './App.js';
-
-// Phase 39: altura del viewport del body scrollable del overlay (D-06). El snapshot congelado se
-// sliceа [scrollOffset, scrollOffset+VIEWPORT) → el render nunca intenta pintar miles de líneas de
-// golpe (mitiga T-39-04, DoS de render); ↑/↓ mueven la ventana sobre el contenido congelado.
-const OVERLAY_VIEWPORT = 18;
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.

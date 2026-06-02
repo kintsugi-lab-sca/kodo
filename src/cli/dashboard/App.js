@@ -99,6 +99,12 @@ export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
 export const OVERLAY_LOGS_ERROR = 'error fetching logs';
 export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
 
+// Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
+// SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
+// (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
+// [scrollOffset, scrollOffset+VIEWPORT) → el render nunca pinta miles de líneas (mitiga T-39-04).
+export const OVERLAY_VIEWPORT = 18;
+
 /**
  * Componente root del dashboard TUI.
  *
@@ -173,6 +179,12 @@ export default function App({
   const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay'} */ ('list'));
   const [query, setQuery] = useState('');
   const prevIndexRef = useRef(0);
+  // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
+  // (await fetch). Si el operador encola un segundo `c`/`l` o cierra con Esc mientras una request
+  // está en vuelo, el setMode('overlay') del post-await reabriría un overlay obsoleto. Cada apertura
+  // toma un reqId incrementando este ref; al cerrar (Esc) o reabrir, el ref avanza e invalida la
+  // request en vuelo, que tras el await comprueba `overlayReqRef.current !== reqId` y se descarta.
+  const overlayReqRef = useRef(0);
 
   // Phase 39 (TUI-15/TUI-16): estado de los overlays auxiliares (comentarios `c` / logs `l`).
   //   - overlayKind: qué overlay está abierto ('comments'|'logs'|null).
@@ -259,6 +271,7 @@ export default function App({
       // re-deriva la misma fila al volver). Cualquier otra tecla se traga (early return) mientras se lee.
       if (mode === 'overlay') {
         if (key.escape) {
+          overlayReqRef.current++; // CR-01: invalida cualquier apertura `c`/`l` aún en vuelo
           setMode('list');
           setOverlayKind(null);
           return;
@@ -268,8 +281,11 @@ export default function App({
           return;
         }
         if (key.downArrow) {
-          // Clamp superior contra el tamaño del snapshot congelado (no pasa de la última línea).
-          const max = overlaySnapshot ? Math.max(0, overlaySnapshot.lines.length - 1) : 0;
+          // Clamp superior: el último scroll deja el viewport LLENO (no una sola línea). WR-01: usar
+          // `lines.length - OVERLAY_VIEWPORT` (el mismo VIEWPORT del slice de SessionTable), no `- 1`.
+          const max = overlaySnapshot
+            ? Math.max(0, overlaySnapshot.lines.length - OVERLAY_VIEWPORT)
+            : 0;
           setScrollOffset((o) => Math.min(max, o + 1));
           return;
         }
@@ -315,7 +331,9 @@ export default function App({
         // fetchComments es never-throws (Plan 39-01): mapeamos su discriminante a un snapshot CONGELADO.
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
+        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
         const res = await fetchComments(baseUrl, row.task_id, fetchFn);
+        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
         let status;
         /** @type {string[]} */
         let lines = [];
@@ -350,7 +368,9 @@ export default function App({
         // compartido de /logs. fetchLogs never-throws; grepLogs es el filtro puro anti-ReDoS (Plan 39-01).
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
+        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
         const res = await fetchLogs(baseUrl, fetchFn);
+        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
         let status;
         /** @type {string[]} */
         let lines = [];
