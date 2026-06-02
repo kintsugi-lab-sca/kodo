@@ -19,11 +19,11 @@
 
 **Stack invariants (no negociables):** `ink@^6.8.0` + `react@^19.2.0` + `ink-text-input@^6.0.0` (Node ≥20; NO ink@7); `React.createElement` en `.js` plano (NO JSX, NO build step); HTTP vía `fetch` built-in (sin dep nueva); color SOLO de `<Text color>` de ink (NO `picocolors` bajo `src/cli/dashboard/`); selección por `task_id` (NO índice de array); poll self-scheduling con `setTimeout` recursivo (NO `setInterval`); cero endpoints nuevos en `src/server.js`.
 
-- [ ] **Phase 34: Fundación — subcomando + ciclo de vida** - Esqueleto `kodo dashboard`, guard non-TTY, salida limpia, color-isolation
-- [ ] **Phase 35: Datos — cliente HTTP + polling** - Cliente puro never-throws + poll self-scheduling con keep-last-good
-- [ ] **Phase 36: Tabla viva — render + selección + filtros** - Tabla, selección por `task_id`, orden estable, color, header, filtros
+- [x] **Phase 34: Fundación — subcomando + ciclo de vida** - Esqueleto `kodo dashboard`, guard non-TTY, salida limpia, color-isolation
+- [x] **Phase 35: Datos — cliente HTTP + polling** - Cliente puro never-throws + poll self-scheduling con keep-last-good
+- [x] **Phase 36: Tabla viva — render + selección + filtros** - Tabla, selección por `task_id`, orden estable, color, header, filtros
 - [x] **Phase 37: Focus — invocar `cmux select-workspace`** - Fire-and-forget RPC al socket cmux (revisado tras C-01; no es handoff TTY)
-- [ ] **Phase 38: WorkspaceHost provider + ciclo de vida `idle`/`needs-input`** - Provider intercambiable (cmux/orca/…) + estados idle/needs-input/closed + reconciliación host ↔ state
+- [x] **Phase 38: WorkspaceHost provider + ciclo de vida `idle`/`needs-input`** - Provider intercambiable (cmux/orca/…) + estados idle/needs-input/closed + reconciliación host ↔ state
 - [x] **Phase 39: Paneles auxiliares — comentarios + logs** - Overlays `c` (comments por `task_id`) y `l` (grep best-effort sobre `/logs`)
 
 #### Phase 34: Fundación — subcomando + ciclo de vida
@@ -345,8 +345,8 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 35. Datos — cliente HTTP + polling | v0.9 | 4/4 | Complete    | 2026-05-27 |
 | 36. Tabla viva — render + selección + filtros | v0.9 | 3/3 | Complete    | 2026-05-27 |
 | 37. Focus — invocar cmux select-workspace | v0.9 | 3/3 | Complete   | 2026-05-28 |
-| 38. Paneles auxiliares — comentarios + logs | v0.9 | 4/4 | Complete    | 2026-06-01 |
+| 38. WorkspaceHost provider + ciclo de vida idle/needs-input | v0.9 | 4/4 | Complete    | 2026-06-01 |
 | 39. Paneles auxiliares — comentarios + logs | v0.9 | 2/2 | Complete    | 2026-06-02 |
 
 ---
-*Last updated: 2026-05-28 — Phase 37 planned (3 plans, 3 waves: focus.js never-throws fundament → App.js+SessionTable.js UX → runDashboard wiring + UAT). 2/2 requirements TUI-13..14 cubiertas. Revisado post-C-01 (cmux select-workspace fire-and-forget, NO TTY handoff). Next: /gsd-execute-phase 37.*
+*Last updated: 2026-06-02 — Phase 39 ejecutada y verificada PASSED (2/2 planes; overlays c/l, scroll, snapshot congelado). Code review resuelto (CR-01 race async, WR-01 clamp scroll, WR-02 tests). TUI-15/TUI-16 cubiertas. Bookkeeping del índice de fases reconciliado (34-38 marcadas). v0.9 (Phases 34-39) COMPLETO — pendiente cierre de milestone. Next: /gsd-complete-milestone.*
