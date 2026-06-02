@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: completed
-stopped_at: Phase 39 context gathered
-last_updated: "2026-06-02T13:43:13.384Z"
+stopped_at: Phase 39.1 context gathered
+last_updated: "2026-06-02T13:58:39.733Z"
 last_activity: 2026-06-02
 progress:
   total_phases: 7
@@ -91,8 +91,8 @@ None.
 
 ## Session Continuity
 
-- **Last session:** 2026-06-02T07:58:27.841Z
-- **Stopped at:** Phase 39 context gathered
+- **Last session:** 2026-06-02T13:58:39.726Z
+- **Stopped at:** Phase 39.1 context gathered
 - **Next action:** ejecutar Plan 38-02 (estados idle/needs-input/dead/closed + migración v2→v3 + caller updates).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current State: v0.8 shipped + candidatos v0.9)
