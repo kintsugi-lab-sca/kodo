@@ -4,8 +4,8 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: completed
 stopped_at: Phase 39 context gathered
-last_updated: "2026-06-02T10:52:44.239Z"
-last_activity: 2026-06-02 -- Phase 39 marked complete
+last_updated: "2026-06-02T11:18:41.836Z"
+last_activity: 2026-06-02
 progress:
   total_phases: 6
   completed_phases: 6
@@ -32,7 +32,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 Phase: 39 — COMPLETE
 Plan: 1 of 2
 Status: Phase 39 complete
-Last activity: 2026-06-02 -- Phase 39 marked complete
+Last activity: 2026-06-02
 
 Progress: [██████████] 100%
 
