@@ -350,3 +350,13 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 
 ---
 *Last updated: 2026-06-02 — Phase 39 ejecutada y verificada PASSED (2/2 planes; overlays c/l, scroll, snapshot congelado). Code review resuelto (CR-01 race async, WR-01 clamp scroll, WR-02 tests). TUI-15/TUI-16 cubiertas. Bookkeeping del índice de fases reconciliado (34-38 marcadas). v0.9 (Phases 34-39) COMPLETO — pendiente cierre de milestone. Next: /gsd-complete-milestone.*
+
+### Phase 39.1: Cierre de gaps v0.9 — wiring host↔TUI + fuente única de alive + statusColor v3 (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 39
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 39.1 to break down)

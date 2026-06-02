@@ -4,14 +4,14 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: completed
 stopped_at: Phase 39 context gathered
-last_updated: "2026-06-02T11:18:41.836Z"
+last_updated: "2026-06-02T13:43:13.384Z"
 last_activity: 2026-06-02
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 6
   total_plans: 18
   completed_plans: 18
-  percent: 100
+  percent: 86
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 39 — paneles-auxiliares-comentarios-logs
+**Current focus:** Phase 39.1 — cierre de gaps v0.9 (host↔TUI, alive, statusColor)
 
 ## Current Position
 
@@ -51,6 +51,7 @@ Progress: [██████████] 100%
 
 - Phase 38 moved: Phase 38 anterior (paneles auxiliares) renumbered a Phase 39 para hacer hueco al WorkspaceHost provider promovido desde backlog 999.2
 - Phase 38 inserted after Phase 37: Promoted from backlog 999.2 — WorkspaceHost provider + ciclo de vida idle/needs-input. Trigger: diagnóstico ROMAN-151/152 invisibles en dashboard 2026-05-29.
+- Phase 39.1 inserted after Phase 39: Cierre de gaps v0.9 desde milestone audit: BLOCKER host↔TUI + alive divergente + statusColor v3 (URGENT)
 
 ### Open Blockers
 
