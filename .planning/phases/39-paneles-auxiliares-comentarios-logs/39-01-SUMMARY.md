@@ -114,6 +114,13 @@ Una micro-corrección dentro del scope de la Task 2 (no es deviation de comporta
 - Plan 02 (overlay UI) tiene sus tres funciones base listas y verdes: `fetchComments`, `fetchLogs`, `grepLogs`. El invariante no-crash de TUI-15/TUI-16 está garantizado estructuralmente en el data/derive layer.
 - El header del overlay de logs debe etiquetar el buffer como compartido/best-effort (D-04) — eso lo implementa el Plan 02.
 
+## Self-Check: PASSED
+
+- Archivos verificados: client.js, select.js, dashboard-client.test.js, dashboard-select.test.js, 39-01-SUMMARY.md (todos FOUND).
+- Commits verificados: 5ebfac4, d93ba3d, 0a22caf, 93fcfef, ca0696a (todos FOUND).
+- Exports verificados: fetchComments, fetchLogs, grepLogs (todos presentes).
+- Suite: `node --test test/dashboard-client.test.js test/dashboard-select.test.js test/format-isolation.test.js` → 44 pass / 0 fail.
+
 ---
 *Phase: 39-paneles-auxiliares-comentarios-logs*
 *Completed: 2026-06-02*
