@@ -53,7 +53,7 @@
 
 import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { fetchStatus } from './client.js';
+import { fetchStatus, fetchComments, fetchLogs } from './client.js';
 import { usePoll } from './usePoll.js';
 import {
   sortSessions,
@@ -61,6 +61,7 @@ import {
   parseFilter,
   resolveSelection,
   countByStatus,
+  grepLogs,
 } from './select.js';
 import { deriveRepo } from './format.js';
 import SessionTable from './SessionTable.js';
@@ -85,6 +86,18 @@ export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) �
 // constantes + el state + la limpieza vía clear-on-any-input.
 export const HOST_ERR_UNAVAILABLE = '[!] host unavailable — check binary path';
 export const HOST_ERR_TIMEOUT = '[!] host timeout — list-workspaces took >5s';
+
+// Phase 39 D-07/D-04: copy literal-estable de los dos overlays auxiliares (comentarios + logs).
+// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo patrón
+// que FOCUS_ERR_*/HOST_ERR_*). SessionTable.js (Task 2) también las importa para matar el drift
+// code/render. OVERLAY_LOGS_LABEL es LOAD-BEARING (D-04, SC#3): declara honestamente que el grep
+// corre sobre un buffer compartido sin session_id — no es cosmética.
+export const OVERLAY_COMMENTS_EMPTY = 'no comments yet';
+export const OVERLAY_COMMENTS_NOT_FOUND = 'task not found';
+export const OVERLAY_COMMENTS_ERROR = 'error fetching comments';
+export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
+export const OVERLAY_LOGS_ERROR = 'error fetching logs';
+export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
 
 /**
  * Componente root del dashboard TUI.
@@ -157,9 +170,22 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay'} */ ('list'));
   const [query, setQuery] = useState('');
   const prevIndexRef = useRef(0);
+
+  // Phase 39 (TUI-15/TUI-16): estado de los overlays auxiliares (comentarios `c` / logs `l`).
+  //   - overlayKind: qué overlay está abierto ('comments'|'logs'|null).
+  //   - scrollOffset: índice de la primera línea visible del body scrollable (D-06, ↑/↓ scrollean).
+  //   - overlaySnapshot: contenido CONGELADO al abrir (D-05). El poll de la tabla sigue por debajo
+  //     pero este objeto NO se re-escribe por onResult → el texto del overlay no salta bajo el lector.
+  //     Forma: { kind, taskRef, status:'ok'|'empty'|'not-found'|'error', lines: string[] } donde
+  //     `lines` ya viene proyectado a strings (comentarios o `msg` de cada log entry).
+  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|null} */ (null));
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const [overlaySnapshot, setOverlaySnapshot] = useState(
+    /** @type {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }|null} */ (null),
+  );
 
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
   // (keep-last-good, D-06/Pitfall 5). Siempre actualiza lastAttemptAt (edad por poll, D-08).
@@ -227,6 +253,28 @@ export default function App({
         setHostError(null);
         return;
       }
+      // Phase 39 (TUI-15/TUI-16 — D-05/D-06): SUB-MODO overlay. Va ANTES del mode-gate de filtro:
+      // mientras un overlay está abierto, ↑/↓ SCROLLEAN el contenido (no navegan filas) y Esc cierra
+      // restaurando mode:'list' SIN tocar selectedTaskId (cursor preservado GRATIS — resolveSelection
+      // re-deriva la misma fila al volver). Cualquier otra tecla se traga (early return) mientras se lee.
+      if (mode === 'overlay') {
+        if (key.escape) {
+          setMode('list');
+          setOverlayKind(null);
+          return;
+        }
+        if (key.upArrow) {
+          setScrollOffset((o) => Math.max(0, o - 1));
+          return;
+        }
+        if (key.downArrow) {
+          // Clamp superior contra el tamaño del snapshot congelado (no pasa de la última línea).
+          const max = overlaySnapshot ? Math.max(0, overlaySnapshot.lines.length - 1) : 0;
+          setScrollOffset((o) => Math.min(max, o + 1));
+          return;
+        }
+        return; // traga el resto mientras el operador lee el overlay
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -260,6 +308,70 @@ export default function App({
       }
       if (input === '/') {
         setMode('filter'); // abre la línea de filtro modal (D-13)
+        return;
+      }
+      if (input === 'c') {
+        // TUI-15/SC#1: overlay de comentarios de la fila seleccionada (resueltos por task_id, D-02).
+        // fetchComments es never-throws (Plan 39-01): mapeamos su discriminante a un snapshot CONGELADO.
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        const res = await fetchComments(baseUrl, row.task_id, fetchFn);
+        let status;
+        /** @type {string[]} */
+        let lines = [];
+        if (res.ok) {
+          const comments = res.data.comments;
+          if (comments.length > 0) {
+            status = 'ok';
+            // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
+            // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
+            lines = comments.map((c) => {
+              const body = c.body ?? c.text ?? c.message;
+              if (body == null) return JSON.stringify(c);
+              return c.author ? `${c.author}: ${body}` : String(body);
+            });
+          } else {
+            status = 'empty';
+          }
+        } else if (res.code === 'not-found') {
+          status = 'not-found';
+        } else {
+          status = 'error';
+        }
+        // D-05: snapshot congelado al abrir. NO se toca selectedTaskId (cursor GRATIS al volver, D-06).
+        setOverlaySnapshot({ kind: 'comments', taskRef: row.task_ref ?? '', status, lines });
+        setOverlayKind('comments');
+        setScrollOffset(0);
+        setMode('overlay');
+        return;
+      }
+      if (input === 'l') {
+        // TUI-16/SC#2: overlay de logs por grep substring (task_ref/workspace_ref) sobre el buffer
+        // compartido de /logs. fetchLogs never-throws; grepLogs es el filtro puro anti-ReDoS (Plan 39-01).
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        const res = await fetchLogs(baseUrl, fetchFn);
+        let status;
+        /** @type {string[]} */
+        let lines = [];
+        if (res.ok) {
+          const matched = grepLogs(res.data.logs, {
+            task_ref: row.task_ref,
+            workspace_ref: row.workspace_ref,
+          });
+          status = matched.length ? 'ok' : 'empty';
+          // Proyección: `[ts] level  msg` (los campos ausentes se omiten sin romper el render).
+          lines = matched.map((e) =>
+            `${e.ts ? `${e.ts} ` : ''}${e.level ? `${e.level} ` : ''}${e.msg ?? ''}`.trim(),
+          );
+        } else {
+          status = 'error';
+        }
+        // D-05: snapshot congelado. D-06: selectedTaskId intacto.
+        setOverlaySnapshot({ kind: 'logs', taskRef: row.task_ref ?? '', status, lines });
+        setOverlayKind('logs');
+        setScrollOffset(0);
+        setMode('overlay');
         return;
       }
       if (key.upArrow) {
@@ -347,6 +459,9 @@ export default function App({
         hasQuery,
         focusError, // Phase 37 D-04: render condicional del footer-error rojo (espejo de filterLine)
         hostError, // Phase 38 D-06: footer-error del host (Plan 04 lo wirea vía setHostError)
+        overlayKind, // Phase 39: qué overlay está abierto (comments/logs/null)
+        scrollOffset, // Phase 39 D-06: primera línea visible del body scrollable
+        overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
       }),
     ),
     createElement(Text, { dimColor: true }, '↑↓ move · / filter · q quit'),
