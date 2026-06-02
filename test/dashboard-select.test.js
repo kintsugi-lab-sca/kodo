@@ -20,6 +20,7 @@ import {
   applyFilter,
   parseFilter,
   countByStatus,
+  grepLogs,
 } from '../src/cli/dashboard/select.js';
 
 import { deriveRepo } from '../src/cli/dashboard/format.js';
@@ -203,5 +204,87 @@ describe('TUI-11 (D-11): countByStatus cuenta zombie aparte de running', () => {
       { running: 1, review: 1, done: 1, error: 1, zombie: 1, idle: 0, 'needs-input': 0, dead: 0 },
       `el zombie debe contarse aparte de running, fue ${JSON.stringify(counts)}`,
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 39 Plan 01 (TUI-16; D-03, T-39-02 anti-ReDoS): grepLogs.
+//   Filtra el buffer COMPARTIDO de `GET /logs` (Array<{ts, level, msg}>, sin
+//   session_id por línea) por SUBSTRING OR de task_ref/workspace_ref contra
+//   entry.msg, vía String.includes — NUNCA new RegExp (espejo de applyFilter /
+//   T-36-01). needles vacíos → [] (no inunda el overlay con el buffer entero).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Fixture mínima de entrada de log (shape src/server.js:21-29). */
+function log(msg, over = {}) {
+  return { ts: '2026-06-02T00:00:00.000Z', level: 'info', msg, ...over };
+}
+
+describe('TUI-16 (D-03): grepLogs substring OR anti-ReDoS', () => {
+  it('match por task_ref: solo las líneas cuyo msg contiene el ref', () => {
+    const logs = [
+      log('session KL-1 started'),
+      log('unrelated tick'),
+      log('KL-1 dispatched to worker'),
+    ];
+    const out = grepLogs(logs, { task_ref: 'KL-1' });
+    assert.equal(out.length, 2);
+    assert.ok(out.every((e) => e.msg.includes('KL-1')));
+  });
+
+  it('match por workspace_ref (OR): casa por cualquiera de los dos needles', () => {
+    const logs = [
+      log('KL-1 started'),
+      log('worktree wt-abc created'),
+      log('nothing here'),
+    ];
+    const out = grepLogs(logs, { task_ref: 'KL-1', workspace_ref: 'wt-abc' });
+    assert.equal(out.length, 2);
+  });
+
+  it('case-insensitive: ref en mayúsculas casa msg en minúsculas', () => {
+    const logs = [log('session kl-1 running')];
+    const out = grepLogs(logs, { task_ref: 'KL-1' });
+    assert.equal(out.length, 1);
+  });
+
+  it('needles vacíos (sin task_ref ni workspace_ref) → [] (no inunda)', () => {
+    const logs = [log('a'), log('b')];
+    assert.deepEqual(grepLogs(logs, {}), []);
+    assert.deepEqual(grepLogs(logs, { task_ref: '', workspace_ref: '' }), []);
+  });
+
+  it('sin matches → []', () => {
+    const logs = [log('KL-9 only'), log('KL-8 only')];
+    assert.deepEqual(grepLogs(logs, { task_ref: 'KL-1' }), []);
+  });
+
+  it('char regex-especial (.*) se matchea LITERAL como substring (anti-ReDoS)', () => {
+    const logs = [
+      log('build KL-1.* literal token'), // contiene el literal "KL-1.*"
+      log('KL-1abc would match a regex but NOT a substring'),
+    ];
+    const out = grepLogs(logs, { task_ref: 'KL-1.*' });
+    // Si grepLogs compilara una regex, "KL-1abc" casaría (.* = "abc"). Con substring solo casa
+    // la línea que contiene literalmente "KL-1.*".
+    assert.equal(out.length, 1);
+    assert.ok(out[0].msg.includes('KL-1.* literal'));
+  });
+
+  it('preserva el orden de entrada de logs (no reordena el buffer newest-first del server)', () => {
+    const logs = [
+      log('KL-1 third', { ts: 'c' }),
+      log('KL-1 first', { ts: 'a' }),
+      log('KL-1 second', { ts: 'b' }),
+    ];
+    const out = grepLogs(logs, { task_ref: 'KL-1' });
+    assert.deepEqual(out.map((e) => e.ts), ['c', 'a', 'b']);
+  });
+
+  it('never-throws sobre entradas con msg ausente (buffer best-effort)', () => {
+    const logs = [{ ts: 't', level: 'info' }, log('KL-1 here')];
+    // @ts-ignore — entrada degradada a propósito (msg ausente).
+    const out = grepLogs(logs, { task_ref: 'KL-1' });
+    assert.equal(out.length, 1);
   });
 });

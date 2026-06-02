@@ -20,6 +20,10 @@
 //     operador (anti-ReDoS / anti-inyección).
 //   - D-11: countByStatus cuenta el zombie (running && !alive) APARTE de running.
 //
+// Phase 39 (TUI-16): `grepLogs` se suma a la capa de derive — filtro puro substring OR de
+// task_ref/workspace_ref sobre el buffer compartido de /logs (anti-ReDoS, T-39-02). Vive aquí
+// (derive) y NO en format.js (presentación): es un filtro, no un cell projector.
+//
 // Color-isolation (invariante D-12 Phase 34): este módulo NO importa `picocolors` ni
 // `src/cli/format.js`. test/format-isolation.test.js lo verifica vía walker automático.
 
@@ -170,4 +174,38 @@ export function countByStatus(rows) {
     else if (Object.prototype.hasOwnProperty.call(c, st)) c[/** @type {string} */ (st)]++;
   }
   return c;
+}
+
+/**
+ * Filtra el buffer COMPARTIDO de `GET /logs` por substring OR de `task_ref` / `workspace_ref`
+ * contra `entry.msg` (TUI-16, D-03). El buffer es un ring newest-first sin `session_id` por
+ * línea (src/server.js:21-29), por lo que el grep es best-effort: NO parsea un session_id que
+ * el buffer no garantiza (D-03 — eso dejaría el overlay vacío durante actividad real). El header
+ * del overlay etiqueta el buffer como compartido / best-effort (D-04, lo implementa el Plan 02).
+ *
+ * Disciplina anti-ReDoS (T-39-02, espejo de applyFilter / parseFilter): el match es por
+ * `String.includes` (lowercased) — JAMÁS se compila una expresión regular desde un ref
+ * tecleado/derivado. Un ref con chars regex-especiales (p.ej. `KL-1.*`) se matchea LITERAL
+ * como substring.
+ *
+ * Reglas:
+ *   - needles vacíos (sin task_ref ni workspace_ref, o ambos string vacío) → `[]` (no inunda el
+ *     overlay con el buffer entero — D-03).
+ *   - sin matches → `[]`.
+ *   - preserva el orden de entrada de `logs` (no reordena; el buffer ya viene newest-first).
+ *   - never-throws sobre entradas degradadas (msg ausente → se trata como '').
+ *
+ * @param {Array<{ ts?: string, level?: string, msg?: string }>} logs — buffer crudo de /logs.
+ * @param {{ task_ref?: string, workspace_ref?: string }} session — refs de la sesión seleccionada.
+ * @returns {Array<{ ts?: string, level?: string, msg?: string }>} subconjunto que casa (orden preservado).
+ */
+export function grepLogs(logs, session) {
+  const needles = [session.task_ref, session.workspace_ref]
+    .filter(Boolean)
+    .map((s) => /** @type {string} */ (s).toLowerCase());
+  if (needles.length === 0) return [];
+  return logs.filter((e) => {
+    const hay = (e.msg ?? '').toLowerCase();
+    return needles.some((n) => hay.includes(n));
+  });
 }
