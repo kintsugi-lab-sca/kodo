@@ -39,8 +39,8 @@ Cada requirement mapea a una fase del roadmap. Grupos funcionales = orden de bui
 
 ### Paneles auxiliares — comentarios + logs (Phase E)
 
-- [ ] **TUI-15**: El usuario pulsa `c` sobre la fila seleccionada para ver los comentarios de la tarea (`GET /comments/<task_id>`, con mapping `task_ref`→`task_id`); `Esc` vuelve al mismo cursor
-- [ ] **TUI-16**: El usuario pulsa `l` sobre la fila seleccionada para ver las líneas de log coincidentes (grep best-effort por `task_ref`/`workspace_ref` sobre el buffer compartido de `GET /logs`, etiquetado honestamente como no-per-session); `Esc` vuelve al mismo cursor
+- [x] **TUI-15**: El usuario pulsa `c` sobre la fila seleccionada para ver los comentarios de la tarea (`GET /comments/<task_id>`, con mapping `task_ref`→`task_id`); `Esc` vuelve al mismo cursor
+- [x] **TUI-16**: El usuario pulsa `l` sobre la fila seleccionada para ver las líneas de log coincidentes (grep best-effort por `task_ref`/`workspace_ref` sobre el buffer compartido de `GET /logs`, etiquetado honestamente como no-per-session); `Esc` vuelve al mismo cursor
 
 ## v2 Requirements
 
@@ -77,28 +77,28 @@ Mapeo requirement → fase. Los grupos A–E reflejan el orden de build de la in
 
 | Requirement | Grupo (build order) | Phase | Status |
 |-------------|---------------------|-------|--------|
-| TUI-01 | A — Fundación | Phase 34 | Pending |
-| TUI-02 | A — Fundación | Phase 34 | Pending |
-| TUI-03 | A — Fundación | Phase 34 | Pending |
-| TUI-04 | A — Fundación | Phase 34 | Pending |
-| TUI-05 | B — Datos/polling | Phase 35 | Pending |
-| TUI-06 | B — Datos/polling | Phase 35 | Pending |
-| TUI-07 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-08 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-09 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-10 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-11 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-12 | C — Tabla/selección | Phase 36 | Pending |
-| TUI-13 | D — Attach | Phase 37 | Pending |
-| TUI-14 | D — Attach | Phase 37 | Pending |
-| TUI-15 | E — Paneles aux | Phase 38 | Pending |
-| TUI-16 | E — Paneles aux | Phase 38 | Pending |
+| TUI-01 | A — Fundación | Phase 34 | Done |
+| TUI-02 | A — Fundación | Phase 34 | Done |
+| TUI-03 | A — Fundación | Phase 34 | Done |
+| TUI-04 | A — Fundación | Phase 34 | Done |
+| TUI-05 | B — Datos/polling | Phase 35 | Done |
+| TUI-06 | B — Datos/polling | Phase 35 | Done |
+| TUI-07 | C — Tabla/selección | Phase 36 | Done |
+| TUI-08 | C — Tabla/selección | Phase 36 | Done |
+| TUI-09 | C — Tabla/selección | Phase 36 | Done |
+| TUI-10 | C — Tabla/selección | Phase 36 | Done |
+| TUI-11 | C — Tabla/selección | Phase 36 | Done |
+| TUI-12 | C — Tabla/selección | Phase 36 | Done |
+| TUI-13 | D — Attach | Phase 37 | Done |
+| TUI-14 | D — Attach | Phase 37 | Done |
+| TUI-15 | E — Paneles aux | Phase 39 | Done |
+| TUI-16 | E — Paneles aux | Phase 39 | Done |
 
 **Coverage:**
 - v1 requirements: 16 total
-- Mapped to phases: 16 (Phases 34-38, build order A→E)
+- Mapped to phases: 16 (Phases 34-39, build order A→E)
 - Unmapped: 0 ✓ (100% coverage — cada TUI-* mapea a exactamente una fase)
 
 ---
 *Requirements defined: 2026-05-26*
-*Last updated: 2026-05-26 — traceability rellenada por gsd-roadmapper: 16/16 TUI-* mapeadas a Phases 34-38, 100% coverage.*
+*Last updated: 2026-06-02 — reconciliado por Phase 39.1 (D-10): TUI-15/16 marcados [x] (39-VERIFICATION passed), columna Status de la traceability table coherente con las VERIFICATION/UAT passed (16/16 Done), TUI-15/16 reubicados a Phase 39 (coherente con el audit y el roadmap — los overlays son Phase 39, no 38).*
