@@ -53,6 +53,39 @@ export function createPlaneProvider(config, opts = {}) {
   }
 
   /**
+   * Map a Plane state ({name, group}) to the normalized provider_state vocabulary.
+   *
+   * Precedence (D-08): the `name` substring WINS over `group`, because "In Review" /
+   * "Blocked" typically live inside Plane's `started` group — mapping by group alone
+   * would lose that signal (the exact ROMAN-150 driver).
+   *
+   * Comparison is `String.includes` case-insensitive ONLY — NEVER a RegExp over the
+   * provider-controlled name (anti-ReDoS, D-10). Returns one of the five literals; never
+   * echoes the raw Plane state name (D-09).
+   *
+   * @param {string} [name] - state name (provider-controlled, untrusted)
+   * @param {string} [group] - Plane state group: backlog|unstarted|started|completed|cancelled
+   * @returns {'in_progress'|'in_review'|'blocked'|'done'|'unknown'}
+   */
+  function mapPlaneState(name, group) {
+    const lower = (name || '').toLowerCase();
+    if (lower.includes('review')) return 'in_review';
+    if (lower.includes('block')) return 'blocked';
+    switch (group) {
+      case 'completed':
+      case 'cancelled':
+        return 'done';
+      case 'started':
+      case 'unstarted':
+        return 'in_progress';
+      case 'backlog':
+        return 'unknown';
+      default:
+        return 'unknown';
+    }
+  }
+
+  /**
    * Find the project config entry matching a given identifier prefix.
    * @param {string} prefix
    * @returns {{id: string, identifier: string, name: string}}
@@ -192,6 +225,18 @@ export function createPlaneProvider(config, opts = {}) {
         text: (c.comment_html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(),
         created_at: c.created_at,
       }));
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected at
+    // the call site via `typeof provider.getTaskState === 'function'`. Resolves the
+    // task's CURRENT state live via getWorkItem (which expands state_detail = {name,
+    // group}) — never relies on the init-time stateCache, since state changes after init.
+    // Errors propagate; the server enrichment (Plan 02) owns fail-open. Maps via the pure
+    // mapPlaneState helper (name-substring-first, then group; String.includes only, D-10).
+    async getTaskState({ id, projectId }) {
+      const workItem = await client.getWorkItem(projectId, id);
+      const detail = workItem?.state_detail || {};
+      return mapPlaneState(detail.name, detail.group);
     },
 
     async listPendingTasks() {
