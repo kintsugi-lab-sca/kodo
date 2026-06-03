@@ -19,6 +19,7 @@ import {
   statusColor,
   statusLabel,
   rowCells,
+  STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
 
 describe('TUI-07 (D-03): deriveRepo — project_name | basename(project_path) | —', () => {
@@ -91,6 +92,69 @@ describe('TUI-10 (D-08): statusColor devuelve nombres de color ink (nunca ANSI)'
         serialized.includes(''),
         false,
         `el retorno no debe contener bytes ANSI, fue ${serialized}`,
+      );
+    }
+  });
+});
+
+describe('TUI-10 (39.1-03): statusColor v3-aware — deriva del estado v3 reusando STATE_BADGES', () => {
+  it('status v2 null + state v3 colorea la celda status (idle→yellow, needs-input→cyan, dead→red)', () => {
+    assert.deepEqual(
+      statusColor(null, true, 'idle'),
+      { color: STATE_BADGES.idle.color },
+      `idle v3 → ${STATE_BADGES.idle.color} (reusa STATE_BADGES.idle.color)`,
+    );
+    assert.deepEqual(
+      statusColor(null, true, 'needs-input'),
+      { color: STATE_BADGES['needs-input'].color },
+      `needs-input v3 → ${STATE_BADGES['needs-input'].color} (reusa STATE_BADGES)`,
+    );
+    assert.deepEqual(
+      statusColor(null, false, 'dead'),
+      { color: STATE_BADGES.dead.color },
+      `dead v3 → ${STATE_BADGES.dead.color} (reusa STATE_BADGES.dead.color)`,
+    );
+  });
+  it('la paleta v3 derivada coincide exactamente con STATE_BADGES (sin literales nuevos)', () => {
+    assert.equal(statusColor(null, true, 'idle').color, 'yellow', 'idle es yellow en la paleta LOCKED');
+    assert.equal(statusColor(null, true, 'needs-input').color, 'cyan', 'needs-input es cyan en la paleta LOCKED');
+    assert.equal(statusColor(null, false, 'dead').color, 'red', 'dead es red en la paleta LOCKED');
+  });
+  it('status v2 conserva precedencia cuando matchea una rama v2 (sin regresión)', () => {
+    assert.deepEqual(
+      statusColor('running', true, 'idle'),
+      { color: 'green' },
+      'running v2 GANA sobre state v3 idle',
+    );
+    assert.deepEqual(
+      statusColor('running', false, 'idle'),
+      { color: 'red' },
+      'zombie (running+!alive) GANA sobre state v3',
+    );
+    assert.deepEqual(
+      statusColor('done', true, 'needs-input'),
+      { dim: true },
+      'done v2 GANA sobre state v3',
+    );
+  });
+  it('sin status v2 ni state v3 reconocido → {} (celda vacía sin romper render)', () => {
+    assert.deepEqual(statusColor(null, true, undefined), {}, 'null + undefined → {}');
+    assert.deepEqual(statusColor(null, true, 'closed'), {}, 'state sin badge (closed) → {}');
+    assert.deepEqual(statusColor(null, true), {}, 'sin tercer argumento → {} (compat retro)');
+  });
+  it('los retornos v3 siguen siendo objetos planos sin bytes ANSI (color-isolation)', () => {
+    const all = [
+      statusColor(null, true, 'idle'),
+      statusColor(null, true, 'needs-input'),
+      statusColor(null, false, 'dead'),
+    ];
+    const ESC = String.fromCharCode(0x1b); //  byte que iniciaría una secuencia ANSI.
+    for (const v of all) {
+      assert.equal(typeof v, 'object', `cada retorno debe ser objeto, fue ${typeof v}`);
+      assert.equal(
+        JSON.stringify(v).includes(ESC),
+        false,
+        `el retorno v3 no debe contener bytes ANSI, fue ${JSON.stringify(v)}`,
       );
     }
   });
