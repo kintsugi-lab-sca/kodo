@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
-status: executing
-stopped_at: Phase 39.1 context gathered
-last_updated: "2026-06-03T08:01:01.409Z"
+status: milestone_complete
+stopped_at: Milestone complete (Phase 39.1 was final phase)
+last_updated: 2026-06-03T08:28:38.684Z
 last_activity: 2026-06-03 -- Phase 39.1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 43
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 39.1 — cierre-de-gaps-v0-9-wiring-host-tui-fuente-nica-de-alive-sta
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 39.1 (cierre-de-gaps-v0-9-wiring-host-tui-fuente-nica-de-alive-sta) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 39.1
-Last activity: 2026-06-03 -- Phase 39.1 execution started
+Phase: 39.1
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-06-03
 
 Progress: [██████████] 100%
 
