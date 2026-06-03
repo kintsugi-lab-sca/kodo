@@ -148,10 +148,11 @@ describe('TUI-10 (39.1-03): statusColor v3-aware — deriva del estado v3 reusan
       statusColor(null, true, 'needs-input'),
       statusColor(null, false, 'dead'),
     ];
+    const ESC = String.fromCharCode(0x1b); //  byte que iniciaría una secuencia ANSI.
     for (const v of all) {
       assert.equal(typeof v, 'object', `cada retorno debe ser objeto, fue ${typeof v}`);
       assert.equal(
-        JSON.stringify(v).includes(''),
+        JSON.stringify(v).includes(ESC),
         false,
         `el retorno v3 no debe contener bytes ANSI, fue ${JSON.stringify(v)}`,
       );

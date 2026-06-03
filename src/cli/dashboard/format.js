@@ -74,26 +74,37 @@ export function phaseMode(session) {
 
 /**
  * Decisión de color semántico (D-08). Devuelve un objeto plano con un NOMBRE de color ink
- * (`'green'|'red'|'cyan'|'magenta'`) o el sentinel `{ dim:true }` para done — NUNCA ANSI.
- * ink (App, Plan 02) lo pasa a `<Text color>` y produce el ANSI internamente.
+ * (`'green'|'red'|'cyan'|'magenta'|'yellow'`) o el sentinel `{ dim:true }` para done — NUNCA
+ * ANSI. ink (App, Plan 02) lo pasa a `<Text color>` y produce el ANSI internamente.
  *
- *   running + !alive (ZOMBIE) → { color:'red' }   (el único uso de red en la fase)
+ * El switch v2 (`status`) tiene PRECEDENCIA: si matchea una rama v2 se devuelve su color sin
+ * mirar el estado v3. Solo cuando NINGUNA rama v2 matchea (status v2 `null`, típico de sesiones
+ * v3 idle/needs-input) se deriva del estado v3 (`state`) reusando la paleta YA LOCKED de
+ * `STATE_BADGES` — exactamente como `stateBadge` (D-06). Sin literales de color nuevos: el color
+ * se LEE de STATE_BADGES (idle=yellow, needs-input=cyan, dead=red), no se duplica.
+ *
+ *   running + !alive (ZOMBIE) → { color:'red' }   (el único uso de red v2 en la fase)
  *   running + alive           → { color:'green' }
  *   review                    → { color:'cyan' }
  *   error                     → { color:'magenta' } (distinto del red del zombie)
  *   done                      → { dim:true }
+ *   (sin rama v2) + state v3   → { color: STATE_BADGES[state].color }  (TUI-10, 39.1-03)
  *   otro                      → {}
  *
- * @param {string} status
+ * Función pura sin I/O → byte-determinismo `--json`/NO_COLOR preservado.
+ *
+ * @param {string} status estado v2 (puede ser null/'' en sesiones v3)
  * @param {boolean} [alive]
+ * @param {string} [state] estado v3 del lifecycle (idle|needs-input|dead|running|…), opcional
  * @returns {{ color?: string, dim?: boolean }}
  */
-export function statusColor(status, alive) {
+export function statusColor(status, alive, state) {
   if (status === 'running' && !alive) return { color: 'red' };
   if (status === 'running') return { color: 'green' };
   if (status === 'review') return { color: 'cyan' };
   if (status === 'error') return { color: 'magenta' };
   if (status === 'done') return { dim: true };
+  if (STATE_BADGES[state ?? '']) return { color: STATE_BADGES[state ?? ''].color };
   return {};
 }
 
