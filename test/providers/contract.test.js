@@ -309,6 +309,10 @@ async function instantiateProvider(name) {
       }),
       // init() — modules por proyecto (vacío tolerado, provider.js:108)
       '/modules/': () => ({ results: [] }),
+      // getTaskState → getWorkItem(projectId, id) pega a /work-items/<id>/ con
+      // expand=state_detail. Suffix más específico que /work-items/ (endsWith strict).
+      // planeWorkItem.state_detail = {name:'In Progress', group:'started'} → in_progress.
+      [`/work-items/${planeWorkItem.id}/`]: () => planeWorkItem,
       // listPendingTasks + getWorkItemBySequence — ambos pegan a /work-items/
       '/work-items/': () => ({ results: [planeWorkItem] }),
     });
@@ -361,6 +365,29 @@ function getInvalidRef(name) {
   if (name === 'github') return 'octocat/hello-world#9999';
   throw new Error(`No invalid ref for: ${name}`);
 }
+
+/**
+ * Argumento por-provider para `getTaskState` (firma divergente legítima, D-Discretion):
+ *   - plane: `{ id, projectId }` (resoluble contra los fixtures /work-items/ + /states/)
+ *   - github: `{ ref }` (resoluble contra la fixture getIssue del number 42)
+ * @param {string} name
+ */
+function getTaskStateArg(name) {
+  if (name === 'plane') {
+    return { id: planeWorkItem.id, projectId: 'p0p0p0p0-1111-2222-3333-444444444444' };
+  }
+  if (name === 'github') return { ref: 'octocat/hello-world#42' };
+  throw new Error(`No getTaskState arg for: ${name}`);
+}
+
+/** Vocabulario normalizado cerrado de provider_state (PSTATE-01/02). */
+const PROVIDER_STATE_VOCAB = Object.freeze([
+  'in_progress',
+  'in_review',
+  'blocked',
+  'done',
+  'unknown',
+]);
 
 // ───────────────────────────────────────────────────────────────────────
 // Matrix loop — TODOS los `it()` viven DENTRO de este loop (Pitfall #3)
@@ -461,6 +488,19 @@ for (const providerName of PROVIDERS) {
         result,
         false,
         `[${providerName}] verifySignature('', {}) must return false, got: ${result}`,
+      );
+    });
+
+    // B8 — getTaskState (OPTIONAL, capability-gated, PSTATE-03 / D-14)
+    // Skip-without-failing si el provider no implementa el método, preservando el
+    // determinismo PROVIDERS × N_asserts (espejo del gate server-side `typeof === 'function'`).
+    // getTaskState NO está en TASK_PROVIDER_METHODS (sigue en 9, B1 inalterado, D-13/D-14).
+    it('getTaskState (if supported) returns a normalized state literal', async () => {
+      if (typeof provider.getTaskState !== 'function') return; // capability-gated skip
+      const state = await provider.getTaskState(getTaskStateArg(providerName));
+      assert.ok(
+        PROVIDER_STATE_VOCAB.includes(state),
+        `[${providerName}] getTaskState must return one of ${PROVIDER_STATE_VOCAB.join('|')}, got: ${state}`,
       );
     });
   });
