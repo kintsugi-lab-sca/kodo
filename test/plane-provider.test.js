@@ -96,6 +96,26 @@ describe('PlaneProvider', () => {
       }
     });
 
+    it('getTaskState reuses the single getWorkItem fetch (no extra /states/ call)', async () => {
+      const stub = stubFetch({
+        '/states/': () => ({ results: [{ id: 's1', name: 'In Progress', group: 'started' }] }),
+        '/labels/': () => ({ results: [] }),
+        '/modules/': () => ({ results: [] }),
+        '/projects/proj-uuid/work-items/wi-1/': () => ({
+          id: 'wi-1',
+          state_detail: { name: 'In Review', group: 'started' },
+        }),
+      });
+      try {
+        const provider = createPlaneProvider(MOCK_CONFIG);
+        await provider.init();
+        const state = await provider.getTaskState({ id: 'wi-1', projectId: 'proj-uuid' });
+        assert.equal(state, 'in_review', 'name substring "review" wins over group "started"');
+      } finally {
+        stub.restore();
+      }
+    });
+
     it('listPendingTasks does not request the state_detail expansion', async () => {
       let workItemsUrl = null;
       const original = globalThis.fetch;
@@ -120,6 +140,78 @@ describe('PlaneProvider', () => {
       } finally {
         globalThis.fetch = original;
       }
+    });
+  });
+
+  describe('getTaskState mapping (D-08/D-09/D-10)', () => {
+    /**
+     * Build a provider whose getWorkItem returns the given state_detail.
+     * @param {{name?: string, group?: string}|null} stateDetail
+     */
+    function providerWithState(stateDetail) {
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        const p = new URL(url).pathname;
+        if (p.includes('/work-items/wi-1/')) {
+          const body = stateDetail === null ? { id: 'wi-1' } : { id: 'wi-1', state_detail: stateDetail };
+          return new Response(JSON.stringify(body), { status: 200 });
+        }
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      };
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      return { provider, restore: () => { globalThis.fetch = original; } };
+    }
+
+    /** @param {{name?: string, group?: string}|null} stateDetail */
+    async function mapState(stateDetail) {
+      const { provider, restore } = providerWithState(stateDetail);
+      try {
+        return await provider.getTaskState({ id: 'wi-1', projectId: 'proj-uuid' });
+      } finally {
+        restore();
+      }
+    }
+
+    it('name "In Review" (any group) → in_review (name wins over group, D-08)', async () => {
+      assert.equal(await mapState({ name: 'In Review', group: 'started' }), 'in_review');
+      assert.equal(await mapState({ name: 'In Review', group: 'completed' }), 'in_review');
+    });
+
+    it('name "Blocked" (any group) → blocked', async () => {
+      assert.equal(await mapState({ name: 'Blocked', group: 'started' }), 'blocked');
+    });
+
+    it('name "In Progress" group "started" → in_progress', async () => {
+      assert.equal(await mapState({ name: 'In Progress', group: 'started' }), 'in_progress');
+    });
+
+    it('name "Done" group "completed" → done', async () => {
+      assert.equal(await mapState({ name: 'Done', group: 'completed' }), 'done');
+    });
+
+    it('group "cancelled" (terminal) → done', async () => {
+      assert.equal(await mapState({ name: 'Cancelled', group: 'cancelled' }), 'done');
+    });
+
+    it('group "unstarted" → in_progress', async () => {
+      assert.equal(await mapState({ name: 'Todo', group: 'unstarted' }), 'in_progress');
+    });
+
+    it('group "backlog" → unknown', async () => {
+      assert.equal(await mapState({ name: 'Backlog', group: 'backlog' }), 'unknown');
+    });
+
+    it('missing / unrecognized state → unknown', async () => {
+      assert.equal(await mapState(null), 'unknown');
+      assert.equal(await mapState({ name: 'Weird', group: 'mystery' }), 'unknown');
+    });
+
+    it('anti-ReDoS: a name like "(.*)+review" is matched as a literal substring, not a regex', async () => {
+      // String.includes('review') is true here because the literal contains "review".
+      // The point is no RegExp is ever constructed from provider input (D-10).
+      assert.equal(await mapState({ name: '(.*)+review', group: 'backlog' }), 'in_review');
+      // A pathological string that would hang a backtracking regex resolves instantly.
+      assert.equal(await mapState({ name: 'a'.repeat(50000) + '!', group: 'backlog' }), 'unknown');
     });
   });
 });
