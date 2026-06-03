@@ -373,12 +373,11 @@ export async function startServer(opts = {}) {
         }
       }
 
-      // Enrich sessions with live workspace health
-      let workspaceList = '';
-      try { workspaceList = await cmux.listWorkspaces(); } catch {}
+      // Enrich sessions with elapsed_min only. `alive` is the authoritative value
+      // written by reconcileTick into state.json (única fuente de verdad, D-04);
+      // it pasa-through vía `...s`, NO se recomputa aquí.
       const enriched = sessions.map((s) => ({
         ...s,
-        alive: workspaceList.includes(s.workspace_ref),
         elapsed_min: Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60000),
       }));
 
