@@ -193,7 +193,6 @@ export default function SessionTable({
   mode = 'list',
   query = '',
   focusError = null,
-  hostError = null,
   overlayKind = null,
   scrollOffset = 0,
   overlaySnapshot = null,
@@ -228,11 +227,7 @@ export default function SessionTable({
   // mismo nivel de granularidad. Color del rojo via `<Text color="red">` de ink
   // (color-isolation D-12 Phase 34: cero picocolors, cero ANSI inline). El walker
   // test/format-isolation.test.js cubre este archivo automáticamente.
-  // Phase 38 D-06: el host-error reusa el MISMO footer rojo que focusError
-  // (clear-on-any-input Phase 37 D-04 lo limpia igual). focusError tiene
-  // precedencia (acción directa del operador sobre una fila) sobre hostError
-  // (estado de fondo descubierto por la reconciliación de Plan 04).
-  const footerError = focusError ?? hostError;
+  const footerError = focusError;
   const errorLine =
     footerError != null
       ? h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, footerError))

@@ -26,7 +26,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
-import App, { HOST_ERR_UNAVAILABLE, HOST_ERR_TIMEOUT } from '../src/cli/dashboard/App.js';
+import App from '../src/cli/dashboard/App.js';
 // Phase 38 Plan 03: pure-function units del render multi-estado (badges + filtros).
 import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/format.js';
 import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
@@ -475,7 +475,7 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 38 Plan 03 (TUI-19 / SC#3): render multi-estado — badges, filtros
-// s:<state> + s:active, countsLabel extendido, HOST_ERR_* literal-stable.
+// s:<state> + s:active, countsLabel extendido.
 //
 // Tests PURE-FUNCTION (sin render ink): ejercen las unidades de format.js y
 // select.js directamente. RED hasta Task 2/3.
@@ -565,14 +565,5 @@ describe('Phase 38 SC#3: countsLabel extendido (idle/needs-input/dead)', () => {
     assert.doesNotMatch(label, /idle/);
     assert.doesNotMatch(label, /needs-input/);
     assert.doesNotMatch(label, /dead/);
-  });
-});
-
-describe('Phase 38 SC#3: HOST_ERR_* constantes literal-stable (D-06)', () => {
-  it('HOST_ERR_UNAVAILABLE byte-stable', () => {
-    assert.equal(HOST_ERR_UNAVAILABLE, '[!] host unavailable — check binary path');
-  });
-  it('HOST_ERR_TIMEOUT byte-stable', () => {
-    assert.equal(HOST_ERR_TIMEOUT, '[!] host timeout — list-workspaces took >5s');
   });
 });
