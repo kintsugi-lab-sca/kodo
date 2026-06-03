@@ -4,8 +4,8 @@ milestone: v0.9
 milestone_name: kodo TUI — sesiones en vivo
 status: executing
 stopped_at: Phase 39.1 context gathered
-last_updated: "2026-06-02T20:19:43.529Z"
-last_activity: 2026-06-02 -- Phase 39.1 planning complete
+last_updated: "2026-06-03T08:01:01.409Z"
+last_activity: 2026-06-03 -- Phase 39.1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-05-25 after v0.8 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic.
 
-**Current focus:** Phase 39.1 — cierre de gaps v0.9 (host↔TUI, alive, statusColor)
+**Current focus:** Phase 39.1 — cierre-de-gaps-v0-9-wiring-host-tui-fuente-nica-de-alive-sta
 
 ## Current Position
 
-Phase: 39 — COMPLETE
-Plan: 1 of 2
-Status: Ready to execute
-Last activity: 2026-06-02 -- Phase 39.1 planning complete
+Phase: 39.1 (cierre-de-gaps-v0-9-wiring-host-tui-fuente-nica-de-alive-sta) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 39.1
+Last activity: 2026-06-03 -- Phase 39.1 execution started
 
 Progress: [██████████] 100%
 
