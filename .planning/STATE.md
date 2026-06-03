@@ -2,11 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: planning
-last_updated: "2026-06-03T11:10:00.000Z"
-last_activity: 2026-06-03
+status: Roadmap ready — awaiting plan-phase
+stopped_at: Phase 40 context gathered
+last_updated: "2026-06-03T11:46:17.018Z"
+last_activity: 2026-06-03 — Roadmap v0.10 creado (14/14 requirements mapeados)
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -91,6 +92,7 @@ None.
 ### Open Questions
 
 Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cada fase):
+
 - **Phase 40:** TTL exacto de `provStateCache` (30s como punto de partida). Honestidad del mapeo GitHub `in_review` — documentar que es convention-driven (labels), no automático.
 - **Phase 43:** render de `provider_state` — columna vs badge vs color (PSTATE-05). Semántica del filtro — `s:review` OR vs prefijo `ps:` (PSTATE-06).
 
@@ -127,8 +129,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-03 — roadmap v0.10 creado
-- **Stopped at:** Roadmap v0.10 (Phases 40-43) escrito; REQUIREMENTS.md traceability 14/14
+- **Last session:** 2026-06-03T11:46:17.013Z
+- **Stopped at:** Phase 40 context gathered
 - **Next action:** `/gsd:plan-phase 40` (Provider State). Phase 40 y 41 paralelizables si hay bandwidth.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.10)
