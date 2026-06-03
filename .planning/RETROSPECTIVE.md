@@ -243,6 +243,55 @@
 
 ---
 
+## Milestone: v0.9 — kodo TUI sesiones en vivo
+
+**Shipped:** 2026-06-03
+**Phases:** 7 (34-39 + cierre 39.1) | **Plans:** 23 | **Tasks:** ~26
+**Audit:** `tech_debt` (sin blockers, 16/16 requirements, 47/47 exports wired, 5/5 flujos E2E; deuda Nyquist diferida)
+
+### What Was Built
+- Fundación TUI: subcomando `kodo dashboard` (ink@6 + react@19, `React.createElement` sin build step, lazy import), guard non-TTY pre-render, ciclo de vida limpio (q/Ctrl-C/SIGTERM), color-isolation extendida a `src/cli/dashboard/` (Phase 34 — TUI-01..04)
+- Datos resilientes: `fetchStatus` puro never-throws (`{ok:false}` colapsa ECONNREFUSED/HTTP-no-ok/JSON-corrupto) + `usePoll`/`runPollLoop` self-scheduling single-flight + backoff 2.5→5→10s + keep-last-good (Phase 35 — TUI-05/06)
+- Tabla viva: capa derive PURA React-free (sort DESC estable, selección por identidad `task_id`, filtros `/`+`r:`/`s:` AND anti-ReDoS, `countByStatus`) + render ink columnar con color semántico + zombie + interacción mode-gated (Phase 36 — TUI-07..12)
+- Focus cmux: Enter → `cmux select-workspace` fire-and-forget vía `execFile`, guard inverso `alive===false`, errores al footer sin desmontar (Phase 37 — TUI-13/14; UAT manual obligatorio)
+- WorkspaceHost provider + ciclo de vida v3: provider intercambiable + estados idle/needs-input/dead/closed + migración `state.json` v2→v3 + `reconcileTick` único escritor de `alive` (Phase 38 — promovido desde backlog 999.2; cierra ROMAN-151/152)
+- Paneles auxiliares: overlays `c` (comentarios) y `l` (logs grep best-effort) como tercer `mode:'overlay'`, snapshot congelado, Esc preserva cursor (Phase 39 — TUI-15/16)
+- Cierre de gaps: TUI-17 wiring host muerto eliminado, fuente única de `alive`, `statusColor` v3-aware, overlay `supported`, bookkeeping (Phase 39.1 — VERIFICATION 14/14)
+
+### What Worked
+- **Separación derive-pura vs render (Phase 36):** toda la lógica de sort/selección/filtros vive en `select.js`/`format.js` React-free y DI-testable; el render ink solo consume. Permitió cubrir las invariantes load-bearing (selección por identidad, anti-ReDoS) con tests puros y atrapar el BLOCKER del cursor antes de shipping.
+- **Never-throws en el data layer, no en React (Phase 35 D-07):** poner el invariante no-crash en `fetchStatus` (no en try/catch dispersos por componentes) hizo que JSON corrupto / server caído fueran un estado de datos, no una excepción de render. La TUI nunca crasheó en UAT.
+- **UAT manual como gate de primera clase para fases GUI (37/38):** las dos fases de mayor riesgo (focus cmux + estados de proceso en vivo) se cerraron con HUMAN-UAT firmado en TTY real, no con verifier automatizado. Honesto sobre lo que tests sin PTY no pueden cubrir.
+- **Promover desde backlog cuando un diagnóstico lo exige (Phase 38):** ROMAN-151/152 (sesiones `Needs input` invisibles en el dashboard) justificó promover 999.2 a fase de milestone con un trigger empírico, no especulativo.
+- **Fase de cierre de gaps (39.1) tras el audit:** el audit `gaps_found` (1 blocker + 3 warnings) se saldó con una fase insertada de 5 planes antes de archivar — el mismo patrón sano de v0.8 (32/33).
+
+### What Was Inefficient
+- **ROADMAP.md se corrompió a mitad del milestone (bug de tooling):** el commit `4862a97` (creación del plan de Phase 39.1) **sobreescribió `.planning/ROADMAP.md` de 362 → 13 líneas**, dejando solo el fragmento de 39.1. Pasó desapercibido hasta el milestone close, donde hubo que reconstruir el roadmap íntegro desde `fb856af` + reinyectar el detalle real de 39.1 + re-anexar el Backlog. **El tooling de plan-phase no debe tocar ROADMAP.md salvo para el índice de fases.**
+- **`gsd-sdk milestone.complete` volvió a contar mal Y extrajo accomplishments basura (3er milestone con el bug):** reportó 8 phases (contó el backlog 999.1) y los `one_liner` extraídos eran notas de desviación (`[Rule 3 - Blocking]…`, `Descubierto durante RED→GREEN:`). Hubo que reescribir la entrada de MILESTONES.md a mano. **Mismo bug que v0.5 y v0.8 — la deuda de herramienta ya es crónica.**
+- **Nyquist coverage arrancó/quedó en 2/7:** solo 34/35 generaron VALIDATION.md; 36/37 parciales, 38/39/39.1 ausentes. El toggle `nyquist_validation: true` no produce el artefacto por-phase automáticamente. Se difirió como deuda consciente (la cobertura empírica existe vía VERIFICATION/UAT).
+- **VERIFICATION.md formal ausente en 37/38:** las fases UAT-manual no generaron VERIFICATION.md; el cierre se apoyó en UAT/HUMAN-UAT. Funcional, pero deja hueco de artefacto formal.
+
+### Patterns Established
+- **Derive-pura React-free + render delgado:** toda la lógica de presentación (sort, selección, filtros, color-como-dato) en módulos sin React, testables con DI; el componente ink solo orquesta. Replicable para cualquier TUI/UI con lógica no trivial.
+- **Never-throws en el borde de datos:** la capa de fetch colapsa todo fallo a un discriminante `{ok:false, error}`; el invariante no-crash no se reparte por el árbol de render.
+- **Selección por identidad, nunca por índice:** en listas vivas que se reordenan/filtran, rastrear la selección por id de dominio (`task_id`) — el índice de array es un bug latente.
+- **Fuente única de estado con un solo escritor (`reconcileTick`):** el dashboard nunca recomputa `alive`/estado; lo lee del único escritor. Phase 39.1 eliminó el override legacy que violaba esto.
+- **UAT manual firmado como artefacto de cierre válido** para fases GUI/proceso-en-vivo no automatizables sin PTY.
+
+### Key Lessons
+1. **El tooling que escribe `.planning/` necesita guard-rails:** un comando de plan-phase truncó el ROADMAP entero sin que nadie lo notara durante ~6 commits. Cualquier escritura a ROADMAP.md debería ser aditiva sobre el índice, nunca un overwrite total.
+2. **El bug de `milestone.complete` (count + accomplishments) es crónico (v0.5, v0.8, v0.9).** Ya no es un incidente, es deuda de herramienta. Debería leer el grupo de phases del milestone desde el ROADMAP y filtrar one-liners que empiecen por `N. [Rule …]`.
+3. **Nyquist no es automático pese al toggle.** Tras 2 milestones con la misma observación, o el verifier emite VALIDATION.md por-phase, o se acepta que el backfill es un paso manual de cierre.
+4. **El data-layer never-throws es la mejor inversión de robustez de un TUI.** Un solo punto que colapsa fallos > N try/catch en componentes.
+5. **Promover desde backlog con un driver de producción concreto funciona** (ROMAN-151/152 → Phase 38), igual que ROMAN-132 → Phase 30 en v0.8.
+
+### Cost Observations
+- Phases 34-39 ejecutadas con executors + verifier + code-reviewer; 39.1 fase de cierre de gaps (5 planes, Tier dirigido por el audit).
+- Las fases de UI/GUI (37/38) concentraron coste en UAT manual e iteración visual (3 hot-patches post-shipment en Phase 36: alt-screen buffer, selected-row styling, fixture server) — coste inherente a una superficie visual, no a la lógica.
+- Notable: +158 tests netos (915 tras Phase 35 → 1073) para una superficie read-only — el grueso fue cobertura de la capa derive pura y de los never-throws, no del render.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -256,6 +305,7 @@
 | v0.6 | 13 | 5 | Worktree always-on para TODAS las sesiones + cleanup fail-open con `.dirty` rename + HOOK-01 universal anti-push-fantasma |
 | v0.7 | 11 | 5 | 2º adapter (GitHub) validando la promesa provider-agnostic + 3er canal trigger (polling daemon) + cross-provider contract matrix |
 | v0.8 | 20 | 6 | Cherry-pick selectivo de rama paralela + planning regen + discriminated union return CONSUMIDO + phase de cierre de tech-debt (32/33) como patrón |
+| v0.9 | 23 | 7 | Primera superficie UI (TUI ink/react sin build step): derive-pura React-free + never-throws en data layer + selección por identidad + UAT manual como gate de cierre para fases GUI |
 
 ### Cumulative Quality
 
@@ -268,6 +318,7 @@
 | v0.6 | ~688 | ~8,000 | ~13,000 |
 | v0.7 | 777 | ~9,500 | ~16,500 |
 | v0.8 | 895 | ~10,374 (src+bin) | ~19,297 |
+| v0.9 | 1073 | ~12,500 (src+bin, +TUI) | ~23,900 |
 
 ### Top Lessons (Verified Across Milestones)
 
