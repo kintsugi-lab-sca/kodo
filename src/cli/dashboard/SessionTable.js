@@ -27,6 +27,7 @@ import {
   OVERLAY_COMMENTS_EMPTY,
   OVERLAY_COMMENTS_NOT_FOUND,
   OVERLAY_COMMENTS_ERROR,
+  OVERLAY_COMMENTS_UNSUPPORTED,
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
@@ -138,6 +139,10 @@ function renderOverlay(snap, scrollOffset, kind) {
     if (snap.status === 'not-found') {
       copy = OVERLAY_COMMENTS_NOT_FOUND;
       color = 'red';
+    } else if (snap.status === 'unsupported') {
+      // D-08: el provider no soporta comentarios. NO es un error (no rojo) — estado informativo,
+      // se pinta con dimColor como el caso vacío pero con copy DISTINTO (legible bajo NO_COLOR).
+      copy = OVERLAY_COMMENTS_UNSUPPORTED;
     } else if (snap.status === 'error') {
       copy = isLogs ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
       color = 'red';

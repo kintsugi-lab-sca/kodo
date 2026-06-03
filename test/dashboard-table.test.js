@@ -26,7 +26,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
-import App from '../src/cli/dashboard/App.js';
+import App, {
+  OVERLAY_COMMENTS_EMPTY,
+  OVERLAY_COMMENTS_UNSUPPORTED,
+} from '../src/cli/dashboard/App.js';
 // Phase 38 Plan 03: pure-function units del render multi-estado (badges + filtros).
 import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/format.js';
 import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
@@ -565,5 +568,78 @@ describe('Phase 38 SC#3: countsLabel extendido (idle/needs-input/dead)', () => {
     assert.doesNotMatch(label, /idle/);
     assert.doesNotMatch(label, /needs-input/);
     assert.doesNotMatch(label, /dead/);
+  });
+});
+
+// ── TUI-15 / D-07 / D-08: overlay 'unsupported' (provider sin listComments) ──────────────────
+//
+// El server señala `supported:false` en /comments/ cuando el provider no implementa listComments.
+// El overlay DEBE pintar OVERLAY_COMMENTS_UNSUPPORTED (estado permanente), DISTINTO de
+// OVERLAY_COMMENTS_EMPTY (sin comentarios aún, transitorio). El mensaje es legible bajo NO_COLOR
+// (redundancia textual: la distinción NO depende del color). Reusa el harness fake-clock + drain
+// de este archivo; el fetchFn enruta /status (poll) vs /comments/ (overlay).
+describe("TUI-15: overlay 'unsupported' — supported:false → mensaje distinto de empty (D-07/D-08)", () => {
+  it('OVERLAY_COMMENTS_UNSUPPORTED es byte-estable y distinto de OVERLAY_COMMENTS_EMPTY', () => {
+    assert.equal(OVERLAY_COMMENTS_UNSUPPORTED, 'comments not supported by this provider');
+    assert.notEqual(OVERLAY_COMMENTS_UNSUPPORTED, OVERLAY_COMMENTS_EMPTY);
+  });
+
+  it('c con supported:false pinta el copy unsupported y NO el copy empty', async () => {
+    const clock = makeFakeClock();
+    // Router: /status devuelve el FIXTURE (lo consume el poll); /comments/ devuelve la shape
+    // del server tras Task 1: { comments: [], supported: false }.
+    const fetchFn = async (url) => {
+      const u = String(url);
+      if (u.includes('/comments/')) return okResponse({ comments: [], supported: false });
+      return okResponse(FIXTURE);
+    };
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('c');
+      await drain();
+      const frame = lastFrame();
+      assert.match(
+        frame,
+        new RegExp(OVERLAY_COMMENTS_UNSUPPORTED),
+        `supported:false → ${OVERLAY_COMMENTS_UNSUPPORTED}\n${frame}`,
+      );
+      // CRÍTICO: NO debe mostrar el mensaje de "sin comentarios aún" (sería indistinguible).
+      assert.doesNotMatch(
+        frame,
+        new RegExp(OVERLAY_COMMENTS_EMPTY),
+        `unsupported NO debe colapsar a empty\n${frame}`,
+      );
+    } finally {
+      unmount();
+    }
+  });
+
+  it('c con supported:true + comments vacíos sigue pintando empty (sin regresión)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async (url) => {
+      const u = String(url);
+      if (u.includes('/comments/')) return okResponse({ comments: [], supported: true });
+      return okResponse(FIXTURE);
+    };
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('c');
+      await drain();
+      const frame = lastFrame();
+      assert.match(
+        frame,
+        new RegExp(OVERLAY_COMMENTS_EMPTY),
+        `supported:true + vacío → ${OVERLAY_COMMENTS_EMPTY}\n${frame}`,
+      );
+      assert.doesNotMatch(
+        frame,
+        new RegExp(OVERLAY_COMMENTS_UNSUPPORTED),
+        `vacío NO debe mostrar el copy unsupported\n${frame}`,
+      );
+    } finally {
+      unmount();
+    }
   });
 });

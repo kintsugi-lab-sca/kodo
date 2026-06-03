@@ -176,7 +176,10 @@ async function toggleComments(taskId, btnEl) {
     box = document.createElement('div');
     box.id = boxId;
     box.className = 'comments-box';
-    if (!comments.length) {
+    if (data.supported === false) {
+      // D-08/D-09: paridad con el overlay ink — distinguir "provider sin soporte" de "sin comentarios".
+      box.innerHTML = '<div class="empty">Comentarios no soportados por este provider</div>';
+    } else if (!comments.length) {
       box.innerHTML = '<div class="empty">Sin comentarios</div>';
     } else {
       box.innerHTML = comments.map((c) => (
