@@ -1,23 +1,22 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.9
-milestone_name: kodo TUI — sesiones en vivo
-status: Awaiting next milestone
-stopped_at: Milestone v0.9 shipped and archived (2026-06-03)
-last_updated: "2026-06-03T09:18:44.337Z"
-last_activity: 2026-06-03 — Milestone v0.9 completed and archived
+milestone: v0.10
+milestone_name: Higiene y estado real de sesiones
+status: planning
+last_updated: "2026-06-03T10:40:20.218Z"
+last_activity: 2026-06-03
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 23
-  completed_plans: 23
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 **Project:** kodo
-**Active milestone:** Ninguno. v0.9 kodo TUI — sesiones en vivo **shipped 2026-06-03** (Phases 34-39 + cierre 39.1). El siguiente se define con `/gsd:new-milestone`.
+**Active milestone:** v0.10 Higiene y estado real de sesiones (planning). Ejes: `kodo gsd doctor` (saneo) + dismiss desde el dashboard (TUI read-write) + `provider_state` cross-system (Plane + GitHub). Anterior v0.9 kodo TUI — sesiones en vivo **shipped 2026-06-03**.
 
 ## Project Reference
 
@@ -25,14 +24,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Planning next milestone
+**Current focus:** v0.10 — definiendo requirements y roadmap
 
 ## Current Position
 
-Phase: Milestone v0.9 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-03 — Milestone v0.9 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-03 — Milestone v0.10 started
 
 ## Most recent shipped milestone
 
@@ -41,7 +40,7 @@ Last activity: 2026-06-03 — Milestone v0.9 completed and archived
 - Roadmap archive: `milestones/v0.9-ROADMAP.md`
 - Requirements archive: `milestones/v0.9-REQUIREMENTS.md`
 - Audit: `milestones/v0.9-MILESTONE-AUDIT.md`
-- Phase artifacts: `.planning/phases/` (no archivados a `milestones/v0.9-phases/` — opción Skip; usar `/gsd-cleanup` retroactivo si se desea)
+- Phase artifacts: `.planning/milestones/v0.9-phases/` (34-39 + 39.1 archivados al iniciar v0.10)
 
 ## Deferred Items
 
@@ -77,6 +76,7 @@ None.
 ### Open Questions
 
 None. (v0.9 cerrado.)
+
 - _Resuelto:_ Phase 37 (attach) UAT manual — `37-UAT.md` + `37-HUMAN-UAT.md` passed (2 escenarios obligatorios).
 - _Resuelto:_ stack decision v0.9 = Opción A (Node + ink), subcomando `kodo dashboard`. `ink@^6.8.0` + `react@^19.2.0` + `ink-text-input@^6.0.0`, `React.createElement` sin build step, Node ≥20.
 

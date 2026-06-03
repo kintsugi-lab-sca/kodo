@@ -11,7 +11,7 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 ## Current State
 
 **Shipped:** v0.9 (2026-06-03) — kodo TUI sesiones en vivo · audit `tech_debt` (sin blockers, 16/16 requirements)
-**Next:** Sin milestone activo — definir con `/gsd:new-milestone` (candidatos: adapter ClickUp/local, `kodo gsd doctor`, o promoción del backlog 999.1 dismiss desde el dashboard)
+**Next:** v0.10 Higiene y estado real de sesiones — `kodo gsd doctor` (saneo) + dismiss desde el dashboard (TUI read-write) + `provider_state` cross-system (Plane + GitHub)
 
 v0.9 entrega `kodo dashboard`: una superficie de observabilidad ambient en terminal (Node + ink@6 + react@19, `React.createElement` plano sin build step) que monitoriza en vivo las N sesiones kodo activas consumiendo exclusivamente el contrato JSON existente del server (`GET /status`, `/comments/<task_id>`, `/logs`), sin añadir un solo endpoint. Siete fases (34-39 + cierre 39.1), 23 plans, 16/16 requirements TUI satisfechos, suite 1073 pass + 1 skip. (1) **Fundación + datos resilientes (Phases 34-35)** — subcomando con guard non-TTY pre-render, ciclo de vida limpio (q/Ctrl-C/SIGTERM) y color-isolation extendida a `src/cli/dashboard/`; capa de datos `fetchStatus` puro never-throws (colapsa ECONNREFUSED/HTTP-no-ok/JSON-corrupto a `{ok:false}` — ningún throw llega a React) + `usePoll`/`runPollLoop` self-scheduling con `setTimeout` recursivo, single-flight, backoff 2.5→5→10s, keep-last-good. (2) **Tabla viva (Phase 36)** — capa derive PURA React-free: sort DESC estable, selección por **identidad `task_id`** (sigue a la sesión al reordenar), filtros `/`+`r:`/`s:` AND anti-ReDoS (`String.includes` nunca `RegExp`); render ink columnar con color semántico + zombie, header live + contadores. 1 BLOCKER de cursor corregido con test de regresión. (3) **Focus cmux (Phase 37, mayor riesgo)** — Enter → `cmux select-workspace` fire-and-forget vía `execFile`, guard inverso sobre `alive===false`, errores al footer sin desmontar el panel; cerrado por UAT manual obligatorio. (4) **WorkspaceHost provider + ciclo de vida v3 (Phase 38, promovido desde backlog)** — provider de host intercambiable + estados idle/needs-input/dead/closed + migración `state.json` v2→v3 + `reconcileTick` único escritor de `alive`; cierra el caso ROMAN-151/152 (sesiones invisibles en el dashboard). (5) **Paneles aux (Phase 39)** — overlays `c` (comentarios) y `l` (logs grep best-effort) como tercer `mode:'overlay'`, snapshot congelado, Esc preserva cursor. (6) **Cierre de gaps (39.1)** — saldó el blocker TUI-17 (wiring host muerto) + fuente única de `alive` + `statusColor` v3-aware + overlay `supported` + bookkeeping. Audit `tech_debt`: 47/47 exports wired, 5/5 flujos E2E, sin blockers; deuda Nyquist parcial/ausente en 5/7 fases diferida conscientemente. Invariantes preservadas: contrato `TaskProvider` 9 métodos, color isolation (ink no importa picocolors), `--json` byte-determinismo, LOG-12 walker, cwd=repo, HOOK-01 universal, worktree always-on, cero endpoints nuevos.
 
@@ -29,16 +29,18 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Next Milestone Goals
+## Current Milestone: v0.10 Higiene y estado real de sesiones
 
-Sin milestone activo tras el cierre de v0.9 (2026-06-03). El siguiente se define con `/gsd:new-milestone`. Candidatos sobre la mesa:
+**Goal:** Cerrar el ciclo de vida de las sesiones — sanear lo muerto (worktrees, zombies, locks, logs) y reflejar fielmente lo vivo cross-system — promoviendo el dashboard de read-only a una superficie de gestión.
 
-- **Adapters TaskProvider adicionales** — ClickUp, local JSON/Markdown + file watcher (cierra la promesa provider-agnostic con un 3er/4º adapter no-Git).
-- **`kodo gsd doctor`** — limpieza de worktrees huérfanos + sesiones zombie; depende de él el dismissal seguro del backlog 999.1.
-- **Backlog 999.1 — dismiss de sesiones dead desde el dashboard ink** (tecla `d`, guard inverso al de Enter) — promueve TUI-F4; cierra la asimetría con la web UI legacy. El endpoint `DELETE /sessions/{id}` ya existe.
-- **Webhook GitHub ingress real-time** · GitHub Enterprise (`base_url`) · OAuth GitHub App.
+**Target features:**
+- **`kodo gsd doctor`** — utilidad de saneo: worktrees huérfanos, sesiones zombie (`alive===false`), locks per-repo colgados (PID muerto / TTL) y logs NDJSON antiguos. Previsiblemente dry-run por defecto + `--fix`.
+- **Dismiss desde el dashboard** — tecla `d` (guard inverso a Enter: solo sobre `alive===false`) que reusa la lógica de saneo de `doctor`. La TUI pasa de read-only a **read-write** (promoción consciente del backlog 999.1; `DELETE /sessions/{id}` ya existe).
+- **`provider_state` en el dashboard** — nuevo método `getTaskState` en el contrato `TaskProvider` (9 → 10 métodos) para **Plane + GitHub**, enrichment fail-open + cache en `/status`, render + semántica de filtro. Driver: caso real ROMAN-150 (sesión "In Review" en Plane invisible tras `/exit`).
 
-**Deuda v0.9 a considerar al planificar:** cobertura Nyquist parcial/ausente en 5/7 fases (backfill citation-based si se desea); ciclo de import App.js↔SessionTable.js; divergencia D-09 de la web UI legacy (heurística `idle` propia) — relevante si el siguiente milestone toca la web.
+**Decisiones abiertas (→ discuss-phase):** render de `provider_state` (columna vs badge vs color), mapeo GitHub (labels vs PR-state), semántica de filtro (`s:review` OR / prefijo `ps:`).
+
+**Deuda v0.9 a considerar al planificar:** cobertura Nyquist parcial/ausente en 5/7 fases (backfill citation-based si se desea); ausencia de VERIFICATION.md formal en fases 37/38; ciclo de import App.js↔SessionTable.js; divergencia D-09 de la web UI legacy (heurística `idle` propia) — relevante si el milestone toca la web.
 
 ## Requirements
 
@@ -99,9 +101,12 @@ Sin milestone activo tras el cierre de v0.9 (2026-06-03). El siguiente se define
 
 ### Active
 
-Sin milestone activo. Los requirements del siguiente milestone se definen con `/gsd:new-milestone` (questioning → research → requirements → roadmap).
+**Milestone v0.10 — Higiene y estado real de sesiones.** Requirements detallados en `.planning/REQUIREMENTS.md` (definidos al crear el roadmap). Tres ejes:
+- **DOCTOR** — `kodo gsd doctor` sanea worktrees huérfanos, sesiones zombie, locks colgados y logs antiguos.
+- **DISMISS** — tecla `d` en el dashboard reusa la lógica de doctor; la TUI pasa a read-write.
+- **PROVIDER-STATE** — `getTaskState` en el contrato TaskProvider (Plane + GitHub) + enrichment `/status` fail-open + render/filtro en el dashboard.
 
-**Deferred candidates (post-v0.9):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · `kodo gsd doctor` (limpieza de worktrees huérfanos + sesiones zombie) · dismiss de sesiones dead desde el dashboard ink (backlog 999.1, TUI-F4)
+**Deferred candidates (post-v0.10):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
 
 ### Out of Scope
 
@@ -228,4 +233,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-03 after v0.9 milestone — kodo TUI sesiones en vivo **SHIPPED**. Siete fases (34-39 + cierre 39.1), 23 plans, 16/16 requirements TUI satisfechos, suite 1073 pass + 1 skip. Audit `tech_debt` (sin blockers, 47/47 exports wired, 5/5 flujos E2E; deuda Nyquist parcial/ausente en 5/7 fases + ausencia de VERIFICATION.md formal en 37/38 + ciclo de import App↔SessionTable + divergencia D-09 web UI legacy — todo diferido conscientemente y trackeado en STATE.md Deferred Items y `milestones/v0.9-MILESTONE-AUDIT.md`). Archivos: `milestones/v0.9-ROADMAP.md`, `milestones/v0.9-REQUIREMENTS.md`, `milestones/v0.9-MILESTONE-AUDIT.md`. Next: definir el siguiente milestone con `/gsd:new-milestone`.*
+*Last updated: 2026-06-03 — milestone v0.10 "Higiene y estado real de sesiones" iniciado (`kodo gsd doctor` + dismiss desde el dashboard + `provider_state` cross-system). Fases de v0.8 (28-33) y v0.9 (34-39.1) archivadas a `.planning/milestones/`. v0.9 — kodo TUI sesiones en vivo **SHIPPED**. Siete fases (34-39 + cierre 39.1), 23 plans, 16/16 requirements TUI satisfechos, suite 1073 pass + 1 skip. Audit `tech_debt` (sin blockers, 47/47 exports wired, 5/5 flujos E2E; deuda Nyquist parcial/ausente en 5/7 fases + ausencia de VERIFICATION.md formal en 37/38 + ciclo de import App↔SessionTable + divergencia D-09 web UI legacy — todo diferido conscientemente y trackeado en STATE.md Deferred Items y `milestones/v0.9-MILESTONE-AUDIT.md`). Archivos: `milestones/v0.9-ROADMAP.md`, `milestones/v0.9-REQUIREMENTS.md`, `milestones/v0.9-MILESTONE-AUDIT.md`. Next: definir el siguiente milestone con `/gsd:new-milestone`.*
