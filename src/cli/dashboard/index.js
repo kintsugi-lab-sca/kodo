@@ -121,14 +121,6 @@ export async function runDashboard(deps = {}) {
   // segunda lectura solo re-deserializa el config en memoria).
   const cmuxBin = loadConfig().cmux.binary;
 
-  // Phase 38 (Task 3 / D-09): construir el WorkspaceHost y pasarlo como prop a App.
-  // getHost('cmux') es lazy (createRequire interno de interface.js) — cero coste en
-  // arranque del CLI. App.js lo consumirá en 38-02/03/04 (reconciliación host↔state,
-  // badges idle/needs-input). NO muta el onFocus de Phase 37 ni el alt-screen/SIGTERM/
-  // waitUntilExit (invariantes Phase 34/36/37 preservadas literalmente).
-  const { getHost } = await import('../../host/interface.js');
-  const host = getHost('cmux', { binary: cmuxBin });
-
   // Entrar al alternate screen buffer ANTES de render (post non-TTY guard, así
   // pipes/CI no reciben secuencias ANSI). Sin esto, cada redraw a un ancho de
   // terminal distinto deja el frame previo en scrollback como artefacto. El
@@ -142,9 +134,6 @@ export async function runDashboard(deps = {}) {
     // App.js maneja el discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el
     // lifecycle de runDashboard — ink sigue montado durante toda la invocación (~50ms).
     onFocus: async (ref) => runFocus({ exec: execImpl, ref, binary: cmuxBin }),
-    // Phase 38 (Task 3): WorkspaceHost inyectado. App.js lo ignora hoy (prop aditiva,
-    // backward-compat Phase 37) y lo cablea en 38-02/03/04.
-    host,
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
