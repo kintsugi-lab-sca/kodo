@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: executing
+status: verifying
 stopped_at: Phase 40 context gathered
-last_updated: "2026-06-03T15:08:06.386Z"
+last_updated: "2026-06-03T15:18:18.382Z"
 last_activity: 2026-06-03
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 50
+  completed_plans: 2
+  percent: 20
 ---
 
 # Project State
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 Phase: 40 (provider-state-contrato-providers-enrichment) — EXECUTING
 Plan: 2 of 2
-Status: Plan 40-01 complete (getTaskState en Plane + GitHub + assert capability-gated); next 40-02 (server enrichment)
-Last activity: 2026-06-03 -- Plan 40-01 ejecutado (PSTATE-01/02/03)
+Status: Phase complete — ready for verification
+Last activity: 2026-06-03
 
 ## Roadmap v0.10 (active)
 
@@ -86,6 +86,13 @@ Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si s
 - **Anti-ReDoS (D-10/D-11):** ambos mappers usan `String.includes` case-insensitive, jamás `RegExp`/`.match`/`.test` sobre input del provider (state names / label names).
 - **Contract matrix capability-gated (D-14):** `if (typeof provider.getTaskState !== 'function') return;` dentro del loop PROVIDERS preserva el determinismo `PROVIDERS × N_asserts` (14 → 16). B1 (9 métodos) inalterado.
 
+### Decisions (Plan 40-02)
+
+- **D-06 (reinterpretación de PSTATE-04):** `/status` emite `provider_state: string|null` + `provider_state_reason: null|'unsupported'|'fetch-failed'` — NO un campo omitido. `unsupported` (permanente) vs `fetch-failed` (transitorio) alimentan los 3 estados visuales de Phase 43.
+- **Resolver puro DI (`src/server/provider-state.js`):** `createProviderStateResolver({provider, logger, ttlMs, now})` — capability gate + cache `Map<task_id, {state,reason,ts}>` (D-01/D-04, NO el shape `{data,ts}` de pendingCache) + dedup in-flight `Map<task_id, Promise>` (D-03). Importa SOLO `logger-events.js` — incapaz estructuralmente de escribir `state.json` (carril read-only). TTL = `PENDING_CACHE_TTL_MS` (D-02, sin segundo número).
+- **Enrichment fail-open por fila:** `GET /status` usa `Promise.allSettled` (NUNCA `Promise.all`) — el fallo de una fila no tumba la respuesta 200. Resolver construido UNA vez al arrancar (no per-request). Sin tercer bool `supported` (D-07). `alive`/`elapsed_min` intactos.
+- **Evento `provider.state.fetch.failed` (D-15):** whitelist explícito `{task_id, provider, error}` (sin `...fields`), `logger.error`, cero imports nuevos (LOG-12). El fail-open jamás es silencioso.
+
 ### Roadmap Evolution
 
 - **v0.10 roadmap creado (2026-06-03):** 4 phases (40-43), numeración continua desde v0.9 (NO reset). Build order PROVIDER-STATE → DOCTOR → DISMISS → RENDER. 14/14 requirements mapeados. Backlog 999.1 (dismiss) promovido a Phase 42.
@@ -137,7 +144,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-03T11:46:17.013Z
+- **Last session:** 2026-06-03T15:18:18.377Z
 - **Stopped at:** Phase 40 context gathered
 - **Next action:** `/gsd:plan-phase 40` (Provider State). Phase 40 y 41 paralelizables si hay bandwidth.
 - **Files of record:**
