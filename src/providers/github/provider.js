@@ -93,6 +93,24 @@ export function createGitHubProvider(config, opts = {}) {
     };
   }
 
+  /**
+   * Map GitHub issue labels + open/closed state to the normalized provider_state
+   * vocabulary. CONVENTION-driven (D-11): GitHub has no native review/blocked state.
+   *
+   * Comparison is `String.includes` case-insensitive ONLY — NEVER a RegExp over the
+   * provider-controlled label names (anti-ReDoS, D-11).
+   *
+   * @param {Array<string>} [labels] - issue label names (provider-controlled, untrusted)
+   * @param {string} [issueState] - 'open' | 'closed'
+   * @returns {'in_progress'|'in_review'|'blocked'|'done'}
+   */
+  function mapGithubLabels(labels, issueState) {
+    const lower = (labels || []).map((l) => String(l).toLowerCase());
+    if (lower.some((l) => l.includes('review'))) return 'in_review';
+    if (lower.some((l) => l.includes('block'))) return 'blocked';
+    return issueState === 'closed' ? 'done' : 'in_progress';
+  }
+
   /** @type {import('../../interface.js').TaskProvider} */
   const provider = {
     // D-19: no-op. Sin cache, sin warmup, sin TTL guard (vs Plane's 56-line init).
@@ -144,6 +162,21 @@ export function createGitHubProvider(config, opts = {}) {
         }
       }
       return allTasks;
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected via
+    // `typeof provider.getTaskState === 'function'` at the call site.
+    //
+    // HONESTY OF MAPPING (D-11): `in_review`/`blocked` are a labels CONVENTION, NOT a
+    // native GitHub Issues state. GitHub Issues only has open/closed — there is no
+    // "review"/"blocked" status. We DERIVE those two from label names by convention.
+    // We do NOT read PR review-state (deferred, D-12). Signature carries `ref` because the
+    // server holds `session.task_ref`; the issue's labels + open/closed state are not in
+    // the session record, so we resolve the issue once via the existing getTask(ref) path
+    // — this is the SINGLE issue fetch, never an extra call (D-12). Errors propagate.
+    async getTaskState({ ref }) {
+      const task = await provider.getTask(ref); // single getIssue fetch
+      return mapGithubLabels(task.labels, task.state);
     },
 
     // D-26: GitHub polling-only en v0.7. Webhook ingress fuera de scope.
