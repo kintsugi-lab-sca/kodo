@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: verifying
-stopped_at: Phase 40 context gathered
-last_updated: "2026-06-03T15:18:18.382Z"
+status: ready_to_plan
+stopped_at: Phase 40 complete (2/2) — ready to discuss Phase 41
+last_updated: 2026-06-03T15:31:25.146Z
 last_activity: 2026-06-03
 progress:
   total_phases: 5
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Phase 40 — provider-state-contrato-providers-enrichment
+**Current focus:** Phase 41 — doctor — módulo puro de saneo + cli
 
 ## Current Position
 
-Phase: 40 (provider-state-contrato-providers-enrichment) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Phase: 41
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-03
 
 ## Roadmap v0.10 (active)
