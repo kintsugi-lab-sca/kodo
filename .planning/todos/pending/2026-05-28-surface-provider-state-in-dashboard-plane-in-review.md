@@ -2,6 +2,7 @@
 created: 2026-05-28T10:15:33.879Z
 title: Surface provider state in dashboard (Plane In Review / GitHub equivalent)
 area: dashboard
+resolves_phase: 40
 files:
   - src/server.js:361-413
   - src/providers/plane/provider.js
