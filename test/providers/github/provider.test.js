@@ -374,6 +374,62 @@ describe('GitHubProvider', () => {
   });
 
   // ───────────────────────────────────────────────────────────────────────
+  // 40-01 — getTaskState({ref}): label-convention mapping, ONE issue fetch (D-11/D-12)
+  // ───────────────────────────────────────────────────────────────────────
+
+  /** Build a fake getIssue returning the given labels + open/closed state. */
+  function issueWith(labels, state) {
+    return () => ({
+      node_id: 'I_kwTEST001',
+      number: 42,
+      title: 't',
+      body: '',
+      labels: labels.map((name) => ({ name })),
+      state,
+      html_url: 'https://github.com/octocat/hello-world/issues/42',
+    });
+  }
+
+  it('getTaskState: label "awaiting-review" → in_review (D-11 convention)', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['awaiting-review'], 'open') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    const state = await provider.getTaskState({ ref: 'octocat/hello-world#42' });
+    assert.equal(state, 'in_review');
+  });
+
+  it('getTaskState: label including "block" → blocked (D-11 convention)', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['blocked-by-dep'], 'open') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    assert.equal(await provider.getTaskState({ ref: 'octocat/hello-world#42' }), 'blocked');
+  });
+
+  it('getTaskState: open issue, no review/block label → in_progress', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['kodo'], 'open') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    assert.equal(await provider.getTaskState({ ref: 'octocat/hello-world#42' }), 'in_progress');
+  });
+
+  it('getTaskState: closed issue, no review/block label → done', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['kodo'], 'closed') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    assert.equal(await provider.getTaskState({ ref: 'octocat/hello-world#42' }), 'done');
+  });
+
+  it('getTaskState makes exactly ONE issue fetch, no extra call (D-12)', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['awaiting-review'], 'open') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    await provider.getTaskState({ ref: 'octocat/hello-world#42' });
+    assert.equal(fakeClient.calls.getIssue.length, 1, 'D-12: single issue fetch');
+    assert.equal(fakeClient.calls.listIssues.length, 0, 'D-12: no PR/timeline lookup');
+  });
+
+  it('getTaskState anti-ReDoS: a label "(.*)+review" is matched as literal substring (D-11)', async () => {
+    const fakeClient = makeFakeClient({ getIssue: issueWith(['(.*)+review'], 'open') });
+    const provider = createGitHubProvider(MOCK_CONFIG, { client: fakeClient });
+    assert.equal(await provider.getTaskState({ ref: 'octocat/hello-world#42' }), 'in_review');
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
   // 24-02-09 — parseTriggerEvent → null deterministic (D-26)
   // ───────────────────────────────────────────────────────────────────────
 
