@@ -38,7 +38,7 @@
   4. Un `getTaskState` que falla deja la fila sin `provider_state` (fail-open por fila, `reason: fetch-failed`), `GET /status` responde 200 igual, y se emite NDJSON `provider.state.fetch.failed` — nunca silencioso en el log
   5. La cross-provider contract matrix itera un assert capability-gated de `getTaskState` × Plane + GitHub sin romper el determinismo PROVIDERS × N_asserts
 **Plans**: 2 plans (2 waves)
-- [ ] 40-01-PLAN.md — Provider adapters: optional `getTaskState` (Plane name-first/group, GitHub label-convention) + capability-gated contract-matrix assert (PSTATE-01, PSTATE-02, PSTATE-03)
+- [x] 40-01-PLAN.md — Provider adapters: optional `getTaskState` (Plane name-first/group, GitHub label-convention) + capability-gated contract-matrix assert (PSTATE-01, PSTATE-02, PSTATE-03)
 - [ ] 40-02-PLAN.md — `GET /status` enrichment: `provider_state`/`provider_state_reason` via pure DI resolver (task_id cache + in-flight dedup + fail-open) + `provider.state.fetch.failed` event + STATE.md invariant doc (PSTATE-04)
 
 **Invariantes / notas:**
@@ -268,7 +268,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 38. WorkspaceHost provider + ciclo de vida idle/needs-input | v0.9 | 4/4 | Complete    | 2026-06-01 |
 | 39. Paneles auxiliares — comentarios + logs | v0.9 | 2/2 | Complete    | 2026-06-02 |
 | 39.1. Cierre de gaps v0.9 (INSERTED) | v0.9 | 5/5 | Complete | 2026-06-03 |
-| 40. Provider State — contrato + providers + enrichment | v0.10 | 0/2 | Not started | - |
+| 40. Provider State — contrato + providers + enrichment | v0.10 | 1/2 | In Progress|  |
 | 41. Doctor — módulo puro de saneo + CLI | v0.10 | 0/TBD | Not started | - |
 | 42. Dismiss — TUI read-write + server amplification | v0.10 | 0/TBD | Not started | - |
 | 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |

@@ -4,14 +4,14 @@ milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
 status: executing
 stopped_at: Phase 40 context gathered
-last_updated: "2026-06-03T12:16:40.939Z"
-last_activity: 2026-06-03 -- Phase 40 planning complete
+last_updated: "2026-06-03T15:08:06.386Z"
+last_activity: 2026-06-03
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 50
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** v0.10 — roadmap creado (Phases 40-43). Listo para `/gsd:plan-phase 40`.
+**Current focus:** Phase 40 — provider-state-contrato-providers-enrichment
 
 ## Current Position
 
-Phase: Not started (roadmap creado, Phases 40-43)
-Plan: —
-Status: Ready to execute
-Last activity: 2026-06-03 -- Phase 40 planning complete
+Phase: 40 (provider-state-contrato-providers-enrichment) — EXECUTING
+Plan: 2 of 2
+Status: Plan 40-01 complete (getTaskState en Plane + GitHub + assert capability-gated); next 40-02 (server enrichment)
+Last activity: 2026-06-03 -- Plan 40-01 ejecutado (PSTATE-01/02/03)
 
 ## Roadmap v0.10 (active)
 
@@ -77,6 +77,14 @@ Items reconocidos y diferidos al cierre del milestone v0.9 el 2026-06-03 (audit 
 Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si se desea cerrar la deuda Nyquist; las WARNINGs de código se revisan al planificar las fases relevantes (WARNING-02/D-09 al planificar Phase 42).
 
 ## Accumulated Context
+
+### Decisions (Plan 40-01)
+
+- **getTaskState OPCIONAL — TASK_PROVIDER_METHODS FROZEN en 9 (D-13):** detectado via `typeof === 'function'`, NUNCA añadido al array (rompería el boot de providers que no lo implementen). Espejo del patrón v0.9 `listComments`.
+- **Plane: name substring gana sobre group (D-08):** "In Review" dentro del group `started` mapea a `in_review` — el driver ROMAN-150. Estado resuelto en vivo via `getWorkItem`, no desde el `stateCache` de init.
+- **GitHub: `in_review`/`blocked` son CONVENCIÓN por labels, no estado nativo (D-11):** documentado inline en el adapter. Una sola llamada (`getTask`), sin lookup de PR review-state (D-12 deferred).
+- **Anti-ReDoS (D-10/D-11):** ambos mappers usan `String.includes` case-insensitive, jamás `RegExp`/`.match`/`.test` sobre input del provider (state names / label names).
+- **Contract matrix capability-gated (D-14):** `if (typeof provider.getTaskState !== 'function') return;` dentro del loop PROVIDERS preserva el determinismo `PROVIDERS × N_asserts` (14 → 16). B1 (9 métodos) inalterado.
 
 ### Roadmap Evolution
 

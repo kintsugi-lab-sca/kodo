@@ -11,9 +11,9 @@ Requirements del milestone v0.10. Cada uno mapea a una fase del roadmap.
 
 Reflejar el estado real del task en el provider (driver: ROMAN-150, sesión "In Review" en Plane invisible tras `/exit`).
 
-- [ ] **PSTATE-01**: `getTaskState(taskId)` como método **opcional** del provider (NO en `TASK_PROVIDER_METHODS`) que retorna un estado normalizado `in_progress | in_review | blocked | done | unknown`; Plane mapea por grupo + nombre de estado (substring "review"/"block").
-- [ ] **PSTATE-02**: GitHub deriva `provider_state` por convención de labels (substring "review"→`in_review`, "block"→`blocked`) + fallback open→`in_progress` / closed→`done`, sin llamadas API extra.
-- [ ] **PSTATE-03**: la cross-provider contract matrix se extiende con un assert **capability-gated** para `getTaskState` (no rompe el determinismo PROVIDERS × N_asserts).
+- [x] **PSTATE-01**: `getTaskState(taskId)` como método **opcional** del provider (NO en `TASK_PROVIDER_METHODS`) que retorna un estado normalizado `in_progress | in_review | blocked | done | unknown`; Plane mapea por grupo + nombre de estado (substring "review"/"block").
+- [x] **PSTATE-02**: GitHub deriva `provider_state` por convención de labels (substring "review"→`in_review`, "block"→`blocked`) + fallback open→`in_progress` / closed→`done`, sin llamadas API extra.
+- [x] **PSTATE-03**: la cross-provider contract matrix se extiende con un assert **capability-gated** para `getTaskState` (no rompe el determinismo PROVIDERS × N_asserts).
 - [ ] **PSTATE-04**: `GET /status` enriquece cada sesión con `provider_state` vía cache server-side (TTL ~10-30s por `task_id`), **fail-open por fila** (omite el campo si la llamada falla o el provider no soporta el método), sin acoplar `alive`/`elapsed_min` ni escribir en `state.json`.
 - [ ] **PSTATE-05**: el dashboard muestra `provider_state` de forma separada de `statusColor` v3 (forma exacta — columna vs badge vs color — decidida en discuss-phase).
 - [ ] **PSTATE-06**: el filtro del dashboard permite acotar por `provider_state` con `String.includes` anti-ReDoS (semántica `s:review` OR vs prefijo `ps:` decidida en discuss-phase).
@@ -68,9 +68,9 @@ Mapa requirement → fase. Completado por el roadmapper al crear el roadmap (202
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PSTATE-01 | Phase 40 | Pending |
-| PSTATE-02 | Phase 40 | Pending |
-| PSTATE-03 | Phase 40 | Pending |
+| PSTATE-01 | Phase 40 | Complete |
+| PSTATE-02 | Phase 40 | Complete |
+| PSTATE-03 | Phase 40 | Complete |
 | PSTATE-04 | Phase 40 | Pending |
 | PSTATE-05 | Phase 43 | Pending |
 | PSTATE-06 | Phase 43 | Pending |
