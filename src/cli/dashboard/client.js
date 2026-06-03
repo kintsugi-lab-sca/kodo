@@ -63,8 +63,13 @@ export async function fetchStatus(baseUrl, fetchFn = globalThis.fetch, signal) {
  * Resultado discriminado de `fetchComments` (D-07, TUI-15). A diferencia de fetchStatus, el
  * fallo HTTP/red incluye un `code` para que App.js distinga 404 (task ausente) de 5xx/red.
  *
+ * `data.supported` (D-07, TUI-15) es un campo ADITIVO opcional: `false` cuando el provider
+ * no implementa `listComments` (estado permanente), `true`/ausente cuando sí (la ausencia de
+ * comentarios es transitoria). El runtime hace pass-through de `data` entero (la guard de shape
+ * solo valida `data.comments`), así que `supported` viaja sin lógica extra — App.js lo consume.
+ *
  * @typedef {(
- *   { ok: true, data: { comments: any[] } }
+ *   { ok: true, data: { comments: any[], supported?: boolean } }
  *   | { ok: false, error: string, code?: 'not-found' | 'http' | 'network', status?: number }
  * )} FetchCommentsResult
  */
@@ -79,6 +84,7 @@ export async function fetchStatus(baseUrl, fetchFn = globalThis.fetch, signal) {
  *   - otro HTTP no-ok → `{ ok:false, code:'http', status }`.
  *   - red/abort/JSON corrupto → `{ ok:false, code:'network' }`.
  * `comments:[]` (vacío) es `{ ok:true }` — la ausencia de comentarios es estado de UI, no error.
+ * La respuesta 200 incluye además `supported` (D-07, aditivo): pasa-through dentro de `data`.
  *
  * @param {string} baseUrl — base del server kodo.
  * @param {string} taskId — id de tarea; se codifica con `encodeURIComponent` (T-39-01, va en el path).

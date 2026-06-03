@@ -88,6 +88,11 @@ export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) �
 export const OVERLAY_COMMENTS_EMPTY = 'no comments yet';
 export const OVERLAY_COMMENTS_NOT_FOUND = 'task not found';
 export const OVERLAY_COMMENTS_ERROR = 'error fetching comments';
+// D-08 (TUI-15): mensaje DISTINTO de OVERLAY_COMMENTS_EMPTY. Cuando el server señala
+// `supported:false`, el provider no implementa listComments (estado permanente) — no es
+// que la tarea no tenga comentarios aún. Literal-estable, redundancia textual (legible bajo
+// NO_COLOR, no depende del color para distinguirse del caso vacío).
+export const OVERLAY_COMMENTS_UNSUPPORTED = 'comments not supported by this provider';
 export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
 export const OVERLAY_LOGS_ERROR = 'error fetching logs';
 export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
@@ -321,18 +326,24 @@ export default function App({
         /** @type {string[]} */
         let lines = [];
         if (res.ok) {
-          const comments = res.data.comments;
-          if (comments.length > 0) {
-            status = 'ok';
-            // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
-            // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
-            lines = comments.map((c) => {
-              const body = c.body ?? c.text ?? c.message;
-              if (body == null) return JSON.stringify(c);
-              return c.author ? `${c.author}: ${body}` : String(body);
-            });
+          // D-08: `supported === false` (server señala que el provider no implementa listComments)
+          // gana sobre la lógica ok/empty — es un estado PERMANENTE, distinto de "sin comentarios aún".
+          if (res.data.supported === false) {
+            status = 'unsupported';
           } else {
-            status = 'empty';
+            const comments = res.data.comments;
+            if (comments.length > 0) {
+              status = 'ok';
+              // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
+              // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
+              lines = comments.map((c) => {
+                const body = c.body ?? c.text ?? c.message;
+                if (body == null) return JSON.stringify(c);
+                return c.author ? `${c.author}: ${body}` : String(body);
+              });
+            } else {
+              status = 'empty';
+            }
           }
         } else if (res.code === 'not-found') {
           status = 'not-found';

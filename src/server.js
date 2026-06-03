@@ -176,7 +176,10 @@ async function toggleComments(taskId, btnEl) {
     box = document.createElement('div');
     box.id = boxId;
     box.className = 'comments-box';
-    if (!comments.length) {
+    if (data.supported === false) {
+      // D-08/D-09: paridad con el overlay ink — distinguir "provider sin soporte" de "sin comentarios".
+      box.innerHTML = '<div class="empty">Comentarios no soportados por este provider</div>';
+    } else if (!comments.length) {
       box.innerHTML = '<div class="empty">Sin comentarios</div>';
     } else {
       box.innerHTML = comments.map((c) => (
@@ -427,11 +430,17 @@ export async function startServer(opts = {}) {
           res.end(JSON.stringify({ error: 'Session not found' }));
           return;
         }
-        const comments = typeof provider.listComments === 'function'
+        // D-07 (TUI-15): `supported` es un campo ADITIVO byte-compatible. Distingue
+        // "este provider no implementa listComments" (supported:false, estado PERMANENTE)
+        // de "la tarea no tiene comentarios aún" (supported:true + comments:[], TRANSITORIO).
+        // Clientes viejos ignoran `supported` (invariante v0.9: respuestas JSON aditivas).
+        // NO se crea endpoint nuevo — solo cambia la shape de la respuesta 200.
+        const supported = typeof provider.listComments === 'function';
+        const comments = supported
           ? await provider.listComments({ id: session.task_id, projectId: session.project_id })
           : [];
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ comments }));
+        res.end(JSON.stringify({ comments, supported }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
