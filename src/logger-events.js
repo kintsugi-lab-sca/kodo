@@ -47,6 +47,7 @@ import { join } from 'node:path';
  *   HOST_LIST_OK: 'host.list_workspaces.ok',
  *   HOST_LIST_FAIL: 'host.list_workspaces.fail',
  *   HOST_RECONCILE_TICK: 'host.reconcile.tick',
+ *   PROVIDER_STATE_FETCH_FAILED: 'provider.state.fetch.failed',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -72,6 +73,7 @@ export const EVENTS = Object.freeze({
   HOST_LIST_OK:            'host.list_workspaces.ok',
   HOST_LIST_FAIL:          'host.list_workspaces.fail',
   HOST_RECONCILE_TICK:     'host.reconcile.tick',
+  PROVIDER_STATE_FETCH_FAILED: 'provider.state.fetch.failed',
 });
 
 /**
@@ -618,5 +620,30 @@ export function hostReconcileTick(logger, fields) {
     sealed: fields.sealed,
     transitioned: fields.transitioned,
     total: fields.total,
+  });
+}
+
+// ─── Phase 40: provider_state enrichment (D-15) ────────────────────────────
+//
+// Emitido (error) cuando un `getTaskState` falla durante el enrichment de
+// `GET /status` (Plan 40-02). El fail-open de la fila JAMÁS es silencioso en el
+// log: la fila resuelve a `{provider_state:null, provider_state_reason:'fetch-failed'}`
+// y este evento queda en el NDJSON para que el operador detecte el patrón.
+//
+// Información disclosure (T-40-04): whitelist EXPLÍCITO {task_id, provider, error}
+// — NUNCA spread `...fields`. El caller pasa `err.message` (un string), NUNCA el
+// objeto error/response completo, para que tokens/secrets de headers/body jamás
+// alcancen el sink append-only. Invariante LOG-12: cero imports nuevos.
+
+/**
+ * @param {Logger} logger
+ * @param {{ task_id: string, provider: string, error: string }} fields
+ */
+export function providerStateFetchFailed(logger, fields) {
+  logger.error(EVENTS.PROVIDER_STATE_FETCH_FAILED, {
+    event: EVENTS.PROVIDER_STATE_FETCH_FAILED,
+    task_id: fields.task_id,
+    provider: fields.provider,
+    error: fields.error,
   });
 }
