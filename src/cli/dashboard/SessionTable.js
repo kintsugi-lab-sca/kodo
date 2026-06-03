@@ -269,7 +269,7 @@ export default function SessionTable({
   const dataRows = rows.map((session, i) => {
     const selected = i === selectedIndex;
     const cells = rowCells(session);
-    const sc = statusColor(session.status ?? '', session.alive);
+    const sc = statusColor(session.status ?? '', session.alive, session.state);
     return h(
       Box,
       { key: session.task_id ?? `row-${i}`, flexDirection: 'row' },
