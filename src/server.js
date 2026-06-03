@@ -6,6 +6,7 @@ import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
 import { listSessions, listHistory, removeSession, loadState, saveState } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
+import { createProviderStateResolver } from './server/provider-state.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -341,6 +342,24 @@ export async function startServer(opts = {}) {
   const provider = getProvider(config.provider);
   await provider.init();
 
+  // Phase 40 (Plan 02, PSTATE-04): ONE provider_state resolver for the whole server
+  // lifetime (NOT per-request — avoids NDJSON file churn and keeps the task_id cache
+  // + in-flight dedup shared across polls). Logger uses the same synthetic 'reconcile'
+  // sessionId the reconcile loop does, child component 'provider-state'. TTL reuses the
+  // existing PENDING_CACHE_TTL_MS constant (D-02 — no second number). The resolver is
+  // a read-only lane: it never writes state.json and never touches alive/elapsed_min.
+  const { createLogger: createProviderStateLogger } = await import('./logger.js');
+  const providerStateLogger = createProviderStateLogger({
+    sessionId: 'reconcile',
+    minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+  }).child({ component: 'provider-state' });
+  const providerStateResolver = createProviderStateResolver({
+    provider,
+    logger: providerStateLogger,
+    ttlMs: PENDING_CACHE_TTL_MS,
+    now: Date.now,
+  });
+
   // Webhook secret check — provider-specific env var with legacy fallback
   const secretEnv = `KODO_WEBHOOK_SECRET_${config.provider.toUpperCase()}`;
   const webhookSecret = process.env[secretEnv] || process.env.PLANE_WEBHOOK_SECRET;
@@ -376,13 +395,38 @@ export async function startServer(opts = {}) {
         }
       }
 
-      // Enrich sessions with elapsed_min only. `alive` is the authoritative value
-      // written by reconcileTick into state.json (única fuente de verdad, D-04);
+      // Enrich sessions with elapsed_min + provider_state. `alive` is the authoritative
+      // value written by reconcileTick into state.json (única fuente de verdad, D-04);
       // it pasa-through vía `...s`, NO se recomputa aquí.
-      const enriched = sessions.map((s) => ({
-        ...s,
-        elapsed_min: Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60000),
-      }));
+      //
+      // Phase 40 (PSTATE-04, D-05/D-06/D-07): provider_state + provider_state_reason are
+      // a READ-ONLY carril — never written to state.json, never coupled to alive/elapsed_min.
+      // Per-row fail-open via Promise.allSettled (NEVER Promise.all): one row's getTaskState
+      // failure must not 500 the whole /status response. The resolver collapses failures to
+      // {state:null, reason:'fetch-failed'} itself, so settled rows are always fulfilled;
+      // the allSettled guard is belt-and-suspenders against any unexpected throw. No third
+      // `supported` boolean — `provider_state_reason === 'unsupported'` derives it (D-07).
+      const settled = await Promise.allSettled(
+        sessions.map(async (s) => {
+          const { state, reason } = await providerStateResolver.resolve(s);
+          return {
+            ...s,
+            elapsed_min: Math.floor((Date.now() - new Date(s.started_at).getTime()) / 60000),
+            provider_state: state,
+            provider_state_reason: reason,
+          };
+        }),
+      );
+      const enriched = settled.map((r, i) =>
+        r.status === 'fulfilled'
+          ? r.value
+          : {
+              ...sessions[i],
+              elapsed_min: Math.floor((Date.now() - new Date(sessions[i].started_at).getTime()) / 60000),
+              provider_state: null,
+              provider_state_reason: 'fetch-failed',
+            },
+      );
 
       const fullHistory = listHistory();
       const now = Date.now();
