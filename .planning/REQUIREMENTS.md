@@ -64,30 +64,36 @@ Exclusiones explícitas para prevenir scope creep.
 
 ## Traceability
 
-Mapa requirement → fase. Lo completa el roadmapper al crear el roadmap.
+Mapa requirement → fase. Completado por el roadmapper al crear el roadmap (2026-06-03).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PSTATE-01 | TBD | Pending |
-| PSTATE-02 | TBD | Pending |
-| PSTATE-03 | TBD | Pending |
-| PSTATE-04 | TBD | Pending |
-| PSTATE-05 | TBD | Pending |
-| PSTATE-06 | TBD | Pending |
-| DOCTOR-01 | TBD | Pending |
-| DOCTOR-02 | TBD | Pending |
-| DOCTOR-03 | TBD | Pending |
-| DOCTOR-04 | TBD | Pending |
-| DISMISS-01 | TBD | Pending |
-| DISMISS-02 | TBD | Pending |
-| DISMISS-03 | TBD | Pending |
-| DISMISS-04 | TBD | Pending |
+| PSTATE-01 | Phase 40 | Pending |
+| PSTATE-02 | Phase 40 | Pending |
+| PSTATE-03 | Phase 40 | Pending |
+| PSTATE-04 | Phase 40 | Pending |
+| PSTATE-05 | Phase 43 | Pending |
+| PSTATE-06 | Phase 43 | Pending |
+| DOCTOR-01 | Phase 41 | Pending |
+| DOCTOR-02 | Phase 41 | Pending |
+| DOCTOR-03 | Phase 41 | Pending |
+| DOCTOR-04 | Phase 41 | Pending |
+| DISMISS-01 | Phase 42 | Pending |
+| DISMISS-02 | Phase 42 | Pending |
+| DISMISS-03 | Phase 42 | Pending |
+| DISMISS-04 | Phase 42 | Pending |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0 (roadmapper pendiente)
-- Unmapped: 14 ⚠️ (se resuelve al crear el roadmap)
+- Mapped to phases: 14 ✓ (Phase 40: 4 · Phase 41: 4 · Phase 42: 4 · Phase 43: 2)
+- Unmapped: 0 ✓
+
+**Phase summary:**
+- **Phase 40 — Provider State** (contrato + providers + enrichment): PSTATE-01, PSTATE-02, PSTATE-03, PSTATE-04
+- **Phase 41 — Doctor** (módulo puro + CLI): DOCTOR-01, DOCTOR-02, DOCTOR-03, DOCTOR-04
+- **Phase 42 — Dismiss** (TUI read-write): DISMISS-01, DISMISS-02, DISMISS-03, DISMISS-04
+- **Phase 43 — Render** (provider_state en el dashboard, discuss-phase): PSTATE-05, PSTATE-06
 
 ---
 *Requirements defined: 2026-06-03*
-*Last updated: 2026-06-03 after initial definition (milestone v0.10)*
+*Last updated: 2026-06-03 — traceability completada por el roadmapper (14/14 mapeados a Phases 40-43)*
