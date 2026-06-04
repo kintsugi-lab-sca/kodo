@@ -27,16 +27,22 @@
 //
 // LOG-12 invariant: este módulo NO importa `logger.js`. El `logger` se inyecta
 // via deps; `logger-events.js` (pure transform) sí es importable estáticamente.
-// El único acoplamiento estático a node es a `node:fs`/`node:os`/`node:path`
-// para los defaults lazy de las primitivas DI (espejo de gsd-inspect.js:58-65).
+// El único acoplamiento estático a node es a `node:fs`/`node:os`/`node:path`/
+// `node:child_process` para los defaults lazy de las primitivas DI (espejo de
+// gsd-inspect.js:58-65 y del wrapper gitFn de stop.js:122-126).
 
 import { readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { isPidAlive as realIsPidAlive, readLock as realReadLock, LOCK_FILE, DEFAULT_TTL_HOURS } from './lock.js';
 import { loadState as realLoadState, listSessions as realListSessions, computeWorktreePath, removeSession as realRemoveSession } from '../session/state.js';
 import { cleanupWorktree as realCleanupWorktree } from '../hooks/worktree-cleanup.js';
+// LOG-12: logger-noop.js es el stub zero-import whitelisted (igual que state.js) —
+// NUNCA logger.js. Sirve de default seguro para que cleanupWorktree no crashee
+// al emitir eventos cuando el caller (p.ej. el CLI) no inyecta logger.
+import { noopLogger } from '../logger-noop.js';
 import {
   doctorScan,
   doctorFixWorktree,
@@ -158,11 +164,16 @@ function resolveDeps(deps = {}) {
     statFile: deps.statFile || ((p) => statSync(p)),
     listWorktreeDirs: deps.listWorktreeDirs || defaultListWorktreeDirs,
     removeSession: deps.removeSession || realRemoveSession,
-    gitFn: deps.gitFn,
+    // gitFn default real — espejo de stop.js:122-126. Sin esto, execute() pasa
+    // gitFn=undefined a cleanupWorktree y la limpieza de worktrees crashea con
+    // "gitFn is not a function" en la ruta CLI (deps no inyectados).
+    gitFn: deps.gitFn || ((cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' }).trim()),
     cleanupWorktree: deps.cleanupWorktree || realCleanupWorktree,
     unlinkFile: deps.unlinkFile || ((p) => unlinkSync(p)),
     now: deps.now || (() => Date.now()),
-    logger: deps.logger,
+    // logger default seguro: cleanupWorktree/los helpers doctor.* invocan
+    // logger.{info,warn,error}; un undefined los rompería. noopLogger es no-op.
+    logger: deps.logger || noopLogger,
   };
 }
 
