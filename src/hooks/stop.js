@@ -241,21 +241,18 @@ export async function runStopHook(input, deps = {}) {
       }
     }
 
-    // Phase 19 WT-04: worktree cleanup fail-open (D-01..D-04, D-07..D-10).
-    // Orden: branch read (Pitfall #2 / D-08) → status → remove|move → branch -D
-    // (clean only) → prune (D-04). Todo el bloque dentro de un outer try/catch
-    // defensivo — runStopHook NUNCA debe crashear (mismo principio que el catch
-    // top-level línea 219-221). Para sesiones legacy v0.5 sin worktree_path,
-    // skip silencioso sin emitir warn (D-09). Cleanup OCURRE DESPUÉS de
-    // releaseGsdLock (D-07) y branch se lee ANTES de worktree remove (D-08).
+    // Phase 41 Plan 01 (D-11): el saneo del worktree ahora vive en el helper
+    // compartido `cleanupWorktree` (src/hooks/worktree-cleanup.js) — la "una sola
+    // fuente de saneo" consumida también por doctor.js (Plan 02). El comportamiento
+    // es VERBATIM al bloque inline previo de Phase 19 WT-04 (branch read antes de
+    // borrar / status → clean-remove|dirty-move-aside / prune oportunista, fail-open).
+    // Conserva: el guard `if (session.worktree_path)`, el skip silencioso de sesiones
+    // legacy v0.5 sin ese campo (D-09), la construcción de cleanupLog (loggerFactory
+    // DI o createLogger child lazy), y el outer try/catch defensivo (runStopHook
+    // NUNCA debe crashear Claude Code). El saneo OCURRE DESPUÉS de releaseGsdLock (D-07).
     if (session.worktree_path) {
       try {
-        const { lstatSync, renameSync } = await import('node:fs');
-        const {
-          worktreeCleanupOk,
-          worktreeCleanupDirty,
-          worktreeCleanupError,
-        } = await import('../logger-events.js');
+        const { cleanupWorktree } = await import('./worktree-cleanup.js');
         const cleanupLog = (deps && deps.loggerFactory)
           ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
           : await (async () => {
@@ -266,135 +263,13 @@ export async function runStopHook(input, deps = {}) {
               }).child({ component: 'hook', task_id: session.task_id });
             })();
 
-        const wt = session.worktree_path;
-        const project = session.project_path;
-
-        // 1. Read branch name BEFORE remove (Pitfall #2 / D-08). Fail-open silent.
-        // Usamos `-C <wt>` en args (no como cwd) — el gitFn default antepone `-C
-        // <project>` pero git acepta múltiples `-C` componibles. Permite que tests
-        // stub-een por `args.includes('--show-current')` sin tocar cwd.
-        let branchName = null;
-        try {
-          const out = await gitFn(project, ['-C', wt, 'branch', '--show-current']);
-          branchName = (out || '').trim() || null;
-        } catch (err) {
-          console.error(`[kodo:stop] branch --show-current failed: ${err.message}`);
-        }
-
-        // 2. Dirty check (D-01). Status read failure → emit cleanup.error{phase:status}
-        // y abortar (no podemos decidir clean/dirty sin status); aún corre prune al final.
-        let isDirty;
-        try {
-          const status = await gitFn(project, ['-C', wt, 'status', '--porcelain']);
-          isDirty = (status || '').length > 0;
-        } catch (err) {
-          worktreeCleanupError(cleanupLog, {
-            session_id: session.session_id,
-            worktree_path: wt,
-            phase: 'status',
-            reason: /** @type {Error} */ (err).message,
-          });
-          isDirty = null;
-        }
-
-        if (isDirty === false) {
-          // 3a. CLEAN path: remove + branch -D.
-          let removeOk = false;
-          try {
-            await gitFn(project, ['worktree', 'remove', wt]);
-            removeOk = true;
-          } catch (err) {
-            worktreeCleanupError(cleanupLog, {
-              session_id: session.session_id,
-              worktree_path: wt,
-              phase: 'remove',
-              reason: /** @type {Error} */ (err).message,
-            });
-          }
-          if (removeOk) {
-            let branchDeleted = false;
-            if (branchName) {
-              try {
-                await gitFn(project, ['branch', '-D', branchName]);
-                branchDeleted = true;
-              } catch (err) {
-                // Pitfall #3: branch checked-out by another worktree, race, etc.
-                // → warn fail-open. NO emit cleanup.error{phase:branch} — el test
-                // contractual exige cleanup.ok con branch_deleted=false.
-                console.error(`[kodo:stop] branch -D ${branchName} failed: ${/** @type {Error} */ (err).message}`);
-              }
-            }
-            worktreeCleanupOk(cleanupLog, {
-              session_id: session.session_id,
-              worktree_path: wt,
-              branch_deleted: branchDeleted,
-            });
-          }
-        } else if (isDirty === true) {
-          // 3b. DIRTY path: move-aside to <wt>.dirty (D-02); branch PRESERVADA.
-          // Pitfall #1 mitigation (Phase 19 CR-03): lstatSync en try/catch detecta
-          // archivos regulares, dirs, symlinks vivos Y symlinks colgantes (la versión
-          // previa seguía symlinks y devolvía false → evadía la pre-check). Solo
-          // ENOENT mantiene el target canónico; cualquier otro error o stat exitoso
-          // fuerza la variante suffixed para evitar que `git worktree move` falle
-          // confusamente.
-          let target = `${wt}.dirty`;
-          try {
-            lstatSync(target);
-            // Target existe como cualquier cosa (file, dir, symlink vivo o colgante)
-            // → forzar variante con timestamp.
-            target = `${wt}.dirty-${Date.now()}`;
-          } catch (err) {
-            if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') {
-              // EACCES, ELOOP u otro: defensivo, no asumimos libre.
-              target = `${wt}.dirty-${Date.now()}`;
-            }
-            // ENOENT: target libre, mantener `<wt>.dirty` canónico.
-          }
-          let moveOk = false;
-          let moveErrMsg = null;
-          try {
-            await gitFn(project, ['worktree', 'move', wt, target]);
-            moveOk = true;
-          } catch (err) {
-            moveErrMsg = /** @type {Error} */ (err).message;
-            // Fallback (D-02): native rename + git worktree repair (raro en git 2.51+,
-            // pero defensivo si en versiones antiguas `worktree move` rechaza dirty).
-            try {
-              renameSync(wt, target);
-              await gitFn(project, ['worktree', 'repair', target]);
-              moveOk = true;
-            } catch (err2) {
-              worktreeCleanupError(cleanupLog, {
-                session_id: session.session_id,
-                worktree_path: wt,
-                phase: 'move',
-                reason: `${moveErrMsg} | fallback: ${/** @type {Error} */ (err2).message}`,
-              });
-            }
-          }
-          if (moveOk) {
-            worktreeCleanupDirty(cleanupLog, {
-              session_id: session.session_id,
-              worktree_path: wt,
-              moved_to: target,
-            });
-          }
-        }
-        // isDirty === null: status read failed → cleanup.error{phase:status} ya
-        // emitido arriba. Saltamos remove/move pero corremos prune oportunista.
-
-        // 4. Opportunistic prune (D-04). Fail-open con cleanup.error{phase:prune}.
-        try {
-          await gitFn(project, ['worktree', 'prune']);
-        } catch (err) {
-          worktreeCleanupError(cleanupLog, {
-            session_id: session.session_id,
-            worktree_path: wt,
-            phase: 'prune',
-            reason: /** @type {Error} */ (err).message,
-          });
-        }
+        await cleanupWorktree({
+          project: session.project_path,
+          worktree: session.worktree_path,
+          sessionId: session.session_id,
+          gitFn,
+          logger: cleanupLog,
+        });
       } catch (outerErr) {
         // Defensive outer catch — runStopHook must NEVER crash Claude Code.
         console.error(`[kodo:stop] worktree cleanup outer error: ${/** @type {Error} */ (outerErr).message}`);

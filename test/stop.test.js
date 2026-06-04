@@ -14,6 +14,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STOP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'stop.js');
+// Phase 41 Plan 01 (D-11): el bloque de saneo del worktree se factorizó verbatim
+// a src/hooks/worktree-cleanup.js. Los source-guards de los invariantes Phase 19
+// (orden branch-before-remove, lstatSync symlink-safe) ahora apuntan al helper,
+// donde el código vive — el comportamiento sigue siendo idéntico (el test
+// contractual stop-worktree-cleanup.test.js permanece verde sin cambios).
+const CLEANUP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'worktree-cleanup.js');
 
 describe('stop.js source hygiene', () => {
   it('does not import PlaneClient', () => {
@@ -100,21 +106,23 @@ describe('stop.js source hygiene', () => {
     const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
     const lockIdx = source.indexOf('releaseGsdLock(session.project_path');
     assert.ok(lockIdx > 0, 'must find releaseGsdLock call site');
-    // Cleanup marker: el helper canónico `worktreeCleanupOk` se invoca en la
-    // rama CLEAN del cleanup block. Si alguien reordena y cleanup queda antes
-    // de releaseGsdLock, este test falla.
-    const cleanupIdx = source.indexOf('worktreeCleanupOk');
-    assert.ok(cleanupIdx > 0, 'must find worktree cleanup block (worktreeCleanupOk)');
+    // Phase 41 D-11: el cleanup se delega al helper compartido `cleanupWorktree`.
+    // El call site en stop.js es el marker del orden — si alguien reordena y el
+    // saneo queda antes de releaseGsdLock, este test falla.
+    const cleanupIdx = source.indexOf('cleanupWorktree({');
+    assert.ok(cleanupIdx > 0, 'must find cleanupWorktree({ call site in stop.js');
     assert.ok(
       lockIdx < cleanupIdx,
       'cleanup must come AFTER releaseGsdLock (Phase 19 D-07)',
     );
   });
 
-  it('Phase 19 D-08 / Pitfall #2: branch --show-current is read BEFORE worktree remove', () => {
-    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+  it('Phase 19 D-08 / Pitfall #2: branch --show-current is read BEFORE worktree remove (helper)', () => {
+    // Phase 41 D-11: el orden branch-before-remove vive ahora en el helper
+    // worktree-cleanup.js (verbatim desde stop.js). El source-guard sigue el
+    // código a su nueva ubicación; el comportamiento es idéntico.
+    const source = readFileSync(CLEANUP_SOURCE_PATH, 'utf-8');
     const showCurrentIdx = source.indexOf("'--show-current'");
-    // worktree remove se invoca como array literal: ['worktree', 'remove', ...].
     const removeMatches = [];
     const re = /'worktree',\s*'remove'/g;
     let m;
@@ -165,18 +173,20 @@ describe('stop.js source hygiene', () => {
     );
   });
 
-  it('Phase 19 CR-03: dirty target pre-check uses lstatSync (NOT existsSync) — symlink-safe', () => {
-    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+  it('Phase 19 CR-03: dirty target pre-check uses lstatSync (NOT existsSync) — symlink-safe (helper)', () => {
+    // Phase 41 D-11: el pre-check symlink-safe vive ahora en el helper
+    // worktree-cleanup.js. El source-guard sigue el código a su nueva ubicación.
+    const source = readFileSync(CLEANUP_SOURCE_PATH, 'utf-8');
     assert.ok(
       source.includes('lstatSync(target)'),
       'pre-check must use lstatSync(target) per Phase 19 CR-03 (symlink-safe)',
     );
-    // existsSync NO debe aparecer en el archivo — el único uso era el pre-check
+    // existsSync NO debe aparecer en el helper — el único uso era el pre-check
     // que se sustituyó por lstatSync (CR-03). Si reaparece, regresión.
     assert.equal(
       source.indexOf('existsSync'),
       -1,
-      'existsSync must NOT appear in stop.js after CR-03 fix (symlink-following risk)',
+      'existsSync must NOT appear in worktree-cleanup.js after CR-03 fix (symlink-following risk)',
     );
     // Sanity: el comentario referencia la decisión.
     assert.ok(

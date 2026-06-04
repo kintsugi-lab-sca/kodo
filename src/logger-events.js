@@ -48,6 +48,11 @@ import { join } from 'node:path';
  *   HOST_LIST_FAIL: 'host.list_workspaces.fail',
  *   HOST_RECONCILE_TICK: 'host.reconcile.tick',
  *   PROVIDER_STATE_FETCH_FAILED: 'provider.state.fetch.failed',
+ *   DOCTOR_SCAN: 'doctor.scan',
+ *   DOCTOR_FIX_WORKTREE: 'doctor.fix.worktree',
+ *   DOCTOR_FIX_LOCK: 'doctor.fix.lock',
+ *   DOCTOR_FIX_LOG: 'doctor.fix.log',
+ *   DOCTOR_FIX_ERROR: 'doctor.fix.error',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -74,6 +79,11 @@ export const EVENTS = Object.freeze({
   HOST_LIST_FAIL:          'host.list_workspaces.fail',
   HOST_RECONCILE_TICK:     'host.reconcile.tick',
   PROVIDER_STATE_FETCH_FAILED: 'provider.state.fetch.failed',
+  DOCTOR_SCAN:             'doctor.scan',
+  DOCTOR_FIX_WORKTREE:     'doctor.fix.worktree',
+  DOCTOR_FIX_LOCK:         'doctor.fix.lock',
+  DOCTOR_FIX_LOG:          'doctor.fix.log',
+  DOCTOR_FIX_ERROR:        'doctor.fix.error',
 });
 
 /**
@@ -645,5 +655,119 @@ export function providerStateFetchFailed(logger, fields) {
     task_id: fields.task_id,
     provider: fields.provider,
     error: fields.error,
+  });
+}
+
+// ─── Phase 41: doctor saneo observability (DOCTOR-04) ──────────────────────
+//
+// 5 eventos del módulo de saneo `kodo gsd doctor` (Plan 02). Cada acción
+// destructiva queda auditable en el NDJSON append-only (T-41-03). Mismo molde
+// que worktreeCleanup* / pollingTick: whitelist EXPLÍCITO field-by-field —
+// NUNCA spread `...fields` — para que ningún campo extra del caller se filtre
+// al sink. Token-free: todo es FS/git, no hay model call, así que NINGÚN helper
+// añade un campo `tokens` (espejo de worktreeCleanup*). Invariante LOG-12: cero
+// imports nuevos (los únicos siguen siendo `node:os` + `node:path`).
+
+/**
+ * Emitido al iniciar/terminar un escaneo de `kodo gsd doctor` (dry-run o --fix).
+ * Resumen de cuántos items de cada categoría se detectaron. info-level.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   mode: 'dry-run' | 'fix',
+ *   worktrees: number,
+ *   locks: number,
+ *   logs: number,
+ *   zombies: number,
+ * }} fields
+ */
+export function doctorScan(logger, fields) {
+  logger.info(EVENTS.DOCTOR_SCAN, {
+    event: EVENTS.DOCTOR_SCAN,
+    mode: fields.mode,
+    worktrees: fields.worktrees,
+    locks: fields.locks,
+    logs: fields.logs,
+    zombies: fields.zombies,
+  });
+}
+
+/**
+ * Emitido (info) cuando doctor sanea un worktree huérfano (remove / prune / moved
+ * a `.dirty`). `moved_to` es null salvo en el dirty path. info-level.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   session_id: string,
+ *   worktree_path: string,
+ *   action: 'remove' | 'prune' | 'moved',
+ *   moved_to: string | null,
+ * }} fields
+ */
+export function doctorFixWorktree(logger, fields) {
+  logger.info(EVENTS.DOCTOR_FIX_WORKTREE, {
+    event: EVENTS.DOCTOR_FIX_WORKTREE,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    action: fields.action,
+    moved_to: fields.moved_to,
+  });
+}
+
+/**
+ * Emitido cuando doctor evalúa un lock per-repo colgado. `decision: 'stolen'`
+ * (PID muerto / TTL vencido → lock liberado) emite warn; `'kept'` (PID vivo →
+ * respetado) emite info.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   project_path: string,
+ *   decision: 'stolen' | 'kept',
+ *   pid: number,
+ *   reason: string,
+ * }} fields
+ */
+export function doctorFixLock(logger, fields) {
+  const level = fields.decision === 'stolen' ? 'warn' : 'info';
+  logger[level](EVENTS.DOCTOR_FIX_LOCK, {
+    event: EVENTS.DOCTOR_FIX_LOCK,
+    project_path: fields.project_path,
+    decision: fields.decision,
+    pid: fields.pid,
+    reason: fields.reason,
+  });
+}
+
+/**
+ * Emitido (info) cuando doctor borra/rota un log NDJSON antiguo. info-level.
+ *
+ * @param {Logger} logger
+ * @param {{ log_path: string, session_id: string }} fields
+ */
+export function doctorFixLog(logger, fields) {
+  logger.info(EVENTS.DOCTOR_FIX_LOG, {
+    event: EVENTS.DOCTOR_FIX_LOG,
+    log_path: fields.log_path,
+    session_id: fields.session_id,
+  });
+}
+
+/**
+ * Emitido (error) cuando un paso de saneo de doctor falla. El fail-open de doctor
+ * jamás es silencioso. `category` identifica el carril que falló; `target` el item.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   category: 'worktree' | 'lock' | 'log' | 'zombie',
+ *   reason: string,
+ *   target: string,
+ * }} fields
+ */
+export function doctorFixError(logger, fields) {
+  logger.error(EVENTS.DOCTOR_FIX_ERROR, {
+    event: EVENTS.DOCTOR_FIX_ERROR,
+    category: fields.category,
+    reason: fields.reason,
+    target: fields.target,
   });
 }
