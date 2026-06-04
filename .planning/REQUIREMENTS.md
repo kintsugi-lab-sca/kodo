@@ -22,10 +22,10 @@ Reflejar el estado real del task en el provider (driver: ROMAN-150, sesión "In 
 
 `kodo gsd doctor` — utilidad de saneo del ciclo de vida.
 
-- [ ] **DOCTOR-01**: `kodo gsd doctor` detecta y reporta (**dry-run por defecto**) las 4 categorías de basura: worktrees huérfanos, sesiones zombie (`alive===false`), locks per-repo colgados (PID muerto / TTL), logs NDJSON antiguos.
-- [ ] **DOCTOR-02**: `kodo gsd doctor --fix` ejecuta el saneo **re-checando liveness** (`isPidAlive` + `alive`) antes de cada acción destructiva; reusa `git worktree remove/prune` (no `rm -rf`) y los helpers existentes de `lock.js`/`stop.js`.
-- [ ] **DOCTOR-03**: output agrupado por categoría; exit code determinista **0=limpio / 1=problemas encontrados**.
-- [ ] **DOCTOR-04**: la lógica de saneo vive en un módulo puro `src/gsd/doctor.js` (espejo de `reconcile.js`), reusable por el CLI `gsd doctor` y por el dismiss del dashboard — una sola fuente de saneo.
+- [x] **DOCTOR-01**: `kodo gsd doctor` detecta y reporta (**dry-run por defecto**) las 4 categorías de basura: worktrees huérfanos, sesiones zombie (`alive===false`), locks per-repo colgados (PID muerto / TTL), logs NDJSON antiguos.
+- [x] **DOCTOR-02**: `kodo gsd doctor --fix` ejecuta el saneo **re-checando liveness** (`isPidAlive` + `alive`) antes de cada acción destructiva; reusa `git worktree remove/prune` (no `rm -rf`) y los helpers existentes de `lock.js`/`stop.js`.
+- [x] **DOCTOR-03**: output agrupado por categoría; exit code determinista **0=limpio / 1=problemas encontrados**.
+- [x] **DOCTOR-04**: la lógica de saneo vive en un módulo puro `src/gsd/doctor.js` (espejo de `reconcile.js`), reusable por el CLI `gsd doctor` y por el dismiss del dashboard — una sola fuente de saneo.
 
 ### Dismiss
 
@@ -74,10 +74,10 @@ Mapa requirement → fase. Completado por el roadmapper al crear el roadmap (202
 | PSTATE-04 | Phase 40 | Complete |
 | PSTATE-05 | Phase 43 | Pending |
 | PSTATE-06 | Phase 43 | Pending |
-| DOCTOR-01 | Phase 41 | Pending |
-| DOCTOR-02 | Phase 41 | Pending |
-| DOCTOR-03 | Phase 41 | Pending |
-| DOCTOR-04 | Phase 41 | Pending |
+| DOCTOR-01 | Phase 41 | Complete |
+| DOCTOR-02 | Phase 41 | Complete |
+| DOCTOR-03 | Phase 41 | Complete |
+| DOCTOR-04 | Phase 41 | Complete |
 | DISMISS-01 | Phase 42 | Pending |
 | DISMISS-02 | Phase 42 | Pending |
 | DISMISS-03 | Phase 42 | Pending |

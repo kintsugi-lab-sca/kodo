@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: executing
-stopped_at: Phase 41 context gathered
-last_updated: "2026-06-04T09:33:31.159Z"
+status: ready_to_plan
+stopped_at: Phase 41 complete (3/3) — ready to discuss Phase 42
+last_updated: 2026-06-04T20:50:23.116Z
 last_activity: 2026-06-04 -- Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 5
   percent: 20
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Phase 41 — doctor-m-dulo-puro-de-saneo-cli
+**Current focus:** Phase 42 — dismiss — tui read write + server amplification
 
 ## Current Position
 
-Phase: 41 (doctor-m-dulo-puro-de-saneo-cli) — EXECUTING
-Plan: 3 of 3
-Status: Plan 41-03 PAUSED at Task 2 (checkpoint:human-verify, blocking UAT of destructive --fix). Task 1 committed (ce888e1).
-Last activity: 2026-06-04 -- Plan 41-03 Task 1 done, awaiting human UAT
+Phase: 42
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-04
 
 ## Roadmap v0.10 (active)
 
