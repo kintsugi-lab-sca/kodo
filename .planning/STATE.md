@@ -4,8 +4,8 @@ milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
 status: executing
 stopped_at: Phase 41 context gathered
-last_updated: "2026-06-04T09:30:21.397Z"
-last_activity: 2026-06-04 -- Phase 41 planning complete
+last_updated: "2026-06-04T09:33:31.159Z"
+last_activity: 2026-06-04 -- Phase 41 execution started
 progress:
   total_phases: 5
   completed_phases: 1
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Phase 41 — doctor — módulo puro de saneo + cli
+**Current focus:** Phase 41 — doctor-m-dulo-puro-de-saneo-cli
 
 ## Current Position
 
-Phase: 41
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-04 -- Phase 41 planning complete
+Phase: 41 (doctor-m-dulo-puro-de-saneo-cli) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 41
+Last activity: 2026-06-04 -- Phase 41 execution started
 
 ## Roadmap v0.10 (active)
 

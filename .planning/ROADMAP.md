@@ -58,7 +58,7 @@
   4. Un lock con PID vivo + TTL no excedido NO se borra; un lock con PID muerto (o TTL excedido) se roba — espejando la máquina de estados de `acquireGsdLock`
   5. El saneo vive en `src/gsd/doctor.js` puro + DI + never-throws (espejo de `reconcile.js`), exportando un helper reusable por el CLI y por el dismiss del dashboard
 **Plans**: 3 plans (3 waves)
-- [ ] 41-01-PLAN.md — Extract shared worktree-cleanup helper from stop.js (D-11) + register doctor.* events
+- [x] 41-01-PLAN.md — Extract shared worktree-cleanup helper from stop.js (D-11) + register doctor.* events
 - [ ] 41-02-PLAN.md — Pure doctor.js module: scan() detection + execute() sanitization (4 categories, liveness re-check)
 - [ ] 41-03-PLAN.md — CLI wiring (kodo gsd doctor, --fix/--json) + destructive --fix human UAT
 
@@ -272,7 +272,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 39. Paneles auxiliares — comentarios + logs | v0.9 | 2/2 | Complete    | 2026-06-02 |
 | 39.1. Cierre de gaps v0.9 (INSERTED) | v0.9 | 5/5 | Complete | 2026-06-03 |
 | 40. Provider State — contrato + providers + enrichment | v0.10 | 2/2 | Complete    | 2026-06-03 |
-| 41. Doctor — módulo puro de saneo + CLI | v0.10 | 0/TBD | Not started | - |
+| 41. Doctor — módulo puro de saneo + CLI | v0.10 | 1/3 | In Progress|  |
 | 42. Dismiss — TUI read-write + server amplification | v0.10 | 0/TBD | Not started | - |
 | 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |
 
