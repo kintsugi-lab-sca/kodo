@@ -57,7 +57,10 @@
   3. Exit code determinista: 0 = limpio, 1 = problemas encontrados
   4. Un lock con PID vivo + TTL no excedido NO se borra; un lock con PID muerto (o TTL excedido) se roba — espejando la máquina de estados de `acquireGsdLock`
   5. El saneo vive en `src/gsd/doctor.js` puro + DI + never-throws (espejo de `reconcile.js`), exportando un helper reusable por el CLI y por el dismiss del dashboard
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
+- [ ] 41-01-PLAN.md — Extract shared worktree-cleanup helper from stop.js (D-11) + register doctor.* events
+- [ ] 41-02-PLAN.md — Pure doctor.js module: scan() detection + execute() sanitization (4 categories, liveness re-check)
+- [ ] 41-03-PLAN.md — CLI wiring (kodo gsd doctor, --fix/--json) + destructive --fix human UAT
 
 **Invariantes / notas:**
 - **Fase de alto riesgo (mutación destructiva en `--fix`).** Probable UAT/verificación explícita, espejando cómo v0.9 cerró 37/38 por UAT manual.
