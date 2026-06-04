@@ -60,7 +60,7 @@
 **Plans**: 3 plans (3 waves)
 - [x] 41-01-PLAN.md — Extract shared worktree-cleanup helper from stop.js (D-11) + register doctor.* events
 - [x] 41-02-PLAN.md — Pure doctor.js module: scan() detection + execute() sanitization (4 categories, liveness re-check)
-- [ ] 41-03-PLAN.md — CLI wiring (kodo gsd doctor, --fix/--json) + destructive --fix human UAT
+- [x] 41-03-PLAN.md — CLI wiring (kodo gsd doctor, --fix/--json) + destructive --fix human UAT
 
 **Invariantes / notas:**
 - **Fase de alto riesgo (mutación destructiva en `--fix`).** Probable UAT/verificación explícita, espejando cómo v0.9 cerró 37/38 por UAT manual.
@@ -272,7 +272,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 39. Paneles auxiliares — comentarios + logs | v0.9 | 2/2 | Complete    | 2026-06-02 |
 | 39.1. Cierre de gaps v0.9 (INSERTED) | v0.9 | 5/5 | Complete | 2026-06-03 |
 | 40. Provider State — contrato + providers + enrichment | v0.10 | 2/2 | Complete    | 2026-06-03 |
-| 41. Doctor — módulo puro de saneo + CLI | v0.10 | 2/3 | In Progress|  |
+| 41. Doctor — módulo puro de saneo + CLI | v0.10 | 3/3 | Complete   | 2026-06-04 |
 | 42. Dismiss — TUI read-write + server amplification | v0.10 | 0/TBD | Not started | - |
 | 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |
 

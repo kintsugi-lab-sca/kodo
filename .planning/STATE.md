@@ -30,9 +30,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 ## Current Position
 
 Phase: 41 (doctor-m-dulo-puro-de-saneo-cli) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 41
-Last activity: 2026-06-04 -- Phase 41 execution started
+Plan: 3 of 3
+Status: Plan 41-03 PAUSED at Task 2 (checkpoint:human-verify, blocking UAT of destructive --fix). Task 1 committed (ce888e1).
+Last activity: 2026-06-04 -- Plan 41-03 Task 1 done, awaiting human UAT
 
 ## Roadmap v0.10 (active)
 
