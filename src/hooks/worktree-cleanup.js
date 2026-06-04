@@ -71,7 +71,7 @@ export async function cleanupWorktree({ project, worktree, sessionId, gitFn, log
     const out = await gitFn(project, ['-C', wt, 'branch', '--show-current']);
     branchName = (out || '').trim() || null;
   } catch (err) {
-    console.error(`[kodo:stop] branch --show-current failed: ${err.message}`);
+    console.error(`[kodo:worktree-cleanup] branch --show-current failed: ${err.message}`);
   }
 
   // 2. Dirty check (D-01). Status read failure → emit cleanup.error{phase:status}
@@ -114,7 +114,7 @@ export async function cleanupWorktree({ project, worktree, sessionId, gitFn, log
           // Pitfall #3: branch checked-out by another worktree, race, etc.
           // → warn fail-open. NO emit cleanup.error{phase:branch} — el test
           // contractual exige cleanup.ok con branch_deleted=false.
-          console.error(`[kodo:stop] branch -D ${branchName} failed: ${/** @type {Error} */ (err).message}`);
+          console.error(`[kodo:worktree-cleanup] branch -D ${branchName} failed: ${/** @type {Error} */ (err).message}`);
         }
       }
       worktreeCleanupOk(cleanupLog, {

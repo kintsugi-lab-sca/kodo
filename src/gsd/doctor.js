@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { isPidAlive as realIsPidAlive, readLock as realReadLock, LOCK_FILE, DEFAULT_TTL_HOURS } from './lock.js';
-import { loadState as realLoadState, listSessions as realListSessions, computeWorktreePath, removeSession as realRemoveSession } from '../session/state.js';
+import { loadState as realLoadState, computeWorktreePath, removeSession as realRemoveSession } from '../session/state.js';
 import { cleanupWorktree as realCleanupWorktree } from '../hooks/worktree-cleanup.js';
 // LOG-12: logger-noop.js es el stub zero-import whitelisted (igual que state.js) —
 // NUNCA logger.js. Sirve de default seguro para que cleanupWorktree no crashee
@@ -128,17 +128,26 @@ function defaultListLogFiles() {
 function defaultListWorktreeDirs() {
   /** @type {WorktreeDir[]} */
   const out = [];
-  const seenProjects = new Set();
-  let sessions;
+  let state;
   try {
-    sessions = realListSessions();
+    state = realLoadState();
   } catch {
     return [];
   }
-  for (const s of sessions) {
-    const projectPath = s.project_path;
-    if (!projectPath || seenProjects.has(projectPath)) continue;
-    seenProjects.add(projectPath);
+  // Unificar projectPaths de sesiones activas + history (espejo de
+  // collectLockProjects): un `.bg-shell/<id>` huérfano puede sobrevivir a una
+  // sesión ya archivada en history — sigue siendo basura a sanear, así que su
+  // proyecto debe escanearse aunque no tenga sesiones activas.
+  const projects = new Set();
+  for (const s of Object.values(state.sessions || {})) {
+    if (s && s.project_path) projects.add(s.project_path);
+  }
+  if (Array.isArray(state.history)) {
+    for (const s of state.history) {
+      if (s && s.project_path) projects.add(s.project_path);
+    }
+  }
+  for (const projectPath of projects) {
     const bgShell = join(projectPath, '.bg-shell');
     let names;
     try {
@@ -147,6 +156,11 @@ function defaultListWorktreeDirs() {
       continue; // .bg-shell ausente para este proyecto → nada.
     }
     for (const sessionId of names) {
+      // Saltar los artefactos de preservación `<id>.dirty` / `<id>.dirty-<ts>`
+      // que cleanupWorktree deja a propósito: son trabajo sin commit reservado
+      // para revisión manual, NO worktrees de sesión que doctor deba re-sanear
+      // (re-detectarlos provocaría un move-to-.dirty.dirty en el siguiente --fix).
+      if (/\.dirty(-\d+)?$/.test(sessionId)) continue;
       out.push({ sessionId, path: computeWorktreePath(projectPath, sessionId), projectPath });
     }
   }

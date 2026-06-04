@@ -149,20 +149,22 @@ describe('runGsdDoctor — dry-run vs --fix (D-03/D-07)', () => {
     assert.match(out, /logs:\s+1 unlinked/, 'log result rendered');
   });
 
-  it('--fix surfaces execute errors in the render', async () => {
+  it('--fix surfaces execute errors on stderr (not stdout)', async () => {
     const result = emptyResult();
     result.errors.push({ category: 'worktree', target: '/repo/.bg-shell/s1', reason: 'git remove failed' });
     const stdout = makeStdoutStub();
+    const stderr = makeStdoutStub();
     await runGsdDoctor({ fix: true }, {
       scanFn: () => garbageReport(),
       executeFn: async () => result,
       writeFn: stdout.write,
-      errFn: () => {},
+      errFn: stderr.write,
       formatterFn: nocolorFormatter,
     });
-    const out = stdout.get();
-    assert.match(out, /errors \(1\)/, 'errors header rendered');
-    assert.match(out, /git remove failed/, 'error reason rendered');
+    const errOut = stderr.get();
+    assert.match(errOut, /errors \(1\)/, 'errors header rendered on stderr');
+    assert.match(errOut, /git remove failed/, 'error reason rendered on stderr');
+    assert.doesNotMatch(stdout.get(), /git remove failed/, 'error detail must not leak to stdout');
   });
 });
 

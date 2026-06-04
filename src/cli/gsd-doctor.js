@@ -103,7 +103,7 @@ export async function runGsdDoctor(opts, deps = {}) {
  *   fmt: import('./format.js').Formatter,
  * }} params
  */
-function renderHuman({ report, result, fix, write, fmt }) {
+function renderHuman({ report, result, fix, write, err, fmt }) {
   write(`kodo gsd doctor${fix ? ' --fix' : ' (dry-run)'}\n\n`);
 
   renderCategory(write, fmt, 'Worktrees huérfanos', report.worktrees, (item) =>
@@ -132,9 +132,9 @@ function renderHuman({ report, result, fix, write, fmt }) {
     write(`locks:     ${result.locks.stolen} stolen, ${result.locks.kept} kept\n`);
     write(`logs:      ${result.logs.unlinked} unlinked\n`);
     if (result.errors.length > 0) {
-      write(`\n${fmt.red('errors')} (${result.errors.length}):\n`);
+      err(`\n${fmt.red('errors')} (${result.errors.length}):\n`);
       for (const e of result.errors) {
-        write(`  ${fmt.fail(e.category)} ${e.target}: ${e.reason}\n`);
+        err(`  ${fmt.fail(e.category)} ${e.target}: ${e.reason}\n`);
       }
     }
   }
