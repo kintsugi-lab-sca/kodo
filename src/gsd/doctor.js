@@ -400,19 +400,16 @@ export function scan(deps = {}) {
 }
 
 // ── execute() ──────────────────────────────────────────────────────────────
-// Implementación completa en Task 2. Placeholder no-op cuando fix falsy para que
-// el contrato de export sea resoluble desde ahora.
 
 /**
- * Sanea las 4 categorías (o una sola sesión por taskId). RE-detecta y re-chequea
- * liveness IMMEDIATELY antes de cada acción destructiva. Implementación en Task 2.
- *
- * @param {DoctorDeps} [deps]
- * @param {{ taskId?: string, fix?: boolean }} [opts]
+ * @typedef {{
+ *   worktrees: { removed: number, moved: number, pruned: number, skipped: number },
+ *   zombies: { removed: number },
+ *   locks: { stolen: number, kept: number },
+ *   logs: { unlinked: number },
+ *   errors: Array<{ category: string, target: string, reason: string }>,
+ * }} DoctorResult
  */
-export async function execute(deps = {}, opts = {}) {
-  return emptyResult();
-}
 
 function emptyResult() {
   return {
@@ -422,4 +419,161 @@ function emptyResult() {
     logs: { unlinked: 0 },
     errors: [],
   };
+}
+
+/**
+ * Sanea las 4 categorías (o UNA sola sesión por `opts.taskId`). RE-detecta vía
+ * los helpers compartidos (D-06: NO consume el report de scan como plan) y
+ * re-chequea liveness IMMEDIATELY antes de cada acción destructiva: si el target
+ * pasó a vivo entre scan y execute, se SALTA (TOCTOU guard, D-14).
+ *
+ * fail-open per item (D-10): cada acción va en su try/catch → doctorFixError +
+ * continuar. never-throws al nivel superior (outer try/catch → result parcial).
+ *
+ * Cuando `opts.fix` es falsy, no-op (la CLI llama fix=true solo en `--fix`).
+ * Cuando `opts.taskId` está set, scope a worktree+lock+state de esa sesión y se
+ * EXCLUYE la categoría de logs (logs son retención global, D-05).
+ *
+ * @param {DoctorDeps} [deps]
+ * @param {{ taskId?: string, fix?: boolean }} [opts]
+ * @returns {Promise<DoctorResult>}
+ */
+export async function execute(deps = {}, opts = {}) {
+  const result = emptyResult();
+  if (!opts.fix) return result; // dry-run path: la CLI usa scan() para mostrar.
+
+  const d = resolveDeps(deps);
+  const log = /** @type {any} */ (d.logger);
+
+  try {
+    const nowMs = d.now();
+    const taskId = opts.taskId;
+
+    // RE-detección fresca (D-06). loadState dentro del try → si falla, outer catch.
+    const state = d.loadState();
+    const liveById = indexBySessionId(state);
+
+    // ── Worktrees ──────────────────────────────────────────────────────────
+    let worktreeDirs = [];
+    try {
+      worktreeDirs = d.listWorktreeDirs();
+    } catch (err) {
+      pushError(result, log, 'worktree', '.bg-shell', errMsg(err));
+    }
+    for (const wt of worktreeDirs) {
+      const session = liveById.get(wt.sessionId);
+      // Scope por taskId: solo el worktree de esa sesión.
+      if (taskId && (!session || session.task_id !== taskId)) continue;
+      // Re-check liveness JUST before the destructive action (D-14 / TOCTOU).
+      if (isSessionLive(session)) {
+        result.worktrees.skipped++;
+        continue;
+      }
+      try {
+        const r = await d.cleanupWorktree({
+          project: wt.projectPath,
+          worktree: wt.path,
+          sessionId: wt.sessionId,
+          gitFn: d.gitFn,
+          logger: log,
+        });
+        if (r && r.moved_to) {
+          result.worktrees.moved++;
+          if (log) doctorFixWorktree(log, { session_id: wt.sessionId, worktree_path: wt.path, action: 'moved', moved_to: r.moved_to });
+        } else if (r && r.removed) {
+          result.worktrees.removed++;
+          if (log) doctorFixWorktree(log, { session_id: wt.sessionId, worktree_path: wt.path, action: 'remove', moved_to: null });
+        } else {
+          // Ni removido ni movido (status read falló dentro del helper): el helper
+          // ya corrió un prune oportunista. Lo contamos como prune.
+          result.worktrees.pruned++;
+          if (log) doctorFixWorktree(log, { session_id: wt.sessionId, worktree_path: wt.path, action: 'prune', moved_to: null });
+        }
+      } catch (err) {
+        pushError(result, log, 'worktree', wt.path, errMsg(err));
+      }
+    }
+
+    // ── Zombies (state.json entries con alive===false) ──────────────────────
+    for (const [tid, s] of Object.entries(state.sessions || {})) {
+      if (!s || s.alive !== false) continue;
+      if (taskId && tid !== taskId) continue;
+      try {
+        d.removeSession(tid, log);
+        result.zombies.removed++;
+      } catch (err) {
+        pushError(result, log, 'zombie', tid, errMsg(err));
+      }
+    }
+
+    // ── Locks ───────────────────────────────────────────────────────────────
+    const lockProjects = collectLockProjects(d, state);
+    for (const projectPath of lockProjects) {
+      let lock;
+      try {
+        lock = d.readLock(projectPath); // RE-read (D-06) — no snapshot.
+      } catch (err) {
+        pushError(result, log, 'lock', projectPath, errMsg(err));
+        continue;
+      }
+      if (!lock) continue;
+      // Scope por taskId: solo el lock de esa sesión.
+      if (taskId && lock.task_id !== taskId) continue;
+      const { decision, reason } = decideLock(lock, d.isPidAlive, nowMs);
+      if (decision === 'keep') {
+        result.locks.kept++;
+        if (log) doctorFixLock(log, { project_path: projectPath, decision: 'kept', pid: lock.pid, reason });
+        continue;
+      }
+      try {
+        d.unlinkFile(join(projectPath, LOCK_FILE));
+        result.locks.stolen++;
+        if (log) doctorFixLock(log, { project_path: projectPath, decision: 'stolen', pid: lock.pid, reason });
+      } catch (err) {
+        pushError(result, log, 'lock', join(projectPath, LOCK_FILE), errMsg(err));
+      }
+    }
+
+    // ── Logs ──────────────────────────────────────────────────────────────
+    // EXCLUIDOS bajo scope por taskId (logs son retención global, D-05).
+    if (!taskId) {
+      const cutoffMs = nowMs - DEFAULT_RETENTION_DAYS * MS_PER_DAY;
+      let logFiles = [];
+      try {
+        logFiles = d.listLogFiles();
+      } catch (err) {
+        pushError(result, log, 'log', '~/.kodo/logs', errMsg(err));
+      }
+      for (const f of logFiles) {
+        if (isSessionLive(liveById.get(f.sessionId))) continue; // log de sesión viva → jamás.
+        const mtimeMs = typeof f.mtimeMs === 'number' ? f.mtimeMs : safeMtime(d, f.path);
+        if (mtimeMs === null || mtimeMs >= cutoffMs) continue;
+        try {
+          d.unlinkFile(f.path); // unlink ENTERO, nunca truncate (D-12).
+          result.logs.unlinked++;
+          if (log) doctorFixLog(log, { log_path: f.path, session_id: f.sessionId });
+        } catch (err) {
+          pushError(result, log, 'log', f.path, errMsg(err));
+        }
+      }
+    }
+  } catch (err) {
+    // never-throws top-level: retorna result parcial + error registrado.
+    pushError(result, log, 'execute', 'top-level', errMsg(err));
+  }
+
+  return result;
+}
+
+/** @param {unknown} err @returns {string} */
+function errMsg(err) {
+  return String(/** @type {any} */ (err)?.message || err);
+}
+
+/**
+ * Registra un fallo en result.errors y emite doctorFixError (fail-open jamás silencioso).
+ */
+function pushError(result, log, category, target, reason) {
+  result.errors.push({ category, target, reason });
+  if (log) doctorFixError(log, { category, reason, target });
 }
