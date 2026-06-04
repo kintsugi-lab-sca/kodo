@@ -45,11 +45,15 @@ import {
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-/** Retención default (D-15): 7 días. */
-const DEFAULT_RETENTION_DAYS = 7;
+/**
+ * Retención default (D-15): 7 días.
+ * Exportada para reuso (Phase 41 doctor — DOCTOR-04 D-12: el cutoff de logs
+ * antiguos reusa esta constante en vez de hardcodear 7).
+ */
+export const DEFAULT_RETENTION_DAYS = 7;
 
-/** Milisegundos en 1 día. */
-const MS_PER_DAY = 86_400_000;
+/** Milisegundos en 1 día. Exportada junto a DEFAULT_RETENTION_DAYS (reuso doctor). */
+export const MS_PER_DAY = 86_400_000;
 
 /**
  * Resuelve el path canonical del logfile del daemon para el día actual.
