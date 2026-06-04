@@ -39,6 +39,7 @@ function makeDeps(overrides = {}) {
   const { logger } = makeMemLogger();
   return {
     loadState: () => ({ schema_version: 3, sessions: {}, history: [] }),
+    listLockProjects: () => [], // por defecto sin locks (evita leer el .kodo.lock real del cwd)
     readLock: () => null,
     isPidAlive: () => false,
     listLogFiles: () => [], // [{ sessionId, path, mtimeMs }]
@@ -113,6 +114,7 @@ describe('Phase 41 Plan 02: scan() — pure 4-category detection', () => {
   it('flags a hung lock when PID dead', () => {
     const lock = { session_id: 's1', task_id: 't1', task_ref: 'KL-1', pid: 4242, acquired_at: new Date(NOW).toISOString(), ttl_hours: 4 };
     const deps = makeDeps({
+      listLockProjects: () => [PROJECT],
       readLock: () => lock,
       isPidAlive: (pid) => false, // dead
     });
@@ -125,6 +127,7 @@ describe('Phase 41 Plan 02: scan() — pure 4-category detection', () => {
     const acquired = new Date(NOW - 5 * 3600_000).toISOString(); // 5h ago, ttl 4h
     const lock = { session_id: 's1', task_id: 't1', task_ref: 'KL-1', pid: 4242, acquired_at: acquired, ttl_hours: 4 };
     const deps = makeDeps({
+      listLockProjects: () => [PROJECT],
       readLock: () => lock,
       isPidAlive: () => true,
     });
@@ -136,6 +139,7 @@ describe('Phase 41 Plan 02: scan() — pure 4-category detection', () => {
   it('keeps a live-PID + TTL-ok lock under protected, action keep', () => {
     const lock = { session_id: 's1', task_id: 't1', task_ref: 'KL-1', pid: 4242, acquired_at: new Date(NOW).toISOString(), ttl_hours: 4 };
     const deps = makeDeps({
+      listLockProjects: () => [PROJECT],
       readLock: () => lock,
       isPidAlive: () => true,
     });
