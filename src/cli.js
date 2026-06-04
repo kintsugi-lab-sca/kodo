@@ -344,6 +344,25 @@ gsd
     }
   });
 
+gsd
+  .command('doctor')
+  .description('Detect (dry-run) and sanitize (--fix) session lifecycle garbage: orphan worktrees, zombie sessions, hung locks, old logs')
+  .option('--fix', 'Sanitize the detected garbage (the only opt-in to mutate; no prompt)')
+  .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
+  .action(async (opts) => {
+    try {
+      // NOTE: NO `ensureConfig()` — doctor sanea el filesystem local (worktrees,
+      // locks, logs, state.json) y NO toca ningún provider (D-02 / CONTEXT línea
+      // 104). Mismo precedente que `skill sync` y `polling start`.
+      const { runGsdDoctor } = await import('./cli/gsd-doctor.js');
+      const code = await runGsdDoctor({ fix: opts.fix || false, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo skill <subcommand> ---
 const skill = program.command('skill').description('Skill management subcommands (sync, etc.)');
 
