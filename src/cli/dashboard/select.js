@@ -209,3 +209,36 @@ export function grepLogs(logs, session) {
     return needles.some((n) => hay.includes(n));
   });
 }
+
+/**
+ * Mapea el resultado de `dismissSession` (D-10) a un discriminante PURO `{kind, color}` que
+ * el root del dashboard (Phase 42) traduce al literal DISMISS_* copy. Phase 42 Plan 02
+ * (DISMISS-03, D-09).
+ *
+ * Se extrae aquí (capa de derive pura) — y NO inline en el componente root — para ser
+ * unit-testeable sin host React (RESEARCH Open Question 2) y para que el matiz del footer se
+ * DERIVE del `actions[]`, no de un color lookup (D-09). NO importa las constantes de copy del
+ * root (anti import circular, color-isolation intacta: `color` aquí es solo un nombre de ink
+ * string, cero picocolors).
+ *
+ * Precedencia (UI-SPEC §Result-to-footer mapping, D-09):
+ *   - `!res.ok`                          → `{kind:'error', color:'red', reason}` (incl. 'alive', 'HTTP 500').
+ *   - `actions` contiene `result:'error'`→ `{kind:'warn',  color:'yellow'}` (un sub-fallo GANA sobre dirty).
+ *   - `actions` contiene `'moved-dirty'` → `{kind:'dirty', color:'yellow'}` (worktree preservado).
+ *   - resto                              → `{kind:'ok',    color:'green'}`.
+ *
+ * @param {{ ok: true, data: { removed?: string, actions?: Array<{ type?: string, result?: string }> } }
+ *   | { ok: false, error: string }} res — discriminante never-throws de dismissSession.
+ * @param {string} taskRef — task_ref legible para el copy (el root lo inyecta en la literal). No
+ *   afecta el discriminante; se acepta por simetría con la firma documentada.
+ * @returns {{ kind: 'ok'|'dirty'|'warn'|'error', color: string, reason?: string }}
+ */
+// eslint-disable-next-line no-unused-vars
+export function mapDismissResult(res, taskRef) {
+  if (!res.ok) return { kind: 'error', color: 'red', reason: res.error };
+  const actions = Array.isArray(res.data?.actions) ? res.data.actions : [];
+  // error > dirty: un sub-fallo fail-open es señal MÁS fuerte que un .dirty preservado.
+  if (actions.some((a) => a.result === 'error')) return { kind: 'warn', color: 'yellow' };
+  if (actions.some((a) => a.result === 'moved-dirty')) return { kind: 'dirty', color: 'yellow' };
+  return { kind: 'ok', color: 'green' };
+}
