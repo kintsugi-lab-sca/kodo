@@ -325,6 +325,12 @@ export default function App({
           // D-02: segunda `d` → ejecuta. dismissSession es never-throws (D-10) → el `await` es legal
           // sin try/catch (ningún throw llega a React, SC#4). El re-check TOCTOU autoritativo vive
           // server-side (D-07/D-08): un 409 'alive' vuelve como {ok:false,error:'alive'} y se pinta rojo.
+          // WR-01 guard: si por bug de estado armedTaskId es null/vacío, abortar silenciosamente.
+          if (!armedTaskId) {
+            setArmedTaskRef(null);
+            setMode('list');
+            return;
+          }
           const res = await dismissSession(baseUrl, armedTaskId, fetchFn);
           const ref = armedTaskRef ?? armedTaskId ?? '';
           // D-09: el matiz se DERIVA de actions[] (mapDismissResult puro), no de un color lookup.
