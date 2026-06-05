@@ -276,7 +276,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 39.1. Cierre de gaps v0.9 (INSERTED) | v0.9 | 5/5 | Complete | 2026-06-03 |
 | 40. Provider State — contrato + providers + enrichment | v0.10 | 2/2 | Complete    | 2026-06-03 |
 | 41. Doctor — módulo puro de saneo + CLI | v0.10 | 3/3 | Complete    | 2026-06-04 |
-| 42. Dismiss — TUI read-write + server amplification | v0.10 | 3/3 | Complete|  |
+| 42. Dismiss — TUI read-write + server amplification | v0.10 | 3/3 | Complete    | 2026-06-05 |
 | 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |
 
 ---
