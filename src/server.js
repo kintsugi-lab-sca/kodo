@@ -7,6 +7,7 @@ import { initRegistry, getProvider } from './providers/registry.js';
 import { listSessions, listHistory, removeSession, loadState, saveState } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
+import { createDismissHandler } from './server/dismiss.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -360,6 +361,16 @@ export async function startServer(opts = {}) {
     now: Date.now,
   });
 
+  // Phase 42 (Plan 01, DISMISS-01/DISMISS-04): ONE dismiss handler for the whole
+  // server lifetime (NOT per-request — mirrors the providerStateResolver wiring).
+  // Real loadState/executeFn are defaulted inside the factory; we only inject a
+  // server-lifetime logger child for the SESSION_DISMISSED aggregate audit event.
+  const dismissLogger = createProviderStateLogger({
+    sessionId: 'reconcile',
+    minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+  }).child({ component: 'dismiss' });
+  const dismissHandler = createDismissHandler({ logger: dismissLogger });
+
   // Webhook secret check — provider-specific env var with legacy fallback
   const secretEnv = `KODO_WEBHOOK_SECRET_${config.provider.toUpperCase()}`;
   const webhookSecret = process.env[secretEnv] || process.env.PLANE_WEBHOOK_SECRET;
@@ -493,10 +504,16 @@ export async function startServer(opts = {}) {
     }
 
     if (req.method === 'DELETE' && req.url?.startsWith('/sessions/')) {
+      // Phase 42 (DISMISS-01): thin adapter over the pure dismiss handler. The
+      // handler does the 409 alive guard (authoritative TOCTOU re-check, D-07/D-08),
+      // delegates sanitization to doctor.execute({taskId, fix:true}), and synthesizes
+      // the actions[] body. decodeURIComponent is RETAINED (T-39-01 path-traversal
+      // control, symmetric to the client's encodeURIComponent). dismiss is
+      // never-throws by construction — no try/catch needed here.
       const taskId = decodeURIComponent(req.url.slice('/sessions/'.length));
-      removeSession(taskId);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, removed: taskId }));
+      const { status, body } = await dismissHandler(taskId);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
       return;
     }
 
