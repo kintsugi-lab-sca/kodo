@@ -53,6 +53,7 @@ import { join } from 'node:path';
  *   DOCTOR_FIX_LOCK: 'doctor.fix.lock',
  *   DOCTOR_FIX_LOG: 'doctor.fix.log',
  *   DOCTOR_FIX_ERROR: 'doctor.fix.error',
+ *   SESSION_DISMISSED: 'session.dismissed',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -84,6 +85,7 @@ export const EVENTS = Object.freeze({
   DOCTOR_FIX_LOCK:         'doctor.fix.lock',
   DOCTOR_FIX_LOG:          'doctor.fix.log',
   DOCTOR_FIX_ERROR:        'doctor.fix.error',
+  SESSION_DISMISSED:       'session.dismissed',
 });
 
 /**
@@ -318,6 +320,25 @@ export function worktreeCleanupOk(logger, fields) {
     session_id: fields.session_id,
     worktree_path: fields.worktree_path,
     branch_deleted: fields.branch_deleted,
+  });
+}
+
+/**
+ * Session dismissed — emitted (info) by the server's DELETE /sessions/{id} handler
+ * after a dead session was sanitized via doctor.execute (Phase 42 DISMISS-01). This
+ * is the AGGREGATE audit event; doctor still emits the per-item doctor.fix.* detail.
+ * Makes the destructive mutation auditable (T-42-03 Repudiation mitigation).
+ *
+ * LOG-12: explicit whitelist — no `...fields` spread.
+ *
+ * @param {Logger} logger
+ * @param {{ task_id: string, actions_count: number }} fields
+ */
+export function sessionDismissed(logger, fields) {
+  logger.info(EVENTS.SESSION_DISMISSED, {
+    event: EVENTS.SESSION_DISMISSED,
+    task_id: fields.task_id,
+    actions_count: fields.actions_count,
   });
 }
 
