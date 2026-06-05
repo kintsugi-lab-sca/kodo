@@ -143,3 +143,62 @@ export async function fetchLogs(baseUrl, fetchFn = globalThis.fetch, signal) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Resultado discriminado de `dismissSession` (D-10, DISMISS-03). Espejo de la forma
+ * never-throws de `fetchComments`/`fetchLogs`, con `method:'DELETE'`.
+ *
+ * @typedef {(
+ *   { ok: true, data: { removed: string, actions: Array<{ type: string, result: string }> } }
+ *   | { ok: false, error: string }
+ * )} DismissResult
+ */
+
+/**
+ * Descarta (dismiss) la sesión `taskId` vía `DELETE {baseUrl}/sessions/{taskId}`.
+ * NEVER-THROWS (D-10, DISMISS-03): es el calque verbatim de `fetchComments` con
+ * `{ method:'DELETE' }`. Colapsa CUALQUIER fallo de red/HTTP/JSON al discriminante
+ * `{ ok:false, error }` — ningún throw llega a React (invariante v0.9, SC#4). Por eso
+ * el handler `useInput` puede `await`-earlo sin try/catch.
+ *
+ * El server amplificado (Plan 01) responde:
+ *   - 200 `{ ok:true, removed, actions:[{type,result}] }` — saneo delegado en doctor.
+ *   - 409 `{ ok:false, error:'alive' }` — guard server-side TOCTOU (D-07/D-08): el target
+ *     revivió entre arm y confirm; el race se caza y se surface honestamente en el footer.
+ *   - 5xx `{ error }` — error genérico.
+ * El fallo HTTP lee el body para un error HONESTO: por defecto `HTTP <status>`, pero si el
+ * body trae `{error}` (p.ej. 'alive'), ese reason gana — el operador ve por qué falló.
+ *
+ * @param {string} baseUrl — base del server kodo.
+ * @param {string} taskId — id de tarea; se codifica con `encodeURIComponent` (T-39-01/V5, va en
+ *   el path). El server hace `decodeURIComponent` simétrico (anti path-traversal).
+ * @param {typeof globalThis.fetch} [fetchFn] — fetch inyectable (test/DI).
+ * @returns {Promise<DismissResult>}
+ */
+export async function dismissSession(baseUrl, taskId, fetchFn = globalThis.fetch) {
+  try {
+    // T-39-01/V5: el task_id cruza en el path → encodeURIComponent OBLIGATORIO (anti
+    // path-traversal / inyección de segmentos de URL). El server decodifica simétrico.
+    const res = await fetchFn(`${baseUrl}/sessions/${encodeURIComponent(taskId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      // Error HONESTO: default `HTTP <status>`; si el body trae {error} (409 'alive', etc.)
+      // ese reason gana para que el footer surface el race cazado (D-07/D-08).
+      let error = `HTTP ${res.status}`;
+      try {
+        const b = await res.json();
+        if (b && b.error) error = b.error;
+      } catch {
+        /* body no-JSON → conserva `HTTP <status>` */
+      }
+      return { ok: false, error };
+    }
+    const data = await res.json(); // puede lanzar (JSON corrupto) → cae al catch
+    if (!Array.isArray(data.actions)) return { ok: false, error: 'bad shape' };
+    return { ok: true, data: { removed: data.removed, actions: data.actions } };
+  } catch (err) {
+    // Red / abort / parse error: jamás propaga a React.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
