@@ -78,8 +78,8 @@
   3. La confirmación inline (doble `d` / `Esc`) se resuelve contra la identidad `task_id` revalidada, nunca contra índice de array ni snapshot congelado, re-checando `alive===false` en el momento del DELETE
   4. Un fallo del DELETE muestra mensaje en el footer sin desmontar el panel — la mutación pasa por `client.js` never-throws (`{ok:false, error}`), preservando el invariante "ningún throw llega a React" de v0.9
 **Plans**: 3 plans (2 waves)
-- [ ] 42-01-PLAN.md — Server amplification: pure DI `src/server/dismiss.js` (409 alive guard = authoritative TOCTOU + DoctorResult→actions[] translation + `fix:true`) + thin DELETE adapter + `session.dismissed` event (DISMISS-01, DISMISS-04 server/doctor layers)
-- [ ] 42-02-PLAN.md — TUI read-write: `dismissSession` never-throws + pure `mapDismissResult` + `mode:'confirm'` double-`d` machine + inverse `alive` guard + distinguishable transient footer (DISMISS-02, DISMISS-03, DISMISS-04 TUI layer)
+- [x] 42-01-PLAN.md — Server amplification: pure DI `src/server/dismiss.js` (409 alive guard = authoritative TOCTOU + DoctorResult→actions[] translation + `fix:true`) + thin DELETE adapter + `session.dismissed` event (DISMISS-01, DISMISS-04 server/doctor layers)
+- [x] 42-02-PLAN.md — TUI read-write: `dismissSession` never-throws + pure `mapDismissResult` + `mode:'confirm'` double-`d` machine + inverse `alive` guard + distinguishable transient footer (DISMISS-02, DISMISS-03, DISMISS-04 TUI layer)
 - [ ] 42-03-PLAN.md — End-to-end seam test (server body ↔ TUI consumer agree) + destructive double-`d` human UAT + STATE.md invariant-break record (DISMISS-01..04)
 **UI hint**: yes
 
@@ -276,7 +276,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 39.1. Cierre de gaps v0.9 (INSERTED) | v0.9 | 5/5 | Complete | 2026-06-03 |
 | 40. Provider State — contrato + providers + enrichment | v0.10 | 2/2 | Complete    | 2026-06-03 |
 | 41. Doctor — módulo puro de saneo + CLI | v0.10 | 3/3 | Complete    | 2026-06-04 |
-| 42. Dismiss — TUI read-write + server amplification | v0.10 | 0/TBD | Not started | - |
+| 42. Dismiss — TUI read-write + server amplification | v0.10 | 2/3 | In Progress|  |
 | 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |
 
 ---
