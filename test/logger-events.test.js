@@ -46,6 +46,7 @@ const {
   pollingDispatch,
   pollingError,
   pollingTickSummary,
+  sessionDismissed,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
@@ -602,5 +603,17 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
         `T-25-02 violation: pollingTickSummary leaked '${forbidden}' into NDJSON`,
       );
     }
+  });
+
+  // ─── Phase 42 WR-03: sessionDismissed emission contract ──────────────────
+
+  it('sessionDismissed emits event=session.dismissed with task_id and actions_count (Phase 42 T-42-03)', () => {
+    const sessionId = 'sess-ev-dismissed';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    sessionDismissed(log, { task_id: 'KL-42', actions_count: 3 });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.SESSION_DISMISSED);
+    assert.equal(line.task_id, 'KL-42');
+    assert.equal(line.actions_count, 3);
   });
 });
