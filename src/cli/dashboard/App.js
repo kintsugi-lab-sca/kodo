@@ -53,7 +53,7 @@
 
 import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { fetchStatus, fetchComments, fetchLogs } from './client.js';
+import { fetchStatus, fetchComments, fetchLogs, dismissSession } from './client.js';
 import { usePoll } from './usePoll.js';
 import {
   sortSessions,
@@ -62,6 +62,7 @@ import {
   resolveSelection,
   countByStatus,
   grepLogs,
+  mapDismissResult,
 } from './select.js';
 import { deriveRepo } from './format.js';
 import SessionTable from './SessionTable.js';
@@ -96,6 +97,27 @@ export const OVERLAY_COMMENTS_UNSUPPORTED = 'comments not supported by this prov
 export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
 export const OVERLAY_LOGS_ERROR = 'error fetching logs';
 export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
+
+// Phase 42 D-02/D-04/D-09 (DISMISS-02/03/04): copy literal-estable del flujo de dismiss.
+// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
+// patrón que FOCUS_ERR_* / OVERLAY_*). SessionTable.js las importa para matar el drift
+// code/render. La LITERAL copy es el contrato (UI-SPEC §Copywriting); los nombres son guía.
+//
+// DISMISS_GUARD_ALIVE (red) es el guard INVERSO del Enter (alive===true): `d` jamás descarta
+// una sesión viva (DISMISS-04, SC#2). DISMISS_CONFIRM (cyan) es el armed prompt PERSISTENTE
+// (no transitorio, D-03: no hay timer que limpiar). El resto son mensajes transitorios del
+// footer (clear-on-any-input, D-12), con el matiz derivado de actions[] (D-09), no de un color.
+export const DISMISS_GUARD_ALIVE = '[!] session is alive — only dead sessions can be dismissed';
+/** @param {string} taskRef */
+export const DISMISS_CONFIRM = (taskRef) => `dismiss ${taskRef}? press d again · Esc cancel`;
+/** @param {string} taskRef */
+export const DISMISS_OK = (taskRef) => `dismissed ${taskRef}`;
+/** @param {string} taskRef */
+export const DISMISS_PARTIAL_DIRTY = (taskRef) => `dismissed ${taskRef} — worktree preserved (.dirty)`;
+/** @param {string} taskRef */
+export const DISMISS_PARTIAL_WARN = (taskRef) => `dismissed ${taskRef} — completed with warnings`;
+/** @param {string|number} reason */
+export const DISMISS_ERR = (reason) => `[!] dismiss failed (${reason}) — press any key`;
 
 // Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
 // SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
@@ -159,6 +181,20 @@ export default function App({
   // render lo recibe via prop en SessionTable junto al footer (D-04 consistency).
   const [focusError, setFocusError] = useState(/** @type {string | null} */ (null));
 
+  // Phase 42 D-12 (DISMISS-02/03): color del footer transitorio. El `focusError` de Phase 37 era
+  // siempre rojo; el dismiss necesita verde/amarillo/rojo según el resultado (D-09). En vez de
+  // introducir un objeto {text,color} nuevo (mayor diff), se generaliza con un sibling: el TEXTO
+  // sigue en `focusError`, el COLOR en `footerColor` (default 'red' para retro-compat Phase 37).
+  // Se setea junto a `focusError` en el handler de `d` y se limpia con él en el clear-on-any-input.
+  const [footerColor, setFooterColor] = useState(/** @type {string} */ ('red'));
+
+  // Phase 42 D-01/D-13: target ARMADO del confirm, capturado por IDENTIDAD (task_id) al armar —
+  // NUNCA un índice ni un snapshot de fila (el poll sigue corriendo bajo confirm, D-05). El
+  // `armedTaskRef` (legible) se captura en paralelo para el copy del footer (task_ref, no task_id —
+  // UI-SPEC). `null` cuando no hay nada armado (mode !== 'confirm').
+  const [armedTaskId, setArmedTaskId] = useState(/** @type {string | null} */ (null));
+  const [armedTaskRef, setArmedTaskRef] = useState(/** @type {string | null} */ (null));
+
   // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
   // y cursor por IDENTIDAD (selectedTaskId, NUNCA un índice — D-05). El índice visible se DERIVA
   // en cada render via resolveSelection sobre la lista ya ordenada+filtrada (TUI-08).
@@ -169,7 +205,7 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm'} */ ('list'));
   const [query, setQuery] = useState('');
   const prevIndexRef = useRef(0);
   // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
@@ -278,6 +314,38 @@ export default function App({
           return;
         }
         return; // traga el resto mientras el operador lee el overlay
+      }
+      // Phase 42 D-01/D-02/D-04 (DISMISS-02): SUB-MODO confirm. Va DESPUÉS del clear-on-any-input
+      // y del overlay, ANTES de filter/list. CRÍTICO (RESEARCH Pitfall 4): entrar en `confirm` NO
+      // setea el footer transitorio — el armed prompt DISMISS_CONFIRM se deriva de `mode==='confirm'`
+      // (NO de focusError), así el clear-on-any-input no consume el segundo `d`. El armed prompt es
+      // persistente (D-03: sin timer); solo `d` ejecuta, cualquier otra tecla (incl. Esc) cancela.
+      if (mode === 'confirm') {
+        if (input === 'd') {
+          // D-02: segunda `d` → ejecuta. dismissSession es never-throws (D-10) → el `await` es legal
+          // sin try/catch (ningún throw llega a React, SC#4). El re-check TOCTOU autoritativo vive
+          // server-side (D-07/D-08): un 409 'alive' vuelve como {ok:false,error:'alive'} y se pinta rojo.
+          const res = await dismissSession(baseUrl, armedTaskId, fetchFn);
+          const ref = armedTaskRef ?? armedTaskId ?? '';
+          // D-09: el matiz se DERIVA de actions[] (mapDismissResult puro), no de un color lookup.
+          const m = mapDismissResult(res, ref);
+          let text;
+          if (m.kind === 'ok') text = DISMISS_OK(ref);
+          else if (m.kind === 'dirty') text = DISMISS_PARTIAL_DIRTY(ref);
+          else if (m.kind === 'warn') text = DISMISS_PARTIAL_WARN(ref);
+          else text = DISMISS_ERR(m.reason ?? 'error');
+          setFocusError(text);
+          setFooterColor(m.color);
+          setArmedTaskId(null);
+          setArmedTaskRef(null);
+          setMode('list');
+          return;
+        }
+        // D-04: Esc Y cualquier otra tecla cancelan (solo `d` ejecuta). Sin mensaje, sin timer (D-03).
+        setArmedTaskId(null);
+        setArmedTaskRef(null);
+        setMode('list');
+        return;
       }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
@@ -388,6 +456,25 @@ export default function App({
         setMode('overlay');
         return;
       }
+      if (input === 'd') {
+        // Phase 42 D-01/D-07-TUI (DISMISS-02/04): handler de dismiss. Espejo de c/l (no-op si no
+        // hay fila) + el guard INVERSO del Enter (alive===true en vez de alive===false).
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        if (row.alive === true) {
+          // DISMISS-04/SC#2: `d` JAMÁS descarta una sesión viva. NO entra en confirm, NO manda
+          // DELETE — guard de UX (la autoridad TOCTOU es server-side, D-08). Mensaje rojo transitorio.
+          setFocusError(DISMISS_GUARD_ALIVE);
+          setFooterColor('red');
+          return;
+        }
+        // D-02/D-13: arma capturando la IDENTIDAD (task_id) + el ref legible para el copy. El poll
+        // sigue corriendo bajo confirm (D-05) — el target stale lo caza el 409 server-side al confirmar.
+        setArmedTaskId(row.task_id);
+        setArmedTaskRef(row.task_ref ?? row.task_id);
+        setMode('confirm');
+        return;
+      }
       if (key.upArrow) {
         // Mueve el índice DERIVADO arriba y re-fija selectedTaskId; clamp en 0, SIN wrap (D-07).
         const ni = Math.max(0, sel.index - 1);
@@ -471,12 +558,14 @@ export default function App({
         mode,
         query,
         hasQuery,
-        focusError, // Phase 37 D-04: render condicional del footer-error rojo (espejo de filterLine)
+        focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
+        footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
+        armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)
         overlayKind, // Phase 39: qué overlay está abierto (comments/logs/null)
         scrollOffset, // Phase 39 D-06: primera línea visible del body scrollable
         overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · / filter · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · / filter · d dismiss · q quit'),
   );
 }

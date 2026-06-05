@@ -32,6 +32,7 @@ import {
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
   OVERLAY_VIEWPORT,
+  DISMISS_CONFIRM,
 } from './App.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
@@ -173,13 +174,18 @@ function renderOverlay(snap, scrollOffset, kind) {
  * @param {number|null} props.lastAttemptAt
  * @param {boolean} [props.hasQuery] - hay una query de filtro activa (Plan 03). Distingue los dos
  *   estados vacíos: `no sessions match` (hay query) vs `no active sessions` (lista realmente vacía).
- * @param {'list'|'filter'} [props.mode] - modo de interacción (Plan 03). En `filter` se muestra la
- *   línea de filtro modal al pie de la tabla (D-13).
+ * @param {'list'|'filter'|'overlay'|'confirm'} [props.mode] - modo de interacción. En `filter` se
+ *   muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt persistente.
  * @param {string} [props.query] - texto del filtro EN VIVO (Plan 03), renderizado en la línea modal.
  * @param {string|null} [props.focusError] - Phase 37 D-04: si != null, sustituye el footer
- *   (filterLine y/o footer normal en App.js) por el mensaje rojo del error en la línea modal.
- *   Color SOLO vía `<Text color="red">` (color-isolation D-12 Phase 34, cero picocolors).
+ *   (filterLine y/o footer normal en App.js) por el mensaje del error/resultado en la línea modal.
+ *   Color SOLO vía `<Text color>` (color-isolation D-12 Phase 34, cero picocolors).
  *   Precedencia: errorLine gana a filterLine — el error es modal hasta el clear-on-any-input.
+ * @param {string} [props.footerColor] - Phase 42 D-09: color del footer transitorio. El dismiss
+ *   distingue éxito (green) / parcial .dirty o warnings (yellow) / error (red), DERIVADO de
+ *   actions[] (no de un color lookup). Default 'red' (retro-compat con el focusError de Phase 37).
+ * @param {string|null} [props.armedTaskRef] - Phase 42 D-02: task_ref del confirm armado, para el
+ *   copy persistente DISMISS_CONFIRM cuando mode==='confirm'.
  * @param {'comments'|'logs'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l) o null.
  * @param {number} [props.scrollOffset] - Phase 39 D-06: primera línea visible del body del overlay.
  * @param {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
@@ -198,6 +204,8 @@ export default function SessionTable({
   mode = 'list',
   query = '',
   focusError = null,
+  footerColor = 'red',
+  armedTaskRef = null,
   overlayKind = null,
   scrollOffset = 0,
   overlaySnapshot = null,
@@ -227,15 +235,26 @@ export default function SessionTable({
       ? h(Box, { marginTop: 1 }, h(Text, null, `/ ${query}▏`))
       : null;
 
-  // Phase 37 D-04: errorLine es el render condicional del footer-error rojo. Espejo EXACTO
-  // del patrón filterLine arriba — misma forma `<Box marginTop=1><Text …>…</Text></Box>`,
-  // mismo nivel de granularidad. Color del rojo via `<Text color="red">` de ink
-  // (color-isolation D-12 Phase 34: cero picocolors, cero ANSI inline). El walker
-  // test/format-isolation.test.js cubre este archivo automáticamente.
+  // Phase 37 D-04 + Phase 42 D-09: errorLine es el render condicional del footer transitorio.
+  // Espejo EXACTO del patrón filterLine arriba — misma forma `<Box marginTop=1><Text …>…</Text></Box>`,
+  // mismo nivel de granularidad. Phase 37 era siempre rojo; Phase 42 generaliza el color via
+  // `footerColor` (green/yellow/red derivado de actions[], D-09) — el matiz NO es un color lookup.
+  // Color SOLO via nombre de ink `<Text color>` (color-isolation D-12 Phase 34: cero picocolors,
+  // cero ANSI inline). El walker test/format-isolation.test.js cubre este archivo automáticamente.
   const footerError = focusError;
   const errorLine =
     footerError != null
-      ? h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, footerError))
+      ? h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, footerError))
+      : null;
+
+  // Phase 42 D-02/D-12 (DISMISS-02): confirmLine es el armed prompt PERSISTENTE (no transitorio):
+  // se deriva de `mode==='confirm'` (NO de focusError) para que el clear-on-any-input no lo consuma
+  // (RESEARCH Pitfall 4). Misma forma `<Box marginTop=1>` que filterLine/errorLine. Color cyan
+  // (armed/actionable, UI-SPEC §Color) via nombre de ink — color-isolation intacta. Precede a
+  // errorLine/filterLine mientras está armado.
+  const confirmLine =
+    mode === 'confirm'
+      ? h(Box, { marginTop: 1 }, h(Text, { color: 'cyan' }, DISMISS_CONFIRM(armedTaskRef ?? '')))
       : null;
 
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):
@@ -244,7 +263,7 @@ export default function SessionTable({
   //   - connected + 0 filas sin query      → `no active sessions`.
   // La línea de filtro se anexa al pie en TODAS las ramas (el operador ve su query aunque oculte todo).
   if (!connected && lastGoodAt == null) {
-    return h(Box, { flexDirection: 'column' }, header, (errorLine ?? filterLine));
+    return h(Box, { flexDirection: 'column' }, header, (confirmLine ?? errorLine ?? filterLine));
   }
   if (rows.length === 0) {
     const emptyCopy = hasQuery ? 'no sessions match' : 'no active sessions';
@@ -253,7 +272,7 @@ export default function SessionTable({
       { flexDirection: 'column' },
       header,
       h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, emptyCopy)),
-      (errorLine ?? filterLine),
+      (confirmLine ?? errorLine ?? filterLine),
     );
   }
 
@@ -307,6 +326,6 @@ export default function SessionTable({
     { flexDirection: 'column' },
     header,
     h(Box, { marginTop: 1, flexDirection: 'column' }, columnHeader, ...dataRows),
-    (errorLine ?? filterLine),
+    (confirmLine ?? errorLine ?? filterLine),
   );
 }

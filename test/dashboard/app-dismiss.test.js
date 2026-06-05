@@ -78,9 +78,14 @@ function injectProps(clock, fetchFn) {
   };
 }
 
-async function drain() {
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+// RESEARCH Pitfall 5: ink NO awaitea el handler async y procesa keystrokes encadenados que
+// DEPENDEN del re-render previo (p.ej. el segundo `d` necesita ver mode==='confirm' del primero).
+// Un `setImmediate` puro (el `drain` del overlay test) NO le da a ink el frame intermedio para
+// re-registrar el useInput con el closure nuevo → el segundo keystroke usa el mode viejo. El molde
+// de keystrokes encadenados es app-focus.test.js, que usa setTimeout(80ms). Replicamos ese tick:
+// 80ms es load-bearing (más corto es flakey en CI; más largo es lento sin beneficio).
+function drain() {
+  return new Promise((resolve) => setTimeout(resolve, 80));
 }
 
 function okResponse(body) {

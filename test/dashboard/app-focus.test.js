@@ -9,7 +9,7 @@
 //   2. ok path (TUI-13 criterio #1): Enter sobre fila alive invoca onFocus exactamente
 //      UNA vez con `row.workspace_ref` literal; cero footer-error.
 //   3. clear-on-any-input (D-04): con focusError visible, cualquier tecla limpia el state,
-//      restaura el footer normal `↑↓ move · / filter · q quit`, NO propaga al handler.
+//      restaura el footer normal `↑↓ move · / filter · d dismiss · q quit`, NO propaga al handler.
 //
 // Patrón espejo de test/dashboard-render.test.js — `ink-testing-library` + `render` +
 // `stdin.write` + `lastFrame()` + `tick(80ms)` (80ms load-bearing: más corto es flakey
@@ -193,7 +193,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       );
       assert.match(
         lastFrame(),
-        /↑↓ move · \/ filter · q quit/,
+        /↑↓ move · \/ filter · d dismiss · q quit/,
         `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
       );
       assert.equal(
