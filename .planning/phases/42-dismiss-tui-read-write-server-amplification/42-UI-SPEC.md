@@ -1,11 +1,12 @@
 ---
 phase: 42
 slug: dismiss-tui-read-write-server-amplification
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 surface: tui
 created: 2026-06-05
+reviewed_at: 2026-06-05
 ---
 
 # Phase 42 — UI Design Contract (TUI)
