@@ -511,6 +511,13 @@ export async function startServer(opts = {}) {
       // control, symmetric to the client's encodeURIComponent). dismiss is
       // never-throws by construction — no try/catch needed here.
       const taskId = decodeURIComponent(req.url.slice('/sessions/'.length));
+      // WR-02: rechazar antes de llegar al handler si el segmento está vacío
+      // (p.ej. DELETE /sessions/ desde curl o cliente externo).
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'missing session id' }));
+        return;
+      }
       const { status, body } = await dismissHandler(taskId);
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
