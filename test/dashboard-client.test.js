@@ -24,7 +24,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fetchStatus, fetchComments, fetchLogs } from '../src/cli/dashboard/client.js';
+import { fetchStatus, fetchComments, fetchLogs, dismissSession } from '../src/cli/dashboard/client.js';
 
 // Runtime fetch-leak guard: cualquier test que olvide inyectar `fetchFn` toca este thrower.
 // El restore en `after()` evita contaminar el resto de la suite.
@@ -267,5 +267,87 @@ describe('fetchLogs: buffer crudo never-throws (D-07, TUI-16)', () => {
     const result = await fetchLogs(BASE_URL, fetchFn);
     assert.equal(result.ok, false);
     assert.ok(typeof result.error === 'string' && result.error.length > 0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 42 Plan 02 (DISMISS-03): dismissSession — cliente DELETE never-throws.
+//   Calque verbatim de fetchComments: encodeURIComponent en el path, method 'DELETE',
+//   colapso de todo fallo de red/HTTP/JSON al discriminante {ok:false, error}.
+//   El 409 {error:'alive'} del server se extrae del body para que el footer lo
+//   surface honestamente (D-07/D-08 — el operador ve que el race fue cazado).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('dismissSession: DELETE never-throws (D-10, DISMISS-03)', () => {
+  it('ok: 200 con {removed, actions} → { ok:true, data:{removed, actions} }', async () => {
+    const fetchFn = makeFetch({
+      status: 200,
+      ok: true,
+      json: async () => ({ removed: 'T-1', actions: [{ type: 'worktree', result: 'removed' }] }),
+    });
+    const result = await dismissSession(BASE_URL, 'T-1', fetchFn);
+    assert.equal(result.ok, true);
+    assert.equal(result.data.removed, 'T-1');
+    assert.ok(Array.isArray(result.data.actions));
+    assert.equal(result.data.actions.length, 1);
+  });
+
+  it('409 alive: body {error:"alive"} → { ok:false, error:"alive" } (race cazado)', async () => {
+    const fetchFn = makeFetch({
+      status: 409,
+      ok: false,
+      json: async () => ({ ok: false, error: 'alive' }),
+    });
+    const result = await dismissSession(BASE_URL, 'T-1', fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'alive');
+  });
+
+  it('500: sin body útil → { ok:false, error:"HTTP 500" }', async () => {
+    const fetchFn = makeFetch({
+      status: 500,
+      ok: false,
+      json: async () => {
+        throw new SyntaxError('not json');
+      },
+    });
+    const result = await dismissSession(BASE_URL, 'T-1', fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'HTTP 500');
+  });
+
+  it('network: fetchFn lanza → { ok:false, error:<msg> } (no propaga)', async () => {
+    const fetchFn = async () => {
+      throw new Error('ECONNREFUSED');
+    };
+    // @ts-ignore — shape mínima.
+    const result = await dismissSession(BASE_URL, 'T-1', fetchFn);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /ECONNREFUSED/);
+  });
+
+  it('bad shape: 200 con actions no-array → { ok:false, error:"bad shape" }', async () => {
+    const fetchFn = makeFetch({
+      status: 200,
+      ok: true,
+      json: async () => ({ removed: 'T-1', actions: 'nope' }),
+    });
+    const result = await dismissSession(BASE_URL, 'T-1', fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'bad shape');
+  });
+
+  it('encodeURIComponent + method DELETE: el task_id va encoded (T-39-01/V5)', async () => {
+    let captured = '';
+    let method = '';
+    const fetchFn = async (/** @type {string} */ url, /** @type {any} */ init) => {
+      captured = url;
+      method = init?.method;
+      return { status: 200, ok: true, json: async () => ({ removed: 'x', actions: [] }) };
+    };
+    // @ts-ignore — shape mínima.
+    await dismissSession(BASE_URL, 'a/b c#1', fetchFn);
+    assert.match(captured, /\/sessions\/a%2Fb%20c%231$/);
+    assert.equal(method, 'DELETE');
   });
 });
