@@ -10,8 +10,8 @@ progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 8
-  completed_plans: 5
-  percent: 40
+  completed_plans: 6
+  percent: 60
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 ## Current Position
 
-Phase: 42 (dismiss-tui-read-write-server-amplification) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 42
-Last activity: 2026-06-05 -- Phase 42 execution started
+Phase: 42 (dismiss-tui-read-write-server-amplification) — COMPLETE
+Plan: 3 of 3 (done)
+Status: Phase 42 complete — dismiss shipped (TUI read-write), human UAT signed
+Last activity: 2026-06-05 -- Phase 42 completed (42-03 seam test + UAT + invariant-break record)
 
 ## Roadmap v0.10 (active)
 
