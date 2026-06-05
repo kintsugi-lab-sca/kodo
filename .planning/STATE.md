@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: executing
-stopped_at: Phase 42 UI-SPEC approved
-last_updated: "2026-06-05T08:44:34.798Z"
-last_activity: 2026-06-05 -- Phase 42 planning complete
+status: ready_to_plan
+stopped_at: Phase 42 complete (3/3) — ready to discuss Phase 43
+last_updated: 2026-06-05T11:26:45.368Z
+last_activity: 2026-06-05 -- Phase 42 execution started
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 8
   percent: 40
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Phase 42 — dismiss — tui read write + server amplification
+**Current focus:** Phase 43 — render — provider_state en el dashboard
 
 ## Current Position
 
-Phase: 42
+Phase: 43
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-05 -- Phase 42 planning complete
+Status: Ready to plan
+Last activity: 2026-06-05
 
 ## Roadmap v0.10 (active)
 
@@ -93,6 +93,16 @@ Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si s
 - **Enrichment fail-open por fila:** `GET /status` usa `Promise.allSettled` (NUNCA `Promise.all`) — el fallo de una fila no tumba la respuesta 200. Resolver construido UNA vez al arrancar (no per-request). Sin tercer bool `supported` (D-07). `alive`/`elapsed_min` intactos.
 - **Evento `provider.state.fetch.failed` (D-15):** whitelist explícito `{task_id, provider, error}` (sin `...fields`), `logger.error`, cero imports nuevos (LOG-12). El fail-open jamás es silencioso.
 
+### Decisions (Plan 42-01/42-02)
+
+- **Guard `alive` server-side = autoridad TOCTOU (D-07/D-08):** el 409 vive en `src/server/dismiss.js`, que re-lee `loadState().sessions[taskId]` FRESCO al recibir el DELETE (NO `findSession` — Pitfall 6: no indexa por task_id) y rechaza con `{ok:false, error:'alive'}` ANTES de invocar `execute`. El guard TUI es solo UX; la autoridad del re-check race-safe es el server. Una sesión que revive entre arm y confirm se caza aquí (el seam test 42-03 (d) lo prueba determinista: `executeFn` nunca corre sobre viva).
+- **`dismiss.js` pure-DI extraction (espejo Phase 40 provider-state):** la lógica destructiva se extrajo del closure de `createServer` a un módulo puro DI (`createDismissHandler({loadState, executeFn, logger})`) para testearla sin boot HTTP. El handler DELETE de `server.js` queda como thin adapter. Replica el precedente `provider-state.js`.
+- **`fix:true` LOCKEADO (DRIFT #2):** `doctor.execute` es un no-op silencioso sin `opts.fix` (`doctor.js:468`) — el server siempre llama `executeFn({}, {taskId, fix:true})`. Olvidarlo produciría un dismiss fantasma (reporta éxito, no sanea). Testeado.
+- **`actions[]` SINTETIZADO de contadores (DRIFT #1):** `execute` devuelve contadores agregados (`worktrees/zombies/locks/errors`), NO el `actions:[{type,result}]` de D-06. `translateToActions()` los traduce (byte-determinista; `skipped` no emite acción). El seam test 42-03 verifica que el vocabulario emitido (`removed/moved-dirty/pruned/kept/error`) coincide exactamente con lo que `mapDismissResult` consume (drift canary T-42-11).
+- **Máquina `mode:'confirm'` doble-`d` (D-01/D-02/D-04):** `d` sobre fila `alive===false` arma (captura `task_id` por identidad), segunda `d` ejecuta; `Esc` y cualquier otra tecla cancelan (clear-on-any-input, sin timer — D-03). El guard inverso `alive===true` jamás entra en confirm (DISMISS-04). La fila desaparece por el poll natural (D-11), `resolveSelection` clampa el cursor (D-13).
+- **`dismissSession` never-throws (D-10) + `mapDismissResult` puro (D-09):** `dismissSession` (client.js) colapsa todo fallo red/HTTP/JSON/409 a `{ok:false,error}` (calque de `fetchComments`, `encodeURIComponent` anti path-traversal); ningún throw llega a React. `mapDismissResult` (extraído a `select.js`, React-free) deriva `{kind,color}` del `actions[]` con precedencia `error>dirty` — sin import circular de App.js (grep gate == 0).
+- **UAT humano firmado (2026-06-05):** mutación destructiva real verificada end-to-end por el operador (worktree+lock+state removidos; máquina arm/confirm/Esc/any-key; guard live-row), espejo del cierre por UAT de v0.9 (Phases 37/38).
+
 ### Roadmap Evolution
 
 - **v0.10 roadmap creado (2026-06-03):** 4 phases (40-43), numeración continua desde v0.9 (NO reset). Build order PROVIDER-STATE → DOCTOR → DISMISS → RENDER. 14/14 requirements mapeados. Backlog 999.1 (dismiss) promovido a Phase 42.
@@ -137,7 +147,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 - **`--json` byte-determinismo** (DX-06): outputs JSON idénticos TTY/no-TTY. Aplica a `kodo gsd doctor --json` (Phase 41).
 - **Worktree always-on Phase 18**: dispatchers disparan `dispatchTrigger` → `computeWorktreePath` → spawn. **v0.10 Phase 41: doctor NUNCA usa `rm -rf` — `git worktree remove`/`prune`; dirty → `.dirty`; nunca sigue symlinks fuera de `.bg-shell/`.**
 - **HOOK-01 universal Phase 20** / **cwd=repo Phase 999.1** / **`kodo:gsd-child` anti-recursión** (v0.8 Phase 29) / **Reporting opt-in strict** (v0.8 Phase 29): sin cambios en v0.10.
-- **TUI read-only, cero endpoints nuevos** (v0.9): `kodo dashboard` consume solo `GET /status`, `/comments/<task_id>`, `/logs`. **v0.10 Phase 42 (dismiss) es la PRIMERA ruptura consciente de "read-only" → read-write, justificada por backlog 999.1; sigue SIN añadir endpoints (`DELETE /sessions/{id}` ya existe, se amplía para delegar en doctor).**
+- **TUI read-WRITE para dismiss-de-dead-sessions, cero endpoints nuevos** (v0.9→v0.10): `kodo dashboard` consume `GET /status`, `/comments/<task_id>`, `/logs` y **desde Phase 42 también `DELETE /sessions/{id}`**. **Phase 42 SHIPPÓ la ruptura consciente del invariante v0.9 "TUI read-only" → read-write** (backlog 999.1, UAT humano firmado 2026-06-05): el dashboard deja de ser una superficie de pura **observabilidad** y pasa a ser de **gestión** (cambio de identidad: observabilidad → gestión) para el caso ACOTADO de descartar sesiones **dead** (`alive===false`) vía la tecla `d`. La ruptura es DELIBERADA y ACOTADA: sigue **SIN añadir endpoints** (`DELETE /sessions/{id}` ya existía — se AMPLIÓ, no se creó — para delegar en `doctor.execute({taskId, fix:true})`); jamás descarta una sesión viva (guard `alive` en 3 capas, autoridad server-side 409 TOCTOU); `reconcileTick` sigue siendo el único escritor de `alive` (el dismiss solo borra la ENTRADA `sessions[taskId]`, archivada en `history`, jamás muta `alive`). Esta es la ÚNICA superficie read-write de la TUI a fecha de v0.10; futuras capacidades de mutación desde la TUI heredan este precedente (doble-confirm + guard server-side autoritativo + never-throws).
 - **Fuente única de `alive`** (v0.9 Phase 38 + 39.1): `reconcileTick` es el ÚNICO escritor de `alive` → `state.json` → pass-through en `GET /status`. **v0.10: ni doctor ni dismiss escriben `alive`; `provider_state` es un carril read-only paralelo en `/status`, jamás escrito a `state.json` ni acoplado a `alive`/`elapsed_min`.**
 - **TUI nunca crashea** (v0.9 Phase 35): la capa de datos (`fetchStatus`/`fetchComments`/`fetchLogs`) es never-throws (`{ok:false, error}`); ningún throw llega a React. **v0.10 Phase 42: `dismissSession` (DELETE) se añade a esa capa never-throws; el handler de `d` nunca hace `await` desnudo.**
 - **Selección por identidad `task_id`** (v0.9 Phase 36): la TUI rastrea la fila por `task_id`, nunca por índice. **v0.10 Phase 42: el dismiss confirma y ejecuta contra `task_id` revalidado, nunca contra índice ni snapshot congelado; filtro provider_state con `String.includes` anti-ReDoS (Phase 43).**

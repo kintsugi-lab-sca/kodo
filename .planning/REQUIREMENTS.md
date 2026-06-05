@@ -31,10 +31,10 @@ Reflejar el estado real del task en el provider (driver: ROMAN-150, sesión "In 
 
 Descartar sesiones dead desde el dashboard — la TUI pasa de read-only a read-write (promoción del backlog 999.1).
 
-- [ ] **DISMISS-01**: la tecla `d` sobre una fila `alive===false` invoca `DELETE /sessions/{id}` (endpoint ya existente) reusando la lógica de saneo de `doctor`.
-- [ ] **DISMISS-02**: confirmación inline en el footer (doble `d` / `Esc`) resuelta contra la identidad `task_id`, nunca contra índice de array ni snapshot congelado.
-- [ ] **DISMISS-03**: la mutación pasa por la capa `client.js` **never-throws** — un error muestra mensaje en el footer sin desmontar el panel (preserva el invariante no-crash de v0.9).
-- [ ] **DISMISS-04**: guard inverso al de Enter — rechaza `alive===true`, nunca descarta una sesión viva.
+- [x] **DISMISS-01**: la tecla `d` sobre una fila `alive===false` invoca `DELETE /sessions/{id}` (endpoint ya existente) reusando la lógica de saneo de `doctor`.
+- [x] **DISMISS-02**: confirmación inline en el footer (doble `d` / `Esc`) resuelta contra la identidad `task_id`, nunca contra índice de array ni snapshot congelado.
+- [x] **DISMISS-03**: la mutación pasa por la capa `client.js` **never-throws** — un error muestra mensaje en el footer sin desmontar el panel (preserva el invariante no-crash de v0.9).
+- [x] **DISMISS-04**: guard inverso al de Enter — rechaza `alive===true`, nunca descarta una sesión viva.
 
 ## v2 Requirements
 
@@ -78,10 +78,10 @@ Mapa requirement → fase. Completado por el roadmapper al crear el roadmap (202
 | DOCTOR-02 | Phase 41 | Complete |
 | DOCTOR-03 | Phase 41 | Complete |
 | DOCTOR-04 | Phase 41 | Complete |
-| DISMISS-01 | Phase 42 | Pending |
-| DISMISS-02 | Phase 42 | Pending |
-| DISMISS-03 | Phase 42 | Pending |
-| DISMISS-04 | Phase 42 | Pending |
+| DISMISS-01 | Phase 42 | Complete |
+| DISMISS-02 | Phase 42 | Complete |
+| DISMISS-03 | Phase 42 | Complete |
+| DISMISS-04 | Phase 42 | Complete |
 
 **Coverage:**
 - v1 requirements: 14 total

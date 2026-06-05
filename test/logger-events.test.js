@@ -46,6 +46,7 @@ const {
   pollingDispatch,
   pollingError,
   pollingTickSummary,
+  sessionDismissed,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
@@ -53,7 +54,7 @@ function logPathFor(sessionId) {
 }
 
 describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
-  it('EVENTS is frozen and contains the 29 canonical types (Phase 41 grew 24 → 29: doctor.* saneo events)', () => {
+  it('EVENTS is frozen and contains the 30 canonical types (Phase 42 grew 29 → 30: session.dismissed)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -77,6 +78,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'polling.tick',
       'polling.tick.summary',
       'provider.state.fetch.failed',
+      'session.dismissed',
       'session.end',
       'session.start',
       'skill.sync.auto',
@@ -87,7 +89,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
-    assert.equal(Object.keys(EVENTS).length, 29, 'EVENTS key count must equal 29 post-Phase-41');
+    assert.equal(Object.keys(EVENTS).length, 30, 'EVENTS key count must equal 30 post-Phase-42');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
@@ -601,5 +603,17 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
         `T-25-02 violation: pollingTickSummary leaked '${forbidden}' into NDJSON`,
       );
     }
+  });
+
+  // ─── Phase 42 WR-03: sessionDismissed emission contract ──────────────────
+
+  it('sessionDismissed emits event=session.dismissed with task_id and actions_count (Phase 42 T-42-03)', () => {
+    const sessionId = 'sess-ev-dismissed';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    sessionDismissed(log, { task_id: 'KL-42', actions_count: 3 });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.SESSION_DISMISSED);
+    assert.equal(line.task_id, 'KL-42');
+    assert.equal(line.actions_count, 3);
   });
 });
