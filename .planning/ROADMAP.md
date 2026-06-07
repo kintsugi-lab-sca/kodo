@@ -98,7 +98,9 @@
   2. El render distingue tres estados visuales: ok / unsupported / fetch-failed (p. ej. dim + `?`), reusando el campo `supported`/`reason` de Phase 40
   3. El filtro del dashboard acota por `provider_state` con `String.includes` case-insensitive sobre el string crudo (anti-ReDoS, nunca `RegExp` ni `switch` sobre literales hardcodeados)
   4. El render/filtro sobrevive a un renombrado del estado en el provider sin cambios de código (estado tratado como dato crudo)
-**Plans**: TBD
+**Plans**: 2 plans (1 wave — paralelos, cero solape de archivos)
+- [ ] 43-01-PLAN.md — Render: columna dedicada `task` (3 reason-states sin color) en format.js + SessionTable.js (PSTATE-05)
+- [ ] 43-02-PLAN.md — Filtro: prefijo dedicado `ps:` (substring case-insensitive anti-ReDoS) en select.js + footer hint (PSTATE-06)
 **UI hint**: yes
 
 **Invariantes / notas:**
@@ -277,7 +279,7 @@ Requirements archive: `.planning/milestones/v0.5-REQUIREMENTS.md`
 | 40. Provider State — contrato + providers + enrichment | v0.10 | 2/2 | Complete    | 2026-06-03 |
 | 41. Doctor — módulo puro de saneo + CLI | v0.10 | 3/3 | Complete    | 2026-06-04 |
 | 42. Dismiss — TUI read-write + server amplification | v0.10 | 3/3 | Complete    | 2026-06-05 |
-| 43. Render — provider_state en el dashboard | v0.10 | 0/TBD | Not started | - |
+| 43. Render — provider_state en el dashboard | v0.10 | 0/2 | Planned | - |
 
 ---
 *Last updated: 2026-06-03 — v0.10 "Higiene y estado real de sesiones" roadmap creado (Phases 40-43). Build order PROVIDER-STATE → DOCTOR → DISMISS → RENDER. 14/14 requirements mapeados (PSTATE-01..06, DOCTOR-01..04, DISMISS-01..04). Phase 42 (Dismiss) y Phase 41 (Doctor --fix) son las de mayor riesgo (mutación destructiva) — probable UAT. v0.9 (Phases 34-39 + 39.1) SHIPPED y archivado.*
