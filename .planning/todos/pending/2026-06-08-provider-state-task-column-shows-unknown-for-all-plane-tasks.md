@@ -35,17 +35,41 @@ Impacto: el DRIVER del milestone v0.10 (ROMAN-150 — ver una tarea "In Review" 
 `/exit`) queda SIN demostrar empíricamente. No se puede cerrar v0.10 "limpio" sin
 resolver esto.
 
+## Diagnóstico CONFIRMADO (2026-06-08, comprobación directa contra la API)
+
+`client.getWorkItem(projectId, uuid)` y `getWorkItemBySequence` devuelven el work item
+SIN `state_detail` (`undefined`), aunque la request incluye `expand=state_detail,project_detail`.
+La API v1 de esta instancia (`tasks.kintsugi-lab.com`) NO puebla `state_detail` — el work
+item solo trae `state` como UUID. Por tanto:
+
+    detail.state         = 'cd88d322-1f54-4ba5-b756-42c89e393734'  (UUID)
+    detail.state_detail  = undefined
+    → mapPlaneState(undefined, undefined) → switch default → 'unknown'  (SIEMPRE)
+
+No es el caso benigno "backlog": es un bug de fetch real, reproducible para todas las tareas.
+
+El endpoint `/projects/{pid}/states/` SÍ devuelve `{id, name, group}` por estado (el mismo
+que init usa para `stateCache`). Mapa real de ROMAN:
+    Backlog→backlog · Todo→unstarted · In Progress→started · Done→completed ·
+    Cancelled→cancelled · In review→started
+ROMAN-162 (`cd88d322`) = **"Done" / completed** → debería renderizar `done`, no `unknown`.
+"In review" existe (group started) → mapPlaneState lo caza por name.includes('review') →
+`in_review`: el driver ROMAN-150 funcionaría tras el fix.
+
 ## Solution
 
-1. Diagnóstico (5-10 min): inspeccionar la respuesta CRUDA de `client.getWorkItem` para
-   ROMAN-162/165 — ¿llega `state_detail.group`? ¿con qué valor exacto y capitalización?
-   - Si `group` es `undefined` → el `expand=state_detail,project_detail` no se está
-     honrando (o la respuesta anida el group en otra clave). Bug de fetch.
-   - Si `group` llega como p.ej. `"Started"` (capitalizado) y el switch compara
-     `'started'` lowercase → bug de mapeo (normalizar a lowercase antes del switch).
-   - Si `group` es realmente `backlog` → comportamiento correcto; reconsiderar si
-     colapsar todo lo no-trackeado a `unknown` es el UX deseado (opción: mostrar el
-     nombre crudo del estado en vez de `unknown`).
-2. Aplicar el fix mínimo según el hallazgo. Anti-ReDoS (D-10): seguir usando
-   `String.includes`, jamás RegExp sobre el name del provider.
-3. Re-verificar con una tarea real en "In Review" en Plane (cerrar ROMAN-150).
+En `getTaskState` (src/providers/plane/provider.js): dejar de leer `workItem.state_detail`.
+En su lugar resolver `workItem.state` (UUID vivo, de getWorkItem) contra un mapa
+UUID→`{name, group}` construido desde `listStates(projectId)` y cachearlo junto al
+`stateCache` de init (que hoy solo guarda UUID→name; añadir el `group`). Refresco con el
+INIT_TTL_MS=5min existente. Sigue siendo estado VIVO (el UUID viene de getWorkItem); solo
+se cachea la metadata estable de definiciones de estado (las columnas del workflow, que no
+cambian por tarea). El comentario actual "never relies on stateCache since state changes
+after init" confunde la ASIGNACIÓN (cambia, viva) con las DEFINICIONES (estables, cacheables).
+
+Anti-ReDoS (D-10): mantener `String.includes`, jamás RegExp sobre name/group del provider.
+Re-verificar con una tarea real en "In review" (cerrar ROMAN-150).
+
+Nota lateral (no bloqueante): PlaneClient constructor lee `config.plane.base_url` (schema v1)
+en el fallback sin opts; loadConfig migra a `config.providers.plane`. Solo funciona porque el
+factory siempre pasa opts. Fragilidad latente, fuera de scope de este todo.
