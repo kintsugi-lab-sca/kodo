@@ -34,7 +34,7 @@ describe('TUI-12 (D-14): parseFilter separa r:/s: del texto global', () => {
     const p = parseFilter('r:kodo s:running build');
     assert.deepEqual(
       p,
-      { repo: 'kodo', status: 'running', text: 'build' },
+      { repo: 'kodo', status: 'running', provider_state: null, text: 'build' },
       `parse esperado, fue ${JSON.stringify(p)}`,
     );
   });
@@ -42,7 +42,7 @@ describe('TUI-12 (D-14): parseFilter separa r:/s: del texto global', () => {
     const p = parseFilter('');
     assert.deepEqual(
       p,
-      { repo: null, status: null, text: '' },
+      { repo: null, status: null, provider_state: null, text: '' },
       `query vacía debe dar criterios nulos, fue ${JSON.stringify(p)}`,
     );
   });
