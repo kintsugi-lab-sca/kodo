@@ -17,7 +17,7 @@ import {
   formatAge,
   phaseMode,
   statusColor,
-  statusLabel,
+  outcomeCell,
   rowCells,
   taskCell,
   STATE_BADGES,
@@ -161,16 +161,21 @@ describe('TUI-10 (39.1-03): statusColor v3-aware — deriva del estado v3 reusan
   });
 });
 
-describe('TUI-10 (D-09): statusLabel marca textual del zombie', () => {
-  it('running+!alive → running (zombie); running+alive → running; review → review', () => {
-    assert.equal(statusLabel('running', false), 'running (zombie)', 'zombie lleva marca textual');
-    assert.equal(statusLabel('running', true), 'running', 'running sano sin marca');
-    assert.equal(statusLabel('review', true), 'review', 'review intacto');
+describe('outcomeCell: status = outcome auto-reportado (fix divergencia state/status)', () => {
+  it('error/done/review se muestran; running/idle/dead/vacío → "" (son del eje state)', () => {
+    assert.equal(outcomeCell('error'), 'error', 'error es outcome único');
+    assert.equal(outcomeCell('done'), 'done', 'done se muestra');
+    assert.equal(outcomeCell('review'), 'review', 'review se muestra');
+    assert.equal(outcomeCell('running'), '', 'running es lifecycle → blanco (no pisa a state)');
+    assert.equal(outcomeCell('idle'), '', 'idle es lifecycle → blanco');
+    assert.equal(outcomeCell('dead'), '', 'dead es lifecycle → blanco');
+    assert.equal(outcomeCell(''), '', 'vacío → blanco');
+    assert.equal(outcomeCell(undefined), '', 'undefined → blanco (sesión en vuelo)');
   });
 });
 
 describe('TUI-07 (D-03): rowCells proyecta una sesión a celdas de columna', () => {
-  it('un zombie rinde una celda status que contiene (zombie)', () => {
+  it('un proceso running rinde una celda status en blanco (lifecycle vive en state)', () => {
     const cells = rowCells({
       task_ref: 'KL-42',
       project_name: 'kodo',
@@ -183,13 +188,13 @@ describe('TUI-07 (D-03): rowCells proyecta una sesión a celdas de columna', () 
     assert.equal(cells.task_ref, 'KL-42', `task_ref directo, fue ${cells.task_ref}`);
     assert.equal(cells.repo, 'kodo', `repo derivado, fue ${cells.repo}`);
     assert.equal(cells.phasemode, '36/full', `phasemode, fue ${cells.phasemode}`);
-    assert.equal(cells.status, 'running (zombie)', `status usa statusLabel, fue ${cells.status}`);
+    assert.equal(cells.status, '', `status 'running' (lifecycle) → blanco, fue ${cells.status}`);
     assert.equal(cells.age, '1h3m', `age humanizado, fue ${cells.age}`);
-    assert.equal(
-      cells.status.includes('(zombie)'),
-      true,
-      `la celda status del zombie debe contener '(zombie)', fue ${cells.status}`,
-    );
+  });
+
+  it('una sesión con outcome error rinde la celda status "error"', () => {
+    const cells = rowCells({ task_ref: 'KL-9', project_name: 'kodo', status: 'error', elapsed_min: 5 });
+    assert.equal(cells.status, 'error', `outcome error se muestra, fue ${cells.status}`);
   });
 });
 

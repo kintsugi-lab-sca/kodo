@@ -175,7 +175,11 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     assert.match(frame, /—/, `debe mostrar el placeholder — para la sesión non-GSD\n${frame}`);
   });
 
-  it('zombie (TUI-10/D-09): el running+!alive muestra la marca textual "running (zombie)"', async () => {
+  it('outcome (fix divergencia state/status): la columna status ya NO escribe lifecycle "running (zombie)"', async () => {
+    // Tras redefinir `status` como OUTCOME (error/done/review), los valores de lifecycle
+    // (running/idle/…) ya no aparecen en la columna `status` — son del eje `state`. El zombie
+    // (running+!alive) sigue contado en el header (ver test de contadores), pero la celda
+    // status queda en blanco en vez de contradecir al eje de lifecycle.
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
@@ -183,7 +187,7 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     await drain();
 
     const frame = lastFrame();
-    assert.match(frame, /running \(zombie\)/, `el zombie (running+!alive) debe mostrar "running (zombie)"\n${frame}`);
+    assert.doesNotMatch(frame, /running \(zombie\)/, `la columna status ya no muestra lifecycle\n${frame}`);
   });
 
   it('contadores del header (TUI-11/D-11): zombie contado aparte de running + indicador ● live', async () => {

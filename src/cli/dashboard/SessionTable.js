@@ -319,9 +319,9 @@ export default function SessionTable({
       cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
       cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
       cell({ width: COLS.phasemode, text: cells.phasemode, bold: selected, truncate: true }),
-      // status: color semántico (D-08) + bold si seleccionada; NO truncar (el `(zombie)` debe
-      // sobrevivir, D-09). ink compone bold sobre color sin alterar el matiz → la marca queda
-      // legible y enfatizada en la fila activa.
+      // status: OUTCOME auto-reportado (outcomeCell → error/done/review; blanco en lifecycle).
+      // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. NO
+      // truncar: los valores son cortos (≤6 chars) y caben de sobra en COLS.status.
       cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: false }),
       // Phase 43 D-04/D-05/D-08: columna provider entre status y age. El valor ok va en texto plano
       // SIN color propio (D-05: cero segunda paleta — el red queda reservado al zombie del eje local);

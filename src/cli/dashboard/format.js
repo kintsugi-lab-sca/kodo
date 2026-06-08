@@ -14,9 +14,10 @@
 //   - D-08 (paleta LOCKED): statusColor devuelve NOMBRES de color ink (strings planos) o el
 //     sentinel { dim:true } para done. JAMÁS ANSI: ink convierte el nombre a ANSI internamente
 //     vía su propio chalk — NO picocolors (color-isolation, D-12 Phase 34). El red está
-//     reservado SOLO al zombie; el error usa magenta para no confundirse con un proceso muerto.
-//   - D-09 (NO_COLOR / accesibilidad): statusLabel añade la marca textual `(zombie)` al caso
-//     running+!alive, de modo que el zombie sea distinguible sin color.
+//     reservado SOLO al zombie (statusColor sobre running+!alive); el error usa magenta para
+//     no confundirse con un proceso muerto.
+//   - La celda `status` muestra el OUTCOME auto-reportado (outcomeCell: error/done/review), en
+//     blanco para los valores de lifecycle, que son del eje `state` (fix divergencia state/status).
 //
 // Color-isolation (invariante D-12 Phase 34): este módulo NO importa `picocolors` ni
 // `src/cli/format.js`. test/format-isolation.test.js lo verifica vía walker automático.
@@ -109,22 +110,28 @@ export function statusColor(status, alive, state) {
 }
 
 /**
- * Marca textual del estado (D-09, redundancia NO_COLOR). El zombie (running+!alive) lleva el
- * sufijo `(zombie)` para ser distinguible sin color; el resto devuelve el status tal cual.
+ * Celda `status` = OUTCOME auto-reportado por el agente (fix divergencia state/status,
+ * follow-up de Phase 43). Tras el fix de `provider_state`, el dashboard tiene tres ejes:
+ * `state` = lifecycle observado por reconcileTick (running/idle/needs-input/dead), `task` =
+ * estado de la tarea en el provider (Plane/GitHub), y `status` = lo que el agente reportó
+ * de su trabajo. Esta celda muestra SOLO los outcomes que los otros dos ejes no poseen —
+ * `error`, `done`, `review` — y devuelve '' para los valores de lifecycle (running/idle/…),
+ * que pertenecen a la columna `state`. Así la columna nunca contradice a `state`: una celda
+ * en blanco significa "sesión en vuelo". El color lo aporta statusColor (error=magenta,
+ * review=cyan, done=dim); sobre '' es invisible.
  *
- * @param {string} status
- * @param {boolean} [alive]
+ * @param {string} [status]
  * @returns {string}
  */
-export function statusLabel(status, alive) {
-  return status === 'running' && !alive ? 'running (zombie)' : status;
+export function outcomeCell(status) {
+  return status === 'error' || status === 'done' || status === 'review' ? status : '';
 }
 
 /**
  * Phase 38 D-06: badges por estado del lifecycle (literal-stable). Cada entrada
  * mapea un `state` v3 a su glyph + color ink (string name, NO ANSI/picocolors) +
  * label textual. `closed` NO está aquí (vive en history, no se renderiza — D-04);
- * `review`/`error`/estados legacy tampoco (los cubre statusColor/statusLabel).
+ * `review`/`error`/estados legacy tampoco (los cubre statusColor + outcomeCell).
  * Byte-stable: cambiar un glyph o color rompe test/dashboard-table.test.js loud.
  *
  * @type {Readonly<Record<string, { glyph: string, color: string, label: string }>>}
@@ -209,8 +216,9 @@ export function taskCell(session) {
 
 /**
  * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
- * `status` usa `statusLabel` para que un zombie muestre `(zombie)` aun sin color. La celda
- * `task` (Phase 43) es el eje provider derivado por `taskCell` con la forma `{ text, dim }`.
+ * `status` usa `outcomeCell`: solo el outcome auto-reportado (error/done/review), en blanco
+ * para los valores de lifecycle (que son del eje `state`), evitando la divergencia state/status.
+ * La celda `task` (Phase 43) es el eje provider derivado por `taskCell` con la forma `{ text, dim }`.
  *
  * @param {Partial<EnrichedSession>} session
  * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, age: string }}
@@ -220,7 +228,7 @@ export function rowCells(session) {
     task_ref: session.task_ref ?? '—',
     repo: deriveRepo(session),
     phasemode: phaseMode(session),
-    status: statusLabel(session.status ?? '', session.alive),
+    status: outcomeCell(session.status ?? ''),
     task: taskCell(session),
     age: formatAge(session.elapsed_min),
   };
