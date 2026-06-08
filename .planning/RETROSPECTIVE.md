@@ -292,6 +292,39 @@
 
 ---
 
+## Milestone: v0.10 — Higiene y estado real de sesiones
+
+**Shipped:** 2026-06-08
+**Phases:** 4 (40-43) | **Plans:** 10 | **Audit:** tech_debt (14/14 reqs, 14/14 integración, 3/3 E2E)
+
+### What Was Built
+Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` opcional Plane+GitHub + enrichment read-only fail-open en `/status` + columna `task`/filtro `ps:` en el dashboard. `kodo gsd doctor` como módulo puro de saneo reusable. Dismiss TUI read-write (tecla `d` reusando doctor) — primera ruptura consciente del invariante v0.9 "TUI read-only", con UAT humano firmado.
+
+### What Worked
+- **El dogfooding al cierre fue el mayor generador de valor.** Levantar el dashboard real con sesiones reales destapó 3 bugs que ninguna suite cazó: provider_state `unknown` (la API de Plane no puebla `state_detail` — invisible en tests con fixtures que lo inyectaban), divergencia state/status (deuda v0.9 hecha visible), y reciclado de `workspace_ref` (que requirió datos vivos para verse).
+- **Verificación en vivo read-only** (correr `reconcileTick`/`getTaskState` contra `state.json` + cmux reales sin escribir) confirmó cada fix antes de commitear y destapó un SEGUNDO síntoma del reciclado (debounce keyed por ref) que el primer fix no cubría.
+- **Separación de capas pagó:** los 3 bugs eran de la capa de datos (Phase 40 / v0.9 Phase 38), no del render de Phase 43 — diagnosticarlo correctamente evitó "arreglar" código correcto.
+
+### What Was Inefficient
+- **Tests con fixtures que mienten:** el test de `getTaskState` inyectaba `state_detail` en el work item — exactamente el campo que la API real NO devuelve. El mock ocultó el bug todo el desarrollo de Phase 40. Lección: los fixtures de adapters deben reflejar la forma REAL de la respuesta del proveedor.
+- **Razonamiento circular en una explicación** ("no son GSD porque los campos están vacíos"): el usuario lo cazó. Verificar la fuente real (label `kodo:yolo` en Plane) en vez de inferir de la ausencia.
+- **Checkboxes de requirements stale** (PSTATE-05/06 en `Pending` pese a estar verificados) y frontmatter `requirements_completed` vacío en summaries de 41/42 — bookkeeping que el audit tuvo que reconciliar.
+
+### Patterns Established
+- **Defensa contra identidad recyclable del host:** cuando una clave externa (cmux `workspace:N`) puede reciclarse, NO keyear estado interno por ella — verificar identidad (title↔task_ref) en el match Y keyear el debounce/estado por la identidad única propia (`task_id`).
+- **Resolver UUID→definiciones cacheadas** en vez de confiar en `expand` del proveedor: separar la ASIGNACIÓN viva (leída por request) de las DEFINICIONES estables (cacheadas en init).
+- **Columna = un solo eje:** `state` (lifecycle), `task` (provider), `status` (outcome del agente) — cada columna un eje no solapado; los placeholders atenuados (`No GSD`, `—`, `?`) distinguen "sin dato" de valores reales.
+
+### Key Lessons
+- Un milestone "verificado" por suite verde + VERIFICATION.md no está realmente probado hasta correrlo con datos reales. El dogfooding no es opcional para superficies de observabilidad.
+- Los fixtures de integración de proveedores externos son una fuente de falsos verdes si no espejan la respuesta real.
+
+### Cost Observations
+- Model mix: predominio opus (sesión interactiva de cierre con dogfooding intensivo).
+- Notable: 3 bugs reales encontrados y arreglados en una sola sesión de cierre, todos surgidos del uso real, ninguno de la suite (1213 pass) — la inversión en dogfooding/verificación-en-vivo tuvo el mayor ROI del milestone.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution

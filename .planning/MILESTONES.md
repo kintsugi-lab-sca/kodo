@@ -1,5 +1,20 @@
 # Milestones
 
+## v0.10 Higiene y estado real de sesiones (Shipped: 2026-06-08)
+
+**Phases completed:** 4 phases (40-43), 10 plans · 118 commits desde v0.9 · suite 1213 pass + 1 skip
+**Audit:** `tech_debt` — 14/14 requirements, integración cross-phase 14/14, 3/3 flujos E2E verificados (deuda Nyquist en 41/43, sin blockers).
+
+**Key accomplishments:**
+
+- **Cadena `provider_state` end-to-end (cierra el driver ROMAN-150):** `getTaskState` opcional en Plane (state vivo vía `getWorkItem`) y GitHub (convención de labels), vocabulario normalizado `in_progress|in_review|blocked|done|unknown` con assert capability-gated en la contract matrix (`TASK_PROVIDER_METHODS` sigue FROZEN en 9); `GET /status` enriquece cada fila con un resolver puro DI (cache 30s + dedup in-flight + `Promise.allSettled` fail-open por fila), carril read-only que jamás escribe `state.json` ni se acopla a `alive`.
+- **`kodo gsd doctor`:** módulo puro de saneo (`src/gsd/doctor.js`) que detecta y sanea worktrees huérfanos, sesiones zombie, locks colgados y logs viejos — dry-run por defecto, `--fix` re-checa liveness y usa `git worktree remove/prune` (nunca `rm -rf`), exit code 0/1, reusable por el CLI y por el dismiss.
+- **Dismiss TUI read-write (primera ruptura consciente del invariante "TUI read-only", UAT humano firmado):** tecla `d` sobre sesiones dead → `DELETE /sessions/{id}` reusando `doctor.execute`, doble-`d`/`Esc` por `task_id`, guard `alive` server-side (409 TOCTOU), capa client never-throws.
+- **Render + filtro de `provider_state`:** columna dedicada `task` con los 3 reason-states sin color (valor crudo / `—` unsupported / `?` fetch-failed), separada del status v3; prefijo de filtro `ps:` con `String.includes` anti-ReDoS, eje independiente del `s:`.
+- **3 bugs reales arreglados en dogfooding (con verificación en vivo):** provider_state mostraba `unknown` (la API de Plane no puebla `state_detail` → resolver vía definiciones cacheadas, `53d2220`); divergencia `state`/`status` → columna `status` redefinida a outcome (`91df2b8`); reciclado de `workspace_ref` de cmux producía sesiones fantasma `alive` → reconcile defensivo por identidad+`task_id` (`9b090cd`).
+
+---
+
 ## v0.9 kodo TUI — sesiones en vivo (Shipped: 2026-06-03)
 
 **Delivered:** kodo gana una superficie de observabilidad ambient en terminal — el subcomando `kodo dashboard` (Node + ink, sin build step) que monitoriza en vivo las N sesiones kodo activas consumiendo exclusivamente el contrato JSON existente del server (`GET /status`, `/comments/<task_id>`, `/logs`), sin añadir un solo endpoint. Tabla viva por polling con selección por identidad, navegación + focus a cmux, overlays de comentarios y logs, y un modelo de ciclo de vida v3 (idle/needs-input/dead/closed) promovido desde backlog tras diagnosticar sesiones invisibles en el dashboard. Cierra con una fase de gap-closure (39.1) que saldó el blocker + 3 warnings del audit.

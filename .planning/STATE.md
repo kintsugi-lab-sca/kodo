@@ -2,22 +2,22 @@
 gsd_state_version: 1.0
 milestone: v0.10
 milestone_name: Higiene y estado real de sesiones
-status: executing
-stopped_at: Phase 43 context gathered
-last_updated: "2026-06-08T07:32:35.911Z"
-last_activity: 2026-06-08 -- Phase 43 execution started
+status: Awaiting next milestone
+stopped_at: Phase 43 ejecutada (2/2 plans) + code review + verificación máquina (10/10 must-haves, status `human_needed`). UAT humano `partial` (awaiting).
+last_updated: "2026-06-08T21:15:15.405Z"
+last_activity: 2026-06-08 — Milestone v0.10 completed and archived
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 10
-  completed_plans: 8
-  percent: 60
+  completed_plans: 10
+  percent: 80
 ---
 
 # Project State
 
 **Project:** kodo
-**Active milestone:** v0.10 Higiene y estado real de sesiones (planning — roadmap creado). Ejes: `kodo gsd doctor` (saneo) + dismiss desde el dashboard (TUI read-write) + `provider_state` cross-system (Plane + GitHub). Anterior v0.9 kodo TUI — sesiones en vivo **shipped 2026-06-03**.
+**Active milestone:** ninguno — **v0.10 Higiene y estado real de sesiones SHIPPED 2026-06-08** (audit `tech_debt`, 14/14 requirements, integración + E2E verificados). Próximo milestone pendiente de definir (`/gsd:new-milestone`).
 
 ## Project Reference
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añade una superficie de observabilidad en terminal (`kodo dashboard`) read-only sobre ese contrato.
 
-**Current focus:** Phase 43 — render-provider-state-en-el-dashboard
+**Current focus:** v0.10 cerrado — esperando definición del próximo milestone.
 
 ## Current Position
 
-Phase: 43 (render-provider-state-en-el-dashboard) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 43
-Last activity: 2026-06-08 -- Phase 43 execution started
+Phase: Milestone v0.10 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-08 — Milestone v0.10 completed and archived
 
 ## Roadmap v0.10 (active)
 
@@ -178,5 +178,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Plan la primera fase con `/gsd:plan-phase 40` (Provider State — contrato + providers + enrichment).
-- Phases 41 (Doctor `--fix`) y 42 (Dismiss) son las de mayor riesgo: prever UAT/verificación explícita al planificarlas.
+- Start the next milestone with /gsd-new-milestone
