@@ -572,6 +572,6 @@ export default function App({
         overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · / filter · d dismiss · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · / filter (ps:state) · d dismiss · q quit'),
   );
 }
