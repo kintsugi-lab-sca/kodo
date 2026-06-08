@@ -114,7 +114,11 @@ Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si s
 
 None.
 
-### Pending Todos (0) — correcciones v0.10 surfaced en UAT 43 — ambas RESUELTAS
+### Pending Todos (1)
+
+- ⏳ **Reconcile keyea por `workspace_ref` reciclado → sesiones fantasma alive** (surfaced dogfood 2026-06-08; origen v0.9 Phase 38). cmux reutiliza `workspace:N`; una sesión cerrada hereda el `alive` de la nueva que tomó su índice (ROMAN-160↔170, 167↔171). Detección rota (no destructivo — dismiss keyea por task_id). Fix recomendado: verificar identidad (title↔task_ref) en el match. `major`. → `pending/2026-06-08-reconcile-workspace-ref-recycling-ghost-alive.md`
+
+### Todos resueltos — correcciones v0.10 surfaced en UAT 43
 
 Ninguna era bug del render de Phase 43 (verificado correcto); ambas eran capas de datos upstream:
 
