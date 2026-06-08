@@ -61,16 +61,22 @@ export function formatAge(elapsedMin) {
   return m === 0 ? `${h}h` : `${h}h${m}m`;
 }
 
+/** Placeholder de la columna phase/mode para sesiones sin metadata GSD (yolo/plain). */
+export const NO_GSD_LABEL = 'No GSD';
+
 /**
  * Une `phase_id` + `gsd_mode` con '/' (D-03). Ambos son GSD-only (opcionales):
- *   {phase_id:'36',gsd_mode:'full'} → '36/full'; solo phase_id → '36'; ninguno → '—'.
+ *   {phase_id:'36',gsd_mode:'full'} → '36/full'; solo phase_id → '36'.
+ *   Sin NINGUNO (ni phase_id ni gsd_mode) → `NO_GSD_LABEL` ('No GSD'): la sesión no se
+ *   despachó como GSD (p. ej. label `kodo:yolo`). Más explícito que el `—` genérico, y se
+ *   renderiza atenuado (SessionTable) para no competir con valores reales tipo '42/full'.
  *
  * @param {Partial<EnrichedSession>} session
  * @returns {string}
  */
 export function phaseMode(session) {
   const parts = [session.phase_id, session.gsd_mode].filter(Boolean);
-  return parts.length === 0 ? '—' : parts.join('/');
+  return parts.length === 0 ? NO_GSD_LABEL : parts.join('/');
 }
 
 /**

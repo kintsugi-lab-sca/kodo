@@ -157,7 +157,7 @@ const FIXTURE = {
 };
 
 describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contadores, vacíos (D-01/D-03/D-07/D-09/D-11/D-12)', () => {
-  it('columnas (TUI-07): renderiza task_ref · repo · phase/mode · status · age con — para non-GSD', async () => {
+  it("columnas (TUI-07): renderiza task_ref · repo · phase/mode · status · age con 'No GSD' para non-GSD", async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
@@ -172,7 +172,7 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     assert.match(frame, /KL-2/, `debe mostrar task_ref KL-2\n${frame}`);
     assert.match(frame, /foo/, `debe mostrar el repo derivado 'foo' (basename de /x/foo)\n${frame}`);
     assert.match(frame, /1h3m/, `debe mostrar age 1h3m (elapsed_min 63)\n${frame}`);
-    assert.match(frame, /—/, `debe mostrar el placeholder — para la sesión non-GSD\n${frame}`);
+    assert.match(frame, /No GSD/, `debe mostrar el placeholder 'No GSD' en phase/mode para la sesión non-GSD\n${frame}`);
   });
 
   it('outcome (fix divergencia state/status): la columna status ya NO escribe lifecycle "running (zombie)"', async () => {

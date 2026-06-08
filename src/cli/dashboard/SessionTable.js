@@ -22,7 +22,7 @@
 
 import { Box, Text } from 'ink';
 import { createElement as h } from 'react';
-import { rowCells, statusColor, stateBadge, countsLabel } from './format.js';
+import { rowCells, statusColor, stateBadge, countsLabel, NO_GSD_LABEL } from './format.js';
 import {
   OVERLAY_COMMENTS_EMPTY,
   OVERLAY_COMMENTS_NOT_FOUND,
@@ -318,7 +318,9 @@ export default function SessionTable({
       })(),
       cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
       cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
-      cell({ width: COLS.phasemode, text: cells.phasemode, bold: selected, truncate: true }),
+      // phase/mode: 'No GSD' (placeholder de sesión no-GSD) va atenuado para no competir
+      // con valores reales tipo '42/full'.
+      cell({ width: COLS.phasemode, text: cells.phasemode, dim: cells.phasemode === NO_GSD_LABEL, bold: selected, truncate: true }),
       // status: OUTCOME auto-reportado (outcomeCell → error/done/review; blanco en lifecycle).
       // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. NO
       // truncar: los valores son cortos (≤6 chars) y caben de sobra en COLS.status.

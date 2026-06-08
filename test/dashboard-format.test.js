@@ -63,8 +63,8 @@ describe('TUI-07 (D-03): phaseMode une phase_id + gsd_mode con /', () => {
       `esperado '12/quick', fue ${phaseMode({ phase_id: '12', gsd_mode: 'quick' })}`,
     );
   });
-  it('ninguno → —; solo phase_id → 36', () => {
-    assert.equal(phaseMode({}), '—', `sin GSD debe ser '—', fue ${phaseMode({})}`);
+  it("ninguno → 'No GSD'; solo phase_id → 36", () => {
+    assert.equal(phaseMode({}), 'No GSD', `sin GSD debe ser 'No GSD', fue ${phaseMode({})}`);
     assert.equal(phaseMode({ phase_id: '36' }), '36', `solo phase_id → '36', fue ${phaseMode({ phase_id: '36' })}`);
   });
 });
