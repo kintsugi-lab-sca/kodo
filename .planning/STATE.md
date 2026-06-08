@@ -114,6 +114,13 @@ Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si s
 
 None.
 
+### Pending Todos (2) — correcciones v0.10 surfaced en UAT 43
+
+Ninguno es bug del render de Phase 43 (verificado correcto). Ambos deben resolverse antes de cerrar v0.10 "limpio":
+
+- **provider_state = `unknown` para todas las tareas Plane** (incl. activa) — root cause upstream Phase 40 (`mapPlaneState`/`getWorkItem` group). El driver ROMAN-150 queda sin demostrar. `major`. → `.planning/todos/pending/2026-06-08-provider-state-task-column-shows-unknown-for-all-plane-tasks.md`
+- **Columnas `state` vs `status` divergen** — `status` legacy v2 no reconciliado → stale, contradice el `state` canónico v3 (deuda WARNING-02/D-09, ahora visible). `major`. → `.planning/todos/pending/2026-06-08-dashboard-state-vs-status-columns-diverge.md`
+
 ### Open Questions
 
 Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cada fase):
@@ -154,9 +161,9 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-06T16:38:51.976Z
-- **Stopped at:** Phase 43 context gathered
-- **Next action:** `/gsd:plan-phase 40` (Provider State). Phase 40 y 41 paralelizables si hay bandwidth.
+- **Last session:** 2026-06-08T09:52:00+02:00
+- **Stopped at:** Phase 43 ejecutada (2/2 plans) + code review + verificación máquina (10/10 must-haves, status `human_needed`). UAT humano `partial` (awaiting).
+- **Next action:** `/gsd:verify-work 43` — UAT humano de los 3 items visuales en terminal (columna `task`, filtro `ps:`, footer hint). Tras pasar → `/gsd:complete-milestone` (Phase 43 es la última de v0.10).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.10)
   - `.planning/ROADMAP.md` (v0.10 activo Phases 40-43; v0.9 colapsado en Archived Milestones; Backlog 999.1 → promovido a Phase 42)
