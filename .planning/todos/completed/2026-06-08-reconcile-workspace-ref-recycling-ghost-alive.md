@@ -63,3 +63,14 @@ task_ref), cambio contenido en la capa Phase 38. Validar con el caso real (160/1
 NOTA: no es Phase 43 ni los 2 fixes de hoy. Es deuda arquitectónica de v0.9 (la
 suposición "workspace_ref = identidad canónica" en host/interface.js:16 es falsa porque
 cmux recicla el índice). Probablemente merece su propia fase/tarea con decisión de diseño.
+
+## RESOLVED 2026-06-08 (commit 9b090cd) — opción A + fix del debounce
+
+Dos síntomas del mismo origen (cmux recicla workspace:N), ambos arreglados:
+1. Match identidad-verificado: WorkspaceInfo expone `title`; `liveForSession` exige
+   que el title identifique a la sesión (token con límite de palabra, anti-ReDoS).
+   Ref reciclado a otro task -> dead. Compat: host sin title -> comportamiento previo.
+2. `debounceStore` keyed por `task_id` (no `workspace_ref`): dos sesiones que comparten
+   un ref reciclado ya no pelean por la misma entrada de debounce (era por lo que
+   ROMAN-160 no llegaba a dead aun con el guard de (1)).
+Verificado en vivo read-only: ROMAN-160/167 -> dead; 170/159 intactas. Suite 1213 pass.
