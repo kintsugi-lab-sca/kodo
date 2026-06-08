@@ -113,6 +113,83 @@ describe('TUI-12 (D-16): cursor preservado al aplicar→limpiar filtro', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 43 Plan 02 (PSTATE-06; D-06/D-07/D-09 anti-ReDoS): prefijo `ps:`.
+//   Eje de filtro DEDICADO por `provider_state` (NO extiende `s:`). Match por
+//   SUBSTRING case-insensitive vía String.includes (asimetría deliberada con `s:`,
+//   que es match EXACTO). Filas con provider_state === null NUNCA casan (D-09).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PSTATE-06 (D-06): parseFilter reconoce el prefijo dedicado ps:', () => {
+  it("parseFilter('ps:review') → provider_state 'review', repo/status null, text vacío", () => {
+    const parsed = parseFilter('ps:review');
+    assert.equal(parsed.provider_state, 'review', `provider_state debe ser 'review', fue ${parsed.provider_state}`);
+    assert.equal(parsed.repo, null, `repo debe ser null, fue ${parsed.repo}`);
+    assert.equal(parsed.status, null, `status debe ser null, fue ${parsed.status}`);
+    assert.equal(parsed.text, '', `text debe estar vacío, fue '${parsed.text}'`);
+  });
+
+  it("parseFilter('PS:Review') → provider_state 'review' (prefijo y valor case-insensitive)", () => {
+    const parsed = parseFilter('PS:Review');
+    assert.equal(parsed.provider_state, 'review', `prefijo y valor deben bajarse a minúsculas, fue ${parsed.provider_state}`);
+  });
+
+  it("parseFilter('s:running') → status 'running', provider_state null (ps: NO se confunde con s:)", () => {
+    const parsed = parseFilter('s:running');
+    assert.equal(parsed.status, 'running', `status debe ser 'running', fue ${parsed.status}`);
+    assert.equal(parsed.provider_state, null, `provider_state NO debe capturar s:, fue ${parsed.provider_state}`);
+  });
+});
+
+describe('PSTATE-06 (D-07/D-09): applyFilter rama ps: substring anti-ReDoS', () => {
+  it("substring: parsed.provider_state 'rev' casa fila { provider_state: 'in_review' }", () => {
+    const rows = [s({ task_id: 'a', provider_state: 'in_review' })];
+    const out = applyFilter(rows, parseFilter('ps:rev'), deriveRepo);
+    assert.equal(out.length, 1, `'in_review'.includes('rev') debe casar (substring), fue ${out.length}`);
+  });
+
+  it("D-09: fila { provider_state: null } NUNCA casa con ps:review (degradada)", () => {
+    const rows = [s({ task_id: 'a', provider_state: null })];
+    const out = applyFilter(rows, parseFilter('ps:review'), deriveRepo);
+    assert.equal(out.length, 0, `provider_state null nunca casa con ps: (D-09), fue ${out.length}`);
+  });
+
+  it("D-09: fila sin provider_state (ausente) tampoco casa con ps:done", () => {
+    const rows = [s({ task_id: 'a' })]; // sin provider_state
+    const out = applyFilter(rows, parseFilter('ps:done'), deriveRepo);
+    assert.equal(out.length, 0, `provider_state ausente nunca casa con ps: (D-09), fue ${out.length}`);
+  });
+
+  it("exacto-vs-substring: ps:done casa 'done'; ps:done no casa 'in_review'", () => {
+    const rows = [
+      s({ task_id: 'a', provider_state: 'done' }),
+      s({ task_id: 'b', provider_state: 'in_review' }),
+    ];
+    const out = applyFilter(rows, parseFilter('ps:done'), deriveRepo).map((r) => r.task_id);
+    assert.deepEqual(out, ['a'], `solo 'done' casa ps:done, fue ${out}`);
+  });
+
+  it('AND con s:: `s:running ps:review` filtra estado local exacto Y provider_state substring', () => {
+    const rows = [
+      s({ task_id: 'a', status: 'running', provider_state: 'in_review' }), // casa ambos
+      s({ task_id: 'b', status: 'running', provider_state: 'done' }),      // casa s: pero no ps:
+      s({ task_id: 'c', status: 'done', provider_state: 'in_review' }),    // casa ps: pero no s:
+    ];
+    const out = applyFilter(rows, parseFilter('s:running ps:review'), deriveRepo).map((r) => r.task_id);
+    assert.deepEqual(out, ['a'], `solo la fila que casa AND (s: exacto Y ps: substring), fue ${out}`);
+  });
+
+  it('anti-ReDoS: ps:.* se matchea LITERAL como substring, jamás compila RegExp', () => {
+    const rows = [
+      s({ task_id: 'lit', provider_state: 'in_.*review' }), // contiene el literal ".*"
+      s({ task_id: 'rgx', provider_state: 'in_review' }),   // casaría una regex .* pero NO substring
+    ];
+    const out = applyFilter(rows, parseFilter('ps:.*'), deriveRepo).map((r) => r.task_id);
+    // Si compilara regex, 'in_review' casaría (.* = 'review'). Con substring solo casa el literal.
+    assert.deepEqual(out, ['lit'], `'.*' debe matchear literal, no como regex, fue ${out}`);
+  });
+});
+
 describe('TUI-09 (D-04): sortSessions DESC por started_at sobre una COPIA + tiebreak task_id', () => {
   it('no muta el array de entrada', () => {
     const input = [

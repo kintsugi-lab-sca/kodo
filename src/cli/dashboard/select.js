@@ -95,20 +95,30 @@ export function resolveSelection(rows, selectedTaskId, prevIndex = 0) {
  * `string | string[] | null` — applyFilter acepta ambas formas (Opción A del
  * plan: menor diff, retro-compatible con los filtros legacy escalares).
  *
+ * Phase 43 D-06: prefijo DEDICADO `ps:` para `provider_state` (eje SEPARADO del
+ * `s:` local — NO se extiende `s:` con OR). `provider_state` es `string|null`; el
+ * valor se baja a minúsculas y se matchea por SUBSTRING en applyFilter (D-07).
+ *   'ps:review' → { provider_state:'review', repo:null, status:null, text:'' }
+ * ORDEN crítico: el check `startsWith('ps:')` va ANTES que `s:`. Aunque
+ * `'ps:review'.startsWith('s:')` ya es false (empieza por 'p'), el orden explícito
+ * blinda el parsing y documenta que `ps:` es un eje distinto, no un sufijo de `s:`.
+ *
  * @param {string} query
- * @returns {{ repo: string|null, status: string|string[]|null, text: string }}
+ * @returns {{ repo: string|null, status: string|string[]|null, provider_state: string|null, text: string }}
  */
 export function parseFilter(query) {
-  /** @type {{ repo: string|null, status: string|string[]|null, text: string }} */
-  const out = { repo: null, status: null, text: '' };
+  /** @type {{ repo: string|null, status: string|string[]|null, provider_state: string|null, text: string }} */
+  const out = { repo: null, status: null, provider_state: null, text: '' };
   const words = (query ?? '').trim().split(/\s+/).filter(Boolean);
   /** @type {string[]} */
   const rest = [];
   for (const w of words) {
-    // Prefijo case-insensitive: 'r:'/'R:' y 's:'/'S:' se reconocen igual; el VALOR se baja
-    // a minúsculas para el match case-insensitive (D-14).
+    // Prefijo case-insensitive: 'r:'/'R:', 'ps:'/'PS:' y 's:'/'S:' se reconocen igual; el VALOR
+    // se baja a minúsculas para el match case-insensitive (D-14 / D-06 Phase 43).
     const lower = w.toLowerCase();
     if (lower.startsWith('r:')) out.repo = w.slice(2).toLowerCase();
+    // `ps:` ANTES que `s:` (D-06 Phase 43): eje dedicado de provider_state, valor crudo lowercased.
+    else if (lower.startsWith('ps:')) out.provider_state = w.slice(3).toLowerCase();
     else if (lower.startsWith('s:')) {
       const val = w.slice(2).toLowerCase();
       // Alias OR `s:active` (D-06): sesiones vivas (running/idle/needs-input),
@@ -131,8 +141,16 @@ export function parseFilter(query) {
  * con fallback a `r.status` (legacy v2 sin migrar). `parsed.status` puede ser
  * un array (alias `s:active`) → match OR; o un escalar → match exacto.
  *
+ * Phase 43 D-07/D-09: ASIMETRÍA DELIBERADA — `s:` es match EXACTO del estado local
+ * v3 (`st === parsed.status`); `ps:` es match por SUBSTRING del `provider_state`
+ * crudo (`ps.includes(parsed.provider_state)`). Son ejes DISTINTOS con semánticas
+ * distintas (criterio 3 PSTATE-06) — NO "alinear" ambos. El match `ps:` usa
+ * `String.includes`, JAMÁS `RegExp` (anti-ReDoS, T-36-01 / T-43-04). Una fila con
+ * `provider_state === null` (unsupported/fetch-failed) colapsa a `''.includes(term)`
+ * === false → NUNCA casa (D-09); el reason degradado queda fuera del alcance del filtro.
+ *
  * @param {Array<Partial<EnrichedSession>>} rows
- * @param {{ repo: string|null, status: string|string[]|null, text: string }} parsed
+ * @param {{ repo: string|null, status: string|string[]|null, provider_state: string|null, text: string }} parsed
  * @param {(s: Partial<EnrichedSession>) => string} deriveRepo — DI puro (de format.js).
  * @returns {Array<Partial<EnrichedSession>>}
  */
@@ -146,6 +164,12 @@ export function applyFilter(rows, parsed, deriveRepo) {
         ? parsed.status.includes(st)   // alias OR (s:active)
         : st === parsed.status;        // escalar (s:idle, s:running, …)
       if (!ok) return false;
+    }
+    if (parsed.provider_state) {
+      // Eje DEDICADO (D-06): match por SUBSTRING del provider_state crudo, anti-ReDoS (D-07).
+      // null/ausente → '' → nunca casa con un término no vacío (D-09 — degradadas fuera de alcance).
+      const ps = (r.provider_state ?? '').toLowerCase();
+      if (!ps.includes(parsed.provider_state)) return false;
     }
     if (parsed.text) {
       const hay = `${r.task_ref ?? ''} ${deriveRepo(r)} ${r.phase_id ?? ''} ${r.gsd_mode ?? ''} ${r.summary ?? ''}`.toLowerCase();
