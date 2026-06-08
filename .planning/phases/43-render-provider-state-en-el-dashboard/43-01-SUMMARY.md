@@ -116,3 +116,7 @@ None - no external service configuration required.
 ---
 *Phase: 43-render-provider-state-en-el-dashboard*
 *Completed: 2026-06-08*
+
+## Self-Check: PASSED
+
+Todos los archivos creados/modificados existen en disco; los 4 commits (test RED + feat GREEN x2 + docs) están en la historia.
