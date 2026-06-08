@@ -19,6 +19,7 @@ import {
   statusColor,
   statusLabel,
   rowCells,
+  taskCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
 
@@ -188,6 +189,102 @@ describe('TUI-07 (D-03): rowCells proyecta una sesión a celdas de columna', () 
       cells.status.includes('(zombie)'),
       true,
       `la celda status del zombie debe contener '(zombie)', fue ${cells.status}`,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 43 Plan 01 (PSTATE-05; D-04/D-05/D-08/specifics): taskCell deriva la celda
+// `task` del provider_state crudo + provider_state_reason, distinguiendo los 3
+// reason-states SIN color (texto plano + dim), tratando el valor como dato crudo
+// (cero tabla de mapeo — un renombrado se muestra verbatim).
+// ---------------------------------------------------------------------------
+
+describe('PSTATE-05 (D-04/D-05): taskCell deriva los 3 reason-states del provider_state', () => {
+  it('ok (reason null) → valor crudo verbatim sin dim', () => {
+    const c = taskCell({ provider_state: 'in_review', provider_state_reason: null });
+    assert.deepEqual(
+      c,
+      { text: 'in_review', dim: false },
+      `in_review + reason null debe ser { text:'in_review', dim:false }, fue ${JSON.stringify(c)}`,
+    );
+  });
+
+  it("specifics: 'unknown' (reason null) es un ok-value verbatim, NO un glyph degradado", () => {
+    const c = taskCell({ provider_state: 'unknown', provider_state_reason: null });
+    assert.deepEqual(
+      c,
+      { text: 'unknown', dim: false },
+      `'unknown' (reason null) debe mostrarse verbatim sin dim, fue ${JSON.stringify(c)}`,
+    );
+  });
+
+  it("unsupported (reason 'unsupported', permanente) → '—' en dim", () => {
+    const c = taskCell({ provider_state: null, provider_state_reason: 'unsupported' });
+    assert.deepEqual(
+      c,
+      { text: '—', dim: true },
+      `unsupported debe ser { text:'—', dim:true }, fue ${JSON.stringify(c)}`,
+    );
+  });
+
+  it("fetch-failed (reason 'fetch-failed', transitorio) → '?' en dim", () => {
+    const c = taskCell({ provider_state: null, provider_state_reason: 'fetch-failed' });
+    assert.deepEqual(
+      c,
+      { text: '?', dim: true },
+      `fetch-failed debe ser { text:'?', dim:true }, fue ${JSON.stringify(c)}`,
+    );
+  });
+
+  it('ausencia total (sin provider_state ni reason) → fallback seguro "—" sin dim, no crashea', () => {
+    const c = taskCell({});
+    assert.deepEqual(
+      c,
+      { text: '—', dim: false },
+      `la ausencia debe colapsar a { text:'—', dim:false } sin crashear, fue ${JSON.stringify(c)}`,
+    );
+  });
+
+  it('criterio 4: cero tabla de mapeo — un valor inventado se muestra verbatim', () => {
+    const c = taskCell({ provider_state: 'wibble', provider_state_reason: null });
+    assert.deepEqual(
+      c,
+      { text: 'wibble', dim: false },
+      `un renombrado/valor inventado debe mostrarse verbatim (sin transformar), fue ${JSON.stringify(c)}`,
+    );
+  });
+});
+
+describe('PSTATE-05: rowCells incluye la clave task con la forma { text, dim }', () => {
+  it('rowCells(session).task es la derivación de taskCell', () => {
+    const cells = rowCells({
+      task_ref: 'KL-7',
+      status: 'running',
+      alive: true,
+      elapsed_min: 1,
+      provider_state: 'in_review',
+      provider_state_reason: null,
+    });
+    assert.deepEqual(
+      cells.task,
+      { text: 'in_review', dim: false },
+      `rowCells().task debe ser { text:'in_review', dim:false }, fue ${JSON.stringify(cells.task)}`,
+    );
+  });
+
+  it('rowCells().task degradado (unsupported) → { text:"—", dim:true }', () => {
+    const cells = rowCells({
+      task_ref: 'KL-8',
+      status: 'running',
+      alive: true,
+      provider_state: null,
+      provider_state_reason: 'unsupported',
+    });
+    assert.deepEqual(
+      cells.task,
+      { text: '—', dim: true },
+      `rowCells().task unsupported debe ser { text:'—', dim:true }, fue ${JSON.stringify(cells.task)}`,
     );
   });
 });

@@ -25,7 +25,7 @@ import { basename } from 'node:path';
 
 /**
  * @typedef {import('../../session/state.js').Session} Session
- * @typedef {Session & { alive?: boolean, elapsed_min?: number }} EnrichedSession
+ * @typedef {Session & { alive?: boolean, elapsed_min?: number, provider_state?: string|null, provider_state_reason?: null|'unsupported'|'fetch-failed' }} EnrichedSession
  */
 
 /**
@@ -172,11 +172,48 @@ export function countsLabel(counts) {
 }
 
 /**
- * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
- * `status` usa `statusLabel` para que un zombie muestre `(zombie)` aun sin color.
+ * Phase 43 (PSTATE-05; D-04/D-05/D-08): deriva la celda `task` del estado de la tarea en su
+ * sistema de gestión (Plane/GitHub) — el EJE PROVIDER, distinto del eje proceso local (`status`).
+ * Lee SOLO `provider_state` + `provider_state_reason`, los campos que Phase 40 enriquece en
+ * `GET /status` (carril read-only; este módulo no los computa ni escribe).
+ *
+ * Los tres reason-states (Phase 40 D-05) son distinguibles SIN color (D-04, NO_COLOR-safe):
+ *   - reason 'unsupported' (permanente, el provider no expone estado) → `{ text: '—', dim: true }`
+ *   - reason 'fetch-failed' (transitorio, falló ahora, reintentará)   → `{ text: '?', dim: true }`
+ *   - reason null/ausente → el VALOR CRUDO verbatim `{ text: provider_state, dim: false }`.
+ *     Fallback seguro `{ text: '—', dim: false }` si `provider_state` es null/undefined (sin dim,
+ *     para no confundirse con el `—` dim de unsupported — la ausencia se trata como sin-dato, no crashea).
+ *
+ * IMPORTANTE (specifics CONTEXT.md): `provider_state === 'unknown'` con `reason: null` es un
+ * OK-VALUE verbatim (se muestra `unknown` tal cual), DISTINTO de null+unsupported/fetch-failed.
+ * 'unknown' es un valor crudo real del normalizador, no un glyph degradado.
+ *
+ * Verbatim total (D-08, criterio 4): NUNCA se transforma el string — cero guiones-a-espacios,
+ * cero tabla de mapeo. Un estado renombrado por el provider se muestra solo, sin tocar código.
+ *
+ * El `dim` es un bool plano (D-05): SessionTable lo mapea a `dimColor` de ink. Cero color propio
+ * para el valor ok (NO una segunda paleta semántica — el color queda reservado al eje local).
+ * Color-isolation intacta: el dim sale de ink, cero ANSI (ver test/format-isolation.test.js).
  *
  * @param {Partial<EnrichedSession>} session
- * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, age: string }}
+ * @returns {{ text: string, dim: boolean }}
+ */
+export function taskCell(session) {
+  const reason = session.provider_state_reason;
+  if (reason === 'unsupported') return { text: '—', dim: true };
+  if (reason === 'fetch-failed') return { text: '?', dim: true };
+  // reason null/ausente → ok: valor crudo verbatim (incluido 'unknown'); fallback '—' sin dim.
+  const raw = session.provider_state;
+  return { text: raw == null ? '—' : raw, dim: false };
+}
+
+/**
+ * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
+ * `status` usa `statusLabel` para que un zombie muestre `(zombie)` aun sin color. La celda
+ * `task` (Phase 43) es el eje provider derivado por `taskCell` con la forma `{ text, dim }`.
+ *
+ * @param {Partial<EnrichedSession>} session
+ * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, age: string }}
  */
 export function rowCells(session) {
   return {
@@ -184,6 +221,7 @@ export function rowCells(session) {
     repo: deriveRepo(session),
     phasemode: phaseMode(session),
     status: statusLabel(session.status ?? '', session.alive),
+    task: taskCell(session),
     age: formatAge(session.elapsed_min),
   };
 }

@@ -136,6 +136,9 @@ const FIXTURE = {
       phase_id: '36',
       gsd_mode: 'full',
       summary: '',
+      // Phase 43: provider_state ok (reason null) → valor crudo verbatim en la columna `task`.
+      provider_state: 'in_review',
+      provider_state_reason: null,
     },
     {
       task_id: 'b',
@@ -146,6 +149,9 @@ const FIXTURE = {
       project_path: '/x/foo',
       elapsed_min: 63,
       summary: '',
+      // Phase 43: provider sin soporte (permanente) → '—' dim en la columna `task`.
+      provider_state: null,
+      provider_state_reason: 'unsupported',
     }, // zombie, non-GSD
   ],
 };
@@ -259,6 +265,103 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
       /no active sessions/,
       `el estado degradado (waiting) tiene precedencia sobre el vacío de la lista\n${frame}`,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 43 Plan 01 (PSTATE-05; D-01/D-02/D-03/D-04/D-05/D-08): columna dedicada `task`
+// (eje provider) entre `status` y `age`, con los 3 reason-states distinguibles sin color.
+// ---------------------------------------------------------------------------
+
+// Fixture específico de los 3 reason-states del provider_state (Phase 40 D-05) en una sola tabla.
+const FIXTURE_PSTATE = {
+  count: 3,
+  sessions: [
+    {
+      task_id: 'p1',
+      task_ref: 'PS-1',
+      status: 'running',
+      alive: true,
+      started_at: '2026-05-27T12:00:00Z',
+      project_name: 'kodo',
+      elapsed_min: 1,
+      summary: '',
+      provider_state: 'in_review', // ok → verbatim
+      provider_state_reason: null,
+    },
+    {
+      task_id: 'p2',
+      task_ref: 'PS-2',
+      status: 'running',
+      alive: true,
+      started_at: '2026-05-27T11:00:00Z',
+      project_name: 'kodo',
+      elapsed_min: 2,
+      summary: '',
+      provider_state: null, // unsupported → '—' dim
+      provider_state_reason: 'unsupported',
+    },
+    {
+      task_id: 'p3',
+      task_ref: 'PS-3',
+      status: 'running',
+      alive: true,
+      started_at: '2026-05-27T10:30:00Z',
+      project_name: 'kodo',
+      elapsed_min: 3,
+      summary: '',
+      provider_state: null, // fetch-failed → '?' dim
+      provider_state_reason: 'fetch-failed',
+    },
+  ],
+};
+
+describe('PSTATE-05: columna task — header entre status y age, 3 reason-states (D-01/D-02/D-03/D-04)', () => {
+  it('D-03: la cabecera incluye `task` posicionada entre `status` y `age`', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE_PSTATE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    const idxStatus = frame.indexOf('status');
+    const idxTask = frame.indexOf('task'); // header literal 'task' (no 'task_ref', que es más largo)
+    const idxAge = frame.indexOf('age');
+    assert.ok(idxStatus !== -1 && idxAge !== -1, `header status y age deben existir\n${frame}`);
+    // 'task' aparece primero en 'task_ref'; la cabecera dedicada 'task' debe estar DESPUÉS de 'status'.
+    const idxTaskAfterStatus = frame.indexOf('task', idxStatus);
+    assert.ok(
+      idxTaskAfterStatus !== -1 && idxTaskAfterStatus > idxStatus && idxTaskAfterStatus < idxAge,
+      `la cabecera 'task' debe ir entre 'status' (${idxStatus}) y 'age' (${idxAge}), fue ${idxTaskAfterStatus}\n${frame}`,
+    );
+    assert.ok(idxTask !== -1, 'header task presente');
+    unmount(); // higiene: no dejar el render (con su stdin/useInput) activo para el siguiente test.
+  });
+
+  it('D-04 ok: una fila con provider_state in_review muestra el valor crudo verbatim', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE_PSTATE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    assert.match(frame, /in_review/, `la fila ok debe mostrar 'in_review' verbatim en la columna task\n${frame}`);
+    unmount();
+  });
+
+  it('D-04 degradados: unsupported renderiza `—` y fetch-failed renderiza `?`', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE_PSTATE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    assert.match(frame, /—/, `la fila unsupported debe mostrar el glyph '—'\n${frame}`);
+    assert.match(frame, /\?/, `la fila fetch-failed debe mostrar el glyph '?'\n${frame}`);
+    unmount();
   });
 });
 

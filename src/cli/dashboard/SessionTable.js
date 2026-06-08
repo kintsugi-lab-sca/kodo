@@ -41,7 +41,11 @@ import {
 // el emoji `🔔` de `needs-input` renderiza 2 celdas en terminal pero ink lo mide como 1,
 // así que `🔔 needs-input` (13 medido / 14 visual) llenaba justo width 14 y se pegaba a
 // task_ref. width 16 deja padding visible tras el badge más ancho.
-const COLS = { gutter: 2, state: 16, task_ref: 10, repo: 18, phasemode: 11, status: 18, age: 7 };
+// Phase 43 D-01/D-02 (PSTATE-05): columna dedicada `task` (eje provider) ENTRE `status` y `age`.
+// width 12 (Claude's Discretion, CONTEXT.md D-08/specifics): cabe `in_progress` (11 chars);
+// `truncate-end` nativo de ink es la red de seguridad si el provider emite un string más largo
+// (T-43-03 DoS-guard: un provider_state de 10k chars se trunca a la columna, no desborda la tabla).
+const COLS = { gutter: 2, state: 16, task_ref: 10, repo: 18, phasemode: 11, status: 18, task: 12, age: 7 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
@@ -286,6 +290,8 @@ export default function SessionTable({
     h(Box, { width: COLS.repo }, h(Text, { dimColor: true }, 'repo')),
     h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode')),
     h(Box, { width: COLS.status }, h(Text, { dimColor: true }, 'status')),
+    // Phase 43 D-03: cabecera de la columna provider entre `status` y `age`, label literal `task`.
+    h(Box, { width: COLS.task }, h(Text, { dimColor: true }, 'task')),
     h(Box, { width: COLS.age }, h(Text, { dimColor: true }, 'age')),
   );
 
@@ -317,6 +323,11 @@ export default function SessionTable({
       // sobrevivir, D-09). ink compone bold sobre color sin alterar el matiz → la marca queda
       // legible y enfatizada en la fila activa.
       cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: false }),
+      // Phase 43 D-04/D-05/D-08: columna provider entre status y age. El valor ok va en texto plano
+      // SIN color propio (D-05: cero segunda paleta — el red queda reservado al zombie del eje local);
+      // el `dim` de cells.task marca los degradados '—'/'?' vía dimColor de ink. truncate:true →
+      // ellipsis nativo `…` si el provider_state desborda los 12 chars (D-08 red de seguridad).
+      cell({ width: COLS.task, text: cells.task.text, dim: cells.task.dim, bold: selected, truncate: true }),
       cell({ width: COLS.age, text: cells.age, bold: selected, truncate: false }),
     );
   });
