@@ -73,3 +73,11 @@ Re-verificar con una tarea real en "In review" (cerrar ROMAN-150).
 Nota lateral (no bloqueante): PlaneClient constructor lee `config.plane.base_url` (schema v1)
 en el fallback sin opts; loadConfig migra a `config.providers.plane`. Solo funciona porque el
 factory siempre pasa opts. Fragilidad latente, fuera de scope de este todo.
+
+## RESOLVED 2026-06-08 (commit 53d2220)
+
+Fix en getTaskState: resuelve el UUID de estado (vivo, de getWorkItem) contra las
+definiciones cacheadas en init (UUID->{name,group} via listStates), en vez del
+`state_detail` que la API no devuelve. Verificado en vivo: ROMAN-170/160->in_review
+(cierra ROMAN-150), 162/157->done, 165->in_progress. Suite 1203 pass. Tests de
+getTaskState actualizados al modelo UUID->definiciones.
