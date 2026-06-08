@@ -49,3 +49,12 @@ Decidir el destino de la columna `status` (3 opciones):
 
 Recomendación de partida: (A), confirmando antes que review/error/done no se usan como
 señal en el flujo real. Mantener byte-determinismo `--json` y la paleta LOCKED (D-08).
+
+## RESOLVED 2026-06-08 (commit 91df2b8) — opción C (Outcome)
+
+status redefinido como OUTCOME auto-reportado del agente: solo error/done/review;
+en blanco para lifecycle (running/idle/needs-input/dead), que son del eje `state`.
+`statusLabel` -> `outcomeCell` (format.js). Elimina la contradicción state/status.
+Consecuencia aceptada: la marca textual `(zombie)` sale de la celda status (el
+zombie sigue en el contador del header; un proceso muerto real se ve como `state=dead`
+vía reconcile). Suite 1204 pass.

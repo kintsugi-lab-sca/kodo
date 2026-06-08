@@ -114,12 +114,12 @@ Backfill citation-based de los VALIDATION.md vía `/gsd:validate-phase <N>` si s
 
 None.
 
-### Pending Todos (1) — correcciones v0.10 surfaced en UAT 43
+### Pending Todos (0) — correcciones v0.10 surfaced en UAT 43 — ambas RESUELTAS
 
-Ninguno es bug del render de Phase 43 (verificado correcto).
+Ninguna era bug del render de Phase 43 (verificado correcto); ambas eran capas de datos upstream:
 
-- ✅ **RESUELTO (commit 53d2220):** provider_state = `unknown` para todas las tareas Plane. Root cause: la API de Plane no puebla `state_detail`; `getTaskState` ahora resuelve el UUID vivo contra las definiciones cacheadas (`listStates`). Verificado en vivo (ROMAN-170/160→in_review cierra ROMAN-150). → `.planning/todos/completed/2026-06-08-provider-state-task-column-shows-unknown-for-all-plane-tasks.md`
-- ⏳ **PENDIENTE:** Columnas `state` vs `status` divergen — `status` legacy v2 no reconciliado → stale, contradice el `state` canónico v3 (deuda WARNING-02/D-09, ahora visible). `major`. **Requiere decisión de producto** (¿se usan review/error/done de `status`?) antes de tocar: quitar (A) / reconciliar (B) / redefinir (C). → `.planning/todos/pending/2026-06-08-dashboard-state-vs-status-columns-diverge.md`
+- ✅ **RESUELTO (commit 53d2220):** provider_state = `unknown` para todas las tareas Plane. Root cause: la API de Plane no puebla `state_detail`; `getTaskState` ahora resuelve el UUID vivo contra las definiciones cacheadas (`listStates`). Verificado en vivo (ROMAN-170/160→in_review cierra ROMAN-150). → `completed/2026-06-08-provider-state-task-column-shows-unknown-for-all-plane-tasks.md`
+- ✅ **RESUELTO (commit 91df2b8) — opción C (Outcome):** columnas `state` vs `status` divergían. `status` redefinido como outcome auto-reportado (error/done/review; en blanco para lifecycle, que es del eje `state`). `statusLabel`→`outcomeCell`. Cierra WARNING-02/D-09. → `completed/2026-06-08-dashboard-state-vs-status-columns-diverge.md`
 
 ### Open Questions
 
