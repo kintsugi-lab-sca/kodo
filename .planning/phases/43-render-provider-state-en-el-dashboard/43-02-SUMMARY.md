@@ -77,3 +77,7 @@ Sin nueva superficie. La rama `ps:` SOLO LEE `provider_state` ya presente en las
 
 - `68e3f49` feat(43-02): add ps: provider_state filter prefix to select.js
 - `458af44` docs(43-02): document ps: filter prefix in App.js footer hints
+
+## Self-Check: PASSED
+
+Todos los archivos creados/modificados existen en disco; los 2 commits de tarea (68e3f49, 458af44) verificados en el log.
