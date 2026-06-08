@@ -38,9 +38,55 @@ const DEBOUNCE_TICKS = 2;
 /**
  * @typedef {import('./state.js').Session} Session
  * @typedef {import('./state.js').State} State
- * @typedef {{ workspace_ref: string, alive: boolean, needs_input?: boolean, last_activity?: string|null }} LiveRef
+ * @typedef {{ workspace_ref: string, alive: boolean, needs_input?: boolean, last_activity?: string|null, title?: string }} LiveRef
  * @typedef {{ pending_state: string, tick_count: number }} DebounceEntry
  */
+
+/** @param {string} ch @returns {boolean} alfanumérico ASCII (sin RegExp — anti-ReDoS D-10). */
+function isAlnum(ch) {
+  return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+/**
+ * ¿El título de un workspace host identifica a esta sesión? cmux RECICLA los índices
+ * `workspace:N` al cerrar/crear tabs, así que la presencia de un ref en listWorkspaces NO
+ * garantiza que siga siendo el workspace de la misma sesión. kodo fija el título con el
+ * task_ref ("ROMAN-170 [FVF]: …"), así que casamos por token con límite de palabra para
+ * evitar falsos positivos por prefijo (p. ej. "ROMAN-17" NO debe casar "ROMAN-170").
+ * String ops puras — NUNCA RegExp sobre el título (host-controlado, anti-ReDoS D-10).
+ * @param {string} [title]
+ * @param {string} [taskRef]
+ * @returns {boolean}
+ */
+export function titleIdentifiesSession(title, taskRef) {
+  if (!title || !taskRef) return false;
+  let from = 0;
+  while (from <= title.length) {
+    const i = title.indexOf(taskRef, from);
+    if (i === -1) return false;
+    const before = i === 0 ? '' : title[i - 1];
+    const after = i + taskRef.length >= title.length ? '' : title[i + taskRef.length];
+    if (!isAlnum(before) && !isAlnum(after)) return true;
+    from = i + 1;
+  }
+  return false;
+}
+
+/**
+ * Resuelve la entrada viva del host que corresponde a ESTA sesión, defendiéndose del
+ * reciclado de `workspace_ref`. Si el host expone `title`, exige que identifique a la
+ * sesión (si el ref fue reasignado a otro task, devuelve undefined → la sesión va a dead).
+ * Si el host NO expone `title` (adapters legacy/no-op, fixtures antiguos), se mantiene el
+ * comportamiento previo: presencia del ref = match.
+ * @param {LiveRef|undefined} live
+ * @param {Session} session
+ * @returns {LiveRef|undefined}
+ */
+function liveForSession(live, session) {
+  if (!live) return undefined;
+  if (live.title == null) return live;
+  return titleIdentifiesSession(live.title, session.task_ref) ? live : undefined;
+}
 
 /**
  * Deriva el estado objetivo de una session dada su presencia en el host (D-04).
@@ -90,7 +136,9 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
 
   // ── (1) Transiciones + sellado sobre las sessions activas ──────────────────
   for (const [taskId, session] of Object.entries(state.sessions)) {
-    const live = liveByRef.get(session.workspace_ref);
+    // Identidad-verificada: si el ref fue reciclado a otra sesión, `live` es undefined
+    // → deriveTarget → 'dead' (cmux reusa workspace:N — ver liveForSession).
+    const live = liveForSession(liveByRef.get(session.workspace_ref), session);
     const target = deriveTarget(session, live);
 
     // Sellado a closed (D-07 step 4): dead con dead_since > 30 días → history.
@@ -99,7 +147,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
       if (Number.isFinite(deadMs) && now - deadMs > SEAL_AFTER_MS) {
         history.unshift({ ...session, state: 'closed', ended_at: new Date(now).toISOString() });
         sealed++;
-        debounceStore.delete(session.workspace_ref);
+        debounceStore.delete(taskId);
         continue; // no re-añadir a sessions (closed es terminal)
       }
     }
@@ -113,20 +161,24 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
       // del tab_alive almacenado) y se refrescan al transicionar. La rama estable
       // conserva la session tal cual (mismo objeto) → el state final puede ser
       // referencialmente idéntico y saltarse la escritura.
-      debounceStore.delete(session.workspace_ref);
+      debounceStore.delete(taskId);
       sessions[taskId] = session;
       continue;
     }
 
     // Debouncing (R-2): N ticks consecutivos con el mismo target antes de aplicar.
-    const prev = debounceStore.get(session.workspace_ref) ?? { pending_state: null, tick_count: 0 };
+    // Keyed por taskId (identidad ÚNICA de la sesión), NO por workspace_ref: cmux recicla
+    // `workspace:N`, así que dos sesiones pueden compartir ref y, si el debounce se keyeara
+    // por el ref, pelearían por la misma entrada reseteándose mutuamente → la transición a
+    // dead de la fantasma nunca aplicaría (segundo síntoma del reciclado de refs).
+    const prev = debounceStore.get(taskId) ?? { pending_state: null, tick_count: 0 };
     const next = prev.pending_state === target
       ? { pending_state: target, tick_count: prev.tick_count + 1 }
       : { pending_state: target, tick_count: 1 };
 
     if (next.tick_count >= DEBOUNCE_TICKS) {
       // Aplica la transición.
-      debounceStore.delete(session.workspace_ref);
+      debounceStore.delete(taskId);
       const transitioned_session = applyLiveFields({ ...session, state: target }, live, target, now);
       if (target === 'dead' && session.state !== 'dead') {
         transitioned_session.dead_since = new Date(now).toISOString();
@@ -135,7 +187,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
       transitioned++;
     } else {
       // Aún en debounce: conserva el estado actual, guarda el pending.
-      debounceStore.set(session.workspace_ref, next);
+      debounceStore.set(taskId, next);
       sessions[taskId] = applyLiveFields(session, live, session.state, now);
     }
   }
@@ -145,7 +197,9 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   // vuelve a sessions con el estado derivado (idle/needs-input) y tab_alive:true.
   const keptHistory = [];
   for (const entry of history) {
-    const live = liveByRef.get(entry.workspace_ref);
+    // Mismo guard de identidad: NO revivir una entry porque su ref reciclado esté vivo
+    // bajo OTRA sesión (evita resucitar la sesión equivocada).
+    const live = liveForSession(liveByRef.get(entry.workspace_ref), entry);
     const endedMs = entry.ended_at ? Date.parse(entry.ended_at) : NaN;
     const recent = Number.isFinite(endedMs) && now - endedMs < RESCUE_WINDOW_MS;
     // No rescatar las que acabamos de sellar a closed en este mismo tick.

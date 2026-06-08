@@ -17,6 +17,10 @@ const require = createRequire(import.meta.url);
  * @property {boolean} alive - true si la tab del host está viva (presencia en listWorkspaces).
  * @property {boolean} needs_input - true si el host expone badge "Needs input" / equivalente.
  * @property {string|null} last_activity - ISO 8601 del último activity, o null si el host no lo expone.
+ * @property {string} [title] - Título del workspace tal cual lo expone el host (kodo lo fija con el
+ *   task_ref, p. ej. "ROMAN-170 [FVF]: …"). Opcional: usado por reconcile para verificar la IDENTIDAD
+ *   del match cuando el host recicla los `workspace_ref` (cmux reusa `workspace:N`). Ausente en
+ *   adapters legacy/no-op → reconcile mantiene el comportamiento previo (presencia = match).
  */
 
 /**

@@ -101,6 +101,10 @@ export function createCmuxHost(opts = {}) {
         alive: true, // presencia en list-workspaces = tab viva
         needs_input,
         last_activity: w.latest_submitted_at ?? null,
+        // Identidad del workspace (kodo fija el título con el task_ref). reconcile la usa para
+        // detectar refs reciclados: cmux reusa `workspace:N` al cerrar/crear tabs, así que la
+        // presencia del ref NO garantiza que siga siendo el workspace de la misma sesión.
+        title: typeof w.title === 'string' ? w.title : undefined,
       };
     });
 

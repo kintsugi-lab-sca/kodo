@@ -20,7 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { reconcileTick, runReconcileTick, isSessionProcessAlive } from '../../src/session/reconcile.js';
+import { reconcileTick, runReconcileTick, isSessionProcessAlive, titleIdentifiesSession } from '../../src/session/reconcile.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-05-31T12:00:00.000Z');
@@ -73,13 +73,13 @@ describe('reconcileTick — transiciones + debouncing 2-tick (D-07 / R-2)', () =
     // Tick 1: target idle (live + !process_alive + !needs_input) ≠ running → debounce, NO aplica.
     const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
     assert.equal(r1.state.sessions.t1.state, 'running', 'tick 1: aún running (debouncing)');
-    assert.deepEqual(debounceStore.get('workspace:1'), { pending_state: 'idle', tick_count: 1 });
+    assert.deepEqual(debounceStore.get('t1'), { pending_state: 'idle', tick_count: 1 });
 
     // Tick 2: mismo target → tick_count 2 → aplica.
     const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
     assert.equal(r2.state.sessions.t1.state, 'idle', 'tick 2: aplica idle');
     assert.equal(r2.state.sessions.t1.tab_alive, true);
-    assert.equal(debounceStore.has('workspace:1'), false, 'debounce entry eliminada tras aplicar');
+    assert.equal(debounceStore.has('t1'), false, 'debounce entry eliminada tras aplicar');
   });
 
   // F2 — flicker prevention: target cambia → reset del contador
@@ -93,12 +93,12 @@ describe('reconcileTick — transiciones + debouncing 2-tick (D-07 / R-2)', () =
 
     // Tick 1: idle pending (count 1).
     const r1 = reconcileTick(state, [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }], { debounceStore, tick: 1, now: NOW });
-    assert.deepEqual(debounceStore.get('workspace:1'), { pending_state: 'idle', tick_count: 1 });
+    assert.deepEqual(debounceStore.get('t1'), { pending_state: 'idle', tick_count: 1 });
 
     // Tick 2: needs_input flip → target needs-input ≠ idle → RESET a count 1.
     const r2 = reconcileTick(r1.state, [{ workspace_ref: 'workspace:1', alive: true, needs_input: true }], { debounceStore, tick: 2, now: NOW });
     assert.equal(r2.state.sessions.t1.state, 'running', 'aún running — target cambió, reset');
-    assert.deepEqual(debounceStore.get('workspace:1'), { pending_state: 'needs-input', tick_count: 1 });
+    assert.deepEqual(debounceStore.get('t1'), { pending_state: 'needs-input', tick_count: 1 });
 
     // Tick 3: needs-input estable → count 2 → aplica.
     const r3 = reconcileTick(r2.state, [{ workspace_ref: 'workspace:1', alive: true, needs_input: true }], { debounceStore, tick: 3, now: NOW });
@@ -197,9 +197,9 @@ describe('reconcileTick — transiciones + debouncing 2-tick (D-07 / R-2)', () =
     const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
     // t2 estable running: no entra al debounceStore.
     assert.equal(r1.state.sessions.t2.state, 'running');
-    assert.equal(debounceStore.has('workspace:2'), false, 't2 estable NO genera debounce entry');
+    assert.equal(debounceStore.has('t2'), false, 't2 estable NO genera debounce entry');
     // t1 en debounce.
-    assert.deepEqual(debounceStore.get('workspace:1'), { pending_state: 'idle', tick_count: 1 });
+    assert.deepEqual(debounceStore.get('t1'), { pending_state: 'idle', tick_count: 1 });
 
     const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
     assert.equal(r2.state.sessions.t1.state, 'idle', 't1 aplica al 2º tick');
@@ -309,5 +309,84 @@ describe('runReconcileTick — deriva process_alive del proceso real (cierra gap
     assert.equal(cur.sessions.t1.state, 'idle', 'proceso muerto + tab viva → idle (la sesión NO se pierde)');
     assert.equal(cur.sessions.t1.process_alive, false, 'process_alive derivado a false');
     assert.equal(cur.sessions.t1.tab_alive, true, 'tab sigue viva');
+  });
+});
+
+describe('titleIdentifiesSession — token con límite de palabra (anti-prefijo, anti-ReDoS)', () => {
+  it('casa el task_ref al inicio del título', () => {
+    assert.equal(titleIdentifiesSession('ROMAN-170 [FVF]: Nueva página', 'ROMAN-170'), true);
+  });
+  it('NO casa por prefijo: "ROMAN-17" no identifica "ROMAN-170"', () => {
+    assert.equal(titleIdentifiesSession('ROMAN-170 [FVF]: …', 'ROMAN-17'), false);
+    assert.equal(titleIdentifiesSession('ROMAN-1700 [X]', 'ROMAN-170'), false);
+  });
+  it('casa rodeado de separadores no-alfanuméricos', () => {
+    assert.equal(titleIdentifiesSession('[KL-42] build', 'KL-42'), true);
+    assert.equal(titleIdentifiesSession('fix KL-42: stuff', 'KL-42'), true);
+  });
+  it('título o task_ref ausente → false', () => {
+    assert.equal(titleIdentifiesSession(undefined, 'KL-1'), false);
+    assert.equal(titleIdentifiesSession('KL-1 foo', undefined), false);
+  });
+  it('anti-ReDoS: un título patológico resuelve al instante (String.includes, no RegExp)', () => {
+    assert.equal(titleIdentifiesSession('a'.repeat(100000) + '!', 'ROMAN-170'), false);
+  });
+});
+
+describe('reconcileTick — guard de identidad sobre workspace_ref reciclado (cmux reusa workspace:N)', () => {
+  // El escenario real (2026-06-08): ROMAN-160 cerrada conserva workspace_ref=workspace:4;
+  // cmux reasignó workspace:4 a ROMAN-170 (viva). Sin guard, 160 heredaba el alive de 170.
+  it('ref vivo pero con título de OTRA sesión → la sesión va a dead (no hereda alive)', () => {
+    const ghost = session({
+      task_id: 't160', task_ref: 'ROMAN-160', workspace_ref: 'workspace:4',
+      state: 'idle', process_alive: false,
+    });
+    const state = { schema_version: 3, sessions: { t160: ghost }, history: [] };
+    // workspace:4 está vivo, pero su título es el de ROMAN-170, no el de 160.
+    const liveRefs = [{ workspace_ref: 'workspace:4', alive: true, needs_input: false, title: 'ROMAN-170 [FVF]: Nueva página' }];
+    const debounceStore = new Map();
+
+    const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
+    assert.equal(r1.state.sessions.t160.state, 'idle', 'tick 1: aún idle (debouncing hacia dead)');
+    const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
+    assert.equal(r2.state.sessions.t160.state, 'dead', 'tick 2: ref reciclado → dead (ya no de polizón sobre 170)');
+  });
+
+  it('ref vivo con título que SÍ identifica a la sesión → permanece viva (idle)', () => {
+    const live160 = session({
+      task_id: 't160', task_ref: 'ROMAN-160', workspace_ref: 'workspace:4',
+      state: 'idle', process_alive: false,
+    });
+    const state = { schema_version: 3, sessions: { t160: live160 }, history: [] };
+    const liveRefs = [{ workspace_ref: 'workspace:4', alive: true, needs_input: false, title: 'ROMAN-160 [OptiAI]: algo' }];
+    const debounceStore = new Map();
+
+    const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
+    const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
+    assert.equal(r2.state.sessions.t160.state, 'idle', 'título casa → sigue idle (viva)');
+  });
+
+  it('compat: liveRef sin título → comportamiento previo (presencia = match, sigue viva)', () => {
+    const s = session({ task_ref: 'KL-1', workspace_ref: 'workspace:1', state: 'idle', process_alive: false });
+    const state = { schema_version: 3, sessions: { t1: s }, history: [] };
+    const liveRefs = [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }]; // sin title
+    const debounceStore = new Map();
+    const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
+    const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
+    assert.equal(r2.state.sessions.t1.state, 'idle', 'sin título no cambia el comportamiento (sigue viva)');
+  });
+
+  it('rescate desde history NO revive una entry si su ref reciclado pertenece a otra sesión', () => {
+    const ended = {
+      ...session({ task_id: 't160', task_ref: 'ROMAN-160', workspace_ref: 'workspace:4', state: 'dead' }),
+      ended_at: new Date(NOW - 1000).toISOString(),
+    };
+    const state = { schema_version: 3, sessions: {}, history: [ended] };
+    const liveRefs = [{ workspace_ref: 'workspace:4', alive: true, needs_input: false, title: 'ROMAN-170 [FVF]: otra' }];
+    const debounceStore = new Map();
+    const r = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
+    assert.equal(r.state.sessions.t160, undefined, 'NO revive: el ref vivo es de ROMAN-170, no de 160');
+    assert.equal(r.state.history.length, 1, 'la entry permanece en history');
+    assert.equal(r.events.rescued, 0, 'rescued=0');
   });
 });
