@@ -34,6 +34,8 @@ export function createPlaneProvider(config, opts = {}) {
   let labelCache = [];
   /** @type {Map<string, string>} state UUID → state name */
   const stateCache = new Map();
+  /** @type {Map<string, {name: string, group: string}>} state UUID → {name, group} */
+  const stateMetaByUuid = new Map();
   /** @type {Map<string, Map<string, string>>} projectId → Map<stateName, stateId> */
   const stateByName = new Map();
   /** @type {Map<string, string>} workItem UUID → module name */
@@ -124,12 +126,13 @@ export function createPlaneProvider(config, opts = {}) {
       }
       labelCache = allLabels;
 
-      // Cache states for each project (UUID ↔ name)
+      // Cache states for each project (UUID ↔ name, UUID → {name, group})
       for (const proj of config.projects) {
         const states = await client.listStates(proj.id);
         const byName = new Map();
         for (const s of states) {
           stateCache.set(s.id, s.name);
+          stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
           byName.set(s.name, s.id);
         }
         stateByName.set(proj.id, byName);
@@ -228,15 +231,33 @@ export function createPlaneProvider(config, opts = {}) {
     },
 
     // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected at
-    // the call site via `typeof provider.getTaskState === 'function'`. Resolves the
-    // task's CURRENT state live via getWorkItem (which expands state_detail = {name,
-    // group}) — never relies on the init-time stateCache, since state changes after init.
+    // the call site via `typeof provider.getTaskState === 'function'`.
+    //
+    // Reads the task's CURRENT state ASSIGNMENT live via getWorkItem (the `state` UUID),
+    // then resolves it against the cached state DEFINITIONS (UUID → {name, group} from
+    // listStates). This Plane API does NOT populate `state_detail` even with
+    // `expand=state_detail` — the work item only carries `state` as a UUID, so the prior
+    // `workItem.state_detail` read was always undefined → mapped everything to 'unknown'.
+    // The state definitions (workflow columns) are stable and cached at init; only the
+    // task's assignment is read live, so the result stays current. Cold/stale cache (called
+    // before init, or a state added since) → fetch this project's states once and retry.
     // Errors propagate; the server enrichment (Plan 02) owns fail-open. Maps via the pure
     // mapPlaneState helper (name-substring-first, then group; String.includes only, D-10).
     async getTaskState({ id, projectId }) {
       const workItem = await client.getWorkItem(projectId, id);
-      const detail = workItem?.state_detail || {};
-      return mapPlaneState(detail.name, detail.group);
+      const stateId = workItem?.state;
+      if (stateId && !stateMetaByUuid.has(stateId)) {
+        const states = await client.listStates(projectId);
+        const byName = stateByName.get(projectId) || new Map();
+        for (const s of states) {
+          stateCache.set(s.id, s.name);
+          stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
+          byName.set(s.name, s.id);
+        }
+        stateByName.set(projectId, byName);
+      }
+      const meta = stateMetaByUuid.get(stateId) || {};
+      return mapPlaneState(meta.name, meta.group);
     },
 
     async listPendingTasks() {
