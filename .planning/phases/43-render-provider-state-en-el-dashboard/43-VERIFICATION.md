@@ -1,9 +1,11 @@
 ---
 phase: 43-render-provider-state-en-el-dashboard
 verified: 2026-06-08T09:52:00+02:00
-status: human_needed
+status: verified
 score: 10/10 must-haves verified
 overrides_applied: 0
+human_verification_completed: 2026-06-08
+human_verification_outcome: "UAT humano realizado (43-HUMAN-UAT.md, status complete): columna `task` ✓, filtro `ps:` ✓ (cubre IN-01), footer hint ✓. El único issue (provider_state mostraba 'unknown' por bug upstream de Phase 40 — la API de Plane no puebla state_detail) se diagnosticó y arregló en commit 53d2220; verificado en vivo (ROMAN-170/160→in_review). El render de Phase 43 era correcto desde el inicio."
 human_verification:
   - test: "Abrir el dashboard TUI con una sesión real que tenga provider_state 'in_review' y verificar que la columna 'task' aparece entre 'status' y 'age' mostrando 'in_review' en texto plano."
     expected: "La columna 'task' es visible en el frame, posicionada entre 'status' y 'age', con el valor verbatim del provider sin color propio."
@@ -20,7 +22,7 @@ human_verification:
 
 **Phase Goal:** Render — provider_state en el dashboard: render (columna dedicada `task` para `provider_state`, 3 reason-states sin color) + filtro de `provider_state` (prefijo `ps:` separado del `s:`), según decisiones discuss-phase.
 **Verified:** 2026-06-08T09:52:00+02:00
-**Status:** human_needed
+**Status:** verified (UAT humano completado 2026-06-08 — ver `human_verification_outcome` en frontmatter y `43-HUMAN-UAT.md`)
 **Re-verification:** No — verificación inicial
 
 ---
