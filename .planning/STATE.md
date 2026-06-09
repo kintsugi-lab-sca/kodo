@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.10
-milestone_name: Higiene y estado real de sesiones
-status: Awaiting next milestone
-stopped_at: Phase 43 ejecutada (2/2 plans) + code review + verificación máquina (10/10 must-haves, status `human_needed`). UAT humano `partial` (awaiting).
-last_updated: "2026-06-08T21:15:15.405Z"
-last_activity: 2026-06-08 — Milestone v0.10 completed and archived
+milestone: v0.11
+milestone_name: Ventana al plan
+status: planning
+last_updated: "2026-06-09T09:46:07.686Z"
+last_activity: 2026-06-09
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 80
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-03 after v0.9 milestone — Current
 
 ## Current Position
 
-Phase: Milestone v0.10 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-08 — Milestone v0.10 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-09 — Milestone v0.11 started
 
 ## Roadmap v0.10 (active)
 
