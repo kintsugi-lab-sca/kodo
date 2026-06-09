@@ -4,12 +4,12 @@ milestone: v0.11
 milestone_name: Ventana al plan
 status: executing
 stopped_at: Phase 45 context gathered
-last_updated: "2026-06-09T15:16:18.746Z"
+last_updated: "2026-06-09T23:12:25.236Z"
 last_activity: 2026-06-09 -- Phase 45 planning complete
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
+  total_plans: 2
   completed_plans: 2
   percent: 25
 ---
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añadió una superficie de observabilidad en terminal (`kodo dashboard`) read-only; v0.10 la promovió a gestión (dismiss). v0.11 profundiza la observabilidad: ver el plan de cada sesión sin salir de la TUI.
 
-**Current focus:** Phase 45 — spike — captura de plan no gsd vía hook
+**Current focus:** Phase 45 — inyección de plan ligero universal (pivote 2026-06-09: el spike de captura vía hook fue descartado)
 
 ## Current Position
 
@@ -123,8 +123,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-09T14:55:14.518Z
-- **Stopped at:** Phase 45 redefinida — spike de captura vía hook descartado; pivote a "plan ligero universal" (kodo inyecta la instrucción de escribir el plan, en vez de olfatear el plan nativo de Claude Code). Roadmap + REQUIREMENTS actualizados; docs del spike retirados (en git).
+- **Last session:** 2026-06-09T23:12:25.227Z
+- **Stopped at:** Phase 45 context gathered
 - **Next action:** `/gsd:discuss-phase 45` con el nuevo scope (inyección de plan ligero en `session-start.js`). Phase 44 ya shipped; Phase 46 (overlay del plan ligero) depende de 45.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.11)
