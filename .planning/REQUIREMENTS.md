@@ -11,8 +11,8 @@ Requirements del milestone v0.11. Cada uno mapea a una fase del roadmap.
 
 Driver: ver el plan de la tarea seleccionada desde el dashboard (igual que hoy se ven comentarios `c` y logs `l`), reusando el patrón de overlays de v0.9 Phase 39. Decisión validada contra docs oficiales de Claude Code: el plan GSD se lee del `PLAN.md` propio (estable, versionado), **no** de rutas internas de Claude Code (transcript JSONL / `~/.claude/plans/` tienen formato no documentado; `TodoWrite` está deprecado).
 
-- [ ] **PLAN-01**: El operador puede abrir un overlay (tecla dedicada, junto a `c`/`l`) que muestra el/los `PLAN.md` de la fase GSD de la tarea seleccionada, reusando `resolvePhase` (v0.3 Phase 9) para mapear tarea→fase y leyendo `.planning/phases/<fase>/<N>-NN-PLAN.md` desde `worktree_path ?? project_path`.
-- [ ] **PLAN-02**: El overlay de plan distingue honestamente los casos sin contenido — tarea no-GSD / sin fase resuelta, fase sin `PLAN.md`, varios `PLAN.md` (lista navegable o concatenados) — con copy distinta por caso, snapshot congelado bajo el poll vivo y `Esc` que preserva el cursor (espejo de los overlays `c`/`l`). La lectura es never-throws / best-effort: ningún error de fichero crashea el panel.
+- [x] **PLAN-01**: El operador puede abrir un overlay (tecla dedicada, junto a `c`/`l`) que muestra el/los `PLAN.md` de la fase GSD de la tarea seleccionada, reusando `resolvePhase` (v0.3 Phase 9) para mapear tarea→fase y leyendo `.planning/phases/<fase>/<N>-NN-PLAN.md` desde `worktree_path ?? project_path`.
+- [x] **PLAN-02**: El overlay de plan distingue honestamente los casos sin contenido — tarea no-GSD / sin fase resuelta, fase sin `PLAN.md`, varios `PLAN.md` (lista navegable o concatenados) — con copy distinta por caso, snapshot congelado bajo el poll vivo y `Esc` que preserva el cursor (espejo de los overlays `c`/`l`). La lectura es never-throws / best-effort: ningún error de fichero crashea el panel.
 - [ ] **PLAN-03**: *(spike — gate de PLAN-04)* Determinar empíricamente si las sesiones kodo **no-GSD / quick** (lanzadas con `--dangerously-skip-permissions`) emiten un plan capturable vía un hook **soportado** de Claude Code (`PostToolUse` sobre `ExitPlanMode`, o equivalente), dado que kodo ya inyecta `SessionStart`/`Stop`. Documentar el mecanismo viable o concluir que es inviable con la evidencia.
 - [ ] **PLAN-04**: *(condicional a PLAN-03)* Si PLAN-03 confirma viabilidad, kodo captura y persiste el plan de sesiones no-GSD/quick en su propio lado (contrato propio, no parsing de rutas internas frágiles), y el overlay de PLAN-01 lo muestra también para esas sesiones. Si PLAN-03 lo declara inviable, PLAN-04 se difiere a `v2` sin penalizar el cierre del milestone.
 
@@ -20,8 +20,8 @@ Driver: ver el plan de la tarea seleccionada desde el dashboard (igual que hoy s
 
 Driver: candidatos de mejora detectados en el dogfooding de v0.10. Continúa la numeración TUI de v0.9 (TUI-01..17).
 
-- [ ] **TUI-18**: El dashboard **oculta la columna `phase/mode`** cuando ninguna sesión activa es GSD (columna íntegramente vacía → no se renderiza y se recupera el ancho); reaparece automáticamente si entra una sesión GSD. La derivación es pura (React-free), espejo del resto de `select.js`/`format.js`.
-- [ ] **TUI-19**: El dashboard **marca el estado zombie por-fila en la columna `state`** (no solo en el contador del header), coherente con la redefinición de `status` a outcome de v0.10. El color/marca sale solo de `<Text>` de ink (color isolation preservado).
+- [x] **TUI-18**: El dashboard **oculta la columna `phase/mode`** cuando ninguna sesión activa es GSD (columna íntegramente vacía → no se renderiza y se recupera el ancho); reaparece automáticamente si entra una sesión GSD. La derivación es pura (React-free), espejo del resto de `select.js`/`format.js`.
+- [x] **TUI-19**: El dashboard **marca el estado zombie por-fila en la columna `state`** (no solo en el contador del header), coherente con la redefinición de `status` a outcome de v0.10. El color/marca sale solo de `<Text>` de ink (color isolation preservado).
 
 ### Nyquist Debt Backfill (NYQ)
 
@@ -61,11 +61,11 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PLAN-01 | Phase 44 | Pending |
-| PLAN-02 | Phase 44 | Pending |
+| PLAN-01 | Phase 44 | Complete |
+| PLAN-02 | Phase 44 | Complete |
 | PLAN-03 | Phase 45 | Pending |
 | PLAN-04 | Phase 46 (condicional a Phase 45) | Pending |
-| TUI-18 | Phase 44 | Pending |
-| TUI-19 | Phase 44 | Pending |
+| TUI-18 | Phase 44 | Complete |
+| TUI-19 | Phase 44 | Complete |
 | NYQ-01 | Phase 47 | Pending |
 | NYQ-02 | Phase 47 | Pending |

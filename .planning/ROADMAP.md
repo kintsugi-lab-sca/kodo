@@ -92,7 +92,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 44. Overlay de plan GSD + pulido | 2/2 | Complete   | 2026-06-09 |
+| 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
 | 45. Spike — captura no-GSD vía hook | 0/? | Not started | - |
 | 46. Captura + persistencia (condicional) | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
