@@ -48,7 +48,9 @@ import {
 // width 12 (Claude's Discretion, CONTEXT.md D-08/specifics): cabe `in_progress` (11 chars);
 // `truncate-end` nativo de ink es la red de seguridad si el provider emite un string más largo
 // (T-43-03 DoS-guard: un provider_state de 10k chars se trunca a la columna, no desborda la tabla).
-const COLS = { gutter: 2, state: 16, task_ref: 10, repo: 18, phasemode: 11, status: 18, task: 12, age: 7 };
+// Phase 44 D-09 (TUI-19): `state` 16→18 para que la marca per-fila del zombie (~18 celdas) no
+// se trunque — el badge base `▶ running` (~9) más el sufijo del zombie (9) llena justo 18 (Pitfall 3).
+const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, task: 12, age: 7 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
@@ -192,6 +194,11 @@ function renderOverlay(snap, scrollOffset, kind) {
  * @param {number|null} props.lastAttemptAt
  * @param {boolean} [props.hasQuery] - hay una query de filtro activa (Plan 03). Distingue los dos
  *   estados vacíos: `no sessions match` (hay query) vs `no active sessions` (lista realmente vacía).
+ * @param {boolean} [props.anyGsd] - Phase 44 D-08 (TUI-18): flag ESTRUCTURAL de presencia GSD,
+ *   derivado en App.js sobre el set SIN filtrar (`deriveAnyGsd(sorted)`). Cuando es `false` la
+ *   columna `phase/mode` (cabecera + toda celda de datos) NO se emite y su ancho se recupera vía
+ *   flex (ink desplaza los hermanos a la izquierda; sin aritmética de anchos). Reaparece sola
+ *   cuando entra una sesión GSD. Default `true` (retro-compat: renderiza la columna como antes).
  * @param {'list'|'filter'|'overlay'|'confirm'} [props.mode] - modo de interacción. En `filter` se
  *   muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt persistente.
  * @param {string} [props.query] - texto del filtro EN VIVO (Plan 03), renderizado en la línea modal.
@@ -219,6 +226,7 @@ export default function SessionTable({
   lastGoodAt,
   lastAttemptAt,
   hasQuery = false,
+  anyGsd = true,
   mode = 'list',
   query = '',
   focusError = null,
@@ -302,7 +310,10 @@ export default function SessionTable({
     h(Box, { width: COLS.state }, h(Text, { dimColor: true }, 'state')),
     h(Box, { width: COLS.task_ref }, h(Text, { dimColor: true }, 'task_ref')),
     h(Box, { width: COLS.repo }, h(Text, { dimColor: true }, 'repo')),
-    h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode')),
+    // Phase 44 D-08 (TUI-18): la cabecera `phase/mode` solo se emite si ALGUNA sesión es GSD.
+    // Cuando `anyGsd === false` se omite el elemento (no se renderiza un Box vacío) → ink recupera
+    // sus 11 celdas vía flex desplazando los hermanos a la izquierda (sin aritmética de anchos).
+    ...(anyGsd ? [h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode'))] : []),
     h(Box, { width: COLS.status }, h(Text, { dimColor: true }, 'status')),
     // Phase 43 D-03: cabecera de la columna provider entre `status` y `age`, label literal `task`.
     h(Box, { width: COLS.task }, h(Text, { dimColor: true }, 'task')),
@@ -327,14 +338,29 @@ export default function SessionTable({
       // (string name ink, NO picocolors). truncate:false — `🔔 needs-input` cabe.
       (() => {
         const badge = stateBadge(session.state ?? session.status ?? '');
-        const text = (badge.glyph || badge.label) ? `${badge.glyph ?? ''} ${badge.label ?? ''}`.trim() : '';
-        return cell({ width: COLS.state, text, color: badge.color, bold: selected, truncate: false });
+        let text = (badge.glyph || badge.label) ? `${badge.glyph ?? ''} ${badge.label ?? ''}`.trim() : '';
+        // Phase 44 D-09 (TUI-19): marca per-fila del zombie, ADITIVA (no reemplaza el contador del
+        // header). Zombie = running (eje v3 `state` o legacy `status`) con el proceso muerto
+        // (`alive === false`). El color rojo se LEE del `sc` ya calculado (statusColor devuelve
+        // {color:'red'} para running+!alive) — CERO color nuevo, CERO segunda paleta. truncate:false
+        // (COLS.state se ensanchó a 18 para que el badge con el sufijo no se trunque, Pitfall 3).
+        const isZombie =
+          (session.status === 'running' || session.state === 'running') && session.alive === false;
+        let color = badge.color;
+        if (isZombie) {
+          text = text ? `${text} (zombie)` : '(zombie)';
+          color = sc.color;
+        }
+        return cell({ width: COLS.state, text, color, bold: selected, truncate: false });
       })(),
       cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
       cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
       // phase/mode: 'No GSD' (placeholder de sesión no-GSD) va atenuado para no competir
-      // con valores reales tipo '42/full'.
-      cell({ width: COLS.phasemode, text: cells.phasemode, dim: cells.phasemode === NO_GSD_LABEL, bold: selected, truncate: true }),
+      // con valores reales tipo '42/full'. Phase 44 D-08 (TUI-18): la celda solo se emite si
+      // ALGUNA sesión es GSD (anyGsd); si no, se omite y ink recupera el ancho vía flex.
+      ...(anyGsd
+        ? [cell({ width: COLS.phasemode, text: cells.phasemode, dim: cells.phasemode === NO_GSD_LABEL, bold: selected, truncate: true })]
+        : []),
       // status: OUTCOME auto-reportado (outcomeCell → error/done/review; blanco en lifecycle).
       // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. NO
       // truncar: los valores son cortos (≤6 chars) y caben de sobra en COLS.status.

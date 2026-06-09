@@ -63,6 +63,7 @@ import {
   countByStatus,
   grepLogs,
   mapDismissResult,
+  deriveAnyGsd,
 } from './select.js';
 import { deriveRepo } from './format.js';
 import { readPlan } from './plan.js';
@@ -275,6 +276,10 @@ export default function App({
   //   sortSessions (copia, DESC, tiebreak task_id) → applyFilter (AND, String.includes) →
   //   resolveSelection (índice derivado por identidad, clamp fallback).
   const sorted = sortSessions(sessions);
+  // TUI-18/D-08: flag estructural de presencia GSD derivado del set SIN filtrar (`sorted`),
+  // NO de `filtered` (Pitfall 4): la columna phase/mode no debe parpadear cuando una query `/`
+  // vacía temporalmente las filas GSD del subconjunto visible.
+  const anyGsd = deriveAnyGsd(sorted);
   const filtered = applyFilter(sorted, parseFilter(query), deriveRepo);
   const sel = resolveSelection(filtered, selectedTaskId, prevIndexRef.current);
   const counts = countByStatus(filtered);
@@ -597,6 +602,7 @@ export default function App({
         mode,
         query,
         hasQuery,
+        anyGsd, // TUI-18 D-08: flag estructural GSD (sobre `sorted`, no `filtered`) → drop columna phase/mode
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)

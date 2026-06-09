@@ -370,6 +370,132 @@ describe('PSTATE-05: columna task — header entre status y age, 3 reason-states
 });
 
 // ---------------------------------------------------------------------------
+// Phase 44 Plan 02 (TUI-18/D-08 + TUI-19/D-09): drop condicional de la columna
+// phase/mode cuando ninguna sesión activa es GSD, y marca per-fila `(zombie)` en
+// la celda `state` (roja desde statusColor, COLS.state ensanchada 16→18).
+// ---------------------------------------------------------------------------
+
+// Fixture SIN ninguna fila GSD: ambas sesiones carecen de phase_id → anyGsd === false.
+const FIXTURE_NO_GSD = {
+  count: 2,
+  sessions: [
+    {
+      task_id: 'n1',
+      task_ref: 'NG-1',
+      status: 'running',
+      alive: true,
+      started_at: '2026-05-27T10:00:00Z',
+      project_name: 'kodo',
+      elapsed_min: 4,
+      summary: '',
+      provider_state: null,
+      provider_state_reason: 'unsupported',
+    },
+    {
+      task_id: 'n2',
+      task_ref: 'NG-2',
+      status: 'running',
+      alive: false, // zombie
+      started_at: '2026-05-27T09:00:00Z',
+      project_path: '/x/bar',
+      elapsed_min: 70,
+      summary: '',
+      provider_state: null,
+      provider_state_reason: 'unsupported',
+    },
+  ],
+};
+
+describe('TUI-18 (D-08): columna phase/mode condicional al flag estructural anyGsd', () => {
+  it('SIN filas GSD (anyGsd false): la cabecera `phase/mode` NO se renderiza', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE_NO_GSD);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    assert.doesNotMatch(
+      frame,
+      /phase\/mode/,
+      `sin sesiones GSD la cabecera phase/mode NO debe emitirse (anyGsd false, columna drop)\n${frame}`,
+    );
+    // Las demás columnas siguen presentes (la tabla no se rompe; el ancho se recupera vía flex).
+    assert.match(frame, /repo/, `la columna repo sigue presente\n${frame}`);
+    assert.match(frame, /status/, `la columna status sigue presente\n${frame}`);
+    // No se filtra ningún 'No GSD' placeholder de celda — la columna entera desaparece.
+    assert.doesNotMatch(frame, /No GSD/, `sin la columna phase/mode no debe quedar el placeholder 'No GSD'\n${frame}`);
+    unmount();
+  });
+
+  it('CON ≥1 fila GSD (anyGsd true): la cabecera `phase/mode` SÍ se renderiza (FIXTURE KL-1 tiene phase_id 36)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    assert.match(
+      frame,
+      /phase\/mode/,
+      `con una sesión GSD (KL-1 phase_id 36) la columna phase/mode debe reaparecer\n${frame}`,
+    );
+    assert.match(frame, /36\/full/, `y su valor 36/full debe renderizarse\n${frame}`);
+    unmount();
+  });
+});
+
+describe('TUI-19 (D-09): marca per-fila (zombie) en la celda state, roja desde statusColor', () => {
+  it('una fila running+!alive muestra el badge `▶ running` Y la marca `(zombie)` en la celda state (COLS.state=18, sin truncar)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    // KL-2 es running+!alive → la celda state lleva el badge base `▶ running` MÁS la marca aditiva
+    // `(zombie)`. A width 18 el texto llena la celda exacta y ink ajusta `(zombie)` en la línea
+    // siguiente de la MISMA celda (no se trunca: la marca SOBREVIVE entera, que es el contrato D-09 /
+    // UI-SPEC "survives un-truncated"). Ambos tokens deben estar presentes en el frame.
+    assert.match(frame, /▶ running/, `la celda state debe mostrar el badge base '▶ running'\n${frame}`);
+    assert.match(frame, /\(zombie\)/, `la celda state debe mostrar la marca per-fila '(zombie)' (no truncada)\n${frame}`);
+    unmount();
+  });
+
+  it('la marca per-fila es ADITIVA: el contador de zombies del header se mantiene (1 zombie)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    // D-09: la marca per-fila NO reemplaza el contador del header — ambos coexisten.
+    assert.match(frame, /1 zombie/, `el contador del header debe seguir mostrando '1 zombie' (aditivo, no reemplazado)\n${frame}`);
+    assert.match(frame, /\(zombie\)/, `y la marca per-fila también está presente\n${frame}`);
+    unmount();
+  });
+
+  it('una fila non-GSD también puede ser zombie: la marca aparece sin depender de phase_id (KL-2 no es GSD)', async () => {
+    // KL-2 en FIXTURE no tiene phase_id pero KL-1 sí → anyGsd true (columna presente). La marca
+    // zombie se deriva de running+!alive, INDEPENDIENTE del eje GSD (TUI-18/TUI-19 ortogonales).
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+
+    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    const idxZombie = frame.indexOf('(zombie)');
+    const idxKL2 = frame.indexOf('KL-2');
+    assert.ok(idxZombie !== -1 && idxKL2 !== -1, `la marca (zombie) y KL-2 deben estar presentes\n${frame}`);
+    unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Plan 03 Wave 0 — interacción de teclado (TUI-08 navegación + TUI-12 filtro modal).
 //
 // Se conduce el teclado con `stdin.write(...)` del handle de render (el fake Stdin de

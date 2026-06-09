@@ -21,6 +21,7 @@ import {
   parseFilter,
   countByStatus,
   grepLogs,
+  deriveAnyGsd,
 } from '../src/cli/dashboard/select.js';
 
 import { deriveRepo } from '../src/cli/dashboard/format.js';
@@ -363,5 +364,49 @@ describe('TUI-16 (D-03): grepLogs substring OR anti-ReDoS', () => {
     // @ts-ignore — entrada degradada a propósito (msg ausente).
     const out = grepLogs(logs, { task_ref: 'KL-1' });
     assert.equal(out.length, 1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 44 Plan 02 (TUI-18; D-08): deriveAnyGsd.
+//   Flag ESTRUCTURAL de presencia GSD: rows.some(r => r.phase_id != null). PURO,
+//   React-free, sin regex ni color. Se computa sobre el set SIN filtrar (`sorted`)
+//   en App.js — NO sobre `filtered` (Pitfall 4): la columna phase/mode no debe
+//   parpadear cuando una query `/` vacía las filas GSD.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('TUI-18 (D-08): deriveAnyGsd flag estructural de presencia GSD', () => {
+  it('true cuando ALGUNA fila tiene phase_id != null', () => {
+    assert.equal(deriveAnyGsd([{ phase_id: '36' }, { phase_id: null }]), true);
+  });
+
+  it('false cuando NINGUNA fila tiene phase_id (null o ausente)', () => {
+    assert.equal(deriveAnyGsd([{ phase_id: null }, {}]), false);
+  });
+
+  it('false sobre lista vacía', () => {
+    assert.equal(deriveAnyGsd([]), false);
+  });
+
+  it('phase_id === 0 cuenta como GSD (0 != null, solo null/undefined lo excluye)', () => {
+    // Guard del operador `!= null`: distingue 0/'' (presentes) de null/undefined (ausentes).
+    assert.equal(deriveAnyGsd([{ phase_id: 0 }]), true);
+  });
+
+  it('D-08: se deriva sobre el set SIN filtrar — un fixture cuyas filas GSD serían eliminadas por un filtro activo sigue devolviendo true sobre la lista completa', () => {
+    // El operador teclea `/ s:dead` (que excluiría a la fila GSD running). Si anyGsd se
+    // derivara de `filtered`, la columna phase/mode PARPADEARÍA al desaparecer la fila GSD.
+    // Derivado sobre el set SIN filtrar (la lista COMPLETA), sigue siendo true: la columna
+    // es estructural, no sensible al filtro (Pitfall 4 / D-08).
+    const full = [
+      { task_id: 'gsd', phase_id: '36', state: 'running' },
+      { task_id: 'plain', phase_id: null, state: 'dead' },
+    ];
+    const parsed = parseFilter('s:dead');
+    const filtered = applyFilter(full, parsed, () => '');
+    // El filtro elimina la fila GSD (running) → si derivásemos de `filtered` daría false.
+    assert.equal(deriveAnyGsd(filtered), false, 'el filtro elimina la fila GSD del subconjunto filtrado');
+    // Pero la derivación CORRECTA (D-08) es sobre la lista COMPLETA → true (columna no parpadea).
+    assert.equal(deriveAnyGsd(full), true, 'deriveAnyGsd sobre el set completo NO debe verse afectado por el filtro');
   });
 });
