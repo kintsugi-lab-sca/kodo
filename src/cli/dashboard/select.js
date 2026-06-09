@@ -201,6 +201,24 @@ export function countByStatus(rows) {
 }
 
 /**
+ * Flag ESTRUCTURAL de presencia GSD (TUI-18, D-08): ¿hay ALGUNA fila con `phase_id`? Pura,
+ * React-free, sin regex ni color (espejo de countByStatus). El guard `!= null` distingue
+ * null/undefined (ausentes → no-GSD) de `0`/'' (presentes → GSD), de modo que un `phase_id`
+ * falsy-pero-real cuenta como GSD.
+ *
+ * CRÍTICO (D-08 / Pitfall 4): el consumidor (App.js) la computa sobre el set SIN filtrar
+ * (`sorted`), NO sobre `filtered`. La columna `phase/mode` es ESTRUCTURAL — está presente
+ * siempre que ALGUNA sesión activa sea GSD — y no debe parpadear cuando el operador teclea una
+ * query `/` que vacía temporalmente las filas GSD del subconjunto visible.
+ *
+ * @param {Array<Partial<EnrichedSession>>} rows — el set SIN filtrar (sorted/sessions).
+ * @returns {boolean} true si alguna fila tiene `phase_id != null`.
+ */
+export function deriveAnyGsd(rows) {
+  return rows.some((r) => r.phase_id != null);
+}
+
+/**
  * Filtra el buffer COMPARTIDO de `GET /logs` por substring OR de `task_ref` / `workspace_ref`
  * contra `entry.msg` (TUI-16, D-03). El buffer es un ring newest-first sin `session_id` por
  * línea (src/server.js:21-29), por lo que el grep es best-effort: NO parsea un session_id que
