@@ -1,7 +1,8 @@
 ---
 phase: 44
 slug: overlay-de-plan-gsd-pulido-de-dashboard
-status: draft
+status: approved
+reviewed_at: 2026-06-09
 shadcn_initialized: false
 preset: none
 created: 2026-06-09
