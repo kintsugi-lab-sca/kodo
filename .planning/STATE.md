@@ -101,8 +101,8 @@ None.
 
 Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cada fase):
 
-- **Phase 44:** tecla concreta del overlay de plan (junto a `c`/`l`); presentación de varios `PLAN.md` (lista navegable vs concatenados).
-- **Phase 46:** contrato de persistencia propio (heredado del veredicto del spike Phase 45); confirmación de que no se añaden endpoints.
+- **Phase 45 (redefinida 2026-06-09):** ruta y formato exactos del artefacto de plan ligero (p. ej. `<worktree_path>/.kodo/plan.md` vs state dir de kodo); cómo se inyecta la instrucción en `buildSessionContext`/`buildGsdContext` (quick) preservando golden-bytes.
+- **Phase 46:** mecánica del fallback en el overlay de Phase 44 cuando la fila no tiene `phase_id` (leer el artefacto de plan ligero en vez de `PLAN.md`); confirmación de que no se añaden endpoints.
 
 ### Critical Invariants to Preserve (cross-milestone, must survive next milestone)
 
@@ -124,8 +124,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 ## Session Continuity
 
 - **Last session:** 2026-06-09T14:55:14.518Z
-- **Stopped at:** Phase 45 context gathered
-- **Next action:** `/gsd:plan-phase 44` (overlay de plan GSD + pulido de dashboard). Phase 45 (spike) gobierna si Phase 46 se ejecuta.
+- **Stopped at:** Phase 45 redefinida — spike de captura vía hook descartado; pivote a "plan ligero universal" (kodo inyecta la instrucción de escribir el plan, en vez de olfatear el plan nativo de Claude Code). Roadmap + REQUIREMENTS actualizados; docs del spike retirados (en git).
+- **Next action:** `/gsd:discuss-phase 45` con el nuevo scope (inyección de plan ligero en `session-start.js`). Phase 44 ya shipped; Phase 46 (overlay del plan ligero) depende de 45.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.11)
   - `.planning/ROADMAP.md` (v0.11 activo Phases 44-47; v0.10 colapsado en archived)
@@ -135,4 +135,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd:plan-phase 44`.
+- Re-discutir Phase 45 con el nuevo scope: `/gsd:discuss-phase 45` (inyección de plan ligero universal).

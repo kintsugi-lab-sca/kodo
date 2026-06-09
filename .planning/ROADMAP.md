@@ -13,15 +13,15 @@
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - 🚧 **v0.11 Ventana al plan** — Phases 44-47 (planning 2026-06-09)
 
-_Milestone activo: v0.11. Build order: overlay+polish → spike → captura condicional → nyquist._
+_Milestone activo: v0.11. Build order: overlay+polish → inyección plan ligero → overlay plan ligero → nyquist._
 
 ## Phases
 
 ### v0.11 Ventana al plan (active)
 
 - [ ] **Phase 44: Overlay de plan GSD + pulido de dashboard** - Tecla nueva muestra el `PLAN.md` de la fase GSD; se oculta la columna `phase/mode` sin GSD y se marca el zombie por-fila
-- [ ] **Phase 45: Spike — captura de plan no-GSD vía hook** - Determinar empíricamente si las sesiones `--dangerously-skip-permissions` emiten un plan capturable vía hook soportado (gate de Phase 46)
-- [ ] **Phase 46: Captura + persistencia de plan no-GSD** *(condicional a Phase 45 — cuttable a v2)* - Si el spike confirma viabilidad, kodo captura/persiste el plan no-GSD y el overlay lo muestra
+- [ ] **Phase 45: Inyección de plan ligero universal** - kodo inyecta (vía `session-start.js`) en sesiones quick y non-GSD la instrucción de escribir un plan corto a una ruta kodo-controlada, correlacionada por `task_id`
+- [ ] **Phase 46: Overlay del plan ligero para sesiones quick/non-GSD** - El overlay de plan de Phase 44 lee ese artefacto y lo muestra para sesiones quick/non-GSD con la misma UX
 - [ ] **Phase 47: Backfill de deuda Nyquist** - `VALIDATION.md` citation-based para 41/43 (v0.10) y 36/37/38/39/39.1 (v0.9)
 
 <details>
@@ -54,29 +54,28 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 **UI hint**: yes
 **Notes**: Cero endpoints nuevos — el overlay lee el filesystem directamente (como `focus.js` con cmux). Read-only (la única superficie read-write de la TUI sigue siendo el dismiss de v0.10). Color isolation: cero picocolors en `src/cli/dashboard/`. Filtros/búsqueda con `String.includes` anti-ReDoS. Watch: TUI-18/TUI-19 y el overlay tocan `src/cli/dashboard/select.js`/`format.js`/`App.js` — coordinar ediciones compartidas al planificar. Split sequential (44-02 depends_on 44-01): ambos editan `App.js`/`SessionTable.js` y el ciclo ESM App↔SessionTable (WARNING-01) hace inseguro el paralelo.
 
-### Phase 45: Spike — captura de plan no-GSD vía hook
-**Goal**: Determinar empíricamente, con evidencia, si las sesiones kodo no-GSD/quick (lanzadas con `--dangerously-skip-permissions`) emiten un plan capturable vía un hook SOPORTADO de Claude Code (`PostToolUse` sobre `ExitPlanMode`, o equivalente), dado que kodo ya inyecta `SessionStart`/`Stop`.
-**Depends on**: Phase 44 (orden de milestone; no comparte código — es trabajo de investigación/prueba sobre hooks, no sobre el dashboard).
+### Phase 45: Inyección de plan ligero universal
+**Goal**: Toda sesión kodo que hoy no produce un `PLAN.md` (quick y non-GSD) emite un artefacto de plan ligero a una ruta kodo-controlada, mediante una instrucción inyectada en `session-start.js`, correlacionada por `task_id` — sin depender de hooks no documentados de Claude Code.
+**Depends on**: Nothing de código (extiende `session-start.js`, ya existente; reusa la correlación `findSession`). Conceptualmente habilita Phase 46 (el overlay que lo muestra).
 **Requirements**: PLAN-03
 **Success Criteria** (what must be TRUE):
-  1. Existe un documento de spike que concluye, con evidencia reproducible, si `ExitPlanMode` (u otro evento de hook soportado) dispara en sesiones `--dangerously-skip-permissions` y produce un payload con el plan.
-  2. La conclusión es un veredicto binario accionable: VIABLE (con el mecanismo de hook concreto documentado) o INVIABLE (con la evidencia que lo justifica).
-  3. Si VIABLE, el documento especifica el contrato de captura propio que Phase 46 implementaría (qué evento, qué payload, dónde persistir, cómo se correlaciona con `task_id`); si INVIABLE, registra la decisión de diferir PLAN-04 a v2 sin bloquear el cierre del milestone.
-**Plans**: 1 plan
-- [ ] 45-01-PLAN.md — Spike empírico: instrumenta matriz de hooks soportados, ejecuta sesión `--dangerously-skip-permissions`, captura payloads y produce `45-SPIKE.md` con veredicto binario
-**Notes**: Spike puro — no se compromete implementación de producción aquí. NO se parsea el transcript JSONL crudo ni `~/.claude/plans/`/`~/.claude/todos/` (formato no documentado, fuera de scope). El único camino soportado evaluable es el hook. Este veredicto gobierna si Phase 46 se ejecuta o se corta.
+  1. En sesiones quick (`/gsd-quick`) y non-GSD, el contexto inyectado por `session-start.js` incluye la instrucción de escribir un plan corto (qué se va a hacer / pasos previstos) a una ruta kodo-controlada y estable, correlacionable con la sesión (`task_id` / `session_id` / `cwd`).
+  2. La ruta de persistencia es propia de kodo (NO rutas internas de Claude Code), legible desde el filesystem por el overlay (cero endpoints nuevos en `src/server.js`).
+  3. El bloque inyectado preserva los golden-bytes de los bloques existentes (HOOK-02 satisfied-by-construction) — la instrucción nueva se añade sin romper los bloques actuales de `buildSessionContext`/`buildGsdContext`.
+**Plans**: TBD
+**Notes**: Reemplaza el antiguo spike de captura vía hook (decisión 2026-06-09: enfoque "plan ligero universal" — kodo produce el artefacto **activamente** en vez de olfatear el plan nativo de Claude Code, que el research marcó frágil/version-specific). La ruta y el formato exactos del artefacto se fijan en discuss-phase. Mantiene quick ligero (no fuerza plan/execute/verify). Docs del spike anterior preservados en git (commits `350c43d`/`3750171`) si se necesita el research de hooks.
 
-### Phase 46: Captura + persistencia de plan no-GSD *(condicional — cuttable a v2)*
-**Goal**: Si Phase 45 confirmó viabilidad, kodo captura y persiste el plan de sesiones no-GSD/quick en su propio lado (contrato propio, no parsing de rutas internas frágiles), y el overlay de Phase 44 lo muestra también para esas sesiones.
-**Depends on**: Phase 45 (gate duro — esta fase SOLO se ejecuta si el spike concluye VIABLE; si INVIABLE, se difiere a v2 sin penalizar el cierre del milestone), Phase 44 (reusa el overlay de plan).
+### Phase 46: Overlay del plan ligero para sesiones quick/non-GSD
+**Goal**: El overlay de plan de Phase 44 lee el artefacto de plan ligero (Phase 45) y lo muestra para sesiones quick/non-GSD con la misma UX (snapshot congelado, `Esc` preserva cursor por `task_id`, never-throws) que para sesiones GSD.
+**Depends on**: Phase 45 (produce el artefacto), Phase 44 (reusa el overlay `mode:'overlay'`, ya shipped — diseñado para esto, ver 44-CONTEXT.md `<deferred>`).
 **Requirements**: PLAN-04
 **Success Criteria** (what must be TRUE):
-  1. Durante una sesión no-GSD/quick, kodo captura el plan vía el hook soportado identificado en Phase 45 y lo persiste en una fuente propia y estable (no rutas internas de Claude Code), correlacionada por `task_id`.
-  2. El overlay de plan de Phase 44 muestra el plan capturado para sesiones no-GSD/quick con la misma UX (snapshot congelado, `Esc` preserva cursor, never-throws) que para sesiones GSD.
-  3. La persistencia no introduce endpoints nuevos en `src/server.js` (salvo decisión explícita en discuss-phase) y preserva los invariantes de captura definidos en el spike.
+  1. Con una sesión quick/non-GSD seleccionada, el operador pulsa la misma tecla del overlay de plan y ve el plan ligero del artefacto de Phase 45, leído del filesystem como fallback cuando la fila no tiene `phase_id` / `PLAN.md` GSD.
+  2. La UX es idéntica a la del overlay GSD: snapshot congelado, copy honesta para los estados sin contenido, `Esc` preserva el cursor por `task_id`, lectura never-throws.
+  3. Cero endpoints nuevos en `src/server.js`; el overlay sigue read-only.
 **Plans**: TBD
 **UI hint**: yes
-**Notes**: FASE CONDICIONAL Y CUTTABLE. Si Phase 45 declara INVIABLE, esta fase NO se planifica/ejecuta: PLAN-04 se mueve a v2 (PLAN-F1/PLAN-F2 ya lo anticipan) y el milestone cierra con Phases 44/45/47. El roadmapper la incluye para que el milestone pueda entregar la captura si el spike sale positivo, sin reescribir el roadmap.
+**Notes**: Ya NO es condicional/cuttable (el spike desaparece — ambas fases son entregables reales). El overlay de Phase 44 añade un fallback: si la fila no es GSD (sin `phase_id`), lee el artefacto de plan ligero de Phase 45 en vez del `PLAN.md` de fase. Mismo `mode:'overlay'`, mismo snapshot, misma copy honesta.
 
 ### Phase 47: Backfill de deuda Nyquist
 **Goal**: Saldar la deuda Nyquist acumulada con `VALIDATION.md` citation-based, sin re-ejecutar la suite (espejo de v0.8 Phase 33 Bloque B).
@@ -94,8 +93,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
-| 45. Spike — captura no-GSD vía hook | 0/1 | Planned     | - |
-| 46. Captura + persistencia (condicional) | 0/? | Not started | - |
+| 45. Inyección de plan ligero universal | 0/? | Not started | - |
+| 46. Overlay del plan ligero quick/non-GSD | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
 
 ## Backlog
