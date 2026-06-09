@@ -62,7 +62,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. Existe un documento de spike que concluye, con evidencia reproducible, si `ExitPlanMode` (u otro evento de hook soportado) dispara en sesiones `--dangerously-skip-permissions` y produce un payload con el plan.
   2. La conclusión es un veredicto binario accionable: VIABLE (con el mecanismo de hook concreto documentado) o INVIABLE (con la evidencia que lo justifica).
   3. Si VIABLE, el documento especifica el contrato de captura propio que Phase 46 implementaría (qué evento, qué payload, dónde persistir, cómo se correlaciona con `task_id`); si INVIABLE, registra la decisión de diferir PLAN-04 a v2 sin bloquear el cierre del milestone.
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 45-01-PLAN.md — Spike empírico: instrumenta matriz de hooks soportados, ejecuta sesión `--dangerously-skip-permissions`, captura payloads y produce `45-SPIKE.md` con veredicto binario
 **Notes**: Spike puro — no se compromete implementación de producción aquí. NO se parsea el transcript JSONL crudo ni `~/.claude/plans/`/`~/.claude/todos/` (formato no documentado, fuera de scope). El único camino soportado evaluable es el hook. Este veredicto gobierna si Phase 46 se ejecuta o se corta.
 
 ### Phase 46: Captura + persistencia de plan no-GSD *(condicional — cuttable a v2)*
@@ -93,7 +94,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
-| 45. Spike — captura no-GSD vía hook | 0/? | Not started | - |
+| 45. Spike — captura no-GSD vía hook | 0/1 | Planned     | - |
 | 46. Captura + persistencia (condicional) | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
 
