@@ -211,9 +211,9 @@ function renderOverlay(snap, scrollOffset, kind) {
  *   actions[] (no de un color lookup). Default 'red' (retro-compat con el focusError de Phase 37).
  * @param {string|null} [props.armedTaskRef] - Phase 42 D-02: task_ref del confirm armado, para el
  *   copy persistente DISMISS_CONFIRM cuando mode==='confirm'.
- * @param {'comments'|'logs'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l) o null.
+ * @param {'comments'|'logs'|'plan'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l), Phase 44: 'plan' (p), o null.
  * @param {number} [props.scrollOffset] - Phase 39 D-06: primera línea visible del body del overlay.
- * @param {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
+ * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
  *   Phase 39 D-05: contenido CONGELADO del overlay (no salta bajo el poll). status discrimina la copy.
  * @returns {import('react').ReactElement}
  */

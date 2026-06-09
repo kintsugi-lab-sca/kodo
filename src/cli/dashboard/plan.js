@@ -90,7 +90,13 @@ export function readPlan(row, deps = {}) {
     if (code === 'ENOENT') entries = [];
     else return { status: 'error', lines: [] };
   }
-  const dir = entries.find((e) => e.startsWith(`${padded}-`)); // String.startsWith (D-13)
+  // Guard de contención (WR-01): el directorio de fase debe ser un basename simple bajo
+  // `phasesRoot` — sin separadores ni `..` que `join` colapsaría fuera de la raíz fija.
+  // `String.includes` (NO RegExp, D-13). En la práctica readdir devuelve basenames, pero esto
+  // hace literalmente cierta la afirmación "fixed root" del threat model T-44-01.
+  const dir = entries.find(
+    (e) => e.startsWith(`${padded}-`) && !e.includes('/') && !e.includes('\\') && !e.includes('..'),
+  ); // String.startsWith (D-13)
   if (!dir) return { status: 'no-plan', lines: [] };
 
   // 4. Recoger los `*-PLAN.md` del directorio de fase, ordenar ascendente (D-06).
@@ -98,7 +104,9 @@ export function readPlan(row, deps = {}) {
   let files;
   try {
     files = readdirFn(join(phasesRoot, dir))
-      .filter((f) => f.endsWith('-PLAN.md')) // String.endsWith, NO RegExp (D-13)
+      // String.endsWith, NO RegExp (D-13) + guard de contención (WR-01): basename simple,
+      // sin separadores ni `..` que escapen del directorio de fase.
+      .filter((f) => f.endsWith('-PLAN.md') && !f.includes('/') && !f.includes('\\') && !f.includes('..'))
       .sort(); // ascendente por nombre de fichero (D-06)
   } catch {
     return { status: 'error', lines: [] };
