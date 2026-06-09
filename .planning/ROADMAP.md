@@ -50,7 +50,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   4. El estado zombie se marca por-fila en la columna `state` (no solo en el contador del header), con color/marca proveniente únicamente de `<Text>` de ink.
 **Plans**: 2 plans
 - [x] 44-01-PLAN.md — Plan-reading helper (`plan.js`, pure sync never-throws) + `p` overlay wiring (PLAN-01, PLAN-02)
-- [ ] 44-02-PLAN.md — Dashboard polish: `phase/mode` column hide (TUI-18) + per-row zombie mark (TUI-19)
+- [x] 44-02-PLAN.md — Dashboard polish: `phase/mode` column hide (TUI-18) + per-row zombie mark (TUI-19)
 **UI hint**: yes
 **Notes**: Cero endpoints nuevos — el overlay lee el filesystem directamente (como `focus.js` con cmux). Read-only (la única superficie read-write de la TUI sigue siendo el dismiss de v0.10). Color isolation: cero picocolors en `src/cli/dashboard/`. Filtros/búsqueda con `String.includes` anti-ReDoS. Watch: TUI-18/TUI-19 y el overlay tocan `src/cli/dashboard/select.js`/`format.js`/`App.js` — coordinar ediciones compartidas al planificar. Split sequential (44-02 depends_on 44-01): ambos editan `App.js`/`SessionTable.js` y el ciclo ESM App↔SessionTable (WARNING-01) hace inseguro el paralelo.
 
@@ -92,7 +92,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 44. Overlay de plan GSD + pulido | 1/2 | In Progress|  |
+| 44. Overlay de plan GSD + pulido | 2/2 | Complete   | 2026-06-09 |
 | 45. Spike — captura no-GSD vía hook | 0/? | Not started | - |
 | 46. Captura + persistencia (condicional) | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
