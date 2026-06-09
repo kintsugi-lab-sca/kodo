@@ -22,6 +22,9 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
 import App, {
@@ -31,6 +34,8 @@ import App, {
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
+  OVERLAY_PLAN_NO_PHASE,
+  OVERLAY_PLAN_NO_PLAN,
 } from '../src/cli/dashboard/App.js';
 
 // ── Fake clock (idéntico a dashboard-table.test.js) ──────────────────────────
@@ -421,6 +426,139 @@ describe('CR-01: handlers async de overlay no reabren contenido obsoleto', () =>
       assert.doesNotMatch(frame, /FIRST payload/, `CR-01: el handler obsoleto no debe sobrescribir el overlay\n${frame}`);
     } finally {
       unmount();
+    }
+  });
+});
+
+// ── Phase 44 (PLAN-01/PLAN-02): overlay de plan GSD (`p`) ─────────────────────
+// El overlay de plan lee el filesystem REAL via readPlan (sync, never-throws). Para
+// ejercitar el `p` open con contenido honesto se monta un árbol `.planning/phases/`
+// temporal y se apunta la fila seleccionada (KL-1) a él via project_path. Los casos
+// no-phase / no-plan no necesitan disco: se prueban con filas que no resuelven a una fase.
+
+/**
+ * Construye un STATUS_FIXTURE con la fila seleccionada (KL-1, task_id 'a') apuntando a
+ * `projectPath` y opcionalmente con phase_id. La segunda fila (KL-2) es estática.
+ */
+function planStatus({ phase_id, project_path } = {}) {
+  return {
+    count: 2,
+    sessions: [
+      {
+        task_id: 'a',
+        task_ref: 'KL-1',
+        workspace_ref: 'ws-a',
+        status: 'running',
+        alive: true,
+        started_at: '2026-05-27T10:00:00Z',
+        project_name: 'kodo',
+        elapsed_min: 5,
+        ...(phase_id != null ? { phase_id } : {}),
+        ...(project_path != null ? { project_path } : {}),
+        summary: '',
+      },
+      {
+        task_id: 'b',
+        task_ref: 'KL-2',
+        workspace_ref: 'ws-b',
+        status: 'running',
+        alive: false,
+        started_at: '2026-05-27T09:00:00Z',
+        elapsed_min: 63,
+        summary: '',
+      },
+    ],
+  };
+}
+
+describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, Esc restaura cursor', () => {
+  it('p abre el overlay leyendo el/los PLAN.md de la fase (status ok)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'kodo-plan-'));
+    try {
+      const phaseDir = join(tmp, '.planning', 'phases', '44-overlay');
+      mkdirSync(phaseDir, { recursive: true });
+      writeFileSync(join(phaseDir, '44-01-PLAN.md'), 'OBJECTIVE: build the plan overlay\n');
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /plan · KL-1/, `p debe abrir el overlay de plan de KL-1\n${frame}`);
+        assert.match(frame, /build the plan overlay/, `el overlay debe mostrar el contenido del PLAN.md\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('p sobre fila sin phase_id ni .planning resoluble → OVERLAY_PLAN_NO_PHASE (dim, honesto)', async () => {
+    const clock = makeFakeClock();
+    // Fila sin phase_id y sin project_path/worktree_path → readPlan colapsa a no-phase.
+    const fetchFn = makeRouter({ status: planStatus({}) });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('p');
+      await drain();
+      assert.match(lastFrame(), new RegExp(OVERLAY_PLAN_NO_PHASE), `no-phase → ${OVERLAY_PLAN_NO_PHASE}\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('p sobre fase resuelta pero SIN PLAN.md → OVERLAY_PLAN_NO_PLAN (DISTINTO de no-phase)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'kodo-plan-'));
+    try {
+      // Existe el dir de fase pero sin ningún *-PLAN.md dentro.
+      const phaseDir = join(tmp, '.planning', 'phases', '44-overlay');
+      mkdirSync(phaseDir, { recursive: true });
+      writeFileSync(join(phaseDir, '44-CONTEXT.md'), 'just context\n');
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, new RegExp(OVERLAY_PLAN_NO_PLAN), `no-plan → ${OVERLAY_PLAN_NO_PLAN}\n${frame}`);
+        assert.doesNotMatch(frame, new RegExp(OVERLAY_PLAN_NO_PHASE), `no-plan debe ser DISTINTO de no-phase\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('Esc cierra el overlay de plan y restaura la tabla con el MISMO cursor (KL-1)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'kodo-plan-'));
+    try {
+      const phaseDir = join(tmp, '.planning', 'phases', '44-overlay');
+      mkdirSync(phaseDir, { recursive: true });
+      writeFileSync(join(phaseDir, '44-01-PLAN.md'), 'plan body\n');
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        stdin.write('\x1b');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /›.*KL-1/, `Esc debe restaurar la tabla con el cursor en KL-1\n${frame}`);
+        assert.match(frame, /KL-2/, `Esc debe restaurar la tabla completa (KL-2 visible)\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
     }
   });
 });

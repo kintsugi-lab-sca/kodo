@@ -65,6 +65,8 @@ import {
   mapDismissResult,
 } from './select.js';
 import { deriveRepo } from './format.js';
+import { readPlan } from './plan.js';
+import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
 
 // Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
@@ -97,6 +99,16 @@ export const OVERLAY_COMMENTS_UNSUPPORTED = 'comments not supported by this prov
 export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
 export const OVERLAY_LOGS_ERROR = 'error fetching logs';
 export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
+
+// Phase 44 D-07 (PLAN-02): copy literal-estable del overlay de plan GSD (`p`), espejo léxico de
+// OVERLAY_COMMENTS_*. EXPORTADAS para que tests y SessionTable.js las importen sin duplicar strings
+// (mismo patrón que OVERLAY_COMMENTS_*). El contrato es "DISTINTA por caso" + "honesta" (D-07): el
+// operador distingue de un vistazo "no es GSD / no hay fase" de "la fase aún no tiene PLAN.md" de
+// "hubo un error leyendo". Las dos primeras son informativas (dim); ERROR es un fallo real (rojo).
+// Redundancia textual: legibles bajo NO_COLOR, no dependen del color para distinguirse.
+export const OVERLAY_PLAN_NO_PHASE = 'not a GSD session / no phase resolved';
+export const OVERLAY_PLAN_NO_PLAN = 'phase has no PLAN.md yet';
+export const OVERLAY_PLAN_ERROR = 'error reading plan';
 
 // Phase 42 D-02/D-04/D-09 (DISMISS-02/03/04): copy literal-estable del flujo de dismiss.
 // EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
@@ -222,10 +234,10 @@ export default function App({
   //     pero este objeto NO se re-escribe por onResult → el texto del overlay no salta bajo el lector.
   //     Forma: { kind, taskRef, status:'ok'|'empty'|'not-found'|'error', lines: string[] } donde
   //     `lines` ya viene proyectado a strings (comentarios o `msg` de cada log entry).
-  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|null} */ (null));
+  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'plan'|null} */ (null));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [overlaySnapshot, setOverlaySnapshot] = useState(
-    /** @type {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }|null} */ (null),
+    /** @type {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }|null} */ (null),
   );
 
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
@@ -458,6 +470,27 @@ export default function App({
         // D-05: snapshot congelado. D-06: selectedTaskId intacto.
         setOverlaySnapshot({ kind: 'logs', taskRef: row.task_ref ?? '', status, lines });
         setOverlayKind('logs');
+        setScrollOffset(0);
+        setMode('overlay');
+        return;
+      }
+      if (input === 'p') {
+        // Phase 44 PLAN-01/PLAN-02 (D-02/D-05): overlay del/los PLAN.md de la fase GSD de la fila
+        // seleccionada (resuelta por task_id, D-02). CUARTO consumidor del mode:'overlay' junto a c/l.
+        //
+        // DIVERGENCIA CRÍTICA respecto a c/l (Pitfall 1 / RESEARCH:203-205): readPlan es SÍNCRONO —
+        // NO hay await window. setOverlaySnapshot/setMode corren en el MISMO tick que el keypress, así
+        // que NO existe carrera de "reapertura obsoleta": la apertura es ATÓMICA. Por eso este handler
+        // NO captura `const reqId = ++overlayReqRef.current` ni hace el check post-await `if
+        // (overlayReqRef.current !== reqId) return` de c/l — sería código muerto y engañoso. La rama de
+        // cierre con Esc (mode:'overlay') ya incrementa overlayReqRef para invalidar OTRAS aperturas
+        // c/l aún en vuelo; aquí no se toca. readPlan es never-throws (D-05): sin try/catch necesario.
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        const res = readPlan(row, { resolvePhaseFn: resolvePhase });
+        // D-05: snapshot congelado al abrir. NO se toca selectedTaskId (cursor GRATIS al volver, D-06).
+        setOverlaySnapshot({ kind: 'plan', taskRef: row.task_ref ?? '', status: res.status, lines: res.lines });
+        setOverlayKind('plan');
         setScrollOffset(0);
         setMode('overlay');
         return;

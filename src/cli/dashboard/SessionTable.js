@@ -31,6 +31,9 @@ import {
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
+  OVERLAY_PLAN_NO_PHASE,
+  OVERLAY_PLAN_NO_PLAN,
+  OVERLAY_PLAN_ERROR,
   OVERLAY_VIEWPORT,
   DISMISS_CONFIRM,
 } from './App.js';
@@ -111,16 +114,20 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt }) 
  *   FOOTER  — hint `↑↓ scroll · Esc close` (dimColor).
  * Color SOLO de nombres ink (cyan/yellow/red/dimColor) — color-isolation D-12 (cero picocolors/ANSI).
  *
- * @param {{ kind: 'comments'|'logs', taskRef: string, status: string, lines: string[] }} snap
+ * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }} snap
  * @param {number} scrollOffset
- * @param {'comments'|'logs'|null} kind
+ * @param {'comments'|'logs'|'plan'|null} kind
  * @returns {import('react').ReactElement}
  */
 function renderOverlay(snap, scrollOffset, kind) {
-  const isLogs = (kind ?? snap.kind) === 'logs';
+  const effKind = kind ?? snap.kind;
+  const isLogs = effKind === 'logs';
+  const isPlan = effKind === 'plan';
 
   // HEADER: título + (solo logs) etiqueta honesta del buffer compartido (D-04/SC#3).
-  const titleText = `${isLogs ? 'logs' : 'comments'} · ${snap.taskRef}`;
+  // Phase 44: el overlay de plan (`plan · <taskRef>`) reusa el título cyan bold de comments.
+  const label = isLogs ? 'logs' : isPlan ? 'plan' : 'comments';
+  const titleText = `${label} · ${snap.taskRef}`;
   const header = h(
     Box,
     { flexDirection: 'column', marginBottom: 1 },
@@ -141,7 +148,13 @@ function renderOverlay(snap, scrollOffset, kind) {
   } else {
     let copy;
     let color;
-    if (snap.status === 'not-found') {
+    if (snap.status === 'no-phase') {
+      // Phase 44 D-07: la fila no es GSD / no se resolvió fase. Informativo (dim, no rojo).
+      copy = OVERLAY_PLAN_NO_PHASE;
+    } else if (snap.status === 'no-plan') {
+      // Phase 44 D-07: fase resuelta pero sin ningún PLAN.md. Informativo (dim) y DISTINTO de no-phase.
+      copy = OVERLAY_PLAN_NO_PLAN;
+    } else if (snap.status === 'not-found') {
       copy = OVERLAY_COMMENTS_NOT_FOUND;
       color = 'red';
     } else if (snap.status === 'unsupported') {
@@ -149,7 +162,8 @@ function renderOverlay(snap, scrollOffset, kind) {
       // se pinta con dimColor como el caso vacío pero con copy DISTINTO (legible bajo NO_COLOR).
       copy = OVERLAY_COMMENTS_UNSUPPORTED;
     } else if (snap.status === 'error') {
-      copy = isLogs ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
+      // Phase 44 D-07: el copy de error es DISTINTO por overlay (plan vs logs vs comments). Rojo (fallo real).
+      copy = isPlan ? OVERLAY_PLAN_ERROR : isLogs ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
       color = 'red';
     } else {
       // 'empty'
