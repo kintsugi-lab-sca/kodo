@@ -61,11 +61,11 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PLAN-01 | TBD | Pending |
-| PLAN-02 | TBD | Pending |
-| PLAN-03 | TBD | Pending |
-| PLAN-04 | TBD | Pending |
-| TUI-18 | TBD | Pending |
-| TUI-19 | TBD | Pending |
-| NYQ-01 | TBD | Pending |
-| NYQ-02 | TBD | Pending |
+| PLAN-01 | Phase 44 | Pending |
+| PLAN-02 | Phase 44 | Pending |
+| PLAN-03 | Phase 45 | Pending |
+| PLAN-04 | Phase 46 (condicional a Phase 45) | Pending |
+| TUI-18 | Phase 44 | Pending |
+| TUI-19 | Phase 44 | Pending |
+| NYQ-01 | Phase 47 | Pending |
+| NYQ-02 | Phase 47 | Pending |
