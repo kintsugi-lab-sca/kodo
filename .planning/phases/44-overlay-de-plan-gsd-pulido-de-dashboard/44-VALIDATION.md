@@ -19,7 +19,7 @@ created: 2026-06-09
 |----------|-------|
 | **Framework** | Node.js built-in test runner (`node --test`) + `node:assert/strict` |
 | **Config file** | none — `package.json` `scripts.test` |
-| **Quick run command** | `node --test test/dashboard/plan.test.js test/dashboard/select.test.js test/dashboard/format.test.js` (ajustar a los ficheros tocados) |
+| **Quick run command** | `node --test test/dashboard-plan.test.js test/dashboard-select.test.js test/dashboard-table.test.js` (ajustar a los ficheros tocados; layout de test PLANO) |
 | **Full suite command** | `npm test` |
 | **Estimated runtime** | ~20–40 seconds (full suite ~1200+ tests) |
 
@@ -38,10 +38,10 @@ created: 2026-06-09
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 44-01-* | 01 | 1 | PLAN-01 | — | Helper de lectura de plan never-throws (ENOENT→missing, EACCES→error); colapsa fallos a discriminante, jamás throw a React | unit | `node --test test/dashboard/plan.test.js` | ❌ W0 | ⬜ pending |
-| 44-01-* | 01 | 1 | PLAN-02 | — | Overlay `p` distingue no-GSD / sin-PLAN.md / error; `Esc` preserva cursor por `task_id`; multi-PLAN.md concatenado | unit | `node --test test/dashboard/App.test.js` | ❌ W0 | ⬜ pending |
-| 44-02-* | 02 | 2 | TUI-18 | — | `anyGsd` derivado puro sobre `sorted` (no filtrado); columna `phase/mode` no renderiza si `false`, reaparece con GSD | unit | `node --test test/dashboard/select.test.js test/dashboard/format.test.js` | ❌ W0 | ⬜ pending |
-| 44-02-* | 02 | 2 | TUI-19 | — | Celda `state` marca `(zombie)`+rojo vía `statusColor` para `running`+`!alive`; header counter intacto; cero picocolors | unit | `node --test test/dashboard/format.test.js test/format-isolation.test.js` | ✅ | ⬜ pending |
+| 44-01-* | 01 | 1 | PLAN-01 | — | Helper de lectura de plan never-throws (ENOENT→missing, EACCES→error); colapsa fallos a discriminante, jamás throw a React | unit | `node --test test/dashboard-plan.test.js` | ❌ W0 | ⬜ pending |
+| 44-01-* | 01 | 1 | PLAN-02 | — | Overlay `p` distingue no-GSD / sin-PLAN.md / error; `Esc` preserva cursor por `task_id`; multi-PLAN.md concatenado | unit | `node --test test/dashboard-overlay.test.js` | ❌ W0 | ⬜ pending |
+| 44-02-* | 02 | 2 | TUI-18 | — | `anyGsd` derivado puro sobre `sorted` (no filtrado); columna `phase/mode` no renderiza si `false`, reaparece con GSD | unit | `node --test test/dashboard-select.test.js test/dashboard-table.test.js` | ❌ W0 | ⬜ pending |
+| 44-02-* | 02 | 2 | TUI-19 | — | Celda `state` marca `(zombie)`+rojo vía `statusColor` para `running`+`!alive`; header counter intacto; cero picocolors | unit | `node --test test/dashboard-table.test.js test/format-isolation.test.js` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -49,11 +49,11 @@ created: 2026-06-09
 
 ## Wave 0 Requirements
 
-- [ ] `test/dashboard/plan.test.js` — stubs para el helper de lectura de plan (PLAN-01): glob por prefijo de fase, multi-PLAN.md, ENOENT→missing, EACCES→error, never-throws.
-- [ ] `test/dashboard/App.test.js` (o el fichero existente de overlays) — stubs para el overlay `p` (PLAN-02): copys por caso, `Esc` preserva cursor.
+- [ ] `test/dashboard-plan.test.js` — stubs para el helper de lectura de plan (PLAN-01): glob por prefijo de fase, multi-PLAN.md, ENOENT→missing, EACCES→error, never-throws.
+- [ ] `test/dashboard-overlay.test.js` — stubs para el overlay `p` (PLAN-02): copys por caso, `Esc` preserva cursor.
 - [ ] Framework ya instalado (`node --test`) — sin instalación nueva.
 
-*Las capas puras (`select.js`/`format.js`) ya tienen suites (`test/dashboard/select.test.js`, `format.test.js`) que se extienden para TUI-18/19.*
+*Las capas puras (`select.js`/`format.js`) ya tienen suites (`test/dashboard-select.test.js`, `test/dashboard-table.test.js`) que se extienden para TUI-18/19.*
 
 ---
 

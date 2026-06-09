@@ -452,17 +452,15 @@ if (mode === 'overlay') {
 | A3 | Dropping a column `<Box>` from an ink `flexDirection:'row'` reclaims its width (siblings shift, no gap padding). `[ASSUMED]` — standard ink/yoga flexbox behavior; consistent with how fixed-width `<Box>` columns compose today. | Pattern 3 | If ink pads the gap, a manual width pass is needed. Low risk; verifiable in a render test. |
 | A4 | `COLS.state` (16) is too narrow for `▶ running (zombie)` (~17-18 visual). `[VERIFIED: arithmetic]` — `▶ running` (9) + ` (zombie)` (9) ≈ 18. | Pattern 4, Pitfall 3 | If ink measures the glyph differently, exact width differs but the "widen or truncate" decision stands. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact PLAN.md filename suffix (A2)**
-   - What we know: CONTEXT D-04/D-06 say `*-PLAN.md` and `<N>-NN-PLAN.md`; phase-dir naming is `<padded>-<slug>/`.
-   - What's unclear: No `PLAN.md` exists on disk yet (the only phase dir, `44-...`, holds just CONTEXT.md) to confirm the exact suffix.
-   - Recommendation: Use `endsWith('-PLAN.md')` (matches `44-01-PLAN.md`). The plan-phase step that runs *after* this research will itself create `44-NN-PLAN.md`, which the executor can use as a live fixture during UAT.
+1. **Exact PLAN.md filename suffix (A2)** — **RESOLVED:** `endsWith('-PLAN.md')` (matches `44-01-PLAN.md`).
+   - What we knew: CONTEXT D-04/D-06 say `*-PLAN.md` and `<N>-NN-PLAN.md`; phase-dir naming is `<padded>-<slug>/`.
+   - Resolution: Plan 44-01 adopts `endsWith('-PLAN.md')` as the glob predicate. The `44-NN-PLAN.md` files created by this very plan-phase run serve as the live fixture during UAT.
 
-2. **Where the `(zombie)` mark width is absorbed**
-   - What we know: `COLS.state` is 16; the mark must not truncate (accessibility comment in SessionTable.js).
-   - What's unclear: widen `COLS.state` vs render the state cell `truncate:false` and let it overflow into adjacent fixed columns.
-   - Recommendation: Widen `COLS.state` to 18 for predictable layout; update byte-stable table tests.
+2. **Where the `(zombie)` mark width is absorbed** — **RESOLVED:** widen `COLS.state` 16→18.
+   - What we knew: `COLS.state` is 16; the mark must not truncate (accessibility comment in SessionTable.js).
+   - Resolution: Plan 44-02 widens `COLS.state` to 18 for predictable layout and updates the byte-stable table snapshot tests (`test/dashboard-table.test.js`).
 
 ## Environment Availability
 
