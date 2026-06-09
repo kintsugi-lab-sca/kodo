@@ -48,9 +48,11 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   2. El overlay distingue por copy los casos sin contenido (tarea no-GSD / sin fase resuelta, fase sin `PLAN.md`, varios `PLAN.md`); ningún error de fichero crashea el panel (lectura never-throws / best-effort) y `Esc` cierra preservando el cursor por `task_id`.
   3. Cuando ninguna sesión activa es GSD, la columna `phase/mode` no se renderiza y su ancho se recupera; reaparece automáticamente al entrar una sesión GSD (derivación pura React-free en `select.js`/`format.js`).
   4. El estado zombie se marca por-fila en la columna `state` (no solo en el contador del header), con color/marca proveniente únicamente de `<Text>` de ink.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 44-01-PLAN.md — Plan-reading helper (`plan.js`, pure sync never-throws) + `p` overlay wiring (PLAN-01, PLAN-02)
+- [ ] 44-02-PLAN.md — Dashboard polish: `phase/mode` column hide (TUI-18) + per-row zombie mark (TUI-19)
 **UI hint**: yes
-**Notes**: Cero endpoints nuevos — el overlay lee el filesystem directamente (como `focus.js` con cmux). Read-only (la única superficie read-write de la TUI sigue siendo el dismiss de v0.10). Color isolation: cero picocolors en `src/cli/dashboard/`. Filtros/búsqueda con `String.includes` anti-ReDoS. Watch: TUI-18/TUI-19 y el overlay tocan `src/cli/dashboard/select.js`/`format.js`/`App.js` — coordinar ediciones compartidas al planificar.
+**Notes**: Cero endpoints nuevos — el overlay lee el filesystem directamente (como `focus.js` con cmux). Read-only (la única superficie read-write de la TUI sigue siendo el dismiss de v0.10). Color isolation: cero picocolors en `src/cli/dashboard/`. Filtros/búsqueda con `String.includes` anti-ReDoS. Watch: TUI-18/TUI-19 y el overlay tocan `src/cli/dashboard/select.js`/`format.js`/`App.js` — coordinar ediciones compartidas al planificar. Split sequential (44-02 depends_on 44-01): ambos editan `App.js`/`SessionTable.js` y el ciclo ESM App↔SessionTable (WARNING-01) hace inseguro el paralelo.
 
 ### Phase 45: Spike — captura de plan no-GSD vía hook
 **Goal**: Determinar empíricamente, con evidencia, si las sesiones kodo no-GSD/quick (lanzadas con `--dangerously-skip-permissions`) emiten un plan capturable vía un hook SOPORTADO de Claude Code (`PostToolUse` sobre `ExitPlanMode`, o equivalente), dado que kodo ya inyecta `SessionStart`/`Stop`.
@@ -90,7 +92,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 44. Overlay de plan GSD + pulido | 0/? | Not started | - |
+| 44. Overlay de plan GSD + pulido | 0/2 | Not started | - |
 | 45. Spike — captura no-GSD vía hook | 0/? | Not started | - |
 | 46. Captura + persistencia (condicional) | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
