@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.11
 milestone_name: Ventana al plan
-status: ready_to_plan
-stopped_at: Phase 45 complete (1/1) — ready to discuss Phase 46
-last_updated: 2026-06-10T08:22:16.745Z
+status: planning
+stopped_at: Phase 46 context gathered
+last_updated: "2026-06-10T08:33:45.503Z"
 last_activity: 2026-06-10
 progress:
   total_phases: 4
@@ -124,8 +124,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-10T08:13:38.016Z
-- **Stopped at:** Phase 45 context gathered
+- **Last session:** 2026-06-10T08:33:45.496Z
+- **Stopped at:** Phase 46 context gathered
 - **Next action:** `/gsd:discuss-phase 45` con el nuevo scope (inyección de plan ligero en `session-start.js`). Phase 44 ya shipped; Phase 46 (overlay del plan ligero) depende de 45.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.11)
