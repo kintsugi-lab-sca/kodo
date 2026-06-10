@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.11
 milestone_name: Ventana al plan
-status: verifying
-stopped_at: Phase 47 context gathered
-last_updated: "2026-06-10T10:49:30.612Z"
+status: milestone_complete
+stopped_at: Milestone complete (Phase 47 was final phase)
+last_updated: 2026-06-10T10:54:51.205Z
 last_activity: 2026-06-10
 progress:
   total_phases: 4
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añadió una superficie de observabilidad en terminal (`kodo dashboard`) read-only; v0.10 la promovió a gestión (dismiss). v0.11 profundiza la observabilidad: ver el plan de cada sesión sin salir de la TUI.
 
-**Current focus:** Phase 47 — backfill-de-deuda-nyquist
+**Current focus:** Milestone complete
 
 ## Current Position
 
-Phase: 47 (backfill-de-deuda-nyquist) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Phase: 47
+Plan: Not started
+Status: Milestone complete
 Last activity: 2026-06-10
 
 ## Roadmap v0.11 (active)
