@@ -27,8 +27,8 @@ Driver: candidatos de mejora detectados en el dogfooding de v0.10. Continúa la 
 
 Driver: saldar la deuda Nyquist acumulada (citation-based, sin re-ejecutar la suite — espejo de v0.8 Phase 33 Bloque B).
 
-- [ ] **NYQ-01**: Phases **41 y 43** (v0.10) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + tests + UAT).
-- [ ] **NYQ-02**: Phases **36, 37, 38, 39, 39.1** (v0.9) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true` (backfill de las 2 parciales + 3 ausentes registradas en STATE.md `## Deferred Items`).
+- [x] **NYQ-01**: Phases **41 y 43** (v0.10) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + tests + UAT).
+- [x] **NYQ-02**: Phases **36, 37, 38, 39, 39.1** (v0.9) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true` (backfill de las 2 parciales + 3 ausentes registradas en STATE.md `## Deferred Items`).
 
 ## v2 Requirements
 
@@ -67,5 +67,5 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 | PLAN-04 | Phase 46 | Complete |
 | TUI-18 | Phase 44 | Complete |
 | TUI-19 | Phase 44 | Complete |
-| NYQ-01 | Phase 47 | Pending |
-| NYQ-02 | Phase 47 | Pending |
+| NYQ-01 | Phase 47 | Complete |
+| NYQ-02 | Phase 47 | Complete |
