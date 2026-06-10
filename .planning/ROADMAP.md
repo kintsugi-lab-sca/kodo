@@ -87,7 +87,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. Phases 41 y 43 (v0.10) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + tests + UAT) — sin re-ejecutar la suite.
   2. Phases 36, 37, 38, 39 y 39.1 (v0.9) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true` (backfill de las 2 parciales 36/37 + 3 ausentes 38/39/39.1 registradas en STATE.md `## Deferred Items`).
   3. STATE.md `## Deferred Items` refleja la deuda Nyquist como saldada (rows actualizadas de PARTIAL/MISSING a compliant).
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 47-01-PLAN.md — NYQ-01 (41/43 NEW) + NYQ-02 (36/37 UPDATE, 38/39/39.1 NEW) VALIDATION.md citation-based + reconciliación STATE.md Deferred Items
 **Notes**: Tier 1 doc-only — `git diff -- src/ test/ bin/` debe quedar vacío. Las fases archivadas viven en `.planning/milestones/v0.10-phases/` (41/43) y `.planning/milestones/v0.9-phases/` (36/37/38/39/39.1). Backfill vía `/gsd:validate-phase <N>`.
 
 ## Progress
@@ -97,7 +98,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
 | 45. Inyección de plan ligero universal | 1/1 | Complete    | 2026-06-10 |
 | 46. Overlay del plan ligero quick/non-GSD | 1/1 | Complete    | 2026-06-10 |
-| 47. Backfill Nyquist | 0/? | Not started | - |
+| 47. Backfill Nyquist | 0/1 | Not started | - |
 
 ## Backlog
 
