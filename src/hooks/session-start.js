@@ -6,8 +6,10 @@
 // and injects provider-agnostic work item context via stdout.
 
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { findSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
+import { KODO_DIR } from '../config.js';
 import { getSessionMode } from '../labels.js';
 
 const STDIN_TIMEOUT = 3000;
@@ -76,6 +78,11 @@ export function buildSessionContext(session, config) {
     '- Good: "Feature commiteada localmente, pendiente de `git push` al remoto."',
     '- Bad: "Deploy hecho."',
     '- Good: "Deploy quedará efectivo una vez se haga `git push origin main`."',
+    // Phase 45 PLAN-03: append al FINAL preserva golden bytes (HOOK-02 satisfied-by-construction).
+    // D-03: el hook solo emite el string; la sesión escribe el fichero. D-05 markdown plano,
+    // D-06 escribir al empezar (re-dispatch sobrescribe, latest-wins), D-07 una sola línea, D-08 ES.
+    '',
+    `Además, al empezar escribe un plan corto (qué vas a hacer + pasos previstos) en \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\` (sobrescribe si ya existe).`,
   ].join('\n');
 }
 
