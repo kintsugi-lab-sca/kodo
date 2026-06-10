@@ -137,6 +137,12 @@ export function buildGsdContext(session, opts = {}) {
       // D-05: closing line that justifies why this block has a single
       // command instead of three. Idioma EN per D-04 Phase 8.
       'Run the slash command and finish — no plan/execute/verify cycle.',
+      // Phase 45 PLAN-03: append DENTRO del if quick — antes del bloque común
+      // "## No automatic push" (fuera del if/else) preserva la D-04 common-block
+      // invariance. D-03 sin I/O, D-05 markdown plano, D-06 escribir al empezar
+      // (re-dispatch sobrescribe, latest-wins), D-07 una línea, D-08 EN (bloque GSD).
+      '',
+      `Also, at the start write a short plan (what you'll do + planned steps) to \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\` (overwrite if it exists).`,
     );
   } else if (session.phase_id) {
     // Phase known — inject plan/execute/verify sequence (D-01)
