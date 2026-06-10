@@ -36,6 +36,7 @@ import App, {
   OVERLAY_LOGS_LABEL,
   OVERLAY_PLAN_NO_PHASE,
   OVERLAY_PLAN_NO_PLAN,
+  OVERLAY_PLAN_NO_LIGHT,
 } from '../src/cli/dashboard/App.js';
 
 // ── Fake clock (idéntico a dashboard-table.test.js) ──────────────────────────
@@ -439,13 +440,18 @@ describe('CR-01: handlers async de overlay no reabren contenido obsoleto', () =>
 /**
  * Construye un STATUS_FIXTURE con la fila seleccionada (KL-1, task_id 'a') apuntando a
  * `projectPath` y opcionalmente con phase_id. La segunda fila (KL-2) es estática.
+ *
+ * Phase 46 (Option A): `omitTaskId:true` produce la fila seleccionada SIN `task_id`. Necesario
+ * para el caso `no-phase` PURO: tras el fallback de plan ligero (Phase 46), una fila con `task_id`
+ * pero sin phase_id intenta leer `~/.kodo/plans/<task_id>.md` → ya NO es no-phase. El no-phase
+ * terminal (D-06) exige ausencia de task_id; sin él, readLightPlan no dispara y se preserva no-phase.
  */
-function planStatus({ phase_id, project_path } = {}) {
+function planStatus({ phase_id, project_path, omitTaskId } = {}) {
   return {
     count: 2,
     sessions: [
       {
-        task_id: 'a',
+        ...(omitTaskId ? {} : { task_id: 'a' }),
         task_ref: 'KL-1',
         workspace_ref: 'ws-a',
         status: 'running',
@@ -496,10 +502,12 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
     }
   });
 
-  it('p sobre fila sin phase_id ni .planning resoluble → OVERLAY_PLAN_NO_PHASE (dim, honesto)', async () => {
+  it('p sobre fila sin phase_id NI task_id → OVERLAY_PLAN_NO_PHASE (dim, honesto, D-06 terminal)', async () => {
     const clock = makeFakeClock();
-    // Fila sin phase_id y sin project_path/worktree_path → readPlan colapsa a no-phase.
-    const fetchFn = makeRouter({ status: planStatus({}) });
+    // Phase 46 (Option A): la fila NO lleva task_id → el fallback de plan ligero NO dispara
+    // (readLightPlan exige task_id utilizable) → se preserva el no-phase terminal puro (D-06).
+    // Sin omitTaskId, una fila con task_id+sin phase_id leería ~/.kodo/plans/<id>.md → no-light-plan.
+    const fetchFn = makeRouter({ status: planStatus({ omitTaskId: true }) });
     const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
     try {
       await drain();
@@ -508,6 +516,62 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       assert.match(lastFrame(), new RegExp(OVERLAY_PLAN_NO_PHASE), `no-phase → ${OVERLAY_PLAN_NO_PHASE}\n${lastFrame()}`);
     } finally {
       unmount();
+    }
+  });
+
+  it('PLAN-04: p sobre fila quick/non-GSD con artefacto de plan ligero presente → muestra el contenido', async () => {
+    // El handler `p` no tiene seam kodoPlansDir → la integración usa el HOME real vía homedir().
+    // Aislamos process.env.HOME a un mkdtemp y escribimos ~/.kodo/plans/<task_id>.md.
+    // (homedir() respeta process.env.HOME — observaciones 21811/22683.)
+    const fakeHome = mkdtempSync(join(tmpdir(), 'kodo-home-'));
+    const origHome = process.env.HOME;
+    try {
+      const plansDir = join(fakeHome, '.kodo', 'plans');
+      mkdirSync(plansDir, { recursive: true });
+      // planStatus({}) hardcodea task_id:'a' en la fila seleccionada → artefacto a.md.
+      writeFileSync(join(plansDir, 'a.md'), '# Quick plan\nfirst do this\nthen that\n');
+      process.env.HOME = fakeHome;
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({}) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan ligero de KL-1\n${frame}`);
+        assert.match(frame, /first do this/, `el overlay muestra el contenido del artefacto\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('PLAN-04: p sobre fila quick/non-GSD SIN artefacto → OVERLAY_PLAN_NO_LIGHT (dim, distinto)', async () => {
+    // HOME aislado a un mkdtemp VACÍO (sin ~/.kodo/plans/a.md) → ENOENT → no-light-plan end-to-end.
+    const fakeHome = mkdtempSync(join(tmpdir(), 'kodo-home-'));
+    const origHome = process.env.HOME;
+    try {
+      process.env.HOME = fakeHome;
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({}) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, new RegExp(OVERLAY_PLAN_NO_LIGHT), `artefacto ausente → ${OVERLAY_PLAN_NO_LIGHT}\n${frame}`);
+        assert.doesNotMatch(frame, new RegExp(OVERLAY_PLAN_NO_PHASE), `no-light-plan debe ser DISTINTO de no-phase\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(fakeHome, { recursive: true, force: true });
     }
   });
 
