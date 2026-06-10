@@ -94,7 +94,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
-| 45. Inyección de plan ligero universal | 1/1 | Complete   | 2026-06-10 |
+| 45. Inyección de plan ligero universal | 1/1 | Complete    | 2026-06-10 |
 | 46. Overlay del plan ligero quick/non-GSD | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
 
