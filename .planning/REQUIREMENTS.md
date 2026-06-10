@@ -14,7 +14,7 @@ Driver: ver el plan de la tarea seleccionada desde el dashboard (igual que hoy s
 - [x] **PLAN-01**: El operador puede abrir un overlay (tecla dedicada, junto a `c`/`l`) que muestra el/los `PLAN.md` de la fase GSD de la tarea seleccionada, reusando `resolvePhase` (v0.3 Phase 9) para mapear tarea→fase y leyendo `.planning/phases/<fase>/<N>-NN-PLAN.md` desde `worktree_path ?? project_path`.
 - [x] **PLAN-02**: El overlay de plan distingue honestamente los casos sin contenido — tarea no-GSD / sin fase resuelta, fase sin `PLAN.md`, varios `PLAN.md` (lista navegable o concatenados) — con copy distinta por caso, snapshot congelado bajo el poll vivo y `Esc` que preserva el cursor (espejo de los overlays `c`/`l`). La lectura es never-throws / best-effort: ningún error de fichero crashea el panel.
 - [x] **PLAN-03**: Toda sesión kodo que hoy no produce un `PLAN.md` (**quick** y **non-GSD**) emite un **plan ligero** a una ruta **kodo-controlada y estable**, mediante una instrucción inyectada en `session-start.js`, correlacionada con la sesión (`task_id` / `session_id` / `cwd`). No depende de hooks no documentados de Claude Code ni de rutas internas — kodo produce el artefacto **activamente**. El bloque inyectado se añade preservando los golden-bytes de los bloques existentes (HOOK-02 satisfied-by-construction). Mantiene quick ligero (no fuerza el ciclo plan/execute/verify).
-- [ ] **PLAN-04**: El overlay de plan de PLAN-01 lee ese artefacto de plan ligero y lo **muestra para sesiones quick/non-GSD** con la misma UX (snapshot congelado, copy honesta por caso, `Esc` preserva el cursor por `task_id`, lectura never-throws), como **fallback** cuando la fila no tiene `phase_id` / `PLAN.md` GSD. Cero endpoints nuevos en `src/server.js`; el overlay sigue read-only.
+- [x] **PLAN-04**: El overlay de plan de PLAN-01 lee ese artefacto de plan ligero y lo **muestra para sesiones quick/non-GSD** con la misma UX (snapshot congelado, copy honesta por caso, `Esc` preserva el cursor por `task_id`, lectura never-throws), como **fallback** cuando la fila no tiene `phase_id` / `PLAN.md` GSD. Cero endpoints nuevos en `src/server.js`; el overlay sigue read-only.
 
 ### Dashboard Polish (TUI)
 
@@ -64,7 +64,7 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 | PLAN-01 | Phase 44 | Complete |
 | PLAN-02 | Phase 44 | Complete |
 | PLAN-03 | Phase 45 | Complete |
-| PLAN-04 | Phase 46 | Pending |
+| PLAN-04 | Phase 46 | Complete |
 | TUI-18 | Phase 44 | Complete |
 | TUI-19 | Phase 44 | Complete |
 | NYQ-01 | Phase 47 | Pending |

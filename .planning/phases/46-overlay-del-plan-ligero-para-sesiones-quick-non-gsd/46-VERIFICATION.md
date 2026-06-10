@@ -1,8 +1,9 @@
 ---
 phase: 46-overlay-del-plan-ligero-para-sesiones-quick-non-gsd
-verified: 2026-06-10T11:30:00+02:00
-status: human_needed
+verified: 2026-06-10T12:20:00+02:00
+status: passed
 score: 6/6 must-haves verified
+human_verification_result: passed (2/2 via 46-HUMAN-UAT.md, 2026-06-10) — overlay quick/non-GSD confirmado en terminal real (sesión ROMAN-173); copy `session has not written a plan yet` en dim, no rojo
 overrides_applied: 0
 human_verification:
   - test: "Abrir el dashboard real con una sesión quick/non-GSD activa, pulsar `p` y confirmar que el plan ligero aparece con snapshot congelado, scroll con ↑↓, y `Esc` restaura el cursor sobre la misma fila por task_id"
