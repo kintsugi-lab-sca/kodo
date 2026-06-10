@@ -75,7 +75,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   2. La UX es idéntica a la del overlay GSD: snapshot congelado, copy honesta para los estados sin contenido, `Esc` preserva el cursor por `task_id`, lectura never-throws.
   3. Cero endpoints nuevos en `src/server.js`; el overlay sigue read-only.
 **Plans**: 1 plan
-- [ ] 46-01-PLAN.md — Fallback readLightPlan en `plan.js` (leaf/never-throws/anti-ReDoS) + copy `OVERLAY_PLAN_NO_LIGHT` (App.js/SessionTable.js) + tests DI puros y fix de la regresión de integración (PLAN-04)
+- [x] 46-01-PLAN.md — Fallback readLightPlan en `plan.js` (leaf/never-throws/anti-ReDoS) + copy `OVERLAY_PLAN_NO_LIGHT` (App.js/SessionTable.js) + tests DI puros y fix de la regresión de integración (PLAN-04)
 **UI hint**: yes
 **Notes**: Ya NO es condicional/cuttable (el spike desaparece — ambas fases son entregables reales). El overlay de Phase 44 añade un fallback: si la fila no es GSD (sin `phase_id`), lee el artefacto de plan ligero de Phase 45 en vez del `PLAN.md` de fase. Mismo `mode:'overlay'`, mismo snapshot, misma copy honesta. Edición quirúrgica de 3 ficheros fuente + 2 de test (cero greenfield); 1 plan / 1 wave. Regresión CONFIRMADA: `planStatus({})` hardcodea `task_id:'a'` (overlay test :448) — Task 3 la cierra (Option A: fila sin task_id preserva no-phase puro).
 
@@ -96,7 +96,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 |-------|----------------|--------|-----------|
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
 | 45. Inyección de plan ligero universal | 1/1 | Complete    | 2026-06-10 |
-| 46. Overlay del plan ligero quick/non-GSD | 0/1 | Planned     | - |
+| 46. Overlay del plan ligero quick/non-GSD | 1/1 | Complete   | 2026-06-10 |
 | 47. Backfill Nyquist | 0/? | Not started | - |
 
 ## Backlog
