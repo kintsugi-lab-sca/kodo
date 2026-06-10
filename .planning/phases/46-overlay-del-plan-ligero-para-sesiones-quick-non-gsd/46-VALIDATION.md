@@ -19,7 +19,7 @@ created: 2026-06-10
 |----------|-------|
 | **Framework** | node:test (built-in) |
 | **Config file** | none — `node --test` |
-| **Quick run command** | `node --test test/plan.test.js` |
+| **Quick run command** | `node --test test/dashboard-plan.test.js` |
 | **Full suite command** | `node --test` |
 | **Estimated runtime** | ~{N} seconds |
 
