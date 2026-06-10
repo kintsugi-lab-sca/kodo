@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.11
 milestone_name: Ventana al plan
-status: milestone_complete
-stopped_at: Milestone complete (Phase 47 was final phase)
-last_updated: 2026-06-10T10:54:51.205Z
-last_activity: 2026-06-10
+status: Awaiting next milestone
+stopped_at: Phase 47 context gathered
+last_updated: "2026-06-10T11:22:08.490Z"
+last_activity: 2026-06-10 — Milestone v0.11 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 ## Current Position
 
-Phase: 47
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-10
+Phase: Milestone v0.11 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-10 — Milestone v0.11 completed and archived
 
 ## Roadmap v0.11 (active)
 
@@ -60,23 +60,19 @@ Build order: **OVERLAY+POLISH → SPIKE → CAPTURA CONDICIONAL → NYQUIST**. P
 
 ## Deferred Items
 
-Items reconocidos y diferidos al cierre de milestones previos (ninguno bloqueante). La deuda Nyquist quedó **saldada en Phase 47 de v0.11** (NYQ-01/NYQ-02).
+Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.9/v0.10 quedó **saldada en Phase 47** (NYQ-01/NYQ-02, 7 VALIDATION.md citation-based). v0.11 introdujo su propia deuda Nyquist, diferida al cierre del milestone (audit `tech_debt`, opción A — aceptada por el usuario 2026-06-10).
 
 | Categoría | Item | Estado |
 |-----------|------|--------|
-| nyquist | Phase 36 (v0.9) VALIDATION.md → compliant (cita 36-VERIFICATION + 36-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
-| nyquist | Phase 37 (v0.9) VALIDATION.md → compliant (covered-by-UAT: 37-UAT + 37-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
-| nyquist | Phase 38 (v0.9) VALIDATION.md creado (covered-by-UAT: 38-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
-| nyquist | Phase 39 (v0.9) VALIDATION.md creado (cita 39-VERIFICATION passed 4/4) | ✓ saldado Phase 47 (NYQ-02) |
-| nyquist | Phase 39.1 (v0.9) VALIDATION.md creado (cita 39.1-VERIFICATION passed 14/14) | ✓ saldado Phase 47 (NYQ-02) |
-| nyquist | Phase 41 (v0.10) VALIDATION.md creado (cita 41-VERIFICATION passed 9/9) | ✓ saldado Phase 47 (NYQ-01) |
-| nyquist | Phase 43 (v0.10) VALIDATION.md creado (cita 43-VERIFICATION + 43-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-01) |
+| nyquist | Phase 44 (v0.11) `44-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → `/gsd:validate-phase 44` |
+| nyquist | Phase 45 (v0.11) `45-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → `/gsd:validate-phase 45` |
+| nyquist | Phase 46 (v0.11) `46-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → `/gsd:validate-phase 46` |
 | verification | Phase 37 (v0.9) sin VERIFICATION.md formal — cerrada vía 37-UAT + 37-HUMAN-UAT passed | covered-by-UAT |
 | verification | Phase 38 (v0.9) sin VERIFICATION.md formal — cerrada vía 38-HUMAN-UAT passed (firmado) | covered-by-UAT |
 | code | Ciclo de import ESM App.js ↔ SessionTable.js (constantes OVERLAY_*) — resuelto en runtime, suite verde, frágil | WARNING-01 |
-| frontmatter | `requirements_completed` vacío en summaries de 41/42/43-02 (cobertura verificada por VERIFICATION + integration) | cosmético |
+| frontmatter | `requirements_completed` vacío en summaries de 41/42/43-02 (v0.10) y 46-01/47-01 (v0.11) — cobertura verificada por VERIFICATION + integration + traceability | cosmético |
 
-Las fases archivadas viven en `.planning/milestones/v0.10-phases/` (41/43) y `.planning/milestones/v0.9-phases/` (36/37/38/39/39.1). Backfill citation-based vía `/gsd:validate-phase <N>` en Phase 47.
+La deuda Nyquist de v0.9/v0.10 saldada por Phase 47 se documenta en `milestones/v0.11-phases/47-backfill-de-deuda-nyquist/` + `v0.11-MILESTONE-AUDIT.md`. Las fases v0.11 viven en `.planning/milestones/v0.11-phases/` (44/45/46/47).
 
 ## Accumulated Context
 
@@ -136,4 +132,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Re-discutir Phase 45 con el nuevo scope: `/gsd:discuss-phase 45` (inyección de plan ligero universal).
+- Start the next milestone with /gsd-new-milestone

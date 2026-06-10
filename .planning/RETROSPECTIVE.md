@@ -325,6 +325,38 @@ Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` 
 
 ---
 
+## Milestone: v0.11 — Ventana al plan
+
+**Shipped:** 2026-06-10
+**Phases:** 4 (44-47) | **Plans:** 5 | **Commits:** 71 | **Audit:** tech_debt (8/8 reqs, 8/8 integración, 2/2 E2E; deuda Nyquist 44/45/46 diferida)
+
+### What Was Built
+"La ventana al plan": overlay que muestra el plan de cualquier sesión desde el dashboard. GSD path (`p` → `readPlan` vía `resolvePhase` lee `PLAN.md` de fase) + non-GSD/quick path (`session-start.js` inyecta instrucción de escribir plan ligero a `~/.kodo/plans/<task_id>.md`; `readLightPlan` lo lee como fallback). + pulido de dashboard (columna `phase/mode` condicional, zombie por-fila) + backfill Nyquist citation-based de v0.9/v0.10 (7 VALIDATION.md, Phase 47 doc-only).
+
+### What Worked
+- **Decisión de research que evitó construir sobre arena:** el spike previo marcó `TodoWrite` deprecado y los formatos internos de Claude Code (transcript JSONL, `~/.claude/plans/`) como no documentados/frágiles → pivote a "kodo produce activamente su propio artefacto de plan" (`~/.kodo/plans/<task_id>.md`) en vez de olfatear el plan nativo. El feature estrella descansa sobre una ruta kodo-controlada estable, no sobre internals de un tercero.
+- **El seam productor↔consumidor (Phase 45 escribe / Phase 46 lee) se verificó byte-a-byte** en el integration check: `join(KODO_DIR,'plans',task_id+'.md')` vs `join(homedir(),'.kodo','plans',taskId+'.md')` colapsan a la misma ruta. Un mismatch ahí habría hecho que el feature mostrara "no plan" silenciosamente para toda sesión non-GSD.
+- **Reuso del overlay de Phase 44 para Phase 46** (mismo `mode:'overlay'`, añadiendo solo un fallback en `plan.js`) — Phase 46 fue edición quirúrgica de 3 ficheros, cero greenfield.
+- **Cero endpoints nuevos** mantenido en las 4 fases (overlay read-only filesystem en ambos paths).
+
+### What Was Inefficient
+- **La deuda Nyquist se reprodujo dentro del mismo milestone que la saldó.** Phase 47 backfilleó la Nyquist de v0.9/v0.10, pero 44/45/46 quedaron con sus propios VALIDATION.md `draft`/non-compliant (stubs de plan-time nunca backfilled). El audit lo destapó: el milestone shippea con la misma clase de deuda que acababa de cerrar. Patrón sistémico: la validation-strategy step crea el stub pero nada fuerza su backfill antes del cierre.
+- **Frontmatter `requirements_completed` vacío otra vez** (46-01, 47-01) — misma deuda cosmética que v0.10 (41/42/43-02). Recurrente; el executor no rellena el campo y nadie lo verifica hasta el audit.
+
+### Patterns Established
+- **kodo produce su propio artefacto en vez de olfatear el de un tercero:** cuando el formato de un upstream es frágil/no documentado, inyectar una instrucción para que el agente escriba a una ruta kodo-controlada estable es más robusto que parsear internals.
+- **Contrato de ruta byte-idéntico entre productor y consumidor en fases separadas** debe verificarse explícitamente (no asumirse) — es el punto de fallo silencioso más probable de un feature cross-phase.
+
+### Key Lessons
+- Un milestone que salda deuda Nyquist debe auditar **su propia** cobertura Nyquist antes de cerrar, o reproduce la deuda. El stub `draft` de la validation-strategy step necesita un gate de backfill.
+- El audit de milestone (cross-phase integration + E2E) sigue aportando sobre la verificación per-fase: confirmó el seam 45→46 que ninguna VERIFICATION individual cubría.
+
+### Cost Observations
+- Model mix: opus (orquestación discuss→plan→execute→verify de las 4 fases + audit) + sonnet (checker/verifier/integration-checker).
+- Notable: pipeline `--auto` (discuss→plan→execute→verify) llevó Phase 47 de cero a complete en una sola cadena; el audit de milestone se ejecutó como gate opcional (opción del usuario) antes del cierre y capturó la deuda Nyquist propia.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -339,6 +371,8 @@ Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` 
 | v0.7 | 11 | 5 | 2º adapter (GitHub) validando la promesa provider-agnostic + 3er canal trigger (polling daemon) + cross-provider contract matrix |
 | v0.8 | 20 | 6 | Cherry-pick selectivo de rama paralela + planning regen + discriminated union return CONSUMIDO + phase de cierre de tech-debt (32/33) como patrón |
 | v0.9 | 23 | 7 | Primera superficie UI (TUI ink/react sin build step): derive-pura React-free + never-throws en data layer + selección por identidad + UAT manual como gate de cierre para fases GUI |
+| v0.10 | 10 | 4 | Dogfooding/verificación-en-vivo como gate de cierre (3 bugs reales no cazados por suite) + 1ª ruptura consciente de invariante (TUI read-only → dismiss read-write) con UAT firmado |
+| v0.11 | 5 | 4 | kodo produce su propio artefacto (plan ligero) en vez de olfatear internals frágiles de un tercero + verificación byte-a-byte del contrato de ruta cross-phase + audit de milestone como gate opcional pre-cierre |
 
 ### Cumulative Quality
 

@@ -1,5 +1,17 @@
 # Milestones
 
+## v0.11 Ventana al plan (Shipped: 2026-06-10)
+
+**Phases completed:** 4 phases, 5 plans, 6 tasks
+
+**Key accomplishments:**
+
+- A pure React-free `deriveAnyGsd(rows)` computed over the unfiltered `sorted` set that conditionally drops the `phase/mode` column (header + every data cell) when no active session is GSD, plus an additive per-row `(zombie)` mark in the `state` cell whose red is read from the existing `statusColor` — zero new color, zero picocolors, zero RegExp, COLS.state widened 16→18.
+- buildSessionContext (ES) y la rama quick de buildGsdContext (EN) inyectan una instrucción de una línea que dirige a la sesión a escribir un plan corto en `~/.kodo/plans/<task_id>.md` (ruta resuelta vía KODO_DIR), preservando golden-bytes y la D-04 common-block invariance.
+- Task 1 — NYQ-01 (v0.10, 2 NEW):
+
+---
+
 ## v0.10 Higiene y estado real de sesiones (Shipped: 2026-06-08)
 
 **Phases completed:** 4 phases (40-43), 10 plans · 118 commits desde v0.9 · suite 1213 pass + 1 skip
