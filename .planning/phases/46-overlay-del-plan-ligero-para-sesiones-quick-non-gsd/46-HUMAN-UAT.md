@@ -37,5 +37,6 @@ blocked: 0
   severity: minor
   scope: Pre-existente desde Phase 44 (que introdujo `p`); el footer tampoco anuncia `c` (comments) ni `l` (logs). NO es una regresión de Phase 46 — el overlay funciona; es discoverability de teclas auxiliares.
   recommendation: Añadir `c comments · l logs · p plan` (o equivalente) al footer de hints. Fix quirúrgico de 1 línea + assert de test. Candidato a follow-up de pulido (afecta superficies de Phase 39/44/46).
+  status: resolved (commit `2eb14ad`) — footer ahora reza `↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · q quit`; suite 1263/1263 verde.
 
 ## Gaps
