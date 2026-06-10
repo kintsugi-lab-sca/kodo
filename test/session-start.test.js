@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { buildSessionContext, buildGsdContext } from '../src/hooks/session-start.js';
+import { KODO_DIR } from '../src/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'session-start.js');
@@ -93,6 +94,41 @@ describe('session-start.js — buildSessionContext', () => {
     assert.match(context, /Refactor auth module/);
     assert.match(context, /sess-42/);
     assert.match(context, /\/home\/user\/project/);
+  });
+
+  // Phase 45 PLAN-03: instrucción ES de plan ligero (non-GSD).
+  it('PLAN-03 ES presencia: inyecta instrucción de escribir un plan corto (D-08 español)', () => {
+    const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    assert.match(context, /Además, al empezar escribe un plan corto/);
+  });
+
+  it('PLAN-03 ruta resuelta: el output contiene join(KODO_DIR, "plans", "<task_id>.md") (Pitfall 3)', () => {
+    const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    const expectedPath = join(KODO_DIR, 'plans', 'uuid-abc.md');
+    assert.ok(
+      context.includes(expectedPath),
+      `output must contain resolved path ${expectedPath}`,
+    );
+  });
+
+  it('PLAN-03 sin literal: el output NO contiene la subcadena "<task_id>"', () => {
+    const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    assert.ok(!context.includes('<task_id>'), 'path must be resolved, not templated');
+  });
+
+  it('PLAN-03 golden-bytes HOOK-02: la instrucción va DESPUÉS del bloque Anti-push, prefijo intacto', () => {
+    const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    const antiPushGood = 'Good: "Deploy quedará efectivo una vez se haga `git push origin main`."';
+    const instrIdx = context.indexOf('Además, al empezar escribe un plan corto');
+    const antiPushIdx = context.indexOf(antiPushGood);
+    assert.ok(antiPushIdx >= 0, 'Anti-push block must still be present (golden-bytes)');
+    assert.ok(instrIdx > antiPushIdx, 'plan instruction must come AFTER the Anti-push block');
+  });
+
+  it('PLAN-03 complementariedad D-09: la instrucción NO sustituye el comentario-al-provider', () => {
+    const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    assert.match(context, /\*\*1\. Al empezar\*\* — comenta tu plan de acción/);
+    assert.match(context, /Además, al empezar escribe un plan corto/);
   });
 });
 
