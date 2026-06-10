@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.11
 milestone_name: Ventana al plan
-status: executing
+status: verifying
 stopped_at: Phase 45 context gathered
-last_updated: "2026-06-10T08:06:46.445Z"
-last_activity: 2026-06-10 -- Phase 45 planning complete
+last_updated: "2026-06-10T08:13:38.024Z"
+last_activity: 2026-06-10
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 2
-  percent: 25
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añadió una superficie de observabilidad en terminal (`kodo dashboard`) read-only; v0.10 la promovió a gestión (dismiss). v0.11 profundiza la observabilidad: ver el plan de cada sesión sin salir de la TUI.
 
-**Current focus:** Phase 45 — inyección de plan ligero universal (pivote 2026-06-09: el spike de captura vía hook fue descartado)
+**Current focus:** Phase 45 — inyecci-n-de-plan-ligero-universal
 
 ## Current Position
 
-Phase: 45
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-10 -- Phase 45 planning complete
+Phase: 45 (inyecci-n-de-plan-ligero-universal) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-06-10
 
 ## Roadmap v0.11 (active)
 
@@ -87,6 +87,7 @@ Las fases archivadas viven en `.planning/milestones/v0.10-phases/` (41/43) y `.p
 - **TUI-18/TUI-19 (pulido) plegados en Phase 44** junto al overlay GSD (PLAN-01/02): mismo concern (`src/cli/dashboard/`), granularidad coarse → fewer cohesive phases. Watch: ediciones compartidas en `select.js`/`format.js`/`App.js` al planificar.
 - **NYQ-01/NYQ-02 (Phase 47) como última fase, doc-only Tier 1:** `git diff -- src/ test/ bin/` debe quedar vacío; independiente de las demás fases.
 - **Cero endpoints nuevos preservado:** el overlay de plan lee el filesystem directamente (`.planning/phases/<fase>/<N>-NN-PLAN.md` vía `resolvePhase`), espejo de cómo `focus.js` invoca cmux — no se añaden endpoints al server salvo decisión explícita en discuss-phase.
+- **Phase 45 PLAN-03 (ejecutado 2026-06-10):** instrucción de plan ligero universal inyectada en `buildSessionContext` (ES, non-GSD) y en la rama `mode === 'quick'` de `buildGsdContext` (EN). Ruta resuelta `~/.kodo/plans/<task_id>.md` vía `join(KODO_DIR, 'plans', \`${task_id}.md\`)` — sin literal `<task_id>`. El hook NO hace I/O (D-03): solo emite el string; la sesión escribe el fichero (latest-wins, D-06). Golden-bytes (HOOK-02) y D-04 common-block invariance preservados; ramas phase/bootstrap byte-idénticas. Habilita el overlay de Phase 46.
 
 ### Roadmap Evolution
 
@@ -123,7 +124,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-09T23:12:25.227Z
+- **Last session:** 2026-06-10T08:13:38.016Z
 - **Stopped at:** Phase 45 context gathered
 - **Next action:** `/gsd:discuss-phase 45` con el nuevo scope (inyección de plan ligero en `session-start.js`). Phase 44 ya shipped; Phase 46 (overlay del plan ligero) depende de 45.
 - **Files of record:**
