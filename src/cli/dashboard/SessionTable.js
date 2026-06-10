@@ -33,6 +33,7 @@ import {
   OVERLAY_LOGS_LABEL,
   OVERLAY_PLAN_NO_PHASE,
   OVERLAY_PLAN_NO_PLAN,
+  OVERLAY_PLAN_NO_LIGHT,
   OVERLAY_PLAN_ERROR,
   OVERLAY_VIEWPORT,
   DISMISS_CONFIRM,
@@ -156,6 +157,12 @@ function renderOverlay(snap, scrollOffset, kind) {
     } else if (snap.status === 'no-plan') {
       // Phase 44 D-07: fase resuelta pero sin ningún PLAN.md. Informativo (dim) y DISTINTO de no-phase.
       copy = OVERLAY_PLAN_NO_PLAN;
+    } else if (snap.status === 'no-light-plan') {
+      // Phase 46 D-04: sesión quick/non-GSD cuyo artefacto de plan ligero aún no existe (ENOENT).
+      // Informativo (dim, SIN color → cae a dimColor:true en la línea 174), NO rojo: es normal,
+      // no un fallo. Solo lo produce el fallback de plan (readLightPlan), por eso es seguro en el
+      // switch compartido plan/logs/comments (ningún otro overlay emite este status).
+      copy = OVERLAY_PLAN_NO_LIGHT;
     } else if (snap.status === 'not-found') {
       copy = OVERLAY_COMMENTS_NOT_FOUND;
       color = 'red';

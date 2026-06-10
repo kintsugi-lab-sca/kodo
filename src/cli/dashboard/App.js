@@ -105,10 +105,17 @@ export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other s
 // OVERLAY_COMMENTS_*. EXPORTADAS para que tests y SessionTable.js las importen sin duplicar strings
 // (mismo patrón que OVERLAY_COMMENTS_*). El contrato es "DISTINTA por caso" + "honesta" (D-07): el
 // operador distingue de un vistazo "no es GSD / no hay fase" de "la fase aún no tiene PLAN.md" de
-// "hubo un error leyendo". Las dos primeras son informativas (dim); ERROR es un fallo real (rojo).
+// "es quick pero aún no escribió su plan" de "hubo un error leyendo". Las tres primeras son
+// informativas (dim); ERROR es un fallo real (rojo).
 // Redundancia textual: legibles bajo NO_COLOR, no dependen del color para distinguirse.
+//
+// Phase 46 D-04 (PLAN-04): cuarto caso — sesión quick/non-GSD cuyo artefacto de plan ligero
+// (`~/.kodo/plans/<task_id>.md`) aún no existe (ENOENT). Es NORMAL y esperado (latest-wins: la
+// sesión puede no haber corrido la instrucción todavía), NO un fallo → dim, no rojo. DISTINTA de
+// NO_PHASE ("no es GSD") y de NO_PLAN ("fase sin PLAN.md", GSD-specific que mentiría sobre quick).
 export const OVERLAY_PLAN_NO_PHASE = 'not a GSD session / no phase resolved';
 export const OVERLAY_PLAN_NO_PLAN = 'phase has no PLAN.md yet';
+export const OVERLAY_PLAN_NO_LIGHT = 'session has not written a plan yet';
 export const OVERLAY_PLAN_ERROR = 'error reading plan';
 
 // Phase 42 D-02/D-04/D-09 (DISMISS-02/03/04): copy literal-estable del flujo de dismiss.
