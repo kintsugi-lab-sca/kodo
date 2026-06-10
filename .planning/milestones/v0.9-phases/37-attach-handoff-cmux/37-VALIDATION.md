@@ -1,16 +1,21 @@
 ---
 phase: 37
 slug: attach-handoff-cmux
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-05-28
+backfilled: 2026-06-10
 ---
 
 # Phase 37 — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
 > **REVISED 2026-05-28** tras hallazgo C-01: el verbo cmux es `select-workspace` (fire-and-forget), no `attach` (handoff TTY). Los tests load-bearing automatizables siguen aplicando con `exec` fake en vez de `spawn` fake.
+> **Backfill Nyquist 2026-06-10 (Phase 47, NYQ-02):** togglado a compliant. Phase 37 cerró
+> **covered-by-UAT** (sin VERIFICATION.md formal — ver fila `verification` en STATE.md): la
+> evidencia citada es `37-UAT.md` (status passed, 6/6 goal-backward) + `37-HUMAN-UAT.md`
+> (2/2 obligatorios passed en TTY real, firmado por Alex Núñez). **Sin re-ejecutar la suite** (D-03).
 
 ---
 
@@ -39,17 +44,19 @@ created: 2026-05-28
 
 > El planner llena esta tabla con `{N}-XX-YY` task IDs concretos al generar los PLAN.md. Aquí se prefigura el target de cobertura por Wave 0 y por requirement.
 
-| Wave 0 Test | Plan | Requirement | Test Type | Automated Command | Status |
-|-------------|------|-------------|-----------|-------------------|--------|
-| `runFocus({ok:true})` con `exec` fake → asserta args literales `['select-workspace', '--workspace', ref]` | TBD | TUI-13 | unit | `node --test test/dashboard/focus.test.js -g "ok path"` | ⬜ pending |
-| `runFocus` con `exec` fake que callback `err.code='ENOENT'` → `{ok:false, code:'ENOENT'}` | TBD | TUI-14 | unit | `node --test test/dashboard/focus.test.js -g "ENOENT"` | ⬜ pending |
-| `runFocus` con `exec` fake que callback `err.code=7` → `{ok:false, code:'NON_ZERO_EXIT', detail:7}` | TBD | TUI-14 | unit | `node --test test/dashboard/focus.test.js -g "non-zero exit"` | ⬜ pending |
-| `runFocus` con `exec` que SÍNCRONAMENTE throws → `{ok:false, code:'SPAWN_ERROR'}` (never-throws contract) | TBD | TUI-14 | unit | `node --test test/dashboard/focus.test.js -g "never throws"` | ⬜ pending |
-| App Enter sobre fila `alive:false` → `lastFrame()` contiene `'workspace gone (alive=false) — press any key'` rojo; `onFocus` NUNCA llamado | TBD | TUI-14 | integration | `node --test test/dashboard/app-focus.test.js -g "alive false guard"` | ⬜ pending |
-| App con `focusError` seteado + cualquier tecla → `focusError===null`, footer normal restaurado | TBD | TUI-14 | integration | `node --test test/dashboard/app-focus.test.js -g "clear on any input"` | ⬜ pending |
-| `test/format-isolation.test.js` extendido (auto) cubre `src/cli/dashboard/focus.js` por color-isolation | (existing) | TUI-13 invariant | unit | `node --test test/format-isolation.test.js` | ✅ (existing walker) |
+| Requirement | Dimensión / Secure Behavior | Test Type | Automated Command | Evidencia citada (`37-UAT.md` / `37-HUMAN-UAT.md`) | Status |
+|-------------|-----------------------------|-----------|-------------------|----------------------------------------------------|--------|
+| TUI-13 | Focus exitoso: Enter sobre fila alive invoca `cmux select-workspace --workspace <ref>` vía `execFile`, args literales; dashboard intacto | unit + UAT | `node --test test/dashboard/focus.test.js` | `37-UAT.md` test #1 passed (`focus.test.js` 5/5 ok+args); `37-HUMAN-UAT.md` Escenario 1 passed (TTY real 2026-05-29, `workspace:16`, focus GUI visible) | ✅ green |
+| TUI-14 | Zombie reject: `alive===false` cortocircuita ANTES de `runFocus`; footer rojo literal `FOCUS_ERR_ZOMBIE`; cmux jamás invocado; clear-on-any-input | unit + integration + UAT | `node --test test/dashboard/focus.test.js test/dashboard/app-focus.test.js` | `37-UAT.md` tests #2/#3 passed (focus 5/5 discriminated union ENOENT/NON_ZERO_EXIT/SPAWN_ERROR; app-focus 3/3); `37-HUMAN-UAT.md` Escenario 2 passed (footer literal byte-stable, guard D-02 confirmado) | ✅ green |
+| TUI-13 invariant | NO-PICOCOLORS en `src/cli/dashboard/focus.js`; never-throws; NO-STDIO-INHERIT; alt-screen/SIGINT/SIGTERM intactos | unit (walker) + grep | `node --test test/format-isolation.test.js` | `37-UAT.md` tests #5/#6 passed (`format-isolation` 8/8; grep estructural: alt-screen solo index.js:129/155, SIGTERM Phase 34 intacto) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+> **Backfill Nyquist (Phase 47):** Phase 37 NO tiene VERIFICATION.md formal (covered-by-UAT,
+> fila `verification` en STATE.md). La evidencia equivalente per D-03 es `37-UAT.md`
+> (status passed, 6/6: 4 Success Criteria + 2 goal-backward, suite 965 pass / 0 fail / 1 skip)
+> y `37-HUMAN-UAT.md` (2/2 obligatorios passed en TTY real, firmado por Alex Núñez,
+> commit `98cf8fa`). Ningún requisito declarado N/A. Sin re-corrida de la suite.
 
 ---
 
@@ -79,12 +86,12 @@ created: 2026-05-28
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references (focus.test.js + app-focus.test.js)
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 5s
-- [ ] `37-HUMAN-UAT.md` exists con 2 escenarios obligatorios estructurados (D-08)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] Cada requirement (TUI-13/14) mapeado a ≥1 cita de evidencia real (UAT — covered-by-UAT, D-03)
+- [x] Sampling continuity: cobertura automatizada verde (focus 5/5 + app-focus 3/3 + walker 8/8)
+- [x] Wave 0 covers all MISSING references (resuelto — `focus.test.js` + `app-focus.test.js` verde)
+- [x] No watch-mode flags
+- [x] Feedback latency < 5s
+- [x] `37-HUMAN-UAT.md` exists con 2 escenarios obligatorios passed (D-08, firmado)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-06-10 (backfill Phase 47, NYQ-02 — covered-by-UAT: cita `37-UAT.md` passed 6/6 + `37-HUMAN-UAT.md` 2/2 obligatorios firmados; sin re-ejecutar la suite)

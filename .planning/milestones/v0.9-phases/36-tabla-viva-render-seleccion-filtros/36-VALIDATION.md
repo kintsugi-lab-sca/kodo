@@ -1,15 +1,20 @@
 ---
 phase: 36
 slug: tabla-viva-render-seleccion-filtros
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-05-27
+backfilled: 2026-06-10
 ---
 
 # Phase 36 — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
+> **Backfill Nyquist 2026-06-10 (Phase 47, NYQ-02):** togglado a compliant citando la
+> evidencia empírica preexistente (`36-VERIFICATION.md` passed 6/6 + `36-HUMAN-UAT.md` 3/3).
+> Estructura original (Test Infrastructure, Sampling, Wave 0, Manual-Only) preservada intacta.
+> **Sin re-ejecutar la suite** — la tabla cita fichero + resultado real (D-03).
 
 ---
 
@@ -40,16 +45,20 @@ created: 2026-05-27
 > as PURE `resolveSelection` tests (per RESEARCH.md — `ink-testing-library@4` lacks
 > `waitUntilExit()`; frame-diffing selection is brittle).
 
-| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
-|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | — | — | TUI-08 | — | selección sigue a `task_id` tras reorder/desaparición (resolveSelection puro) | unit | `node --test test/dashboard-select.test.js` | ❌ W0 | ⬜ pending |
-| TBD | — | — | TUI-12 | — | cursor preservado al aplicar/limpiar filtro (resolveSelection puro) | unit | `node --test test/dashboard-select.test.js` | ❌ W0 | ⬜ pending |
-| TBD | — | — | TUI-07/09 | — | columnas + orden estable por `started_at` (formato/sort puros + frame) | unit | `node --test test/dashboard-table.test.js` | ❌ W0 | ⬜ pending |
-| TBD | — | — | TUI-10 | — | color status+alive + zombie distinguible sin color | unit | `node --test test/dashboard-format.test.js` | ❌ W0 | ⬜ pending |
-| TBD | — | — | TUI-11 | — | header live + contadores; vacío "no active sessions" | unit | `node --test test/dashboard-table.test.js` | ❌ W0 | ⬜ pending |
-| TBD | — | — | TUI-12 | — | filtros `/` substring + prefijos `r:`/`s:` (applyFilter puro) | unit | `node --test test/dashboard-filter.test.js` | ❌ W0 | ⬜ pending |
+| Requirement | Plan | Dimensión / Secure Behavior | Test Type | Automated Command | Evidencia citada (`36-VERIFICATION.md` / `36-HUMAN-UAT.md`) | Status |
+|-------------|------|-----------------------------|-----------|-------------------|------------------------------------------------------------|--------|
+| TUI-07 | 36-01/02 | Columnas `task_ref · repo · phase/mode · status · age` con COLS fijos | unit (frame) | `node --test test/dashboard-table.test.js` | VERIF Truth #1 ✓ VERIFIED (`SessionTable.js:166-175`; test :148-164 verde); HUMAN-UAT #1 layout TTY real passed | ✅ green |
+| TUI-08 | 36-01/03 | Selección por identidad `task_id`, sobrevive reorder/refresh (`resolveSelection` puro) | unit | `node --test test/dashboard-select.test.js` | VERIF Truth #2 ✓ VERIFIED (`resolveSelection` select.js:74-80; nav App.js:207-216) | ✅ green |
+| TUI-09 | 36-01/02 | Orden estable DESC por `started_at`, tiebreak `task_id` (fix WR-01) | unit | `node --test test/dashboard-select.test.js` | VERIF Truth #3 ✓ VERIFIED (`sortSessions` NaN→0, commit 43e790f; test :115-188) | ✅ green |
+| TUI-10 | 36-01/02 | Color `status+alive`; zombie `running (zombie)` distinguible sin color | unit + UAT | `node --test test/dashboard-format.test.js` | VERIF Truth #4 ✓ VERIFIED (`statusColor/statusLabel` format.js:91-110); HUMAN-UAT #2 zombie rojo legible passed | ✅ green |
+| TUI-11 | 36-01/02 | Header live + contadores (zombie aparte); vacío "no active sessions" | unit (frame) | `node --test test/dashboard-table.test.js` | VERIF Truth #5 ✓ VERIFIED (`countsLabel` SessionTable.js:61-69; tres ramas D-12; test :177-256) | ✅ green |
+| TUI-12 | 36-01/03 | Filtro `/` substring + prefijos `r:`/`s:` (`String.includes`, nunca RegExp); cursor preservado (fix CR-01) | unit + UAT | `node --test test/dashboard-select.test.js test/dashboard-table.test.js` | VERIF Truth #6 + §CR-01 ✓ VERIFIED (`parseFilter/applyFilter` select.js:91-131; guard `sel.taskId != null` commit 8edb871; test regresión :386-434); HUMAN-UAT #3 filtro modal passed | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+> **Backfill Nyquist (Phase 47):** las 6 dimensiones quedan cubiertas por `36-VERIFICATION.md`
+> (passed 6/6 must-haves; suite confirmatoria 957 pass / 0 fail / 1 skip) + `36-HUMAN-UAT.md`
+> (3/3 items passed en TTY real, hot-patches 116cb1e + ca61733 validados). Sin re-corrida.
 
 ---
 
@@ -76,11 +85,11 @@ created: 2026-05-27
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 22s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] Cada requirement (TUI-07..12) mapeado a ≥1 cita de evidencia real en `36-VERIFICATION.md`
+- [x] Sampling continuity: cobertura automatizada verde para las 6 dimensiones
+- [x] Wave 0 covers all MISSING references (resuelto — tests escritos durante la ejecución, verde)
+- [x] No watch-mode flags
+- [x] Feedback latency < 22s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-06-10 (backfill Phase 47, NYQ-02 — cita `36-VERIFICATION.md` passed 6/6 + `36-HUMAN-UAT.md` 3/3; sin re-ejecutar la suite)
