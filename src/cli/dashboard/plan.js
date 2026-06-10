@@ -8,11 +8,22 @@
 // directorio de fase de `src/gsd/verify.js:123-186` (NO se importa — se copia la forma)
 // y del contrato never-throws de `client.js`/los overlays `c`/`l`.
 //
-// Contrato: readPlan(row, deps) → { status: 'ok'|'no-phase'|'no-plan'|'error', lines: string[] }
-//   - 'no-phase' : la fila no resuelve a una fase GSD (sin phase_id y sin fallback útil).
-//   - 'no-plan'  : la fase resuelve pero no hay árbol `.planning/phases` o ningún `*-PLAN.md`.
-//   - 'error'    : la lectura del filesystem falló de forma no-ENOENT (EACCES/EMFILE/…).
-//   - 'ok'       : se leyó al menos un `*-PLAN.md`; `lines` es el contenido plano concatenado.
+// Contrato: readPlan(row, deps) → { status: 'ok'|'no-phase'|'no-plan'|'no-light-plan'|'error', lines: string[] }
+//   - 'no-phase'      : la fila no resuelve a una fase GSD (sin phase_id) Y sin task_id utilizable.
+//   - 'no-plan'       : la fase GSD resuelve pero no hay árbol `.planning/phases` o ningún `*-PLAN.md`.
+//   - 'no-light-plan' : Phase 46 — fila quick/non-GSD (phaseId == null) con task_id, pero el artefacto
+//                       de plan ligero `~/.kodo/plans/<task_id>.md` aún no existe (ENOENT). Copy honesta
+//                       distinta de no-phase/no-plan (D-04); es informativo, no un error.
+//   - 'error'         : la lectura del filesystem falló de forma no-ENOENT (EACCES/EMFILE/…).
+//   - 'ok'            : se leyó el plan; `lines` es el contenido plano (GSD: *-PLAN.md concatenados;
+//                       light: el markdown del artefacto línea a línea).
+//
+// FALLBACK PLAN LIGERO (Phase 46 PLAN-04, D-01..D-09): cuando phaseId queda `null` (rama no-phase) pero
+// la fila lleva un `task_id`, readPlan delega en `readLightPlan` que lee el artefacto de Phase 45
+// (`~/.kodo/plans/<task_id>.md`). GSD tiene prioridad (D-02): el fallback solo dispara en la rama
+// phaseId==null; las filas con phase_id siguen leyendo su PLAN.md exactamente igual. Mapeo D-05:
+// contenido→'ok', ENOENT→'no-light-plan', otro→'error'. Leaf-isolation preservada (D-07): se importa
+// `homedir` de `node:os` (builtin), NO `src/config.js` — se replica la convención `join(homedir(),'.kodo')`.
 //
 // NEVER-THROWS (D-05): TODA lectura de filesystem (readdir, readFile) Y la llamada al
 // fallback `resolvePhaseFn` está envuelta de modo que ningún error llegue a React. Un
@@ -29,19 +40,52 @@
 
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+// D-07: node:os es builtin → preserva la leaf-isolation. Misma convención que config.js:4,6
+// (`join(homedir(), '.kodo')`). NO se importa src/config.js para no acoplar el leaf a su I/O.
+import { homedir } from 'node:os';
 
 /**
- * @typedef {{ status: 'ok'|'no-phase'|'no-plan'|'error', lines: string[] }} PlanResult
+ * @typedef {{ status: 'ok'|'no-phase'|'no-plan'|'no-light-plan'|'error', lines: string[] }} PlanResult
  */
+
+/**
+ * Lee el artefacto de plan ligero de Phase 45 (`~/.kodo/plans/<taskId>.md`) para una fila
+ * quick/non-GSD. Privado (no exportado), síncrono, never-throws (D-05/D-09).
+ *
+ * Mapeo D-05: contenido → 'ok' (render plano línea a línea, igual que un PLAN.md);
+ * ENOENT → 'no-light-plan' (artefacto ausente, copy honesta D-04); otro (EACCES/sin .code) → 'error'.
+ * El caller (readPlan) ya garantiza que `taskId` es truthy y sin separadores de ruta (guard D-09),
+ * así que la ruta construida `join(plansDir, taskId + '.md')` nunca escapa del root fijo.
+ *
+ * @param {string} taskId  UUID del provider (sin separadores de ruta; validado por el caller).
+ * @param {{ readFileFn?: (p: string) => string, kodoPlansDir?: string, homedirFn?: () => string }} deps
+ *   `kodoPlansDir` aísla el HOME en tests (D-08); sin él, default `join(homedir(), '.kodo', 'plans')`.
+ * @returns {PlanResult}
+ */
+function readLightPlan(taskId, deps) {
+  const readFileFn = deps.readFileFn || ((p) => readFileSync(p, 'utf-8'));
+  // Ruta CONSTRUIDA (no derivada de input por regex, D-09). Byte-idéntica al productor
+  // session-start.js:85,145: join(homedir(), '.kodo', 'plans', `${task_id}.md`).
+  const plansDir = deps.kodoPlansDir || join((deps.homedirFn || homedir)(), '.kodo', 'plans');
+  try {
+    const md = readFileFn(join(plansDir, `${taskId}.md`));
+    return { status: 'ok', lines: md.split('\n') }; // render plano (igual que plan.js:126)
+  } catch (err) {
+    const code = /** @type {NodeJS.ErrnoException} */ (err)?.code;
+    if (code === 'ENOENT') return { status: 'no-light-plan', lines: [] }; // ausente → honesta (D-04)
+    return { status: 'error', lines: [] }; // EACCES/sin .code → error (never-throws)
+  }
+}
 
 /**
  * Lee el/los `PLAN.md` de la fase GSD de una fila del dashboard. Síncrono, never-throws.
  *
- * @param {{ phase_id?: string|null, project_path?: string, worktree_path?: string, summary?: string, task_ref?: string }} row
+ * @param {{ phase_id?: string|null, task_id?: string, project_path?: string, worktree_path?: string, summary?: string, task_ref?: string }} row
  *   Fila revalidada por task_id (spread de SessionRecord en GET /status). NO lleva task.title.
- * @param {{ readdirFn?: (p: string) => string[], readFileFn?: (p: string) => string, existsFn?: (p: string) => boolean, resolvePhaseFn?: (params: { projectPath: string|undefined, task: { title: string, ref?: string } }) => any }} [deps]
+ * @param {{ readdirFn?: (p: string) => string[], readFileFn?: (p: string) => string, existsFn?: (p: string) => boolean, resolvePhaseFn?: (params: { projectPath: string|undefined, task: { title: string, ref?: string } }) => any, kodoPlansDir?: string, homedirFn?: () => string }} [deps]
  *   Inyección de dependencias para tests; por defecto los syncs de node:fs. `resolvePhaseFn`
- *   NO tiene default — el fallback solo corre cuando el caller lo provee (App.js inyecta resolvePhase).
+ *   NO tiene default — el fallback GSD solo corre cuando el caller lo provee (App.js inyecta resolvePhase).
+ *   `kodoPlansDir`/`homedirFn` (D-08): aíslan el HOME del fallback de plan ligero en tests.
  * @returns {PlanResult}
  */
 export function readPlan(row, deps = {}) {
@@ -66,7 +110,18 @@ export function readPlan(row, deps = {}) {
       // colapsa a 'no-phase' abajo (igual que un no-match).
     }
   }
-  if (phaseId == null) return { status: 'no-phase', lines: [] };
+  // Phase 46 (D-02/D-03/D-06): GSD tiene prioridad. Solo cuando phaseId queda `null` se intenta el
+  // fallback de plan ligero. El guard de contención (D-09) vive AQUÍ, en el call-site, para mantener
+  // un solo punto de decisión: un task_id ausente/falsy O con separadores de ruta degrada a 'no-phase'
+  // terminal (D-06), y readLightPlan solo se invoca con un taskId ya validado (nunca lee fuera del root).
+  if (phaseId == null) {
+    const taskId = row?.task_id;
+    // String.includes (NO RegExp, D-13/anti-ReDoS) — espejo del guard WR-01 de las líneas de abajo.
+    const usable =
+      taskId && !taskId.includes('/') && !taskId.includes('\\') && !taskId.includes('..');
+    if (usable) return readLightPlan(taskId, deps); // mapeo D-05 dentro del helper
+    return { status: 'no-phase', lines: [] }; // terminal: sin task_id utilizable (D-06)
+  }
 
   const base = row?.worktree_path ?? row?.project_path;
   if (!base) return { status: 'no-phase', lines: [] };
