@@ -243,6 +243,99 @@ describe('readPlan — estados vacíos / errores discriminados (D-05)', () => {
   });
 });
 
+describe('readPlan — fallback plan ligero (D-05/D-08/D-09)', () => {
+  // Phase 46 PLAN-04: cuando phaseId == null pero la fila lleva task_id, readPlan cae al
+  // artefacto de plan ligero de Phase 45 (~/.kodo/plans/<task_id>.md). Override DI
+  // `kodoPlansDir` aísla el HOME (D-08) — sin disco real, sin tocar el HOME del runner.
+  const PLANS = '/fake-home/.kodo/plans';
+
+  it('task_id + artefacto presente → status ok, lines incluyen el contenido', () => {
+    const deps = {
+      kodoPlansDir: PLANS,
+      readFileFn: (p) => {
+        if (p === `${PLANS}/task-abc.md`) return '# Mi plan\npaso uno\npaso dos';
+        const err = new Error(`ENOENT: ${p}`);
+        // @ts-expect-error code
+        err.code = 'ENOENT';
+        throw err;
+      },
+    };
+    const res = readPlan({ task_id: 'task-abc' }, deps);
+    assert.equal(res.status, 'ok');
+    assert.ok(res.lines.includes('paso uno'), `lines debe incluir el contenido\n${res.lines.join('\n')}`);
+    assert.ok(res.lines.includes('paso dos'));
+  });
+
+  it('task_id + ENOENT (artefacto ausente) → status no-light-plan', () => {
+    const deps = {
+      kodoPlansDir: PLANS,
+      readFileFn: (p) => {
+        const err = new Error(`ENOENT: ${p}`);
+        // @ts-expect-error code
+        err.code = 'ENOENT';
+        throw err;
+      },
+    };
+    const res = readPlan({ task_id: 'task-abc' }, deps);
+    assert.equal(res.status, 'no-light-plan');
+    assert.deepEqual(res.lines, []);
+  });
+
+  it('task_id + EACCES (artefacto ilegible) → status error', () => {
+    const deps = {
+      kodoPlansDir: PLANS,
+      readFileFn: () => {
+        const err = new Error('EACCES');
+        // @ts-expect-error code
+        err.code = 'EACCES';
+        throw err;
+      },
+    };
+    const res = readPlan({ task_id: 'task-abc' }, deps);
+    assert.equal(res.status, 'error');
+    assert.deepEqual(res.lines, []);
+  });
+
+  it('sin phase_id Y sin task_id → status no-phase (D-06 terminal)', () => {
+    const res = readPlan({}, { kodoPlansDir: PLANS });
+    assert.equal(res.status, 'no-phase');
+    assert.deepEqual(res.lines, []);
+  });
+
+  it('readFileFn lanza un Error plano sin .code → status error AND never-throws (D-09)', () => {
+    const deps = {
+      kodoPlansDir: PLANS,
+      readFileFn: () => {
+        throw new Error('boom (sin code)');
+      },
+    };
+    let res;
+    assert.doesNotThrow(() => {
+      res = readPlan({ task_id: 'task-abc' }, deps);
+    });
+    assert.equal(res.status, 'error');
+    assert.deepEqual(res.lines, []);
+  });
+
+  it('task_id con path-traversal → no lee fuera de plansDir (guard de contención D-09)', () => {
+    let readPath = null;
+    const deps = {
+      kodoPlansDir: PLANS,
+      readFileFn: (p) => {
+        readPath = p;
+        const err = new Error(`ENOENT: ${p}`);
+        // @ts-expect-error code
+        err.code = 'ENOENT';
+        throw err;
+      },
+    };
+    const res = readPlan({ task_id: '../../etc/passwd' }, deps);
+    // El guard trata el task_id no utilizable igual que falsy → no-phase terminal (D-06).
+    assert.equal(res.status, 'no-phase', 'un task_id con separadores degrada a no-phase, no escapa del root');
+    assert.equal(readPath, null, 'readFileFn NUNCA se invoca con una ruta que escape de plansDir');
+  });
+});
+
 describe('readPlan — anti-ReDoS (D-13)', () => {
   it('un nombre con metacaracteres regex se matchea LITERAL por endsWith("-PLAN.md")', () => {
     const weird = '44-(a|b)-PLAN.md';
