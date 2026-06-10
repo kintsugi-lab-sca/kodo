@@ -266,17 +266,19 @@ it('PLAN-03: rama quick recibe la instrucción EN; phase/bootstrap NO', () => {
 | A1 | Importar `{ KODO_DIR }` de `../config.js` no dispara I/O en runtime del builder (es una const evaluada al import; `loadEnvFile()` ya corre al cargar config.js, que de todas formas se carga vía `loadConfig` en `main()`). | Standard Stack / Alternatives | Si el planner prefiere `homedir()` directo de `node:os` para evitar acoplar a config.js, es igual de válido y mantiene pureza. Ambas opciones son correctas; A1 solo afecta DRY-vs-desacoplamiento, no corrección. |
 | A2 | `session.task_id` siempre presente en el path real (garantía de `findSession`). | Pitfalls 1 | Si en algún path no-trackeado el builder corriese con task_id falsy, la ruta sería `undefined.md`. Mitigable con `?? 'unknown'` discrecional. Riesgo bajo: `main()` hace exit(0) sin sesión. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿Importar `KODO_DIR` de config.js o `homedir()` directo de node:os?**
    - What we know: Ambas funcionan y mantienen pureza. `KODO_DIR` reusa la convención (DRY); `homedir()` desacopla el hook de config.js.
    - What's unclear: Preferencia de estilo del repo. config.js ya se importa en main() vía loadConfig, pero buildSessionContext recibe config como parámetro y buildGsdContext no importa config.js hoy.
    - Recommendation: Usar `KODO_DIR` (reusa convención, una línea de import). Si el plan-checker objeta acoplamiento del builder a config.js, fallback trivial a `import { homedir } from 'node:os'` + `join(homedir(), '.kodo', 'plans', ...)`.
+   - **RESOLVED (plan 45-01):** usar `KODO_DIR` (DRY, precedente exacto en `state.js:3-4`, convención del repo).
 
 2. **¿Microcopy con o sin mini-ejemplo de estructura?**
    - What we know: D-05/D-07 piden una sola línea imperativa. El `<specifics>` da wording de referencia de una línea.
    - What's unclear: Si añadir un mini-ejemplo de estructura (p.ej. "objetivo + bullets") ayuda al modelo sin violar D-07.
    - Recommendation: Una sola línea por D-07 (no ceremonia). La línea ya menciona "qué vas a hacer + pasos previstos", suficiente guía sin multi-paso.
+   - **RESOLVED (plan 45-01):** una sola línea por D-07 (sin mini-ejemplo).
 
 ## Environment Availability
 
