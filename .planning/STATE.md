@@ -4,8 +4,8 @@ milestone: v0.11
 milestone_name: Ventana al plan
 status: executing
 stopped_at: Phase 47 context gathered
-last_updated: "2026-06-10T10:39:37.518Z"
-last_activity: 2026-06-10 -- Phase 47 planning complete
+last_updated: "2026-06-10T10:40:31.399Z"
+last_activity: 2026-06-10 -- Phase 47 execution started
 progress:
   total_phases: 4
   completed_phases: 3
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** vía cross-provider contract matrix (Plane + GitHub × 7 asserts core); **reforzado en v0.8** con reporting opt-in provider-agnostic. v0.9 añadió una superficie de observabilidad en terminal (`kodo dashboard`) read-only; v0.10 la promovió a gestión (dismiss). v0.11 profundiza la observabilidad: ver el plan de cada sesión sin salir de la TUI.
 
-**Current focus:** Phase 47 — backfill de deuda nyquist
+**Current focus:** Phase 47 — backfill-de-deuda-nyquist
 
 ## Current Position
 
-Phase: 47
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-10 -- Phase 47 planning complete
+Phase: 47 (backfill-de-deuda-nyquist) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 47
+Last activity: 2026-06-10 -- Phase 47 execution started
 
 ## Roadmap v0.11 (active)
 
@@ -60,17 +60,17 @@ Build order: **OVERLAY+POLISH → SPIKE → CAPTURA CONDICIONAL → NYQUIST**. P
 
 ## Deferred Items
 
-Items reconocidos y diferidos al cierre de milestones previos (ninguno bloqueante). La deuda Nyquist se salda en **Phase 47 de v0.11** (NYQ-01/NYQ-02).
+Items reconocidos y diferidos al cierre de milestones previos (ninguno bloqueante). La deuda Nyquist quedó **saldada en Phase 47 de v0.11** (NYQ-01/NYQ-02).
 
 | Categoría | Item | Estado |
 |-----------|------|--------|
-| nyquist | Phase 36 (v0.9) VALIDATION.md nyquist_compliant=false | PARTIAL → Phase 47 (NYQ-02) |
-| nyquist | Phase 37 (v0.9) VALIDATION.md status=draft, nyquist_compliant=false | PARTIAL → Phase 47 (NYQ-02) |
-| nyquist | Phase 38 (v0.9) sin VALIDATION.md | MISSING → Phase 47 (NYQ-02) |
-| nyquist | Phase 39 (v0.9) sin VALIDATION.md (39-VERIFICATION sí existe, passed) | MISSING → Phase 47 (NYQ-02) |
-| nyquist | Phase 39.1 (v0.9) sin VALIDATION.md (39.1-VERIFICATION passed 14/14) | MISSING → Phase 47 (NYQ-02) |
-| nyquist | Phase 41 (v0.10) VALIDATION.md ausente/no-compliant | MISSING → Phase 47 (NYQ-01) |
-| nyquist | Phase 43 (v0.10) VALIDATION.md ausente/no-compliant | MISSING → Phase 47 (NYQ-01) |
+| nyquist | Phase 36 (v0.9) VALIDATION.md → compliant (cita 36-VERIFICATION + 36-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
+| nyquist | Phase 37 (v0.9) VALIDATION.md → compliant (covered-by-UAT: 37-UAT + 37-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
+| nyquist | Phase 38 (v0.9) VALIDATION.md creado (covered-by-UAT: 38-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-02) |
+| nyquist | Phase 39 (v0.9) VALIDATION.md creado (cita 39-VERIFICATION passed 4/4) | ✓ saldado Phase 47 (NYQ-02) |
+| nyquist | Phase 39.1 (v0.9) VALIDATION.md creado (cita 39.1-VERIFICATION passed 14/14) | ✓ saldado Phase 47 (NYQ-02) |
+| nyquist | Phase 41 (v0.10) VALIDATION.md creado (cita 41-VERIFICATION passed 9/9) | ✓ saldado Phase 47 (NYQ-01) |
+| nyquist | Phase 43 (v0.10) VALIDATION.md creado (cita 43-VERIFICATION + 43-HUMAN-UAT) | ✓ saldado Phase 47 (NYQ-01) |
 | verification | Phase 37 (v0.9) sin VERIFICATION.md formal — cerrada vía 37-UAT + 37-HUMAN-UAT passed | covered-by-UAT |
 | verification | Phase 38 (v0.9) sin VERIFICATION.md formal — cerrada vía 38-HUMAN-UAT passed (firmado) | covered-by-UAT |
 | code | Ciclo de import ESM App.js ↔ SessionTable.js (constantes OVERLAY_*) — resuelto en runtime, suite verde, frágil | WARNING-01 |
