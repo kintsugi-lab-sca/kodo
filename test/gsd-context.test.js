@@ -1,7 +1,9 @@
 // @ts-check
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { buildGsdContext } from '../src/hooks/session-start.js';
+import { KODO_DIR } from '../src/config.js';
 
 /**
  * Minimal GSD-mode Session fixture.
@@ -196,5 +198,41 @@ describe('HOOK-01 — anti-push reminder, GSD EN', () => {
     );
     // eslint-disable-next-line no-control-regex
     assert.ok(!/\x1B\[/.test(block), 'HOOK-01 EN block must not contain ANSI escape sequences (D-02b)');
+  });
+});
+
+describe('PLAN-03 — quick-mode lightweight plan instruction (EN)', () => {
+  const INSTR = 'Also, at the start write a short plan';
+
+  it('PLAN-03 quick presencia: inyecta instrucción EN en la rama quick (D-08 inglés)', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X' }));
+    assert.match(ctx, /Also, at the start write a short plan/);
+  });
+
+  it('PLAN-03 quick ruta resuelta: contiene join(KODO_DIR, "plans", "<task_id>.md"), sin literal', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X', task_id: 'uuid-abc' }));
+    const expectedPath = join(KODO_DIR, 'plans', 'uuid-abc.md');
+    assert.ok(ctx.includes(expectedPath), `quick output must contain resolved path ${expectedPath}`);
+    assert.ok(!ctx.includes('<task_id>'), 'quick path must be resolved, not templated');
+  });
+
+  it('PLAN-03 exclusión phase: la rama phase NO recibe la instrucción (D-04)', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: '08' }));
+    assert.ok(!ctx.includes(INSTR), 'phase branch must NOT inject the plan instruction');
+  });
+
+  it('PLAN-03 exclusión bootstrap: la rama bootstrap NO recibe la instrucción (D-04)', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: undefined }));
+    assert.ok(!ctx.includes(INSTR), 'bootstrap branch must NOT inject the plan instruction');
+  });
+
+  it('PLAN-03 invariancia: el tail del bloque común sigue byte-idéntico en las 3 ramas', () => {
+    const HEADER = '## No automatic push';
+    const tail = (s) => s.slice(s.lastIndexOf(HEADER));
+    const ctxQuick = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'TASK-X' }));
+    const ctxPhase = buildGsdContext(makeSession({ phase_id: '08' }));
+    const ctxBoot = buildGsdContext(makeSession({ phase_id: undefined }));
+    assert.equal(tail(ctxQuick), tail(ctxPhase), 'quick tail must equal phase tail');
+    assert.equal(tail(ctxPhase), tail(ctxBoot), 'phase tail must equal bootstrap tail');
   });
 });
