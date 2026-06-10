@@ -62,7 +62,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. En sesiones quick (`/gsd-quick`) y non-GSD, el contexto inyectado por `session-start.js` incluye la instrucción de escribir un plan corto (qué se va a hacer / pasos previstos) a una ruta kodo-controlada y estable, correlacionable con la sesión (`task_id` / `session_id` / `cwd`).
   2. La ruta de persistencia es propia de kodo (NO rutas internas de Claude Code), legible desde el filesystem por el overlay (cero endpoints nuevos en `src/server.js`).
   3. El bloque inyectado preserva los golden-bytes de los bloques existentes (HOOK-02 satisfied-by-construction) — la instrucción nueva se añade sin romper los bloques actuales de `buildSessionContext`/`buildGsdContext`.
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 45-01-PLAN.md — Inyectar instrucción de plan ligero ES (`buildSessionContext`, non-GSD) + EN (rama quick de `buildGsdContext`) con ruta resuelta `~/.kodo/plans/<task_id>.md`; phase/bootstrap byte-idénticas (HOOK-02)
 **Notes**: Reemplaza el antiguo spike de captura vía hook (decisión 2026-06-09: enfoque "plan ligero universal" — kodo produce el artefacto **activamente** en vez de olfatear el plan nativo de Claude Code, que el research marcó frágil/version-specific). La ruta y el formato exactos del artefacto se fijan en discuss-phase. Mantiene quick ligero (no fuerza plan/execute/verify). Docs del spike anterior preservados en git (commits `350c43d`/`3750171`) si se necesita el research de hooks.
 
 ### Phase 46: Overlay del plan ligero para sesiones quick/non-GSD
@@ -93,7 +94,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 44. Overlay de plan GSD + pulido | 2/2 | Complete    | 2026-06-09 |
-| 45. Inyección de plan ligero universal | 0/? | Not started | - |
+| 45. Inyección de plan ligero universal | 0/1 | Not started | - |
 | 46. Overlay del plan ligero quick/non-GSD | 0/? | Not started | - |
 | 47. Backfill Nyquist | 0/? | Not started | - |
 
