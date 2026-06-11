@@ -139,6 +139,26 @@ export const DISMISS_PARTIAL_WARN = (taskRef) => `dismissed ${taskRef} — compl
 /** @param {string|number} reason */
 export const DISMISS_ERR = (reason) => `[!] dismiss failed (${reason}) — press any key`;
 
+// Phase 48 D-01/D-02/D-05 (OPEN-01/02/03): copy literal-estable del flujo open-in-manager (`o`).
+// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
+// patrón que FOCUS_ERR_* / DISMISS_*). El éxito (OPEN_OK) clona la forma de DISMISS_OK: verde,
+// con ref, SIN prefijo `[!]` — el `o` no produce otro cambio visible en la TUI, así que un
+// footer verde transitorio confirma el lanzamiento (D-01/D-02, diverge del silencio de focus.js).
+//
+// OPEN_ERR_NO_URL es LOCKED (D-05 / SC#2): es la fila sin task_url, un NO-OP benigno (no un
+// error). Por eso NO lleva `[!]` ni `— press any key` — es deliberadamente bare. NO "arreglar"
+// para que matchee el formato de error: la copy es el contrato (UI-SPEC §Copywriting).
+//
+// El resto (ENOENT / BAD_PROTOCOL / openErrFailed) son errores reales → formato `[!] … — press
+// any key`, espejo de FOCUS_ERR_*. OPEN_OK usa el ellipsis de un solo carácter `…` (no `...`).
+/** @param {string} ref */
+export const OPEN_OK = (ref) => `opening ${ref}…`;
+export const OPEN_ERR_NO_URL = 'no task URL for this session';
+export const OPEN_ERR_ENOENT = '[!] open not found in PATH — press any key';
+export const OPEN_ERR_BAD_PROTOCOL = '[!] refused non-http(s) URL — press any key';
+/** @param {number|string} code */
+export const openErrFailed = (code) => `[!] open failed (code ${code}) — press any key`;
+
 // Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
 // SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
 // (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
@@ -168,6 +188,11 @@ export const OVERLAY_VIEWPORT = 18;
  *   Phase 37 D-01: callback never-throws inyectado por `runDashboard` (Plan 03) que invoca
  *   `runFocus({exec, ref, binary})`. El handler de Enter lo `await`a tras el guard alive
  *   (D-02) y mapea `result.code` a uno de los 3 mensajes literal-estables D-05.
+ * @param {(url: string) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR'|'BAD_PROTOCOL', detail?: any}>} [props.onOpen]
+ *   Phase 48 D-01: callback never-throws inyectado por `runDashboard` que invoca
+ *   `runOpen({exec, url})`. El handler de `o` lo `await`a tras el guard no-URL (D-05) y mapea
+ *   `result.code` a OPEN_ERR_ENOENT / OPEN_ERR_BAD_PROTOCOL / openErrFailed; en éxito muestra
+ *   el footer verde OPEN_OK (D-01/D-02). SIN guard alive (D-04: alive/zombie/dismissed por igual).
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -181,6 +206,7 @@ export default function App({
   baseMs,
   maxMs,
   onFocus,
+  onOpen,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -526,6 +552,46 @@ export default function App({
         setMode('confirm');
         return;
       }
+      if (input === 'o') {
+        // Phase 48 D-01/D-02/D-04/D-05 (OPEN-01/02/03): handler open-in-manager. Lee
+        // `row.task_url` (ya persistido al lanzar — NO fetch, distinto de c/l). DIVERGENCIAS
+        // respecto al Enter handler:
+        //   - SIN guard alive (D-04): `o` funciona sobre alive/zombie/dismissed por igual.
+        //   - El ÚNICO guard es no-URL (D-05): sin task_url → footer BARE `no task URL for this
+        //     session` (no `[!]`, no `— press any key`) y onOpen NUNCA se invoca (open jamás
+        //     recibe un arg falsy/basura). Es un no-op benigno, no un error.
+        //   - En éxito: footer VERDE transitorio OPEN_OK(ref) (D-01/D-02) — diverge del silencio
+        //     de focus.js porque la TUI no muestra otro cambio visible.
+        // runOpen es never-throws (Plan 01 contract); el `?.` cubre el contexto degradado sin
+        // onOpen (tests del módulo sin DI), espejo de onFocus. El footer transitorio se limpia
+        // con el clear-on-any-input (D-03 — sin timer dedicado).
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        if (!row.task_url) {
+          setFocusError(OPEN_ERR_NO_URL);
+          setFooterColor('red');
+          return;
+        }
+        const result = await onOpen?.(row.task_url);
+        if (!result || result.ok !== false) {
+          // Éxito (o contexto degradado sin onOpen): footer verde de confirmación. REF =
+          // task_ref (el mismo identificador que muestra la tabla), fallback a task_id.
+          setFocusError(OPEN_OK(row.task_ref ?? row.task_id));
+          setFooterColor('green');
+        } else if (result.code === 'ENOENT') {
+          setFocusError(OPEN_ERR_ENOENT);
+          setFooterColor('red');
+        } else if (result.code === 'BAD_PROTOCOL') {
+          setFocusError(OPEN_ERR_BAD_PROTOCOL);
+          setFooterColor('red');
+        } else {
+          // NON_ZERO_EXIT (`detail` = exit code numérico) o SPAWN_ERROR (`detail` = Error.message).
+          const n = result.detail ?? 'unknown';
+          setFocusError(openErrFailed(n));
+          setFooterColor('red');
+        }
+        return;
+      }
       if (key.upArrow) {
         // Mueve el índice DERIVADO arriba y re-fija selectedTaskId; clamp en 0, SIN wrap (D-07).
         const ni = Math.max(0, sel.index - 1);
@@ -618,6 +684,6 @@ export default function App({
         overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · q quit'),
   );
 }

@@ -110,6 +110,9 @@ export async function runDashboard(deps = {}) {
   // Lazy import mismo patrón que App/ink/react. Cero overhead en arranque del CLI.
   const { runFocus } = await import('./focus.js');
 
+  // Phase 48: runOpen (lanzador puro never-throws de `open <url>`, Plan 02). Mismo patrón lazy.
+  const { runOpen } = await import('./open.js');
+
   // execFile-shaped default cuando exec no fue inyectado. Lazy: solo se carga si se cablea el TUI
   // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
   const execImpl = exec ?? (await import('node:child_process')).execFile;
@@ -134,6 +137,10 @@ export async function runDashboard(deps = {}) {
     // App.js maneja el discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el
     // lifecycle de runDashboard — ink sigue montado durante toda la invocación (~50ms).
     onFocus: async (ref) => runFocus({ exec: execImpl, ref, binary: cmuxBin }),
+    // Phase 48 D-01/D-06: espejo de onFocus. Reusa el MISMO execImpl (no re-importa
+    // node:child_process). NO lee binario de config — open.js defaultea `binary` a 'open'
+    // internamente (D-06, divergencia con cmuxBin). runOpen es never-throws (Plan 02 contract).
+    onOpen: async (url) => runOpen({ exec: execImpl, url }),
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
