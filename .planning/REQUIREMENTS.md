@@ -64,11 +64,11 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OPEN-01 | TBD | Pending |
-| OPEN-02 | TBD | Pending |
-| OPEN-03 | TBD | Pending |
-| OPEN-04 | TBD | Pending |
-| PROG-01 | TBD | Pending |
-| PROG-02 | TBD | Pending |
-| PROG-03 | TBD | Pending |
-| NYQ-03 | TBD | Pending |
+| OPEN-01 | Phase 48 | Pending |
+| OPEN-02 | Phase 48 | Pending |
+| OPEN-03 | Phase 48 | Pending |
+| OPEN-04 | Phase 48 | Pending |
+| PROG-01 | Phase 49 | Pending |
+| PROG-02 | Phase 50 (conditional — Phase 49 = VIABLE) | Pending |
+| PROG-03 | Phase 50 (conditional — Phase 49 = VIABLE) | Pending |
+| NYQ-03 | Phase 51 | Pending |
