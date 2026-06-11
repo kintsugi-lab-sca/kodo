@@ -72,8 +72,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 Plans:
 **Wave 1**
 
-- [ ] 48-01-PLAN.md — Fix Plane browse-URL bug: optional `plane.web_url` config wired end-to-end (registry -> provider -> normalizer) + UNKNOWN-suppression (OPEN-04)
-- [ ] 48-02-PLAN.md — `open.js` never-throws launcher (http(s) allowlist, literal argv) + `o` keypress handler + `onOpen` DI wiring (OPEN-01, OPEN-02, OPEN-03)
+- [x] 48-01-PLAN.md — Fix Plane browse-URL bug: optional `plane.web_url` config wired end-to-end (registry -> provider -> normalizer) + UNKNOWN-suppression (OPEN-04)
+- [x] 48-02-PLAN.md — `open.js` never-throws launcher (http(s) allowlist, literal argv) + `o` keypress handler + `onOpen` DI wiring (OPEN-01, OPEN-02, OPEN-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -139,7 +139,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 48. Open-in-manager core | v0.12 | 0/3 | Not started | - |
+| 48. Open-in-manager core | v0.12 | 2/3 | In Progress|  |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 0/TBD | Not started | - |
 | 50. Live-progress display (conditional) | v0.12 | 0/TBD | Not started (gated on 49=VIABLE) | - |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
