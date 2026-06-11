@@ -108,3 +108,9 @@ Secuencia RED→GREEN verificada en git log:
 ## Known Stubs
 
 Ninguno. El plan entrega la mitad consumidora completa (`o` → `open <url>`); la persistencia de `task_url` y el fix del normalizer Plane viven en el Plan 48-01 (wave 1 hermana) — fuera del scope de este plan.
+
+## Self-Check: PASSED
+
+- Archivos creados: src/cli/dashboard/open.js, test/dashboard/open.test.js, test/dashboard/app-open.test.js, .planning/phases/48-open-in-manager-core/48-02-SUMMARY.md — todos FOUND.
+- Commits: 1fad5b7, c21c1de, e56e057, 6aaff40, 5bb4b5b, c524d7e — todos FOUND.
+- Working tree limpio tras el commit del SUMMARY.
