@@ -6,6 +6,7 @@ import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
 /**
  * @typedef {{
  *   baseUrl: string,
+ *   webUrl: string,
  *   apiKey: string,
  *   workspaceSlug: string,
  *   projects: Array<{id: string, identifier: string, name: string}>,
@@ -169,6 +170,7 @@ export function createPlaneProvider(config, opts = {}) {
         labels: labelCache,
         projectIdentifier: proj.identifier,
         baseUrl: config.baseUrl,
+        webUrl: config.webUrl,
         workspaceSlug: config.workspaceSlug,
         stateMap: stateCache,
       };
@@ -270,6 +272,7 @@ export function createPlaneProvider(config, opts = {}) {
           labels: labelCache,
           projectIdentifier: proj.identifier,
           baseUrl: config.baseUrl,
+          webUrl: config.webUrl,
           workspaceSlug: config.workspaceSlug,
           stateMap: stateCache,
         };
