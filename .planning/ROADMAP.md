@@ -63,11 +63,13 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   3. Cualquier fallo del launcher (ENOENT / navegador ausente / exit≠0 / throw) se reporta en el footer y nunca crashea React (never-throws end-to-end).
   4. URLs no-`http(s)` (`file://`, `javascript:`, valores con `-` inicial) se rechazan antes de llegar a `execFile`; la URL se pasa como argumento literal, nunca por shell.
   5. En un deploy Plane con web/API separados (`web_url ≠ base_url`), el link abre la web UI viva — no el host de API; el identificador `UNKNOWN-<seq>` se trata como "sin URL" (footer), no como link muerto.
-**Plans**: TBD
+**Plans**: 3 plans (2 waves)
 **UI hint**: yes
 
 Plans:
-- [ ] 48-01: TBD
+- [ ] 48-01-PLAN.md — Fix Plane browse-URL bug: optional `plane.web_url` config wired end-to-end (registry -> provider -> normalizer) + UNKNOWN-suppression (OPEN-04)
+- [ ] 48-02-PLAN.md — `open.js` never-throws launcher (http(s) allowlist, literal argv) + `o` keypress handler + `onOpen` DI wiring (OPEN-01, OPEN-02, OPEN-03)
+- [ ] 48-03-PLAN.md — HUMAN-UAT close: real browser launch + alt-screen survival + legacy no-op + split-deploy URL (mirror Phase 37)
 
 ### Phase 49: Live-progress spike (HARD GATE)
 **Goal**: Producir un veredicto empírico escrito **VIABLE / INVIABLE** sobre si el task-state vivo de una sesión `claude --worktree` interactiva puede capturarse en la build instalada de Claude Code vía una superficie soportada. Esta fase **ES el research** — espejo de v0.11 Phase 45: empírica, version-specific, no pre-investigable desde docs. Su único deliverable es el veredicto con evidencia, no código de producción.
@@ -117,7 +119,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 48. Open-in-manager core | v0.12 | 0/TBD | Not started | - |
+| 48. Open-in-manager core | v0.12 | 0/3 | Not started | - |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 0/TBD | Not started | - |
 | 50. Live-progress display (conditional) | v0.12 | 0/TBD | Not started (gated on 49=VIABLE) | - |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
