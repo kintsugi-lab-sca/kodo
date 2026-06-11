@@ -34,6 +34,11 @@ async function registerDefaults() {
       const webhookSecret = process.env[secretEnv] || process.env.PLANE_WEBHOOK_SECRET || plane.webhook_secret;
       return createPlaneProvider({
         baseUrl: plane.base_url,
+        // OPEN-04 / D-06 resolve-on-read default: a config without web_url (every
+        // existing on-disk config) falls back to base_url, producing byte-identical
+        // browse URLs on unified deploys. On a split deploy the operator sets web_url
+        // and the browse URL points at the web host instead of the API host.
+        webUrl: plane.web_url ?? plane.base_url,
         apiKey: getPlaneApiKey(),
         workspaceSlug: plane.workspace_slug,
         projects: plane.projects || [],

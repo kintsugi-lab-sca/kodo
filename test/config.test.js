@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { isReportToProviderEnabled, DEFAULT_CONFIG } from '../src/config.js';
+import { isReportToProviderEnabled, migrateConfig, DEFAULT_CONFIG } from '../src/config.js';
 
 describe('REPORT-02 — isReportToProviderEnabled', () => {
   // Factory: returns a fake loadConfig that overrides DEFAULT_CONFIG.
@@ -101,6 +101,40 @@ describe('REPORT-02 — source hygiene (D-05): .report_to_provider only inside s
       violations,
       [],
       `Direct access to .report_to_provider found in: ${violations.join(', ')}.\nUse isReportToProviderEnabled() from src/config.js. Direct access to .report_to_provider is allowed only inside the helper.`,
+    );
+  });
+});
+
+describe('OPEN-04 — migrateConfig web_url (D-06 resolve-on-read)', () => {
+  it('v1→v2 migration carries web_url defaulted to base_url (safe pre-fix behavior)', () => {
+    const result = migrateConfig({
+      plane: {
+        base_url: 'https://api.example.com',
+        api_key_env: 'X',
+        workspace_slug: 's',
+        projects: [],
+        trigger_state: 'In Progress',
+      },
+    });
+    assert.equal(result.providers.plane.web_url, 'https://api.example.com');
+  });
+
+  it('migrateConfig is idempotent: a v2 config (has providers) is returned unchanged (no web_url injected)', () => {
+    const input = { providers: { plane: {} } };
+    const result = migrateConfig(input);
+    assert.equal(result, input);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(result.providers.plane, 'web_url'),
+      false,
+      'idempotent path must not inject web_url',
+    );
+  });
+
+  it('DEFAULT_CONFIG.providers.plane has NO web_url key (resolve-on-read default lives at the consumer)', () => {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG.providers.plane, 'web_url'),
+      false,
+      'D-06: web_url is NOT injected into DEFAULT_CONFIG (zero-breaking-change precedent)',
     );
   });
 });

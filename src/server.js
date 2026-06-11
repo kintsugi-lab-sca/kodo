@@ -255,7 +255,12 @@ function renderPending(items) {
       groups[proj].map((t) => (
         '<div class="pending-item">' +
           '<div class="row">' +
-            '<a class="ref" href="' + escapeHtml(t.url) + '" target="_blank">' + escapeHtml(t.ref) + '</a>' +
+            // OPEN-04 / D-08: a work item with an unresolved identifier carries no url
+            // (normalizeWorkItem suppresses it) — render the ref as plain text rather
+            // than a dead <a href=""> anchor.
+            (t.url
+              ? '<a class="ref" href="' + escapeHtml(t.url) + '" target="_blank">' + escapeHtml(t.ref) + '</a>'
+              : '<span class="ref">' + escapeHtml(t.ref) + '</span>') +
             (t.state ? '<span class="badge badge-running">' + escapeHtml(t.state) + '</span>' : '') +
           '</div>' +
           '<div class="title">' + escapeHtml(t.title) + '</div>' +

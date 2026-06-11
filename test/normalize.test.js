@@ -128,6 +128,44 @@ describe('normalizeWorkItem', () => {
     assert.equal(result.projectId, 'p0p0p0p0-1111-2222-3333-444444444444');
     assert.equal(result.projectName, '');
   });
+
+  // OPEN-04 / D-07: unified deploy (webUrl unset) → url byte-identical to today.
+  it('unified deploy: url uses baseUrl when webUrl absent', () => {
+    const result = normalizeWorkItem(workItemFixture, defaultContext);
+    assert.equal(result.url, 'https://plane.klab.dev/klab/browse/KL-42');
+  });
+
+  // OPEN-04 / D-07: split deploy (webUrl ≠ baseUrl) → url points at the web host,
+  // never the API host.
+  it('split deploy: url uses webUrl when webUrl ≠ baseUrl', () => {
+    const splitContext = {
+      ...defaultContext,
+      baseUrl: 'https://api.klab.dev',
+      webUrl: 'https://web.klab.dev',
+    };
+    const result = normalizeWorkItem(workItemFixture, splitContext);
+    assert.equal(result.url, 'https://web.klab.dev/klab/browse/KL-42');
+    assert.ok(result.url.includes('web.klab.dev'), 'url must use the web host');
+    assert.ok(!result.url.includes('api.klab.dev'), 'url must NOT use the API host');
+  });
+
+  // OPEN-04 / D-08: unresolved project identifier (UNKNOWN) → NO url emitted,
+  // never a dead browse/UNKNOWN-<seq> link.
+  it('UNKNOWN identifier: no url emitted', () => {
+    const unknownContext = { ...defaultContext, projectIdentifier: 'UNKNOWN' };
+    const result = normalizeWorkItem(workItemFixture, unknownContext);
+    assert.equal(result.url, undefined);
+    assert.ok(
+      !JSON.stringify(result).includes('browse/UNKNOWN'),
+      'a dead browse/UNKNOWN link must never appear in the result',
+    );
+  });
+
+  it('falsy identifier: no url emitted', () => {
+    const falsyContext = { ...defaultContext, projectIdentifier: '' };
+    const result = normalizeWorkItem(workItemFixture, falsyContext);
+    assert.equal(result.url, undefined);
+  });
 });
 
 describe('parseTriggerEvent', () => {
