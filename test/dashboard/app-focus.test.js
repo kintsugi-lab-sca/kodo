@@ -193,7 +193,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       );
       assert.match(
         lastFrame(),
-        /↑↓ move · c comments · l logs · p plan · \/ filter \(ps:state\) · d dismiss · q quit/,
+        /↑↓ move · c comments · l logs · p plan · \/ filter \(ps:state\) · d dismiss · o open · q quit/,
         `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
       );
       assert.equal(
