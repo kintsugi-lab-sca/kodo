@@ -88,6 +88,11 @@ export function migrateConfig(rawConfig) {
     providers: {
       plane: {
         base_url: planeOld.base_url,
+        // OPEN-04 / D-06: a migrated split-deploy config defaults the web host to the
+        // API host (current pre-fix behavior) until the operator explicitly sets it —
+        // no behavior change vs today for migrated configs. The resolve-on-read default
+        // for configs WITHOUT this key lives at the consumer (registry.js, Task 2).
+        web_url: planeOld.base_url,
         api_key_env: planeOld.api_key_env,
         workspace_slug: planeOld.workspace_slug,
         projects: planeOld.projects || [],
