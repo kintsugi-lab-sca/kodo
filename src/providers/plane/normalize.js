@@ -7,6 +7,7 @@ import { parseKodoLabels } from '../../labels.js';
  *   labels: Array<{id: string, name: string}>,
  *   projectIdentifier: string,
  *   baseUrl: string,
+ *   webUrl?: string,
  *   workspaceSlug: string,
  *   stateMap?: Map<string, string>,
  * }} NormalizeContext
@@ -64,6 +65,18 @@ export function resolveWorkItemLabels(labelIds, labelsMap) {
 export function normalizeWorkItem(workItem, context) {
   const ref = `${context.projectIdentifier}-${workItem.sequence_id}`;
 
+  // OPEN-04 / D-08: a work item whose project identifier is unresolved (falsy or the
+  // literal 'UNKNOWN', mirroring parseTriggerEvent's UNKNOWN fallback) has no reliable
+  // browse path — emit NO url rather than a dead .../browse/UNKNOWN-<seq> link. The
+  // launcher (Plan 48-02) stays dumb: the row simply arrives with no task_url.
+  const identifierUnresolved =
+    !context.projectIdentifier || context.projectIdentifier === 'UNKNOWN';
+
+  // OPEN-04 / D-06 / D-07: route the browse URL through the web host. webUrl falls back
+  // to baseUrl when unset (resolve-on-read) → unified deploys stay byte-identical; split
+  // deploys point at the web host instead of the API host.
+  const browseHost = context.webUrl ?? context.baseUrl;
+
   return {
     id: workItem.id,
     ref,
@@ -73,7 +86,9 @@ export function normalizeWorkItem(workItem, context) {
     projectId: workItem.project_detail?.id || workItem.project,
     projectName: workItem.project_detail?.name || '',
     groups: [],
-    url: `${context.baseUrl}/${context.workspaceSlug}/browse/${ref}`,
+    url: identifierUnresolved
+      ? undefined
+      : `${browseHost}/${context.workspaceSlug}/browse/${ref}`,
     priority: VALID_PRIORITIES.includes(workItem.priority) ? workItem.priority : null,
     state: workItem.state_detail?.name || context.stateMap?.get(workItem.state) || undefined,
     updated_at: workItem.updated_at,    // D-03 Phase 28: paridad cross-provider
