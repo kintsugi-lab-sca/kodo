@@ -43,12 +43,21 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Current Milestone: ninguno activo
+## Current Milestone: v0.12 Atajos al gestor y progreso vivo
 
-v0.11 "Ventana al plan" shipped 2026-06-10. Define el siguiente con `/gsd:new-milestone`.
+**Goal:** Profundizar el dashboard en dos direcciones desde la fila de sesión — *hacia afuera* (saltar a la tarea en Plane/GitHub) y *hacia adentro* (ver el progreso vivo de la sesión, condicional a que el spike lo confirme viable).
 
-**Deuda heredada al próximo milestone (no bloqueante, registrada en STATE.md `## Deferred Items`):**
-- **Nyquist v0.11:** Phases 44/45/46 con `VALIDATION.md` en estado `draft` / `nyquist_compliant: false` (stubs de plan-time nunca backfilled). Saldable vía `/gsd:validate-phase 44|45|46` (citation-based, sin re-ejecutar suite) o en una futura fase de backfill — mismo patrón con que Phase 47 saldó v0.9/v0.10.
+**Target features:**
+- **Abrir-en-gestor** *(core, ships sí o sí)* — tecla nueva sobre una fila → abre la URL de la tarea en el navegador (`open` vía `execFile`, patrón de `focus.js`); `task_url` persistida en `SessionRecord` al lanzar, provista por cada normalizer (GitHub `html_url`; Plane construida desde host web + workspace + project + issue).
+- **Research** — qué reemplazó a TodoWrite en el Claude Code actual y qué hook/superficie expone el task-state vivo.
+- **Spike (gate duro)** — veredicto empírico VIABLE/INVIABLE sobre capturar task-state vivo vía hook soportado.
+- **Display de progreso vivo** *(condicional al spike)* — si VIABLE: captura + persiste + el dashboard muestra el avance de la sesión.
+- **Backfill Nyquist v0.11** — saldar la deuda heredada (44/45/46 `draft`) de paso, espejo de Phase 47.
+
+**Invariantes a honrar:** cero endpoints nuevos (la URL ya persistida se lee como `focus.js` lee la suya), contrato `TaskProvider` FROZEN en 9 (la URL va como campo de `TaskItem` o método opcional typeof-detected, espejo de `getTaskState`), color isolation, TUI never-throws, selección por identidad `task_id`, `execFile` fire-and-forget sin desmontar el panel.
+
+**Deuda heredada de v0.11 (no bloqueante, registrada en STATE.md `## Deferred Items`):**
+- **Nyquist v0.11:** Phases 44/45/46 con `VALIDATION.md` en estado `draft` / `nyquist_compliant: false` (stubs de plan-time nunca backfilled). A saldar dentro de este milestone (fase de backfill) o vía `/gsd:validate-phase 44|45|46`.
 - **Frontmatter cosmético:** `requirements_completed: []` vacío en summaries de 46-01 y 47-01 (cobertura verificada por VERIFICATION + integration + traceability).
 
 ## Requirements
@@ -119,9 +128,9 @@ v0.11 "Ventana al plan" shipped 2026-06-10. Define el siguiente con `/gsd:new-mi
 
 ### Active
 
-**Sin milestone activo.** v0.11 shipped 2026-06-10. Define el siguiente con `/gsd:new-milestone`. Deuda heredada no bloqueante: Nyquist v0.11 (44/45/46 draft stubs) + frontmatter cosmético (46-01/47-01) — ver STATE.md `## Deferred Items`.
+**Milestone v0.12 "Atajos al gestor y progreso vivo" en planning** (iniciado 2026-06-11). Requirements en `.planning/REQUIREMENTS.md`. Core: abrir la tarea en Plane/GitHub desde la TUI. Condicional (spike-gated): display de progreso vivo de la sesión. + backfill Nyquist v0.11.
 
-**Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · captura de estado de Tasks (sucesor de TodoWrite) si se confirma viable
+**Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
 
 ### Out of Scope
 
@@ -248,7 +257,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 after v0.11 "Ventana al plan" milestone — 4 fases (44-47), 5 plans, 71 commits, suite 1263 pass + 1 skip. El operador ve el plan de cualquier sesión (GSD vía `resolvePhase` o quick/non-GSD vía artefacto de plan ligero en `~/.kodo/plans/<task_id>.md`), + pulido de dashboard + backfill Nyquist v0.9/v0.10. Audit `tech_debt`: deuda Nyquist propia de v0.11 (44/45/46) diferida. Numeración de fases continúa desde la 47.*
+*Last updated: 2026-06-11 — **Milestone v0.12 "Atajos al gestor y progreso vivo" iniciado.** Profundiza el dashboard desde la fila de sesión: hacia afuera (abrir la tarea en Plane/GitHub, core ships sí o sí) y hacia adentro (progreso vivo de la sesión, condicional al spike de viabilidad de captura task-state). Incluye backfill de la deuda Nyquist heredada de v0.11. Numeración de fases continúa desde la 47.*
+
+---
+*Previous: 2026-06-10 after v0.11 "Ventana al plan" milestone — 4 fases (44-47), 5 plans, 71 commits, suite 1263 pass + 1 skip. El operador ve el plan de cualquier sesión (GSD vía `resolvePhase` o quick/non-GSD vía artefacto de plan ligero en `~/.kodo/plans/<task_id>.md`), + pulido de dashboard + backfill Nyquist v0.9/v0.10. Audit `tech_debt`: deuda Nyquist propia de v0.11 (44/45/46) diferida. Numeración de fases continúa desde la 47.*
 
 ---
 *Previous: 2026-06-08 — **Milestone v0.10 "Higiene y estado real de sesiones" SHIPPED.** Cuatro fases (40-43), 10 plans, 118 commits desde v0.9, suite 1213 pass + 1 skip. Entrega: cadena `provider_state` end-to-end (cierra el driver ROMAN-150 — `getTaskState` opcional Plane+GitHub + enrichment `/status` fail-open read-only + columna/filtro en dashboard), `kodo gsd doctor` (módulo puro de saneo reusable), y dismiss TUI read-write (primera ruptura consciente del invariante v0.9 "TUI read-only", UAT humano firmado). El dogfooding al cierre destapó y arregló 3 bugs reales con verificación en vivo (provider_state `unknown` por API Plane sin `state_detail`; divergencia state/status → status=outcome, saldó WARNING-02/D-09; reciclado `workspace_ref` de cmux → sesiones fantasma). Audit `tech_debt`: 14/14 requirements, integración cross-phase 14/14, 3/3 flujos E2E verificados; deuda Nyquist en Phases 41/43 diferida (sin blockers). Archivos: `milestones/v0.10-ROADMAP.md`, `milestones/v0.10-REQUIREMENTS.md`, `milestones/v0.10-MILESTONE-AUDIT.md`. Next: definir el siguiente milestone con `/gsd:new-milestone`.*

@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.11
-milestone_name: Ventana al plan
-status: Awaiting next milestone
-stopped_at: Phase 47 context gathered
-last_updated: "2026-06-10T11:22:08.490Z"
-last_activity: 2026-06-10 — Milestone v0.11 completed and archived
+milestone: v0.12
+milestone_name: Atajos al gestor y progreso vivo
+status: planning
+last_updated: "2026-06-11T11:34:21.968Z"
+last_activity: 2026-06-11
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-09 — Current Milestone: v0.11 "Ve
 
 ## Current Position
 
-Phase: Milestone v0.11 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-10 — Milestone v0.11 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-11 — Milestone v0.12 started
 
 ## Roadmap v0.11 (active)
 
