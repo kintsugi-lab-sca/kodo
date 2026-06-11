@@ -1,232 +1,313 @@
 # Pitfalls Research
 
-**Domain:** CLI orchestrator de sesiones Claude Code (Node.js) — saneo destructivo de recursos (worktrees/locks/logs/state.json), promoción de TUI ink read-only → read-write, y enrichment cross-provider (Plane + GitHub) en el poll.
-**Researched:** 2026-06-03
-**Confidence:** HIGH (groundeado en `src/gsd/lock.js`, `src/hooks/stop.js`, invariantes v0.9 de STATE.md; verificado contra `kill(2)` y `git worktree --help` en este host)
+**Domain:** Node.js CLI/TUI (ink) — adding "open-in-manager" deep links + (spike-gated) live Claude Code task-state capture to an existing dashboard
+**Researched:** 2026-06-11
+**Confidence:** HIGH on the open-in-manager half (verified against existing kodo source + official Plane/GitHub docs); MEDIUM-HIGH on the live-capture half (Claude Code internals churn fast; verified the critical regression with a primary GitHub issue but flag version-coupling explicitly)
 
-> Alcance: pitfalls **específicos** a las tres features de v0.10 (DOCTOR, DISMISS, PROVIDER-STATE). No se repiten genéricos. Cada pitfall mapea a la fase que debe mitigarlo.
+> **Framing note for the roadmapper.** Both features are *less greenfield than they look*. The
+> open-in-manager plumbing is ~80% already present in `src/` (see Critical Pitfall 0). The live-capture
+> half is *more dangerous than v0.11 thought* — the exact mechanism v0.11 leaned toward (PostToolUse on
+> `TodoWrite`) has since been **bypassed by Claude Code's own migration to `Task*` tools** (see Critical
+> Pitfall 6). Read those two first; they reshape the milestone.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: PID reciclado por el OS pasa `process.kill(pid, 0)` → doctor roba/borra un lock vivo
+### Pitfall 0: Re-building `task_url` from scratch (it already exists and is already persisted)
 
 **What goes wrong:**
-`doctor --fix` (y el dismiss que reusa su lógica) decide que un lock per-repo está "colgado" porque su PID está muerto, lo borra, y otra sesión arranca sobre el mismo repo rompiendo el invariante de coalescencia. El caso inverso es peor: el PID del lock fue **reciclado** por el kernel y ahora pertenece a un proceso ajeno vivo (mismo UID) → `isPidAlive` devuelve `true`, doctor lo respeta como "vivo" y un lock realmente huérfano nunca se limpia. En macOS los PIDs son un espacio pequeño (≤99998) y se reciclan rápido en sesiones largas.
+A naive read of the milestone ("provide `task_url` from each normalizer, persist in `SessionRecord`")
+leads to adding a *new* field, a *new* normalizer method, and a *new* persistence path — duplicating
+machinery that **already ships in main**.
 
 **Why it happens:**
-`process.kill(pid, 0)` solo prueba existencia + permiso del PID, NO identidad del proceso. `src/gsd/lock.js#isPidAlive` ya es correcto (solo `ESRCH` ⇒ muerto; `EPERM` ⇒ vivo conservador), pero NO valida que el PID siga siendo *esa* sesión kodo. Un PID reciclado del mismo usuario es indistinguible de la sesión original con la información que el lock guarda hoy (`{session_id, task_id, pid, acquired_at, ttl_hours}`).
+The milestone prose describes the *intent* ("`task_url` persisted... provided by each normalizer") as if
+it were new work. It mostly isn't. Verified in current source:
+- `src/interface.js:20` — `TaskItem.url` is already a canonical field.
+- `src/providers/plane/normalize.js:76` — Plane already builds `url: ${baseUrl}/${workspaceSlug}/browse/${ref}` where `ref = ${projectIdentifier}-${sequence_id}`.
+- `src/providers/github/normalize.js:102` — GitHub already sets `url: issue.html_url` (D-15).
+- `src/session/manager.js:48` — `addSession` already maps `task_url: task.url` into the SessionRecord.
+- `src/session/state.js:23` — `task_url?: string` is already a persisted, optional field.
 
 **How to avoid:**
-- Doctor NO debe re-implementar liveness: reusar `isPidAlive` + el TTL ya existente. El TTL (4h) es la red de seguridad real contra PID-reuse — un lock cuyo `acquired_at` excede TTL se considera robable aunque `isPidAlive` mienta.
-- Hacer el liveness **dos-factor** donde sea barato: cruzar el `pid` del lock contra `state.json` (¿hay una sesión con ese `session_id` y `alive===true`?) y/o contra el host provider (`cmux`). Si el PID dice "vivo" pero NINGUNA sesión kodo lo reclama Y el TTL venció ⇒ huérfano seguro.
-- `--fix` sobre locks: aplicar la MISMA máquina de estados de `acquireGsdLock` (dead → steal silent; alive+TTL-exceeded → steal+warn; alive+TTL-ok → **abstenerse**). Nunca un borrado incondicional.
+Treat v0.12 open-in-manager as a **wiring + correctness audit**, not new construction. The real work is:
+(1) the TUI keypress + `execFile open`; (2) fixing the Plane URL-host bug (Pitfall 2); (3) a backfill/fallback
+for sessions whose `task_url` is empty (Pitfall 1). Do NOT add a `getTaskUrl()` opt-in method mirroring
+`getTaskState` — the URL is plain data on `TaskItem`, not a capability that needs typeof-detection.
 
 **Warning signs:**
-- Doctor reporta "lock huérfano limpiado" seguido de un `worktree_collision` en el dispatcher minutos después.
-- Tests con un PID hardcodeado (p. ej. `99999`) que asumen "siempre muerto" — frágiles ante reciclaje.
+A plan that introduces `TASK_PROVIDER_METHODS` changes, or a new `task_url` field alongside the existing one,
+or a normalizer diff that touches the `url:` line. Any of these means you're rebuilding.
 
-**Phase to address:** Fase DOCTOR (la que implemente el saneo de locks). Verificación: test que inyecta un lock con PID vivo+TTL-ok y asserta NO-borrado; test con PID muerto y assert steal.
+**Phase to address:**
+Open-in-manager core phase — first task should be "audit the existing `url`/`task_url` round-trip" before writing any new code.
 
 ---
 
-### Pitfall 2: Race liveness→borrado (TOCTOU) — la sesión revive entre el check y el `rm`
+### Pitfall 1: `task_url` empty for legacy / already-running sessions (the field is optional and not backfilled)
 
 **What goes wrong:**
-Doctor lee `state.json`, ve `alive===false` para una sesión, e inicia el borrado del worktree / `DELETE /sessions/{id}`. Entre el check y el borrado, `reconcileTick` (el ÚNICO escritor de `alive`) corre y flipea esa sesión a `alive===true` (el usuario reabrió el workspace en cmux). Doctor borra un worktree con trabajo en curso o desregistra una sesión viva.
+The operator presses the open key on a session that was launched before v0.12 (or by a code path that didn't
+carry `task.url`), and nothing useful happens — `task_url` is `undefined`. Because the field is `task_url?`
+(optional, `state.js:23`), the dashboard has rows with no URL, and a sloppy handler either does nothing
+silently (looks broken) or — worse — calls `open` with `undefined`.
 
 **Why it happens:**
-`alive` es un snapshot. Doctor y `reconcileTick` corren en procesos distintos sin sincronización. El dismiss desde la TUI agrava esto: la decisión de "¿es dismissable?" se toma sobre el snapshot del poll (potencialmente segundos viejo), y la confirmación humana introduce una ventana aún mayor entre check y acción.
+`task_url` is persisted *at launch time* from `task.url`. Every SessionRecord already in `state.json` from
+v0.9–v0.11 predates this being relied upon, and `kodo`'s own convention (mirror of `gsd_mode`) is that
+additive fields are falsy for old records. The `state.json` migration history (v1→v2→v3) does *not* backfill
+URLs because the provider isn't re-queried during migration.
 
 **How to avoid:**
-- **Re-verificar `alive` inmediatamente antes de la acción destructiva**, leyendo la fuente autoritativa (`state.json` / `GET /status`), no el snapshot que disparó la decisión. Patrón check-then-act atómico: leer `alive`, y si `false`, actuar; abortar fail-open si cambió.
-- Reusar la red de seguridad que `stop.js` YA tiene: `git worktree remove` (sin `--force`) **rechaza** árboles con cambios sin commitear. NO añadir `--force` en doctor por defecto — dejar que git sea el segundo guard. Si está dirty, mover-a-`.dirty` como hace stop.js, nunca borrar.
-- El dismiss debe respetar el guard inverso (`alive===false`) **en el momento del DELETE**, no solo al pintar la tecla `d`.
+- Guard the open handler on a **present, non-empty, http(s) `task_url`** before calling `open`; if absent,
+  show a footer message (`no task URL for this session`) — never call `open` with a falsy/garbage arg.
+- Provide a **derive-on-read fallback**: when `task_url` is missing but the row has provider + `ref`/`task_id`,
+  reconstruct the URL the same way the normalizer does (shared pure helper, so producer and fallback are
+  byte-identical — the exact "seam" discipline v0.11 used for the light-plan path). This avoids needing a
+  state migration just to light up old rows.
+- Accept that some very old rows may legitimately have no URL → the footer message is the honest outcome.
 
 **Warning signs:**
-- Worktrees `.dirty-<ts>` apareciendo tras correr doctor (señal de que casi se borra trabajo vivo).
-- Reportes de "mi sesión desapareció del dashboard mientras trabajaba".
+The open key works on freshly-launched sessions in dogfooding but does nothing on the rows that were already
+in the dashboard when you started. Tests that only cover the happy "just launched" path.
 
-**Phase to address:** Fase DOCTOR (re-check pattern) + Fase DISMISS (guard en el momento del DELETE). Verificación: test que flipea `alive` entre el check mock y la acción, assert abort.
+**Phase to address:**
+Open-in-manager core phase. Add a regression test with a SessionRecord that has no `task_url`.
 
 ---
 
-### Pitfall 3: TOCTOU en el filesystem del worktree — `existsSync` luego `remove` sobre un path que cambió
+### Pitfall 2: Plane web URL built from the **API base URL** — dead link when web host ≠ API host
 
 **What goes wrong:**
-Doctor detecta un worktree "huérfano" (en disco pero sin sesión en `state.json`), confirma con `existsSync`, y borra. Pero `git worktree remove` opera sobre metadata en `$GIT_DIR/worktrees/`, no solo el directorio: si el directorio fue movido/borrado a mano, `remove` falla; si fue reemplazado por un symlink o un archivo regular (caso ya manejado en stop.js CR-03 con `lstatSync` discriminando ENOENT/symlink/EACCES), un `rm -rf` ciego podría seguir un symlink fuera del repo.
+The normalizer builds the issue link as `${baseUrl}/${workspaceSlug}/browse/${ref}` (`normalize.js:76`).
+But `baseUrl` in kodo is the **API host root**: `client.js:24` does
+`${this.baseUrl}/api/v1/workspaces/${slug}${path}`. So `baseUrl` is "the host you hit the REST API on,"
+and the code *reuses it as the web host*. On the common single-domain Docker deploy these are the same origin,
+so it works — and quietly hides the bug. On any deploy where the web app and API are served on **separate
+URLs**, the produced link points at the API host and is dead (or returns API JSON / a 404), opening a useless
+browser tab.
 
 **Why it happens:**
-"Huérfano" se define por ausencia de sesión, pero el estado del filesystem es ortogonal y mutable. Mezclar el borrado del directorio (`rm`) con la limpieza de metadata de git (`worktree prune`) sin orden definido produce estados intermedios inconsistentes.
+Plane self-hosting historically supported `NEXT_PUBLIC_API_BASE_URL` to split web and API onto different hosts
+(common in Kubernetes); the single-domain default makes the conflation invisible in testing. kodo's config only
+stores one `plane.base_url` (the API one), so there is currently *no place* to put the web host.
+
+Secondary URL-construction traps in the same line:
+- **Trailing-slash drift:** `client.js` strips a trailing slash from `baseUrl` (`.replace(/\/$/, '')`), but the
+  `url:` field in `normalize.js` interpolates `baseUrl` *raw* — if a future config path feeds it un-normalized,
+  you get `host//workspace/browse/...` (double slash) or a missing slash.
+- **`workspaceSlug` vs workspace id:** the web URL needs the human **slug** (`my-team`), not the workspace UUID.
+  `normalize.js` uses `context.workspaceSlug` correctly today — but if anyone wires the UUID in, the link 404s.
+- **`sequence_id` vs uuid:** the web `/browse/` ref is `IDENTIFIER-<sequence_id>` (the human "PROJ-123"),
+  NOT the issue UUID (`workItem.id`). `normalize.js:65` builds `ref` from `sequence_id` correctly; do not
+  "simplify" it to the uuid.
+- **`projectIdentifier` missing:** `normalize.js:107` shows a real fallback to `'UNKNOWN'` when the identifier
+  can't be resolved → a ref of `UNKNOWN-123` produces a dead link. (HIGH confidence — this fallback is in the source.)
 
 **How to avoid:**
-- Preferir las herramientas de git sobre `rm` crudo: `git worktree remove <path>` para los registrados, `git worktree prune` para la metadata stale. `prune` es idempotente y seguro por diseño (es exactamente lo que git ofrece para "limpiar administrative files stale").
-- Reusar el `lstatSync`-en-try/catch de stop.js que ya discrimina ENOENT vs symlink vs EACCES antes de tocar el path. NO introducir un segundo patrón de borrado.
-- Distinguir dos clases de huérfano: (a) **registrado en git pero sin sesión** → `git worktree remove`; (b) **metadata git stale sin directorio** → `git worktree prune`. Tratarlos con la misma brocha es el error.
-- Nunca seguir symlinks al borrar; resolver con `realpathSync` y confirmar que el target sigue bajo `<projectPath>/.bg-shell/` antes de actuar.
+- Introduce an **optional `plane.web_url` config** (defaulting to `base_url` when unset, preserving today's
+  single-domain behavior). Build the web link from `web_url`, the API client keeps using `base_url`. This is the
+  only correct fix for the host-divergence case and is cheap.
+- Normalize the host once (strip trailing slash) in a shared helper before interpolation, so producer and any
+  fallback agree.
+- Keep the `IDENTIFIER-<sequence_id>` ref, the **slug** (not UUID), and treat `projectIdentifier === 'UNKNOWN'`
+  as "no reliable URL" (footer message) rather than emitting a known-dead link.
 
 **Warning signs:**
-- `git worktree list` muestra entradas `prunable` tras correr doctor (no se limpió la metadata, solo el dir).
-- Errores `EACCES`/`ENOTDIR` en el log de doctor (path mutó bajo los pies).
+Links work on your own single-domain Plane CE but a self-hosted user reports the tab opens raw JSON or a 404.
+A config that has only one Plane host field. `UNKNOWN-` appearing in any persisted `task_url`.
 
-**Phase to address:** Fase DOCTOR. Verificación: test con worktree registrado-sin-dir (prunable) y dir-sin-registro; assert ruta correcta para cada uno.
+**Phase to address:**
+Open-in-manager core phase (the link-correctness task). Verify against a config where `web_url ≠ base_url`.
 
 ---
 
-### Pitfall 4: Borrar logs NDJSON que un `kodo logs --follow` activo está leyendo
+### Pitfall 3: `open` (or its failure) crashing the never-throws TUI / breaking the alt-screen
 
 **What goes wrong:**
-Doctor borra logs "viejos" mientras un proceso `kodo logs --follow` (UAT-01 spawnea esto en tests) o un tail tiene el archivo abierto. En POSIX el `unlink` no rompe el reader (el inode persiste hasta cerrar el fd), pero el follower nunca ve EOF y queda leyendo un inode fantasma; peor, si doctor *trunca* o *rota* en vez de borrar, el follower puede leer basura o saltar líneas. Además los logs de `polling-YYYY-MM-DD.log` tienen retención de 7 días YA implementada (v0.8 Phase 28) — doctor duplicando esa lógica con criterio distinto crea borrados inconsistentes.
+Launching the browser from inside an ink full-screen (alt-screen) app goes wrong three ways:
+(1) An error path (`ENOENT` because `open` isn't found, non-zero exit, sync throw) propagates as an
+exception into the React render tree, violating the TUI never-throws invariant and tearing down the panel.
+(2) The launch is done with `spawn(..., {stdio:'inherit'})` or otherwise grabs the TTY, corrupting the
+alt-screen / leaving the terminal in a bad state. (3) The panel is unmounted "to be safe" while the browser
+opens, losing the operator's cursor/selection.
 
 **Why it happens:**
-"Logs viejos" es ambiguo (¿por mtime? ¿por fecha en el nombre? ¿por sesión muerta?). El follower y el doctor no coordinan. La retención de polling ya existe y doctor la ignora.
+Developers reach for `child_process` without remembering the project's hard-won `focus.js` pattern. macOS `open`
+is fire-and-forget (returns immediately, detaches the browser), so there's a temptation to await it or inherit
+stdio — both wrong here.
 
 **How to avoid:**
-- Definir "viejo" por una sola regla explícita (p. ej. mtime > N días Y ninguna sesión activa lo referencia vía `--session-of`/head-line scan). NO borrar el log del día activo.
-- **Reusar** la retención de 7 días de polling-daemon, no inventar otra ventana. Doctor reporta lo que borraría; el borrado real respeta el mismo umbral.
-- Nunca truncar in-place: borrar archivos enteros (unlink) deja a los followers POSIX intactos. Evitar rotación destructiva.
-- Dry-run por defecto: doctor lista los logs candidatos sin tocarlos hasta `--fix`.
+**Clone `src/cli/dashboard/focus.js` verbatim as the template** — it already solves exactly this for
+`cmux select-workspace`:
+- `execFile` (NOT `exec` with a shell, NOT `spawn` with `stdio:'inherit'`) — see Pitfall 4 for the security reason.
+- `exec` injected via DI, **no default** (structural leak guard — tests can never touch the real `execFile`).
+- Never-throws discriminated return `{ ok: true } | { ok:false, code:'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail }`.
+- Map `code` → canonical footer message in `App.js` (presentation), panel stays mounted, cursor preserved by `task_id`.
+- Short timeout (`focus.js` uses 5s) so a hung `open` doesn't wedge the UI.
+- `open` does NOT take the TTY — it hands the URL to the OS and exits, so the alt-screen is untouched as long as
+  you don't inherit stdio.
 
 **Warning signs:**
-- `kodo logs --follow` colgado sin nuevas líneas tras correr doctor.
-- Dos criterios de retención divergentes en el código (polling vs doctor).
+Any `import ... from 'node:child_process'` in the dashboard that isn't behind a DI'd, never-throws helper. A
+plan that `await`s the browser or unmounts the panel. The terminal left garbled after opening a link.
 
-**Phase to address:** Fase DOCTOR. Verificación: test que spawnea `--follow`, corre doctor `--fix`, assert el follower no crashea y el log activo sobrevive.
+**Phase to address:**
+Open-in-manager core phase. The acceptance test must include the ENOENT/non-zero/throw fault matrix (mirror `focus.js` tests) plus a UAT confirming the alt-screen survives.
 
 ---
 
-### Pitfall 5: N+1 API calls a Plane/GitHub en cada poll → rate-limit exhaust
+### Pitfall 4: Argument-injection via a crafted URL into `open`
 
 **What goes wrong:**
-`getTaskState` se llama por-sesión dentro del enrichment de `GET /status`. Con N sesiones activas, cada poll del dashboard (cada 2.5–10s por el backoff) dispara N llamadas a Plane/GitHub. GitHub REST tiene 5000 req/h autenticado pero **el secondary rate limit** (ráfagas concurrentes) muerde mucho antes; Plane CE depende del deploy. El dashboard puede tener múltiples instancias abiertas. Resultado: el token se agota y TODO kodo (polling trigger incluido, que comparte el cliente y el warn `X-RateLimit-Remaining < 100`) deja de funcionar.
+A `task_url` value is passed to the browser launcher. If launched through a **shell** (`exec`,
+`spawn(..., {shell:true})`, string interpolation into a command line), a malicious/garbage URL can inject
+shell metacharacters (`; rm -rf`, backticks, `$(...)`). Even without a shell, `open` itself interprets
+**leading-dash arguments as flags** — a `task_url` like `-a /System/.../Calculator.app` or a value starting
+with `-` could be read by `open` as an option rather than a URL.
 
 **Why it happens:**
-El enrichment se acopla al ciclo del poll de la TUI sin caché ni batching. El contrato `TaskProvider` es per-task (`getTask(ref)`), así que el reflejo ingenuo es 1 fetch por sesión por poll.
+The URL comes from provider data (Plane/GitHub responses), which is *mostly* trusted but not guaranteed —
+a self-hosted Plane field, a manipulated issue, or a buggy normalizer could yield an unexpected string. The
+"it's just opening a link" framing makes people skip the threat model.
 
 **How to avoid:**
-- **Cache server-side con TTL** en `GET /status` (no en la TUI): `getTaskState` solo se invoca si el cache de ese `task_id` venció. El estado del provider cambia en minutos, no en segundos — un TTL de 30–60s desacopla la frecuencia del poll TUI de la frecuencia de llamadas al provider.
-- Coalescer: un solo refresh en vuelo por `task_id` (single-flight, ya es el patrón de `runPollLoop`).
-- Respetar el rate-limit warn existente del `GitHubClient` (`X-RateLimit-Remaining < 100`): si está bajo, el enrichment se salta (fail-open) en vez de empujar al límite.
-- Considerar batch donde el provider lo permita (GitHub Search API por labels, Plane list filtrado) en lugar de N `getTask`.
+- **`execFile(binary, [url])`** — never a shell. `execFile` passes the URL as a single argv element, so shell
+  metacharacters are inert (no shell parses them). This is already the `focus.js` discipline.
+- **Validate the URL before launch:** require it parse as a `URL` whose `protocol` is `http:` or `https:`
+  (rejects `file:`, `javascript:`, `-`-prefixed junk, empty). This kills both the leading-dash flag-injection
+  (a real `http(s)://` URL never starts with `-`) and accidental `file://` opens.
+- The http(s) allowlist is the load-bearing guard once `execFile` removes the shell.
 
 **Warning signs:**
-- `X-RateLimit-Remaining` cayendo monótonamente con el dashboard abierto.
-- `plane.api.call.failed` / 403/429 en el log creciendo con el número de sesiones.
-- El polling trigger (canal independiente) empieza a fallar cuando alguien abre el dashboard.
+A launcher using `exec`/template strings/`shell:true`. No protocol validation on `task_url`. Tests that only
+feed well-formed `https://` URLs and never a hostile string.
 
-**Phase to address:** Fase PROVIDER-STATE (cache+TTL en `/status` ANTES de cablear el render). Verificación: test que con N sesiones y dos polls consecutivos dentro del TTL assert ≤ N (no 2N) llamadas a `getTaskState`.
+**Phase to address:**
+Open-in-manager core phase. Add adversarial tests: `javascript:alert(1)`, `file:///etc/passwd`,
+`-a Calculator`, `https://x; touch /tmp/pwn`, empty string — all must be refused, never reach `execFile`.
 
 ---
 
-### Pitfall 6: Fail-open silencioso que oculta fallos del provider durante horas
+### Pitfall 5: Cross-platform launcher (`open` macOS vs `xdg-open` Linux vs Windows)
 
 **What goes wrong:**
-El enrichment es fail-open (correcto, no debe crashear `/status`), pero si el fail-open colapsa el error a "sin estado" sin observabilidad, el operador ve sesiones sin `provider_state` durante horas creyendo que es normal, cuando en realidad el token expiró o Plane está caído. El driver del milestone (ROMAN-150: sesión "In Review" invisible) se reintroduce justo al revés: ahora el estado existe pero el fetch falla silenciosamente.
+Hardcoding `open` makes the feature macOS-only and silently `ENOENT`s on Linux (`open` isn't the browser
+opener there — `xdg-open` is). On Windows the opener is different again (`start`, which is a shell builtin,
+not an executable — a classic injection footgun).
 
 **Why it happens:**
-Fail-open + cache se combinan mal: un fetch fallido puede servir un valor de cache stale indefinidamente, o devolver vacío sin distinguir "no aplica" de "falló". El render no diferencia "provider sin estado" de "no pudimos consultarlo".
+The dev environment is macOS (constraint: "Debe funcionar en macOS con cmux instalado"), so `open` "works on my
+machine." The repo already targets macOS-first.
 
 **How to avoid:**
-- Distinguir TRES estados en el shape de enrichment (espejo del campo aditivo `supported` que 39.1 ya introdujo para overlays): `{provider_state: 'In Review'}` (ok), `{provider_state: null, reason: 'unsupported'}` (provider sin el concepto), `{provider_state: null, reason: 'fetch-failed', stale_at?}` (falló — render lo marca distinto, p. ej. dim/`?`).
-- Emitir NDJSON en el fail (`provider.state.fetch.failed`) — el fail-open es silencioso en la UI pero NUNCA en el log (mismo principio que `worktree.cleanup.dirty` warn).
-- Cache con marca de frescura: si el último fetch ok fue hace > X, degradar el render a "stale" en vez de mostrar el valor viejo como si fuera vivo.
-- Token=0 invariante: el enrichment vive en server/vigilante que consumen 0 tokens LLM — `getTaskState` es una API call HTTP, no una llamada al modelo. No violar esto.
+- macOS-first is fine and matches the project constraint — but follow the **existing repo precedent**: kodo
+  already has a **Windows "refuse-with-guidance"** pattern (used by `kodo polling` per PROJECT.md / v0.7).
+  Reuse it: on `win32`, refuse with a clear message rather than attempting a shell `start` (which reintroduces
+  the injection surface of Pitfall 4).
+- For Linux, `xdg-open` is a low-cost addition (platform switch on `process.platform`), but it's optional for
+  this milestone given the macOS-only runtime constraint. If skipped, the ENOENT path (Pitfall 3) must still
+  degrade gracefully to a footer message, not a crash.
+- Decide explicitly (macOS-only + Windows refuse, or +Linux) and document it — don't let the default be
+  "crashes on non-mac."
 
 **Warning signs:**
-- Columna `provider_state` vacía para TODAS las sesiones pero sin nada en el log.
-- Valores de estado que no cambian nunca (cache stale servido indefinidamente).
+`open` string literal with no platform guard. A `win32` path that shells out to `start`. ENOENT on Linux
+treated as a generic error instead of "unsupported platform."
 
-**Phase to address:** Fase PROVIDER-STATE. Verificación: test con `getTaskState` que throwea, assert `/status` responde 200 + reason `fetch-failed` + evento NDJSON emitido.
+**Phase to address:**
+Open-in-manager core phase. Platform switch + reuse the existing Windows refuse-with-guidance helper.
 
 ---
 
-### Pitfall 7: Acoplar el lifecycle de kodo al vocabulario de estados del provider
+### Pitfall 6: **[SPIKE GATE]** Live task-state capture — the v0.11 fragility got *worse*, not better
 
 **What goes wrong:**
-El render/filtro del dashboard hardcodea strings del provider ("In Review", "Done"). Plane renombra "In Review" → "Review" en su instancia, o el operador usa estados custom, y el mapeo se rompe silenciosamente. El estado v3 de kodo (`idle`/`needs-input`/`dead`/`closed` + `running`/`review`/etc.) NO debe confundirse con `provider_state` — son dos ejes ortogonales (estado del proceso local vs estado de la tarea en el sistema de gestión).
+This is the conditional half and the highest-risk pitfall. v0.11 already found live capture fragile
+(`TodoWrite` deprecated; `transcript` / `~/.claude/plans/` unstable between Claude Code versions) and
+deliberately settled for a *static* light-plan file. **The situation has since regressed further**, which is
+why the spike exists and why its default verdict should lean INVIABLE unless a hook-stable surface is
+empirically proven.
+
+Root-caused with current sources (flag: Claude Code internals, fast-moving, version-coupled):
+
+1. **`TodoWrite` → `Task*` migration broke the hook surface.** Per the Agent SDK docs and a primary GitHub
+   issue, recent Claude Code / Agent SDK versions use structured `TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`
+   tools instead of `TodoWrite`. The newer `Task*` tools **completely bypass the `PreToolUse`/`PostToolUse`
+   hook system**, unlike `TodoWrite` which fired hooks (anthropics/claude-code issue #20243, described as a
+   "user control regression"). So the exact mechanism a 2026 "zero-token progress bar" relied on — PostToolUse
+   on TodoWrite reading `block.input.todos` — **does not fire for the current task tooling**. (HIGH confidence
+   on the bypass; MEDIUM on exact version numbers — these drift.)
+
+2. **Transcript JSONL is undocumented-as-stable and churns.** `transcript_path` points at a per-session
+   `.jsonl` under `~/.claude/projects/.../<session>.jsonl`. The *path* is provided by the hook payload (stable
+   enough — kodo already correlates it via `session.start`, LOG-10), but the **line schema is internal**: tool
+   calls, todo/task blocks, and their field names are not a committed public contract and have changed across
+   versions. Parsing task-state out of it is reverse-engineering an internal format.
+
+3. **Undocumented files under `~/.claude/`.** `~/.claude/plans/` (v0.11's tripwire) and any task-list-on-disk
+   file are implementation details that can move/rename/disappear between releases. The "progress bar reads the
+   native task list from disk" approach (dev.to, 2026) depends on exactly such a file.
+
+4. **Race / partial-JSON when reading a file being written live.** Any capture that reads the transcript or a
+   task file *while Claude is writing it* will hit half-written lines / partial JSON / truncated objects. A
+   parser that isn't tolerant of incomplete trailing lines will throw or mis-read.
+
+5. **Hook latency / session breakage risk.** If capture is done via a hook (PostToolUse), a slow or throwing
+   hook command adds latency to every tool call and can disrupt the session. The capture hook must be
+   fast, non-blocking, and must never fail the session.
+
+6. **HOOK-02 golden-bytes invariant.** kodo's existing `session-start.js` injection is byte-protected
+   (golden-bytes HOOK-02, append-at-end, v0.11 Phase 45). Any new capture hook must be a **separate** hook and
+   must not perturb the existing session-start injection bytes, or it breaks a verified invariant.
 
 **Why it happens:**
-Es tentador mapear `provider_state` directamente a un color/columna del dashboard reusando el `statusColor` v3-aware. Pero los estados de Plane/GitHub son **datos del usuario**, no un enum cerrado de kodo. GitHub agrava: no tiene un estado "review" nativo (solo open/closed + labels + PR review state) → el mapeo es inherentemente ambiguo.
+Claude Code ships fast and treats its on-disk/transcript formats and the `Task*` tool internals as private.
+Training data (and last milestone's research) captured a *snapshot* (`TodoWrite` + hooks) that the product has
+already moved past. Believing the snapshot is the trap.
 
-**How to avoid:**
-- `getTaskState` devuelve el string **crudo del provider** (más, opcionalmente, una normalización a un enum kodo pequeño y abierto). El dashboard muestra el crudo; cualquier semántica (color, filtro) opera sobre el crudo como dato, NUNCA con `switch` sobre literales hardcodeados que se rompen al renombrar.
-- Mantener `provider_state` como columna/badge SEPARADA del estado v3 — no fusionar con `statusColor`. Decisión abierta (render: columna vs badge vs color) debe resolver esto en discuss-phase.
-- GitHub: documentar el mapeo elegido (labels vs PR-state, decisión abierta) y aceptar que "review" puede no existir → devolver el estado nativo (open/closed) + label relevante, no inventar un "review" falso.
-- Filtro (`s:review` OR vs prefijo `ps:`, decisión abierta): si filtra por `provider_state`, debe ser substring case-insensitive con `String.includes` (NUNCA `RegExp`, anti-ReDoS Phase 36) sobre el string crudo, tolerante a renombrados parciales.
+**How to avoid (this is the spike's job, not the implementation's):**
+- **Run the spike against the operator's actually-installed Claude Code version** (`claude --version`), not
+  against docs or memory. The answer is version-specific.
+- Probe in priority order, recording empirical evidence for each:
+  1. Is there a **documented, hook-firing** surface for task/todo state in *this* version? (Check whether
+     `TodoWrite` can be explicitly re-enabled and whether it still fires PostToolUse, vs. whether `Task*` is
+     now exclusive and hook-silent.)
+  2. If only the transcript/on-disk file exists: can it be parsed **tolerantly** (skip partial trailing lines)
+     and is the schema stable enough to extract a coherent in_progress/completed/pending count?
+  3. Does the capture path add acceptable latency and **never throw into the session**?
+- Build the capture as a **separate, additive hook** that writes to a **kodo-controlled path**
+  (`~/.kodo/...`, mirroring the v0.11 light-plan seam) — never read Claude's internal files directly at display
+  time. The dashboard then reads kodo's own artifact (cero endpoints nuevos, read-only filesystem — same shape
+  as the existing plan overlays).
+- The display side reuses the v0.11 overlay machinery (`mode:'overlay'`, snapshot, never-throws, anti-ReDoS
+  `task_id` guard) — so display is low-risk *if* capture is viable.
 
-**Warning signs:**
-- `switch (providerState) { case 'In Review': ... }` en el código del dashboard.
-- El filtro por estado deja de matchear tras un cambio de configuración en Plane.
-- El mismo color para una sesión `dead` (v3) y una tarea `closed` (provider) confundiendo al operador.
+**Spike VIABLE criteria (ALL must hold):**
+- [ ] A **hook-firing or stable-on-disk** surface exists in the installed Claude Code version that exposes
+      live task/todo state (in_progress / completed / pending), demonstrated by capturing real state from a
+      live session — not inferred from docs.
+- [ ] The capture mechanism is **version-resilient enough**: either it's a documented/supported surface, OR the
+      parse is tolerant of format drift and partial writes (skips unparseable lines, never throws).
+- [ ] Capture runs **without adding meaningful latency** to the session and **cannot fail the session**
+      (fire-and-forget, never-throws, isolated from the HOOK-02 session-start injection).
+- [ ] Capture writes to a **kodo-controlled path** (`~/.kodo/...`), so the display side never reads Claude's
+      internal files directly and the existing read-only/overlay invariants hold.
 
-**Phase to address:** Fase PROVIDER-STATE (contrato `getTaskState` + render). Verificación: test que cambia el string del provider y assert el render/filtro sigue funcionando sin cambios de código.
+**Spike INVIABLE warning signs (ANY ⇒ return INVIABLE, ship core only):**
+- The only task surface is `Task*` tools and they **bypass hooks** with no documented opt-in to a hook-firing
+  path → no supported capture point. (This is the current default expectation per issue #20243 — so INVIABLE
+  is the *likely* verdict and the roadmap must not depend on the conditional half.)
+- The only readable surface is an **undocumented `~/.claude/` file** whose schema differs from any prior version
+  you've seen (high churn → guaranteed breakage on the next Claude Code update).
+- Reads hit partial/corrupt JSON that can't be tolerated without heuristics that would mis-report progress.
+- Any capture attempt adds latency to tool calls, perturbs the session, or risks the HOOK-02 golden bytes.
+- You cannot demonstrate end-to-end capture of *real* live state inside the spike timebox.
 
----
-
-### Pitfall 8: Un throw en el handler de `d` crashea React (rompe el invariante never-throws de v0.9)
-
-**What goes wrong:**
-El dismiss introduce la PRIMERA mutación en la TUI. El handler de `d` hace `await fetch(DELETE /sessions/{id})`. Si esa promesa rechaza (ECONNREFUSED, 500, timeout) y el throw NO se captura ANTES de tocar React, ink desmonta el árbol y el dashboard crashea — violando directamente el invariante v0.9 "ningún throw llega a React" y el lifecycle limpio de Phase 34.
-
-**Why it happens:**
-La capa de datos v0.9 (`fetchStatus`/`fetchComments`/`fetchLogs`) es never-throws por diseño, pero es de **lectura**. El DELETE es una ruta nueva de **escritura** que no pasa por `client.js` never-throws a menos que se añada ahí explícitamente. Un `useInput` handler async con un `await` sin try/catch es un throw no capturado.
-
-**How to avoid:**
-- Añadir el DELETE a la capa never-throws (`client.js`): `dismissSession(baseUrl, id)` que colapsa cualquier fallo a `{ok:false, error}` igual que `fetchStatus`. El handler de `d` NUNCA hace un `await` desnudo.
-- El error de dismiss se muestra en el **footer** (mismo patrón que el error de focus/`Enter` en Phase 37: error al footer, panel permanece montado, cero unmount).
-- El handler de `useInput` no debe ser `async` con throws latentes: o es fire-and-forget con `.catch` que escribe al footer, o delega a una función never-throws.
-
-**Warning signs:**
-- `await fetch(...)` sin try/catch en un handler de `useInput`.
-- El dashboard sale con stack trace en vez de mostrar un error en el footer.
-- Tests de la TUI que no cubren el path DELETE-falla.
-
-**Phase to address:** Fase DISMISS. Verificación: test que mockea DELETE rechazando, assert el componente sigue montado + footer muestra error (espejo del test de focus-error de Phase 37).
-
----
-
-### Pitfall 9: Mutar sobre un snapshot stale → confirmar sobre la fila equivocada
-
-**What goes wrong:**
-El usuario pulsa `d`, kodo pide confirmación, y mientras tanto el poll vivo refresca la tabla y reordena (sort DESC por `started_at`). Si la confirmación se resuelve contra el **índice de fila** o contra el snapshot viejo, se borra/desregistra la sesión equivocada. O: la sesión seleccionada era `alive===false` al pulsar `d`, pero `reconcileTick` la revivió antes de confirmar.
-
-**Why it happens:**
-La TUI ya selecciona por **identidad `task_id`** (invariante Phase 36), pero el dismiss es una acción diferida con confirmación. Si la confirmación no captura y revalida el `task_id` (no el índice ni el objeto-sesión congelado), el reordenamiento del poll mueve la fila bajo el cursor.
-
-**How to avoid:**
-- Capturar el `task_id` (identidad, Phase 36 invariante) en el momento de pulsar `d`, mostrarlo en el prompt de confirmación ("Dismiss ROMAN-150?"), y ejecutar el DELETE contra ESE `task_id` — nunca contra el índice ni la posición actual del cursor.
-- Re-validar `alive===false` para ese `task_id` contra el snapshot MÁS RECIENTE en el momento de confirmar (no el del momento de pulsar `d`). Si revivió, abortar con mensaje al footer.
-- Considerar congelar el render bajo el modo de confirmación (patrón "snapshot congelado" que los overlays `c`/`l` de Phase 39 ya usan) para que el reordenamiento del poll no mueva visualmente la fila durante la decisión.
-
-**Warning signs:**
-- Confirmación que muestra "Dismiss row 3?" en vez del `task_id`.
-- Reportes de "borré la sesión de arriba pero desapareció otra".
-- El cursor salta visiblemente durante el prompt de confirmación.
-
-**Phase to address:** Fase DISMISS. Verificación: test que reordena la tabla entre pulsar `d` y confirmar, assert el DELETE va al `task_id` original.
-
----
-
-### Pitfall 10: Añadir el 10º método (`getTaskState`) rompiendo la contract matrix
-
-**What goes wrong:**
-`getTaskState` se añade a `TASK_PROVIDER_METHODS` (9 → 10) y a Plane, pero GitHub no lo implementa (o viceversa). `getProvider('github')` falla la validación de 10 métodos al arranque, o peor, pasa la validación con un método que throwea en runtime. La contract matrix (`test/providers/contract.test.js`, Plane+GitHub × 7 asserts core) no cubre el método nuevo y el fallo se escapa a producción.
-
-**Why it happens:**
-Es un milestone de "añadir un método" — el reflejo es implementarlo donde duele el caso real (Plane, ROMAN-150) y diferir GitHub. Pero la validación de N métodos es all-or-nothing: un adapter incompleto rompe `getProvider`.
-
-**How to avoid:**
-- Implementar `getTaskState` en **AMBOS** adapters en la MISMA fase, aunque GitHub tenga un mapeo "pobre" (open/closed + label). Un no-op honesto que devuelve `{provider_state: null, reason:'unsupported'}` es válido; un método ausente NO lo es.
-- Extender la contract matrix: añadir `getTaskState` a los asserts core (8º assert × 2 providers) ANTES de cablear el enrichment. La matrix es el guard que demuestra empíricamente la promesa arquitectónica.
-- Actualizar `TASK_PROVIDER_METHODS` en `src/interface.js` y el invariante de STATE.md ("TaskProvider 9-method contract" → 10) en la misma fase — si no, el doc-drift confunde a futuros adapters (ClickUp, local).
-
-**Warning signs:**
-- `getProvider('github')` lanza "missing method getTaskState" al abrir el dashboard con provider github.
-- La contract matrix sigue iterando 7 asserts tras añadir el método.
-- `getTaskState` implementado en un solo `provider.js`.
-
-**Phase to address:** Fase PROVIDER-STATE (debe ser la PRIMERA en tocar el contrato, antes de render/dismiss). Verificación: contract matrix iterando 8 asserts × 2 providers verde + validación de 10 métodos.
+**Phase to address:**
+Dedicated **spike phase**, hard gate, BEFORE any display phase. The display phase must be explicitly
+**conditional** on a VIABLE verdict; the roadmap ships open-in-manager + Nyquist backfill regardless.
 
 ---
 
@@ -234,108 +315,95 @@ Es un milestone de "añadir un método" — el reflejo es implementarlo donde du
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| `getTaskState` solo en Plane, no-op throw en GitHub | Cierra ROMAN-150 rápido | Rompe `getProvider('github')` y la contract matrix; doc-drift del invariante 9→10 | Nunca — el no-op debe ser honesto (`{state:null, reason:'unsupported'}`), no ausente ni throw |
-| Doctor `--fix` sin dry-run por defecto | Menos teclas | Un borrado destructivo accidental sin preview = trabajo perdido | Nunca para borrados; dry-run debe ser el default |
-| Enrichment sin cache (fetch por poll) | Render siempre fresco | N+1 rate-limit exhaust mata el polling trigger compartido | Solo en prototipo con 1 sesión; nunca con N sesiones reales |
-| `await fetch(DELETE)` directo en el handler de `d` | Menos código | Un rechazo crashea React, viola el invariante never-throws | Nunca — debe pasar por `client.js` never-throws |
-| Doctor reimplementa liveness en vez de reusar `isPidAlive`/TTL | Independencia del módulo lock | Dos definiciones de "muerto" divergen; PID-reuse no cubierto | Nunca — reusar `src/gsd/lock.js` |
-| `rm -rf` del worktree en vez de `git worktree remove`/`prune` | Simple | Deja metadata git stale; puede seguir symlinks; pierde el guard clean/dirty | Nunca — usar las herramientas de git |
-| Mapear `provider_state` con `switch` sobre literales | Render directo | Se rompe al renombrar estados en Plane | Nunca — tratar el estado como dato crudo |
+| Reuse `plane.base_url` as the web host for the link | No new config field | Dead links on split web/API self-hosted deploys (Pitfall 2) | Only if you accept single-domain-only AND document it; better to add optional `plane.web_url` now |
+| Skip the `task_url` empty/legacy fallback | Less code | Open key silently no-ops on pre-v0.12 / partial sessions (Pitfall 1) | Never — guard + footer message is cheap and required for never-throws honesty |
+| Read Claude's transcript / `~/.claude/` file directly at display time | No capture hook needed | Breaks on every Claude Code release; couples the dashboard to internal formats | Never — go through a kodo-controlled artifact (`~/.kodo/...`) |
+| Implement live-capture display before the spike verdict | Feels like progress | Builds on a foundation that may be INVIABLE; sunk cost pressures a bad ship | Never — display phase MUST be gated on VIABLE |
+| `open`/launcher with `exec` + string URL | One-liner | Shell + argument injection (Pitfall 4) | Never — `execFile([url])` + http(s) validation |
+| Hardcode `open`, no platform guard | Works on the mac dev box | Crashes/ENOENT on Linux, injection on Windows `start` (Pitfall 5) | Acceptable macOS-only IF the non-mac path degrades to refuse-with-guidance, not a crash |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| GitHub REST (`getTaskState`) | Asumir 5000 req/h como el único límite; ignorar secondary rate limit | Cache+TTL server-side; respetar el warn `X-RateLimit-Remaining < 100` ya existente; saltar enrichment si está bajo |
-| GitHub "review" | Inventar un estado "review" que GitHub no tiene | Mapear a open/closed + PR review state / label; devolver el estado nativo, documentar el mapeo (decisión abierta) |
-| Plane estados custom | Hardcodear "In Review" en el render/filtro | Tratar el string del provider como dato; substring `String.includes` para el filtro |
-| `git worktree` | `rm` del directorio sin `git worktree prune` | `git worktree remove` (registrados) + `git worktree prune` (metadata stale); reusar el `lstatSync` discriminante de stop.js |
-| `process.kill(pid, 0)` | Asumir que "vivo" ⇒ es la sesión original | TTL como red de seguridad contra PID-reuse; cruzar con `state.json`/cmux |
-| `DELETE /sessions/{id}` | `await` desnudo en el handler React | Envolver en `client.js` never-throws → `{ok:false, error}` → footer |
-| `state.json` ↔ `reconcileTick` | Decidir sobre un snapshot y actuar después sin re-check | Re-leer `alive` de la fuente autoritativa justo antes de la acción destructiva |
+| Plane web link | Building URL from API `base_url`; using workspace UUID or issue UUID; `UNKNOWN-` identifier fallback (`normalize.js:107`) | Use web host (`web_url`, default = `base_url`), workspace **slug**, `IDENTIFIER-<sequence_id>` ref; treat `UNKNOWN-` as "no URL" |
+| Plane host config | One `base_url` field assumed = web URL | Add optional `plane.web_url`; strip trailing slash once in a shared helper to avoid `//browse` drift |
+| GitHub issue link | Assuming `html_url` could be absent / hand-building `github.com/owner/repo/issues/N` | `issue.html_url` is a standard, present field on issue responses (cloud + Enterprise) — use it verbatim; for GitHub Enterprise the `html_url` already encodes the enterprise host, so don't reconstruct it |
+| GitHub Enterprise base_url | Reconstructing URLs from `api.github.com` | Enterprise is explicitly Out of Scope for kodo today (PROJECT.md deferred candidates); `html_url` would carry the right host anyway — don't special-case it now |
+| macOS `open` | `exec`/shell, awaiting it, `stdio:'inherit'` | `execFile(open, [url])`, fire-and-forget, ignore stdout/stderr, short timeout, never-throws (clone `focus.js`) |
+| Claude Code `Task*` tools | Assuming PostToolUse fires on task updates (it did for `TodoWrite`) | It does NOT fire for `Task*` (issue #20243) — spike must prove an alternative hook-firing/on-disk surface or return INVIABLE |
+| Claude Code transcript JSONL | Parsing the whole file strictly | Tolerant line-by-line parse, skip partial/last line (live writes), treat schema as unstable/internal |
 
 ## Performance Traps
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| N+1 `getTaskState` por poll | `X-RateLimit-Remaining` cae; 429/403 crecen | Cache+TTL en `/status`, single-flight por `task_id` | Con ≥ ~5 sesiones activas y/o múltiples dashboards abiertos (rate-limit secundario de GitHub muerde antes de 5000/h) |
-| Doctor escaneando todos los worktrees/logs en cada invocación | Lento en repos grandes | OK — doctor es on-demand, no en loop; no optimizar prematuramente | No relevante a la escala personal de kodo |
-| Cache stale servido indefinidamente tras fetch-fail | Estados que nunca cambian | Marca de frescura; degradar a "stale" tras X | Cuando el provider está caído horas |
+| Capture hook on every tool call | Session feels sluggish; tool latency up | Fire-and-forget write, no blocking I/O, no network; or capture out-of-band | As soon as the hook does real work synchronously |
+| Re-reading a large transcript JSONL each poll to derive state | Dashboard poll gets slow as the session grows | Have the capture hook write a small distilled state file to `~/.kodo/`; dashboard reads that, not the raw transcript | Long sessions with big transcripts |
+| `open` awaited / not detached | UI stalls while browser launches | Fire-and-forget `execFile`, short timeout | Slow browser cold-start |
 
 ## Security Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Doctor sigue symlinks al borrar worktrees | Borrado fuera de `<projectPath>/.bg-shell/` (escape de directorio) | `realpathSync` + confirmar target bajo `.bg-shell/`; reusar `lstatSync` discriminante de stop.js |
-| `getTaskState` registrando el token o el body del provider en NDJSON | Exfiltración de secreto en logs | El redactor NDJSON ya corre en emit (invariante v0.3); asegurar que el nuevo evento pasa por él |
-| `DELETE /sessions/{id}` sin guard de identidad | TUI borra la sesión equivocada por confusión de `task_id` | Acción por `task_id` (Phase 36 identidad), re-validada al confirmar |
-| Token leído por `getTaskState` escrito a `config.json` | Token persistido en claro | Token solo desde `~/.kodo/.env`, NUNCA a `config.json` (invariante v0.7 GitHubClient) |
+| Passing `task_url` through a shell | Command injection from a crafted provider field | `execFile`, never `exec`/`shell:true` (Pitfall 4) |
+| No protocol allowlist on the URL | `file://` / `javascript:` / leading-`-` flag injection into `open` | Require parsed `URL` with `http:`/`https:` protocol before launch |
+| Windows `start` shell builtin to open URLs | Reintroduces shell injection on win32 | Refuse-with-guidance on win32 (existing repo pattern), don't shell out |
+| Reading/echoing Claude transcript content into logs/UI unfiltered | Could surface secrets the session handled | Capture only structured task-state (counts/titles), not raw transcript bodies; keep kodo's NDJSON redactor discipline |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| `d` sin confirmación sobre acción destructiva | Borrado accidental de sesión | Prompt de confirmación mostrando el `task_id`, no el índice |
-| `provider_state` vacío sin distinguir "no aplica" de "falló" | El operador no sabe si el provider está caído | Tres estados visuales: ok / unsupported / fetch-failed (dim+`?`) |
-| Doctor borra sin preview | Sorpresa destructiva | Dry-run por defecto; `--fix` explícito; resumen de lo que se borraría |
-| `d` habilitado sobre `alive===true` | Usuario intenta dismiss una sesión viva | Guard inverso a Enter (solo `alive===false`), rechazo con mensaje al footer |
-| Mismo color para `dead` (v3) y `closed` (provider) | Confusión entre eje local y eje provider | Columna/badge separada para `provider_state`, NO fusionar con `statusColor` |
+| Open key silently does nothing when `task_url` missing | Operator thinks the feature is broken | Footer message `no task URL for this session` (honest, mirrors existing overlay copy discipline) |
+| Reusing an already-bound key | Conflicts with `q`/`/`/`c`/`l`/`p`/`d`/Enter (verified bound in `App.js`) | Pick a free key (e.g. `o` for open); keep the mode-gated `useInput` structure |
+| Unmounting the panel / losing cursor to open a link | Operator loses their place | Panel stays mounted, cursor preserved by `task_id` (Pitfall 3) |
+| Live-progress overlay showing stale data without a freshness cue | Operator trusts a frozen number | Reuse v0.11 snapshot + live-poll labeling honesty; if capture is best-effort, say so (mirror the `l` logs "not-per-session" honesty) |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Doctor liveness:** ¿reusa `isPidAlive` + TTL, o reimplementó "muerto"? Verifica que NO borra lock con PID vivo+TTL-ok.
-- [ ] **Doctor worktree:** ¿usa `git worktree remove`/`prune` (no `rm -rf`)? ¿maneja registrado-sin-dir Y dir-sin-registro? ¿dirty → `.dirty` no borrado?
-- [ ] **Doctor logs:** ¿reusa la retención de 7 días de polling? ¿NO borra el log del día activo? ¿el `--follow` sobrevive?
-- [ ] **Dismiss handler:** ¿el DELETE pasa por `client.js` never-throws? Verifica que un rechazo NO desmonta React.
-- [ ] **Dismiss identidad:** ¿confirma contra `task_id` revalidado, no índice ni snapshot viejo? ¿re-check `alive===false` al confirmar?
-- [ ] **provider_state enrichment:** ¿cache+TTL server-side? Verifica ≤ N llamadas en dos polls dentro del TTL.
-- [ ] **provider_state fail-open:** ¿emite NDJSON al fallar? ¿distingue unsupported de fetch-failed en el render?
-- [ ] **Contract matrix:** ¿`getTaskState` en AMBOS adapters? ¿la matrix itera el 8º assert × 2 providers? ¿`TASK_PROVIDER_METHODS` actualizado a 10?
-- [ ] **Invariantes v0.9:** ¿`reconcileTick` sigue siendo el ÚNICO escritor de `alive`? ¿color isolation (cero picocolors en dashboard)? ¿tokens=0 en server/vigilante?
-- [ ] **STATE.md:** ¿el invariante "9-method contract" actualizado a 10 para no confundir a ClickUp/local?
+- [ ] **Open-in-manager:** Works on a freshly-launched session — but verify it on a **pre-v0.12 SessionRecord with no `task_url`** (Pitfall 1).
+- [ ] **Plane link:** Opens correctly on single-domain Plane — but verify with a config where **`web_url ≠ base_url`** and where `projectIdentifier` resolves to `UNKNOWN` (Pitfall 2).
+- [ ] **Launcher safety:** Opens normal URLs — but verify the **adversarial URL matrix** is refused before reaching `execFile` (Pitfall 4).
+- [ ] **TUI resilience:** Opens a link — but verify the **alt-screen survives** and an **ENOENT/non-zero/throw** never crashes React (Pitfall 3).
+- [ ] **Platform:** Works on macOS — but verify the **non-mac path refuses gracefully** (no crash, no `start` shell-out) (Pitfall 5).
+- [ ] **Spike:** "We can read the transcript" — but verify you captured **real live task-state from a running session on the installed Claude Code version**, tolerant of partial JSON, without breaking the session (Pitfall 6).
+- [ ] **Invariants:** Verify **cero endpoints nuevos**, color isolation (no picocolors in the new dashboard code), `TASK_PROVIDER_METHODS` still FROZEN at 9, HOOK-02 golden bytes intact if a capture hook is added.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Doctor borró un worktree vivo | HIGH | `git worktree add` re-crea el dir desde la branch si la branch sobrevive; si stop.js movió a `.dirty`, recuperar de ahí; si fue `rm -rf` ciego, trabajo perdido (de ahí el dry-run default) |
-| Lock vivo robado → sesión doble sobre el repo | MEDIUM | El `worktree_collision` fail-fast del dispatcher (Phase 18) aborta la segunda sesión; revisar logs y re-acquire |
-| Token agotado por N+1 | MEDIUM | Esperar al reset de la ventana; cerrar dashboards; añadir cache+TTL (la fix permanente) |
-| React crasheó por throw en `d` | LOW | Re-lanzar `kodo dashboard`; envolver el DELETE en never-throws (fix permanente) |
-| Dismiss sobre fila equivocada | MEDIUM | La sesión sigue en cmux (DELETE solo toca state.json/worktree); re-registrar si es necesario; añadir confirmación por `task_id` |
-| Mapeo provider roto por renombrado | LOW | El estado crudo sigue mostrándose; ajustar el filtro; nunca había `switch` hardcodeado si se siguió el patrón |
+| Plane links built from API host (dead on split deploys) | LOW | Add `plane.web_url` config (default `base_url`), route normalizer + fallback through it, re-test |
+| `task_url` empty on legacy rows | LOW | Add derive-on-read fallback helper shared with the normalizer; no state migration needed |
+| Launcher crashed the TUI | LOW | Refactor to clone `focus.js` never-throws DI helper; add fault-matrix tests |
+| Shipped live-display on a fragile surface that then broke on a Claude update | HIGH | Hard to recover — this is *why* the spike gates it; if it breaks post-ship, fall back to the static v0.11 light-plan and mark display deferred |
+| Capture hook slowed/broke sessions | MEDIUM | Disable the hook, move capture out-of-band, re-verify latency before re-enabling |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1. PID reciclado roba lock vivo | DOCTOR | Test: lock PID-vivo+TTL-ok → NO-borrado; PID-muerto → steal |
-| 2. Race liveness→borrado (TOCTOU state) | DOCTOR + DISMISS | Test: flip `alive` entre check y acción → abort |
-| 3. TOCTOU filesystem worktree | DOCTOR | Test: registrado-sin-dir vs dir-sin-registro → ruta correcta cada uno |
-| 4. Borrar logs con `--follow` activo | DOCTOR | Test: spawn `--follow` + doctor `--fix` → follower sobrevive, log activo intacto |
-| 5. N+1 rate-limit exhaust | PROVIDER-STATE | Test: 2 polls dentro de TTL con N sesiones → ≤ N llamadas |
-| 6. Fail-open silencioso oculta caídas | PROVIDER-STATE | Test: `getTaskState` throw → 200 + reason `fetch-failed` + NDJSON |
-| 7. Acoplar lifecycle al vocabulario del provider | PROVIDER-STATE | Test: renombrar estado provider → render/filtro sigue sin cambios de código |
-| 8. Throw en `d` crashea React | DISMISS | Test: DELETE rechaza → componente montado + footer error |
-| 9. Mutar sobre snapshot stale (fila equivocada) | DISMISS | Test: reordenar tabla entre `d` y confirmar → DELETE al `task_id` original |
-| 10. 10º método rompe contract matrix | PROVIDER-STATE (primera) | Contract matrix 8 asserts × 2 providers verde + validación 10 métodos |
-
-**Recomendación de orden de fases (refuerza el mapping):**
-1. **PROVIDER-STATE primero** — toca el contrato (`getTaskState`, 9→10) y la contract matrix; es la fundación. Mitiga 5, 6, 7, 10. Cierra el driver real ROMAN-150.
-2. **DOCTOR segundo** — la lógica destructiva canónica que DISMISS reusará. Mitiga 1, 2, 3, 4. Dry-run + reuso de `isPidAlive`/TTL/stop.js cleanup.
-3. **DISMISS último** — reusa la lógica de DOCTOR y promueve la TUI a read-write sobre la capa never-throws ya extendida. Mitiga 2 (en el momento del DELETE), 8, 9.
+| 0 — Re-building existing `task_url` machinery | Open-in-manager core | First task audits existing `url`/`task_url` round-trip; diff shows no new field/method |
+| 1 — Empty `task_url` on legacy sessions | Open-in-manager core | Regression test with a SessionRecord lacking `task_url`; footer message asserted |
+| 2 — Plane web URL from API host / slug / sequence_id | Open-in-manager core | Test with `web_url ≠ base_url`, slug vs UUID, `UNKNOWN` identifier → no dead link emitted |
+| 3 — Launcher crashing TUI / alt-screen | Open-in-manager core | Fault matrix (ENOENT/non-zero/throw) + UAT alt-screen survives, panel stays mounted |
+| 4 — URL argument/shell injection | Open-in-manager core | Adversarial URL tests all refused before `execFile` |
+| 5 — Cross-platform launcher | Open-in-manager core | win32 refuse-with-guidance asserted; non-mac ENOENT degrades to footer |
+| 6 — Live-capture fragility | **Spike phase (hard gate)** | Empirical VIABLE/INVIABLE verdict on installed Claude Code version; display phase conditional on VIABLE |
 
 ## Sources
 
-- `.planning/PROJECT.md` (Constraints, Key Decisions, invariantes v0.7/v0.8/v0.9) — HIGH
-- `.planning/STATE.md` (Critical Invariants to Preserve) — HIGH
-- `src/gsd/lock.js` (`isPidAlive` ESRCH/EPERM, máquina de estados de acquire, TTL 4h, `realpathSync`) — HIGH (leído directo)
-- `src/hooks/stop.js` (worktree cleanup fail-open, branch-read-before-remove, `lstatSync` discriminante ENOENT/symlink/EACCES, move-a-`.dirty`) — HIGH (leído directo)
-- `man 2 kill` (macOS — permission check, ESRCH) — HIGH (verificado en este host)
-- `git worktree --help` (remove requiere clean, `--force` para dirty, `prune` para metadata stale, prunable) — HIGH (verificado en este host)
-- v0.8 Phase 28 retención polling logs 7 días — HIGH (PROJECT.md requirement validado)
-- v0.7 GitHubClient rate-limit warn `X-RateLimit-Remaining < 100`, token desde `.env` — HIGH (PROJECT.md)
+- Claude Code Hooks reference (transcript_path, PostToolUse input shape) — https://code.claude.com/docs/en/hooks (HIGH)
+- Agent SDK Todo Tracking (TodoWrite → Task* tooling, monitoring todos via PostToolUse) — https://platform.claude.com/docs/en/agent-sdk/todo-tracking (HIGH)
+- **anthropics/claude-code issue #20243 — "Task* tools bypass PreToolUse/PostToolUse hooks"** (the load-bearing regression for the spike) — https://github.com/anthropics/claude-code/issues/20243 (HIGH for the bypass; MEDIUM for exact version numbers)
+- "A zero-token progress bar for Claude Code" (reads native task list from disk via PostToolUse) — https://dev.to/prafulreddy/a-zero-token-progress-bar-for-claude-code-51bp (MEDIUM — shows the on-disk approach and its TodoWrite dependency)
+- Plane API — issue endpoint structure, `sequence_id`, workspace slug — https://developers.plane.so/api-reference/issue/get-issue-detail (HIGH for API shape)
+- makeplane/plane issue #2434 — web and API on separate URLs in self-hosting (`NEXT_PUBLIC_API_BASE_URL`) — https://github.com/makeplane/plane/issues/2434 (HIGH — confirms web≠API host divergence)
+- GitHub REST API — issue `html_url` present on issue responses (cloud + Enterprise) — https://docs.github.com/en/rest/issues (HIGH)
+- kodo source verified in-repo: `src/interface.js:20` (`TaskItem.url`), `src/providers/plane/normalize.js:65,76,107`, `src/providers/plane/client.js:8,24`, `src/providers/github/normalize.js:102`, `src/session/manager.js:48`, `src/session/state.js:23`, `src/cli/dashboard/focus.js` (never-throws launcher pattern), `src/cli/dashboard/App.js` (bound keys `q`/`/`/`c`/`l`/`p`/`d`/Enter) (HIGH)
 
 ---
-*Pitfalls research for: kodo v0.10 — saneo destructivo + TUI read-write + enrichment cross-provider*
-*Researched: 2026-06-03*
+*Pitfalls research for: Node CLI/TUI — open-in-manager deep links + spike-gated live Claude Code task-state capture*
+*Researched: 2026-06-11*
+</content>

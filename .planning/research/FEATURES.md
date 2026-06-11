@@ -1,223 +1,176 @@
 # Feature Research
 
-**Domain:** Developer CLI tooling — session/task lifecycle hygiene + cross-system task-state normalization (Node.js CLI bridging task managers ↔ Claude Code sessions)
-**Researched:** 2026-06-03
-**Confidence:** HIGH (provider-state mapping & doctor conventions verified against primary sources; TUI destructive-action conventions MEDIUM — UX-guidance sources, no single authoritative TUI spec)
-
-> Scope: research for kodo v0.10 — three features. (1) `kodo gsd doctor` (saneo), (2) dismiss desde el dashboard (TUI read-write), (3) `provider_state` cross-system normalization (HIGHEST value — most effort here). Existing v0.9 dashboard features are NOT re-researched.
+**Domain:** Terminal dashboard (ink/react TUI) for a provider-agnostic CLI bridging task managers (Plane CE, GitHub Issues) and Claude Code sessions via cmux — milestone v0.12 "Atajos al gestor y progreso vivo"
+**Researched:** 2026-06-11
+**Confidence:** HIGH for Open-in-manager (GitHub `html_url` and Plane web-URL shapes verified against official docs + source PR); MEDIUM-LOW for Live-progress (capture surface is fluid; Task tools bypass hooks — verified — making it genuinely spike-gated)
 
 ---
 
-## Feature 3 — `provider_state` cross-system normalization (PRIORITARIO)
+## Scope Framing (read first)
 
-### The single most important finding
+This milestone adds **two independent capabilities** to an existing, mature TUI. They are NOT equal in certainty:
 
-**Every major task system converges on the SAME small, fixed set of state *categories* — and NONE of them has "review" or "blocked" as a native category.** They are always *custom states* that live inside the "in progress / started" bucket.
+1. **Open-in-manager** — *core, ships regardless.* Outward link: one keypress on a session row → opens the task's URL in the system browser. Mechanically a clone of the existing `focus.js` pattern (`execFile` fire-and-forget, never unmount). LOW technical risk. The only real research question is **what URL to persist**, answered below.
+2. **Live progress display** — *spike-gated, may be cut.* Inward view: render the running session's live task/todo progress (`3/7 steps`). The research below shows the capture surface is **unstable and partially hook-blind**, which is exactly why a hard spike gate is correct. Do not commit UI to this until the spike returns VIABLE.
 
-| System | Fixed category set | Source | "Review" native? | "Blocked" native? |
-|--------|-------------------|--------|------------------|-------------------|
-| **Jira** | `To Do` · `In Progress` · `Done` (exactly 3, names/colors NOT customizable) | [Jira statusCategory REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-workflow-status-categories/) | No — custom status inside `In Progress` | No — custom status inside `In Progress` |
-| **Linear** | `triage` · `backlog` · `unstarted` · `started` · `completed` · `canceled` (fixed *types*; custom statuses map to one type) | [Linear workflows docs](https://linear.app/docs/configuring-workflows) | No — custom status of type `started` | No — custom status of type `started` |
-| **Plane** (kodo's primary adapter) | `Backlog` · `Unstarted` · `Started` · `Completed` · `Cancelled` (5 fixed groups, cannot be customized; custom *names* allowed within a group) | [Plane workflow states docs](https://docs.plane.so/core-concepts/issues/states) | No — "In Review" is a custom state in the `Started` group | No |
-
-**Implication for kodo:** the proposed vocabulary `in_progress | in_review | blocked | done | unknown` is *richer* than what any upstream provider exposes as a first-class category. "In Review" and "Blocked" only exist as **named states inside the started/in-progress bucket**. kodo cannot read them from a category field — it must match on the **state *name* string** (Plane) or **derive them by convention** (GitHub). This is exactly the coupling pitfall the todo flagged ("si el nombre de los estados cambia en Plane, kodo se rompe").
-
-### How real tools normalize cross-system (the pattern to copy)
-
-The robust pattern across Linear↔Jira, GAIA, Capybara and similar bridges:
-
-1. **Map by category/type, not by raw name** where a category field exists. Jira→Linear maps via the 3-bucket `statusCategory`, not the literal status string. ([Linear Jira docs](https://linear.app/docs/jira))
-2. **Fall back, never crash, on unmapped states.** Linear's documented behavior: a Jira status with no Linear mapping → the issue **does not update** (keeps last good), or new issues land in **Triage** (a neutral default). It never errors. ([Linear Jira docs](https://linear.app/docs/jira)) — This is precisely kodo's `unknown` + fail-open requirement.
-3. **Allow per-workspace name overrides.** Because "In Review"/"Blocked" are custom names, mature integrations let the user remap names → buckets. kodo's equivalent: a small per-provider name→normalized lookup table that's easy to extend, with `unknown` as the default for anything unrecognized.
-
-### RECOMMENDED normalized vocabulary
-
-**Keep the proposed 5 values — they are correct and sufficient. Add nothing speculative.**
-
-`in_progress | in_review | blocked | done | unknown`
-
-Rationale per value:
-
-| Value | Keep? | Why |
-|-------|-------|-----|
-| `in_progress` | ✅ | Maps cleanly to Jira `In Progress` / Linear `started` / Plane `Started`. The default "session is doing work" state. |
-| `in_review` | ✅ | The **driver of the whole feature** (ROMAN-150). Not a native category anywhere, but it's the one signal kodo most needs to surface (work awaiting human merge/review that would otherwise vanish on `/exit`). |
-| `blocked` | ✅ (keep, low cost) | Common custom state; cheap to map by name. Genuinely actionable in a dashboard ("this needs you"). Low risk because it's purely additive and falls through to `unknown` if absent. |
-| `done` | ✅ | Maps to Jira `Done` / Linear `completed` / Plane `Completed`. Note: semantic overlap with kodo's internal `status==='done'` — see Pitfall below. |
-| `unknown` | ✅ **(mandatory)** | The fail-open sink. Required for (a) provider API failure/timeout, (b) any state name the lookup doesn't recognize, (c) GitHub where review can't be derived. Without this the feature is brittle. |
-
-**Do NOT add** (anti-vocabulary — see Anti-Features): `backlog`, `todo`, `unstarted`, `triage`, `cancelled`/`canceled`, `closed`, `paused`, `archived`. A kodo session only exists because work is *active*; backlog/triage states are pre-session and irrelevant to a live-session dashboard. `cancelled`/`closed` collapse into `done` for dashboard purposes (the session is over). Adding them is speculative richness that increases the mapping surface for no dashboard value.
-
-**One value worth considering but recommend deferring:** distinguishing `done` (provider says complete) from `closed`/`cancelled` (provider says won't-do). For a *hygiene* dashboard both mean "session no longer needs attention" → fold into `done`. Revisit only if a real driver appears.
-
-### Plane mapping (primary adapter — straightforward)
-
-Map on the **state group** when the Plane API exposes it (`group ∈ {backlog, unstarted, started, completed, cancelled}`), then refine `started` by **name match** for the two custom states:
-
-```
-group=completed | cancelled        → done
-group=started AND name ~ "review"  → in_review     (case-insensitive substring)
-group=started AND name ~ "block"   → blocked
-group=started (otherwise)          → in_progress
-group=unstarted | backlog          → in_progress   (session is live → treat as working)
-anything else / fetch fails        → unknown
-```
-
-Keep the name-match table tiny, case-insensitive, substring-based (reuse the anti-ReDoS `String.includes` discipline already enforced in the dashboard filter layer). Document that custom Plane state names must contain "review"/"block" to be recognized, else they degrade to `in_progress` (not an error).
-
-### GitHub Issues mapping — CRITICAL (no native review)
-
-GitHub Issues has only `open` / `closed`. There is **no review concept**. Three options to derive `in_review`:
-
-| Option | How | Pros | Cons | API cost |
-|--------|-----|------|------|----------|
-| **(i) Label convention** | Read issue labels; `awaiting-review` / `in-review` / `needs-review` → `in_review`; `blocked` label → `blocked`; else open→`in_progress`, closed→`done` | Simplest; labels already fetched in the existing `normalizeIssue` payload (**zero extra API calls**); mirrors kodo's own `kodo:gsd` label convention; user-controllable; deterministic | Requires the user/agent to apply the label (won't fire for the exact ROMAN-150 "agent moved it via MCP" pattern unless the agent also labels); convention must be documented | **0 extra** (labels are on the issue) |
-| **(ii) Issue→PR link, read PR review state** | Find PR that closes the issue (closing-keyword link), read its review/merge state | Most "accurate" if a PR exists; reflects real review status | **No clean API** to list issues↔PRs — requires the Timeline events API (fragile, undocumented-shape, paginated) → N+1+ calls per session per poll; PR may not exist yet at the moment review is needed; closing-keyword links only count against the default branch; high coupling | **HIGH** (Timeline API + PR fetch, multiple calls) — see [GitHub community discussion #179613](https://github.com/orgs/community/discussions/179613) confirming no clean endpoint |
-| **(iii) open/closed only** | open→`in_progress`, closed→`done`, never `in_review`/`blocked` | Trivial; truthful to what GitHub natively models; zero new failure modes | Doesn't solve the driver at all for GitHub — no review signal | **0 extra** |
-
-**RECOMMENDATION: Option (i) — label convention — as the primary path, with (iii) open/closed as the fallback when no recognized label is present.**
-
-Concrete GitHub mapping:
-
-```
-issue.state = closed                                  → done
-issue.labels contains "review" (substring, ci)        → in_review
-issue.labels contains "block"  (substring, ci)        → blocked
-issue.state = open (otherwise)                         → in_progress
-fetch fails / shape bad                                → unknown
-```
-
-Why (i) over (ii):
-- **Cost & robustness.** Labels ride on the issue payload kodo already normalizes (`normalizeIssue`). Zero extra API calls, no Timeline-API fragility, no N+1 explosion on every poll. The todo explicitly flags N+1 as a predictable pitfall and mandates caching — (i) sidesteps it entirely for GitHub.
-- **Consistency with kodo's own design.** kodo already uses labels (`kodo:gsd`, `kodo:gsd-quick`, `kodo:gsd-child`) as its cross-provider trigger mechanism, and PROJECT.md records "Labels como mecanismo cross-provider" as a ✓ Good key decision. A review label is idiomatic to the existing architecture.
-- **(ii) doesn't even reliably solve the driver.** The ROMAN-150 case is "agent moves task to In Review bypassing verify." On GitHub the analog is the agent applying a label or opening a PR — but the PR-link path requires the PR to already exist *and* be discoverable via Timeline, which won't hold mid-work. A label is the lighter, more reliable contract.
-
-Document the recognized label substrings (`review`, `block`) and note that GitHub `in_review` is **convention-driven, not automatic** — this honesty is a feature, not a gap.
-
-### Server `/status` enrichment — table stakes for this feature
-
-Per the todo, all MEDIUM-complexity but non-negotiable for correctness:
-
-- **Fail-open per row.** A failed/timed-out `getTaskState(task_id)` omits `provider_state` for that row only; never throws, never blocks the endpoint, never breaks the poll. (Mirrors the v0.9 `fetchStatus` never-throws invariant.)
-- **Cache with TTL.** N active sessions × every poll = Plane/GitHub API exhaustion risk. Reuse the existing `pendingCache` TTL pattern (5–30s). Mandatory, not optional.
-- **Concurrency cap.** Serial is fine for typical N<10; if it grows, `Promise.allSettled` with a concurrency cap. Don't build this until N demands it (anti-feature: premature batching).
-- **Structured failure logging.** Emit `provider.state.fetch.failed` (NDJSON) so silent fail-open doesn't hide an hours-long provider outage. If *all* calls fail, degrade a header banner (like the v0.9 `server caído` banner) rather than silently showing everything as `unknown`.
+The downstream requirements step should treat these as two separately-shippable units. Open-in-manager carries the milestone; live-progress is upside.
 
 ---
 
-## Feature 1 — `kodo gsd doctor`
+## Part 1 — Open-in-manager
 
-### What real `doctor` tools do (verified conventions)
+### Verified URL facts (the load-bearing research)
 
-| Tool | Reports? | Fixes? | Exit code on problems | Dry-run | Notes | Source |
-|------|----------|--------|----------------------|---------|-------|--------|
-| `brew doctor` | Yes | **No — report only** | **Non-zero** | n/a (never mutates) | Diagnostics only; mutation lives in a *separate* `brew cleanup` | [brew Manpage](https://docs.brew.sh/Manpage) |
-| `brew cleanup` | Yes | Yes (removes stale locks, old downloads, old versions) | — | **`-n, --dry-run`** shows what would be removed | The mutating half is a distinct command with explicit dry-run | [brew Manpage](https://docs.brew.sh/Manpage) |
-| `flutter doctor` | Yes, **grouped by category** with ✓/✗ per check; `-v` verbose | No (points you to fixes) | reports status per category | n/a | Category-per-line output is the recognizable UX | [Flutter troubleshoot](https://docs.flutter.dev/install/troubleshoot) |
-| `npm doctor` | Yes | No | **Always 0 even on errors — widely considered a BUG** | n/a | Explicitly the anti-pattern to avoid | [npm/cli#1226](https://github.com/npm/cli/issues/1226), [npm-doctor docs](https://docs.npmjs.com/cli/v11/commands/npm-doctor/) |
-| `git worktree prune` | Yes (`-v`) | Yes (removes orphaned admin entries) | — | **`--dry-run`** (`-n`) + `-v` | Never prunes *locked* worktrees; relevant directly to kodo's worktree saneo | [git-worktree docs](https://git-scm.com/docs/git-worktree) |
-| `git fsck` | Yes | No (reports dangling/corrupt objects) | non-zero on corruption | n/a | Pure integrity check | [git docs] |
+**GitHub Issues — use `html_url`. CONFIRMED.**
+- The Issues REST API response object includes an `html_url` field, typed `required, string, format: uri`, whose value is the browser-facing URL to the issue — e.g. `https://github.com/octocat/Hello-World/issues/1347`. (GitHub REST docs, [issues endpoints](https://docs.github.com/en/rest/issues/issues).)
+- GitHub's own [best-practices guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) is explicit: **do not construct or parse these URLs yourself — use the `html_url` the API returns.** This is a direct mandate to persist `html_url` rather than rebuild `github.com/{owner}/{repo}/issues/{number}` by hand.
+- **Implication for kodo:** `normalizeIssue` (`src/providers/github/normalize.js`) already receives the raw issue object. Persist `issue.html_url` straight into the canonical `task_url` field. Zero construction, zero parsing. Confidence: HIGH.
 
-**The dominant industry split:** `doctor` = **report-only, exit non-zero if problems found**; a *separate verb* (`cleanup`/`prune`/`gc`) does the mutation and *that* one carries `--dry-run`. kodo's design ("dry-run por defecto + `--fix`") collapses both into one command — which is fine and arguably more ergonomic for a personal tool, **but only if the dry-run-by-default + explicit-`--fix` discipline is rigorous** (the opposite failure of `npm doctor`).
+**Plane (self-hosted Community Edition) — construct `/{workspace_slug}/browse/{project_identifier}-{sequence_id}`. CONFIRMED via source.**
+- Plane is open source. PR [makeplane/plane#6546](https://github.com/makeplane/plane/pull/6546) ("feat: url pattern") introduced a centralized `generateWorkItemLink` helper and a **new canonical work-item URL**:
+  - **New (preferred):** `/{workspace_slug}/browse/{project_identifier}-{sequence_id}` — e.g. `https://plane.example.com/my-team/browse/PROJ-42`. Human-readable, shareable.
+  - **Old (still works — redirects to new):** `/{workspace_slug}/projects/{project_id}/issues/{issue_id}` — UUID-based.
+- `workspace_slug` is confirmed as the slug in the URL (e.g. `my-team` in `https://app.plane.so/my-team/projects/`) per [Plane workspaces docs](https://docs.plane.so/core-concepts/workspaces/overview). `sequence_id` is the per-project sequential identifier exposed in the API; `project_identifier` is the project's display code (e.g. `PROJ`).
+- **Implication for kodo:** the Plane normalizer must persist enough to build the URL. Two strategies, in priority order:
+  1. **Preferred:** persist the new short form `{web_base}/{workspace_slug}/browse/{project_identifier}-{sequence_id}`. Requires the normalizer to have `project_identifier` + `sequence_id` (both present in Plane work-item API responses) + the configured **web base host** (distinct from the API base; self-hosted instances differ — must come from config, not hardcoded).
+  2. **Fallback:** the old UUID form `{web_base}/{workspace_slug}/projects/{project_id}/issues/{issue_id}` redirects correctly and needs only fields kodo already has (`project_id`, `issue_id`). Safe if `project_identifier`/`sequence_id` aren't readily on the normalized item.
+- **IN-REPO VERIFICATION REQUIRED:** confirm (a) the Plane work-item payload kodo fetches actually carries `project_identifier` and `sequence_id`, and (b) kodo config has a **web base URL** separate from the API base URL. The dashboard already surfaces a Plane `sequence_id`-style identifier (the `task` column work in v0.10), so the data likely exists, but verify before choosing strategy 1 vs 2. Confidence: HIGH on the URL shape, MEDIUM on field availability pending repo check.
 
-### Recommended conventions for `kodo gsd doctor`
+### Feature Landscape — Open-in-manager
 
-| Convention | Recommendation | Source-backed rationale |
-|-----------|----------------|------------------------|
-| Default behavior | **Dry-run / report-only** (list what *would* be cleaned, mutate nothing) | `brew cleanup -n`, `git worktree prune --dry-run` — safe-by-default is universal for cleanup tooling |
-| Mutation | Behind explicit **`--fix`** flag | Matches the report/mutate split; opposite of accidental destruction |
-| Output | **Grouped by category** (worktrees huérfanos · sesiones zombie · locks colgados · logs antiguos), ✓/✗ per item | `flutter doctor`'s category-per-line is the recognizable, scannable convention |
-| Exit codes | **0 = clean, 1 = problems found** (and in `--fix` mode, 1 only if something couldn't be fixed). Reserve 2+ for usage/config errors per kodo's existing exit-code discipline (D-19, Pitfall #6) | Avoid the `npm doctor` bug (exit 0 on errors). kodo already has deterministic exit codes as a project invariant |
-| Confirmation in `--fix` | For a personal tool, `--fix` itself is the consent. **Don't** add interactive y/N per item (friction); DO support `--fix --dry-run` as an explicit preview alias if desired. A `--yes` is unnecessary noise here | Personal-tool ergonomics; interactive prompts fight scripting/automation |
-| Liveness checks | Worktrees: never touch *locked* ones, only orphaned/prunable (`git worktree list` reports `prunable`/`locked`); locks: PID-liveness + TTL (kodo already has this in GSD-10); zombies: `alive===false` from the v3 reconcile (single source of truth, don't recompute) | [git-worktree prune docs](https://git-scm.com/docs/git-worktree); reuse v0.9 `reconcileTick` as the only `alive` writer |
-| `--json` | Emit byte-deterministic JSON report (kodo `--json` invariant) | Existing project constraint |
+#### Table Stakes (Users Expect These)
 
-### Doctor categories (the 4 from the milestone)
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| One key on a row → open task URL in default browser | The whole point of the feature; CLI tools that link out (lazygit, `gh`, `dash`) all bind a single key to "open in browser" | LOW | Clone `focus.js`: `execFile('open', [url])` (macOS-only is fine — runtime constraint is macOS+cmux), fire-and-forget, never unmount the panel. Guard: row must have a non-empty `task_url`. |
+| `task_url` persisted on `SessionRecord` at launch | Reading a persisted field keeps the "zero new endpoints" invariant — the URL is read like `focus.js` reads `workspace_ref` | LOW | Each normalizer supplies it: GitHub `html_url` verbatim; Plane constructed. Persist PRE-spawn like `worktree_path` already is, so the trace survives spawn failure. |
+| Honest footer error when URL is missing/unopenable | Sessions launched before the field existed, or providers without a URL, must degrade gracefully — never crash the TUI | LOW | Footer message ("no task URL for this session" / ENOENT on `open`), panel stays mounted. Mirrors the `focus.js` ENOENT/exit≠0 footer pattern exactly. |
 
-| Category | Detect | Fix (`--fix`) | Complexity | Reuse |
-|----------|--------|---------------|------------|-------|
-| Worktrees huérfanos | `git worktree list` prunable + `.bg-shell/<id>` dirs with no live session | `git worktree prune` / remove (respect `.dirty` rename + locked) | MEDIUM | v0.6 worktree cleanup logic (`stop.js` already does `git worktree remove --force` + `.dirty` rename — extract/share) |
-| Sesiones zombie (`alive===false`) | Read `alive` from v3 state (single source) | `removeSession` + emit terminal NDJSON | LOW | **This is the exact logic `d`/dismiss reuses** — extract a shared `dismissSession`/`reapZombie` helper |
-| Locks per-repo colgados | PID dead OR TTL expired | release lock file | LOW | GSD-10 lock already has PID+TTL liveness |
-| Logs NDJSON antiguos | mtime older than retention (e.g. >7d, matching existing polling-log 7d retention) | delete old files | LOW | Polling daemon already does 7-day retention — align the threshold |
+#### Differentiators (Competitive Advantage)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Copy-URL-to-clipboard fallback | When `open` isn't available (SSH, headless) or the user wants to paste elsewhere; a second key (e.g. `y`) copies the URL | LOW-MEDIUM | macOS `pbcopy` via `execFile` is trivial and dependency-free. Avoid cross-platform clipboard libs (OSC 52 etc.) — out of scope for a macOS personal tool. Genuinely useful, low cost. Recommend as the *one* differentiator worth keeping on the radar. |
+| Show the URL in a row/overlay before opening | Lets the user confirm where they'll land; could live in an existing overlay (`c`/`l`/`p` family) | LOW | Cheap if folded into an existing overlay; a standalone overlay just for this would be gold-plating. |
+
+#### Anti-Features (Commonly Requested, Often Problematic)
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| Disambiguation UI when one session maps to "multiple URLs" | Sounds thorough | A kodo session is 1:1 with a `task_id` → exactly one task → one URL. There is no real multi-URL case. Building a picker invents complexity for a scenario that can't occur. | Persist exactly one `task_url`. If a future provider truly had multiple, revisit then. |
+| Construct GitHub URLs by hand from owner/repo/number | "We already have the parts" | GitHub explicitly tells you not to — `html_url` is authoritative and future-proof; hand-built URLs break on enterprise/custom hosts | Persist `html_url` verbatim. |
+| Hardcode the Plane web host (or reuse the API base URL as the web base) | "It's my instance, I know the host" | Self-hosted Plane web host ≠ API host in general; hardcoding breaks portability and the provider-agnostic promise | Read web base from config; construct the path from `workspace_slug`/`project_identifier`/`sequence_id`. |
+| Cross-platform browser opening (xdg-open/start branches) | "Be portable" | Runtime is explicitly macOS+cmux (PROJECT.md constraint); branching adds untested code paths for no current user | `open` only; document the constraint. |
+| In-TUI embedded web view / preview | "Don't leave the terminal" | Massive complexity, no value for a personal tool; the browser is the right surface for a web app | Hand off to the system browser. |
 
 ---
 
-## Feature 2 — Dismiss desde el dashboard (TUI read-write)
+## Part 2 — Live progress display (SPIKE-GATED)
 
-### Destructive-action conventions in a TUI (MEDIUM confidence)
+### Verified capture-surface facts (why this is genuinely uncertain)
 
-General UX guidance (no single TUI spec, synthesized from UX sources + common TUI idioms):
+**Where live progress lives — and the moving target.**
+- Claude Code surfaces multi-step progress via todos. Each legacy item has shape `{ content, status, activeForm }` where `status ∈ {pending, in_progress, completed}`. The canonical "good" render is **`completed/total` + currently-in-progress item(s)** with per-item icons (✅/🔧/❌) — exactly the format in Anthropic's own docs ([Todo Lists / Agent SDK](https://code.claude.com/docs/en/agent-sdk/todo-tracking)).
+- **The tool changed.** As of **Claude Code v2.1.142 / TS Agent SDK 0.3.142**, sessions use structured **`TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`** tools instead of the single `TodoWrite` call. `TaskCreate` adds one item (`{subject, description, activeForm?, metadata?}`); `TaskUpdate` patches one by `taskId` (`status ∈ {pending, in_progress, completed, deleted}`). The assigned task ID comes back in the `tool_result` (`{task: {id, subject}}`), not the input — so a monitor must accumulate a **map keyed by task ID** across calls, not replace a whole array. This directly confirms PROJECT.md's prior research note that "TodoWrite está deprecado."
+- **The hook surface is partially blind. CONFIRMED.** The new Task tools **bypass PreToolUse/PostToolUse hooks** ([anthropics/claude-code#20243](https://github.com/anthropics/claude-code/issues/20243)). A PostToolUse hook on `TodoWrite` would only fire for **unmigrated/legacy** sessions (or those forced with `CLAUDE_CODE_ENABLE_TASKS=0`), **not** the current default. So the v0.11-style "inject an instruction + hook" approach that worked for the light-plan artifact **does not cleanly transfer** here.
+- **The robust surface is the transcript JSONL.** Tool-use blocks are recorded in the session transcript (`~/.claude/projects/.../<session>.jsonl`), and **kodo already correlates the transcript via `transcript_path` captured in the `session.start` event** (v0.3 Phase 7, LOG-10). Parsing the transcript for `tool_use` blocks (`TaskCreate`/`TaskUpdate`, plus legacy `TodoWrite`) is the only capture path that survives both the tool migration and the hook bypass. This is the natural spike target.
 
-- **Friction proportional to reversibility.** If the action is irreversible → confirm. If easily undone → a lightweight "undo" affordance is enough. ([UX guide to destructive actions](https://medium.com/design-bootcamp/a-ux-guide-to-destructive-actions-their-use-cases-and-best-practices-f1d8a9478d03))
-- **Reinforce the target in the confirmation**, avoid vague yes/no. ([Indie Hackers destructive-action tip](https://www.indiehackers.com/post/ux-tip-how-to-design-destructive-actions-e-g-delete-turn-off-74d17fdc28))
-- **Vim-style double-keystroke** (`dd`, "press again to confirm") is the idiomatic *terminal* confirmation — low friction, no modal, keyboard-only. (MEDIUM — common idiom; not in a formal spec.)
+**Net for the spike:** the question is not "does a hook exist" (the clean one largely doesn't anymore) but **"can kodo's zero-token server tail/parse the transcript JSONL to reconstruct live `completed/total` per session, reliably, across the TodoWrite→Task-tools transition?"** If the transcript reliably carries the blocks, VIABLE; if format drift / missing `tool_result` IDs / no-todos sessions dominate, INVIABLE.
 
-### Recommendation for `d` (dismiss)
+### Feature Landscape — Live progress (conditional on spike = VIABLE)
 
-| Aspect | Recommendation | Rationale |
-|--------|----------------|-----------|
-| Guard | **Inverse of Enter**: `d` only acts on `alive===false` rows; on `alive===true` → footer error, no-op | Already the stated design; mirrors the v0.9 Enter guard (TUI-13). Dismissing a *live* session would be the real footgun |
-| Confirmation | **Inline footer confirm** — first `d` shows `dismiss <task_id>? (d again / Esc)`, second `d` executes, `Esc` cancels | How destructive vs. reversible: dismissing a *dead* session is low-stakes (it's already over; `DELETE /sessions/{id}` removes a record, not real work) → a single inline confirm is proportional, no modal needed |
-| Reused logic | Calls the **same `dismissSession` helper as doctor's zombie reap** | Milestone requirement: "reusa la lógica de doctor". Single code path = consistent behavior + one place to test |
-| Feedback | Footer success line (`dismissed <task_id>`) + row disappears on next poll (the table already reconciles by `task_id` identity) | Reuses v0.9 selection-by-identity + footer-error plumbing from Phase 37 |
-| Undo | **None for v0.10** | The record is for a dead session; `DELETE /sessions/{id}` exists and is the intended terminal op. Undo would mean resurrecting state — over-engineering for the value |
+#### Table Stakes (if shipped at all)
+
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| `completed/total` count per session row | This is the entire ask ("3/7 steps"); anything less isn't the feature | MEDIUM (capture) / LOW (render) | Render is trivial in the existing table (a column, like `task`/`status`). Cost is entirely in reliable capture from the transcript. |
+| Honest "no progress data" degraded state | Many sessions have no todos (simple tasks, non-GSD, quick); pre-migration vs post-migration sessions differ | LOW | A neutral marker (e.g. `—`) exactly like the existing `provider_state` column's unsupported/`?`/crude trichotomy (v0.10 Phase 43). Reuse that no-color reason-state pattern. |
+| Stale/unavailable marker when capture fails | Transcript unreadable, parse fails, format drift | LOW | Distinct degraded glyph (`?`) — never throw, never block the row. Same never-throws discipline as `fetchStatus`/overlays. |
+
+#### Differentiators (almost all are over-engineering here — flagged)
+
+| Feature | Value Proposition | Complexity | Notes |
+|---------|-------------------|------------|-------|
+| Current-step text (`activeForm` of the in_progress item) in an overlay | "What is it doing right now" | MEDIUM | Reuse the existing overlay machinery (`c`/`l`/`p` family, snapshot-frozen, `Esc` preserves cursor). Defensible **only** if capture is already solved; otherwise skip. |
+| Percent bar / sparkline | Pretty | LOW render / not worth it | A bar adds nothing over `3/7` in a dense table row. **Gold-plating** for a single-user tool. |
+| Per-step checklist inline in the row | "See everything" | — | Breaks the one-row-per-session invariant; belongs in an overlay at most. |
+
+#### Anti-Features (Live progress)
+
+| Feature | Why Requested | Why Problematic | Alternative |
+|---------|---------------|-----------------|-------------|
+| New `/progress` server endpoint or websocket | "Stream it live" | Violates the hard "zero new endpoints" invariant; kodo's server consumes 0 tokens and must stay read-only ambient | Capture writes to a kodo-controlled file (mirror `~/.kodo/plans/<task_id>.md`); `GET /status` enriches the row by reading it, like `provider_state`. |
+| Inject an instruction + PostToolUse hook to self-report todos | It worked for light plans in v0.11 | **Task tools bypass PostToolUse** (#20243); only catches legacy `TodoWrite`. Fragile across CC versions — the exact trap PROJECT.md already flags | Parse the transcript JSONL kodo already correlates via `transcript_path`. Decide empirically in the spike. |
+| Polling the transcript every dashboard tick from the TUI | "Live!" | Re-parsing potentially large JSONL on every 2.5s poll, in the React layer, risks jank and breaks the pure-derive/never-throws layering | Capture/parse in the server's read-only enrichment lane (cache + TTL + fail-open, exactly like `provider-state.js`); TUI just renders the field. |
+| Blocking the row / spinner while waiting for progress | "Show it's loading" | Any blocking violates never-throws + keep-last-good; a missing field must degrade silently | Keep-last-good + neutral `—`; never gate render on capture. |
+
+### Required degraded / unavailable states (the spike may cut the feature entirely)
+
+Because the feature is gated, the requirements MUST specify behavior for **feature-absent** and **data-absent** independently:
+
+1. **Spike = INVIABLE → feature cut.** Dashboard ships **identical to today** for progress. No empty column, no placeholder, no dead code referencing a progress field. The Open-in-manager half ships alone. This must be a clean no-op, not a half-wired stub.
+2. **Spike = VIABLE but a given session has no todos.** Neutral `—` (reuse `provider_state`'s unsupported reason-state). Common case — must look intentional, not broken.
+3. **Capture transiently fails (parse error, transcript missing/locked).** `?` glyph, keep-last-good if a prior value exists, never-throws.
+4. **Pre-migration session (legacy `TodoWrite`) vs Task-tools session.** Capture must tolerate **both** block shapes or the column lies for one cohort. The spike must exercise both; if only one is feasible, requirements should scope to the current default (Task tools) and degrade the other to `—`.
 
 ---
 
 ## Feature Dependencies
 
 ```
-[provider_state: getTaskState in TaskProvider contract (9→10 methods)]
-    └──requires──> [Plane + GitHub adapter mappings]
-    └──requires──> [/status enrichment: fail-open + TTL cache]
-                       └──enables──> [dashboard render (column/badge/color)]
-                       └──enables──> [filter semantics (s:review OR / ps: prefix)]
+Open-in-manager (open key)
+    └──requires──> task_url persisted on SessionRecord at launch
+                       └──requires──> each normalizer supplies it
+                                          ├── GitHub: html_url (verbatim)          [HIGH confidence]
+                                          └── Plane:  {web_base}/{slug}/browse/{ident}-{seq}
+                                                          └──requires──> web_base in config + ident/seq on item  [VERIFY IN REPO]
+    └──reuses──> focus.js execFile fire-and-forget pattern (no unmount)
+    └──honors──> "zero new endpoints" (reads a persisted field, like focus.js)
+    └──honors──> TaskProvider FROZEN at 9 (URL as a TaskItem field OR a typeof-detected
+                 optional method — mirror getTaskState, NOT method #10)
 
-[kodo gsd doctor]
-    └──extracts──> [shared dismissSession / reapZombie helper]
-                       └──reused-by──> [dashboard `d` dismiss]   (HARD dependency per milestone)
-    └──reuses──> [v0.6 worktree cleanup] [GSD-10 lock PID+TTL] [v3 reconcile `alive`]
+Copy-URL-to-clipboard  ──enhances──> Open-in-manager   (pbcopy via execFile; macOS only)
 
-[dashboard `d` dismiss]
-    └──requires──> [doctor's zombie-reap helper extracted FIRST]
-    └──promotes──> [TUI read-only → read-write]   (conscious milestone decision, backlog 999.1)
+Live progress display (SPIKE-GATED)
+    └──HARD-GATED-BY──> spike verdict VIABLE/INVIABLE (transcript-parse feasibility)
+    └──requires──> transcript_path correlation (ALREADY EXISTS, v0.3 Phase 7 LOG-10)
+    └──requires──> read-only enrichment lane in GET /status (mirror provider-state.js:
+                   cache + TTL + dedup + Promise.allSettled fail-open)
+    └──reuses──> provider_state column's no-color reason-state trichotomy (v0.10 Phase 43)
+    └──reuses──> overlay machinery (c/l/p) IF a current-step overlay is added
+    └──conflicts──> PostToolUse-hook capture approach (Task tools bypass hooks, #20243)
+    └──honors──> "zero new endpoints", never-throws, identity selection by task_id
 ```
 
 ### Dependency Notes
 
-- **`d` dismiss requires doctor's reap helper:** milestone mandates code reuse. Order doctor's zombie-reap extraction *before or with* the dismiss key — don't build two cleanup paths.
-- **provider_state render/filter require the contract + enrichment first:** the `getTaskState` method and `/status` enrichment must land before any dashboard column/badge/filter work. The render decision (A column / B badge / C color) and filter semantics (`s:review` OR vs `ps:` prefix) are flagged in PROJECT.md as **discuss-phase open decisions** — keep them as a thin layer on top of the data.
-- **provider_state and doctor/dismiss are independent** — can be sequenced in either order across phases; provider_state is the higher-value, higher-uncertainty one (touches the TaskProvider contract → mandatory discuss-phase).
+- **Open-in-manager requires `task_url` persisted at launch:** keeps the zero-endpoints invariant — the TUI reads a field, the server adds nothing. Persist PRE-spawn (like `worktree_path`) so a failed spawn still leaves a usable URL in the trace.
+- **The `TaskProvider` contract stays FROZEN at 9:** the URL rides as a `TaskItem` field (or a `typeof`-detected optional provider method, exactly mirroring how `getTaskState` was added outside the frozen 9 in v0.10). Do NOT add a 10th required method.
+- **Live progress depends on an EXISTING asset, not a new one:** `transcript_path` correlation already exists. The spike leverages it; it does not need new instrumentation inside Claude Code.
+- **Live progress CONFLICTS with the hook-based capture instinct:** the v0.11 "inject instruction + hook" playbook fails here because Task tools bypass PostToolUse. The spike must validate transcript parsing instead.
+- **Both features reuse the `provider_state` rendering precedent:** a dedicated, no-color column with a small set of honest reason-states. This is the lowest-risk render path and already proven in v0.10.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v0.10 core)
+### Launch With (this milestone, ships regardless of spike)
 
-- [ ] `getTaskState(taskId): NormalizedState` on the TaskProvider contract (9→10 methods) — the cross-provider promise demands it be a contract method, not provider-specific
-- [ ] Plane mapping (group + name-match for review/block) — essential; primary adapter and the literal ROMAN-150 driver
-- [ ] GitHub mapping via **label convention (Option i) + open/closed fallback** — essential for cross-provider parity, zero extra API cost
-- [ ] `/status` enrichment: per-row fail-open + TTL cache + `provider.state.fetch.failed` logging — correctness-critical, non-negotiable
-- [ ] `unknown` as the universal fallback — without it the feature is brittle
-- [ ] `kodo gsd doctor` **dry-run by default**, `--fix` to mutate, category-grouped output, exit 0/1 — the saneo workhorse
-- [ ] doctor: zombie reap + lock release + worktree prune + old-log delete (4 categories)
-- [ ] Extracted shared `dismissSession`/`reapZombie` helper
-- [ ] Dashboard `d` dismiss (inverse guard, inline footer confirm, reuses the helper)
+- [ ] **Open-in-manager keypress** — the milestone's core promise; LOW risk; clone of `focus.js`.
+- [ ] **`task_url` persisted on `SessionRecord`** via both normalizers (GitHub `html_url`; Plane constructed) — prerequisite for the above.
+- [ ] **Missing-URL degraded footer** — honest, never-throws; required for old/no-URL sessions.
+- [ ] **Backfill Nyquist v0.11** (Phases 44/45/46 `VALIDATION.md` → `nyquist_compliant: true`) — inherited debt, doc-only Tier 1, mirror of Phase 47. Independent of both features.
 
-### Add After Validation (v0.10.x)
+### Add If Spike Returns VIABLE
 
-- [ ] Dashboard render of provider_state (column vs badge vs color) — **discuss-phase decision**; can ship the data before the final visual lands
-- [ ] Filter semantics for provider_state (`s:review` OR vs `ps:` prefix) — discuss-phase decision
-- [ ] Header banner degradation when *all* provider_state fetches fail (like v0.9 `server caído`)
+- [ ] **`completed/total` per-session column** — the live-progress core; render is cheap, capture is the gated work.
+- [ ] **No-todos `—` and capture-failed `?` degraded states** — reuse `provider_state` trichotomy; mandatory if the column exists.
 
-### Future Consideration (post-v0.10)
+### Defer / Reconsider Only Later (v0.13+)
 
-- [ ] GitHub Option (ii) issue→PR review-state derivation — only if the label convention proves insufficient *and* a real driver appears; high API/complexity cost
-- [ ] Concurrency-capped batched enrichment — only when N sessions grows enough to matter
-- [ ] Per-workspace user-configurable name→normalized mapping table — only if Plane custom state names diverge from the `review`/`block` substrings in practice
-- [ ] doctor `--fix` per-item interactive confirmation — only if accidental destruction becomes a real problem (unlikely for a personal tool)
+- [ ] **Copy-URL-to-clipboard (`pbcopy`)** — cheap and useful, but not required for the core promise; add if the open-only flow proves limiting. (The one differentiator worth keeping on the radar.)
+- [ ] **Current-step overlay (`activeForm`)** — only if capture is solidly solved and an overlay key is free; otherwise gold-plating.
+- [ ] **Percent bar / sparkline / inline checklist** — gold-plating for a single-user tool; explicitly out.
 
 ---
 
@@ -225,65 +178,47 @@ General UX guidance (no single TUI spec, synthesized from UX sources + common TU
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| `getTaskState` contract method + Plane mapping | HIGH | MEDIUM | P1 |
-| `/status` enrichment (fail-open + cache) | HIGH | MEDIUM | P1 |
-| GitHub label-convention mapping (i) + open/closed | HIGH | LOW | P1 |
-| `unknown` fallback | HIGH | LOW | P1 |
-| `kodo gsd doctor` (dry-run default, --fix, 4 categories) | HIGH | MEDIUM | P1 |
-| Shared dismiss/reap helper | HIGH | LOW | P1 |
-| Dashboard `d` dismiss (guard + inline confirm) | HIGH | LOW | P1 |
-| provider_state render (column/badge/color) | MEDIUM | LOW | P2 (discuss-phase) |
-| provider_state filter (`s:review`/`ps:`) | MEDIUM | LOW | P2 (discuss-phase) |
-| All-fail header banner degradation | MEDIUM | LOW | P2 |
-| GitHub issue→PR review derivation (ii) | LOW | HIGH | P3 |
-| Batched concurrency-capped enrichment | LOW | MEDIUM | P3 |
-| Configurable name→normalized table | LOW | MEDIUM | P3 |
+| Open-in-manager keypress | HIGH | LOW | P1 |
+| `task_url` persisted (both normalizers) | HIGH | LOW | P1 |
+| Missing-URL degraded footer | MEDIUM | LOW | P1 |
+| Backfill Nyquist v0.11 | MEDIUM (debt) | LOW | P1 |
+| Live-progress spike (verdict) | HIGH (de-risks) | MEDIUM | P1 (gate) |
+| `completed/total` column | HIGH | MEDIUM | P2 (gated) |
+| Progress degraded states (`—`/`?`) | MEDIUM | LOW | P2 (gated) |
+| Copy-URL-to-clipboard | MEDIUM | LOW | P3 |
+| Current-step overlay | LOW-MEDIUM | MEDIUM | P3 |
+| Percent bar / sparkline | LOW | LOW | P3 (avoid) |
+
+**Priority key:** P1 = must-have this milestone · P2 = ship iff spike VIABLE · P3 = defer / likely never for a personal tool.
 
 ---
 
-## Anti-Features (Commonly Requested, Often Problematic)
+## Competitor Feature Analysis
 
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| **Rich normalized vocabulary** (`backlog`/`todo`/`triage`/`cancelled`/`closed`/`paused`/`archived`) | "Be faithful to every provider state" | A live-session dashboard only cares about *active* work; pre-session and won't-do states add mapping surface + coupling for zero dashboard value; every system proves 5 buckets suffice | Keep the 5 proposed values; collapse cancelled/closed→`done`, backlog/todo→`in_progress` |
-| **GitHub issue→PR review-state derivation as the primary path** | "Most accurate review signal" | No clean API (Timeline only), N+1+ calls per poll, PR may not exist when review is needed, closing-keyword links only count vs default branch — directly triggers the todo's N+1 pitfall | Label convention (Option i), zero extra API calls; PR-derivation deferred to P3 |
-| **Stop-hook reads provider before marking `done` (Option 2)** | "Catch the review state at /exit" | Only captures the `/exit` transition (misses in_progress→blocked mid-session); couples kodo's lifecycle to provider API availability — a Plane outage could block `/exit` | Option 3 (this milestone): separate `provider_state` field, enriched continuously in `/status`, lifecycle stays decoupled (todo §"Por qué Option 3 vs Option 2") |
-| **`doctor` mutates by default / exit 0 on problems** | "Just clean it up for me" | This is literally the `npm doctor` bug (exit 0 on error) and the accidental-destruction footgun | Dry-run default + explicit `--fix`; exit 0=clean / 1=problems (brew/git convention) |
-| **Modal confirmation dialog for `d` dismiss** | "Don't let me delete by accident" | Heavy friction for a low-stakes op (the session is already *dead*; record-only delete); breaks the keyboard-only TUI flow | Inline footer double-`d` confirm + inverse guard (only `alive===false`) |
-| **Undo for dismiss** | "What if I mis-press?" | Would require resurrecting session state; the target is a dead session and `DELETE /sessions/{id}` is the intended terminal op | None; the inverse guard + inline confirm already prevent the realistic mistake |
-| **Recompute `alive` in the dashboard for dismiss eligibility** | "Be sure it's really dead" | Violates the v0.9 single-source invariant (`reconcileTick` is the only `alive` writer); two sources drift | Read `alive` from the v3 state as-is (single source of truth) |
-| **Per-poll provider fetch with no cache** | "Always fresh state" | N sessions × every poll = Plane/GitHub rate-limit exhaustion (explicit todo pitfall) | TTL cache (5–30s) reusing `pendingCache`; fail-open per row |
-| **New `/status` endpoint or schema break for provider_state** | "Clean API surface" | v0.9 invariant is "cero endpoints nuevos"; provider_state is additive enrichment | Additive `provider_state` field on existing `/status` payload, byte-compatible (like the v0.9 `supported` field) |
+| Feature | lazygit / gh / dash (CLI link-out) | Claude Code Agent View (native progress) | kodo's Approach |
+|---------|-----------------------------------|------------------------------------------|-----------------|
+| Open item in browser | Single key → `open`/`xdg-open`, no picker | n/a | Single key → `open` via `execFile`, macOS-only, reads persisted `task_url` |
+| URL source | Construct or use API-provided URL | n/a | GitHub: `html_url` verbatim (per GitHub guidance); Plane: constructed `/browse/{ident}-{seq}` |
+| Copy to clipboard | Common secondary key | n/a | Optional `pbcopy` differentiator (P3) |
+| Live step progress | n/a | `completed/total` + per-tool granular status, ✅/🔧/❌, current `activeForm` | If VIABLE: `completed/total` column from transcript parse; current-step overlay optional |
+| Capture mechanism | n/a | In-process SDK message stream / native UI | Out-of-process transcript JSONL parse (kodo runs 0-token; can't tap the SDK stream) |
 
----
-
-## Competitor Feature Analysis (cross-system state normalization)
-
-| Aspect | Jira | Linear | Plane (kodo's adapter) | kodo's approach |
-|--------|------|--------|------------------------|-----------------|
-| Fixed category set | 3 (To Do/In Progress/Done) | 6 types (triage/backlog/unstarted/started/completed/canceled) | 5 groups (Backlog/Unstarted/Started/Completed/Cancelled) | 5 normalized values tuned to *live sessions* (in_progress/in_review/blocked/done/unknown) |
-| Native "review" | No (custom in In Progress) | No (custom started) | No (custom in Started) | Derived: Plane name-match, GitHub label convention |
-| Unmapped state handling | n/a | Keep last good / fall to Triage; never errors | n/a | `unknown` + fail-open (mirrors Linear) |
-| Mapping mechanism | category buckets | status→type | group + name | group/state → name-match → label convention (GitHub) |
+**Key asymmetry:** the native Agent View gets progress from inside the SDK message loop. kodo deliberately runs zero-token and out-of-process, so it can only reconstruct progress from the **transcript on disk** — which is precisely why this half is a spike and not a given.
 
 ---
 
 ## Sources
 
-- [Jira Cloud REST — workflow status categories (3 buckets, non-customizable)](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-workflow-status-categories/) — HIGH
-- [Linear — Issue status / configuring workflows (status types: triage/backlog/unstarted/started/completed/canceled)](https://linear.app/docs/configuring-workflows) — HIGH
-- [Linear — Jira integration (unmapped→Triage / keep-last-good fallback)](https://linear.app/docs/jira) — HIGH
-- [Plane — Workflow states (5 fixed groups, custom names within, no native review)](https://docs.plane.so/core-concepts/issues/states) — HIGH
-- [GitHub Docs — Linking a PR to an issue (closing keywords, default-branch only)](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) — HIGH
-- [GitHub community discussion #179613 — no clean API for PR↔linked issues (Timeline only)](https://github.com/orgs/community/discussions/179613) — MEDIUM
-- [Homebrew Manpage — brew doctor (report-only, non-zero exit) + brew cleanup (-n/--dry-run, stale locks)](https://docs.brew.sh/Manpage) — HIGH
-- [Flutter — doctor troubleshooting (category-grouped output)](https://docs.flutter.dev/install/troubleshoot) — MEDIUM
-- [npm/cli#1226 — npm doctor exit 0 on error (anti-pattern)](https://github.com/npm/cli/issues/1226) + [npm-doctor docs](https://docs.npmjs.com/cli/v11/commands/npm-doctor/) — HIGH
-- [git-worktree docs — prune --dry-run, locked never pruned, prunable detection](https://git-scm.com/docs/git-worktree) — HIGH
-- [UX guide to destructive actions (friction ∝ reversibility, undo vs confirm)](https://medium.com/design-bootcamp/a-ux-guide-to-destructive-actions-their-use-cases-and-best-practices-f1d8a9478d03) — MEDIUM
-- [Indie Hackers — designing destructive actions (reinforce target, avoid vague yes/no)](https://www.indiehackers.com/post/ux-tip-how-to-design-destructive-actions-e-g-delete-turn-off-74d17fdc28) — MEDIUM
-- kodo `.planning/PROJECT.md` + `.planning/todos/pending/2026-05-28-surface-provider-state-in-dashboard-plane-in-review.md` — project context (HIGH)
+- GitHub REST API — Issues endpoints (`html_url`, `format: uri`): https://docs.github.com/en/rest/issues/issues — HIGH
+- GitHub REST API — Best practices ("do not parse/construct URLs; use the returned `html_url`"): https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api — HIGH
+- Plane PR #6546 — `generateWorkItemLink` + new `/{workspace_slug}/browse/{project_identifier}-{sequence_id}` URL pattern (old `/{slug}/projects/{project_id}/issues/{issue_id}` redirects): https://github.com/makeplane/plane/pull/6546 — HIGH
+- Plane docs — workspace slug in URL: https://docs.plane.so/core-concepts/workspaces/overview — HIGH
+- Plane API — work item fields (`sequence_id`, `project_id`): https://developers.plane.so/api-reference/issue/get-issue-detail — MEDIUM
+- Claude Code / Agent SDK — Todo Lists & Task tools (`completed/total`, `{content,status,activeForm}`, TodoWrite → TaskCreate/TaskUpdate migration, v2.1.142): https://code.claude.com/docs/en/agent-sdk/todo-tracking — HIGH
+- Claude Code issue #20243 — Task* tools bypass PreToolUse/PostToolUse hooks: https://github.com/anthropics/claude-code/issues/20243 — MEDIUM
+- Claude Code Hooks reference — PostToolUse input (`transcript_path`, `tool_name`, `tool_input`, `tool_response`): https://code.claude.com/docs/en/hooks — HIGH
+- kodo `.planning/PROJECT.md` — project context, invariants, existing features (HIGH)
 
 ---
-*Feature research for: developer CLI session/task lifecycle hygiene + cross-system task-state normalization (kodo v0.10)*
-*Researched: 2026-06-03*
+*Feature research for: kodo v0.12 — terminal dashboard outward-link + inward live-progress*
+*Researched: 2026-06-11*

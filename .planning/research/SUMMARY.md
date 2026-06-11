@@ -1,19 +1,19 @@
 # Project Research Summary
 
-**Project:** kodo v0.10 "Higiene y estado real de sesiones"
-**Domain:** Node.js CLI — session/task lifecycle hygiene, read-write TUI, cross-provider task-state enrichment
-**Researched:** 2026-06-03
-**Confidence:** HIGH
+**Project:** kodo — milestone v0.12 "Atajos al gestor y progreso vivo"
+**Domain:** Node.js CLI/TUI (ink/react) — task-manager integration with Claude Code sessions
+**Researched:** 2026-06-11
+**Confidence:** HIGH (open-in-manager) · MEDIUM (live task-state spike)
 
 ---
 
 ## Executive Summary
 
-kodo v0.10 entrega tres features orthogonales que convergen en dos puntos de acoplamiento: el módulo de saneo (`doctor.js`) y el contrato del `TaskProvider`. El saneo es la fundación de la que depende el dismiss; el contrato es la fundación de la que depende el enrichment. La arquitectura es aditiva sobre v0.9 — no hay roturas de contrato, no hay dependencias nuevas, no hay endpoints nuevos. Todo el stack necesario (commander, ink@6, react@19, picocolors, Node 20 APIs) ya existe en producción.
+kodo v0.12 adds two independent capabilities to an existing, production-quality TUI: (1) a keypress that opens the current task in the browser ("open-in-manager"), and (2) a live display of Claude session task-progress ("N/M steps done"). These are NOT equal in certainty and must be treated as separately-shippable units. Open-in-manager is the milestone's unconditional deliverable; live-progress is upside gated by a mandatory spike.
 
-La corrección crítica que esta investigación establece: `getTaskState` NO debe añadirse a `TASK_PROVIDER_METHODS`. El loop de validación de `registry.js` lanza para cualquier método ausente — añadir el 10º rompería el arranque del server para cualquier adapter que no lo implemente. El patrón correcto ya está en producción: método opcional + `typeof === 'function'` + campo `supported`, exactamente como `listComments` en v0.9. El contrato canónico permanece en 9 métodos; `getTaskState` es el décimo pero opcional.
+The most important research finding is that **open-in-manager is ~80–90% already built in shipped code.** All four research files converge on this: `TaskItem.url` is a canonical field in `src/interface.js`, both normalizers populate it (`issue.html_url` for GitHub; `${baseUrl}/${workspaceSlug}/browse/${ref}` for Plane), `manager.js:48` already persists `task_url` into `SessionRecord`, and `GET /status` already spreads it onto every dashboard row. The feature collapses to: add one `o` keypress handler, add one never-throws `open.js` module cloned from `focus.js`, and fix a latent Plane URL-host bug. No new stack additions, no new endpoints, no contract changes.
 
-El mayor riesgo del milestone es la destrucción accidental de recursos vivos. Doctor corre operaciones destructivas (worktree remove, lock release, log delete) sobre un filesystem y un `state.json` que `reconcileTick` puede estar modificando concurrentemente. Las mitigaciones son: dry-run como default, re-check de `alive` inmediatamente antes de cada acción destructiva, nunca tocar worktrees con `rm -rf` (usar `git worktree remove`/`prune`), y respetar el TTL del lock como red de seguridad contra PID-reuse en macOS. El dismiss de la TUI hereda todos estos guards porque reutiliza el mismo módulo.
+The live-progress half is genuinely uncertain and the researchers partially disagree on why — which is exactly the spike's job to resolve empirically. STACK research documents that `TaskCreated`/`TaskCompleted` dedicated hook events exist in Claude Code v2.1.x. FEATURES and PITFALLS research independently verified that the new `Task*` tools bypass `PostToolUse`/`PreToolUse` hooks entirely (anthropics/claude-code issue #20243), making the v0.11 "inject-instruction + hook" playbook non-transferable. The honest reconciliation: PostToolUse is bypassed for `Task*` tools, but dedicated `TaskCreated`/`TaskCompleted` events MAY still fire in interactive `claude --worktree` sessions — whether they do on the installed build is the spike's single load-bearing question. If not, the robust fallback is transcript JSONL parsing (already correlated via `transcript_path`, LOG-10). The roadmap's conditional half must never be depended upon; the default posture is INVIABLE.
 
 ---
 
@@ -21,230 +21,115 @@ El mayor riesgo del milestone es la destrucción accidental de recursos vivos. D
 
 ### Recommended Stack
 
-**Sin dependencias nuevas — el milestone se construye al 100% con el stack actual de 4 deps prod.** Esta es una restricción verificada en código, no una preferencia. Las libs alternativas consideradas (simple-git, ink-text-input, ink-confirm-input, p-limit, p-queue, lru-cache) resuelven problemas que kodo no tiene a su escala.
+No new production dependencies are needed for either feature. Both fit the existing hard constraint (4 prod deps, no build step) using Node built-ins plus two patterns kodo already owns.
 
 **Core technologies:**
+- `node:child_process.execFile` (built-in): browser launcher for open-in-manager — identical proven pattern to `focus.js`; fire-and-forget, never-throws, zero deps; never via shell string to avoid injection
+- Claude Code `TaskCreated`/`TaskCompleted` hook events (CC v2.1.x): primary spike capture candidate — first-class lifecycle events that don't require matchers; payload carries `task_id`, `task_subject`, `session_id`; MEDIUM confidence on exact field schema
+- `PostToolUse` matcher on `TaskCreate|TaskUpdate` (CC v2.1.x): secondary spike capture candidate — richest delta stream, catches `in_progress` transitions; accumulates state across calls by `taskId`
+- `node:fs` (built-in): persist captured task-state to `~/.kodo/progress/<task_id>.json` — mirrors v0.11 light-plan producer/consumer seam exactly
+- 4 prod deps unchanged: commander, picocolors, ink, react
 
-| Technology | Purpose | Rationale |
-|------------|---------|-----------|
-| `commander@^13` | Subcomando `kodo gsd doctor` + flags `--fix`/`--dry-run`/`--json` | Ya parsea todo el CLI; doctor se registra como cualquier otro subcomando |
-| `ink@^6.8` + `react@^19.2` | Sub-modo `confirm` en `useInput` para dismiss | `useInput` mode-gated ya tiene 3 sub-modos en `App.js`; `confirm` es el cuarto. No requiere ink@7 (exigiría Node 22) |
-| `picocolors@^1.1` | Output de `doctor` (CLI) via `createFormatter(stream)` | Color isolation blindada por `test/format-isolation.test.js`; la TUI usa `<Text color>`, nunca picocolors directamente |
-| `node:child_process` | `execFileSync('git', ['worktree', ...])` para doctor | Mismo patrón `gitFn` DI de `stop.js` — testable sin spawnear. No se introduce `simple-git` |
-| `Promise.allSettled` + `Map` TTL | Enrichment fail-open de N×getTaskState en `/status` | N = decenas de sesiones activas — `p-limit`/`p-queue` resolverían un problema de escala que kodo no tiene |
-| `fetch` global (Node 18+) | `dismissSession()` en `client.js` never-throws | Ya en uso en `client.js`; el DELETE reutiliza el patrón never-throws existente |
-
-**Nota de compatibilidad:** ink@6 floor Node >=20. NO subir a ink@7 (requeriría Node 22 y rompería el `engines` actual). La pareja ink@6 + react@19 ya está validada con 1073 tests en v0.9.
-
----
+**Critical version note:** the installed Claude Code build must be v2.1.142+ for `Task*` tools to be the default. The spike must run against the actual installed version, not docs.
 
 ### Expected Features
 
-**Must have (table stakes — v0.10 core):**
+**Must have this milestone (ships regardless of spike):**
+- `o` keypress on a session row opens `task_url` in default browser; guard on `mode === 'list'` only
+- `task_url` persisted on `SessionRecord` at launch from both normalizers (already done — wire, don't rebuild)
+- Honest footer error when `task_url` is missing/falsy (legacy rows from v0.9–v0.11)
+- Fix latent Plane URL bug: optional `plane.web_url` config defaulting to `base_url`; treat `UNKNOWN-<seq>` identifier as "no URL" (footer), not a dead link
+- URL security validation: `http:`/`https:` protocol allowlist before `execFile`, blocking `file://`, `javascript:`, leading-dash flag injection
+- Backfill Nyquist v0.11 (Phases 44/45/46 VALIDATION.md → `nyquist_compliant: true`) — doc-only Tier 1, independent of both features
 
-- `getTaskState(taskId)` como método OPCIONAL del `TaskProvider` — el contrato canónico permanece en 9; la validación del registry no lo toca
-- Plane mapping: `group` + substring-match en nombre para `in_review`/`blocked` dentro de `Started` — cero extra API calls
-- GitHub mapping: label-convention primaria (etiquetas conteniendo "review"/"block", case-insensitive `String.includes`); `open`→`in_progress`, `closed`→`done` como fallback — aprovecha el payload de `normalizeIssue` existente, sin Timeline API
-- Vocabulario normalizado: `in_progress | in_review | blocked | done | unknown` — exactamente 5 valores, ninguno más
-- `/status` enrichment: fail-open por fila + cache `provStateCache` TTL ~30s + emit NDJSON en fallo
-- `kodo gsd doctor`: dry-run por defecto, `--fix` para mutar, output agrupado por 4 categorías, exit 0=clean/1=problemas
-- Módulo `doctor.js` puro+DI (espeja `reconcile.js`): `scan()` + `execute()` con fs/clock/lock inyectables
-- Shared helper `dismissSession`/`reapZombie` extraído de doctor — **una sola fuente de saneo**
-- Dashboard tecla `d`: guard inverso (`alive===false`), inline footer confirm (`d` again / Esc), never-throws via `client.js`
+**Add only if spike returns VIABLE:**
+- `completed/total` count column per session row (render is cheap; capture is the gated work)
+- No-todos `—` and capture-failed `?` degraded states, reusing `provider_state` trichotomy
+- Capture hook writing `~/.kodo/progress/<task_id>.json` via light-plan filesystem seam
 
-**Should have (v0.10.x — discuss-phase decisions abiertas):**
-
-- Render de `provider_state` en el dashboard (decisión abierta: columna vs badge vs color semántico; separado del `statusColor` v3)
-- Filtro semántico de `provider_state` (`s:review` OR vs prefijo `ps:` — decisión abierta; implementar con `String.includes` sobre el string crudo)
-- Header banner degradación cuando TODOS los provider_state fetches fallen (análogo al banner "server caído" de v0.9)
-
-**Defer to post-v0.10:**
-
-- GitHub Option (ii) issue→PR review-state derivation — Timeline API frágil, N+1+, sin endpoint limpio
-- Concurrency-capped batched enrichment — solo si N crece suficientemente
-- Tabla configurable por workspace de nombre→normalizado
-- `doctor --fix` con confirmación interactiva por ítem — YAGNI para herramienta personal
-
-**Anti-features (no construir):**
-
-- Vocabulario extendido (`backlog`/`triage`/`cancelled`/`paused`/`archived`) — una sesión viva no necesita estados pre-sesión
-- `doctor` mutando por defecto — es exactamente el bug de `npm doctor` (exit 0 en errores)
-- Modal de confirmación para el dismiss — friction excesiva para sesión ya muerta
-- Recompute de `alive` en el dashboard — viola el invariante "reconcileTick único escritor"
-- ANSI inline en `doctor` o en la TUI — rompe la color-isolation
-
----
+**Defer to v0.13+:**
+- Copy-URL-to-clipboard (`pbcopy` via `execFile`) — useful differentiator, not required for the core promise
+- Current-step text overlay (`activeForm` of in-progress item)
+- Percent bar, sparkline, inline checklist — gold-plating for a single-user tool
 
 ### Architecture Approach
 
-La arquitectura de v0.10 es **aditiva sobre v0.9**: dos módulos nuevos (`src/gsd/doctor.js`, `src/cli/gsd-doctor.js`) y modificaciones quirúrgicas en 7 archivos existentes. El diseño gira en torno a tres patrones bien establecidos en el codebase: (1) módulo puro+DI+never-throws espejando `reconcile.js`, (2) método opcional con capability flag `supported` espejando `listComments`, (3) enrichment fail-open con cache TTL espejando `pendingCache`.
+All integration points for feature 1 are already wired end-to-end; the feature is a consumer addition, not a pipeline addition. Feature 2 follows the light-plan filesystem seam (producer hook → `~/.kodo/` file → TUI filesystem read), never an HTTP endpoint. Both features honor the three hard invariants: zero new endpoints since v0.10, `TASK_PROVIDER_METHODS` frozen at 9, and the never-throws/color-isolation TUI discipline.
 
-**Major components:**
+**Major components touched (feature 1):**
+1. `src/cli/dashboard/open.js` (NEW) — `runOpen({ exec, url })`, exact structural clone of `focus.js`; DI `exec` with no default (leak guard); never-throws discriminated result; http(s) allowlist validation before dispatch
+2. `src/cli/dashboard/App.js` (MODIFY) — add `input === 'o'` branch in `mode === 'list'` block; read `row.task_url` off the already-polled row (no fetch, no overlay, no race guard); falsy URL shows footer message, never exec
+3. `src/cli/dashboard/index.js` (MODIFY) — wire `onOpen` prop mirror of `onFocus` (line 136)
+4. `src/providers/plane/normalize.js` (MODIFY) — route URL construction through `web_url` config, not `base_url`; `UNKNOWN-` identifier → no URL emitted
 
-| Component | Responsibility en v0.10 | Nuevo/Mod |
-|-----------|--------------------------|-----------|
-| `src/gsd/doctor.js` | Módulo puro de saneo: scan+execute con DI. Único dueño del saneo de worktrees huérfanos, zombies, locks colgados, logs viejos | NUEVO |
-| `src/cli/gsd-doctor.js` | Wire del módulo puro al CLI: dry-run/--fix/--json, exit codes deterministas | NUEVO |
-| `src/interface.js` | Typedef OPCIONAL `getTaskState` — solo JSDoc. `TASK_PROVIDER_METHODS` permanece en 9 (FROZEN) | MOD mínimo |
-| `src/providers/plane/provider.js` | `getTaskState(task)` → normalización group+nombre | MOD |
-| `src/providers/github/provider.js` | `getTaskState(task)` → label-convention + open/closed | MOD |
-| `src/server.js GET /status` | Enrichment fail-open + `provStateCache` Map TTL por `task_id` | MOD |
-| `src/server.js DELETE /sessions` | Amplía de solo `removeSession` a invocar `doctor.execute({taskId})` | MOD |
-| `src/cli/dashboard/client.js` | `dismissSession()` never-throws (espeja `fetchStatus`) | MOD |
-| `src/cli/dashboard/App.js` | Sub-modo `confirm` con `useInput`; guard inverso `alive===false` para `d` | MOD |
-| `src/providers/registry.js` | **SIN CAMBIOS** — loop de 9 métodos intacto | NO TOCAR |
-| `src/session/reconcile.js` | **SIN CAMBIOS** — único escritor de `alive` | NO TOCAR |
-| `src/hooks/stop.js` | **SIN CAMBIOS** — dueño del cleanup happy-path | NO TOCAR |
-
-**Invariantes que no cambian:**
-- `reconcileTick` es el ÚNICO escritor de `alive` — doctor y dismiss NUNCA escriben `alive`
-- `provider_state` es un carril paralelo READ-ONLY — no toca `state.json`, no modifica el lifecycle
-- Color isolation — `createFormatter` en CLI, `<Text color>` en TUI, cero picocolors en dashboard
-- Never-throws en la capa de datos de la TUI — el DELETE pasa por `client.js` never-throws
-- Token=0 en server/vigilante — `getTaskState` son HTTP calls, no llamadas al modelo
-
----
+**Major components touched (feature 2, only if VIABLE):**
+1. `hooks/<capture>.js` (NEW) — writes `~/.kodo/progress/<task_id>.json`; separate from HOOK-02 golden-bytes injection; fire-and-forget, never-throws, never breaks the session
+2. `src/cli/dashboard/<state-reader>.js` (NEW) — pure never-throws filesystem read; anti-ReDoS `task_id` guard; mirrors `plan.js#readLightPlan`
+3. `src/cli/dashboard/App.js` (MODIFY further) — render column cell or overlay
 
 ### Critical Pitfalls
 
-**Clase A — Destrucción de datos (irreversible):**
+1. **Re-building the URL pipeline that already exists** — `task_url` is already a field, persisted, and on the row. Any plan diff that adds a new normalizer `url:` line or a `getTaskUrl()` method is rebuilding. Treat feature 1 as a wiring + correctness audit; first task must be an explicit source audit before writing any new code.
 
-1. **PID reciclado por OS engaña `isPidAlive` → doctor roba lock vivo.** Mitigación: TTL como red de seguridad real (lock con PID "vivo" pero TTL excedido = huérfano seguro). Cross-check PID contra `state.json`. Nunca borrar lock con PID-vivo+TTL-ok.
+2. **Plane URL built from the API base URL (dead on split web/API deploys)** — `normalize.js:76` reuses `baseUrl` (the API host) as the web host. Fix: add optional `plane.web_url` config defaulting to `base_url`. Additionally: `UNKNOWN-<seq>` identifier fallback at `normalize.js:107` emits a provably-dead link — treat as "no URL" instead.
 
-2. **TOCTOU state: la sesión revive entre el check y el `rm`.** Mitigación: re-verificar `alive` de `state.json` inmediatamente antes de cada acción destructiva. `git worktree remove` (sin `--force`) rechaza árboles con cambios. Si dirty → mover a `.dirty` (patrón de `stop.js`), nunca borrar.
+3. **Launcher crashes the TUI or breaks alt-screen** — must clone `focus.js` verbatim: `execFile` (not `exec`/shell), DI `exec` with no default, never-throws discriminated return, short timeout, fire-and-forget (no TTY capture). Any plan that awaits the browser or unmounts the panel violates this.
 
-3. **TOCTOU filesystem: `rm -rf` sigue symlinks.** Mitigación: `git worktree remove` (registrados) + `git worktree prune` (metadata stale). `realpathSync` + confirmar target bajo `.bg-shell/`. Reusar `lstatSync`-en-try/catch de `stop.js`.
+4. **Shell/argument injection through a crafted URL** — `execFile([url])` removes the shell threat; the http(s) allowlist kills leading-dash flag injection (`-a Calculator`) and `file://`/`javascript:` protocol attacks. Both guards are required; tests must include an adversarial URL matrix.
 
-**Clase B — Violaciones de contrato (rompen startup o TUI):**
-
-4. **Añadir `getTaskState` a `TASK_PROVIDER_METHODS` rompe el registry.** El loop de `registry.js:102-104` lanza para cualquier adapter incompleto. Mitigación: método opcional + `typeof === 'function'` + campo `supported`. El array permanece en 9 (FROZEN).
-
-5. **Throw en el handler de `d` crashea React.** Mitigación: `dismissSession()` en `client.js` never-throws → `{ok:false, error}`; handler de `d` no hace `await` desnudo en `useInput`.
-
-6. **Mutar sobre snapshot stale → dismiss de la fila equivocada.** Mitigación: capturar `task_id` al pulsar `d`, mostrarlo en el prompt, ejecutar DELETE contra ese `task_id`; re-validar `alive===false` al confirmar.
-
-**Clase C — Degradación silenciosa:**
-
-7. **N+1 `getTaskState` por poll → rate-limit exhaust.** Mitigación: `provStateCache` Map TTL ~30s en `/status` server-side. Single-flight por `task_id`. El GitHubClient ya tiene el warn `X-RateLimit-Remaining < 100`.
-
-8. **Fail-open silencioso oculta caídas del provider.** Mitigación: emitir `provider.state.fetch.failed` en NDJSON; distinguir tres estados: ok / unsupported / fetch-failed. Marca de frescura en el cache.
-
-9. **Acoplar lifecycle al vocabulario del provider.** Mitigación: `provider_state` es dato crudo; filtro con `String.includes` case-insensitive; columna/badge separada de `statusColor` v3.
-
-10. **Borrar logs con `--follow` activo / duplicar la retención de 7 días.** Mitigación: "viejo" = mtime > 7 días (mismo umbral del polling-daemon); unlink entero (no truncar); dry-run por defecto.
+5. **Shipping live-capture display before the spike verdict** — this is the highest-risk pitfall. PostToolUse does not fire for `Task*` tools (confirmed, issue #20243). INVIABLE is the current default expectation. A display phase built before the spike returns VIABLE is wasted work with sunk-cost pressure to ship something fragile.
 
 ---
 
 ## Implications for Roadmap
 
-### Decisión de orden de fases: DOCTOR-first vs PROVIDER-STATE-first
+Based on combined research, four phases in strict order:
 
-Esta es la tensión explícita entre los archivos de ARCHITECTURE y PITFALLS que debe resolverse.
+### Phase A: Open-in-manager core
+**Rationale:** the URL data path is already built; this is purely a consumer addition. Lowest risk in the milestone. Closes by manual UAT (browser launch is not auto-verifiable, same as Phase 37 for `focus.js`). Ships unconditionally.
+**Delivers:** `o` keypress opens task in browser; Plane URL bug fixed; legacy-row no-op with footer; security validation; full never-throws fault matrix tested
+**Addresses:** P1 features (open keypress, `task_url` both normalizers, missing-URL footer, Plane `web_url` config)
+**Avoids:** Pitfalls 0, 1, 2, 3, 4, 5
+**Research flag:** NO — patterns are standard (`focus.js` clone, source already verified)
 
-**ARCHITECTURE recomienda:** DOCTOR → provider_state chain → DISMISS
-- Rationale: DOCTOR es la dependencia de DISMISS. Construir primero entrega valor aislado y establece el módulo que DISMISS reutilizará.
+### Phase B: Live-progress spike (hard gate)
+**Rationale:** must precede any display work. INVIABLE is the likely default per current source evidence (issue #20243). The spike must run against the actually-installed Claude Code build, not against docs. Produces a written VIABLE/INVIABLE verdict with empirical evidence.
+**Delivers:** verdict + evidence for each capture surface in priority order:
+  1. `TaskCreated`/`TaskCompleted` hook events in interactive `claude --worktree` sessions
+  2. `PostToolUse` on `TaskCreate|TaskUpdate` (catches `in_progress` transitions)
+  3. Transcript JSONL watcher (tolerant parse, existing `transcript_path` correlation, LOG-10)
+  4. `~/.claude/tasks/` file read (last resort — fragile, undocumented schema)
+**VIABLE criteria (ALL must hold):** capture surface demonstrably fires on installed CC version in interactive sessions; payload stable enough to produce "N/M done"; deterministic `task_id` correlation via `session_id` → `state.json`; no session latency or HOOK-02 golden-bytes breakage; kodo-controlled artifact (`~/.kodo/...`)
+**INVIABLE criteria (ANY ONE suffices):** events only fire under Agent SDK `query()` not interactive CLI; only surface is undocumented `~/.claude/` file schema that churns between versions; reads produce partial/untolerable JSON; capture adds latency or can break sessions; no end-to-end demonstration within the timebox
+**Research flag:** YES — this phase IS the research; empirical, version-specific, cannot be pre-researched from docs
 
-**PITFALLS recomienda:** PROVIDER-STATE → DOCTOR → DISMISS
-- Rationale: PROVIDER-STATE toca el contrato (getTaskState, 9→10) y la contract matrix. Hacerlo primero cierra el driver real del milestone (ROMAN-150) antes de que otras fases modifiquen los adapters.
+### Phase C: Live-progress display (conditional — ONLY if Phase B = VIABLE)
+**Rationale:** display is cheap (a column cell, proven `provider_state` pattern); the cost was entirely in capture, which the spike already solved. If spike is INVIABLE, this phase is cut entirely — no stub, no placeholder, no dead code.
+**Delivers:** `completed/total` column per session row; `—` for no-todos; `?` for capture failures; both legacy `TodoWrite` and `Task*` shapes tolerated; capture hook writing `~/.kodo/progress/<task_id>.json`; filesystem-read consumer in TUI (light-plan mold, NOT `/status` enrichment)
+**Avoids:** Pitfall 6; zero new endpoints invariant; HOOK-02 golden-bytes integrity
+**Research flag:** NO if spike is VIABLE (patterns established by spike); N/A if INVIABLE
 
-**Veredicto recomendado: PROVIDER-STATE → DOCTOR → DISMISS**
-
-Razones:
-1. El driver de negocio del milestone (ROMAN-150: sesión "In Review" invisible) vive en PROVIDER-STATE. Entregarlo primero valida el valor del milestone; DOCTOR y DISMISS son higiene que puede deferirse si PROVIDER-STATE tarda.
-2. PROVIDER-STATE y DOCTOR son independientes entre sí (no comparten archivos críticos), por lo que pueden desarrollarse en paralelo si hay bandwidth — pero el contrato del provider debe estar verde antes de que DISMISS lo use.
-3. DISMISS depende de DOCTOR en cualquier orden — eso no cambia.
-
-**Tradeoff aceptado:** con PROVIDER-STATE primero, el módulo de saneo no está disponible hasta la segunda fase; el dismiss tarda más. Con DOCTOR primero, la contract matrix lleva más tiempo en estado no-definitivo. El primero es más fácil de gestionar.
-
----
-
-### Phase 1: PROVIDER-STATE — contrato + providers + enrichment
-
-**Rationale:** Cierra ROMAN-150. Establece el contrato antes de que otras fases modifiquen los adapters.
-
-**Delivers:**
-- `getTaskState` opcional en `src/interface.js` (typedef solo — TASK_PROVIDER_METHODS frozen en 9)
-- Implementación en `plane/provider.js` (group + nombre substring) y `github/provider.js` (label-convention + open/closed)
-- `provStateCache` Map TTL en `src/server.js GET /status` + `Promise.allSettled` fail-open
-- Contract matrix extendida: capability-gated para `getTaskState` × 2 providers
-- NDJSON `provider.state.fetch.failed` en fail path
-- Actualización de `STATE.md`: invariante "9-method contract" → 10 (doc, misma fase)
-
-**Addresses:** Feature provider_state completa (contrato + adapters + server enrichment)
-
-**Avoids pitfalls:** #5 N+1 rate-limit (cache desde el principio), #6 fail-open silencioso (NDJSON desde el principio), #7 acoplamiento al vocabulario, #10 contract matrix rota
-
-**Needs research-phase:** NO — patrones verificados en código.
-
----
-
-### Phase 2: DOCTOR — módulo puro + CLI
-
-**Rationale:** La dependencia de DISMISS. Entrega valor aislado como herramienta de saneo manual.
-
-**Delivers:**
-- `src/gsd/doctor.js`: `scan(deps)` + `execute(findings, deps)` puros+DI
-- 4 categorías: worktrees huérfanos, sesiones zombie, locks colgados, logs viejos
-- `src/cli/gsd-doctor.js`: dry-run por defecto, `--fix`, `--json`, exit 0/1/2
-- Shared helper `dismissSession`/`reapZombie` exportado
-
-**Addresses:** Feature `kodo gsd doctor` completa + helper que DISMISS reutilizará
-
-**Avoids pitfalls:** #1 PID-reuse (TTL como red de seguridad, máquina de acquireGsdLock), #2 TOCTOU state (re-check alive antes de actuar), #3 TOCTOU filesystem (git worktree remove/prune; lstatSync discriminante), #4 borrado de logs activos
-
-**Needs research-phase:** NO — patrones verificados en `stop.js`, `lock.js`, `reconcile.js`.
-
----
-
-### Phase 3: DISMISS — TUI read-write + server amplification
-
-**Rationale:** La única ruptura de invariante del milestone (TUI read-only → read-write, backlog 999.1). Se construye última porque depende del módulo de doctor y las fundaciones deben estar probadas.
-
-**Delivers:**
-- `client.js dismissSession()` never-throws
-- `App.js` sub-modo `confirm` en `useInput`: guard inverso, prompt con `task_id`, `d` again / Esc
-- `src/server.js DELETE /sessions/{id}` ampliado para invocar `doctor.execute({taskId})`
-
-**Addresses:** Feature dismiss completa + cierre del ciclo doctor-dismiss-single-source
-
-**Avoids pitfalls:** #2 TOCTOU (re-check alive al confirmar), #8 throw en d, #9 fila equivocada
-
-**Needs research-phase:** NO.
-
----
-
-### Phase 4: RENDER — provider_state en el dashboard (discuss-phase decisions)
-
-**Rationale:** Thin layer sobre los datos de Phase 1. Las decisiones (columna vs badge vs color, semántica del filtro) son discuss-phase.
-
-**Delivers:**
-- `format.js`: render de `provider_state` separado de `statusColor` v3
-- `select.js`: filtro con `String.includes` case-insensitive sobre el string crudo
-- Tres estados visuales: ok / unsupported / fetch-failed (dim + `?`)
-- Header banner degradación cuando todos los fetches fallen
-
-**Addresses:** Features render/filtro (v0.10.x)
-
-**Needs discuss-phase:** columna vs badge vs color, semántica del filtro.
-
----
+### Phase D: Nyquist v0.11 backfill
+**Rationale:** independent doc-only Tier 1 debt (mirror of Phase 47). Zero dependencies on any other phase. Can run in parallel with Phase A if desired, or last.
+**Delivers:** Phases 44/45/46 VALIDATION.md updated to `nyquist_compliant: true`, citation-based audit
+**Research flag:** NO — pure documentation, standard pattern
 
 ### Phase Ordering Rationale
 
-- PROVIDER-STATE primero porque el contrato del provider es la fundación cross-feature y ROMAN-150 es el driver del milestone
-- DOCTOR segundo porque DISMISS es su único consumidor del shared helper
-- DISMISS tercero porque introduce la única ruptura de invariante y depende de ambos anteriores
-- RENDER al final porque sus decisiones son discuss-phase y no bloquean los datos
-- Paralelismo posible entre PROVIDER-STATE y DOCTOR (no comparten archivos críticos)
+- Phase A before B: open-in-manager ships the milestone's core promise regardless of spike outcome. Starting here avoids spending the whole timebox on the spike and shipping nothing.
+- Phase B before C: this is a hard gate, not a recommendation. Building display before knowing whether capture is viable repeats the exact mistake v0.11 research explicitly flagged.
+- Phase D last (or parallel): pure doc debt, no code risk, no ordering constraint.
+- The conditional half (Phase C) must be explicitly marked in the roadmap as "ships only if Phase B verdict = VIABLE." The roadmap must read cleanly with Phase C absent.
 
 ### Research Flags
 
-**Ninguna fase necesita `/gsd:plan-phase --research-phase`** — todos los patrones están verificados en código fuente del repo.
+Phases needing deeper research during planning:
+- **Phase B (spike):** this phase IS the research — empirical, version-specific, cannot be pre-researched from docs. No prior research supersedes running it on the actual installed Claude Code binary.
 
-**Puntos de discuss-phase (no research):**
-- Phase 1: TTL exacto del cache (rango seguro 30s como punto de partida)
-- Phase 4: columna vs badge vs color para `provider_state`
-- Phase 4: semántica de filtro (`s:review` OR vs prefijo `ps:`)
+Phases with standard patterns (skip research-phase):
+- **Phase A:** patterns fully established — `focus.js` mold documented in source, URL data path verified in source, Plane URL fix is a straightforward config addition
+- **Phase C:** patterns established by Phase B if VIABLE; light-plan mold and `provider_state` column pattern are both proven in v0.10–v0.11
+- **Phase D:** pure documentation, Nyquist-compliant audit procedure already established in Phase 47
 
 ---
 
@@ -252,52 +137,44 @@ Razones:
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Verificado contra `package.json`, `node_modules/`, código fuente real. Zero ambiguedad — no hay nuevas deps |
-| Features | HIGH | Provider state mapping verificado contra APIs oficiales (Jira/Linear/Plane/GitHub). Doctor conventions verificadas contra brew/flutter/npm/git docs. TUI dismiss conventions MEDIUM (UX guidance) |
-| Architecture | HIGH | Grounded en lecturas directas de `interface.js`, `registry.js`, `server.js`, `reconcile.js`, `lock.js`, `stop.js`, `App.js`. Precedente `listComments`/`supported` es código en producción |
-| Pitfalls | HIGH | Verificado contra `kill(2)` macOS, `git worktree --help`, `lock.js:isPidAlive`. TOCTOU patterns son reales, no teóricos |
+| Stack | HIGH (open-in-manager) · MEDIUM (live-capture) | Built-in `execFile` pattern verified in source. Hook event existence documented officially; exact payload schema for `TaskCreated`/`TaskCompleted` is community-reported, not officially published. |
+| Features | HIGH (open-in-manager) · MEDIUM-LOW (live-progress) | GitHub `html_url` and Plane URL shape verified against official docs and source PRs. Live-capture surface confirmed partially hook-blind via primary GitHub issue. |
+| Architecture | HIGH | Grounded entirely in actual `src/` reads. Every callsite (`manager.js:48`, `server.js:424`, `normalize.js:76`, `normalize.js:102`) verified in-repo. |
+| Pitfalls | HIGH (open-in-manager) · MEDIUM-HIGH (live-capture) | Open-in-manager pitfalls verified against source. Live-capture hook bypass confirmed (issue #20243 HIGH); exact CC version numbers for the `Task*` default MEDIUM. |
 
-**Overall confidence: HIGH**
+**Overall confidence:** HIGH for the unconditional half. MEDIUM for the spike-gated half — the uncertainty is correctly isolated behind the spike gate and the roadmap's soundness does not depend on the conditional half shipping.
 
 ### Gaps to Address
 
-- **TTL exacto de `provStateCache`:** ARCHITECTURE sugiere ~10s, PITFALLS sugiere 30-60s. Usar 30s como punto de partida; ajustar en plan-phase.
-- **Render decide-phase (columna vs badge vs color):** no bloquea Phase 1; resolver en plan-phase de Phase 4.
-- **GitHub `in_review` honestidad:** la label-convention requiere que el operador aplique la etiqueta. Documentar explícitamente en Phase 1 que `in_review` en GitHub es convention-driven, no automático.
-- **`STATE.md` invariante "9-method contract" → 10:** doc-work de Phase 1.
+- **Spike VIABLE/INVIABLE verdict:** the single most important unknown. Must be resolved empirically against the installed CC binary before any display work. The roadmap must remain coherent with the conditional half absent.
+- **`TaskCreated`/`TaskCompleted` payload schema:** community-reported fields (`task_id`, `task_subject`, `session_id`) not yet officially published as a schema. The spike must pin these empirically before the capture hook is written.
+- **`in_progress` transitions:** dedicated `TaskCreated`/`TaskCompleted` events cover create + complete but not `in_progress` transitions (which go through `TaskUpdate`). If "N/M in-progress" granularity is needed, `PostToolUse` on `TaskCreate|TaskUpdate` or transcript JSONL is required. The spike must characterize whether this matters for the "N/M done" display.
+- **Plane `projectIdentifier` field availability:** `normalize.js:107` shows a real `UNKNOWN` fallback. Confirm whether the Plane work-item API response reliably carries `project_identifier` in the version kodo targets, or whether the UUID-form fallback URL is more reliable.
+- **Legacy SessionRecord regression:** verify the `o` keypress graceful no-op and footer message on sessions from `state.json` predating `task_url`; add a regression test with an empty-`task_url` row before Phase A is marked complete.
 
 ---
 
 ## Sources
 
-### Primary (HIGH confidence — código verificado)
+### Primary (HIGH confidence)
+- kodo source (in-repo): `src/interface.js:20`, `src/providers/*/normalize.js`, `src/session/manager.js:48`, `src/session/state.js:23`, `src/server.js:206,272,424`, `src/cli/dashboard/focus.js`, `src/cli/dashboard/App.js`, `src/cli/dashboard/plan.js`
+- https://code.claude.com/docs/en/agent-sdk/todo-tracking — official; TodoWrite → Task tools migration, schemas, default since CC v2.1.142
+- https://code.claude.com/docs/en/hooks — official; `TaskCreated`/`TaskCompleted` (no matcher, always fire), `PostToolUse` `tool_name` matcher
+- https://docs.github.com/en/rest/issues/issues — `html_url` required field, `format: uri`
+- https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api — "do not construct URLs; use `html_url`"
+- https://github.com/makeplane/plane/pull/6546 — `generateWorkItemLink`, canonical `/{slug}/browse/{ident}-{seq}` URL pattern
+- https://github.com/anthropics/claude-code/issues/20243 — Task* tools bypass PreToolUse/PostToolUse hooks (load-bearing for spike gate)
 
-- `src/interface.js` — TASK_PROVIDER_METHODS frozen en 9 métodos
-- `src/providers/registry.js:91-110` — loop all-or-nothing que lanzaría para 10º método
-- `src/server.js:19,364-457` — pendingCache, /status pass-through alive, DELETE /sessions, supported precedent
-- `src/session/reconcile.js` — patrón puro+DI+never-throws a espejar para doctor
-- `src/gsd/lock.js:67-171` — isPidAlive (ESRCH/EPERM), readLock, releaseGsdLock
-- `src/hooks/stop.js:237-303` — worktree cleanup fail-open, lstatSync discriminante, move-a-`.dirty`
-- `src/cli/dashboard/App.js:402-438` — Enter handler guard alive===true, error-al-footer, sub-modos
-- `package.json` + `node_modules/` — stack prod confirmado
-- `man 2 kill` (macOS) — ESRCH/EPERM semántica
-- `git worktree --help` — prune, remove, locked/prunable
+### Secondary (MEDIUM confidence)
+- https://developers.plane.so/api-reference/issue/get-issue-detail — Plane work-item fields (`sequence_id`, `project_id`)
+- https://github.com/makeplane/plane/issues/2434 — web and API on separate URLs in self-hosting
+- https://claudearchitect.com/docs/claude-code/claude-code-tasks-guide/ — tasks persisted to `~/.claude/tasks`; `CLAUDE_CODE_TASK_LIST_ID` behavior; task fields
 
-### Secondary (HIGH — fuentes oficiales externas)
-
-- [Plane workflow states](https://docs.plane.so/core-concepts/issues/states) — 5 grupos fixed, custom names
-- [Jira statusCategory REST API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-workflow-status-categories/) — 3 buckets
-- [Linear configuring workflows](https://linear.app/docs/configuring-workflows) + [Linear Jira](https://linear.app/docs/jira) — unmapped → Triage/keep-last-good
-- [Homebrew Manpage](https://docs.brew.sh/Manpage) — doctor report-only + cleanup --dry-run
-- [git-worktree docs](https://git-scm.com/docs/git-worktree) — prune --dry-run, locked, prunable
-- [npm/cli#1226](https://github.com/npm/cli/issues/1226) — npm doctor exit 0 on error (anti-pattern)
-
-### Tertiary (MEDIUM — community)
-
-- [GitHub community discussion #179613](https://github.com/orgs/community/discussions/179613) — no clean API para PR↔linked issues
-- [Flutter troubleshoot](https://docs.flutter.dev/install/troubleshoot) — category-grouped doctor output
-- UX guides destructive actions — friction proporcional a reversibilidad
+### Tertiary (LOW confidence)
+- https://thepromptshelf.dev/blog/claude-code-hooks-complete-reference-2026/ and community hook references — `TaskCreated` payload fields (`task_id`, `task_subject`, etc.) — flagged for spike to verify empirically
+- https://x.com/bcherny/status/2014485078815211652 — Anthropic announcement of Todos → Tasks upgrade direction
+- https://dev.to/prafulreddy/a-zero-token-progress-bar-for-claude-code-51bp — on-disk approach and TodoWrite dependency (shows the anti-pattern to avoid)
 
 ---
-*Research completed: 2026-06-03*
+*Research completed: 2026-06-11*
 *Ready for roadmap: yes*
