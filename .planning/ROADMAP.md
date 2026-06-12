@@ -146,4 +146,30 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 
 ## Backlog
 
-_Vacío._ La única entrada histórica (Phase 999.1 — "Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`.
+### Phase 999.1: kodo bidireccional — sesión cmux → tarea persistente (BACKLOG)
+
+**Goal:** Convertir una sesión de Claude Code creada ad-hoc directamente en cmux (no nacida de Plane/GitHub) en una **tarea persistente del gestor**, para que el trabajo ad-hoc no se evapore al cerrar el sprint.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd:review-backlog when ready)
+
+**Por qué (dolor real diario):** el operador abre sesiones en cmux para trabajo que no nace de una tarea; al no persistirlas, se pierden si no las cierra dentro del sprint. No hay rastro en Plane/GitHub.
+
+**El concepto — flujo inverso:** kodo hoy hace **tarea → sesión** (Plane/GitHub lanza un Claude Code). Esto es **sesión → tarea**. Es kodo volviéndose **bidireccional**: un puente de ida y vuelta entre el gestor y el trabajo real.
+
+**Las 4 piezas del flujo:**
+1. **Detectar** la sesión ad-hoc en cmux — *único supuesto sin validar*: ¿cmux expone el proceso/cwd por workspace para identificar un `claude` que NO está en `state.json`? (spike ~30 min; encaja con la introspección de la **Fase 49**, que ya va a investigar la superficie observable de Claude Code).
+2. **Crear** la tarea en el provider vía POST — la fontanería ya existe (`github/client.js` y `plane/client.js` ya hacen `POST` con auth para `addComment`); `listProjects` (en el contrato) ya permite elegir destino.
+3. **Adoptar** la sesión registrándola en `state.json` con el `task_id` nuevo (kodo ya recorre este camino al lanzar; aquí al revés).
+4. **Datos** — título (¿derivado del nombre del workspace/cwd, o escrito?), proyecto destino, descripción opcional.
+
+**Decisión de diseño clave (con precedente limpio):** crear tareas NO está en los 9 métodos FROZEN del contrato `TaskProvider` (`init`/`getTask`/`updateTaskState`/`addComment`/`listPendingTasks`/`parseTriggerEvent`/`verifySignature`/`resolveRef`/`listProjects`). Añadir `createTask` como **método OPCIONAL typeof-detected** —espejo de cómo `getTaskState` se añadió en la Fase 40— mantiene el contrato "FROZEN en 9". Empezar por **un solo provider** (probablemente Plane, el día a día del operador).
+
+**Dimensión:** NO es una feature suelta — es un **milestone propio ("kodo bidireccional")**. NO meter en v0.12 (open-in-manager + live-progress) para no descarrilar. Candidato a milestone tras v0.12. **Forma probable:** comando aparte (`kodo adopt`/`capture`) o acción/tecla en el dashboard sobre una fila no-kodo — **NO** una sección más en la tabla de tareas (un ciudadano sin `task_id`/`provider_state`/plan sería de segunda clase ahí).
+
+**Origen:** ideado 2026-06-12 en conversación tras cerrar la Fase 48.
+
+---
+_Histórico: la anterior Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
