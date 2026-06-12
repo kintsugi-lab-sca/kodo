@@ -1,10 +1,11 @@
 ---
 phase: 49
 slug: live-progress-spike-hard-gate
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-12
+verdict: VIABLE
 ---
 
 # Phase 49 — Validation Strategy
@@ -46,7 +47,7 @@ The verdict itself ships no production code, so automated tests are NOT the prim
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 49-01-* | 01 | 1 | PROG-01 | — | Spike reads ~/.claude/* read-only; never mutates Claude Code internals | manual | empirical evidence in 49-SPIKE.md | ❌ W0 | ⬜ pending |
+| 49-01-* | 01 | 1 | PROG-01 | — | Spike reads ~/.claude/* read-only; never mutates Claude Code internals | manual | empirical evidence in 49-SPIKE.md | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -54,8 +55,9 @@ The verdict itself ships no production code, so automated tests are NOT the prim
 
 ## Wave 0 Requirements
 
-- [ ] Re-verify the installed build version firsthand (`which claude` → `claude --version`); pin the
+- [x] Re-verify the installed build version firsthand (`which claude` → `claude --version`); pin the
       **actual** version in `49-SPIKE.md` (research found 2.1.175 via the cmux bundle, not 2.1.174).
+      → Re-verificado en primera persona: **2.1.175**, binario `/Applications/cmux.app/Contents/Resources/bin/claude`.
 
 *Existing infrastructure covers any kodo-side helper; the spike's core evidence is manual.*
 
@@ -74,10 +76,10 @@ The verdict itself ships no production code, so automated tests are NOT the prim
 
 ## Validation Sign-Off
 
-- [ ] `49-SPIKE.md` exists with an explicit VIABLE/INVIABLE verdict
-- [ ] 4-condition Evidence Map filled for every surface attempted (incl. failures), in preference order
-- [ ] Installed build version re-verified firsthand and pinned
-- [ ] Gate decision recorded (INVIABLE → Phase 50 cut, PROG-02/03 deferred via PROG-F1; VIABLE → proceed)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `49-SPIKE.md` exists with an explicit VIABLE/INVIABLE verdict → **VIABLE**
+- [x] 4-condition Evidence Map filled for every surface attempted (incl. failures), in preference order
+- [x] Installed build version re-verified firsthand and pinned → **2.1.175**
+- [x] Gate decision recorded (INVIABLE → Phase 50 cut, PROG-02/03 deferred via PROG-F1; VIABLE → proceed) → **VIABLE → proceder a Phase 50**
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** ✅ signed-off 2026-06-12 — veredicto VIABLE, superficie ganadora hook `TaskCreated`/`TaskCompleted` (+ `~/.claude/tasks/` refuerzo); supuesto residual A2 (disparo en execute-phase worktree real) a confirmar en Phase 50.

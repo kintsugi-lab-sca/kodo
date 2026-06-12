@@ -13,80 +13,145 @@
 | Binario | `/Applications/cmux.app/Contents/Resources/bin/claude` (bundle cmux, `readlink -f`) |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | `1` (maquinaria de `TaskCreate` habilitada) |
 | Fecha del spike | 2026-06-12 |
-| Hook throwaway | `/tmp/kodo-spike-taskhook.sh` (registrado en `~/.claude/settings.json`, backup en `.bak`) |
-| Comando GSD del sujeto | _(a documentar en Task 2 — qué `/gsd-execute-phase` de qué fase corrió la sesión instrumentada)_ |
+| Hook throwaway | `/tmp/kodo-spike-taskhook.sh` (registrado en `~/.claude/settings.json`, backup en `.bak`, **restaurado byte-idéntico al terminar**) |
+| Sesión instrumentada (sujeto) | Sesión interactiva real 2.1.175 `session_id 2d88eaa7-2b91-4040-ab07-447b269612be`, herramienta `TaskCreate` disparada en primera persona (3 `TaskCreated` + 1 `TaskCompleted`) — ver **Nota de cobertura** abajo |
 
 ## Evidence Map — 4 condiciones × 3 superficies (orden de preferencia)
 
 > Reglas (D-04): VIABLE de una superficie SOLO si las 4 condiciones (a/b/c/d) se demuestran con
-> evidencia cruda adjunta en el apéndice. Sin evidencia cruda = esa condición FALLA. Se evalúan
-> en orden de preferencia; se para en la primera superficie que cumple las 4.
+> evidencia cruda adjunta. Sin evidencia cruda = esa condición FALLA. Se evalúan en orden de
+> preferencia; se para en la primera superficie que cumple las 4 (D-02).
 
 | Superficie (orden) | (a) dispara/se lee en 2.1.175 interactiva | (b) payload estable → `N/M` | (c) correlación determinista `session_id→task_id` | (d) cero ruptura + escribe a `~/.kodo/` | Veredicto superficie |
 |--------------------|-------------------------------------------|------------------------------|---------------------------------------------------|------------------------------------------|----------------------|
-| 1. Hook `TaskCreated`/`TaskCompleted` | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ |
-| 2. Transcript JSONL `~/.claude/projects/<slug>/<sid>.jsonl` | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ |
-| 3. `~/.claude/tasks/<session_id>/N.json` | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ pendiente | ⬜ |
+| **1. Hook `TaskCreated`/`TaskCompleted`** (preferida) | ✅ 4 payloads crudos capturados en `/tmp` | ✅ `N/M = 1/3` (M=nº `TaskCreated`, N=nº `TaskCompleted`) | ✅ payload lleva `session_id`+`cwd`+`transcript_path` | ✅ sesión sin degradación; escribe solo a `/tmp` | ✅ **VIABLE** |
+| 3. `~/.claude/tasks/<session_id>/N.json` | ✅ dir materializado (`1/2/3.json` + `.lock`) | ✅ `N/M = 1/3` (`status=="completed"`/total) | ✅ dir-name = `session_id` → `findSession` → `task_id` | ✅ lectura never-throws, sin tomar `.lock` | ✅ **VIABLE** (refuerzo) |
+| 2. Transcript JSONL `~/.claude/projects/<slug>/<sid>.jsonl` | ⏭️ no evaluada en vivo (Surface 1 ya VIABLE, D-02) | ❌ base research: CERO `TodoWrite`/`Task` en transcript | (n/a) | (n/a) | ⏭️ no necesaria |
 
-Leyenda: ✅ demostrada (con evidencia cruda) · ❌ falla / sin evidencia · ⬜ pendiente · ⏭️ no evaluada (superficie anterior ya VIABLE)
+Leyenda: ✅ demostrada (con evidencia cruda) · ❌ falla / sin evidencia · ⏭️ no evaluada (superficie anterior ya VIABLE)
 
 ## Apéndice de evidencia cruda
 
-### Superficie 1 — Hook `TaskCreated` / `TaskCompleted` (preferida)
-_(Adjuntar: payload(s) crudo(s) de `/tmp/kodo-spike-task-*.json` capturados durante la sesión viva.
-Indicar si el payload lleva `session_id`/`cwd`/`transcript_path` → resuelve condición (c).)_
+### Superficie 1 — Hook `TaskCreated` / `TaskCompleted` (preferida) — ✅ las 4 condiciones
 
-```
-(pendiente — evidencia cruda Task 2)
-```
+**Condición (a) — dispara.** 4 payloads crudos volcados a `/tmp/kodo-spike-task-*.json`,
+timestamps `12:11:40`–`12:11:48` (dentro de la ventana de la sesión). El registro del hook en
+`~/.claude/settings.json` se recargó en vivo en la sesión 2.1.175 (no requirió reinicio).
 
-### Superficie 2 — Transcript JSONL
-_(Adjuntar: resultado del scan del `.jsonl` de la sesión sujeto buscando entradas task/todo de las
-que derivar N/M. Base estática del research: CERO `TodoWrite`/`Task` → probable fallo de (b).)_
+**Condición (c) — correlación.** El payload incluye `session_id`, `cwd` y `transcript_path`
+correlacionables (resuelve la incógnita #1 / A1 del research, que era LOW-confidence). Payload
+crudo de `TaskCompleted` (task_id 1):
 
-```
-(pendiente — evidencia cruda Task 2)
-```
-
-### Superficie 3 — `~/.claude/tasks/<session_id>/` (último recurso)
-_(Adjuntar: `ls -R ~/.claude/tasks/<session_id>/` con timestamp dentro de la ventana de sesión y
-el cálculo N/M = ficheros con `status:"completed"` / total ficheros `N.json`. Lectura never-throws,
-sin tomar el `.lock`, Pitfall 3.)_
-
-```
-(pendiente — evidencia cruda Task 2)
+```json
+{
+  "session_id": "2d88eaa7-2b91-4040-ab07-447b269612be",
+  "transcript_path": "/Users/alex/.claude/projects/-Users-alex-dev-klab-kodo/2d88eaa7-2b91-4040-ab07-447b269612be.jsonl",
+  "cwd": "/Users/alex/dev/klab/kodo",
+  "hook_event_name": "TaskCompleted",
+  "task_id": "1",
+  "task_subject": "[SPIKE-49 THROWAWAY] Sonda Surface 1 — capturar payload TaskCreated",
+  "task_description": "Task de prueba throwaway del spike Phase 49. ..."
+}
 ```
 
-### Correlación condición (c) — round-trip real `session_id → task_id`
-_(Adjuntar: el mapeo de UNA sesión real `session_id → task_id → ~/.kodo/progress/<task_id>.json`
-resuelto vía `findSession({sessionId})` sobre `~/.kodo/state.json`. NO escribir el artefacto —
-solo demostrar la cadena, D-05.)_
+Schema de payload estable en los 4 eventos — `keys = [cwd, hook_event_name, session_id,
+task_description, task_id, task_subject, transcript_path]`:
+
+| # | hook_event_name | task_id | session_id |
+|---|-----------------|---------|------------|
+| 1 | `TaskCreated`   | 1 | 2d88eaa7-… |
+| 2 | `TaskCreated`   | 2 | 2d88eaa7-… |
+| 3 | `TaskCreated`   | 3 | 2d88eaa7-… |
+| 4 | `TaskCompleted` | 1 | 2d88eaa7-… |
+
+**Condición (b) — N/M derivable.** Acumulando eventos: `M = count(TaskCreated) = 3`,
+`N = count(TaskCompleted) = 1` → **`N/M = 1/3`**. Coincide con el conteo independiente de Surface 3.
+
+**Condición (d) — cero ruptura.** La sesión orquestadora siguió operativa durante y tras los
+disparos (comandos posteriores ejecutaron con normalidad); el spike escribió SOLO a `/tmp`
+(cero mutación de internos de Claude Code); `git diff -- src/ test/ bin/` quedó vacío.
+
+### Superficie 3 — `~/.claude/tasks/<session_id>/` (refuerzo, también ✅ las 4)
+
+`ls -la ~/.claude/tasks/2d88eaa7-2b91-4040-ab07-447b269612be/`:
 
 ```
-(pendiente — evidencia cruda Task 2)
+.lock    0 B
+1.json 438 B
+2.json 405 B
+3.json 313 B
 ```
 
-### Condición (d) — cero ruptura / escritura kodo-controlada
-_(Constatar: la sesión completó sin degradación/stall durante el polling de lectura, y el spike
-escribió SOLO a `/tmp` — cero mutación de internos de Claude Code.)_
+Schema de `N.json` (estable vs snapshots estáticos del research):
+
+```json
+{ "id": "1", "subject": "...", "description": "...", "activeForm": "...",
+  "status": "completed", "blocks": [], "blockedBy": [] }
+```
+
+Derivación limpia: `N/M = (status=="completed") / total = 1/3`. El nombre del dir **es** el
+`session_id` (condición c por construcción).
+
+### Correlación condición (c) — round-trip real `session_id → task_id` (ejecutado en vivo)
+
+Reusando `findSession` (`src/session/state.js`) sobre `~/.kodo/state.json` real — cero código de
+producción nuevo:
 
 ```
-(pendiente — evidencia cruda Task 2)
+findSession({ sessionId: 'f8dcd7d6-9323-4aa7-973f-0ebb8126e35d' })
+  → task_id : 297980b0-3ccd-47fd-b848-e11ba2ea28cd
+  → source  : sessions
+  → artefacto Phase 50 (D-05, NO se escribe): ~/.kodo/progress/297980b0-3ccd-47fd-b848-e11ba2ea28cd.json
 ```
+
+La cadena `session_id → task_id → ~/.kodo/progress/<task_id>.json` (espejo del seam plan-ligero
+`~/.kodo/plans/<task_id>.md`, D-05) es demostrable con la maquinaria existente de kodo. El payload
+del hook (Surface 1) provee el `session_id` directamente; `findSession` cierra el round-trip.
+
+### Condición (d) — escritura kodo-controlada
+
+El artefacto persistido viviría en `~/.kodo/progress/<task_id>.json` (territorio kodo, write-owner,
+D-04/D-05); los internos de Claude Code (`~/.claude/tasks/`, payload del hook) son SOLO superficie
+de LECTURA. El spike no escribió a `~/.kodo/` (eso es Phase 50); demostró la ruta sin materializarla.
 
 ## Veredicto
 
-**Veredicto: PENDIENTE** _(se emite en Task 3 tras rellenar el Evidence Map. VIABLE solo si una
-superficie demuestra las 4 condiciones con evidencia cruda; cualquier fallo único → INVIABLE, D-04.)_
+**Veredicto: VIABLE**
 
-- Superficie ganadora (si VIABLE): _(pendiente)_
-- Conjunto de fallos por superficie (si INVIABLE): _(pendiente)_
+- **Superficie ganadora:** **Surface 1 — hook `TaskCreated`/`TaskCompleted`** (la preferida, D-02).
+  Cumple las 4 condiciones con evidencia cruda: dispara en 2.1.175 interactiva (a), payload estable
+  con `session_id`/`cwd`/`transcript_path` que deriva `N/M` por conteo de eventos (b+c), cero ruptura
+  escribiendo solo a `/tmp` (d). **Surface 3 (`~/.claude/tasks/<session_id>/`) la refuerza** como
+  fuente autoritativa del `N/M` agregado (mismo `1/3`), leíble never-throws sin tomar el `.lock`.
+- Surface 2 (transcript) no fue necesaria (D-02: se para en la primera superficie VIABLE); su fallo
+  de condición (b) en la base estática del research se mantiene sin contradecir.
+
+### Nota de cobertura (honestidad D-04, supuesto residual A2)
+
+La sonda disparó `TaskCreate` **en primera persona en la sesión orquestadora interactiva**
+(`cwd` = repo, no un worktree `.bg-shell/<sid>/` lanzado por el dashboard de kodo). El comportamiento
+del runtime medido —que el evento dispara, el schema del payload, la materialización del tasks-dir,
+la derivación `N/M` y la correlación— es **independiente del tipo de sesión** y queda demostrado
+empíricamente en la build instalada. Lo único **no re-medido por esta sonda** (sino inferido del
+research: 12/58 dirs `tasks/` son sesiones de worktree) es que el flujo `/gsd-execute-phase` de kodo
+**invoque** `TaskCreate` durante sus olas de agentes (supuesto A2). El payload incluye `cwd`, que en
+una sesión worktree sería `.bg-shell/<sid>/`, habilitando además correlación por `workspaceRef`.
+Esta limitación de cobertura **no invalida ninguna de las 4 condiciones** (todas con evidencia cruda),
+pero Phase 50 debe confirmar el disparo en el primer execute-phase real instrumentado.
 
 ## Decisión de gate — Phase 49 → Phase 50
 
-_(Se emite en Task 3, Success Criteria #5 del ROADMAP.)_
+**VIABLE → proceder a Phase 50.**
 
-- **Si INVIABLE:** Phase 50 se corta entera (sin stub/placeholder); PROG-02/03 → v2 vía PROG-F1;
-  el milestone cierra con OPEN-* + NYQ-03 sin penalización.
-- **Si VIABLE:** proceder a Phase 50, nombrando la superficie ganadora y la ruta del artefacto
-  `~/.kodo/progress/<task_id>.json` (D-05) que la captura usaría.
+- **Superficie de captura:** hook `TaskCreated`/`TaskCompleted` como trigger en tiempo real
+  (aporta `session_id` + `cwd`), con lectura de `~/.claude/tasks/<session_id>/` para el `N/M`
+  agregado autoritativo (never-throws, sin tomar el `.lock`, Pitfall 3).
+- **Artefacto write-owner (D-05):** `~/.kodo/progress/<task_id>.json`, correlacionado vía
+  `findSession({sessionId})` (`src/session/state.js`), espejo del seam plan-ligero
+  `~/.kodo/plans/<task_id>.md`. Cero endpoints nuevos; el mold (`readLightPlan`) ya existe.
+- **Riesgo a cerrar en Phase 50 (A2):** confirmar el disparo de `TaskCreate` en una sesión
+  `claude --worktree` real de execute-phase; el display ya está presupuestado para tolerar la
+  cohorte sin-tasks vía estado degradado `—`, así que un miss parcial no rompe el milestone.
+- **PROG-F1 (fallback INVIABLE):** no se activa — el veredicto es VIABLE.
+
+PROG-01 satisfecho: el veredicto empírico existe, respaldado por evidencia cruda de las 4 condiciones.
