@@ -108,12 +108,23 @@ Plans:
   2. El dashboard muestra el progreso por sesión (p. ej. `N/M`) leyendo ese artefacto vía filesystem (mold del overlay de plan ligero), **cero endpoints nuevos** — nunca un re-enrich de `/status`.
   3. Estados degradados honestos: sin todos → `—`; fallo transiente de captura → `?` + keep-last-good; cohortes legacy/`Task*`-tools toleradas (patrón de la columna no-color `provider_state`).
 
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
 **UI hint**: yes
 
-Plans:
+> **Gate de apertura (Wave 0):** el plan 50-01 confirma EMPÍRICAMENTE el riesgo A2 (que `TaskCreate` dispara en un `execute-phase` real worktree, sin añadir latencia) ANTES de construir. Si A2 falla → la fase se corta vía PROG-F1 (D-02). Los plans 50-02/50-03 solo se ejecutan tras `A2 CONFIRMA`.
 
-- [ ] 50-01: TBD
+Plans:
+**Wave 0** *(gate de apertura — load-bearing, no saltable)*
+
+- [ ] 50-01-PLAN.md — Gate A2 (D-01/D-02): instrumentar un `execute-phase` real worktree, confirmar disparo de `TaskCreate` + medir latencia del hook → veredicto `50-A2-GATE.md`; branch de corte explícito PROG-F1 si falla
+
+**Wave 1** *(captura — blocked on A2 CONFIRMA)*
+
+- [ ] 50-02-PLAN.md — Hook de captura separado `task-progress.js` (lee tasks-dir autoritativo never-throws → escribe `~/.kodo/progress/<task_id>.json` con UUID kodo, anti-traversal) + registro `TaskCreated`/`TaskCompleted` en `install.js` sin clobber (PROG-02)
+
+**Wave 2** *(display — blocked on Wave 1; consume el seam productor↔consumidor)*
+
+- [ ] 50-03-PLAN.md — `readProgress` (mold `readLightPlan`) + `deriveAnyProgress` (mold `deriveAnyGsd`) + `progCell` (4 estados, mold `taskCell`) + enrich CLIENT-SIDE en `App.js` (keep-last-good, CERO server.js) + columna condicional `prog` en `SessionTable.js` (PROG-03)
 
 ### Phase 51: Backfill Nyquist v0.11
 
@@ -141,7 +152,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 |-------|-----------|----------------|--------|-----------|
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
-| 50. Live-progress display (conditional) | v0.12 | 0/TBD | Not started (gated on 49=VIABLE) | - |
+| 50. Live-progress display (conditional) | v0.12 | 0/3 | Planned (gated on A2 CONFIRMA) | - |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
 
 ## Backlog
