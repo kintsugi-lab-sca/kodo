@@ -95,7 +95,7 @@ Plans:
 
 Plans:
 
-- [ ] 49-01-PLAN.md — Ejecutar el spike empírico y emitir el veredicto `49-SPIKE.md` (re-verificación de versión + harness throwaway · observación operator-driven de una sesión `/gsd-execute-phase` viva con Evidence Map de 4 condiciones × 3 superficies · veredicto VIABLE/INVIABLE + decisión de gate) — PROG-01
+- [x] 49-01-PLAN.md — Ejecutar el spike empírico y emitir el veredicto `49-SPIKE.md` (re-verificación de versión + harness throwaway · observación operator-driven de una sesión `/gsd-execute-phase` viva con Evidence Map de 4 condiciones × 3 superficies · veredicto VIABLE/INVIABLE + decisión de gate) — PROG-01
 
 ### Phase 50: Live-progress display (CONDICIONAL — solo si Phase 49 = VIABLE)
 
@@ -140,7 +140,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
-| 49. Live-progress spike (HARD GATE) | v0.12 | 0/1 | Not started | - |
+| 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete   | 2026-06-12 |
 | 50. Live-progress display (conditional) | v0.12 | 0/TBD | Not started (gated on 49=VIABLE) | - |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
 
