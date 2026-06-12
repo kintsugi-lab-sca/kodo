@@ -51,7 +51,7 @@
 // Color-isolation (D-12): todo el color sale de props de <Text> de ink; cero import del helper
 // de color del CLI clásico / picocolors. Markup via React.createElement plano (no JSX, no build).
 
-import { Box, Text, useApp, useInput, useStdin } from 'ink';
+import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { fetchStatus, fetchComments, fetchLogs, dismissSession } from './client.js';
 import { usePoll } from './usePoll.js';
@@ -210,6 +210,22 @@ export default function App({
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
+
+  // Pantalla completa (TUI polish): el Box raíz adopta la altura de la terminal y el body crece
+  // (flexGrow) para empujar el footer al fondo aunque haya pocas filas. NO usa alt-screen — ink
+  // sigue renderizando inline, preservando la invariante v0.9/Phase 48 "cero toggle de alt-screen".
+  // `termRows` es undefined bajo ink-testing-library (su stdout no expone `rows`) → `height` se
+  // omite y el layout cae al comportamiento natural previo (suite intacta).
+  const { stdout } = useStdout();
+  const [termRows, setTermRows] = useState(/** @type {number | undefined} */ (stdout?.rows));
+  useEffect(() => {
+    if (!stdout || typeof stdout.on !== 'function') return undefined; // harness de test sin EventEmitter
+    const onResize = () => setTermRows(stdout.rows);
+    stdout.on('resize', onResize);
+    return () => {
+      if (typeof stdout.off === 'function') stdout.off('resize', onResize);
+    };
+  }, [stdout]);
 
   // Keep-last-good + connection + edad (Discretion Open Question 2: este estado vive en App, no
   // en el hook). `lastGoodAt == null` ⇒ nunca hubo dato bueno (arranque).
@@ -659,11 +675,11 @@ export default function App({
 
   return createElement(
     Box,
-    { flexDirection: 'column', borderStyle: 'round', paddingX: 1 },
+    { flexDirection: 'column', borderStyle: 'round', paddingX: 1, height: termRows },
     createElement(Text, { bold: true }, 'kodo dashboard'),
     createElement(
       Box,
-      { marginY: 1, paddingX: 1 },
+      { marginY: 1, paddingX: 1, flexGrow: 1 },
       createElement(SessionTable, {
         rows: filtered,
         selectedIndex: sel.index,
