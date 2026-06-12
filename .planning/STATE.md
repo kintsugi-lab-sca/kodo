@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
-status: ready_to_plan
-stopped_at: Phase 49 complete (1/1) — ready to discuss Phase 999.1
-last_updated: 2026-06-12T10:20:29.147Z
-last_activity: 2026-06-12 -- Phase 49 execution started
+status: planning
+stopped_at: Phase 50 context gathered
+last_updated: "2026-06-12T13:18:30.615Z"
+last_activity: 2026-06-12
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
   completed_plans: 4
-  percent: 20
+  percent: 40
 ---
 
 # Project State
@@ -117,8 +117,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-12T08:18:08.698Z
-- **Stopped at:** Phase 49 context gathered
+- **Last session:** 2026-06-12T13:18:30.606Z
+- **Stopped at:** Phase 50 context gathered
 - **Next action:** `/gsd:plan-phase 48` (Open-in-manager core). Phase 51 (Nyquist backfill, doc-only) puede correr en paralelo. Phase 50 queda gated tras el veredicto de Phase 49.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.12)
