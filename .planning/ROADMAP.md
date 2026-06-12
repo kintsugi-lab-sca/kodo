@@ -139,7 +139,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 48. Open-in-manager core | v0.12 | 3/3 | Complete   | 2026-06-12 |
+| 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 0/TBD | Not started | - |
 | 50. Live-progress display (conditional) | v0.12 | 0/TBD | Not started (gated on 49=VIABLE) | - |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |

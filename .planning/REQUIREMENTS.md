@@ -11,10 +11,10 @@ Requirements del milestone v0.12. Cada uno mapea a una fase del roadmap.
 
 Driver: extensión simétrica del `Enter → cmux select-workspace` de v0.9 Phase 37 (foco *interno*) — ahora una tecla abre la tarea en su gestor (foco *externo*). El research (`.planning/research/`) verificó que el round-trip de la URL **ya está construido**: `TaskItem.url` es campo canónico (GitHub `issue.html_url` en `normalize.js:102`; Plane browse-URL en `normalize.js:76`), `manager.js:48` ya persiste `task_url` en el `SessionRecord`, y `GET /status` ya lo expone por fila. El trabajo real es el launcher TUI + la corrección de un bug latente de URL de Plane, no construir plumbing. Diseño elegido: URL como **campo estático de `TaskItem`** persistido al lanzar (espejo de `worktree_path`), **no** método opcional `getTaskUrl` (ese patrón — `getTaskState` — se justifica para estado *vivo*; una URL es inmutable). Contrato `TaskProvider` sigue FROZEN en 9.
 
-- [ ] **OPEN-01**: El operador pulsa una tecla dedicada (`o`, libre junto a `q`/`/`/`c`/`l`/`p`/`d`/`Enter`) sobre una fila y se abre la URL de la tarea (Plane/GitHub) en el navegador del sistema, vía `open` con `child_process.execFile` fire-and-forget — un `src/cli/dashboard/open.js` clonado de `focus.js` (mismo discriminante never-throws `{ok}`, misma DI del binario inyectable con default `'open'`, misma cobertura de color-isolation por el walker). Lee la `task_url` ya persistida en la fila; cero endpoints nuevos.
-- [ ] **OPEN-02**: La acción es **never-throws** end-to-end (ENOENT / navegador ausente / exit≠0 → footer-error, el panel permanece montado, cero unmount, cero toggle de alt-screen) y es un **no-op con feedback claro** cuando la fila no tiene `task_url` (SessionRecords legacy previos al campo).
-- [ ] **OPEN-03**: El launcher solo abre URLs `http(s)` — un allowlist de protocolo rechaza `file://`, `javascript:` y la inyección de flags vía URLs con `-` inicial hacia `open` (la URL se pasa como argumento literal, nunca como string de shell).
-- [ ] **OPEN-04**: Las web-URLs de Plane resuelven a un **link vivo** en deploys self-hosted con web/API separados — config opcional `plane.web_url` con default a `base_url` (hoy `normalize.js:76` construye desde el host de API `base_url`+`/api/v1`, produciendo links muertos en deploys partidos), y el fallback de identificador `UNKNOWN-<seq>` no emite links muertos.
+- [x] **OPEN-01**: El operador pulsa una tecla dedicada (`o`, libre junto a `q`/`/`/`c`/`l`/`p`/`d`/`Enter`) sobre una fila y se abre la URL de la tarea (Plane/GitHub) en el navegador del sistema, vía `open` con `child_process.execFile` fire-and-forget — un `src/cli/dashboard/open.js` clonado de `focus.js` (mismo discriminante never-throws `{ok}`, misma DI del binario inyectable con default `'open'`, misma cobertura de color-isolation por el walker). Lee la `task_url` ya persistida en la fila; cero endpoints nuevos.
+- [x] **OPEN-02**: La acción es **never-throws** end-to-end (ENOENT / navegador ausente / exit≠0 → footer-error, el panel permanece montado, cero unmount, cero toggle de alt-screen) y es un **no-op con feedback claro** cuando la fila no tiene `task_url` (SessionRecords legacy previos al campo).
+- [x] **OPEN-03**: El launcher solo abre URLs `http(s)` — un allowlist de protocolo rechaza `file://`, `javascript:` y la inyección de flags vía URLs con `-` inicial hacia `open` (la URL se pasa como argumento literal, nunca como string de shell).
+- [x] **OPEN-04**: Las web-URLs de Plane resuelven a un **link vivo** en deploys self-hosted con web/API separados — config opcional `plane.web_url` con default a `base_url` (hoy `normalize.js:76` construye desde el host de API `base_url`+`/api/v1`, produciendo links muertos en deploys partidos), y el fallback de identificador `UNKNOWN-<seq>` no emite links muertos.
 
 ### Live Progress (PROG)
 
@@ -64,10 +64,10 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OPEN-01 | Phase 48 | Pending |
-| OPEN-02 | Phase 48 | Pending |
-| OPEN-03 | Phase 48 | Pending |
-| OPEN-04 | Phase 48 | Pending |
+| OPEN-01 | Phase 48 | Complete |
+| OPEN-02 | Phase 48 | Complete |
+| OPEN-03 | Phase 48 | Complete |
+| OPEN-04 | Phase 48 | Complete |
 | PROG-01 | Phase 49 | Pending |
 | PROG-02 | Phase 50 (conditional — Phase 49 = VIABLE) | Pending |
 | PROG-03 | Phase 50 (conditional — Phase 49 = VIABLE) | Pending |

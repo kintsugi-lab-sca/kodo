@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
-status: executing
-stopped_at: Phase 48 context gathered
-last_updated: "2026-06-11T19:14:21.833Z"
+status: ready_to_plan
+stopped_at: Phase 48 complete (3/3) — ready to discuss Phase 49
+last_updated: 2026-06-12T05:47:12.265Z
 last_activity: 2026-06-11 -- Phase 48 execution started
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 3
   percent: 0
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan. v0.12 profundiza desde la fila: *hacia afuera* (abrir la tarea en el gestor) y *hacia adentro* (progreso vivo, spike-gated).
 
-**Current focus:** Phase 48 — open-in-manager-core
+**Current focus:** Phase 49 — live progress spike (hard gate)
 
 ## Current Position
 
-Phase: 48 (open-in-manager-core) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 48
-Last activity: 2026-06-11 -- Phase 48 execution started
+Phase: 49
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-12
 
 Progress: [░░░░░░░░░░] 0%
 
