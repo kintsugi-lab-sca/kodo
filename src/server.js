@@ -160,6 +160,30 @@ function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// T-48-10 (OPEN-03 paridad HTML): allowlist http(s) sobre el task_url ANTES de renderlo como
+// href clickable. escapeHtml NO neutraliza `javascript:`/`data:` (no contienen & < > " '), así que
+// sin este guard un task_url con esquema hostil ejecutaría script al click — el mismo vector que el
+// carril TUI (open.js) ya bloquea. Espejo exacto de la allowlist de open.js. Devuelve la url segura
+// o null. URL es global del navegador (este script corre client-side).
+function safeHref(url) {
+  try {
+    var p = new URL(url);
+    return (p.protocol === 'http:' || p.protocol === 'https:') ? url : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Helper compartido para el ref clickable de las 3 superficies (sessions/pending/history): aplica
+// safeHref + escapeHtml + rel="noopener noreferrer" (anti reverse-tabnabbing en target="_blank"),
+// con fallback a <span> de texto plano cuando la url es ausente o de esquema no permitido.
+function refAnchor(url, ref) {
+  var safe = safeHref(url);
+  return safe
+    ? '<a class="ref" href="' + escapeHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(ref) + '</a>'
+    : '<span class="ref">' + escapeHtml(ref) + '</span>';
+}
+
 async function deleteSession(taskId, ref) {
   if (!confirm('¿Eliminar sesión ' + ref + ' del state?')) return;
   await fetch('/sessions/' + encodeURIComponent(taskId), { method: 'DELETE' });
@@ -203,9 +227,7 @@ function renderSession(s) {
   var displayStatus = s.status;
   if (!s.alive && s.status === 'running') displayStatus = 'dead';
   if (s.alive && s.status === 'running' && s.elapsed_min > 30) displayStatus = 'idle';
-  var refLink = s.task_url
-    ? '<a class="ref" href="' + escapeHtml(s.task_url) + '" target="_blank">' + escapeHtml(s.task_ref) + '</a>'
-    : '<span class="ref">' + escapeHtml(s.task_ref) + '</span>';
+  var refLink = refAnchor(s.task_url, s.task_ref);
   return '<div class="session">' +
     '<div class="row-spread">' +
       '<div class="row">' + refLink + ' <span class="badge badge-' + displayStatus + '">' + displayStatus + '</span></div>' +
@@ -256,11 +278,9 @@ function renderPending(items) {
         '<div class="pending-item">' +
           '<div class="row">' +
             // OPEN-04 / D-08: a work item with an unresolved identifier carries no url
-            // (normalizeWorkItem suppresses it) — render the ref as plain text rather
-            // than a dead <a href=""> anchor.
-            (t.url
-              ? '<a class="ref" href="' + escapeHtml(t.url) + '" target="_blank">' + escapeHtml(t.ref) + '</a>'
-              : '<span class="ref">' + escapeHtml(t.ref) + '</span>') +
+            // (normalizeWorkItem suppresses it) — refAnchor renders the ref as plain text
+            // rather than a dead <a href=""> anchor, and gates the protocol (T-48-10).
+            refAnchor(t.url, t.ref) +
             (t.state ? '<span class="badge badge-running">' + escapeHtml(t.state) + '</span>' : '') +
           '</div>' +
           '<div class="title">' + escapeHtml(t.title) + '</div>' +
@@ -274,9 +294,7 @@ function renderHistory(items) {
   if (!items.length) return '<div class="empty">Sin historial</div>';
   return items.map((s) => {
     var durMin = s.ended_at ? Math.floor((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60000) : '?';
-    var refLink = s.task_url
-      ? '<a class="ref" href="' + escapeHtml(s.task_url) + '" target="_blank">' + escapeHtml(s.task_ref) + '</a>'
-      : '<span class="ref">' + escapeHtml(s.task_ref) + '</span>';
+    var refLink = refAnchor(s.task_url, s.task_ref);
     return '<div class="history-item">' +
       '<div class="row-spread">' +
         '<div class="row">' + refLink + ' <span class="badge badge-done">cerrada</span></div>' +
