@@ -51,7 +51,11 @@ import {
 // (T-43-03 DoS-guard: un provider_state de 10k chars se trunca a la columna, no desborda la tabla).
 // Phase 44 D-09 (TUI-19): `state` 16→18 para que la marca per-fila del zombie (~18 celdas) no
 // se trunque — el badge base `▶ running` (~9) más el sufijo del zombie (9) llena justo 18 (Pitfall 3).
-const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, task: 12, age: 7 };
+// Phase 50 D-06 (PROG-03): columna condicional `prog` (progreso vivo N/M) ENTRE `status` y `task`
+// → orden `status → prog → task → age`. width 7: aloja `N/M✓` en el peor caso de dobles dígitos
+// (`12/15✓` = 6 chars) con padding visible; reserva el sufijo `✓` (D-07). `truncate-end` nativo de
+// ink es la red de seguridad anti-DoS (T-50-cell-dos: un n/m absurdo se trunca, no desborda).
+const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
@@ -206,6 +210,11 @@ function renderOverlay(snap, scrollOffset, kind) {
  *   columna `phase/mode` (cabecera + toda celda de datos) NO se emite y su ancho se recupera vía
  *   flex (ink desplaza los hermanos a la izquierda; sin aritmética de anchos). Reaparece sola
  *   cuando entra una sesión GSD. Default `true` (retro-compat: renderiza la columna como antes).
+ * @param {boolean} [props.anyProgress] - Phase 50 D-06 (PROG-03): flag ESTRUCTURAL de presencia de
+ *   progreso vivo, derivado en App.js sobre el set SIN filtrar (`deriveAnyProgress(enriched)`).
+ *   Cuando es `false` la columna `prog` (cabecera + toda celda) NO se emite y su ancho se recupera
+ *   vía flex (sin aritmética de anchos). Reaparece sola cuando una sesión reporta progreso. Default
+ *   `false` (retro-compat: oculta la columna si no se pasa, espejo invertido de anyGsd).
  * @param {'list'|'filter'|'overlay'|'confirm'} [props.mode] - modo de interacción. En `filter` se
  *   muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt persistente.
  * @param {string} [props.query] - texto del filtro EN VIVO (Plan 03), renderizado en la línea modal.
@@ -234,6 +243,7 @@ export default function SessionTable({
   lastAttemptAt,
   hasQuery = false,
   anyGsd = true,
+  anyProgress = false,
   mode = 'list',
   query = '',
   focusError = null,
@@ -322,6 +332,9 @@ export default function SessionTable({
     // sus 11 celdas vía flex desplazando los hermanos a la izquierda (sin aritmética de anchos).
     ...(anyGsd ? [h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode'))] : []),
     h(Box, { width: COLS.status }, h(Text, { dimColor: true }, 'status')),
+    // Phase 50 D-06 (PROG-03): cabecera `prog` condicional ENTRE `status` y `task`. Solo se emite si
+    // ALGUNA sesión reporta progreso (anyProgress); si no, se omite y ink recupera el ancho vía flex.
+    ...(anyProgress ? [h(Box, { width: COLS.prog }, h(Text, { dimColor: true }, 'prog'))] : []),
     // Phase 43 D-03: cabecera de la columna provider entre `status` y `age`, label literal `task`.
     h(Box, { width: COLS.task }, h(Text, { dimColor: true }, 'task')),
     h(Box, { width: COLS.age }, h(Text, { dimColor: true }, 'age')),
@@ -372,6 +385,13 @@ export default function SessionTable({
       // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. NO
       // truncar: los valores son cortos (≤6 chars) y caben de sobra en COLS.status.
       cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: false }),
+      // Phase 50 D-06/D-07 (PROG-03): celda `prog` condicional ENTRE status y task. Valor en texto
+      // plano SIN color propio (color-isolation D-12; el `dim` de cells.prog marca los degradados
+      // '—'/'?' vía dimColor de ink). truncate:true → ellipsis nativo `…` = anti-DoS (T-50-cell-dos:
+      // un n/m absurdo se trunca a la columna, no desborda la tabla). Se omite si !anyProgress.
+      ...(anyProgress
+        ? [cell({ width: COLS.prog, text: cells.prog.text, dim: cells.prog.dim, bold: selected, truncate: true })]
+        : []),
       // Phase 43 D-04/D-05/D-08: columna provider entre status y age. El valor ok va en texto plano
       // SIN color propio (D-05: cero segunda paleta — el red queda reservado al zombie del eje local);
       // el `dim` de cells.task marca los degradados '—'/'?' vía dimColor de ink. truncate:true →

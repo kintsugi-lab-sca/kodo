@@ -64,9 +64,11 @@ import {
   grepLogs,
   mapDismissResult,
   deriveAnyGsd,
+  deriveAnyProgress,
 } from './select.js';
 import { deriveRepo } from './format.js';
 import { readPlan } from './plan.js';
+import { readProgress } from './progress.js';
 import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
 
@@ -277,6 +279,12 @@ export default function App({
   // request en vuelo, que tras el await comprueba `overlayReqRef.current !== reqId` y se descarta.
   const overlayReqRef = useRef(0);
 
+  // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa por task_id → último
+  // { n, m, completed } leído con status 'ok'. Vive en un useRef (memoria entre polls, NO dispara
+  // re-render): ante un fallo transiente de lectura ('error') con un last-good presente, el enrich
+  // expone el último N/M conocido (progCell pinta N/M, no '?'). Sin last-good, expone 'error' (→'?').
+  const progressLastGoodRef = useRef(/** @type {Map<string, { n: number, m: number, completed: boolean }>} */ (new Map()));
+
   // Phase 39 (TUI-15/TUI-16): estado de los overlays auxiliares (comentarios `c` / logs `l`).
   //   - overlayKind: qué overlay está abierto ('comments'|'logs'|null).
   //   - scrollOffset: índice de la primera línea visible del body scrollable (D-06, ↑/↓ scrollean).
@@ -325,11 +333,45 @@ export default function App({
   //   sortSessions (copia, DESC, tiebreak task_id) → applyFilter (AND, String.includes) →
   //   resolveSelection (índice derivado por identidad, clamp fallback).
   const sorted = sortSessions(sessions);
+  // Phase 50 (PROG-03, D-08): enrich CLIENT-SIDE del progreso vivo, mold del handler `p`/readPlan
+  // (App.js:544) — lectura filesystem SÍNCRONA never-throws en el render, SIN await, SIN server.js
+  // (cero endpoints nuevos). readProgress lee el artefacto kodo `~/.kodo/progress/<task_id>.json`;
+  // el dashboard NUNCA toca `~/.claude/`. Se enriquece ANTES de deriveAnyProgress/applyFilter para
+  // que `row.progress` esté presente en deriveAnyProgress, el filtro y rowCells.
+  //
+  // Keep-last-good (D-09): un fallo transiente ('error') con un last-good en el ref expone el último
+  // N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone 'error' (→'?'). Un 'ok' refresca
+  // el ref. Un 'no-progress' (ENOENT real) → '—' (la persistencia post-mortem D-10 hace que un
+  // artefacto que existió no vuelva a ENOENT, así que no-progress real = nunca hubo artefacto).
+  const lastGood = progressLastGoodRef.current;
+  const enriched = sorted.map((row) => {
+    const taskId = row?.task_id;
+    // Guard anti-traversal del taskId ANTES de leer (T-50-redos/traversal): String.includes, NO
+    // regex — mold plan.js:120-121. El s.task_id es un UUID kodo (seguro por construcción), el guard
+    // es defensa en profundidad. Un taskId no usable → sin progreso ('—').
+    const usable =
+      taskId && !taskId.includes('/') && !taskId.includes('\\') && !taskId.includes('..');
+    if (!usable) return { ...row, progress: { status: 'no-progress' } };
+    const res = readProgress(taskId, {}); // never-throws (mold readPlan)
+    if (res.status === 'ok') {
+      lastGood.set(taskId, { n: res.n, m: res.m, completed: res.completed });
+      return { ...row, progress: res };
+    }
+    if (res.status === 'error') {
+      const prev = lastGood.get(taskId);
+      // last-good presente → sobrevive el N/M (status 'ok'); ausente → 'error' (progCell pinta '?').
+      return { ...row, progress: prev ? { status: 'ok', ...prev } : { status: 'error' } };
+    }
+    return { ...row, progress: res }; // 'no-progress' → '—'
+  });
   // TUI-18/D-08: flag estructural de presencia GSD derivado del set SIN filtrar (`sorted`),
   // NO de `filtered` (Pitfall 4): la columna phase/mode no debe parpadear cuando una query `/`
   // vacía temporalmente las filas GSD del subconjunto visible.
-  const anyGsd = deriveAnyGsd(sorted);
-  const filtered = applyFilter(sorted, parseFilter(query), deriveRepo);
+  const anyGsd = deriveAnyGsd(enriched);
+  // Phase 50 (PROG-03, D-06 / Pitfall 5): espejo de deriveAnyGsd — flag estructural sobre el set
+  // SIN filtrar (`enriched`, no `filtered`). La columna `prog` no parpadea bajo `/`.
+  const anyProgress = deriveAnyProgress(enriched);
+  const filtered = applyFilter(enriched, parseFilter(query), deriveRepo);
   const sel = resolveSelection(filtered, selectedTaskId, prevIndexRef.current);
   const counts = countByStatus(filtered);
   // hasQuery distingue los dos estados vacíos en SessionTable (D-12): `no sessions match` (hay
@@ -692,6 +734,7 @@ export default function App({
         query,
         hasQuery,
         anyGsd, // TUI-18 D-08: flag estructural GSD (sobre `sorted`, no `filtered`) → drop columna phase/mode
+        anyProgress, // PROG-03 D-06: flag estructural progreso (sobre `enriched` sin filtrar) → drop columna prog
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)
