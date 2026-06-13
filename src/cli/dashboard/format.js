@@ -221,13 +221,38 @@ export function taskCell(session) {
 }
 
 /**
+ * Deriva la celda de la columna `prog` (Phase 50, PROG-03) desde el objeto `session.progress`
+ * enriquecido CLIENT-SIDE en App.js (mold readPlan; NUNCA un campo del payload de /status — D-08).
+ * Espejo EXACTO de la forma de taskCell: devuelve `{ text, dim }` PLANO, CERO color propio
+ * (color-isolation D-12; el `dim` lo mapea ink a `dimColor`, cubierto por test/format-isolation).
+ *
+ * Los 4 estados LOCKED (UI-SPEC / D-07 / D-09):
+ *   - sin progreso (progress ausente o status 'no-progress', ENOENT) → `{ text:'—', dim:true }`
+ *     (espejo de taskCell 'unsupported'→'—').
+ *   - fallo transiente (status 'error') → `{ text:'?', dim:true }` (espejo de taskCell
+ *     'fetch-failed'→'?'). El keep-last-good lo gestiona App.js (enrich), NO progCell.
+ *   - en progreso (status 'ok', !completed) → `{ text:'N/M', dim:false }` (p.ej. '1/3').
+ *   - completado (status 'ok', completed) → `{ text:'N/M✓', dim:false }` (p.ej. '3/3✓').
+ *
+ * @param {Partial<EnrichedSession> & { progress?: { status: string, n?: number, m?: number, completed?: boolean } }} session
+ * @returns {{ text: string, dim: boolean }}
+ */
+export function progCell(session) {
+  const p = session.progress;
+  if (!p || p.status === 'no-progress') return { text: '—', dim: true }; // estado #3 (sin progreso)
+  if (p.status === 'error') return { text: '?', dim: true }; // estado #4 (fallo transiente; keep-last-good en App.js)
+  const suffix = p.completed ? '✓' : ''; // estados #1/#2 (en progreso / completado)
+  return { text: `${p.n}/${p.m}${suffix}`, dim: false };
+}
+
+/**
  * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
  * `status` usa `outcomeCell`: solo el outcome auto-reportado (error/done/review), en blanco
  * para los valores de lifecycle (que son del eje `state`), evitando la divergencia state/status.
  * La celda `task` (Phase 43) es el eje provider derivado por `taskCell` con la forma `{ text, dim }`.
  *
  * @param {Partial<EnrichedSession>} session
- * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, age: string }}
+ * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, prog: { text: string, dim: boolean }, age: string }}
  */
 export function rowCells(session) {
   return {
@@ -236,6 +261,7 @@ export function rowCells(session) {
     phasemode: phaseMode(session),
     status: outcomeCell(session.status ?? ''),
     task: taskCell(session),
+    prog: progCell(session), // Phase 50 (PROG-03): celda progreso vivo, ENTRE task y age (D-06)
     age: formatAge(session.elapsed_min),
   };
 }
