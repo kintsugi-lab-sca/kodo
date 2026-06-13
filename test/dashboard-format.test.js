@@ -20,6 +20,7 @@ import {
   outcomeCell,
   rowCells,
   taskCell,
+  progCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
 
@@ -291,5 +292,57 @@ describe('PSTATE-05: rowCells incluye la clave task con la forma { text, dim }',
       { text: '—', dim: true },
       `rowCells().task unsupported debe ser { text:'—', dim:true }, fue ${JSON.stringify(cells.task)}`,
     );
+  });
+});
+
+// Phase 50 Plan 03 (PROG-03; D-07/D-09): progCell deriva los 4 estados de la celda prog
+// del objeto session.progress enriquecido CLIENT-SIDE en App.js. Espejo de taskCell:
+// { text, dim } plano, CERO color propio (color-isolation D-12, cubierta por el walker).
+describe('PROG-03 (D-07/D-09): progCell deriva los 4 estados de la columna prog', () => {
+  it('Test 1 (en progreso): { status:ok, n:1, m:3, completed:false } → { text:"1/3", dim:false }', () => {
+    const c = progCell({ progress: { status: 'ok', n: 1, m: 3, completed: false } });
+    assert.deepEqual(c, { text: '1/3', dim: false });
+  });
+
+  it('Test 2 (completado): { status:ok, n:3, m:3, completed:true } → { text:"3/3✓", dim:false }', () => {
+    const c = progCell({ progress: { status: 'ok', n: 3, m: 3, completed: true } });
+    assert.deepEqual(c, { text: '3/3✓', dim: false });
+  });
+
+  it('Test 3a (sin progreso): progress ausente → { text:"—", dim:true }', () => {
+    const c = progCell({});
+    assert.deepEqual(c, { text: '—', dim: true });
+  });
+
+  it('Test 3b (sin progreso): { status:no-progress } → { text:"—", dim:true }', () => {
+    const c = progCell({ progress: { status: 'no-progress' } });
+    assert.deepEqual(c, { text: '—', dim: true });
+  });
+
+  it('Test 4 (fallo transiente): { status:error } → { text:"?", dim:true }', () => {
+    const c = progCell({ progress: { status: 'error' } });
+    assert.deepEqual(c, { text: '?', dim: true });
+  });
+});
+
+describe('PROG-03: rowCells incluye la clave prog con la forma { text, dim } entre task y age', () => {
+  it('rowCells(session).prog es la derivación de progCell', () => {
+    const cells = rowCells({
+      task_ref: 'KL-9',
+      status: 'running',
+      alive: true,
+      elapsed_min: 1,
+      progress: { status: 'ok', n: 2, m: 3, completed: false },
+    });
+    assert.deepEqual(
+      cells.prog,
+      { text: '2/3', dim: false },
+      `rowCells().prog debe ser { text:'2/3', dim:false }, fue ${JSON.stringify(cells.prog)}`,
+    );
+  });
+
+  it('rowCells().prog sin progreso → { text:"—", dim:true }', () => {
+    const cells = rowCells({ task_ref: 'KL-10', status: 'running', alive: true });
+    assert.deepEqual(cells.prog, { text: '—', dim: true });
   });
 });
