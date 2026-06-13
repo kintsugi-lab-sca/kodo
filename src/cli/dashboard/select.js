@@ -219,6 +219,25 @@ export function deriveAnyGsd(rows) {
 }
 
 /**
+ * Flag ESTRUCTURAL de presencia de progreso vivo (PROG-03, D-06): ¿hay ALGUNA fila con un
+ * artefacto de progreso legible (`progress != null`)? Espejo literal de deriveAnyGsd. Pura,
+ * React-free, sin regex ni color. El guard `!= null` distingue null/undefined (sin progreso →
+ * columna oculta) de un objeto `{ status }` enriquecido (presente → columna visible).
+ *
+ * CRÍTICO (D-06 / Pitfall 5 == Pitfall 4 de Phase 44): el consumidor (App.js) la computa sobre
+ * el set SIN filtrar (`sorted`), NO sobre `filtered`. La columna `prog` es ESTRUCTURAL — está
+ * presente siempre que ALGUNA sesión activa reporte progreso — y no debe parpadear cuando el
+ * operador teclea una query `/` que vacía temporalmente las filas con progreso del subconjunto
+ * visible (espejo exacto de deriveAnyGsd, App.js:331).
+ *
+ * @param {Array<Partial<EnrichedSession> & { progress?: unknown }>} rows — el set SIN filtrar (sorted/sessions).
+ * @returns {boolean} true si alguna fila tiene `progress != null`.
+ */
+export function deriveAnyProgress(rows) {
+  return rows.some((r) => r.progress != null);
+}
+
+/**
  * Filtra el buffer COMPARTIDO de `GET /logs` por substring OR de `task_ref` / `workspace_ref`
  * contra `entry.msg` (TUI-16, D-03). El buffer es un ring newest-first sin `session_id` por
  * línea (src/server.js:21-29), por lo que el grep es best-effort: NO parsea un session_id que
