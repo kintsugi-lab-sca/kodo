@@ -8,11 +8,15 @@ const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 /**
  * Install kodo hooks into Claude Code settings.json
  * Adds SessionStart and Stop hooks without clobbering existing ones.
+ * Phase 50 (PROG-02): también registra TaskCreated/TaskCompleted apuntando al
+ * hook SEPARADO task-progress.js. Registro PLANO (sin async/timeout): el gate
+ * A2 validó modo síncrono ~35ms/evento (imperceptible) — no se requiere async.
  */
 export function installHooks() {
   const kodoRoot = resolve(import.meta.dirname, '..', '..');
   const sessionStartCmd = `node "${join(kodoRoot, 'src', 'hooks', 'session-start.js')}"`;
   const stopCmd = `node "${join(kodoRoot, 'src', 'hooks', 'stop.js')}"`;
+  const taskProgressCmd = `node "${join(kodoRoot, 'src', 'hooks', 'task-progress.js')}"`;
 
   let settings;
   try {
@@ -34,11 +38,16 @@ export function installHooks() {
   // Install Stop hook
   changed = addHook(settings.hooks, 'Stop', stopCmd) || changed;
 
+  // Phase 50 (PROG-02): TaskCreated/TaskCompleted → task-progress.js (sin clobber).
+  changed = addHook(settings.hooks, 'TaskCreated', taskProgressCmd) || changed;
+  changed = addHook(settings.hooks, 'TaskCompleted', taskProgressCmd) || changed;
+
   if (changed) {
     writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
     console.log('✓ Hooks instalados en ~/.claude/settings.json');
     console.log(`  SessionStart: ${sessionStartCmd}`);
     console.log(`  Stop: ${stopCmd}`);
+    console.log(`  TaskCreated/TaskCompleted: ${taskProgressCmd}`);
   } else {
     console.log('✓ Hooks ya estaban instalados');
   }
@@ -62,7 +71,7 @@ export function uninstallHooks() {
 
   let changed = false;
 
-  for (const event of ['SessionStart', 'Stop']) {
+  for (const event of ['SessionStart', 'Stop', 'TaskCreated', 'TaskCompleted']) {
     if (!Array.isArray(settings.hooks[event])) continue;
     const before = settings.hooks[event].length;
     settings.hooks[event] = settings.hooks[event].filter((entry) => {
