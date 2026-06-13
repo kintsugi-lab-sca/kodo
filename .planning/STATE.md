@@ -4,14 +4,14 @@ milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
 status: executing
 stopped_at: Phase 50 UI-SPEC approved
-last_updated: "2026-06-12T18:02:08.580Z"
-last_activity: 2026-06-12 -- Phase 50 execution started
+last_updated: "2026-06-13T07:13:34.788Z"
+last_activity: 2026-06-13
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 7
-  completed_plans: 4
-  percent: 40
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 ## Current Position
 
 Phase: 50 (live-progress-display-condicional-solo-si-phase-49-viable) — EXECUTING
-Plan: 1 of 3
+Plan: 2 of 3 (50-02 captura COMPLETO; siguiente: 50-03 display)
 Status: Executing Phase 50
-Last activity: 2026-06-12 -- Phase 50 execution started
+Last activity: 2026-06-13 -- Plan 50-02 completo (hook captura task-progress, PROG-02)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████████░] 86%
 
 ## Roadmap v0.12 (active)
 
@@ -84,6 +84,7 @@ Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (P
 - **PROG-02 + PROG-03 plegados en UNA fase (50):** captura (hook) + display (columna/overlay) son un solo concern condicional; el display es barato (espejo `provider_state` Phase 43), el coste vive en la captura que el spike resuelve. Si VIABLE, una sola fase los entrega.
 - **NYQ-03 (Phase 51) doc-only Tier 1, independiente:** `git diff -- src/ test/ bin/` debe quedar vacío; ni bloquea ni es bloqueada. Puede correr en paralelo con Phase 48 o última.
 - **Cero endpoints nuevos preservado:** open-in-manager lee `task_url` de la fila ya polleada (como `focus.js` lee `workspace_ref`); el display de progreso (si VIABLE) lee el artefacto `~/.kodo/` vía filesystem (mold del plan ligero), nunca un re-enrich de `/status`.
+- **Phase 50-02 (hook captura): registro PLANO (síncrono, sin async/timeout)** — el gate A2 validó ~35ms/evento (imperceptible); `async:true`/`asyncRewake:true` queda como optimización OPCIONAL no necesaria para v1. El hook `task-progress.js` es SEPARADO (preserva golden-bytes HOOK-02 de `session-start.js`), recuenta autoritativamente el tasks-dir (D-04, self-healing), filtra `.lock`/`.highwatermark`, status estricto `===completed`, y nombra el artefacto con `found.session.task_id` (UUID kodo), NUNCA `input.task_id` (Open Question 2). Guard anti-traversal `String.includes('/')`/`'\\'`/`'..'` antes de la ruta (T-50-traversal).
 
 ### Roadmap Evolution
 
@@ -117,7 +118,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-12T13:32:58.015Z
+- **Last session:** 2026-06-13T07:13:04.688Z
 - **Stopped at:** Phase 50 UI-SPEC approved
 - **Next action:** `/gsd:plan-phase 48` (Open-in-manager core). Phase 51 (Nyquist backfill, doc-only) puede correr en paralelo. Phase 50 queda gated tras el veredicto de Phase 49.
 - **Files of record:**

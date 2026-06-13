@@ -120,7 +120,7 @@ Plans:
 
 **Wave 1** *(captura — blocked on A2 CONFIRMA)*
 
-- [ ] 50-02-PLAN.md — Hook de captura separado `task-progress.js` (lee tasks-dir autoritativo never-throws → escribe `~/.kodo/progress/<task_id>.json` con UUID kodo, anti-traversal) + registro `TaskCreated`/`TaskCompleted` en `install.js` sin clobber (PROG-02)
+- [x] 50-02-PLAN.md — Hook de captura separado `task-progress.js` (lee tasks-dir autoritativo never-throws → escribe `~/.kodo/progress/<task_id>.json` con UUID kodo, anti-traversal) + registro `TaskCreated`/`TaskCompleted` en `install.js` sin clobber (PROG-02)
 
 **Wave 2** *(display — blocked on Wave 1; consume el seam productor↔consumidor)*
 
@@ -152,7 +152,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 |-------|-----------|----------------|--------|-----------|
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
-| 50. Live-progress display (conditional) | v0.12 | 1/3 | In Progress|  |
+| 50. Live-progress display (conditional) | v0.12 | 2/3 | In Progress|  |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
 
 ## Backlog
