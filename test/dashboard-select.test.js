@@ -22,6 +22,7 @@ import {
   countByStatus,
   grepLogs,
   deriveAnyGsd,
+  deriveAnyProgress,
 } from '../src/cli/dashboard/select.js';
 
 import { deriveRepo } from '../src/cli/dashboard/format.js';
@@ -408,5 +409,40 @@ describe('TUI-18 (D-08): deriveAnyGsd flag estructural de presencia GSD', () => 
     assert.equal(deriveAnyGsd(filtered), false, 'el filtro elimina la fila GSD del subconjunto filtrado');
     // Pero la derivación CORRECTA (D-08) es sobre la lista COMPLETA → true (columna no parpadea).
     assert.equal(deriveAnyGsd(full), true, 'deriveAnyGsd sobre el set completo NO debe verse afectado por el filtro');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 50 Plan 03 (PROG-03; D-06): deriveAnyProgress.
+//   Espejo literal de deriveAnyGsd: rows.some(r => r.progress != null). PURO,
+//   React-free, sin regex ni color. Se computa sobre el set SIN filtrar (`sorted`)
+//   en App.js — NO sobre `filtered` (Pitfall 5 == Pitfall 4 de Phase 44): la columna
+//   prog no debe parpadear cuando una query `/` vacía las filas con progreso.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PROG-03 (D-06): deriveAnyProgress flag estructural de presencia de progreso', () => {
+  it('Test 1: true cuando ALGUNA fila tiene progress != null', () => {
+    assert.equal(deriveAnyProgress([{ progress: { status: 'ok', n: 1, m: 3 } }, { progress: null }]), true);
+  });
+
+  it('Test 2: false cuando NINGUNA fila tiene progress (null o ausente)', () => {
+    assert.equal(deriveAnyProgress([{ progress: null }, {}]), false);
+  });
+
+  it('Test 3: progress undefined/null en todas → false (guard != null, igual que deriveAnyGsd)', () => {
+    assert.equal(deriveAnyProgress([{ progress: undefined }, { progress: null }]), false);
+    assert.equal(deriveAnyProgress([]), false);
+  });
+
+  it('D-06: se deriva sobre el set SIN filtrar — la columna prog no parpadea bajo `/`', () => {
+    // Espejo del test de deriveAnyGsd: si se derivara de `filtered`, la columna
+    // desaparecería al teclear una query que oculta las filas con progreso.
+    const full = [
+      { task_id: 'prog', progress: { status: 'ok', n: 2, m: 3 }, state: 'running' },
+      { task_id: 'plain', progress: null, state: 'dead' },
+    ];
+    const filtered = applyFilter(full, parseFilter('s:dead'), () => '');
+    assert.equal(deriveAnyProgress(filtered), false, 'el filtro elimina la fila con progreso del subconjunto');
+    assert.equal(deriveAnyProgress(full), true, 'sobre el set completo sigue siendo true (columna estructural)');
   });
 });
