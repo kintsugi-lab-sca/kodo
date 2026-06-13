@@ -71,6 +71,20 @@ Instrumentación throwaway (espejo del harness del spike Phase 49), cero código
 
 ---
 
+## Addendum (2026-06-13) — cierre de gap metodológico: `--settings` merge
+
+El gate A2 original probó un `claude --worktree` **pelado**. El flujo real de kodo corre dentro de **cmux**, que envuelve el launch con `--settings {hooks cmux}` (verificado en una sesión real: TENDERIO-9, `ps` mostró `claude --settings {SessionStart/Stop/SubagentStop/… cmux} --model opus --session-id … --worktree …`). Riesgo: si `--settings` **reemplazara** los hooks de `~/.claude/settings.json`, nuestro `TaskCreated`/`TaskCompleted` quedaría shadoweado → captura muerta en producción.
+
+**Test empírico (mismo harness throwaway + `--settings` tipo-cmux SIN Task*):**
+- Hook Task* registrado en `~/.claude/settings.json`; sesión lanzada con `--settings <json con solo SessionStart>`; prompt usó TaskCreate.
+- **Resultado: el hook Task* DISPARÓ** (`cwd = .claude/worktrees/<sid>/`, `n/m` derivado) → `claude --settings` **MERGEA** hooks aditivamente con el settings de usuario.
+
+**Conclusión:** la inyección `--settings` de cmux NO shadowea la captura. **Phase 50 funciona en el flujo real cmux+kodo.** Gap cerrado.
+
+## Hallazgo lateral confirmado en producción — bug `worktree_path` (follow-up, fuera de scope P50)
+
+Confirmado en la sesión real TENDERIO-9: `computeWorktreePath` (`src/session/state.js`) registra `<projectPath>/.bg-shell/<sid>` en `state.json`, pero `claude --worktree <sid>` materializa el worktree en `<projectPath>/.claude/worktrees/<sid>`. El `worktree_path` persistido NO coincide con la realidad → afecta a doctor (escanea `.bg-shell` para huérfanos) y dismiss. **NO afecta a Phase 50** (la captura lee `~/.claude/tasks/<session_id>/`, global por session_id). Recomendado: abrir issue/fase de fix para `computeWorktreePath` ↔ ubicación real del worktree.
+
 ## Reversibilidad
 
 - `~/.claude/settings.json` restaurado byte-idéntico desde `.a2bak` (hook throwaway desregistrado).
