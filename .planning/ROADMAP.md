@@ -116,7 +116,7 @@ Plans:
 Plans:
 **Wave 0** *(gate de apertura — load-bearing, no saltable)*
 
-- [ ] 50-01-PLAN.md — Gate A2 (D-01/D-02): instrumentar un `execute-phase` real worktree, confirmar disparo de `TaskCreate` + medir latencia del hook → veredicto `50-A2-GATE.md`; branch de corte explícito PROG-F1 si falla
+- [x] 50-01-PLAN.md — Gate A2 (D-01/D-02): instrumentar un `execute-phase` real worktree, confirmar disparo de `TaskCreate` + medir latencia del hook → veredicto `50-A2-GATE.md`; branch de corte explícito PROG-F1 si falla
 
 **Wave 1** *(captura — blocked on A2 CONFIRMA)*
 
@@ -152,7 +152,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 |-------|-----------|----------------|--------|-----------|
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
-| 50. Live-progress display (conditional) | v0.12 | 0/3 | Planned (gated on A2 CONFIRMA) | - |
+| 50. Live-progress display (conditional) | v0.12 | 1/3 | In Progress|  |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
 
 ## Backlog
