@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
 status: executing
-stopped_at: Phase 50 UI-SPEC approved
-last_updated: "2026-06-13T07:13:34.788Z"
+stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
+last_updated: "2026-06-13T07:25:36.842Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 60
 ---
 
 # Project State
@@ -30,11 +30,11 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 ## Current Position
 
 Phase: 50 (live-progress-display-condicional-solo-si-phase-49-viable) — EXECUTING
-Plan: 2 of 3 (50-02 captura COMPLETO; siguiente: 50-03 display)
-Status: Executing Phase 50
-Last activity: 2026-06-13 -- Plan 50-02 completo (hook captura task-progress, PROG-02)
+Plan: 3 of 3 (50-03 display COMPLETO — PROG-03 cerrado; fase 50 lista para verify-work)
+Status: Executing Phase 50 (3/3 plans done)
+Last activity: 2026-06-13 -- Plan 50-03 completo (display vivo N/M, columna condicional prog, PROG-03)
 
-Progress: [█████████░] 86%
+Progress: [██████████] 100%
 
 ## Roadmap v0.12 (active)
 
@@ -85,6 +85,7 @@ Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (P
 - **NYQ-03 (Phase 51) doc-only Tier 1, independiente:** `git diff -- src/ test/ bin/` debe quedar vacío; ni bloquea ni es bloqueada. Puede correr en paralelo con Phase 48 o última.
 - **Cero endpoints nuevos preservado:** open-in-manager lee `task_url` de la fila ya polleada (como `focus.js` lee `workspace_ref`); el display de progreso (si VIABLE) lee el artefacto `~/.kodo/` vía filesystem (mold del plan ligero), nunca un re-enrich de `/status`.
 - **Phase 50-02 (hook captura): registro PLANO (síncrono, sin async/timeout)** — el gate A2 validó ~35ms/evento (imperceptible); `async:true`/`asyncRewake:true` queda como optimización OPCIONAL no necesaria para v1. El hook `task-progress.js` es SEPARADO (preserva golden-bytes HOOK-02 de `session-start.js`), recuenta autoritativamente el tasks-dir (D-04, self-healing), filtra `.lock`/`.highwatermark`, status estricto `===completed`, y nombra el artefacto con `found.session.task_id` (UUID kodo), NUNCA `input.task_id` (Open Question 2). Guard anti-traversal `String.includes('/')`/`'\\'`/`'..'` antes de la ruta (T-50-traversal).
+- **Phase 50-03 (display): enrich CLIENT-SIDE en App.js (mold readPlan App.js:544), CERO `src/server.js`** — D-08 LOCKED honrado: `git diff --quiet src/server.js` → 0 cambios, cero endpoints nuevos. El progreso es lectura filesystem SÍNCRONA never-throws (`readProgress`, mold `readLightPlan`), encaja client-side como `readPlan` (a diferencia de `provider_state` que es server-side por requerir `await ...resolve()`). Columna condicional `prog` (`COLS.prog=7`, entre `status` y `task`) controlada por `deriveAnyProgress(enriched)` sobre el set SIN filtrar (Pitfall 5 — no parpadea bajo `/`). `progCell` 4 estados `N/M`/`N/M✓`/`—`/`?` cero-color (espejo `taskCell`, color-isolation D-12). Keep-last-good en `useRef Map<task_id>` (memoria entre polls): fallo transiente con last-good → expone N/M, sin él → `?`. PROG-03 cerrado; `npm test` 1317 pass / 0 fail / 1 skip.
 
 ### Roadmap Evolution
 
@@ -118,8 +119,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-13T07:13:04.688Z
-- **Stopped at:** Phase 50 UI-SPEC approved
+- **Last session:** 2026-06-13T07:25:36.835Z
+- **Stopped at:** Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
 - **Next action:** `/gsd:plan-phase 48` (Open-in-manager core). Phase 51 (Nyquist backfill, doc-only) puede correr en paralelo. Phase 50 queda gated tras el veredicto de Phase 49.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.12)

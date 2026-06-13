@@ -22,7 +22,7 @@ Driver: mostrar el progreso vivo de cada sesión en el dashboard (p. ej. `3/7 pa
 
 - [x] **PROG-01** *(spike — gate duro)*: Veredicto empírico **VIABLE / INVIABLE** sobre si el task-state vivo de una sesión `claude --worktree` interactiva puede capturarse en la build instalada de Claude Code vía una superficie soportada, evaluadas en orden de preferencia: (1) eventos hook `TaskCreated`/`TaskCompleted`, (2) watcher del transcript JSONL, (3) lectura de `~/.claude/tasks/` (último recurso, frágil). **VIABLE** exige las 4: la superficie dispara/se lee de hecho en la versión instalada · payload estable para derivar `N/M` · correlación determinista con `task_id` · cero latencia/ruptura de la sesión + artefacto kodo-controlado. Cualquier fallo → INVIABLE.
 - [x] **PROG-02** *(condicional a PROG-01 VIABLE)*: Si VIABLE, kodo **captura y persiste** el progreso de cada sesión a un archivo kodo-controlado bajo `~/.kodo/` (espejo del seam productor↔consumidor del plan ligero de v0.11), correlacionado por `task_id`, sin depender de rutas internas no documentadas de Claude Code y preservando los golden-bytes de los bloques existentes de `session-start.js` (HOOK-02).
-- [ ] **PROG-03** *(condicional a PROG-01 VIABLE)*: Si VIABLE, el dashboard **muestra el progreso por sesión** (p. ej. `N/M`) leyendo ese artefacto filesystem-style como el overlay de plan (cero endpoints nuevos), con estados degradados honestos (sin todos → `—`; fallo transiente de captura → `?` + keep-last-good; cohortes legacy/Task-tools toleradas) — patrón de la columna no-color `provider_state` de v0.10 Phase 43.
+- [x] **PROG-03** *(condicional a PROG-01 VIABLE)*: Si VIABLE, el dashboard **muestra el progreso por sesión** (p. ej. `N/M`) leyendo ese artefacto filesystem-style como el overlay de plan (cero endpoints nuevos), con estados degradados honestos (sin todos → `—`; fallo transiente de captura → `?` + keep-last-good; cohortes legacy/Task-tools toleradas) — patrón de la columna no-color `provider_state` de v0.10 Phase 43.
 
 ### Nyquist Debt Backfill (NYQ)
 
@@ -70,5 +70,5 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 | OPEN-04 | Phase 48 | Complete |
 | PROG-01 | Phase 49 | Complete |
 | PROG-02 | Phase 50 (conditional — Phase 49 = VIABLE) | Complete |
-| PROG-03 | Phase 50 (conditional — Phase 49 = VIABLE) | Pending |
+| PROG-03 | Phase 50 (conditional — Phase 49 = VIABLE) | Complete |
 | NYQ-03 | Phase 51 | Pending |

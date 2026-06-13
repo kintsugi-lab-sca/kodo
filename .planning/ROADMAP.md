@@ -124,7 +124,7 @@ Plans:
 
 **Wave 2** *(display — blocked on Wave 1; consume el seam productor↔consumidor)*
 
-- [ ] 50-03-PLAN.md — `readProgress` (mold `readLightPlan`) + `deriveAnyProgress` (mold `deriveAnyGsd`) + `progCell` (4 estados, mold `taskCell`) + enrich CLIENT-SIDE en `App.js` (keep-last-good, CERO server.js) + columna condicional `prog` en `SessionTable.js` (PROG-03)
+- [x] 50-03-PLAN.md — `readProgress` (mold `readLightPlan`) + `deriveAnyProgress` (mold `deriveAnyGsd`) + `progCell` (4 estados, mold `taskCell`) + enrich CLIENT-SIDE en `App.js` (keep-last-good, CERO server.js) + columna condicional `prog` en `SessionTable.js` (PROG-03)
 
 ### Phase 51: Backfill Nyquist v0.11
 
@@ -152,7 +152,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 |-------|-----------|----------------|--------|-----------|
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
-| 50. Live-progress display (conditional) | v0.12 | 2/3 | In Progress|  |
+| 50. Live-progress display (conditional) | v0.12 | 3/3 | Complete   | 2026-06-13 |
 | 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
 
 ## Backlog
