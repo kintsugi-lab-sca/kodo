@@ -128,13 +128,14 @@ Plans:
 
 ### Phase 50.1: Live-progress vía STATE.md de GSD — corrige la fuente: lee progress: (completed_phases/total_phases) del STATE.md de la sesión GSD, repunta el display de Phase 50, demota el hook 50-02 (superficie ~/.claude/tasks equivocada) (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** El dashboard muestra `N/M` fases por sesión GSD leyendo el bloque `progress:` del `STATE.md` del worktree real, reusando el display de Phase 50 intacto y demotando el hook 50-02 que leía la superficie equivocada.
+**Requirements**: PROG-02 (re-realizada vía fuente GSD), PROG-03 (display reusado)
 **Depends on:** Phase 50
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 50.1 to break down)
+- [ ] 50.1-01-PLAN.md — Fuente nueva: readGsdProgress (STATE.md) + computeRealWorktreePath + demote hook 50-02 + tests Wave 0
+- [ ] 50.1-02-PLAN.md — Repuntar el enrich client-side de App.js a la fuente GSD; reuso intacto del display (cero server.js, cero deps)
 
 ### Phase 51: Backfill Nyquist v0.11
 
