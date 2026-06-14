@@ -126,6 +126,16 @@ Plans:
 
 - [x] 50-03-PLAN.md — `readProgress` (mold `readLightPlan`) + `deriveAnyProgress` (mold `deriveAnyGsd`) + `progCell` (4 estados, mold `taskCell`) + enrich CLIENT-SIDE en `App.js` (keep-last-good, CERO server.js) + columna condicional `prog` en `SessionTable.js` (PROG-03)
 
+### Phase 50.1: Live-progress vía STATE.md de GSD — corrige la fuente: lee progress: (completed_phases/total_phases) del STATE.md de la sesión GSD, repunta el display de Phase 50, demota el hook 50-02 (superficie ~/.claude/tasks equivocada) (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 50
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 50.1 to break down)
+
 ### Phase 51: Backfill Nyquist v0.11
 
 **Goal**: Saldar la deuda Nyquist heredada de v0.11 (Phases 44/45/46 con `VALIDATION.md` en `draft` / `nyquist_compliant: false`, registrada en STATE.md `## Deferred Items`) — citation-based, sin re-ejecutar la suite. Doc-only Tier 1, espejo de v0.11 Phase 47 / v0.8 Phase 33 Bloque B. Independiente de todo el resto del milestone: no bloquea ni es bloqueada.
