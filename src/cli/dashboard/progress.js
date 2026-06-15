@@ -26,8 +26,11 @@ import { join } from 'node:path';
  */
 
 // Regex de frontmatter CONSTANTE: aísla el PRIMER bloque `--- ... ---` (non-greedy).
-// Tolera \r\n (CRLF). No deriva de input externo → sin vector ReDoS.
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+// Tolera \r\n (CRLF) y, antes del `---` de apertura, un BOM UTF-8 opcional (`\uFEFF`)
+// y whitespace inicial (IN-02): una línea en blanco o un BOM al frente ya no degrada
+// el STATE.md a {status:'error'}. Se usa el escape `\uFEFF` (no un BOM literal) para
+// mantener la fuente sin caracteres invisibles. No deriva de input externo → sin ReDoS.
+const FRONTMATTER_RE = /^\uFEFF?\s*---\r?\n([\s\S]*?)\r?\n---/;
 
 // Allowlist LITERAL FIJA de keys numéricas del bloque progress:. Las keys son
 // constantes del código, NUNCA input externo (DG-02 anti-ReDoS).

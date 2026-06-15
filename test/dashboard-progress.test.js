@@ -114,6 +114,18 @@ describe('readGsdProgress — lector del bloque progress: del STATE.md (DG-01/DG
     assert.deepEqual(readGsdProgress(BASE, deps), readGsdProgress(BASE, deps));
   });
 
+  it('IN-02 (BOM/whitespace): un \\n inicial antes del frontmatter NO degrada a error', () => {
+    const md = '\n' + stateMd(['total_phases: 5', 'completed_phases: 2']);
+    const res = readGsdProgress(BASE, { readFileFn: () => md });
+    assert.deepEqual(res, { status: 'ok', n: 2, m: 5, completed: false });
+  });
+
+  it('IN-02 (BOM/whitespace): un BOM UTF-8 inicial se tolera (no degrada a error)', () => {
+    const md = '\uFEFF' + stateMd(['total_phases: 4', 'completed_phases: 4']);
+    const res = readGsdProgress(BASE, { readFileFn: () => md });
+    assert.deepEqual(res, { status: 'ok', n: 4, m: 4, completed: true });
+  });
+
   it('WR-02 (clamp n>m): completed_phases:5 con total_phases:3 → n clampado a m (3/3, completed)', () => {
     // LOAD-BEARING (WR-02): un over-count del artefacto externo no debe renderizar 5/3.
     // n se acota a [0, m]; con n===m el set se marca completado.
