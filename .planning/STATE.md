@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
-status: executing
-stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
-last_updated: "2026-06-15T05:50:14.751Z"
+status: verifying
+stopped_at: Completed 50.1-02-PLAN.md (PROG-03 cerrado con la fuente STATE.md correcta)
+last_updated: "2026-06-15T05:56:09.878Z"
 last_activity: 2026-06-15
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 9
-  completed_plans: 8
-  percent: 50
+  completed_plans: 9
+  percent: 67
 ---
 
 # Project State
@@ -31,10 +31,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 Phase: 50.1 (live-progress-v-a-state-md-de-gsd-corrige-la-fuente-lee-prog) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-15
 
-Progress: [█████████░] 89%
+Progress: [██████████] 100%
 
 ## Roadmap v0.12 (active)
 
@@ -77,6 +77,7 @@ Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (P
 
 ### Decisions (Roadmap v0.12)
 
+- **Phase 50.1-02 (repunte del display):** el enrich client-side de `App.js` quedó repuntado a la fuente correcta: lee `readGsdProgress(computeRealWorktreePath(project_path, session_id))` gateado por `row.gsd === true` (DG-03), derivando la ruta del STATE.md de la identidad de la sesión —NUNCA de `row.worktree_path` persistido (Pitfall 1, apunta a `.bg-shell` equivocado, DG-04)—. Guard anti-traversal del `session_id` (`String.includes`, NO regex) antes del `join` (T-501-traversal). El display de Phase 50 (`progCell` 4 estados, `deriveAnyProgress`, columna `prog` `COLS.prog=7`, cero-color) se reusó INTACTO (DG-05); el único delta fue la fuente del enrich. Keep-last-good re-keyed a `session_id` (DG-07). CERO `src/server.js`, cero endpoints, cero deps (DG-06, acceptance duros verdes). El shim transitorio `readProgress` del Plan 01 quedó eliminado (grep confirmó cero consumidores tras el rewire). `npm test` 1307 pass / 0 fail / 1 skip.
 - **Phase 50.1-01 (corrección de fuente):** el progreso vivo se deriva del bloque `progress:` del `STATE.md` del worktree GSD (`readGsdProgress`, **N/M = FASES** = `completed_phases`/`total_phases`, DG-01), parseado con un mini-parser hand-rolled de regex CONSTANTES y allowlist literal (cero deps YAML, anti-ReDoS, DG-02). El hook de captura 50-02 (`task-progress.js` + registro `TaskCreated`/`TaskCompleted`) quedó **eliminado** porque leía la superficie equivocada `~/.claude/tasks/`, vacía en sesiones GSD reales que usan `Agent` (DG-08). `computeRealWorktreePath` (`.claude/worktrees/<sid>`) localiza el worktree sin tocar `computeWorktreePath` (`.bg-shell`, 5 consumidores, DG-04). App.js conserva un shim `readProgress` transitorio (→ `no-progress`) hasta su rewire en Plan 02.
 - **Numeración continua (NO reset):** v0.12 continúa desde Phase 47 (v0.11) → primera fase es **Phase 48**. Espejo de cómo cada milestone continúa desde el anterior.
 - **OPEN-01..04 plegados en UNA fase (48):** tightly coupled y pequeños (un keypress `o` + `open.js` clonado de `focus.js` + fix bug URL Plane + no-op legacy). El round-trip de la URL ya está construido en código shipped (`TaskItem.url`, `manager.js:48` persiste `task_url`, `GET /status` lo expone). El trabajo real es consumo, no plumbing. Granularidad coarse → fewer cohesive phases.
@@ -120,7 +121,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-15T05:50:01.578Z
+- **Last session:** 2026-06-15T05:54:56.108Z
 - **Stopped at:** Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
 - **Next action:** `/gsd:plan-phase 48` (Open-in-manager core). Phase 51 (Nyquist backfill, doc-only) puede correr en paralelo. Phase 50 queda gated tras el veredicto de Phase 49.
 - **Files of record:**
