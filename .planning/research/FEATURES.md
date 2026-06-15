@@ -1,224 +1,165 @@
 # Feature Research
 
-**Domain:** Terminal dashboard (ink/react TUI) for a provider-agnostic CLI bridging task managers (Plane CE, GitHub Issues) and Claude Code sessions via cmux — milestone v0.12 "Atajos al gestor y progreso vivo"
-**Researched:** 2026-06-11
-**Confidence:** HIGH for Open-in-manager (GitHub `html_url` and Plane web-URL shapes verified against official docs + source PR); MEDIUM-LOW for Live-progress (capture surface is fluid; Task tools bypass hooks — verified — making it genuinely spike-gated)
+**Domain:** Developer tooling — "promote ad-hoc working session into tracked task" (reverse session → task flow)
+**Researched:** 2026-06-15
+**Confidence:** MEDIUM-HIGH (pattern well-established in dev tooling; one hard gate on cmux introspection has positive signal but needs a spike to confirm)
 
----
+## Context for this milestone
 
-## Scope Framing (read first)
+kodo today does **tarea → sesión** (a task manager launches a Claude Code session via cmux). v0.13 adds the inverse: take an ad-hoc Claude Code session running in cmux (NOT born from a task) and **adopt** it into a persistent task in Plane/GitHub. This research maps the feature landscape for that "promote / save my work" capability so each piece becomes a scoped requirement.
 
-This milestone adds **two independent capabilities** to an existing, mature TUI. They are NOT equal in certainty:
+The dominant real-world analogs are:
+- **GitHub CLI** (`gh issue create`) — terminal → tracker, no built-in idempotency (caller must check first).
+- **Linear Triage / Intake** — capture an inbox item, auto-derive a title from context, surface likely duplicates, then "accept" into the backlog.
+- **Branch-per-issue** workflows — a unit of in-flight work gets a persistent tracker identity.
 
-1. **Open-in-manager** — *core, ships regardless.* Outward link: one keypress on a session row → opens the task's URL in the system browser. Mechanically a clone of the existing `focus.js` pattern (`execFile` fire-and-forget, never unmount). LOW technical risk. The only real research question is **what URL to persist**, answered below.
-2. **Live progress display** — *spike-gated, may be cut.* Inward view: render the running session's live task/todo progress (`3/7 steps`). The research below shows the capture surface is **unstable and partially hook-blind**, which is exactly why a hard spike gate is correct. Do not commit UI to this until the spike returns VIABLE.
+kodo's twist: the local source of truth (`state.json`) already maps sessions ↔ tasks, so **idempotency is a local lookup, not a remote search**. That is kodo's structural advantage over `gh issue create`.
 
-The downstream requirements step should treat these as two separately-shippable units. Open-in-manager carries the milestone; live-progress is upside.
+## Feature Landscape
 
----
+### Table Stakes (Users Expect These)
 
-## Part 1 — Open-in-manager
-
-### Verified URL facts (the load-bearing research)
-
-**GitHub Issues — use `html_url`. CONFIRMED.**
-- The Issues REST API response object includes an `html_url` field, typed `required, string, format: uri`, whose value is the browser-facing URL to the issue — e.g. `https://github.com/octocat/Hello-World/issues/1347`. (GitHub REST docs, [issues endpoints](https://docs.github.com/en/rest/issues/issues).)
-- GitHub's own [best-practices guidance](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) is explicit: **do not construct or parse these URLs yourself — use the `html_url` the API returns.** This is a direct mandate to persist `html_url` rather than rebuild `github.com/{owner}/{repo}/issues/{number}` by hand.
-- **Implication for kodo:** `normalizeIssue` (`src/providers/github/normalize.js`) already receives the raw issue object. Persist `issue.html_url` straight into the canonical `task_url` field. Zero construction, zero parsing. Confidence: HIGH.
-
-**Plane (self-hosted Community Edition) — construct `/{workspace_slug}/browse/{project_identifier}-{sequence_id}`. CONFIRMED via source.**
-- Plane is open source. PR [makeplane/plane#6546](https://github.com/makeplane/plane/pull/6546) ("feat: url pattern") introduced a centralized `generateWorkItemLink` helper and a **new canonical work-item URL**:
-  - **New (preferred):** `/{workspace_slug}/browse/{project_identifier}-{sequence_id}` — e.g. `https://plane.example.com/my-team/browse/PROJ-42`. Human-readable, shareable.
-  - **Old (still works — redirects to new):** `/{workspace_slug}/projects/{project_id}/issues/{issue_id}` — UUID-based.
-- `workspace_slug` is confirmed as the slug in the URL (e.g. `my-team` in `https://app.plane.so/my-team/projects/`) per [Plane workspaces docs](https://docs.plane.so/core-concepts/workspaces/overview). `sequence_id` is the per-project sequential identifier exposed in the API; `project_identifier` is the project's display code (e.g. `PROJ`).
-- **Implication for kodo:** the Plane normalizer must persist enough to build the URL. Two strategies, in priority order:
-  1. **Preferred:** persist the new short form `{web_base}/{workspace_slug}/browse/{project_identifier}-{sequence_id}`. Requires the normalizer to have `project_identifier` + `sequence_id` (both present in Plane work-item API responses) + the configured **web base host** (distinct from the API base; self-hosted instances differ — must come from config, not hardcoded).
-  2. **Fallback:** the old UUID form `{web_base}/{workspace_slug}/projects/{project_id}/issues/{issue_id}` redirects correctly and needs only fields kodo already has (`project_id`, `issue_id`). Safe if `project_identifier`/`sequence_id` aren't readily on the normalized item.
-- **IN-REPO VERIFICATION REQUIRED:** confirm (a) the Plane work-item payload kodo fetches actually carries `project_identifier` and `sequence_id`, and (b) kodo config has a **web base URL** separate from the API base URL. The dashboard already surfaces a Plane `sequence_id`-style identifier (the `task` column work in v0.10), so the data likely exists, but verify before choosing strategy 1 vs 2. Confidence: HIGH on the URL shape, MEDIUM on field availability pending repo check.
-
-### Feature Landscape — Open-in-manager
-
-#### Table Stakes (Users Expect These)
+Features users assume exist. Missing these = the adopt flow feels broken or unsafe.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| One key on a row → open task URL in default browser | The whole point of the feature; CLI tools that link out (lazygit, `gh`, `dash`) all bind a single key to "open in browser" | LOW | Clone `focus.js`: `execFile('open', [url])` (macOS-only is fine — runtime constraint is macOS+cmux), fire-and-forget, never unmount the panel. Guard: row must have a non-empty `task_url`. |
-| `task_url` persisted on `SessionRecord` at launch | Reading a persisted field keeps the "zero new endpoints" invariant — the URL is read like `focus.js` reads `workspace_ref` | LOW | Each normalizer supplies it: GitHub `html_url` verbatim; Plane constructed. Persist PRE-spawn like `worktree_path` already is, so the trace survives spawn failure. |
-| Honest footer error when URL is missing/unopenable | Sessions launched before the field existed, or providers without a URL, must degrade gracefully — never crash the TUI | LOW | Footer message ("no task URL for this session" / ENOENT on `open`), panel stays mounted. Mirrors the `focus.js` ENOENT/exit≠0 footer pattern exactly. |
+| **Create task in provider** (`createTask`) | The whole point — "save my work" must produce a real tracked task | MEDIUM | OPTIONAL method, typeof-detected, OUTSIDE the 9 FROZEN methods (mirror of `getTaskState` in Phase 40). POST plumbing already exists (`plane/client.js` + `github/client.js` already POST for `addComment`). Plane first (operator's daily driver). |
+| **Register adoption in `state.json`** (`adoptSession`) | Without this, the session stays invisible to the dashboard / orchestrator — adoption is meaningless | MEDIUM | Inverts the launch path: instead of task→session, write the new `task_id` + workspace into `state.json`. Deterministic, 0-token. Must persist enough to make the row a first-class citizen (`task_id`, `task_url`, `project_path`/`workspace_ref`). |
+| **`kodo adopt` CLI** receiving explicit workspace/cwd | A deterministic entry point that does NOT depend on auto-detection ships regardless of the cmux spike verdict | LOW-MEDIUM | Core, ships first. Caller passes the workspace explicitly → no detection risk. This is the de-risked rail. |
+| **Title (auto-derived, editable)** | Every promote-to-tracker flow lets you set a title; a blank/garbage title is worse than none | LOW | Default from `basename(workspace)`/cwd, editable. Editable is the table stake; *smart* derivation is the differentiator (below). |
+| **Project/destination selection** | A task with no project lands nowhere; Plane/GitHub both require a destination | LOW | `listProjects` is ALREADY in the 9-method contract — reuse it directly. For GitHub the "project" is the repo (likely auto-detected from git remote, as the polling wizard already does). |
+| **Idempotency / double-adopt guard** | Adopting twice would create duplicate tasks — the #1 failure mode of every terminal→tracker tool | LOW-MEDIUM | **kodo's advantage:** check `state.json` for an existing `task_id` bound to this workspace BEFORE calling `createTask`. If found → refuse/no-op with a clear message. This is a LOCAL lookup (cheap, deterministic), not a remote duplicate search like `gh`. Mirror the dismiss 3-layer guard discipline (TUI guard + a pre-create re-read of fresh state = TOCTOU re-check). **Flag explicitly as a hard requirement.** |
+| **Sane initial status for the new task** | A promoted task should land in a state that reflects "work already in progress", not "untriaged backlog" | LOW | Recommend the task start as **in-progress / todo-equivalent**, not "done" and not buried in triage — the session is live work. Use the provider's existing state vocabulary (`updateTaskState` / `getTaskState` mapping from Phase 40 already normalizes `in_progress`). Confirm the exact default with the operator; in-progress is the defensible default. |
+| **Optional description** | Lets the operator add context; expected as optional, never forced | LOW | Plain optional field at create time. Backfilling it from session activity is a differentiator (below). |
+| **Clear success/failure feedback** | Adoption hits the network; the operator must know if the task was really created and get the URL/id back | LOW | Never-throws end-to-end (kodo house style). On success surface the new `task_id` + `task_url`; on failure, do NOT half-write `state.json` (atomicity — see Pitfalls dependency). |
 
-#### Differentiators (Competitive Advantage)
+### Differentiators (Competitive Advantage)
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Copy-URL-to-clipboard fallback | When `open` isn't available (SSH, headless) or the user wants to paste elsewhere; a second key (e.g. `y`) copies the URL | LOW-MEDIUM | macOS `pbcopy` via `execFile` is trivial and dependency-free. Avoid cross-platform clipboard libs (OSC 52 etc.) — out of scope for a macOS personal tool. Genuinely useful, low cost. Recommend as the *one* differentiator worth keeping on the radar. |
-| Show the URL in a row/overlay before opening | Lets the user confirm where they'll land; could live in an existing overlay (`c`/`l`/`p` family) | LOW | Cheap if folded into an existing overlay; a standalone overlay just for this would be gold-plating. |
-
-#### Anti-Features (Commonly Requested, Often Problematic)
-
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|-----------------|-------------|
-| Disambiguation UI when one session maps to "multiple URLs" | Sounds thorough | A kodo session is 1:1 with a `task_id` → exactly one task → one URL. There is no real multi-URL case. Building a picker invents complexity for a scenario that can't occur. | Persist exactly one `task_url`. If a future provider truly had multiple, revisit then. |
-| Construct GitHub URLs by hand from owner/repo/number | "We already have the parts" | GitHub explicitly tells you not to — `html_url` is authoritative and future-proof; hand-built URLs break on enterprise/custom hosts | Persist `html_url` verbatim. |
-| Hardcode the Plane web host (or reuse the API base URL as the web base) | "It's my instance, I know the host" | Self-hosted Plane web host ≠ API host in general; hardcoding breaks portability and the provider-agnostic promise | Read web base from config; construct the path from `workspace_slug`/`project_identifier`/`sequence_id`. |
-| Cross-platform browser opening (xdg-open/start branches) | "Be portable" | Runtime is explicitly macOS+cmux (PROJECT.md constraint); branching adds untested code paths for no current user | `open` only; document the constraint. |
-| In-TUI embedded web view / preview | "Don't leave the terminal" | Massive complexity, no value for a personal tool; the browser is the right surface for a web app | Hand off to the system browser. |
-
----
-
-## Part 2 — Live progress display (SPIKE-GATED)
-
-### Verified capture-surface facts (why this is genuinely uncertain)
-
-**Where live progress lives — and the moving target.**
-- Claude Code surfaces multi-step progress via todos. Each legacy item has shape `{ content, status, activeForm }` where `status ∈ {pending, in_progress, completed}`. The canonical "good" render is **`completed/total` + currently-in-progress item(s)** with per-item icons (✅/🔧/❌) — exactly the format in Anthropic's own docs ([Todo Lists / Agent SDK](https://code.claude.com/docs/en/agent-sdk/todo-tracking)).
-- **The tool changed.** As of **Claude Code v2.1.142 / TS Agent SDK 0.3.142**, sessions use structured **`TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`** tools instead of the single `TodoWrite` call. `TaskCreate` adds one item (`{subject, description, activeForm?, metadata?}`); `TaskUpdate` patches one by `taskId` (`status ∈ {pending, in_progress, completed, deleted}`). The assigned task ID comes back in the `tool_result` (`{task: {id, subject}}`), not the input — so a monitor must accumulate a **map keyed by task ID** across calls, not replace a whole array. This directly confirms PROJECT.md's prior research note that "TodoWrite está deprecado."
-- **The hook surface is partially blind. CONFIRMED.** The new Task tools **bypass PreToolUse/PostToolUse hooks** ([anthropics/claude-code#20243](https://github.com/anthropics/claude-code/issues/20243)). A PostToolUse hook on `TodoWrite` would only fire for **unmigrated/legacy** sessions (or those forced with `CLAUDE_CODE_ENABLE_TASKS=0`), **not** the current default. So the v0.11-style "inject an instruction + hook" approach that worked for the light-plan artifact **does not cleanly transfer** here.
-- **The robust surface is the transcript JSONL.** Tool-use blocks are recorded in the session transcript (`~/.claude/projects/.../<session>.jsonl`), and **kodo already correlates the transcript via `transcript_path` captured in the `session.start` event** (v0.3 Phase 7, LOG-10). Parsing the transcript for `tool_use` blocks (`TaskCreate`/`TaskUpdate`, plus legacy `TodoWrite`) is the only capture path that survives both the tool migration and the hook bypass. This is the natural spike target.
-
-**Net for the spike:** the question is not "does a hook exist" (the clean one largely doesn't anymore) but **"can kodo's zero-token server tail/parse the transcript JSONL to reconstruct live `completed/total` per session, reliably, across the TodoWrite→Task-tools transition?"** If the transcript reliably carries the blocks, VIABLE; if format drift / missing `tool_result` IDs / no-todos sessions dominate, INVIABLE.
-
-### Feature Landscape — Live progress (conditional on spike = VIABLE)
-
-#### Table Stakes (if shipped at all)
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| `completed/total` count per session row | This is the entire ask ("3/7 steps"); anything less isn't the feature | MEDIUM (capture) / LOW (render) | Render is trivial in the existing table (a column, like `task`/`status`). Cost is entirely in reliable capture from the transcript. |
-| Honest "no progress data" degraded state | Many sessions have no todos (simple tasks, non-GSD, quick); pre-migration vs post-migration sessions differ | LOW | A neutral marker (e.g. `—`) exactly like the existing `provider_state` column's unsupported/`?`/crude trichotomy (v0.10 Phase 43). Reuse that no-color reason-state pattern. |
-| Stale/unavailable marker when capture fails | Transcript unreadable, parse fails, format drift | LOW | Distinct degraded glyph (`?`) — never throw, never block the row. Same never-throws discipline as `fetchStatus`/overlays. |
-
-#### Differentiators (almost all are over-engineering here — flagged)
+Features that set kodo apart. Not required to ship, but align with the Core Value ("the orchestrator is the only LLM rail; everything else is deterministic plumbing").
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| Current-step text (`activeForm` of the in_progress item) in an overlay | "What is it doing right now" | MEDIUM | Reuse the existing overlay machinery (`c`/`l`/`p` family, snapshot-frozen, `Esc` preserves cursor). Defensible **only** if capture is already solved; otherwise skip. |
-| Percent bar / sparkline | Pretty | LOW render / not worth it | A bar adds nothing over `3/7` in a dense table row. **Gold-plating** for a single-user tool. |
-| Per-step checklist inline in the row | "See everything" | — | Breaks the one-row-per-session invariant; belongs in an overlay at most. |
+| **Dashboard keybinding (`a`) to adopt an ad-hoc row** | One-keystroke promote from the surface the operator already lives in; no context switch to type a CLI command | MEDIUM | **GATED by the cmux-detection spike (HARD GATE).** Requires discovering + listing ad-hoc sessions (a `claude` process in cmux absent from `state.json`). Positive signal: `cmux list-workspaces --json` and `cmux identify --json` exist and expose CWD/git branch per workspace (MEDIUM confidence, version-dependent). If the spike fails, this half defers and `kodo adopt` still ships. Mirror of the Phase 49 spike-gate discipline. |
+| **Smart title derivation from real session context** | `basename(workspace)` is lossy; a title derived from cwd + recent commits + transcript is far more useful (Linear does exactly this for Slack→issue) | MEDIUM | The orchestrator (ONLY LLM rail) derives a SMART title from real context. It is a **consumer** of the same plumbing, never the owner. The deterministic default (`basename`) is the fallback when the orchestrator isn't in the loop. |
+| **Orchestrator-assisted proactive adoption** | The orchestrator notices an ad-hoc session and *proposes* adopting it before it evaporates at sprint close — the original pain point | MEDIUM-HIGH | Mirrors Linear Triage's "proactively surface" behavior. Proposes, derives the SMART title, but the human/CLI/key still drives the actual create. Depends on the cmux detection surface (same gate as the keybinding). Build AFTER the deterministic core proves out. |
+| **Description backfill from session activity** | Auto-populate the description from commits/diff/transcript so the task carries real provenance, not an empty shell | MEDIUM | Orchestrator-driven (LLM), optional, enhances the table-stake "optional description". Keep it additive — never block adoption on it. |
 
-#### Anti-Features (Live progress)
+### Anti-Features (Commonly Requested, Often Problematic)
+
+Features that seem good but violate kodo's boundaries or create maintenance traps.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| New `/progress` server endpoint or websocket | "Stream it live" | Violates the hard "zero new endpoints" invariant; kodo's server consumes 0 tokens and must stay read-only ambient | Capture writes to a kodo-controlled file (mirror `~/.kodo/plans/<task_id>.md`); `GET /status` enriches the row by reading it, like `provider_state`. |
-| Inject an instruction + PostToolUse hook to self-report todos | It worked for light plans in v0.11 | **Task tools bypass PostToolUse** (#20243); only catches legacy `TodoWrite`. Fragile across CC versions — the exact trap PROJECT.md already flags | Parse the transcript JSONL kodo already correlates via `transcript_path`. Decide empirically in the spike. |
-| Polling the transcript every dashboard tick from the TUI | "Live!" | Re-parsing potentially large JSONL on every 2.5s poll, in the React layer, risks jank and breaks the pure-derive/never-throws layering | Capture/parse in the server's read-only enrichment lane (cache + TTL + fail-open, exactly like `provider-state.js`); TUI just renders the field. |
-| Blocking the row / spinner while waiting for progress | "Show it's loading" | Any blocking violates never-throws + keep-last-good; a missing field must degrade silently | Keep-last-good + neutral `—`; never gate render on capture. |
-
-### Required degraded / unavailable states (the spike may cut the feature entirely)
-
-Because the feature is gated, the requirements MUST specify behavior for **feature-absent** and **data-absent** independently:
-
-1. **Spike = INVIABLE → feature cut.** Dashboard ships **identical to today** for progress. No empty column, no placeholder, no dead code referencing a progress field. The Open-in-manager half ships alone. This must be a clean no-op, not a half-wired stub.
-2. **Spike = VIABLE but a given session has no todos.** Neutral `—` (reuse `provider_state`'s unsupported reason-state). Common case — must look intentional, not broken.
-3. **Capture transiently fails (parse error, transcript missing/locked).** `?` glyph, keep-last-good if a prior value exists, never-throws.
-4. **Pre-migration session (legacy `TodoWrite`) vs Task-tools session.** Capture must tolerate **both** block shapes or the column lies for one cohort. The spike must exercise both; if only one is feasible, requirements should scope to the current default (Task tools) and degrade the other to `—`.
-
----
+| **Full task CRUD (update/delete/close tasks)** | "If we can create, we should manage" | Explicit Out of Scope: "kodo no crea ni elimina tareas, solo las lee y actualiza". Adoption is a *narrow, deliberate* exception to the create-side; CRUD would balloon the FROZEN contract and the maintenance surface | Add ONLY `createTask` (optional, typeof-detected). Lifecycle continues via the existing `updateTaskState`. **kodo never deletes tasks.** |
+| **Auto-adopt every ad-hoc session silently** | "Never lose work — capture everything automatically" | Spams the tracker with throwaway/exploratory sessions; creates noise tasks the operator must then clean up (and kodo can't delete them). Removes operator intent | Orchestrator *proposes*; human/CLI/key confirms. Adoption is always an explicit act. |
+| **Listing ad-hoc sessions as rows in the main task table** | "Show everything in one place" | A session with no `task_id` / `provider_state` / plan is a second-class citizen in that table (already noted in the backlog). Pollutes the columnar model built across v0.9–v0.12 | Adopt via a CLI command or a dedicated key/action on a clearly-distinct surface — NOT a new section in the task table. |
+| **New HTTP endpoint on the server for adoption** | "It's a write, the server owns writes" | "Cero endpoints nuevos" has held since v0.10; adoption can live entirely in CLI + a (gated) dashboard action calling the same `adoptSession` plumbing | Keep adoption in CLI + dashboard action over shared deterministic plumbing. Confirm in planning, but default to no new endpoint. |
+| **Remote duplicate search before creating** (à la `gh`) | "Avoid creating a task that already exists in the tracker" | Slow, network-bound, fuzzy (title matching), and unnecessary — kodo already owns the authoritative local mapping | Check `state.json` for an existing `task_id` on this workspace. Local, exact, deterministic. |
+| **Two-way sync / continuous reconciliation of adopted tasks** | "Keep the adopted task perfectly in sync forever" | Adoption is a one-time promotion event; ongoing sync is a separate, much larger concern and re-opens the CRUD can of worms | Adopt once → the session then flows through the existing lifecycle (`updateTaskState`, dismiss, doctor) like any kodo session. |
 
 ## Feature Dependencies
 
 ```
-Open-in-manager (open key)
-    └──requires──> task_url persisted on SessionRecord at launch
-                       └──requires──> each normalizer supplies it
-                                          ├── GitHub: html_url (verbatim)          [HIGH confidence]
-                                          └── Plane:  {web_base}/{slug}/browse/{ident}-{seq}
-                                                          └──requires──> web_base in config + ident/seq on item  [VERIFY IN REPO]
-    └──reuses──> focus.js execFile fire-and-forget pattern (no unmount)
-    └──honors──> "zero new endpoints" (reads a persisted field, like focus.js)
-    └──honors──> TaskProvider FROZEN at 9 (URL as a TaskItem field OR a typeof-detected
-                 optional method — mirror getTaskState, NOT method #10)
+kodo adopt (CLI)
+    └──requires──> createTask (optional provider method, Plane first)
+    └──requires──> adoptSession (writes state.json with new task_id)
+    └──requires──> listProjects (ALREADY in the 9-method contract)
+    └──requires──> idempotency guard (state.json lookup, pre-create)
 
-Copy-URL-to-clipboard  ──enhances──> Open-in-manager   (pbcopy via execFile; macOS only)
+Dashboard keybinding `a` (adopt)
+    └──requires──> kodo adopt plumbing (createTask + adoptSession)
+    └──requires──> cmux ad-hoc session DETECTION  ◄── HARD GATE (spike)
+                       (cmux list-workspaces --json / identify --json)
 
-Live progress display (SPIKE-GATED)
-    └──HARD-GATED-BY──> spike verdict VIABLE/INVIABLE (transcript-parse feasibility)
-    └──requires──> transcript_path correlation (ALREADY EXISTS, v0.3 Phase 7 LOG-10)
-    └──requires──> read-only enrichment lane in GET /status (mirror provider-state.js:
-                   cache + TTL + dedup + Promise.allSettled fail-open)
-    └──reuses──> provider_state column's no-color reason-state trichotomy (v0.10 Phase 43)
-    └──reuses──> overlay machinery (c/l/p) IF a current-step overlay is added
-    └──conflicts──> PostToolUse-hook capture approach (Task tools bypass hooks, #20243)
-    └──honors──> "zero new endpoints", never-throws, identity selection by task_id
+Orchestrator-assisted adoption
+    └──requires──> kodo adopt plumbing (consumer, not owner)
+    └──requires──> cmux detection surface (same gate)
+    └──enhances──> smart title derivation (LLM, replaces basename default)
+    └──enhances──> description backfill (LLM, optional)
+
+Smart title derivation ──enhances──> Title (auto-derived, editable)
+Description backfill   ──enhances──> Optional description
+
+Auto-adopt-everything ──conflicts──> explicit-intent adoption (anti-feature)
 ```
 
 ### Dependency Notes
 
-- **Open-in-manager requires `task_url` persisted at launch:** keeps the zero-endpoints invariant — the TUI reads a field, the server adds nothing. Persist PRE-spawn (like `worktree_path`) so a failed spawn still leaves a usable URL in the trace.
-- **The `TaskProvider` contract stays FROZEN at 9:** the URL rides as a `TaskItem` field (or a `typeof`-detected optional provider method, exactly mirroring how `getTaskState` was added outside the frozen 9 in v0.10). Do NOT add a 10th required method.
-- **Live progress depends on an EXISTING asset, not a new one:** `transcript_path` correlation already exists. The spike leverages it; it does not need new instrumentation inside Claude Code.
-- **Live progress CONFLICTS with the hook-based capture instinct:** the v0.11 "inject instruction + hook" playbook fails here because Task tools bypass PostToolUse. The spike must validate transcript parsing instead.
-- **Both features reuse the `provider_state` rendering precedent:** a dedicated, no-color column with a small set of honest reason-states. This is the lowest-risk render path and already proven in v0.10.
-
----
+- **`kodo adopt` requires `createTask` + `adoptSession`:** these two form the deterministic 0-token base layer. Everything else (CLI, key, orchestrator) is a *consumer* of this base — "una fontanería, tres consumidores".
+- **`listProjects` is already shipped (v0.2 contract):** no new contract work for destination selection — reuse directly. This de-risks project selection to LOW complexity.
+- **Idempotency guard depends on `state.json` + `findSession`:** `findSession` already scans `state.sessions` + `state.history` (v0.8 Phase 30). The guard is a local lookup keyed on workspace/cwd, NOT a remote search. Must include a pre-create TOCTOU re-read (fresh `loadState()`), mirroring the dismiss 409 re-check discipline (v0.10 Phase 42).
+- **Dashboard key + orchestrator both depend on the cmux detection gate:** if the spike says cmux can't enumerate ad-hoc `claude` processes by workspace/cwd, BOTH defer; the explicit-workspace CLI still ships. This is why the CLI must NOT depend on detection.
+- **Atomicity dependency (cross-cutting):** `createTask` (remote) then `adoptSession` (local write) is a two-step. If the remote succeeds but the local write fails, you get an orphan task kodo doesn't know about — and kodo can't delete it. Order so the local write is the last, cheapest, near-failure-free step, and surface partial-failure clearly. (Detail belongs in PITFALLS, flagged here for the requirement.)
 
 ## MVP Definition
 
-### Launch With (this milestone, ships regardless of spike)
+### Launch With (v0.13 core)
 
-- [ ] **Open-in-manager keypress** — the milestone's core promise; LOW risk; clone of `focus.js`.
-- [ ] **`task_url` persisted on `SessionRecord`** via both normalizers (GitHub `html_url`; Plane constructed) — prerequisite for the above.
-- [ ] **Missing-URL degraded footer** — honest, never-throws; required for old/no-URL sessions.
-- [ ] **Backfill Nyquist v0.11** (Phases 44/45/46 `VALIDATION.md` → `nyquist_compliant: true`) — inherited debt, doc-only Tier 1, mirror of Phase 47. Independent of both features.
+Minimum viable to validate "ad-hoc work doesn't evaporate".
 
-### Add If Spike Returns VIABLE
+- [ ] **`createTask` (optional, Plane)** — the create-side, one provider first. Essential — no task, no point.
+- [ ] **`adoptSession` → `state.json`** — register the new `task_id`. Essential — makes the session a first-class kodo citizen.
+- [ ] **`kodo adopt` CLI with explicit workspace** — deterministic, detection-free entry point. Essential and ships regardless of the spike.
+- [ ] **Title (basename default, editable) + `listProjects` destination + optional description** — the minimal editable data set. Essential.
+- [ ] **Idempotency / double-adopt guard via `state.json`** — Essential; prevents the #1 failure mode (duplicate tasks kodo can't delete).
+- [ ] **Sane initial status (in-progress default) + success feedback with new task_id/URL** — Essential for trust.
 
-- [ ] **`completed/total` per-session column** — the live-progress core; render is cheap, capture is the gated work.
-- [ ] **No-todos `—` and capture-failed `?` degraded states** — reuse `provider_state` trichotomy; mandatory if the column exists.
+### Add After Validation (v0.13 stretch / gated)
 
-### Defer / Reconsider Only Later (v0.13+)
+- [ ] **`createTask` for GitHub** — trigger: Plane path proven; mirror to the second adapter to re-validate the typeof-detected pattern cross-provider.
+- [ ] **Dashboard keybinding `a`** — trigger: cmux-detection spike returns VIABLE.
+- [ ] **Orchestrator-assisted proactive adoption + smart title** — trigger: detection surface available AND deterministic core shipped.
 
-- [ ] **Copy-URL-to-clipboard (`pbcopy`)** — cheap and useful, but not required for the core promise; add if the open-only flow proves limiting. (The one differentiator worth keeping on the radar.)
-- [ ] **Current-step overlay (`activeForm`)** — only if capture is solidly solved and an overlay key is free; otherwise gold-plating.
-- [ ] **Percent bar / sparkline / inline checklist** — gold-plating for a single-user tool; explicitly out.
+### Future Consideration (post-v0.13)
 
----
+- [ ] **Description backfill from transcript/diff** — defer: LLM-driven, additive polish; validate that operators want it before building.
+- [ ] **Adopt into ClickUp / local adapter** — defer: tied to those adapters existing at all (already deferred candidates).
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Open-in-manager keypress | HIGH | LOW | P1 |
-| `task_url` persisted (both normalizers) | HIGH | LOW | P1 |
-| Missing-URL degraded footer | MEDIUM | LOW | P1 |
-| Backfill Nyquist v0.11 | MEDIUM (debt) | LOW | P1 |
-| Live-progress spike (verdict) | HIGH (de-risks) | MEDIUM | P1 (gate) |
-| `completed/total` column | HIGH | MEDIUM | P2 (gated) |
-| Progress degraded states (`—`/`?`) | MEDIUM | LOW | P2 (gated) |
-| Copy-URL-to-clipboard | MEDIUM | LOW | P3 |
-| Current-step overlay | LOW-MEDIUM | MEDIUM | P3 |
-| Percent bar / sparkline | LOW | LOW | P3 (avoid) |
+| `createTask` (Plane, optional method) | HIGH | MEDIUM | P1 |
+| `adoptSession` → state.json | HIGH | MEDIUM | P1 |
+| `kodo adopt` CLI (explicit workspace) | HIGH | LOW-MEDIUM | P1 |
+| Idempotency / double-adopt guard | HIGH | LOW-MEDIUM | P1 |
+| Title (basename default, editable) | HIGH | LOW | P1 |
+| Destination via `listProjects` | HIGH | LOW | P1 (reuses existing) |
+| Sane initial status + success feedback | MEDIUM | LOW | P1 |
+| Optional description (manual) | MEDIUM | LOW | P1 |
+| `createTask` for GitHub | MEDIUM | MEDIUM | P2 |
+| Dashboard keybinding `a` | MEDIUM | MEDIUM | P2 (gated) |
+| Smart title derivation (orchestrator) | MEDIUM | MEDIUM | P2 (gated) |
+| Orchestrator proactive adoption | MEDIUM | HIGH | P2 (gated) |
+| Description backfill (LLM) | LOW-MEDIUM | MEDIUM | P3 |
 
-**Priority key:** P1 = must-have this milestone · P2 = ship iff spike VIABLE · P3 = defer / likely never for a personal tool.
+**Priority key:**
+- P1: Must have for the v0.13 core (the deterministic, detection-free rail)
+- P2: Should have, add when the cmux gate opens / Plane path is proven
+- P3: Nice to have, future polish
 
----
+## Competitor / Analog Feature Analysis
 
-## Competitor Feature Analysis
-
-| Feature | lazygit / gh / dash (CLI link-out) | Claude Code Agent View (native progress) | kodo's Approach |
-|---------|-----------------------------------|------------------------------------------|-----------------|
-| Open item in browser | Single key → `open`/`xdg-open`, no picker | n/a | Single key → `open` via `execFile`, macOS-only, reads persisted `task_url` |
-| URL source | Construct or use API-provided URL | n/a | GitHub: `html_url` verbatim (per GitHub guidance); Plane: constructed `/browse/{ident}-{seq}` |
-| Copy to clipboard | Common secondary key | n/a | Optional `pbcopy` differentiator (P3) |
-| Live step progress | n/a | `completed/total` + per-tool granular status, ✅/🔧/❌, current `activeForm` | If VIABLE: `completed/total` column from transcript parse; current-step overlay optional |
-| Capture mechanism | n/a | In-process SDK message stream / native UI | Out-of-process transcript JSONL parse (kodo runs 0-token; can't tap the SDK stream) |
-
-**Key asymmetry:** the native Agent View gets progress from inside the SDK message loop. kodo deliberately runs zero-token and out-of-process, so it can only reconstruct progress from the **transcript on disk** — which is precisely why this half is a spike and not a given.
-
----
+| Feature | GitHub CLI (`gh`) | Linear Triage/Intake | kodo's Approach |
+|---------|-------------------|----------------------|-----------------|
+| Create task from terminal/session | `gh issue create` (manual fields) | Email/Slack → Triage inbox | `kodo adopt` + optional `createTask` per provider |
+| Idempotency / dedupe | None built-in; caller must query first | LLM duplicate detection against existing issues | **Local `state.json` lookup** — exact, deterministic, cheap |
+| Smart title | None (you type it) | AI-generated title from message context | Orchestrator (LLM) derives from cwd/commits/transcript; `basename` fallback |
+| Proactive capture | None | Triage inbox surfaces incoming items | Orchestrator proposes adoption (gated) |
+| Lifecycle after capture | Full issue CRUD | Full issue management | **Adopt only** — then existing `updateTaskState`/dismiss/doctor; kodo never deletes |
 
 ## Sources
 
-- GitHub REST API — Issues endpoints (`html_url`, `format: uri`): https://docs.github.com/en/rest/issues/issues — HIGH
-- GitHub REST API — Best practices ("do not parse/construct URLs; use the returned `html_url`"): https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api — HIGH
-- Plane PR #6546 — `generateWorkItemLink` + new `/{workspace_slug}/browse/{project_identifier}-{sequence_id}` URL pattern (old `/{slug}/projects/{project_id}/issues/{issue_id}` redirects): https://github.com/makeplane/plane/pull/6546 — HIGH
-- Plane docs — workspace slug in URL: https://docs.plane.so/core-concepts/workspaces/overview — HIGH
-- Plane API — work item fields (`sequence_id`, `project_id`): https://developers.plane.so/api-reference/issue/get-issue-detail — MEDIUM
-- Claude Code / Agent SDK — Todo Lists & Task tools (`completed/total`, `{content,status,activeForm}`, TodoWrite → TaskCreate/TaskUpdate migration, v2.1.142): https://code.claude.com/docs/en/agent-sdk/todo-tracking — HIGH
-- Claude Code issue #20243 — Task* tools bypass PreToolUse/PostToolUse hooks: https://github.com/anthropics/claude-code/issues/20243 — MEDIUM
-- Claude Code Hooks reference — PostToolUse input (`transcript_path`, `tool_name`, `tool_input`, `tool_response`): https://code.claude.com/docs/en/hooks — HIGH
-- kodo `.planning/PROJECT.md` — project context, invariants, existing features (HIGH)
+- [GitHub CLI Tutorial: Manage PRs and Issues From Terminal](https://www.commandinline.com/github-cli-tutorial-prs-issues/) — terminal→tracker baseline, no built-in idempotency
+- [Idempotent issue creation pattern (workspace-hub #1710)](https://github.com/vamseeachanta/workspace-hub/issues/1710) — check-before-create idempotency for issue creation
+- [Implementing Idempotency Keys in REST APIs — Zuplo](https://zuplo.com/learning-center/implementing-idempotency-keys-in-rest-apis-a-complete-guide) — general idempotency discipline
+- [Linear Triage Docs](https://linear.app/docs/triage) — capture/triage inbox, proactive surfacing
+- [Linear Intake](https://linear.app/intake) — convert incoming items into tracked issues
+- [Linear Changelog — auto-generated titles from context](https://linear.app/changelog) — smart title derivation precedent (Slack→issue)
+- [cmux configuration docs](https://cmux.com/docs/configuration) — sidebar exposes live CWD, git branch, PR per workspace
+- [cmux list-workspaces / identify --json (ck:cmux skill)](https://lobehub.com/skills/khanglvm-agent-tips-cmux) — JSON introspection commands exist (MEDIUM confidence, version-dependent — confirm in spike)
+- [tmux persistent sessions](https://dev.to/sysemperor/tmux-persistent-terminal-sessions-for-developers-436d) — "session as a unit of work that survives" mental model
 
 ---
-*Feature research for: kodo v0.12 — terminal dashboard outward-link + inward live-progress*
-*Researched: 2026-06-11*
+*Feature research for: reverse session → task adoption flow (kodo bidireccional)*
+*Researched: 2026-06-15*

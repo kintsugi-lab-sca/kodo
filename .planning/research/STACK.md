@@ -1,182 +1,140 @@
 # Stack Research
 
-**Domain:** Node.js CLI/TUI — milestone v0.12 "Atajos al gestor y progreso vivo" (kodo)
-**Researched:** 2026-06-11
-**Confidence:** HIGH (open-in-manager) · MEDIUM (live task-state — successor mechanism is documented and stable; the exact on-disk file schema is NOT, which is the spike's job to pin down)
+**Domain:** CLI bridge / task-manager ↔ Claude-Code-session orchestration (Node.js) — *reverse flow `sesión → tarea` (v0.13 kodo bidireccional)*
+**Researched:** 2026-06-15
+**Confidence:** HIGH (Plane + GitHub create endpoints verified against official docs; cmux detection surface verified empirically against the installed binary `cmux 0.x` at `/Applications/cmux.app/Contents/Resources/bin/cmux`)
 
-## Headline Verdict
+## TL;DR — Default-No-New-Dependency holds
 
-**No new production dependencies are needed for either feature.** Both fit the existing
-hard constraint (4 prod deps, no build step, no frameworks) using Node built-ins plus the
-two patterns kodo already owns: `execFile` fire-and-forget (`focus.js`) and the
-SessionStart hook script.
+**No new runtime dependency is justified.** Every capability the milestone needs is already reachable with the four existing prod deps (`commander`, `picocolors`, `ink`, `react`) plus the built-in `node:child_process` / `fetch`. The three "unknowns" all resolved in favor of reuse:
 
-- **Open-in-manager (core):** `child_process.execFile('open', [url])` on macOS — a clean
-  reuse of the `runFocus` shape in `src/cli/dashboard/focus.js`. **No `open` npm package.**
-- **Live task-state (spike-gated):** TodoWrite has a documented, stable successor — the
-  **Task tools** (`TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`) plus **two dedicated hook
-  events** `TaskCreated` and `TaskCompleted`. A hook script (kodo's existing pattern) can
-  capture this with Node built-ins only — **no new dep.** What is fragile is the exact JSON
-  shape/path of the persisted task list, not the mechanism. That fragility is precisely what
-  the spike must resolve.
+| Capability | Verdict | Reuse point |
+|------------|---------|-------------|
+| `createTask` on Plane | POST to an endpoint the existing `PlaneClient.request()` already speaks | add one method to `src/providers/plane/client.js` |
+| `createTask` on GitHub | POST to an endpoint the existing `GitHubClient.request()` already speaks | add one method to `src/providers/github/client.js` |
+| Detect ad-hoc cmux `claude` sessions (cwd + process) | cmux already exposes `current_directory` per workspace **and** `resume_binding.kind === "claude"` + launch command + cwd per surface, all as `--json` | extend `src/host/cmux.js#listWorkspaces` (already runs `cmux list-workspaces --json`) |
 
----
+The interesting work is **architectural** (the optional typeof-detected method, `adoptSession` writing `state.json`, the spike normalization), not dependency selection.
 
 ## Recommended Stack
 
-### Core Technologies
+### Core Technologies (all already present — no install)
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `node:child_process` (`execFile`) | Node 20+ built-in | Launch `open <url>` for open-in-manager | Identical proven pattern to `focus.js` (`cmux select-workspace`). Fire-and-forget, ~tens of ms, no TTY capture, never-throws discriminated `{ok}` result. Zero deps. |
-| Claude Code **Task tools** | Claude Code **v2.1.142** / TS Agent SDK **0.3.142** (default since v2.1.142; Tasks introduced ~v2.1.16, Jan 22 2026) | The documented successor to `TodoWrite` for live session progress | `TaskCreate`/`TaskUpdate` are the new `tool_use` blocks; `TaskCreated`/`TaskCompleted` are first-class hook events. This is the surface to observe progress from. |
-| Claude Code **`TaskCreated` / `TaskCompleted` hooks** | Claude Code v2.1.x hook surface | Capture live task progress via a kodo hook script | First-class lifecycle events (no matcher needed — "always fire on every occurrence"). Hook script reads stdin JSON, writes a kodo-controlled file — **exactly** the v0.11 light-plan pattern (`~/.kodo/plans/<task_id>.md`). Zero deps. |
-| `node:fs` | Node 20+ built-in | Persist captured task-state to a kodo-controlled path | Mirrors v0.11: producer (hook) writes, consumer (TUI overlay/column) reads byte-identical path. |
+| Node.js | 20+ (dev box on 22.22.3) | Runtime | Native `fetch`, `AbortSignal.timeout`, stable ESM — both clients already rely on these. No polyfill needed for POST. |
+| `node:child_process` (`execFile`/`execFileSync`) | builtin | cmux IPC (enumerate workspaces/panes) | `src/host/cmux.js` is the **single authorized cmux caller** and already shells out with a 5s timeout + never-throws. Detection rides this exact path — no socket library, no new transport. |
+| `fetch` (global) | builtin | Plane/GitHub `POST` create-task | Both `request()` methods already POST `addComment` with auth + 10s timeout + error mapping. `createTask` is the same transport with a different path/body. |
+| `commander` | (existing) | `kodo adopt` CLI subcommand | Same registration pattern as every other `kodo` subcommand. |
+| `ink` + `react` | `^6.8.0` / `^19.2.0` (existing, lazy-imported) | Dashboard keybinding to list/adopt ad-hoc sessions (gated by spike) | The TUI layer already renders rows + `useInput` mode-gating; the adopt key is one more gated action, not a new framework. |
 
 ### Supporting Libraries
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| (none) | — | — | **Deliberately empty.** Both features ship on built-ins. Adding a lib here would violate the milestone's invariants and the 4-dep ceiling. |
+| — | — | — | **None.** Explicitly: do NOT add an HTTP client (`axios`/`got`/`octokit`), a cmux SDK, or a process-introspection lib (`ps-list`, `pidtree`). All three needs are already covered (see "What NOT to Use"). |
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| Existing `node:test` runner | Test the new hook script + `runOpen` helper with injected `exec`/fake fs | Same DI-with-fakes approach as `focus.js` (`exec` injected, no default — structural leak guard) and `session-start.js`. |
+| `node --test` (existing suite) | Contract + isolation tests | New `createTask` must be added to the cross-provider contract matrix (`test/providers/contract.test.js`) as a **capability-gated** assertion (mirror of how `getTaskState` is tested), NOT as a 10th mandatory method. |
+| cmux binary (installed) | Empirical spike fixture source | Capture real `list-workspaces --json` + `list-panels --json` output as a test fixture (the host already DI-injects `run`, so fixtures drop straight in). |
 
 ## Installation
 
 ```bash
-# Core — NOTHING. Both features use Node built-ins + existing patterns.
-# (No `npm install`. The 4 prod deps stay: commander, picocolors, ink, react.)
+# Core
+# (nothing — all runtime deps already in package.json)
+
+# Supporting
+# (nothing)
+
+# Dev dependencies
+# (nothing — node --test is builtin)
 ```
 
 ---
 
-## Feature 1 — Open-in-manager: integration detail
+## Verified API Shapes
 
-**Recommendation: `execFile('open', [url])`, no new dependency. HIGH confidence.**
+### 1. Plane CE — Create Work Item (`createTask`)
 
-The reference machine is macOS, where `open <url>` launches the URL in the default browser
-and returns immediately. This is the same class of call as `cmux select-workspace`: a short,
-fire-and-forget external process invoked from the TUI on a keypress. The cleanest
-implementation is a near-clone of `runFocus`:
+**Source:** https://developers.plane.so/api-reference/issue/add-issue (verified 2026-06-15) — confidence HIGH.
 
-- New helper (e.g. `src/cli/dashboard/open-url.js#runOpen({ exec, url })`) returning the
-  same never-throws discriminated `{ok:true} | {ok:false, code:'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail}`.
-- `exec` injected (no default) — structural leak guard, identical to `focus.js`.
-- Args **literal-fixed**: `execFile('open', [url], {timeout})` (or `'/usr/bin/open'`). Pass the
-  URL as an **arg, not via a shell** — never `exec` with string concatenation (avoids
-  shell-injection of a provider-supplied URL).
-- Color isolation holds automatically: the file lives under `src/cli/dashboard/**`, imports
-  only `node:*`, so `test/format-isolation.test.js`'s walker covers it for free.
-- TUI: new keypress (mode-gated `list`), guard that `task_url` is present; on a missing URL
-  show a footer message (never throw, never unmount), mirroring the `alive===false` guard on
-  Enter.
+- **Method / Path:** `POST /api/v1/workspaces/{workspace_slug}/projects/{project_id}/work-items/`
+  *(Note the trailing slash — Plane is trailing-slash-strict, and `PlaneClient.request()` already composes `/api/v1/workspaces/{slug}` as its base, so the new method passes only `/projects/${projectId}/work-items/` — byte-identical to the existing `listWorkItems`/`createComment` paths.)*
+- **Auth:** `X-API-Key: <key>` header — **already set on every `PlaneClient.request()`**. No new scope/token. The same key kodo uses today to read & PATCH work items can create them (Plane API keys are workspace-scoped, not capability-scoped).
+- **Required body field:** `name` (string) — the only mandatory field.
+- **Relevant optional fields:** `description_html` (formatted body — matches kodo's existing HTML rail for Plane comments), `priority`, `state` (a **state UUID**, not a label — must come from `listStates(projectId)`, which `PlaneClient` already has), `assignees`, `labels`, `external_id`/`external_source` (useful to stamp provenance, e.g. `kodo-adopt`).
+- **Response (201):** JSON work item including **`id`** (UUID) and **`sequence_id`** (the human number, e.g. the `42` in `KL-42`). kodo needs both: `id` for API calls, and `project.identifier` + `sequence_id` to reconstruct the `KL-42` `task_id` it stores in `state.json` (mirror of `resolveIdentifier`, run in reverse).
 
-**Why no `open` npm package** (sindresorhus/open): it exists and is the popular cross-platform
-choice (`open` on macOS, `start` on Windows, `xdg-open` on Linux), but kodo already targets
-macOS-only at runtime and already has a **"refuse-with-guidance" Windows guard pattern**
-(used by polling). The package buys nothing kodo can't express in ~5 lines of the `focus.js`
-shape, and it would be the 5th prod dep against an explicit minimal-deps constraint. Reuse the
-existing pattern instead.
+**Integration into `src/providers/plane/client.js`** (sketch — ~6 lines, reuses `request`):
+```js
+async createWorkItem(projectId, { name, description_html, state, priority, labels }) {
+  return this.request(`/projects/${projectId}/work-items/`, {
+    method: 'POST',
+    body: { name, description_html, state, priority, labels },
+  });
+}
+```
+Then `createTask` lives on the **provider** (`src/providers/plane/provider.js`), normalizing the 201 into a canonical `{ task_id, task_url }` — `task_url` from `plane.web_url ?? base_url` (the v0.12 Phase 48 fix already wired this).
 
-**Cross-platform note (for the roadmapper, not a blocker):** if multi-OS is ever wanted, the
-mapping is `open` (macOS) / `start` (Windows, needs the empty-title quirk `start "" <url>`) /
-`xdg-open` (Linux). The cheapest forward-compatible move is a tiny `urlOpener(platform)` that
-returns the binary+args triple — still no dep. For v0.12, macOS `open` + the existing Windows
-refuse-with-guidance guard is sufficient and consistent with prior milestones.
+**CE availability caveat (MEDIUM confidence):** The public docs target Plane Cloud; they don't explicitly state "CE supported." However, kodo's Plane adapter already runs against a self-hosted CE instance using this exact `/api/v1/workspaces/.../work-items/` surface for GET/PATCH/POST-comment, and the CE REST API is the same Django app. **Plan a 5-minute manual create against the real CE instance during the phase** to confirm the 201 + `sequence_id` shape (cheap, deterministic). This is the one residual risk and it's de-riskable in minutes.
 
-**Where `task_url` comes from (already decided in PROJECT.md, restated for stack completeness):**
-persisted on `SessionRecord` at launch, provided by each normalizer — GitHub `html_url`
-(already on the issue payload); Plane constructed from web host + workspace + project + issue
-slug. The TUI reads it like `focus.js` reads `workspace_ref` — no new endpoint.
+### 2. GitHub — Create Issue (`createTask`)
 
----
+**Source:** https://docs.github.com/en/rest/issues/issues#create-an-issue (REST API version `2022-11-28`, verified 2026-06-15) — confidence HIGH.
 
-## Feature 2 — Live task-state capture: the spike-gating findings
+- **Method / Path:** `POST /repos/{owner}/{repo}/issues`
+- **Auth:** Bearer/`token` PAT — **already set on every `GitHubClient.request()`** (`Authorization: token <pat>` + `Accept: application/vnd.github+json` + `X-GitHub-Api-Version: 2022-11-28`). **Required scope: `repo`** for classic PATs, or **Issues: Read & write** for fine-grained PATs. *Docs note: "Any user with pull access can create an issue."* The PAT kodo already uses to read + PATCH + comment on issues necessarily has write scope, so **no scope change** is needed.
+- **Required body field:** `title` (string) — the only mandatory field.
+- **Relevant optional fields:** `body` (**Markdown**, not HTML — diverges from Plane, matching the existing `addComment` Markdown/HTML split already documented in the client), `labels` (string[]), `assignees` (string[]), `milestone`.
+- **Response (201):** raw issue payload with **`number`** (the issue number kodo uses as its `task_id` axis) and **`html_url`** (→ `task_url`).
 
-**Verdict for the spike: the successor mechanism is REAL and DOCUMENTED. v0.11's research
-("TodoWrite deprecated; transcript/`~/.claude/plans/` fragile") is now partially superseded —
-there is a sanctioned replacement with first-class hooks. MEDIUM confidence overall because
-the *capture surface* is solid but the *exact persisted file schema* is not yet pinned.**
+**Integration into `src/providers/github/client.js`** (sketch — ~6 lines, reuses `request`):
+```js
+async createIssue(owner, repo, { title, body, labels, assignees }) {
+  const o = encodeURIComponent(owner), r = encodeURIComponent(repo);
+  return this.request(`/repos/${o}/${r}/issues`, {
+    method: 'POST',
+    body: { title, body, labels, assignees },
+  });
+}
+```
+The provider's `createTask` then normalizes via the existing `normalizeIssue` path.
 
-### What replaced TodoWrite (HIGH confidence — official docs)
+### 3. cmux — Detect ad-hoc `claude` sessions (the HARD GATE)
 
-`TodoWrite` was superseded by the **Task tools**, default since **Claude Code v2.1.142 /
-TypeScript Agent SDK 0.3.142** (the Tasks system was introduced around v2.1.16, ~Jan 22 2026).
+**Source:** empirical inspection of the **installed** cmux binary, 2026-06-15 — confidence HIGH (this is the gold-standard verification: real output from the version kodo runs against).
 
-| Old (`TodoWrite`) | New (Task tools) |
-|---|---|
-| One tool call rewrites the whole `todos` array | `TaskCreate` adds one item; `TaskUpdate` patches one by `taskId` |
-| Item: `{ content, status, activeForm }` | `TaskCreate` input `{ subject, description, activeForm?, metadata? }`; `TaskUpdate` input `{ taskId, status?, subject?, ... }`. `status ∈ {pending, in_progress, completed}` (`deleted` to remove) |
-| Ephemeral, in context window | **Persisted to `~/.claude/tasks/`**, survives across sessions |
+**Verdict on the gate: VIABLE — strongly.** cmux exposes both axes the spike asks for (cwd + process identity), and kodo already calls the exact command needed.
 
-`TodoWrite` still exists but is deprecated; `CLAUDE_CODE_ENABLE_TASKS=0` reverts to old
-behavior. **kodo must NOT rely on `TodoWrite`** going forward.
+**a) Workspace enumeration + cwd** — `cmux list-workspaces --json` (alias of `cmux workspace list`, the legacy form "keeps working indefinitely"). Real output per workspace includes:
+- `ref` (e.g. `"workspace:1"`) — **positional/recyclable** (this is the v0.10 phantom-session bug source).
+- `current_directory` (e.g. `"/Users/alex/dev/klab/kodo"`) — **the cwd, exactly what detection needs.**
+- `title`, `index`, `latest_submitted_at`, `latest_conversation_message`, `selected`, `listening_ports`.
+- With `--id-format both`: a stable **`id`** UUID (e.g. `"E74F2ED2-..."`) — **use this, not `ref`, for durable identity** (the recyclable-ref hazard is already documented in `src/host/cmux.js`).
 
-### The capture surfaces available to a hook (ranked by robustness)
+**b) Per-workspace process identity ("is a `claude` running here?")** — `cmux list-panels --workspace <ref> --json` returns `surfaces[]`, and each surface carries a **`resume_binding`** object. For a Claude Code surface it is non-null with:
+```json
+"resume_binding": {
+  "kind": "claude",
+  "name": "Claude Code",
+  "cwd": "/Users/alex/dev/klab/kodo",
+  "command": "... claude --resume <checkpoint> --dangerously-skip-permissions ...",
+  "source": "agent-hook", "auto_resume": true
+}
+```
+`resume_binding.kind === "claude"` is the **reliable ad-hoc-claude signal** — no PID scraping, no `ps`. (`cmux rpc debug.terminals` additionally exposes `current_directory`, `git_branch`, `git_dirty`, and `tty` per terminal, but **no PID**; `resume_binding` is the cleaner, supported signal and should be preferred over `debug.*` which is explicitly a debug surface.)
 
-There are **three** candidate surfaces. The spike should evaluate them in this order:
+**c) The "ad-hoc" predicate** = a workspace/surface where `resume_binding.kind === "claude"` **whose identity is absent from `state.json`**. kodo stores `workspace_ref` in `SessionRecord` (verified: `state.json` holds `"workspace_ref":"workspace:7"`). So detection = `{cmux claude surfaces}` minus `{state.json workspace_refs}`. **Caveat to flag for the roadmap:** because `state.json` keys on the recyclable `ref`, the set-difference should be hardened with `current_directory` and/or the stable workspace `id` UUID to avoid the same recycling false-positive that bit v0.10 (reconcile defensivo por identidad).
 
-1. **`TaskCreated` / `TaskCompleted` hook events** *(most promising — first-class, no SDK).*
-   These are dedicated lifecycle events (NOT `PostToolUse` matchers — they "don't support
-   matchers and always fire on every occurrence"). Reported payload (MEDIUM confidence —
-   community-documented; the official hooks page lists the events but does not yet publish the
-   full field schema): standard common fields (`session_id`, `transcript_path`, `cwd`,
-   `hook_event_name`) **plus** `task_id`, `task_subject`, and optionally `task_description`,
-   `teammate_name`, `team_name`. A kodo hook script writes a running tally to
-   `~/.kodo/progress/<task_id>.json` — **exactly the v0.11 producer pattern.** This is the
-   spike's primary hypothesis to confirm: *do these events fire for normal interactive
-   `claude --worktree` sessions (not just Agent-SDK `query()` runs)?* That is the single
-   biggest unknown.
-   - **Caveat the spike MUST check:** `TaskCreated`/`TaskCompleted` give create + complete,
-     but **`in_progress` transitions go through `TaskUpdate`**, for which there is no dedicated
-     event. To show "3/7 in progress" precisely you may also need surface (2) or (3).
+**d) Integration anchor — already exists.** `src/host/cmux.js#listWorkspaces` **already** runs `run(['list-workspaces','--json'])`, JSON-parses `.workspaces`, and normalizes to `WorkspaceInfo` (never-throws, 5s timeout, DI-injectable `run` for fixtures). The spike's detection layer is a **strict extension** of this proven helper:
+1. Map the already-present `current_directory` (and `--id-format both` → `id`) into `WorkspaceInfo` (currently dropped).
+2. Optionally fan out `cmux list-panels --workspace <ref> --json` to read `resume_binding.kind` (one extra `execFile` per workspace, same never-throws envelope).
 
-2. **`PostToolUse` with matcher on the Task tools** *(catches every transition).*
-   `PostToolUse` supports a `tool_name` matcher; matching `TaskCreate|TaskUpdate` captures
-   *every* status change (including `in_progress`), with `tool_input`/`tool_response` in the
-   stdin payload (`tool_response` for `TaskCreate` carries the assigned `{ task: { id, subject } }`).
-   This is the richest stream but requires the hook to **accumulate state across calls**
-   (map keyed by `taskId`), since each call is a delta, not a snapshot.
-   - **Caveat:** the official hooks reference documents that matchers filter on `tool_name`,
-     but does not explicitly enumerate `TaskCreate`/`TaskUpdate` as guaranteed-stable matcher
-     values (those tool names come from the agent-SDK docs). The spike must confirm the matcher
-     actually fires for these names in an interactive session.
-
-3. **The persisted task files under `~/.claude/tasks/`** *(snapshot read, no hook stream).*
-   Tasks persist to `~/.claude/tasks/` (with `~/.claude/tasks/<task-list-id>/` when
-   `CLAUDE_CODE_TASK_LIST_ID` is set; **default is one list per session**). Fields confirmed
-   to exist on a task: `id`, `subject`, `description`, `status`, `owner`, `blockedBy`,
-   `blocks`. **The exact on-disk JSON file layout (one file per task? one list file? field
-   names/casing?) is NOT officially documented** — community sources describe the location and
-   logical fields but not a published schema. This is the **fragile** part and the reason this
-   remains spike-gated rather than auto-greenlit.
-   - **Critical correlation problem for the spike:** kodo keys everything by *task manager*
-     `task_id` (Plane/GitHub). Claude's task-list id is per-session and **not** the kodo
-     `task_id`. The spike must establish the join: most likely set `CLAUDE_CODE_TASK_LIST_ID`
-     (or read `session_id`/`transcript_path` from the hook payload, already correlated in kodo
-     via `session.start`'s `transcript_path`, see LOG-10) to bridge Claude's list to the kodo
-     `task_id`. Surfaces (1)/(2) sidestep this because their hook payload already carries
-     `session_id`, which kodo can map to its `task_id` from `state.json`.
-
-### Recommended spike shape (no new dep either way)
-
-- **Primary path:** a `PostToolUse` (matcher `TaskCreate|TaskUpdate`) **or** `TaskCreated`+
-  `TaskCompleted` hook script (Node built-ins, reads stdin JSON, `fs.writeFile`s an aggregate
-  `{done, total, in_progress, items[]}` to `~/.kodo/progress/<task_id>.json`). Consumer: the
-  TUI reads it like the plan overlay reads `~/.kodo/plans/<task_id>.md` — **zero new endpoint,
-  zero new dep.**
-- **Correlation:** derive kodo `task_id` from the hook's `session_id` via existing `state.json`
-  (kodo already correlates `session_id`↔`task_id`↔`transcript_path`). Do **not** depend on
-  parsing `~/.claude/tasks/` paths unless surfaces (1)/(2) prove insufficient.
-- **Spike exit criteria (VIABLE):** hook fires for a normal interactive `claude --worktree`
-  session; payload is stable enough to compute "N/M done"; correlation to kodo `task_id` is
-  deterministic. **INVIABLE if:** events only fire under the Agent SDK `query()` path (not
-  interactive CLI), or the only reliable surface is the undocumented `~/.claude/tasks/` file
-  shape that drifts between versions (the same fragility class v0.11 already rejected).
+No new cmux discovery, no socket library, no `--password`/auth surface change (the host already inherits the caller's socket).
 
 ---
 
@@ -184,55 +142,52 @@ There are **three** candidate surfaces. The spike should evaluate them in this o
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| `execFile('open', [url])` (built-in) | `open` npm package (sindresorhus/open) | Only if kodo ever needs true first-class multi-OS browser launching AND drops the minimal-deps constraint. For macOS-only + existing Windows guard, not worth the 5th dep. |
-| `TaskCreated`/`TaskCompleted` hook | `PostToolUse` matcher on `TaskCreate\|TaskUpdate` | Use `PostToolUse` if the spike needs `in_progress` transitions (the dedicated events only cover create+complete) or the richest delta stream. |
-| Hook → `~/.kodo/progress/<task_id>.json` | Read `~/.claude/tasks/<list>/*.json` directly | Only if no hook surface fires interactively. Higher fragility (undocumented schema/path, per-version drift, correlation problem) — last resort. |
-| Correlate by `session_id` from hook payload | `CLAUDE_CODE_TASK_LIST_ID=<kodo task_id>` at launch | Set the env var only if the file-read path (surface 3) is the one that proves viable, to force a deterministic list id matching the kodo `task_id`. |
+| Extend existing `PlaneClient.request()` / `GitHubClient.request()` | `@octokit/rest`, `axios`, `got` | Never for this milestone. Would duplicate auth/timeout/error-mapping/NDJSON-emission the clients already do, and break the LOG-12 isolation walker + color-isolation invariants. Only reconsider if kodo ever needs GraphQL (octokit) — not in scope. |
+| `cmux list-workspaces`/`list-panels --json` via `execFile` | `cmux rpc <method>` (raw socket RPC) or `cmux events --json` (event stream) | `rpc`/`events` are viable for a *push* model (live ad-hoc-session notifications) in a future milestone. For v0.13's *pull* detection (CLI `kodo adopt` + a dashboard keypress), the `--json` list commands are simpler and already wired. |
+| `resume_binding.kind` for claude detection | `cmux rpc debug.terminals` (tty/cwd/git) or external `ps`/`ps-list` | `debug.terminals` is a *debug* surface (unstable contract) and exposes no PID; `ps` would be a new cross-platform process-scan dependency. `resume_binding` is the supported, structured signal. |
+| `name`-only Plane create + `state` from `listStates` | Forcing a default state client-side | If the operator wants the adopted task to land in a specific column (e.g. "In Progress"), resolve the state UUID via the existing `listStates(projectId)`; otherwise omit `state` and let Plane apply the project default. |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `open` / `opn` / `mac-open` npm packages | Violates 4-dep ceiling; `execFile('open', …)` is ~5 lines and matches the `focus.js` pattern already in the codebase | `node:child_process.execFile` |
-| `TodoWrite` tool / `block.name === "TodoWrite"` | Deprecated; off by default since v2.1.142 (gated behind `CLAUDE_CODE_ENABLE_TASKS=0`). Building on it now builds on a sunset surface | Task tools (`TaskCreate`/`TaskUpdate`) + `TaskCreated`/`TaskCompleted` hooks |
-| `~/.claude/plans/` or transcript JSONL parsing for progress | v0.11 already found these fragile/undocumented between versions; the new Task surface is purpose-built | `TaskCreated`/`TaskCompleted` hooks (or `PostToolUse` Task matcher) |
-| `child_process.exec` with a shell string for the URL | Shell-injection risk on a provider-supplied URL; no benefit | `execFile` with URL as a literal arg |
-| A new HTTP endpoint to expose progress | Violates the "zero new endpoints since v0.10" invariant | Producer hook writes a file; TUI reads it (mirror of v0.11 plan overlay) |
-| Treating `~/.claude/tasks/` JSON schema as a stable contract | Not officially documented; reverse-engineered shape drifts between Claude Code versions | Prefer the hook-payload surfaces (1)/(2) whose fields are at least event-documented |
+| `@octokit/*` / `octokit` | ~Megabyte of transitive deps, its own auth/retry stack, breaks LOG-12 + color-isolation walkers, violates "minimal external deps" constraint | Existing `GitHubClient.createIssue` (one method, ~6 LOC) |
+| `axios` / `got` / `node-fetch` | Native `fetch` already used everywhere; both clients already wrap it with timeout + retry (Plane) + error mapping (GitHub) | `this.request(..., { method: 'POST', body })` |
+| `ps-list` / `pidtree` / spawning `ps` | Cross-platform process scanning is fragile and unnecessary — cmux already reports the running agent structurally | `cmux list-panels --json` → `resume_binding.kind === "claude"` |
+| A cmux "SDK"/socket client lib | `src/host/cmux.js` is the single sanctioned cmux caller via `execFile`; adding a socket lib breaks that isolation (test `test/host/cmux-isolation.test.js`) | Extend `src/host/cmux.js#listWorkspaces` |
+| Adding `createTask` to the 9 FROZEN `TASK_PROVIDER_METHODS` | Breaks the "FROZEN en 9" contract invariant and forces every (future) provider to implement creation | **OPTIONAL typeof-detected method**, capability-gated — exact mirror of how `getTaskState` was added in Phase 40 |
+| A new HTTP endpoint on `src/server.js` for adopt | "Cero endpoints nuevos" invariant (held since v0.10); also reintroduces the XSS rail (WR-01) this milestone is meant to *harden* | Adoption lives in the CLI (`kodo adopt`) + a dashboard action calling the same deterministic 0-token plumbing |
 
 ## Stack Patterns by Variant
 
-**If the spike returns VIABLE (hook fires interactively, payload stable):**
-- Add one hook script + one TUI consumer (column or overlay). Reuse the v0.11
-  producer→consumer file pattern (`~/.kodo/progress/<task_id>.json`), correlate by `session_id`.
-- No new dep, no new endpoint, no `TaskProvider` contract change (this is Claude-session
-  state, orthogonal to the frozen-9 provider interface — though the optional `getTaskState`
-  precedent exists if a provider-side mirror is ever wanted).
+**If the adopt flow is invoked deterministically (CLI `kodo adopt`, dashboard key):**
+- Use the base plumbing only: `provider.createTask()` (typeof-detected) → `adoptSession()` writes `SessionRecord` to `state.json` with the new `task_id`/`task_url`/`workspace_ref`.
+- 0 tokens, no LLM. Title defaults to `basename(cwd)` or the cmux `title`, editable.
 
-**If the spike returns INVIABLE (events SDK-only, or only the undocumented file works):**
-- Ship open-in-manager + Nyquist backfill; defer live progress. Do NOT ship a fragile
-  file-schema reader that breaks on the next Claude Code release — that repeats the exact
-  mistake v0.11 consciously avoided.
+**If the adopt flow is orchestrator-assisted (the only LLM rail):**
+- The orchestrator is a **consumer** of the same `createTask`/`adoptSession` base — it does NOT own a parallel path. It only enriches the `name`/`description_html` argument with a smart title derived from cwd/commits/transcript before calling the identical plumbing.
+
+**If Plane vs GitHub:**
+- Plane: `description_html` (HTML rail), `state` is a **UUID** from `listStates`, `task_id` = `${project.identifier}-${sequence_id}`.
+- GitHub: `body` is **Markdown**, no state UUID (state = open/closed + label convention), `task_id` = issue `number`.
+- This Markdown/HTML + identity divergence is **already encoded** in the existing `addComment`/`normalize` split — `createTask` follows the same seam.
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| Claude Code v2.1.142+ | Task tools default ON | `TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`; `TodoWrite` deprecated. kodo's reference env must be on a 2.1.142+ build for the Task hooks to fire. |
-| Claude Code v2.1.x hooks | `TaskCreated`, `TaskCompleted` events | Verify the installed CC version exposes these events (hook surface changes between minor versions — pin/check at spike time). |
-| Node 20+ | `child_process.execFile`, `fs` | Built-ins; no version risk. |
-| kodo 4 prod deps | unchanged | commander, picocolors@^1.1.1, ink@^6.8.0, react@^19.2.0 — this milestone adds none. |
+| GitHub REST `2022-11-28` | existing `GitHubClient` headers | Client already pins `X-GitHub-Api-Version: 2022-11-28`; create-issue is GA on this version. |
+| Plane API `/api/v1` | existing self-hosted CE instance | Same versioned surface kodo already reads/PATCHes. Confirm the create endpoint on the real CE box (5-min manual check) — only residual MEDIUM-confidence item. |
+| cmux `list-workspaces`/`list-panels --json` + `resume_binding` | installed cmux build (dev box) | Verified live. `resume_binding.kind`/`list-panels` are not formally docs-pinned → capture a JSON fixture and assert via the host's DI `run` so a future cmux change fails loudly (same ASSUMPTION R-7 guard the host already uses for `notification.list`). |
 
 ## Sources
 
-- https://code.claude.com/docs/en/agent-sdk/todo-tracking — **official.** TodoWrite → Task tools migration; tool names `TaskCreate`/`TaskUpdate`/`TaskGet`/`TaskList`; input schemas; default since CC v2.1.142 / SDK 0.3.142; `CLAUDE_CODE_ENABLE_TASKS=0` revert. HIGH confidence.
-- https://code.claude.com/docs/en/hooks — **official.** Full hook event list incl. `TaskCreated`/`TaskCompleted` (no matcher, always fire, exit-2 rollback); `PostToolUse` matches on `tool_name`; common input fields (`session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`). HIGH on event existence; the per-event full field schema for `TaskCreated`/`TaskCompleted` is NOT published there (MEDIUM on exact fields).
-- https://claudearchitect.com/docs/claude-code/claude-code-tasks-guide/ — tasks persisted to `~/.claude/tasks`; `CLAUDE_CODE_TASK_LIST_ID` controls list sharing (default per-session); task fields `id/subject/description/status/owner/blockedBy/blocks`. MEDIUM confidence (third-party).
-- https://thepromptshelf.dev/blog/claude-code-hooks-complete-reference-2026/ + community hook references — `TaskCreated` payload reported as `task_id`, `task_subject`, optional `task_description`/`teammate_name`/`team_name`. MEDIUM/LOW confidence (community, unverified against official schema) — **flagged for the spike to verify empirically.**
-- https://x.com/bcherny/status/2014485078815211652 — Anthropic (Boris Cherny) announcing "Todos => Tasks." Corroborates the upgrade direction. MEDIUM confidence.
-- https://github.com/sindresorhus/open — the `open` npm package (macOS `open`/Win `start`/Linux `xdg-open`). Considered and **rejected** for kodo's dep constraint. HIGH confidence on what it does.
-- Codebase: `src/cli/dashboard/focus.js` (read) — the exact `execFile` never-throws pattern open-in-manager should clone. `.planning/PROJECT.md` — invariants, 4-dep ceiling, v0.11 light-plan producer/consumer pattern, optional `getTaskState` precedent.
+- https://developers.plane.so/api-reference/issue/add-issue — Plane create-work-item: `POST .../projects/{id}/work-items/`, `name` required, `X-API-Key`, 201 returns `id`+`sequence_id` (HIGH).
+- https://developers.plane.so/api-reference/introduction — Plane API auth/base path confirmation (HIGH).
+- https://docs.github.com/en/rest/issues/issues#create-an-issue (apiVersion 2022-11-28) — `POST /repos/{owner}/{repo}/issues`, `title` required, pull/`repo` write access (HIGH).
+- Live `cmux list-workspaces --json`, `cmux --id-format both list-workspaces`, `cmux list-panels --json`, `cmux rpc debug.terminals`, `cmux capabilities` against `/Applications/cmux.app/.../bin/cmux` — `current_directory` + stable `id` UUID + `resume_binding.kind:"claude"` + launch command per surface (HIGH, empirical).
+- `src/host/cmux.js`, `src/providers/plane/client.js`, `src/providers/github/client.js`, `~/.kodo/state.json` — existing reuse points: never-throws `execFile` cmux caller, generic authenticated `request()` POST plumbing, `workspace_ref` in `SessionRecord` (HIGH, source-read).
 
 ---
-*Stack research for: Node.js CLI/TUI milestone v0.12 (open-in-manager + spike-gated live task-state)*
-*Researched: 2026-06-11*
+*Stack research for: CLI task-manager ↔ Claude-Code-session bridge — reverse flow (v0.13 kodo bidireccional)*
+*Researched: 2026-06-15*
