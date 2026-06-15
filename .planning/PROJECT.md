@@ -57,7 +57,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 **Invariantes a honrar:** cero endpoints nuevos (la URL ya persistida se lee como `focus.js` lee la suya), contrato `TaskProvider` FROZEN en 9 (la URL va como campo de `TaskItem` o método opcional typeof-detected, espejo de `getTaskState`), color isolation, TUI never-throws, selección por identidad `task_id`, `execFile` fire-and-forget sin desmontar el panel.
 
 **Deuda heredada de v0.11 (no bloqueante, registrada en STATE.md `## Deferred Items`):**
-- **Nyquist v0.11:** Phases 44/45/46 con `VALIDATION.md` en estado `draft` / `nyquist_compliant: false` (stubs de plan-time nunca backfilled). A saldar dentro de este milestone (fase de backfill) o vía `/gsd:validate-phase 44|45|46`.
+- **Nyquist v0.11:** ✓ saldada en **Phase 51** (NYQ-03, 2026-06-15) — los 3 `VALIDATION.md` (44/45/46) togglados in-place a citation-based (`nyquist_compliant: true`) citando su evidencia VERIFICATION/HUMAN-UAT existente sin re-ejecutar la suite. Espejo de Phase 47.
 - **Frontmatter cosmético:** `requirements_completed: []` vacío en summaries de 46-01 y 47-01 (cobertura verificada por VERIFICATION + integration + traceability).
 
 ## Requirements
