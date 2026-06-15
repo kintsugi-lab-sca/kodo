@@ -4,13 +4,13 @@ milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
 status: executing
 stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
-last_updated: "2026-06-14T20:28:32.192Z"
-last_activity: 2026-06-14 -- Phase 50.1 planning complete
+last_updated: "2026-06-15T05:50:14.751Z"
+last_activity: 2026-06-15
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 50
 ---
 
@@ -25,16 +25,16 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan. v0.12 profundiza desde la fila: *hacia afuera* (abrir la tarea en el gestor) y *hacia adentro* (progreso vivo, spike-gated).
 
-**Current focus:** Phase 999.1 — kodo bidireccional sesion cmux a tarea
+**Current focus:** Phase 50.1 — live-progress-v-a-state-md-de-gsd-corrige-la-fuente-lee-prog
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
+Phase: 50.1 (live-progress-v-a-state-md-de-gsd-corrige-la-fuente-lee-prog) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 50.1 planning complete
+Last activity: 2026-06-15
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Roadmap v0.12 (active)
 
@@ -77,6 +77,7 @@ Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (P
 
 ### Decisions (Roadmap v0.12)
 
+- **Phase 50.1-01 (corrección de fuente):** el progreso vivo se deriva del bloque `progress:` del `STATE.md` del worktree GSD (`readGsdProgress`, **N/M = FASES** = `completed_phases`/`total_phases`, DG-01), parseado con un mini-parser hand-rolled de regex CONSTANTES y allowlist literal (cero deps YAML, anti-ReDoS, DG-02). El hook de captura 50-02 (`task-progress.js` + registro `TaskCreated`/`TaskCompleted`) quedó **eliminado** porque leía la superficie equivocada `~/.claude/tasks/`, vacía en sesiones GSD reales que usan `Agent` (DG-08). `computeRealWorktreePath` (`.claude/worktrees/<sid>`) localiza el worktree sin tocar `computeWorktreePath` (`.bg-shell`, 5 consumidores, DG-04). App.js conserva un shim `readProgress` transitorio (→ `no-progress`) hasta su rewire en Plan 02.
 - **Numeración continua (NO reset):** v0.12 continúa desde Phase 47 (v0.11) → primera fase es **Phase 48**. Espejo de cómo cada milestone continúa desde el anterior.
 - **OPEN-01..04 plegados en UNA fase (48):** tightly coupled y pequeños (un keypress `o` + `open.js` clonado de `focus.js` + fix bug URL Plane + no-op legacy). El round-trip de la URL ya está construido en código shipped (`TaskItem.url`, `manager.js:48` persiste `task_url`, `GET /status` lo expone). El trabajo real es consumo, no plumbing. Granularidad coarse → fewer cohesive phases.
 - **Diseño URL = campo estático de `TaskItem`, NO método opcional `getTaskUrl`:** el patrón `getTaskState` (método opcional typeof-detected) se justifica para estado *vivo*; una URL es inmutable, conocida en normalize-time. El mirror correcto es `worktree_path` (persist-derived-at-launch) — que es exactamente lo que el código YA hace. Contrato `TaskProvider` sigue FROZEN en 9, intacto.
@@ -119,7 +120,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-13T07:25:36.835Z
+- **Last session:** 2026-06-15T05:50:01.578Z
 - **Stopped at:** Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
 - **Next action:** `/gsd:plan-phase 48` (Open-in-manager core). Phase 51 (Nyquist backfill, doc-only) puede correr en paralelo. Phase 50 queda gated tras el veredicto de Phase 49.
 - **Files of record:**
