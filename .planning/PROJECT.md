@@ -11,7 +11,7 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 ## Current State
 
 **Shipped:** v0.12 (2026-06-15) — Atajos al gestor y progreso vivo · cerrado con deuda reconocida (HUMAN-UAT del display de progreso vivo de Phase 50.1 diferido a verificación en TTY real; + XSS latente WR-01 en el carril HTML de `src/server.js`). 5 phases (48-51 + 50.1), 10 plans, 90 commits.
-**Next:** pendiente de definir — `/gsd:new-milestone`
+**Next:** v0.13 kodo bidireccional — sesión cmux ad-hoc → tarea persistente (flujo inverso `sesión → tarea`). Roadmap en construcción.
 
 v0.12 profundiza el dashboard en dos direcciones desde la fila de sesión. *Hacia afuera:* la tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist `http(s)` + argv literal), + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprimido); cerrado por HUMAN-UAT en macOS real (Phase 48). *Hacia adentro:* un spike empírico (Phase 49) dictaminó **VIABLE** capturar el progreso N/M en Claude Code 2.1.175, y el dashboard muestra ahora una columna condicional `prog` con `N/M` (= `completed_phases`/`total_phases`) por sesión GSD — leído del bloque `progress:` del `STATE.md` del worktree real (Phase 50 + corrección 50.1, que reemplazó la superficie inicial `~/.claude/tasks/` por STATE.md tras descubrirla vacía en sesiones GSD reales). + backfill de la deuda Nyquist de v0.11 (Phase 51, 3 VALIDATION.md citation-based). Cero endpoints nuevos, contrato `TaskProvider` FROZEN en 9. Suite 1307 pass + 1 skip. **Verificación humana del display de progreso (50.1) diferida** al no poder montarse una sesión GSD viva en el cierre.
 
@@ -50,13 +50,24 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Next Milestone
+## Current Milestone: v0.13 kodo bidireccional
 
-_Sin definir._ Ejecutar `/gsd:new-milestone` para arrancar el siguiente ciclo (questioning → research → requirements → roadmap). Candidato fuerte en el backlog: **kodo bidireccional** (sesión cmux ad-hoc → tarea persistente, Phase 999.1 en ROADMAP.md).
+**Goal:** Convertir una sesión Claude Code creada ad-hoc en cmux (no nacida de Plane/GitHub) en una **tarea persistente del gestor**, para que el trabajo ad-hoc no se evapore al cerrar el sprint. kodo deja de ser solo *tarea → sesión* y se vuelve un puente de ida y vuelta: el flujo inverso **sesión → tarea**.
 
-**Deuda heredada al cierre de v0.12 (no bloqueante, registrada en STATE.md `## Deferred Items`):**
-- **HUMAN-UAT de Phase 50.1** (display de progreso vivo) — 3 escenarios + `50.1-VERIFICATION.md` `human_needed` (8/8 must-haves auto-verificados): requieren un TTY real con sesión GSD viva, no montable en el cierre. Espejo de cómo v0.9/v0.10/v0.11 cerraron con deuda.
-- **XSS latente WR-01** — el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo `http(s)` que sí aplica el carril TUI (`runOpen`); un `javascript:`/`data:` en `task_url` podría inyectarse en el HTML servido. Registrado en Phase 48 code review, candidato a hardening en el próximo milestone.
+**Target features:**
+- **`kodo adopt` (CLI)** — adopta una sesión ad-hoc: crea la tarea en el provider y la registra en `state.json` con el `task_id` nuevo. Core de bajo riesgo (recibe el workspace/cwd explícito, no depende de detección automática); ships sí o sí.
+- **`createTask` opcional en los adapters Plane + GitHub** — método **typeof-detected FUERA de los 9 FROZEN** (espejo de cómo `getTaskState` se añadió en la Fase 40); el contrato `TaskProvider` sigue "FROZEN en 9". Primera vez que kodo *crea* tareas (revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas").
+- **Adopción asistida por el orquestador** — el orquestador (único carril con LLM) es un **consumidor** de la misma fontanería: propone proactivamente adoptar sesiones ad-hoc y deriva un título *inteligente* del contexto real (cwd/commits/transcript), no `basename(workspace)`. NO es dueño del flujo ni un mecanismo paralelo.
+- **Datos auto-derivados editables** — título desde workspace/cwd como default editable; proyecto destino vía `listProjects` (ya en el contrato); descripción opcional.
+- **Spike de detección de cmux (HARD GATE)** — ¿cmux expone proceso/cwd por workspace para identificar un `claude` ad-hoc ausente de `state.json`? El veredicto gobierna si la **tecla en el dashboard** (descubrir + listar sesiones ad-hoc) es viable. Espejo del spike-gate de la Fase 49 (v0.12).
+- **Saldar deuda viva heredada de v0.12** — hardening XSS WR-01 (allowlist `http(s)` en el carril HTML de `src/server.js`) + HUMAN-UAT diferido del display de progreso (Phase 50.1).
+
+**Key context:**
+- **Arquitectura: una fontanería, tres consumidores.** La capa base (`createTask` + `adoptSession` que registra en `state.json`) es **determinista y 0-token** (preserva la constraint "solo el orquestador usa LLM"); CLI, tecla del dashboard (gated) y orquestador son consumidores de esa base, nunca dueños.
+- "Adoptar" invierte el camino que kodo ya recorre al lanzar (registrar en `state.json`), pero al revés. La fontanería de POST con auth ya existe (`plane/client.js` y `github/client.js` ya hacen `POST` para `addComment`).
+- **Cero endpoints nuevos** sigue siendo invariante candidato (la adopción puede vivir en CLI + acción de dashboard sin tocar el contrato HTTP del server — a confirmar en planificación).
+- Numeración de fases **continua** desde Phase 51 → la siguiente es **Phase 52** (espejo de cada milestone).
+- Origen del concepto: ideado 2026-06-12 en conversación tras cerrar la Fase 48 (Phase 999.1 del backlog).
 
 ## Requirements
 
@@ -130,9 +141,9 @@ _Sin definir._ Ejecutar `/gsd:new-milestone` para arrancar el siguiente ciclo (q
 
 ### Active
 
-**Sin milestone activo.** v0.12 shipped 2026-06-15. Próximo ciclo con `/gsd:new-milestone`. Deuda viva trackeada en STATE.md `## Deferred Items` (HUMAN-UAT del display de progreso 50.1; XSS latente WR-01 en `src/server.js`).
+**Milestone v0.13 kodo bidireccional** (iniciado 2026-06-15). Requirements en definición; ver `REQUIREMENTS.md` y `ROADMAP.md`. En scope: flujo `sesión → tarea` (`createTask` opcional Plane+GitHub + `adoptSession` + CLI `kodo adopt`), adopción asistida por el orquestador, tecla del dashboard gated por spike de detección, y saldo de la deuda viva de v0.12 (XSS WR-01 + HUMAN-UAT 50.1).
 
-**Deferred candidates (futuros milestones):** **kodo bidireccional** (sesión cmux → tarea persistente, backlog 999.1) · hardening XSS del carril HTML (`task_url` allowlist en `src/server.js`) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
+**Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
 
 ### Out of Scope
 
@@ -264,7 +275,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-15 after v0.12 "Atajos al gestor y progreso vivo" milestone — 5 phases (48-51 + 50.1), 10 plans, 90 commits, suite 1307 pass + 1 skip. Open-in-manager (tecla `o`, Phase 48, HUMAN-UAT macOS real) + spike VIABLE (Phase 49) + display de progreso vivo `N/M` desde el STATE.md del worktree (Phase 50 + corrección 50.1) + backfill Nyquist v0.11 (Phase 51). Cerrado con deuda reconocida: HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`. Archivos: `milestones/v0.12-ROADMAP.md`, `milestones/v0.12-REQUIREMENTS.md`. Next: `/gsd:new-milestone`.*
+*Last updated: 2026-06-15 — **Milestone v0.13 "kodo bidireccional" iniciado.** El flujo inverso `sesión → tarea`: convertir una sesión Claude Code ad-hoc de cmux en una tarea persistente del gestor. Arquitectura "una fontanería (`createTask` opcional Plane+GitHub + `adoptSession`, determinista 0-token), tres consumidores" — CLI `kodo adopt`, tecla del dashboard (gated por spike de detección de cmux, espejo Fase 49), y adopción asistida por el orquestador (título inteligente desde el contexto real de la sesión). Incluye saldo de la deuda viva de v0.12 (XSS WR-01 en `src/server.js` + HUMAN-UAT del display 50.1). `createTask` revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas". Numeración de fases continúa desde la 51. Origen: Phase 999.1 del backlog (ideado 2026-06-12).*
+
+---
+*Previous: 2026-06-15 after v0.12 "Atajos al gestor y progreso vivo" milestone — 5 phases (48-51 + 50.1), 10 plans, 90 commits, suite 1307 pass + 1 skip. Open-in-manager (tecla `o`, Phase 48, HUMAN-UAT macOS real) + spike VIABLE (Phase 49) + display de progreso vivo `N/M` desde el STATE.md del worktree (Phase 50 + corrección 50.1) + backfill Nyquist v0.11 (Phase 51). Cerrado con deuda reconocida: HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`. Archivos: `milestones/v0.12-ROADMAP.md`, `milestones/v0.12-REQUIREMENTS.md`. Next: `/gsd:new-milestone`.*
 
 ---
 *Previous: 2026-06-12 — **Phase 48 "Open-in-manager core" shipped** (v0.12, 3 plans, 2 waves). Tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist http(s) + argv literal) sin desmontar el panel ink; no-op legacy con footer claro; + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprime link muerto). 48-VERIFICATION 5/5 must-haves + HUMAN-UAT aprobado en macOS real; suite 1279 pass + 1 skip. Code review advisory: 0 critical / 4 warning / 4 info — notable WR-01: el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo que sí tiene el carril TUI (XSS `javascript:` latente), registrado para follow-up.*

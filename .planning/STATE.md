@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.12
-milestone_name: Atajos al gestor y progreso vivo
-status: Awaiting next milestone
-stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
-last_updated: "2026-06-15T10:59:30.197Z"
-last_activity: 2026-06-15 — Milestone v0.12 completed and archived
+milestone: v0.13
+milestone_name: kodo bidireccional
+status: planning
+last_updated: "2026-06-15T11:23:13.765Z"
+last_activity: 2026-06-15
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 10
-  percent: 83
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.12 shipped; sin milestone
 
 ## Current Position
 
-Phase: Milestone v0.12 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-15 — Milestone v0.12 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-15 — Milestone v0.13 started
 
 ## Roadmap v0.12 (active)
 
