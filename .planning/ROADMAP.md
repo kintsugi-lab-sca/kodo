@@ -148,11 +148,12 @@ Plans:
   2. Los stubs `draft` / `nyquist_compliant: false` quedan reemplazados y STATE.md `## Deferred Items` reconciliado.
   3. Invariante Tier 1 respetado: `git diff -- src/ test/ bin/` vacío (cambio puramente documental).
 
-**Plans**: TBD
+**Plans**: 1 plan (1 wave)
 
 Plans:
+**Wave 1**
 
-- [ ] 51-01: TBD
+- [ ] 51-01-PLAN.md — UPDATE in-place 44/45/46-VALIDATION.md (draft→compliant, citation-based citando VERIFICATION + 46-HUMAN-UAT) + reconciliación STATE.md ## Deferred Items (NYQ-03)
 
 ## Progress
 
@@ -164,7 +165,7 @@ Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51.
 | 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
 | 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
 | 50. Live-progress display (conditional) | v0.12 | 3/3 | Complete    | 2026-06-13 |
-| 51. Backfill Nyquist v0.11 | v0.12 | 0/TBD | Not started | - |
+| 51. Backfill Nyquist v0.11 | v0.12 | 0/1 | Not started | - |
 
 ## Backlog
 
@@ -195,3 +196,4 @@ Plans:
 
 ---
 _Histórico: la anterior Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
+</content>
