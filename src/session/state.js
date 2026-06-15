@@ -155,6 +155,28 @@ export function computeWorktreePath(projectPath, sessionId) {
 }
 
 /**
+ * Compute the REAL worktree path where the GSD session's `.planning/STATE.md`
+ * lives, following Claude Code's own worktree convention.
+ *
+ * Phase 50.1 (DG-04). Helper ADITIVO y SEPARADO de computeWorktreePath: blast
+ * radius mínimo. computeWorktreePath devuelve la ruta legacy `.bg-shell/<sid>`
+ * con 5 consumidores acoplados — NO se toca. Esta función devuelve la ruta REAL
+ * `<projectPath>/.claude/worktrees/<sid>` confirmada empíricamente (TENDERIO-9 +
+ * `git worktree list`): es ahí donde Claude Code crea el worktree de la sesión y,
+ * por tanto, donde GSD mantiene el STATE.md con el bloque progress:.
+ *
+ * Pure function: solo `path.join` — NO realpathSync, NO mkdirSync, NO existsSync.
+ * Determinística por (projectPath, sessionId): mismo input → mismo output.
+ *
+ * @param {string} projectPath - Repo principal del proyecto.
+ * @param {string} sessionId - UUID de la sesión (mismo que `Session.session_id`).
+ * @returns {string} Path absoluto sin trailing slash.
+ */
+export function computeRealWorktreePath(projectPath, sessionId) {
+  return join(projectPath, '.claude', 'worktrees', sessionId);
+}
+
+/**
  * Lee el state.json del disco; si es schema < 3, crea backup timestamped y migra
  * encadenando v1→v2→v3 (Phase 38 D-05). Idempotente: si ya es v3, retorna sin
  * tocar disco (no crea backup redundante).

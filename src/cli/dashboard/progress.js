@@ -1,58 +1,126 @@
 // @ts-check
 //
-// src/cli/dashboard/progress.js — Phase 50 Plan 03 (PROG-03; D-08/D-09).
+// src/cli/dashboard/progress.js — Phase 50.1 Plan 01 (PROG-02; DG-01/DG-02/DG-07).
 //
-// Consumidor del artefacto de progreso vivo de Phase 50 (`~/.kodo/progress/<taskId>.json`,
-// productor: el hook task-progress.js del Plan 02). Leaf PURO, síncrono, never-throws — espejo
-// de la FORMA de readLightPlan (plan.js:65-78), clonado (no reusado: el artefacto es JSON con
-// campos, no markdown línea-a-línea).
+// Lector del progreso vivo de una sesión GSD. La FUENTE es el bloque `progress:`
+// del `STATE.md` que GSD mantiene por disk-scan dentro del worktree de la sesión
+// (DG-02). NO se leen las superficies HOME-relative de Claude Code ni de kodo —
+// están vacías en sesiones GSD reales (usan `Agent`, no `TaskCreate`), por lo que
+// el hook de captura 50-02 quedó demotado (DG-08).
 //
-// El dashboard lee SOLO este artefacto kodo (D-08), NUNCA los internals de Claude Code
-// (`~/.claude/tasks/`). La lectura es CLIENT-SIDE en App.js (mold readPlan App.js:544), nunca
-// server-side: cero endpoints nuevos, cero cambios en src/server.js.
+// Leaf PURO, síncrono, never-throws (DG-07) — espejo de la FORMA de readLightPlan
+// (plan.js:65-78). N/M = FASES (DG-01): m=total_phases, n=completed_phases ?? 0.
 //
-// node:os/node:path/node:fs son builtins → preserva la leaf-isolation (misma convención que
-// plan.js:41-45 y config.js:4,6). NO se importa src/config.js para no acoplar el leaf a su I/O.
+// node:fs/node:path son builtins → preserva la leaf-isolation (misma convención que
+// plan.js:41-45). NO se importa src/config.js para no acoplar el leaf a su I/O.
+//
+// Mini-parser hand-rolled con regex CONSTANTES (DG-02): cero dependencias YAML.
+// Las keys son una allowlist literal fija → NUNCA se compila un regex desde input
+// externo (anti-ReDoS, espejo del `/^\d+$/` constante de plan.js:131).
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 
 /**
  * @typedef {{ status: 'ok', n: number, m: number, completed: boolean } | { status: 'no-progress' } | { status: 'error' }} ProgressResult
  */
 
+// Regex de frontmatter CONSTANTE: aísla el PRIMER bloque `--- ... ---` (non-greedy).
+// Tolera \r\n (CRLF). No deriva de input externo → sin vector ReDoS.
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
+
+// Allowlist LITERAL FIJA de keys numéricas del bloque progress:. Las keys son
+// constantes del código, NUNCA input externo (DG-02 anti-ReDoS).
+const PROGRESS_KEYS = /** @type {const} */ (['total_phases', 'completed_phases', 'total_plans', 'completed_plans']);
+
 /**
- * Lee el artefacto de progreso (`~/.kodo/progress/<taskId>.json`) de una fila del dashboard.
- * Síncrono, never-throws (D-09).
+ * Parser del bloque `progress:` del STATE.md. Aísla el primer frontmatter con un
+ * regex CONSTANTE y extrae cada key de la allowlist literal con un regex constante
+ * por key (la key es literal de allowlist → no es input externo). Devuelve solo las
+ * keys encontradas. Sin frontmatter → null.
  *
- * Mapeo de status (espejo de readLightPlan): contenido JSON parseable → 'ok' (con n/m/completed);
- * ENOENT (sin artefacto) → 'no-progress' (cohorte sin tasks-dir tolerada, D-09); otro
- * (EACCES / JSON corrupto / sin .code) → 'error' (→ '?' + keep-last-good en el render, gestionado
- * por App.js, NO aquí).
+ * Las keys del bloque progress: son CONDICIONALES (el generador GSD añade cada una
+ * con `if (x !== null)`) → la ausencia se tolera (la key simplemente no aparece en
+ * el objeto devuelto).
  *
- * Anti-ReDoS guard del taskId: el CALLER (App.js enrich) valida `taskId` ANTES de llamar (String
- * .includes('/')/'\\'/'..', NO regex), exactamente como readPlan valida antes de readLightPlan
- * (plan.js:117-123). La ruta se CONSTRUYE con root FIJO `join(homedir(), '.kodo', 'progress')`,
- * byte-idéntica al productor (Plan 02: src/hooks/task-progress.js).
+ * @param {string} md  contenido completo del STATE.md.
+ * @returns {Record<string, number> | null}  keys numéricas encontradas, o null si no hay frontmatter.
+ */
+export function parseProgressBlock(md) {
+  const fm = FRONTMATTER_RE.exec(md);
+  if (!fm) return null; // sin frontmatter --- ... --- → corrupto/no parseable
+  const body = fm[1];
+  /** @type {Record<string, number>} */
+  const out = {};
+  for (const key of PROGRESS_KEYS) {
+    // Regex CONSTANTE por key: la key es un literal de la allowlist (no input
+    // externo) → no es vector ReDoS. Captura el primer entero asociado a la key
+    // dentro del frontmatter (indentado a 2 espacios bajo `progress:`).
+    const re = new RegExp(`^\\s+${key}:\\s*(\\d+)`, 'm');
+    const hit = re.exec(body);
+    if (hit) out[key] = Number(hit[1]);
+  }
+  return out;
+}
+
+/**
+ * Lee el bloque `progress:` del STATE.md del worktree GSD y deriva el progreso por
+ * FASES (DG-01). Síncrono, never-throws (DG-07).
  *
- * @param {string} taskId  UUID kodo (sin separadores de ruta; validado por el caller).
- * @param {{ readFileFn?: (p: string) => string, kodoProgressDir?: string, homedirFn?: () => string }} [deps]
- *   `kodoProgressDir` aísla el HOME en tests (D-08); sin él, default `join(homedir(), '.kodo', 'progress')`.
+ * Mapeo de status (espejo de readLightPlan):
+ *   - bloque con total_phases → 'ok' (n = completed_phases ?? 0, m = total_phases,
+ *     completed = m>0 && n===m);
+ *   - STATE.md presente pero sin total_phases (parcial) → 'no-progress';
+ *   - ENOENT (sin STATE.md) → 'no-progress';
+ *   - EACCES / contenido corrupto sin frontmatter → 'error' (never-throws).
+ *
+ * La ruta se CONSTRUYE con root FIJO `join(worktreeBase, '.planning', 'STATE.md')`.
+ * El guard anti-traversal del worktreeBase vive en el CALLER (App.js, Plan 02 —
+ * mold plan.js:120-121, String.includes NO regex); aquí worktreeBase ya viene
+ * validado (T-501-traversal).
+ *
+ * @param {string} worktreeBase  raíz del worktree GSD (validada por el caller).
+ * @param {{ readFileFn?: (p: string) => string }} [deps]
+ *   `readFileFn` aísla el disco en tests.
  * @returns {ProgressResult}
  */
-export function readProgress(taskId, deps = {}) {
+export function readGsdProgress(worktreeBase, deps = {}) {
   const readFileFn = deps.readFileFn || ((p) => readFileSync(p, 'utf-8'));
-  // Ruta CONSTRUIDA (no derivada de input por regex, D-09). Byte-idéntica al productor
-  // task-progress.js: join(homedir(), '.kodo', 'progress', `${taskId}.json`).
-  const progDir = deps.kodoProgressDir || join((deps.homedirFn || homedir)(), '.kodo', 'progress');
   try {
-    const raw = readFileFn(join(progDir, `${taskId}.json`));
-    const o = JSON.parse(raw);
-    return { status: 'ok', n: o.n, m: o.m, completed: !!o.completed };
+    const md = readFileFn(join(worktreeBase, '.planning', 'STATE.md'));
+    const block = parseProgressBlock(md);
+    // Sin frontmatter parseable → contenido corrupto → 'error' (no 'no-progress').
+    if (!block) return { status: 'error' };
+    // Sin denominador (total_phases ausente — STATE.md parcial) → no hay progreso.
+    if (block.total_phases == null) return { status: 'no-progress' };
+    const m = block.total_phases;
+    const n = block.completed_phases ?? 0; // condicional → default 0 (0/M válido)
+    return { status: 'ok', n, m, completed: m > 0 && n === m };
   } catch (err) {
     const code = /** @type {NodeJS.ErrnoException} */ (err)?.code;
-    if (code === 'ENOENT') return { status: 'no-progress' }; // artefacto ausente (D-09)
-    return { status: 'error' }; // EACCES / JSON corrupto / sin .code → '?' + keep-last-good (never-throws)
+    if (code === 'ENOENT') return { status: 'no-progress' }; // STATE.md ausente (DG-07)
+    return { status: 'error' }; // EACCES / sin .code → '?' + keep-last-good (never-throws)
   }
+}
+
+/**
+ * Shim de COMPATIBILIDAD transitorio — Phase 50.1 Plan 01 (deviation Rule 3).
+ *
+ * App.js (src/cli/dashboard/App.js:71,355) todavía importa `readProgress(taskId)`
+ * con la firma del Plan 50-03 (que leía el artefacto HOME-relative por taskId). El Plan
+ * 02 de esta fase REPUNTA App.js para que pase `computeRealWorktreePath(projectPath,
+ * sessionId)` a `readGsdProgress` y consuma el STATE.md real. Hasta entonces, este
+ * shim preserva el export para que la suite siga verde SIN cambiar App.js (el plan
+ * difiere su rewire a Plan 02).
+ *
+ * Devuelve siempre `{ status: 'no-progress' }`: el dashboard pinta `—` (idéntico al
+ * comportamiento pre-feature), nunca un N/M derivado de la fuente equivocada. NO
+ * intenta leer la superficie HOME-relative ya retirada (DG-02). Se ELIMINA en Plan 02.
+ *
+ * @param {string} _taskId  ignorado (el wiring real llega en Plan 02).
+ * @param {object} [_deps]  ignorado.
+ * @returns {ProgressResult}
+ */
+export function readProgress(_taskId, _deps) {
+  return { status: 'no-progress' };
 }
