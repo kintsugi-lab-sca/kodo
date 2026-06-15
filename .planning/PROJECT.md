@@ -10,10 +10,17 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ## Current State
 
-**Shipped:** v0.11 (2026-06-10) — Ventana al plan · audit `tech_debt` (sin blockers, 8/8 requirements, integración cross-phase 8/8 + 2/2 flujos E2E verificados; deuda Nyquist 44/45/46 diferida)
+**Shipped:** v0.12 (2026-06-15) — Atajos al gestor y progreso vivo · cerrado con deuda reconocida (HUMAN-UAT del display de progreso vivo de Phase 50.1 diferido a verificación en TTY real; + XSS latente WR-01 en el carril HTML de `src/server.js`). 5 phases (48-51 + 50.1), 10 plans, 90 commits.
 **Next:** pendiente de definir — `/gsd:new-milestone`
 
+v0.12 profundiza el dashboard en dos direcciones desde la fila de sesión. *Hacia afuera:* la tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist `http(s)` + argv literal), + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprimido); cerrado por HUMAN-UAT en macOS real (Phase 48). *Hacia adentro:* un spike empírico (Phase 49) dictaminó **VIABLE** capturar el progreso N/M en Claude Code 2.1.175, y el dashboard muestra ahora una columna condicional `prog` con `N/M` (= `completed_phases`/`total_phases`) por sesión GSD — leído del bloque `progress:` del `STATE.md` del worktree real (Phase 50 + corrección 50.1, que reemplazó la superficie inicial `~/.claude/tasks/` por STATE.md tras descubrirla vacía en sesiones GSD reales). + backfill de la deuda Nyquist de v0.11 (Phase 51, 3 VALIDATION.md citation-based). Cero endpoints nuevos, contrato `TaskProvider` FROZEN en 9. Suite 1307 pass + 1 skip. **Verificación humana del display de progreso (50.1) diferida** al no poder montarse una sesión GSD viva en el cierre.
+
+<details>
+<summary>v0.11 Ventana al plan (shipped 2026-06-10)</summary>
+
 v0.11 abre "la ventana al plan": el operador pulsa una tecla en el dashboard y ve el plan de **cualquier** sesión, sea GSD o no. Cuatro fases (44-47), 5 plans, 71 commits, suite 1263 pass + 1 skip. (1) **Overlay de plan GSD + pulido (Phase 44)** — tecla `p` (junto a `c`/`l`) → `readPlan` (helper puro sync never-throws en `plan.js`) lee `.planning/phases/<fase>/<N>-NN-PLAN.md` bajo `worktree_path ?? project_path` vía `resolvePhase` (v0.3 Phase 9), overlay con 4 copies discriminadas (no-phase/no-plan/no-light-plan/error), snapshot congelado, `Esc` preserva cursor por `task_id`; + pulido dogfooding v0.10: `deriveAnyGsd(sorted)` oculta la columna `phase/mode` cuando ninguna sesión es GSD (ancho recuperado, reaparece sola) y zombie marcado por-fila en `state`. (2) **Inyección de plan ligero universal (Phase 45)** — `session-start.js` (`buildSessionContext` ES non-GSD + rama quick de `buildGsdContext` EN) inyecta la instrucción de escribir un plan corto a `~/.kodo/plans/<task_id>.md` (ruta kodo-controlada estable vía `KODO_DIR`, correlacionada por `task_id`), golden-bytes HOOK-02 preservados por append-al-final, sin depender de hooks no documentados de Claude Code (research previo marcó `TodoWrite` deprecado + transcript/`~/.claude/plans/` frágiles entre versiones). (3) **Overlay del plan ligero quick/non-GSD (Phase 46)** — `readLightPlan` como fallback en `plan.js`: cuando la fila no es GSD (`phase_id == null`) lee el artefacto de Phase 45 con **ruta byte-idéntica al productor**, misma UX `mode:'overlay'`, copy honesta `OVERLAY_PLAN_NO_LIGHT`, never-throws, anti-ReDoS guard de contención del `task_id`. (4) **Backfill de deuda Nyquist (Phase 47, doc-only Tier 1)** — 7 `VALIDATION.md` citation-based (`nyquist_compliant: true`) para 41/43 (v0.10) + 36/37/38/39/39.1 (v0.9) citando evidencia existente sin re-ejecutar la suite, espejo de v0.8 Phase 33 Bloque B; STATE.md Deferred Items reconciliado. **Invariantes preservadas:** cero endpoints nuevos en `src/server.js` (overlay read-only filesystem en ambos paths), color isolation, `--json` byte-determinismo, el seam crítico productor↔consumidor (`~/.kodo/plans/<task_id>.md`) verificado byte-idéntico. Audit `tech_debt`: la propia deuda Nyquist de v0.11 (44/45/46 con VALIDATION.md `draft`) queda diferida — mismo patrón con que v0.9/v0.10 difirieron la suya a Phase 47.
+
+</details>
 
 <details>
 <summary>v0.10 Higiene y estado real de sesiones (shipped 2026-06-08)</summary>
@@ -43,22 +50,13 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Current Milestone: v0.12 Atajos al gestor y progreso vivo
+## Next Milestone
 
-**Goal:** Profundizar el dashboard en dos direcciones desde la fila de sesión — *hacia afuera* (saltar a la tarea en Plane/GitHub) y *hacia adentro* (ver el progreso vivo de la sesión, condicional a que el spike lo confirme viable).
+_Sin definir._ Ejecutar `/gsd:new-milestone` para arrancar el siguiente ciclo (questioning → research → requirements → roadmap). Candidato fuerte en el backlog: **kodo bidireccional** (sesión cmux ad-hoc → tarea persistente, Phase 999.1 en ROADMAP.md).
 
-**Target features:**
-- **Abrir-en-gestor** *(core, ships sí o sí)* — tecla nueva sobre una fila → abre la URL de la tarea en el navegador (`open` vía `execFile`, patrón de `focus.js`); `task_url` persistida en `SessionRecord` al lanzar, provista por cada normalizer (GitHub `html_url`; Plane construida desde host web + workspace + project + issue).
-- **Research** — qué reemplazó a TodoWrite en el Claude Code actual y qué hook/superficie expone el task-state vivo.
-- **Spike (gate duro)** — veredicto empírico VIABLE/INVIABLE sobre capturar task-state vivo vía hook soportado.
-- **Display de progreso vivo** *(condicional al spike)* — si VIABLE: captura + persiste + el dashboard muestra el avance de la sesión.
-- **Backfill Nyquist v0.11** — saldar la deuda heredada (44/45/46 `draft`) de paso, espejo de Phase 47.
-
-**Invariantes a honrar:** cero endpoints nuevos (la URL ya persistida se lee como `focus.js` lee la suya), contrato `TaskProvider` FROZEN en 9 (la URL va como campo de `TaskItem` o método opcional typeof-detected, espejo de `getTaskState`), color isolation, TUI never-throws, selección por identidad `task_id`, `execFile` fire-and-forget sin desmontar el panel.
-
-**Deuda heredada de v0.11 (no bloqueante, registrada en STATE.md `## Deferred Items`):**
-- **Nyquist v0.11:** ✓ saldada en **Phase 51** (NYQ-03, 2026-06-15) — los 3 `VALIDATION.md` (44/45/46) togglados in-place a citation-based (`nyquist_compliant: true`) citando su evidencia VERIFICATION/HUMAN-UAT existente sin re-ejecutar la suite. Espejo de Phase 47.
-- **Frontmatter cosmético:** `requirements_completed: []` vacío en summaries de 46-01 y 47-01 (cobertura verificada por VERIFICATION + integration + traceability).
+**Deuda heredada al cierre de v0.12 (no bloqueante, registrada en STATE.md `## Deferred Items`):**
+- **HUMAN-UAT de Phase 50.1** (display de progreso vivo) — 3 escenarios + `50.1-VERIFICATION.md` `human_needed` (8/8 must-haves auto-verificados): requieren un TTY real con sesión GSD viva, no montable en el cierre. Espejo de cómo v0.9/v0.10/v0.11 cerraron con deuda.
+- **XSS latente WR-01** — el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo `http(s)` que sí aplica el carril TUI (`runOpen`); un `javascript:`/`data:` en `task_url` podría inyectarse en el HTML servido. Registrado en Phase 48 code review, candidato a hardening en el próximo milestone.
 
 ## Requirements
 
@@ -126,12 +124,15 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 - ✓ Overlay del plan ligero quick/non-GSD — `readLightPlan` fallback en `plan.js`: cuando `phase_id == null` lee el artefacto de Phase 45 con ruta byte-idéntica al productor, misma UX `mode:'overlay'`, copy honesta `OVERLAY_PLAN_NO_LIGHT`, never-throws, anti-ReDoS guard del `task_id` — v0.11 Phase 46 (PLAN-04; 46-VERIFICATION passed; 46-HUMAN-UAT 2/2; seam productor↔consumidor verificado byte-idéntico por integration check)
 - ✓ Backfill de deuda Nyquist — 7 `VALIDATION.md` citation-based (`nyquist_compliant: true`) para 41/43 (v0.10) + 36/37/38/39/39.1 (v0.9) citando evidencia existente sin re-ejecutar la suite, espejo de v0.8 Phase 33 Bloque B; STATE.md Deferred Items reconciliado, Tier 1 doc-only (`git diff src/ test/ bin/` vacío) — v0.11 Phase 47 (NYQ-01, NYQ-02; 47-VERIFICATION passed 8/8)
 - ✓ Abrir-en-gestor (open-in-manager) — tecla `o` sobre una fila con `task_url` abre la tarea en el navegador vía `runOpen` (`execFile` never-throws + allowlist http(s) con `new URL()` antes de `exec` + argv literal `[url]` anti flag-injection); no-op legacy con footer `no task URL for this session`; + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` cableado end-to-end registry→provider→ambos context builders→normalize, `UNKNOWN-<seq>` suprime el link muerto) — v0.12 Phase 48 (OPEN-01..04; 48-VERIFICATION 5/5 must-haves; 48-HUMAN-UAT aprobado en macOS real; suite 1279 pass + 1 skip)
+- ✓ Live-progress spike (HARD GATE) — veredicto empírico **VIABLE** sobre Claude Code 2.1.175: el progreso N/M de una sesión es capturable vía hook `TaskCreated`/`TaskCompleted` (payload con `session_id`), correlacionable a `task_id` vía el `findSession` existente; gate abierto a Phase 50 — v0.12 Phase 49 (PROG-01; `49-SPIKE.md` veredicto VIABLE con evidencia cruda de la versión instalada)
+- ✓ Live-progress display — columna condicional `prog` en el dashboard mostrando `N/M` (= `completed_phases`/`total_phases`) por sesión GSD, derivado del bloque `progress:` del `STATE.md` del worktree real (`readGsdProgress` + `computeRealWorktreePath`), enrich client-side en App.js (mold `readLightPlan`), keep-last-good por `session_id`, gate `gsd === true` (no-GSD → `—`), cero color (dim), cero endpoints nuevos. La fuente inicial de Phase 50 (hook propio `task-progress.js` + `~/.claude/tasks/`) resultó vacía en sesiones GSD reales que usan `Agent` y fue reemplazada en Phase 50.1; el hook 50-02 quedó demotado — v0.12 Phase 50 + 50.1 (PROG-02, PROG-03; must-haves 9/9 + 8/8 auto-verificados; **HUMAN-UAT visual en TTY real diferido al cierre**, ver STATE.md Deferred Items)
+- ✓ Backfill Nyquist v0.11 — los 3 `VALIDATION.md` draft de las Phases 44/45/46 togglados in-place a citation-based (`nyquist_compliant: true`) citando su evidencia VERIFICATION/HUMAN-UAT sin re-ejecutar la suite, + STATE.md Deferred Items reconciliado; Tier 1 doc-only (`git diff src/ test/ bin/` vacío) — v0.12 Phase 51 (NYQ-03)
 
 ### Active
 
-**Milestone v0.12 "Atajos al gestor y progreso vivo" en planning** (iniciado 2026-06-11). Requirements en `.planning/REQUIREMENTS.md`. Core: abrir la tarea en Plane/GitHub desde la TUI. Condicional (spike-gated): display de progreso vivo de la sesión. + backfill Nyquist v0.11.
+**Sin milestone activo.** v0.12 shipped 2026-06-15. Próximo ciclo con `/gsd:new-milestone`. Deuda viva trackeada en STATE.md `## Deferred Items` (HUMAN-UAT del display de progreso 50.1; XSS latente WR-01 en `src/server.js`).
 
-**Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
+**Deferred candidates (futuros milestones):** **kodo bidireccional** (sesión cmux → tarea persistente, backlog 999.1) · hardening XSS del carril HTML (`task_url` allowlist en `src/server.js`) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
 
 ### Out of Scope
 
@@ -148,7 +149,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ## Context
 
-**Current state (post v0.11):** Node.js 20+ con cuatro dependencias externas en producción (`commander` + `picocolors@^1.1.1` + `ink@^6.8.0` + `react@^19.2.0`; ink/react lazy-imported para no penalizar el arranque del resto del CLI). Suite global: 1263 pass + 1 skip + 0 fail (startup-budget Decisión B sigue siendo el único skip). Tres canales de trigger (webhook + polling + manual), dos adapters `TaskProvider` validados (Plane + GitHub), y una TUI de observabilidad+gestión (`kodo dashboard`, Node + ink) read-only sobre el contrato JSON del server — salvo el dismiss de sesiones dead (v0.10, única superficie read-write) — con overlays de plan que muestran el `PLAN.md` GSD (vía `resolvePhase`) o el artefacto de plan ligero de sesiones quick/non-GSD (`~/.kodo/plans/<task_id>.md`, v0.11). Cero endpoints nuevos desde v0.10.
+**Current state (post v0.12):** Node.js 20+ con cuatro dependencias externas en producción (`commander` + `picocolors@^1.1.1` + `ink@^6.8.0` + `react@^19.2.0`; ink/react lazy-imported para no penalizar el arranque del resto del CLI). Suite global: 1307 pass + 1 skip + 0 fail (startup-budget Decisión B sigue siendo el único skip). Tres canales de trigger (webhook + polling + manual), dos adapters `TaskProvider` validados (Plane + GitHub), y una TUI de observabilidad+gestión (`kodo dashboard`, Node + ink) read-only sobre el contrato JSON del server — salvo el dismiss de sesiones dead (v0.10, única superficie read-write) — con overlays de plan (`PLAN.md` GSD vía `resolvePhase` o plan ligero `~/.kodo/plans/<task_id>.md`), la tecla `o` que abre la tarea en el gestor (v0.12), y una columna condicional `prog` con el progreso `N/M` por sesión GSD leído del `STATE.md` del worktree (v0.12). Cero endpoints nuevos desde v0.10.
 
 **Architecture v0.9 añade:**
 - `src/cli/dashboard/` — TUI ink/react sin build step (`React.createElement` plano). Capas separadas: `client.js` (`fetchStatus`/`fetchComments`/`fetchLogs` puros never-throws), `usePoll.js` (`runPollLoop` self-scheduling single-flight + backoff + `AbortController`), `select.js`/`format.js` (derive PURA React-free: sort, selección por identidad `task_id`, filtros anti-ReDoS, color semántico como dato), `App.js`/`SessionTable.js` (render + `useInput` mode-gated list/filter/overlay), `focus.js` (`runFocus` → `cmux select-workspace` vía `execFile`).
@@ -239,6 +240,11 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 | Filtros con `String.includes` (NO `RegExp`) | Anti-ReDoS sobre input del usuario en el filtro `/` | ✓ Good — v0.9 Phase 36 |
 | WorkspaceHost provider intercambiable + estado v3 con `reconcileTick` como ÚNICO escritor de `alive` | Una sola fuente de verdad; el dashboard nunca recomputa estado | ✓ Good — v0.9 Phase 38 + 39.1 (elimina el override legacy de `GET /status`); cierra ROMAN-151/152 |
 | Fases de mayor riesgo (37 attach, 38 host) cerradas por UAT manual, NO por verifier automatizado | Focus GUI cmux + estados de proceso en vivo no son automatizables sin PTY/sesión real | ⚠️ Revisit — v0.9; funcional (UAT/HUMAN-UAT passed) pero deja hueco de VERIFICATION.md formal (deuda trackeada) |
+| URL del manager como campo estático de `TaskItem` (NO método `getTaskState`-style) | Una URL es inmutable, conocida en normalize-time; el patrón método-opcional se justifica solo para estado *vivo* | ✓ Good — v0.12 Phase 48; contrato FROZEN en 9 intacto, `task_url` round-trip ya existía en código shipped |
+| `runOpen` con allowlist `http(s)` + argv literal en la TUI; el carril HTML de `src/server.js` quedó SIN esa allowlist | La TUI usa `execFile` (sin shell) y valida protocolo; el carril HTML renderiza `<a href>` crudo | ⚠️ Revisit — v0.12 Phase 48; XSS `javascript:`/`data:` latente en el dashboard HTML (WR-01), registrado para hardening |
+| Phase 49 como spike-gate empírico ANTES de construir el display | El task-state vivo es version-specific, no pre-investigable desde docs; el veredicto gobierna si Phase 50 existe | ✓ Good — v0.12 Phase 49; veredicto VIABLE con evidencia de Claude Code 2.1.175 |
+| Progreso vivo desde el `STATE.md` del worktree GSD (NO `~/.claude/tasks/` ni hook propio) | La superficie `~/.claude/tasks/` resultó vacía en sesiones GSD reales que usan `Agent`; el STATE.md ya tiene `progress: completed_phases/total_phases` autoritativo | ✓ Good — v0.12 Phase 50.1 corrige Phase 50; hook 50-02 demotado, display reusado intacto |
+| Cerrar v0.12 con el HUMAN-UAT del display (50.1) diferido | El display auto-verificó 9/9+8/8 must-haves; la verificación visual requiere TTY+sesión viva no montable en el cierre | ⚠️ Revisit — v0.12; deuda reconocida en STATE.md, espejo de v0.9/v0.10/v0.11 |
 
 ## Evolution
 
@@ -258,7 +264,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — **Phase 48 "Open-in-manager core" shipped** (v0.12, 3 plans, 2 waves). Tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist http(s) + argv literal) sin desmontar el panel ink; no-op legacy con footer claro; + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprime link muerto). 48-VERIFICATION 5/5 must-haves + HUMAN-UAT aprobado en macOS real; suite 1279 pass + 1 skip. Code review advisory: 0 critical / 4 warning / 4 info — notable WR-01: el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo que sí tiene el carril TUI (XSS `javascript:` latente), registrado para follow-up.*
+*Last updated: 2026-06-15 after v0.12 "Atajos al gestor y progreso vivo" milestone — 5 phases (48-51 + 50.1), 10 plans, 90 commits, suite 1307 pass + 1 skip. Open-in-manager (tecla `o`, Phase 48, HUMAN-UAT macOS real) + spike VIABLE (Phase 49) + display de progreso vivo `N/M` desde el STATE.md del worktree (Phase 50 + corrección 50.1) + backfill Nyquist v0.11 (Phase 51). Cerrado con deuda reconocida: HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`. Archivos: `milestones/v0.12-ROADMAP.md`, `milestones/v0.12-REQUIREMENTS.md`. Next: `/gsd:new-milestone`.*
+
+---
+*Previous: 2026-06-12 — **Phase 48 "Open-in-manager core" shipped** (v0.12, 3 plans, 2 waves). Tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist http(s) + argv literal) sin desmontar el panel ink; no-op legacy con footer claro; + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprime link muerto). 48-VERIFICATION 5/5 must-haves + HUMAN-UAT aprobado en macOS real; suite 1279 pass + 1 skip. Code review advisory: 0 critical / 4 warning / 4 info — notable WR-01: el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo que sí tiene el carril TUI (XSS `javascript:` latente), registrado para follow-up.*
 
 ---
 *Previous: 2026-06-11 — **Milestone v0.12 "Atajos al gestor y progreso vivo" iniciado.** Profundiza el dashboard desde la fila de sesión: hacia afuera (abrir la tarea en Plane/GitHub, core ships sí o sí) y hacia adentro (progreso vivo de la sesión, condicional al spike de viabilidad de captura task-state). Incluye backfill de la deuda Nyquist heredada de v0.11. Numeración de fases continúa desde la 47.*

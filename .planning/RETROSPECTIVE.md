@@ -357,6 +357,39 @@ Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` 
 
 ---
 
+## Milestone: v0.12 — Atajos al gestor y progreso vivo
+
+**Shipped:** 2026-06-15
+**Phases:** 5 (48-51 + 50.1) | **Plans:** 10 | **Commits:** 90 | **Audit:** ninguno formal (`/gsd:audit-milestone` no se corrió) — cerrado con deuda reconocida (HUMAN-UAT display 50.1 + XSS latente WR-01)
+
+### What Was Built
+Dashboard profundizado en dos direcciones desde la fila de sesión. *Hacia afuera:* tecla `o` abre la tarea (Plane/GitHub) en el navegador (`runOpen` execFile never-throws + allowlist http(s) + argv literal) + fix del bug de browse-URL de Plane (`plane.web_url ?? base_url`). *Hacia adentro:* spike empírico (Phase 49) dictaminó VIABLE capturar el progreso N/M; el dashboard muestra una columna condicional `prog` con `N/M` por sesión GSD leído del bloque `progress:` del STATE.md del worktree (Phase 50 + corrección 50.1). + backfill Nyquist v0.11 (Phase 51).
+
+### What Worked
+- **El spike-gate (Phase 49) hizo su trabajo: gobernó si Phase 50 se construía.** El task-state vivo es version-specific; meterlo como fase-research separada antes del display evitó construir a ciegas. Veredicto VIABLE con evidencia de Claude Code 2.1.175.
+- **Phase 48 descansó sobre código ya shipped:** el round-trip de `task_url` (`TaskItem.url`, `manager.js` persiste, `GET /status` lo expone) ya existía; el trabajo real fue consumo (un keypress + `open.js` clonado de `focus.js`), no plumbing. La auditoría source-first evitó reconstruir lo que ya estaba.
+- **El reuso del display de Phase 50 en 50.1 fue total:** la corrección de fuente (de `~/.claude/tasks/` a STATE.md) cambió solo el enrich; `progCell`/`deriveAnyProgress`/columna se reusaron intactos. Cero greenfield en el repunte.
+
+### What Was Inefficient
+- **Phase 50 se construyó sobre una superficie equivocada y hubo que rehacerla en 50.1.** El hook `task-progress.js` leía `~/.claude/tasks/`, que resultó VACÍA en sesiones GSD reales (que usan `Agent`, no `Task*` tools). El gate A2 confirmó el *disparo* del hook pero NO que la superficie tuviera *datos* en el flujo real → una fase entera (50-02 captura) quedó demotada. El spike validó la mecánica, no el contenido end-to-end.
+- **El milestone cerró sin audit formal y con el HUMAN-UAT de su feature estrella (display de progreso) diferido.** La verificación visual del progreso vivo requiere TTY + sesión GSD viva, no montable en el momento; se difirió como deuda. Tercer milestone consecutivo (v0.10/v0.11/v0.12) cerrando con deuda de verificación.
+- **Drift de frontmatter al cierre:** `48-VERIFICATION.md` quedó `human_needed` pese a tener el UAT APPROVED en `48-03-SUMMARY.md`; el audit-open lo marcó como gap falso. El status no se reconcilió al firmar el UAT.
+
+### Patterns Established
+- **Spike-gate como fase separada antes de una feature condicional:** cuando la viabilidad es version-specific y no pre-investigable, un veredicto empírico escrito (VIABLE/INVIABLE) que gobierne si la fase siguiente existe evita construir sobre supuestos.
+- **Validar la superficie con DATOS del flujo real, no solo la mecánica:** un gate que confirma "el hook dispara" no basta; debe confirmar "el hook dispara CON los datos esperados en el flujo de producción".
+
+### Key Lessons
+- Un spike de viabilidad debe ejercitar el flujo de producción REAL (sesión GSD con `Agent`), no un harness sintético que dispara `Task*` — o validará una superficie que estará vacía en producción. Phase 50→50.1 es el coste de esa brecha.
+- Reconciliar el status del frontmatter al firmar el UAT (no dejarlo en `human_needed`) — el audit-open confía en el frontmatter y produce falsos gaps si hay drift.
+- El display reusable (columna no-color, derive-flag, keep-last-good) es ahora un mold probado: Phase 43 (provider_state) → Phase 50 → 50.1 lo reusaron con cambios mínimos.
+
+### Cost Observations
+- Model mix: opus (orquestación + spike + corrección de fuente 50.1) + sonnet (checker/verifier).
+- Notable: el cierre destapó deuda oculta (drift de 48, obsolescencia de 50 por 50.1) que el audit-open numérico no distinguía de trabajo real pendiente — requirió inspección manual para separar ruido (4 items) de señal (UAT 50.1 genuino).
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -373,6 +406,7 @@ Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` 
 | v0.9 | 23 | 7 | Primera superficie UI (TUI ink/react sin build step): derive-pura React-free + never-throws en data layer + selección por identidad + UAT manual como gate de cierre para fases GUI |
 | v0.10 | 10 | 4 | Dogfooding/verificación-en-vivo como gate de cierre (3 bugs reales no cazados por suite) + 1ª ruptura consciente de invariante (TUI read-only → dismiss read-write) con UAT firmado |
 | v0.11 | 5 | 4 | kodo produce su propio artefacto (plan ligero) en vez de olfatear internals frágiles de un tercero + verificación byte-a-byte del contrato de ruta cross-phase + audit de milestone como gate opcional pre-cierre |
+| v0.12 | 10 | 5 | Spike-gate como fase separada antes de feature condicional + corrección de fuente in-milestone (Phase 50→50.1) cuando la superficie validada por el spike resultó vacía en el flujo real + reconciliación manual de deuda al cierre (drift vs obsoleto vs señal) |
 
 ### Cumulative Quality
 
@@ -386,6 +420,9 @@ Cadena `provider_state` end-to-end (cierra el driver ROMAN-150): `getTaskState` 
 | v0.7 | 777 | ~9,500 | ~16,500 |
 | v0.8 | 895 | ~10,374 (src+bin) | ~19,297 |
 | v0.9 | 1073 | ~12,500 (src+bin, +TUI) | ~23,900 |
+| v0.10 | 1213 | — | — |
+| v0.11 | 1263 | — | — |
+| v0.12 | 1307 | — | — |
 
 ### Top Lessons (Verified Across Milestones)
 

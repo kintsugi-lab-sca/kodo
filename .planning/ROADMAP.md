@@ -12,20 +12,21 @@
 - ✅ **v0.9 kodo TUI — sesiones en vivo** — Phases 34-39 + 39.1 (shipped 2026-06-03)
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
-- 🚧 **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 (in progress)
+- ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
 
 ## Phases
 
-### 🚧 v0.12 Atajos al gestor y progreso vivo (In Progress)
+<details>
+<summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
 
-**Milestone Goal:** Profundizar el dashboard en dos direcciones desde la fila de sesión — *hacia afuera* (saltar a la tarea en Plane/GitHub con una tecla) y *hacia adentro* (ver el progreso vivo de la sesión, **condicional** a que un spike empírico confirme que la captura es viable en el Claude Code instalado).
+- [x] Phase 48: Open-in-manager core (3/3 plans) — OPEN-01..04 — completed 2026-06-12
+- [x] Phase 49: Live-progress spike / HARD GATE (1/1 plan) — PROG-01 (veredicto VIABLE) — completed 2026-06-12
+- [x] Phase 50: Live-progress display condicional (3/3 plans) — PROG-02, PROG-03 — completed 2026-06-13
+- [x] Phase 50.1: Live-progress vía STATE.md de GSD — corrige la fuente (2/2 plans) — re-realiza PROG-02/PROG-03 — completed 2026-06-15
+- [x] Phase 51: Backfill Nyquist v0.11 (1/1 plan) — NYQ-03 — completed 2026-06-15
 
-> **⛔ GATE DURO (Phase 49 → Phase 50).** Phase 50 (display de progreso vivo) se ejecuta **SOLO si Phase 49 (spike) devuelve VIABLE.** Si devuelve **INVIABLE — el default esperado según el research** (`Task*` tools bypassean PostToolUse, issue anthropics/claude-code #20243) — Phase 50 se **corta por completo** (sin stub, sin placeholder, sin código muerto): PROG-02/03 se difieren a v2 (ya anticipados como PROG-F1) y el milestone cierra con OPEN-* + NYQ-03 **sin penalización**. La salud del roadmap NO depende de que la mitad condicional aterrice.
-
-- [ ] **Phase 48: Open-in-manager core** — Tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `execFile` never-throws + fix del bug latente de URL de Plane (ships sí o sí)
-- [ ] **Phase 49: Live-progress spike (HARD GATE)** — Veredicto empírico VIABLE/INVIABLE sobre capturar task-state vivo en el Claude Code instalado
-- [ ] **Phase 50: Live-progress display (CONDICIONAL — solo si Phase 49 = VIABLE)** — Captura + persiste + muestra el avance `N/M` por sesión en el dashboard
-- [ ] **Phase 51: Backfill Nyquist v0.11** — `VALIDATION.md` citation-based para Phases 44/45/46 (doc-only Tier 1, independiente)
+Archivo: `milestones/v0.12-ROADMAP.md` · Requirements: `milestones/v0.12-REQUIREMENTS.md` · Deuda diferida al cierre: HUMAN-UAT de Phase 50.1 (display de progreso vivo, verificación en TTY real — ver STATE.md `## Deferred Items`)
+</details>
 
 <details>
 <summary>✅ v0.11 Ventana al plan (Phases 44-47) — SHIPPED 2026-06-10</summary>
@@ -35,7 +36,7 @@
 - [x] Phase 46: Overlay del plan ligero para sesiones quick/non-GSD (1/1 plan) — PLAN-04
 - [x] Phase 47: Backfill de deuda Nyquist (1/1 plan) — NYQ-01, NYQ-02
 
-Archivo: `milestones/v0.11-ROADMAP.md` · Requirements: `milestones/v0.11-REQUIREMENTS.md` · Audit: `milestones/v0.11-MILESTONE-AUDIT.md` (status: tech_debt — deuda Nyquist 44/45/46 diferida)
+Archivo: `milestones/v0.11-ROADMAP.md` · Requirements: `milestones/v0.11-REQUIREMENTS.md` · Audit: `milestones/v0.11-MILESTONE-AUDIT.md` (status: tech_debt — deuda Nyquist 44/45/46 diferida → saldada en Phase 51 de v0.12)
 </details>
 
 <details>
@@ -50,122 +51,6 @@ Archivo: `milestones/v0.10-ROADMAP.md` · Requirements: `milestones/v0.10-REQUIR
 </details>
 
 Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
-
-## Phase Details
-
-### Phase 48: Open-in-manager core
-
-**Goal**: El operador salta de una fila del dashboard a la tarea en su gestor (Plane/GitHub) con una sola tecla, sin salir de la TUI. Ships incondicionalmente — es la promesa central del milestone, independiente del spike.
-**Depends on**: Nothing (primera fase del milestone; el round-trip de la URL ya está construido en código shipped)
-**Requirements**: OPEN-01, OPEN-02, OPEN-03, OPEN-04
-**Success Criteria** (what must be TRUE):
-
-  1. El operador pulsa `o` sobre una fila con `task_url` y se abre la tarea en el navegador del sistema (Plane/GitHub); el panel ink permanece montado (cero unmount, cero toggle de alt-screen).
-  2. Sobre una fila legacy sin `task_url`, la tecla `o` es un no-op con mensaje de footer claro (`no task URL for this session`) — nunca invoca `open` con argumento falsy/garbage.
-  3. Cualquier fallo del launcher (ENOENT / navegador ausente / exit≠0 / throw) se reporta en el footer y nunca crashea React (never-throws end-to-end).
-  4. URLs no-`http(s)` (`file://`, `javascript:`, valores con `-` inicial) se rechazan antes de llegar a `execFile`; la URL se pasa como argumento literal, nunca por shell.
-  5. En un deploy Plane con web/API separados (`web_url ≠ base_url`), el link abre la web UI viva — no el host de API; el identificador `UNKNOWN-<seq>` se trata como "sin URL" (footer), no como link muerto.
-
-**Plans**: 3 plans (2 waves)
-**UI hint**: yes
-
-Plans:
-**Wave 1**
-
-- [x] 48-01-PLAN.md — Fix Plane browse-URL bug: optional `plane.web_url` config wired end-to-end (registry -> provider -> normalizer) + UNKNOWN-suppression (OPEN-04)
-- [x] 48-02-PLAN.md — `open.js` never-throws launcher (http(s) allowlist, literal argv) + `o` keypress handler + `onOpen` DI wiring (OPEN-01, OPEN-02, OPEN-03)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 48-03-PLAN.md — HUMAN-UAT close: real browser launch + alt-screen survival + legacy no-op + split-deploy URL (mirror Phase 37)
-
-### Phase 49: Live-progress spike (HARD GATE)
-
-**Goal**: Producir un veredicto empírico escrito **VIABLE / INVIABLE** sobre si el task-state vivo de una sesión `claude --worktree` interactiva puede capturarse en la build instalada de Claude Code vía una superficie soportada. Esta fase **ES el research** — espejo de v0.11 Phase 45: empírica, version-specific, no pre-investigable desde docs. Su único deliverable es el veredicto con evidencia, no código de producción.
-**Depends on**: Nothing (independiente de Phase 48; debe ejecutarse ANTES de Phase 50)
-**Requirements**: PROG-01
-**Success Criteria** (what must be TRUE):
-
-  1. Existe un documento de veredicto con un **VIABLE/INVIABLE explícito** y evidencia empírica de la versión de Claude Code instalada (`claude --version`), no inferida de docs.
-  2. Cada superficie candidata queda evaluada en orden de preferencia con evidencia: (1) eventos hook `TaskCreated`/`TaskCompleted`, (2) watcher del transcript JSONL, (3) lectura de `~/.claude/tasks/` (último recurso).
-  4. **VIABLE solo si las 4 condiciones se demuestran**: la superficie dispara/se lee de hecho en la versión instalada · payload estable para derivar `N/M` · correlación determinista con `task_id` (vía `session_id` → `state.json`) · cero latencia/ruptura de sesión + escritura a un artefacto kodo-controlado (`~/.kodo/...`). Cualquier fallo → INVIABLE.
-  5. El veredicto deja una decisión inequívoca para el gate: si INVIABLE (default esperado), Phase 50 se corta y PROG-02/03 se difieren a v2 sin penalización al milestone.
-
-**Plans**: 1 plan (1 wave)
-
-Plans:
-
-- [x] 49-01-PLAN.md — Ejecutar el spike empírico y emitir el veredicto `49-SPIKE.md` (re-verificación de versión + harness throwaway · observación operator-driven de una sesión `/gsd-execute-phase` viva con Evidence Map de 4 condiciones × 3 superficies · veredicto VIABLE/INVIABLE + decisión de gate) — PROG-01
-
-### Phase 50: Live-progress display (CONDICIONAL — solo si Phase 49 = VIABLE)
-
-**Goal**: Si y solo si Phase 49 devuelve VIABLE, kodo captura + persiste el progreso de cada sesión a un artefacto kodo-controlado bajo `~/.kodo/` y el dashboard lo muestra (`N/M`). **Si Phase 49 devuelve INVIABLE, esta fase NO se ejecuta** — se corta entera, sin stub ni placeholder; PROG-02/03 → v2 (PROG-F1). El display es barato (espejo del patrón `provider_state` Phase 43); el coste vivía en la captura, que el spike ya resolvió.
-**Depends on**: Phase 49 = **VIABLE** (gate duro — esta fase no existe si el verdict es INVIABLE)
-**Requirements**: PROG-02, PROG-03
-**Success Criteria** (what must be TRUE):
-
-  1. Un hook de captura **separado** (no perturba los golden-bytes HOOK-02 de `session-start.js`) escribe el progreso a `~/.kodo/<artefacto>/<task_id>.json` correlacionado por `task_id`, fire-and-forget, never-throws, sin añadir latencia ni romper la sesión.
-  2. El dashboard muestra el progreso por sesión (p. ej. `N/M`) leyendo ese artefacto vía filesystem (mold del overlay de plan ligero), **cero endpoints nuevos** — nunca un re-enrich de `/status`.
-  3. Estados degradados honestos: sin todos → `—`; fallo transiente de captura → `?` + keep-last-good; cohortes legacy/`Task*`-tools toleradas (patrón de la columna no-color `provider_state`).
-
-**Plans**: 3 plans (3 waves)
-**UI hint**: yes
-
-> **Gate de apertura (Wave 0):** el plan 50-01 confirma EMPÍRICAMENTE el riesgo A2 (que `TaskCreate` dispara en un `execute-phase` real worktree, sin añadir latencia) ANTES de construir. Si A2 falla → la fase se corta vía PROG-F1 (D-02). Los plans 50-02/50-03 solo se ejecutan tras `A2 CONFIRMA`.
-
-Plans:
-**Wave 0** *(gate de apertura — load-bearing, no saltable)*
-
-- [x] 50-01-PLAN.md — Gate A2 (D-01/D-02): instrumentar un `execute-phase` real worktree, confirmar disparo de `TaskCreate` + medir latencia del hook → veredicto `50-A2-GATE.md`; branch de corte explícito PROG-F1 si falla
-
-**Wave 1** *(captura — blocked on A2 CONFIRMA)*
-
-- [x] 50-02-PLAN.md — Hook de captura separado `task-progress.js` (lee tasks-dir autoritativo never-throws → escribe `~/.kodo/progress/<task_id>.json` con UUID kodo, anti-traversal) + registro `TaskCreated`/`TaskCompleted` en `install.js` sin clobber (PROG-02)
-
-**Wave 2** *(display — blocked on Wave 1; consume el seam productor↔consumidor)*
-
-- [x] 50-03-PLAN.md — `readProgress` (mold `readLightPlan`) + `deriveAnyProgress` (mold `deriveAnyGsd`) + `progCell` (4 estados, mold `taskCell`) + enrich CLIENT-SIDE en `App.js` (keep-last-good, CERO server.js) + columna condicional `prog` en `SessionTable.js` (PROG-03)
-
-### Phase 50.1: Live-progress vía STATE.md de GSD — corrige la fuente: lee progress: (completed_phases/total_phases) del STATE.md de la sesión GSD, repunta el display de Phase 50, demota el hook 50-02 (superficie ~/.claude/tasks equivocada) (INSERTED)
-
-**Goal:** El dashboard muestra `N/M` fases por sesión GSD leyendo el bloque `progress:` del `STATE.md` del worktree real, reusando el display de Phase 50 intacto y demotando el hook 50-02 que leía la superficie equivocada.
-**Requirements**: PROG-02 (re-realizada vía fuente GSD), PROG-03 (display reusado)
-**Depends on:** Phase 50
-**Plans:** 2/2 plans complete
-
-Plans:
-- [x] 50.1-01-PLAN.md — Fuente nueva: readGsdProgress (STATE.md) + computeRealWorktreePath + demote hook 50-02 + tests Wave 0
-- [x] 50.1-02-PLAN.md — Repuntar el enrich client-side de App.js a la fuente GSD; reuso intacto del display (cero server.js, cero deps)
-
-### Phase 51: Backfill Nyquist v0.11
-
-**Goal**: Saldar la deuda Nyquist heredada de v0.11 (Phases 44/45/46 con `VALIDATION.md` en `draft` / `nyquist_compliant: false`, registrada en STATE.md `## Deferred Items`) — citation-based, sin re-ejecutar la suite. Doc-only Tier 1, espejo de v0.11 Phase 47 / v0.8 Phase 33 Bloque B. Independiente de todo el resto del milestone: no bloquea ni es bloqueada.
-**Depends on**: Nothing (independiente; puede ir primera o última, en paralelo con Phase 48)
-**Requirements**: NYQ-03
-**Success Criteria** (what must be TRUE):
-
-  1. Phases 44, 45 y 46 tienen `VALIDATION.md` con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + integration check + UAT) sin re-ejecutar la suite.
-  2. Los stubs `draft` / `nyquist_compliant: false` quedan reemplazados y STATE.md `## Deferred Items` reconciliado.
-  3. Invariante Tier 1 respetado: `git diff -- src/ test/ bin/` vacío (cambio puramente documental).
-
-**Plans**: 1 plan (1 wave)
-
-Plans:
-**Wave 1**
-
-- [x] 51-01-PLAN.md — UPDATE in-place 44/45/46-VALIDATION.md (draft→compliant, citation-based citando VERIFICATION + 46-HUMAN-UAT) + reconciliación STATE.md ## Deferred Items (NYQ-03)
-
-## Progress
-
-**Execution Order:**
-Phases ejecutan en orden numérico: 48 → 49 → (50 solo si 49=VIABLE) → 51. Phase 51 (doc-only) puede correr en paralelo o último.
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 48. Open-in-manager core | v0.12 | 3/3 | Complete    | 2026-06-12 |
-| 49. Live-progress spike (HARD GATE) | v0.12 | 1/1 | Complete    | 2026-06-12 |
-| 50. Live-progress display (conditional) | v0.12 | 3/3 | Complete    | 2026-06-13 |
-| 51. Backfill Nyquist v0.11 | v0.12 | 1/1 | Complete    | 2026-06-15 |
 
 ## Backlog
 
@@ -196,4 +81,3 @@ Plans:
 
 ---
 _Histórico: la anterior Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
-</content>

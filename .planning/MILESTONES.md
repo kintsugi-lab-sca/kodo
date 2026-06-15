@@ -1,5 +1,27 @@
 # Milestones
 
+## v0.12 Atajos al gestor y progreso vivo (Shipped: 2026-06-15)
+
+**Phases:** 5 phases (48, 49, 50, 50.1 insertada, 51), 10 plans, 10 tasks
+**Stats:** 90 commits · 87 files (+10.993 / −1.274) · timeline 2026-06-11 → 2026-06-15 (4 días) · suite 1307 pass + 1 skip + 0 fail
+**Git range:** feat(48-01) → feat(50.1-02)
+
+**Delivered:** El dashboard se profundiza en dos direcciones desde la fila de sesión — *hacia afuera* (abrir la tarea en Plane/GitHub con una tecla) y *hacia adentro* (mostrar el progreso vivo `N/M` de cada sesión GSD), todo sin añadir un solo endpoint al server.
+
+**Key accomplishments:**
+
+- **Open-in-manager (Phase 48):** la tecla `o` sobre una fila con `task_url` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist `http(s)` con `new URL()` antes de exec + argv literal anti flag-injection); no-op legacy con footer `no task URL for this session`. Incluye el fix del bug latente de browse-URL de Plane: `plane.web_url ?? base_url` cableado end-to-end (registry → provider → ambos context builders → normalizer), link web vivo en deploys split self-hosted, supresión de `UNKNOWN-<seq>` muerto. Cerrado por HUMAN-UAT en macOS real (5/5).
+- **Live-progress spike — HARD GATE (Phase 49):** veredicto empírico **VIABLE** sobre Claude Code 2.1.175 — el progreso N/M de una sesión es capturable vía hook `TaskCreated`/`TaskCompleted` (payload con `session_id`), correlacionable a `task_id` vía el `findSession` existente. Gate abierto a Phase 50.
+- **Live-progress display (Phase 50 + corrección 50.1):** columna condicional `prog` en el dashboard que muestra `N/M` (= `completed_phases`/`total_phases`) por sesión GSD, enrich client-side, cero endpoints nuevos, keep-last-good por `session_id`. La fuente inicial de Phase 50 (hook propio + `~/.claude/tasks/`) resultó vacía en sesiones GSD reales que usan `Agent`, y fue reemplazada en Phase 50.1 por la lectura del bloque `progress:` del `STATE.md` del worktree real (`readGsdProgress` + `computeRealWorktreePath`); el hook 50-02 quedó demotado.
+- **Backfill Nyquist v0.11 (Phase 51):** los 3 `VALIDATION.md` draft de las Phases 44/45/46 togglados in-place a citation-based (`nyquist_compliant: true`) citando su evidencia VERIFICATION/HUMAN-UAT sin re-ejecutar la suite, + STATE.md Deferred Items reconciliado — Tier 1 doc-only, `git diff src/ test/ bin/` vacío.
+
+**Invariantes preservadas:** cero endpoints nuevos en `src/server.js`, contrato `TaskProvider` FROZEN en 9 (la URL va como campo de `TaskItem`, no método nuevo), color isolation, TUI never-throws, selección por identidad `task_id`, `execFile` fire-and-forget sin desmontar el panel.
+
+**Known deferred items at close: 2** (ver STATE.md `## Deferred Items`)
+- HUMAN-UAT de Phase 50.1 (3 escenarios) + `50.1-VERIFICATION.md` (`human_needed`, 8/8 must-haves auto-verificados): el display de progreso vivo requiere verificación visual en un TTY real con una sesión GSD viva, no montable en el momento del cierre. Diferido sin penalización — espejo de cómo v0.9/v0.10/v0.11 cerraron con deuda reconocida.
+
+---
+
 ## v0.11 Ventana al plan (Shipped: 2026-06-10)
 
 **Phases completed:** 4 phases, 5 plans, 6 tasks

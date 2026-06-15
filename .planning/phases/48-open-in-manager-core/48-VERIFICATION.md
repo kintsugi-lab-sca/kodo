@@ -1,8 +1,9 @@
 ---
 phase: 48-open-in-manager-core
 verified: 2026-06-12T06:00:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
+human_verification_result: passed (5/5 via 48-03-SUMMARY.md, 2026-06-12) — operador confirmó los 5 checks (happy path browser launch, alt-screen survival, legacy no-op, never-throws con binario real, adversarial refusal, split-deploy URL) contra el binario `open` real en macOS; Phase 48 cierra por HUMAN-UAT como estaba presupuestado (mirror de Phase 37)
 overrides_applied: 0
 re_verification: false
 human_verification:

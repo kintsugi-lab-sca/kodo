@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
-status: ready_to_plan
-stopped_at: Phase 51 complete (1/1) — ready to discuss Phase 999.1
-last_updated: 2026-06-15T10:12:29.023Z
-last_activity: 2026-06-15
+status: Awaiting next milestone
+stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
+last_updated: "2026-06-15T10:59:30.197Z"
+last_activity: 2026-06-15 — Milestone v0.12 completed and archived
 progress:
   total_phases: 6
   completed_phases: 5
@@ -17,11 +17,11 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** **v0.12 Atajos al gestor y progreso vivo** (planning) — roadmap creado 2026-06-11, 4 phases (48-51), 8/8 requirements mapeados. Previo: **v0.11 Ventana al plan SHIPPED 2026-06-10** (audit `tech_debt`, 8/8 requirements; deuda Nyquist 44/45/46 diferida → se salda en Phase 51).
+**Active milestone:** none — **v0.12 Atajos al gestor y progreso vivo SHIPPED 2026-06-15** (5 phases 48-51 + 50.1, 10 plans, 90 commits, suite 1307 pass + 1 skip; cerrado con deuda reconocida: HUMAN-UAT del display 50.1 + XSS latente WR-01). Próximo milestone sin definir → `/gsd:new-milestone`.
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "Atajos al gestor y progreso vivo").
+See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.12 shipped; sin milestone activo).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan. v0.12 profundiza desde la fila: *hacia afuera* (abrir la tarea en el gestor) y *hacia adentro* (progreso vivo, spike-gated).
 
@@ -29,12 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-15
-
-Progress: [██████████] 100%
+Phase: Milestone v0.12 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-15 — Milestone v0.12 completed and archived
 
 ## Roadmap v0.12 (active)
 
@@ -53,12 +51,11 @@ Build order: **OPEN CORE → SPIKE → DISPLAY CONDICIONAL → NYQUIST**. Phase 
 
 ## Most recent shipped milestone
 
-**v0.11 Ventana al plan** — shipped 2026-06-10 (4 phases 44-47 / 5 plans / 71 commits / suite 1263 pass + 1 skip). Audit `tech_debt` (8/8 requirements, integración cross-phase 8/8 + 2/2 flujos E2E; deuda Nyquist 44/45/46 `draft` diferida → se salda en Phase 51 de v0.12).
+**v0.12 Atajos al gestor y progreso vivo** — shipped 2026-06-15 (5 phases 48-51 + 50.1 / 10 plans / 90 commits / suite 1307 pass + 1 skip). Cerrado con deuda reconocida (HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`). **Sin audit formal de milestone** (`/gsd:audit-milestone` no se corrió antes del cierre). Previo: **v0.11 Ventana al plan** shipped 2026-06-10.
 
-- Roadmap archive: `milestones/v0.11-ROADMAP.md`
-- Requirements archive: `milestones/v0.11-REQUIREMENTS.md`
-- Audit: `milestones/v0.11-MILESTONE-AUDIT.md`
-- Phase artifacts: `.planning/milestones/v0.11-phases/` (44-47)
+- Roadmap archive: `milestones/v0.12-ROADMAP.md`
+- Requirements archive: `milestones/v0.12-REQUIREMENTS.md`
+- Phase artifacts: `.planning/phases/` (48-51 + 50.1 — NO archivados a `milestones/v0.12-phases/`, siguen en `phases/`; usar `/gsd:cleanup` para archivar retroactivamente)
 
 ## Deferred Items
 
@@ -66,6 +63,8 @@ Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (P
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
+| uat | Phase 50.1 (v0.12) `50.1-HUMAN-UAT.md` 3 escenarios + `50.1-VERIFICATION.md` `human_needed` (8/8 must-haves auto-verificados) — display de progreso vivo `N/M`; requiere TTY real con sesión GSD viva | pendiente verificación visual | v0.12 close |
+| security | Phase 48 (v0.12) XSS latente WR-01 — `src/server.js` renderiza `task_url` como `<a href>` sin allowlist `http(s)` (la TUI sí la aplica vía `runOpen`); `javascript:`/`data:` inyectable en el HTML servido | pendiente hardening | v0.12 close |
 | nyquist | Phase 44 (v0.11) `44-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 44-VERIFICATION.md passed 10/10) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
 | nyquist | Phase 45 (v0.11) `45-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 45-VERIFICATION.md passed 7/7) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
 | nyquist | Phase 46 (v0.11) `46-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 46-VERIFICATION.md passed 6/6 + 46-HUMAN-UAT.md 2/2) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
@@ -133,4 +132,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Plan the first phase with `/gsd:plan-phase 48`.
+- Start the next milestone with /gsd-new-milestone

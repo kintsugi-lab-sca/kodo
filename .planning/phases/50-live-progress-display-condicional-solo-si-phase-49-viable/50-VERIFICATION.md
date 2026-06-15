@@ -1,8 +1,10 @@
 ---
 phase: 50-live-progress-display-condicional-solo-si-phase-49-viable
 verified: 2026-06-13T00:00:00Z
-status: human_needed
+status: superseded
 score: 9/9 must-haves verified
+superseded_by: 50.1
+human_verification_result: superseded por Phase 50.1 (2026-06-15) — el hook `task-progress.js` y la lectura de `~/.kodo/progress/<task_id>.json` fueron eliminados/reemplazados por la lectura del bloque `progress:` del STATE.md del worktree GSD (superficie `~/.claude/tasks/` resultó vacía en sesiones GSD reales que usan Agent). Los 2 escenarios de verificación humana de Phase 50 quedan obsoletos (verifican código que ya no existe) y fueron re-realizados en 50.1-HUMAN-UAT
 overrides_applied: 0
 human_verification:
   - test: "Lanzar kodo dashboard con una sesión activa que use TaskCreate/TaskUpdate y confirmar que la columna prog aparece y muestra N/M en vivo"
