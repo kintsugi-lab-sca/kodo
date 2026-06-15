@@ -219,22 +219,27 @@ export function deriveAnyGsd(rows) {
 }
 
 /**
- * Flag ESTRUCTURAL de presencia de progreso vivo (PROG-03, D-06): ¿hay ALGUNA fila con un
- * artefacto de progreso legible (`progress != null`)? Espejo literal de deriveAnyGsd. Pura,
- * React-free, sin regex ni color. El guard `!= null` distingue null/undefined (sin progreso →
- * columna oculta) de un objeto `{ status }` enriquecido (presente → columna visible).
+ * Flag ESTRUCTURAL de presencia de progreso vivo (PROG-03, D-06): ¿hay ALGUNA fila con una
+ * LECTURA REAL de progreso (`progress.status === 'ok'`)? Pura, React-free, sin regex ni color.
+ *
+ * WR-03: el enrich de App.js asigna un objeto `progress` NO-null a TODAS las filas — las no-GSD
+ * y las no usables reciben `{ status: 'no-progress' }`, los fallos sin last-good `{ status:
+ * 'error' }`. Un predicado `progress != null` por tanto SIEMPRE devolvía true y la columna `prog`
+ * nunca se ocultaba, contradiciendo el diseño de columna condicional de Phase 50. Discriminamos
+ * por `status`: solo un `'ok'` (lectura real con N/M) cuenta como progreso a mostrar;
+ * `'no-progress'` (placeholder '—') y `'error'` (placeholder '?') NO activan la columna.
  *
  * CRÍTICO (D-06 / Pitfall 5 == Pitfall 4 de Phase 44): el consumidor (App.js) la computa sobre
- * el set SIN filtrar (`sorted`), NO sobre `filtered`. La columna `prog` es ESTRUCTURAL — está
- * presente siempre que ALGUNA sesión activa reporte progreso — y no debe parpadear cuando el
+ * el set SIN filtrar (`enriched`), NO sobre `filtered`. La columna `prog` es ESTRUCTURAL — está
+ * presente siempre que ALGUNA sesión activa reporte progreso real — y no debe parpadear cuando el
  * operador teclea una query `/` que vacía temporalmente las filas con progreso del subconjunto
  * visible (espejo exacto de deriveAnyGsd, App.js:331).
  *
- * @param {Array<Partial<EnrichedSession> & { progress?: unknown }>} rows — el set SIN filtrar (sorted/sessions).
- * @returns {boolean} true si alguna fila tiene `progress != null`.
+ * @param {Array<Partial<EnrichedSession> & { progress?: { status?: string } | null }>} rows — set SIN filtrar.
+ * @returns {boolean} true si alguna fila tiene `progress.status === 'ok'`.
  */
 export function deriveAnyProgress(rows) {
-  return rows.some((r) => r.progress != null);
+  return rows.some((r) => r.progress?.status === 'ok');
 }
 
 /**

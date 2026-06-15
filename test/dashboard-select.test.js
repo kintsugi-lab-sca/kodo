@@ -421,7 +421,7 @@ describe('TUI-18 (D-08): deriveAnyGsd flag estructural de presencia GSD', () => 
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('PROG-03 (D-06): deriveAnyProgress flag estructural de presencia de progreso', () => {
-  it('Test 1: true cuando ALGUNA fila tiene progress != null', () => {
+  it('Test 1: true cuando ALGUNA fila tiene progress.status === "ok"', () => {
     assert.equal(deriveAnyProgress([{ progress: { status: 'ok', n: 1, m: 3 } }, { progress: null }]), true);
   });
 
@@ -429,9 +429,26 @@ describe('PROG-03 (D-06): deriveAnyProgress flag estructural de presencia de pro
     assert.equal(deriveAnyProgress([{ progress: null }, {}]), false);
   });
 
-  it('Test 3: progress undefined/null en todas → false (guard != null, igual que deriveAnyGsd)', () => {
+  it('Test 3: progress undefined/null en todas → false', () => {
     assert.equal(deriveAnyProgress([{ progress: undefined }, { progress: null }]), false);
     assert.equal(deriveAnyProgress([]), false);
+  });
+
+  it('WR-03: status "no-progress" / "error" NO activan la columna (solo "ok" cuenta)', () => {
+    // LOAD-BEARING (WR-03): el enrich de App.js asigna progress NO-null a TODAS las filas
+    // (no-GSD → {status:'no-progress'}, fallo sin last-good → {status:'error'}). El predicado
+    // debe discriminar por status para que la columna prog SE OCULTE cuando ninguna sesión
+    // reporta una lectura real, restaurando el diseño de columna condicional de Phase 50.
+    assert.equal(
+      deriveAnyProgress([{ progress: { status: 'no-progress' } }, { progress: { status: 'error' } }]),
+      false,
+      'no-progress + error → ninguna lectura real → columna oculta',
+    );
+    assert.equal(
+      deriveAnyProgress([{ progress: { status: 'no-progress' } }, { progress: { status: 'ok', n: 1, m: 2 } }]),
+      true,
+      'una sola lectura ok basta para mostrar la columna',
+    );
   });
 
   it('D-06: se deriva sobre el set SIN filtrar — la columna prog no parpadea bajo `/`', () => {
@@ -439,7 +456,7 @@ describe('PROG-03 (D-06): deriveAnyProgress flag estructural de presencia de pro
     // desaparecería al teclear una query que oculta las filas con progreso.
     const full = [
       { task_id: 'prog', progress: { status: 'ok', n: 2, m: 3 }, state: 'running' },
-      { task_id: 'plain', progress: null, state: 'dead' },
+      { task_id: 'plain', progress: { status: 'no-progress' }, state: 'dead' },
     ];
     const filtered = applyFilter(full, parseFilter('s:dead'), () => '');
     assert.equal(deriveAnyProgress(filtered), false, 'el filtro elimina la fila con progreso del subconjunto');
