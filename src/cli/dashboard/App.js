@@ -68,7 +68,8 @@ import {
 } from './select.js';
 import { deriveRepo } from './format.js';
 import { readPlan } from './plan.js';
-import { readProgress } from './progress.js';
+import { readGsdProgress } from './progress.js';
+import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
 
@@ -333,32 +334,44 @@ export default function App({
   //   sortSessions (copia, DESC, tiebreak task_id) → applyFilter (AND, String.includes) →
   //   resolveSelection (índice derivado por identidad, clamp fallback).
   const sorted = sortSessions(sessions);
-  // Phase 50 (PROG-03, D-08): enrich CLIENT-SIDE del progreso vivo, mold del handler `p`/readPlan
-  // (App.js:544) — lectura filesystem SÍNCRONA never-throws en el render, SIN await, SIN server.js
-  // (cero endpoints nuevos). readProgress lee el artefacto kodo `~/.kodo/progress/<task_id>.json`;
-  // el dashboard NUNCA toca `~/.claude/`. Se enriquece ANTES de deriveAnyProgress/applyFilter para
-  // que `row.progress` esté presente en deriveAnyProgress, el filtro y rowCells.
+  // Phase 50.1 (PROG-03, DG-03/DG-04/DG-06/DG-07): enrich CLIENT-SIDE del progreso vivo, mold del
+  // handler `p`/readPlan (App.js:544) — lectura filesystem SÍNCRONA never-throws en el render, SIN
+  // await, SIN server.js (cero endpoints nuevos, DG-06). La FUENTE es el bloque `progress:` del
+  // STATE.md que GSD mantiene dentro del worktree REAL de la sesión (`.claude/worktrees/<session_id>`),
+  // localizado con computeRealWorktreePath(project_path, session_id) — NUNCA `row.worktree_path`
+  // persistido (apunta a la ruta `.bg-shell` equivocada, Pitfall 1). Solo las filas GSD
+  // (`row.gsd === true`, DG-03) se leen; las no-GSD → '—'. Se enriquece ANTES de
+  // deriveAnyProgress/applyFilter para que `row.progress` esté presente en deriveAnyProgress, el
+  // filtro y rowCells.
   //
-  // Keep-last-good (D-09): un fallo transiente ('error') con un last-good en el ref expone el último
-  // N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone 'error' (→'?'). Un 'ok' refresca
-  // el ref. Un 'no-progress' (ENOENT real) → '—' (la persistencia post-mortem D-10 hace que un
-  // artefacto que existió no vuelva a ENOENT, así que no-progress real = nunca hubo artefacto).
+  // Keep-last-good (DG-07): re-keyed por `session_id`. Un fallo transiente ('error') con un last-good
+  // en el ref expone el último N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone
+  // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
   const lastGood = progressLastGoodRef.current;
   const enriched = sorted.map((row) => {
-    const taskId = row?.task_id;
-    // Guard anti-traversal del taskId ANTES de leer (T-50-redos/traversal): String.includes, NO
-    // regex — mold plan.js:120-121. El s.task_id es un UUID kodo (seguro por construcción), el guard
-    // es defensa en profundidad. Un taskId no usable → sin progreso ('—').
+    // DG-03: solo sesiones GSD se enriquecen con progreso; las no-GSD no contribuyen ('—').
+    if (row?.gsd !== true) return { ...row, progress: { status: 'no-progress' } };
+    const projectPath = row.project_path;
+    const sessionId = row.session_id;
+    // DG-04: la ruta del STATE.md se deriva de project_path + session_id, NUNCA de
+    // row.worktree_path (Pitfall 1). Guard anti-traversal del sessionId ANTES de construir la ruta
+    // (T-501-traversal, defensa en profundidad): String.includes, NO regex (anti-ReDoS, mold
+    // plan.js:120-121). El session_id es UUID por construcción (manager.js); falta o no usable → '—'.
     const usable =
-      taskId && !taskId.includes('/') && !taskId.includes('\\') && !taskId.includes('..');
+      sessionId &&
+      projectPath &&
+      !sessionId.includes('/') &&
+      !sessionId.includes('\\') &&
+      !sessionId.includes('..');
     if (!usable) return { ...row, progress: { status: 'no-progress' } };
-    const res = readProgress(taskId, {}); // never-throws (mold readPlan)
+    const base = computeRealWorktreePath(projectPath, sessionId);
+    const res = readGsdProgress(base, {}); // never-throws (mold readLightPlan)
     if (res.status === 'ok') {
-      lastGood.set(taskId, { n: res.n, m: res.m, completed: res.completed });
+      lastGood.set(sessionId, { n: res.n, m: res.m, completed: res.completed });
       return { ...row, progress: res };
     }
     if (res.status === 'error') {
-      const prev = lastGood.get(taskId);
+      const prev = lastGood.get(sessionId);
       // last-good presente → sobrevive el N/M (status 'ok'); ausente → 'error' (progCell pinta '?').
       return { ...row, progress: prev ? { status: 'ok', ...prev } : { status: 'error' } };
     }

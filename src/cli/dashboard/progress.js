@@ -102,25 +102,3 @@ export function readGsdProgress(worktreeBase, deps = {}) {
     return { status: 'error' }; // EACCES / sin .code → '?' + keep-last-good (never-throws)
   }
 }
-
-/**
- * Shim de COMPATIBILIDAD transitorio — Phase 50.1 Plan 01 (deviation Rule 3).
- *
- * App.js (src/cli/dashboard/App.js:71,355) todavía importa `readProgress(taskId)`
- * con la firma del Plan 50-03 (que leía el artefacto HOME-relative por taskId). El Plan
- * 02 de esta fase REPUNTA App.js para que pase `computeRealWorktreePath(projectPath,
- * sessionId)` a `readGsdProgress` y consuma el STATE.md real. Hasta entonces, este
- * shim preserva el export para que la suite siga verde SIN cambiar App.js (el plan
- * difiere su rewire a Plan 02).
- *
- * Devuelve siempre `{ status: 'no-progress' }`: el dashboard pinta `—` (idéntico al
- * comportamiento pre-feature), nunca un N/M derivado de la fuente equivocada. NO
- * intenta leer la superficie HOME-relative ya retirada (DG-02). Se ELIMINA en Plan 02.
- *
- * @param {string} _taskId  ignorado (el wiring real llega en Plan 02).
- * @param {object} [_deps]  ignorado.
- * @returns {ProgressResult}
- */
-export function readProgress(_taskId, _deps) {
-  return { status: 'no-progress' };
-}
