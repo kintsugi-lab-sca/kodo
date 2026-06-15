@@ -31,13 +31,25 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---/;
 
 // Allowlist LITERAL FIJA de keys numéricas del bloque progress:. Las keys son
 // constantes del código, NUNCA input externo (DG-02 anti-ReDoS).
-const PROGRESS_KEYS = /** @type {const} */ (['total_phases', 'completed_phases', 'total_plans', 'completed_plans']);
+const PROGRESS_KEYS = /** @type {const} */ (['total_phases', 'completed_phases']);
+
+// Regex CONSTANTE que aísla el bloque `progress:` dentro del frontmatter: desde su
+// header (top-level, sin indentar) hasta la siguiente key top-level (no indentada)
+// o el fin del frontmatter. Solo sus hijos indentados se escanean por keys (WR-01).
+// No deriva de input externo y es lineal (cuantificadores anidados sin solape de
+// clases) → sin vector ReDoS.
+const PROGRESS_BLOCK_RE = /^progress:\s*\r?\n((?:[ \t]+.*(?:\r?\n|$))*)/m;
 
 /**
  * Parser del bloque `progress:` del STATE.md. Aísla el primer frontmatter con un
- * regex CONSTANTE y extrae cada key de la allowlist literal con un regex constante
- * por key (la key es literal de allowlist → no es input externo). Devuelve solo las
- * keys encontradas. Sin frontmatter → null.
+ * regex CONSTANTE, ACOTA el bloque `progress:` (solo sus hijos indentados, WR-01) y
+ * extrae cada key de la allowlist literal con un regex constante por key (la key es
+ * literal de allowlist → no es input externo). Devuelve solo las keys encontradas.
+ * Sin frontmatter → null.
+ *
+ * El acotado al bloque `progress:` impide que una key allowlisted indentada bajo OTRO
+ * bloque YAML (p.ej. `other:`) alimente el N/M del dashboard (WR-01). Sin bloque
+ * `progress:` → no se considera ninguna key (objeto vacío).
  *
  * Las keys del bloque progress: son CONDICIONALES (el generador GSD añade cada una
  * con `if (x !== null)`) → la ausencia se tolera (la key simplemente no aparece en
@@ -49,13 +61,16 @@ const PROGRESS_KEYS = /** @type {const} */ (['total_phases', 'completed_phases',
 export function parseProgressBlock(md) {
   const fm = FRONTMATTER_RE.exec(md);
   if (!fm) return null; // sin frontmatter --- ... --- → corrupto/no parseable
-  const body = fm[1];
+  // Acota al bloque `progress:` (WR-01): solo sus hijos indentados son candidatos.
+  // Sin bloque `progress:` → body vacío → ninguna key se extrae.
+  const blockHit = PROGRESS_BLOCK_RE.exec(fm[1]);
+  const body = blockHit ? blockHit[1] : '';
   /** @type {Record<string, number>} */
   const out = {};
   for (const key of PROGRESS_KEYS) {
     // Regex CONSTANTE por key: la key es un literal de la allowlist (no input
     // externo) → no es vector ReDoS. Captura el primer entero asociado a la key
-    // dentro del frontmatter (indentado a 2 espacios bajo `progress:`).
+    // dentro del bloque progress: (indentado a 2 espacios bajo `progress:`).
     const re = new RegExp(`^\\s+${key}:\\s*(\\d+)`, 'm');
     const hit = re.exec(body);
     if (hit) out[key] = Number(hit[1]);

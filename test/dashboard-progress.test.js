@@ -20,7 +20,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readGsdProgress } from '../src/cli/dashboard/progress.js';
+import { readGsdProgress, parseProgressBlock } from '../src/cli/dashboard/progress.js';
 
 // Worktree base sintético — el lector construye join(base, '.planning', 'STATE.md').
 const BASE = '/fake-worktree';
@@ -112,5 +112,45 @@ describe('readGsdProgress — lector del bloque progress: del STATE.md (DG-01/DG
     const md = stateMd(['total_phases: 5', 'completed_phases: 3']);
     const deps = { readFileFn: () => md };
     assert.deepEqual(readGsdProgress(BASE, deps), readGsdProgress(BASE, deps));
+  });
+
+  it('WR-01 (scoping): keys allowlisted bajo un bloque NO-progress: se ignoran → { no-progress }', () => {
+    // LOAD-BEARING (WR-01): total_phases/completed_phases indentadas bajo `other:`
+    // (sin bloque `progress:` en absoluto) NO deben alimentar el N/M del dashboard.
+    const md = ['---', 'other:', '  total_phases: 42', '  completed_phases: 7', '---', '', '# State', ''].join('\n');
+    const res = readGsdProgress(BASE, { readFileFn: () => md });
+    assert.deepEqual(res, { status: 'no-progress' }, 'keys fuera de progress: no deben contar');
+  });
+
+  it('WR-01 (scoping): solo el bloque progress: alimenta N/M aunque otro bloque reuse las keys', () => {
+    // Un bloque `other:` con keys-señuelo PRECEDE a `progress:`. El parser debe leer
+    // exclusivamente las del bloque progress: (3/5), no las del señuelo (7/42).
+    const md = [
+      '---',
+      'other:',
+      '  total_phases: 42',
+      '  completed_phases: 7',
+      'progress:',
+      '  total_phases: 5',
+      '  completed_phases: 3',
+      '---',
+      '',
+    ].join('\n');
+    const res = readGsdProgress(BASE, { readFileFn: () => md });
+    assert.deepEqual(res, { status: 'ok', n: 3, m: 5, completed: false }, 'solo el bloque progress: cuenta');
+  });
+
+  it('WR-01 (parseProgressBlock): extrae solo las keys indentadas bajo progress:', () => {
+    const md = [
+      '---',
+      'progress:',
+      '  total_phases: 5',
+      '  completed_phases: 3',
+      'other:',
+      '  total_phases: 99', // señuelo tras el bloque progress: → debe ignorarse
+      '---',
+      '',
+    ].join('\n');
+    assert.deepEqual(parseProgressBlock(md), { total_phases: 5, completed_phases: 3 });
   });
 });
