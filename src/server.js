@@ -161,7 +161,7 @@ function escapeHtml(str) {
 }
 
 // T-48-10 (OPEN-03 paridad HTML): allowlist http(s) sobre el task_url ANTES de renderlo como
-// href clickable. escapeHtml NO neutraliza `javascript:`/`data:` (no contienen & < > " '), así que
+// href clickable. escapeHtml NO neutraliza \`javascript:\`/\`data:\` (no contienen & < > " '), así que
 // sin este guard un task_url con esquema hostil ejecutaría script al click — el mismo vector que el
 // carril TUI (open.js) ya bloquea. Espejo exacto de la allowlist de open.js. Devuelve la url segura
 // o null. URL es global del navegador (este script corre client-side).
