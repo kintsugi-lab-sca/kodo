@@ -109,7 +109,12 @@ export function readGsdProgress(worktreeBase, deps = {}) {
     // Sin denominador (total_phases ausente — STATE.md parcial) → no hay progreso.
     if (block.total_phases == null) return { status: 'no-progress' };
     const m = block.total_phases;
-    const n = block.completed_phases ?? 0; // condicional → default 0 (0/M válido)
+    // Clamp de n a [0, m] (WR-02): STATE.md es un artefacto externo; un over-count
+    // (p.ej. completed_phases:5 con total_phases:3) renderizaría un `5/3` imposible y
+    // además rompería el flag `completed` (5 !== 3). Acotando n a [0, m], n===m vuelve
+    // a detectar el set finalizado.
+    const rawN = block.completed_phases ?? 0; // condicional → default 0 (0/M válido)
+    const n = Math.max(0, Math.min(rawN, m));
     return { status: 'ok', n, m, completed: m > 0 && n === m };
   } catch (err) {
     const code = /** @type {NodeJS.ErrnoException} */ (err)?.code;

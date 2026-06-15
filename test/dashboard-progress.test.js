@@ -114,6 +114,14 @@ describe('readGsdProgress — lector del bloque progress: del STATE.md (DG-01/DG
     assert.deepEqual(readGsdProgress(BASE, deps), readGsdProgress(BASE, deps));
   });
 
+  it('WR-02 (clamp n>m): completed_phases:5 con total_phases:3 → n clampado a m (3/3, completed)', () => {
+    // LOAD-BEARING (WR-02): un over-count del artefacto externo no debe renderizar 5/3.
+    // n se acota a [0, m]; con n===m el set se marca completado.
+    const md = stateMd(['total_phases: 3', 'completed_phases: 5']);
+    const res = readGsdProgress(BASE, { readFileFn: () => md });
+    assert.deepEqual(res, { status: 'ok', n: 3, m: 3, completed: true }, 'n debe clampar a m, no 5/3');
+  });
+
   it('WR-01 (scoping): keys allowlisted bajo un bloque NO-progress: se ignoran → { no-progress }', () => {
     // LOAD-BEARING (WR-01): total_phases/completed_phases indentadas bajo `other:`
     // (sin bloque `progress:` en absoluto) NO deben alimentar el N/M del dashboard.
