@@ -76,16 +76,16 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BIDIR-01 | TBD | Pending |
-| BIDIR-02 | TBD | Pending |
-| BIDIR-03 | TBD | Pending |
-| BIDIR-04 | TBD | Pending |
-| BIDIR-05 | TBD | Pending |
-| BIDIR-06 | TBD | Pending |
-| BIDIR-07 | TBD | Pending |
-| BIDIR-08 | TBD | Pending |
-| DETECT-01 | TBD | Pending |
-| DETECT-02 | TBD | Pending |
-| ORCH-01 | TBD | Pending |
-| DEBT-01 | TBD | Pending |
-| DEBT-02 | TBD | Pending |
+| BIDIR-01 | Phase 52 | Pending |
+| BIDIR-02 | Phase 52 | Pending |
+| BIDIR-03 | Phase 53 | Pending |
+| BIDIR-04 | Phase 53 | Pending |
+| BIDIR-05 | Phase 53 | Pending |
+| BIDIR-06 | Phase 52 | Pending |
+| BIDIR-07 | Phase 54 | Pending |
+| BIDIR-08 | Phase 53 | Pending |
+| DETECT-01 | Phase 55 | Pending |
+| DETECT-02 | Phase 56 | Pending |
+| ORCH-01 | Phase 57 | Pending |
+| DEBT-01 | Phase 58 | Pending |
+| DEBT-02 | Phase 58 | Pending |
