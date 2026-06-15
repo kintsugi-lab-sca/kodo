@@ -28,7 +28,7 @@ Driver: mostrar el progreso vivo de cada sesión en el dashboard (p. ej. `3/7 pa
 
 Driver: saldar la deuda Nyquist heredada de v0.11 (citation-based, sin re-ejecutar la suite — espejo de v0.11 Phase 47 / v0.8 Phase 33 Bloque B). Doc-only Tier 1, independiente del resto del milestone.
 
-- [ ] **NYQ-03**: Phases **44, 45, 46** (v0.11) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + integration check + UAT), reemplazando los stubs `draft` / `nyquist_compliant: false` registrados en STATE.md `## Deferred Items`.
+- [x] **NYQ-03**: Phases **44, 45, 46** (v0.11) tienen `VALIDATION.md` citation-based con `nyquist_compliant: true`, citando la evidencia existente (VERIFICATION.md + integration check + UAT), reemplazando los stubs `draft` / `nyquist_compliant: false` registrados en STATE.md `## Deferred Items`.
 
 ## v2 Requirements
 
@@ -71,4 +71,4 @@ Qué fases cubren qué requirements. Se completa durante la creación del roadma
 | PROG-01 | Phase 49 | Complete |
 | PROG-02 | Phase 50 (conditional — Phase 49 = VIABLE) | Complete |
 | PROG-03 | Phase 50 (conditional — Phase 49 = VIABLE) | Complete |
-| NYQ-03 | Phase 51 | Pending |
+| NYQ-03 | Phase 51 | Complete |
