@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { computeWorktreePath } from '../src/session/state.js';
+import { computeWorktreePath, computeRealWorktreePath } from '../src/session/state.js';
 
 const TEST_DIR = join(tmpdir(), `kodo-test-${Date.now()}`);
 const TEST_STATE = join(TEST_DIR, 'state.json');
@@ -113,5 +113,36 @@ describe('computeWorktreePath', () => {
     const out = computeWorktreePath('/tmp/foo', 'abc');
     assert.equal(out, '/tmp/foo/.bg-shell/abc');
     assert.ok(!out.startsWith('/private/'), 'must NOT collapse symlink');
+  });
+});
+
+describe('computeRealWorktreePath', () => {
+  // Phase 50.1 (DG-04): helper ADITIVO que resuelve la ruta REAL del worktree GSD
+  // de Claude Code (`<projectPath>/.claude/worktrees/<sid>`), SIN tocar
+  // computeWorktreePath (la ruta legacy `.bg-shell` con 5 consumidores acoplados).
+  it('returns the canonical <projectPath>/.claude/worktrees/<sessionId> shape', () => {
+    assert.equal(
+      computeRealWorktreePath('/proj', 'sid'),
+      '/proj/.claude/worktrees/sid',
+    );
+  });
+
+  it('is deterministic: same inputs produce byte-identical output', () => {
+    const a = computeRealWorktreePath('/proj', 'sid');
+    const b = computeRealWorktreePath('/proj', 'sid');
+    assert.equal(a, b);
+  });
+
+  it('handles real UUIDs without escaping', () => {
+    const id = randomUUID();
+    const out = computeRealWorktreePath('/Users/alex/dev/klab/kodo', id);
+    assert.equal(out, `/Users/alex/dev/klab/kodo/.claude/worktrees/${id}`);
+    assert.ok(!out.includes('..'), 'no traversal');
+  });
+
+  it('does NOT collide with computeWorktreePath (.bg-shell legacy preserved)', () => {
+    assert.equal(computeWorktreePath('/proj', 'sid'), '/proj/.bg-shell/sid');
+    assert.equal(computeRealWorktreePath('/proj', 'sid'), '/proj/.claude/worktrees/sid');
+    assert.notEqual(computeWorktreePath('/proj', 'sid'), computeRealWorktreePath('/proj', 'sid'));
   });
 });
