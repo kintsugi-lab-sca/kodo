@@ -4,8 +4,8 @@ milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
 status: executing
 stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
-last_updated: "2026-06-15T09:41:27.284Z"
-last_activity: 2026-06-15 -- Phase 51 planning complete
+last_updated: "2026-06-15T10:02:25.206Z"
+last_activity: 2026-06-15 -- Phase 51 execution started
 progress:
   total_phases: 6
   completed_phases: 4
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan. v0.12 profundiza desde la fila: *hacia afuera* (abrir la tarea en el gestor) y *hacia adentro* (progreso vivo, spike-gated).
 
-**Current focus:** Phase 999.1 — kodo bidireccional sesion cmux a tarea
+**Current focus:** Phase 51 — backfill-nyquist-v0-11
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-15 -- Phase 51 planning complete
+Phase: 51 (backfill-nyquist-v0-11) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 51
+Last activity: 2026-06-15 -- Phase 51 execution started
 
 Progress: [██████████] 100%
 
@@ -62,13 +62,13 @@ Build order: **OPEN CORE → SPIKE → DISPLAY CONDICIONAL → NYQUIST**. Phase 
 
 ## Deferred Items
 
-Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (Phases 44/45/46) se salda en **Phase 51** (NYQ-03, citation-based). Frontmatter cosmético sin impacto funcional.
+Items reconocidos y diferidos (ninguno bloqueante). La deuda Nyquist de v0.11 (Phases 44/45/46) quedó saldada en **Phase 51** (NYQ-03, citation-based). Frontmatter cosmético sin impacto funcional.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| nyquist | Phase 44 (v0.11) `44-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → Phase 51 (NYQ-03) | v0.11 close |
-| nyquist | Phase 45 (v0.11) `45-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → Phase 51 (NYQ-03) | v0.11 close |
-| nyquist | Phase 46 (v0.11) `46-VALIDATION.md` status=draft, nyquist_compliant=false (stub plan-time) | PARTIAL → Phase 51 (NYQ-03) | v0.11 close |
+| nyquist | Phase 44 (v0.11) `44-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 44-VERIFICATION.md passed 10/10) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
+| nyquist | Phase 45 (v0.11) `45-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 45-VERIFICATION.md passed 7/7) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
+| nyquist | Phase 46 (v0.11) `46-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 46-VERIFICATION.md passed 6/6 + 46-HUMAN-UAT.md 2/2) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
 | frontmatter | `requirements_completed: []` vacío en summaries de 46-01 y 47-01 (v0.11) — cobertura verificada por VERIFICATION + integration + traceability | cosmético | v0.11 close |
 | verification | Phase 37/38 (v0.9) sin VERIFICATION.md formal — cerradas vía UAT/HUMAN-UAT passed | covered-by-UAT | v0.9 close |
 | code | Ciclo de import ESM App.js ↔ SessionTable.js (constantes OVERLAY_*) — resuelto en runtime, suite verde, frágil | WARNING-01 | v0.9 close |
