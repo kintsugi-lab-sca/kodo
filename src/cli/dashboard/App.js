@@ -280,8 +280,9 @@ export default function App({
   // request en vuelo, que tras el await comprueba `overlayReqRef.current !== reqId` y se descarta.
   const overlayReqRef = useRef(0);
 
-  // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa por task_id → último
-  // { n, m, completed } leído con status 'ok'. Vive en un useRef (memoria entre polls, NO dispara
+  // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa por session_id → último
+  // { n, m, completed } leído con status 'ok' (re-keyed en 50.1 desde task_id, ver DG-07 más
+  // abajo: el enrich hace .set(sessionId) / .get(sessionId)). Vive en un useRef (memoria entre polls, NO dispara
   // re-render): ante un fallo transiente de lectura ('error') con un last-good presente, el enrich
   // expone el último N/M conocido (progCell pinta N/M, no '?'). Sin last-good, expone 'error' (→'?').
   const progressLastGoodRef = useRef(/** @type {Map<string, { n: number, m: number, completed: boolean }>} */ (new Map()));
