@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v0.12
 milestone_name: Atajos al gestor y progreso vivo
-status: verifying
-stopped_at: Completed 50-03-PLAN.md (PROG-03 cerrado, display vivo N/M)
-last_updated: "2026-06-15T10:08:12.628Z"
+status: ready_to_plan
+stopped_at: Phase 51 complete (1/1) — ready to discuss Phase 999.1
+last_updated: 2026-06-15T10:12:29.023Z
 last_activity: 2026-06-15
 progress:
   total_phases: 6
@@ -25,13 +25,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-11 — Current Milestone: v0.12 "At
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan. v0.12 profundiza desde la fila: *hacia afuera* (abrir la tarea en el gestor) y *hacia adentro* (progreso vivo, spike-gated).
 
-**Current focus:** Phase 51 — backfill-nyquist-v0-11
+**Current focus:** Phase 999.1 — kodo bidireccional sesion cmux a tarea
 
 ## Current Position
 
-Phase: 51 (backfill-nyquist-v0-11) — EXECUTING
-Plan: 1 of 1
-Status: Phase complete — ready for verification
+Phase: 999.1
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-15
 
 Progress: [██████████] 100%
