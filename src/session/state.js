@@ -1,5 +1,5 @@
 // @ts-check
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { KODO_DIR } from '../config.js';
 // LOG-12: import only the zero-import noop logger, NEVER logger.js. The noop
@@ -239,7 +239,9 @@ export function loadState() {
 
 /** @param {State} state */
 export function saveState(state) {
-  writeFileSync(STATE_PATH, JSON.stringify(state, null, 2) + '\n');
+  const tmp = STATE_PATH + '.tmp';
+  writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
+  renameSync(tmp, STATE_PATH);
 }
 
 /**
