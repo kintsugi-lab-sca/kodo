@@ -261,6 +261,81 @@ describe('WorkspaceHost contract matrix', () => {
       assert.equal(res[0].sessionId, 'c1c3ed6d-fa07-43af-add7-44274b1e0a64');
     });
 
+    test('shape malformado (kind/workspace_ref no-string) se omite — contrato AgentSurface (WR-01)', async () => {
+      // cmux devuelve un binding agent-hook válido en source/checkpoint/cwd pero con
+      // kind:null y SIN workspace_ref: el typedef AgentSurface promete los 4 como string.
+      // normalizeSurface DEBE omitirlo (no debe fluir {kind:null, workspaceRef:undefined}
+      // al consumer / adoptSession de Phase 56).
+      const malformed = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('tree')) return TREE_FIXTURE;
+        if (argv.includes('surface resume show')) {
+          if (argv.includes('--surface surface:1')) {
+            return JSON.stringify({
+              workspace_ref: 12, // no-string (tampering)
+              cleared: false,
+              resume_binding: {
+                source: 'agent-hook',
+                checkpoint_id: 'malformed-0000-0000-0000-000000000000',
+                cwd: '/Users/alex/dev/klab/kodo',
+                kind: null, // no-string
+              },
+            });
+          }
+          return surfaceShowFor(argv);
+        }
+        return '';
+      };
+      const h = instantiateHost('cmux', malformed);
+      let res;
+      await assert.doesNotReject(async () => {
+        res = await h.listAgentSurfaces();
+      });
+      assert.ok(
+        !res.some((s) => s.sessionId === 'malformed-0000-0000-0000-000000000000'),
+        'la surface con kind/workspace_ref no-string NO se cuela',
+      );
+      // y ningún campo undefined/null se filtró al array
+      for (const s of res) {
+        assert.equal(typeof s.workspaceRef, 'string', 'workspaceRef siempre string');
+        assert.equal(typeof s.kind, 'string', 'kind siempre string');
+      }
+    });
+
+    test('cleared truthy no-booleano (p. ej. "true") se trata como limpiada (WR-02)', async () => {
+      // Bajo el threat model (stdout no confiable), un cleared:"true" (string) NO debe
+      // bypasear el filtro de cleared. Cualquier truthy = limpiada.
+      const truthyCleared = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('tree')) return TREE_FIXTURE;
+        if (argv.includes('surface resume show')) {
+          if (argv.includes('--surface surface:1')) {
+            return JSON.stringify({
+              workspace_ref: 'workspace:1',
+              cleared: 'true', // truthy no-booleano
+              resume_binding: {
+                source: 'agent-hook',
+                checkpoint_id: 'c1c3ed6d-fa07-43af-add7-44274b1e0a64',
+                cwd: '/Users/alex/dev/klab/kodo',
+                kind: 'claude',
+              },
+            });
+          }
+          return surfaceShowFor(argv);
+        }
+        return '';
+      };
+      const h = instantiateHost('cmux', truthyCleared);
+      let res;
+      await assert.doesNotReject(async () => {
+        res = await h.listAgentSurfaces();
+      });
+      assert.ok(
+        !res.some((s) => s.sessionId === 'c1c3ed6d-fa07-43af-add7-44274b1e0a64'),
+        'una surface con cleared truthy no-booleano se omite',
+      );
+    });
+
     test('null host NO implementa listAgentSurfaces (rama degradación typeof, D-03)', () => {
       // El consumer (Phase 56) hace `typeof host.listAgentSurfaces === 'function'`
       // y degrada fail-open. NullHost lo deja AUSENTE para documentar esa rama.

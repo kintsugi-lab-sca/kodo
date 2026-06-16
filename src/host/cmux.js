@@ -32,10 +32,11 @@ function makeRun(execSync, binary) {
  * Puro, sin I/O — testeable sin DI. Mapeo de campos D-02.
  *
  * Devuelve `null` (omitir) si:
- *   - raw ausente o `cleared === true` (la binding fue limpiada).
+ *   - raw ausente o `cleared` truthy (la binding fue limpiada — cualquier truthy, WR-02).
  *   - sin `resume_binding` (la surface no tiene checkpoint).
  *   - `source !== 'agent-hook'` (no la creó el hook de Claude Code; p. ej. tmux/environment).
- *   - `checkpoint_id` o `cwd` no son strings (shape inesperado / tampering — T-55-01).
+ *   - cualquiera de los 4 campos del contrato `AgentSurface` (`workspace_ref`, `cwd`,
+ *     `checkpoint_id`, `kind`) no es string (shape inesperado / tampering — T-55-01, WR-01).
  *
  * NO filtra por `kind == 'claude'` — eso lo decide el CONSUMER (Phase 56, D-05).
  *
@@ -43,11 +44,20 @@ function makeRun(execSync, binary) {
  * @returns {import('./interface.js').AgentSurface | null}
  */
 function normalizeSurface(raw) {
-  if (!raw || raw.cleared === true) return null; // D-05: cleared
+  if (!raw || raw.cleared) return null; // D-05/WR-02: cualquier truthy = limpiada
   const b = raw.resume_binding;
   if (!b) return null; // D-05: sin resume_binding (incluye resume_binding:null)
   if (b.source !== 'agent-hook') return null; // D-05: source≠agent-hook
-  if (typeof b.checkpoint_id !== 'string' || typeof b.cwd !== 'string') return null; // T-55-01
+  // T-55-01/WR-01: los 4 campos del typedef AgentSurface deben ser strings; un
+  // shape malformado (kind:null, workspace_ref ausente) NO debe fluir al consumer.
+  if (
+    typeof raw.workspace_ref !== 'string' ||
+    typeof b.cwd !== 'string' ||
+    typeof b.checkpoint_id !== 'string' ||
+    typeof b.kind !== 'string'
+  ) {
+    return null;
+  }
   return {
     workspaceRef: raw.workspace_ref, // D-02
     cwd: b.cwd, // D-02
