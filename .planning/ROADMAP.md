@@ -81,7 +81,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 **Plans**: 3 plans
   - [x] 52-01-PLAN.md — Anti-recursión: KODO_LABEL_ADOPTED + isAdopted (labels.js) + corte en dispatcher.js + tests (BIDIR-06)
   - [x] 52-02-PLAN.md — Plane createTask: createWorkItem/createLabel transport + provider typeof-detected + marker UUID + normalize 6-campos (BIDIR-01)
-  - [ ] 52-03-PLAN.md — GitHub createTask: createIssue transport + provider LOUD-on-403/404 + contract it() capability-gated + FROZEN-9 negative-assert (BIDIR-02, BIDIR-01)
+  - [x] 52-03-PLAN.md — GitHub createTask: createIssue transport + provider LOUD-on-403/404 + contract it() capability-gated + FROZEN-9 negative-assert (BIDIR-02, BIDIR-01)
 
 ### Phase 53: Fontanería `src/adopt.js`
 **Goal**: Existe la base determinista 0-token de la adopción — el inverso exacto de `manager.launchWorkItem` (`createTask → addSession`). Es un módulo top-level provider-agnostic que los tres consumidores reusan sin poseer; nunca usa LLM, nunca rompe la invariante "`reconcileTick` único escritor de `alive`".
@@ -163,7 +163,7 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 52. createTask + contrato + anti-recursión | v0.13 | 2/3 | In Progress|  |
+| 52. createTask + contrato + anti-recursión | v0.13 | 3/3 | Complete   | 2026-06-16 |
 | 53. Fontanería `src/adopt.js` | v0.13 | 0/TBD | Not started | - |
 | 54. CLI `kodo adopt` | v0.13 | 0/TBD | Not started | - |
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 0/TBD | Not started | - |
