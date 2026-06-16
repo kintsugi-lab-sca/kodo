@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: Phase 52 context gathered
-last_updated: "2026-06-16T08:36:48.297Z"
-last_activity: 2026-06-16 -- Phase 52 planning complete
+stopped_at: Completed 52-01-PLAN.md (BIDIR-06 anti-recursión)
+last_updated: "2026-06-16T08:45:38.761Z"
+last_activity: 2026-06-16 -- Phase 52 Plan 01 completed (isAdopted guard shipped)
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
 
-**Current focus:** v0.13 Phase 52 — createTask + contrato + anti-recursión (primera fase del flujo bidireccional)
+**Current focus:** Phase 52 — createTask + contrato + anti-recursión
 
 ## Current Position
 
-Phase: Not started (roadmap creado, sin planificar)
-Plan: —
+Phase: 52 (createTask + contrato + anti-recursión) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 52 planning complete
+Last activity: 2026-06-16
 
 ## Roadmap v0.13 (active)
 
@@ -83,6 +83,7 @@ Items reconocidos y diferidos (ninguno bloqueante). Los 2 items de deuda viva de
 - **Numeración continua (NO reset):** v0.13 continúa desde Phase 51 (v0.12) → primera fase es **Phase 52**. El número del spike (Phase 55) flota con la secuencia, no es hardcoded.
 - **`createTask` opcional typeof-detected FUERA de los 9 FROZEN (Phase 52):** espejo exacto de `getTaskState` (Phase 40) — el contrato `TaskProvider` sigue FROZEN en 9, el loop de validación de `registry.js` queda intacto, un `it()` capability-gated en la contract matrix espeja el test B8. Primera vez que kodo *crea* tareas (revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas"; **nunca elimina** sigue en pie).
 - **Anti-recursión (BIDIR-06) shipped CON `createTask` en Phase 52,** no como follow-up: propiedad de corrección del núcleo (corte espejo `isGsdChild` ANTES de lock/resolver/launch + creación en estado no-trigger). Precedente: anti-recursión shipped con el reporting en Phase 29.
+- **BIDIR-06 ENTREGADO (Plan 52-01, 2026-06-16):** `KODO_LABEL_ADOPTED='kodo:adopted'` + `isAdopted(labels)` en `src/labels.js` (espejo byte-a-byte de `isGsdChild`, `parseKodoLabels` intacto) + corte `isAdopted(task.labels)` en `dispatcher.js` (step 1c) que devuelve `{action:'ignored', code:'adopted'}` ANTES del bloque force-skip → `--force` NO lo bypasea (Pitfall 1: `kodo:adopted` es `isKodo:true`, el corte es LOAD-BEARING). Source-hygiene: el literal solo vive en `labels.js`, ordering `filterIdx < forceIdx` testeado. Suite: 1333 pass / 0 fail / 1 skip. Plans 02/03 DEBEN importar `KODO_LABEL_ADOPTED` (nunca inline).
 - **Fontanería antes que consumidores (Phase 53 antes de 54/56/57):** "consumers reuse the base, never own it". `src/adopt.js` es módulo top-level provider-agnostic (NO bajo `src/gsd/`), inverso exacto de `manager.launchWorkItem`, determinista 0-token (preserva "solo el orquestador usa LLM"). Siembra la fila vía el `addSession` existente; NO escribe `dead_since`/`last_seen_alive` (preserva "`reconcileTick` único escritor de `alive`").
 - **BIDIR-08 (datos sanitizados) en la fontanería (Phase 53), no en el CLI:** el sanitizador (strip rutas absolutas, redacción home dir, nunca embeber transcript) es una propiedad del núcleo que los 3 consumidores reusan — incluido el orquestador (ORCH-01 pasa su título derivado por ese mismo sanitizador).
 - **CLI `kodo adopt` ships sí o sí (Phase 54),** independiente del spike: toma workspace/cwd explícito. Debe existir antes que la tecla del dashboard (56) y el orquestador (57), que lo shellean vía `execFile`.
@@ -123,9 +124,9 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-16T08:05:31.449Z
-- **Stopped at:** Phase 52 context gathered
-- **Next action:** `/gsd:plan-phase 52` (createTask + contrato + anti-recursión). Phase 58 (deuda v0.12) puede correr en paralelo en cualquier momento. Phase 56 (tecla dashboard) queda gated tras el veredicto de Phase 55.
+- **Last session:** 2026-06-16T08:45:38.754Z
+- **Stopped at:** Completed Phase 52 Plan 01 (BIDIR-06 anti-recursión) — 2 of 3 plans done
+- **Next action:** Ejecutar Phase 52 Plan 02 (`createTask` Plane/GitHub transport + provider). Phase 58 (deuda v0.12) puede correr en paralelo en cualquier momento. Phase 56 (tecla dashboard) queda gated tras el veredicto de Phase 55.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.13 kodo bidireccional)
   - `.planning/ROADMAP.md` (v0.13 activo Phases 52-58; v0.10/v0.11/v0.12 colapsados en archived; backlog 999.1 materializado)
