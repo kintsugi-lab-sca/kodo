@@ -184,6 +184,45 @@ export class PlaneClient {
     return data.results || data;
   }
 
+  /**
+   * Create a work item (BIDIR-01). Mirror of `createComment` — same authenticated
+   * `request()` POST (X-API-Key, 10s timeout, rate-limit retry, error throw all
+   * centralized). The path is byte-identical to `listWorkItems` (trailing slash is
+   * load-bearing: Plane is trailing-slash-strict; `POST .../work-items` without `/`
+   * 404s only on create). Does NOT wrap/swallow — create is a mutation that fails
+   * LOUD (D-08): `request()` already throws on non-ok.
+   *
+   * @param {string} projectId
+   * @param {{ name: string, description_html?: string, state?: string, labels?: string[] }} fields
+   *   `name` required; `state` is a state UUID (not a name); `labels` is an array of
+   *   label UUIDs; `description_html` is HTML.
+   * @returns {Promise<any>} raw 201 work item
+   */
+  async createWorkItem(projectId, fields) {
+    return this.request(`/projects/${projectId}/work-items/`, {
+      method: 'POST',
+      body: fields,
+    });
+  }
+
+  /**
+   * Create a project label (BIDIR-01 / Open Q1). Same authenticated `request()` POST
+   * pattern. The `kodo:adopted` marker is a label UUID that must exist before the
+   * work-item POST — `provider.createTask` looks it up or creates it via this method.
+   * Fails LOUD like `createWorkItem` (D-08).
+   *
+   * @param {string} projectId
+   * @param {string} name - label name
+   * @param {string} [color] - hex color (defaults to a neutral gray)
+   * @returns {Promise<any>} raw label with `id` (UUID)
+   */
+  async createLabel(projectId, name, color) {
+    return this.request(`/projects/${projectId}/labels/`, {
+      method: 'POST',
+      body: { name, color: color || '#6b7280' },
+    });
+  }
+
   async listProjects() {
     const data = await this.request('/projects/');
     return data.results || data;
