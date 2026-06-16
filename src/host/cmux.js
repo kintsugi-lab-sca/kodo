@@ -27,6 +27,66 @@ function makeRun(execSync, binary) {
 }
 
 /**
+ * Normaliza la salida cruda de `cmux surface resume show --json` a AgentSurface, o
+ * `null` si la surface NO es una sesión-agente adoptable (filtro D-05 fila-a-fila).
+ * Puro, sin I/O — testeable sin DI. Mapeo de campos D-02.
+ *
+ * Devuelve `null` (omitir) si:
+ *   - raw ausente o `cleared === true` (la binding fue limpiada).
+ *   - sin `resume_binding` (la surface no tiene checkpoint).
+ *   - `source !== 'agent-hook'` (no la creó el hook de Claude Code; p. ej. tmux/environment).
+ *   - `checkpoint_id` o `cwd` no son strings (shape inesperado / tampering — T-55-01).
+ *
+ * NO filtra por `kind == 'claude'` — eso lo decide el CONSUMER (Phase 56, D-05).
+ *
+ * @param {Object} raw - salida de `surface resume show --json` para UNA surface.
+ * @returns {import('./interface.js').AgentSurface | null}
+ */
+function normalizeSurface(raw) {
+  if (!raw || raw.cleared === true) return null; // D-05: cleared
+  const b = raw.resume_binding;
+  if (!b) return null; // D-05: sin resume_binding (incluye resume_binding:null)
+  if (b.source !== 'agent-hook') return null; // D-05: source≠agent-hook
+  if (typeof b.checkpoint_id !== 'string' || typeof b.cwd !== 'string') return null; // T-55-01
+  return {
+    workspaceRef: raw.workspace_ref, // D-02
+    cwd: b.cwd, // D-02
+    sessionId: b.checkpoint_id, // D-02 (== session_id de Claude Code, §P0)
+    kind: b.kind, // D-02 (NO se filtra por kind aquí — D-05)
+  };
+}
+
+/**
+ * Extrae los `surface_ref` vivos del árbol de `cmux tree --all --json` (paso-1 de
+ * la enumeración). Defensivo ante claves ausentes: devuelve `[]` si el shape no
+ * encaja (never-throws — T-55-01). Dedup por ref para no consultar dos veces.
+ * @param {Object} treeJson - salida parseada de `tree --all --json`.
+ * @returns {string[]} refs de surface únicos.
+ */
+function extractSurfaceRefs(treeJson) {
+  const refs = new Set();
+  const windows = Array.isArray(treeJson?.windows) ? treeJson.windows : [];
+  for (const win of windows) {
+    const workspaces = Array.isArray(win?.workspaces) ? win.workspaces : [];
+    for (const ws of workspaces) {
+      const panes = Array.isArray(ws?.panes) ? ws.panes : [];
+      for (const pane of panes) {
+        const surfaceRefs = Array.isArray(pane?.surface_refs) ? pane.surface_refs : [];
+        for (const ref of surfaceRefs) {
+          if (typeof ref === 'string') refs.add(ref);
+        }
+        // Fallback: algunos shapes traen panes[].surfaces[].ref en vez de surface_refs.
+        const surfaces = Array.isArray(pane?.surfaces) ? pane.surfaces : [];
+        for (const s of surfaces) {
+          if (typeof s?.ref === 'string') refs.add(s.ref);
+        }
+      }
+    }
+  }
+  return [...refs];
+}
+
+/**
  * Factory de CmuxHost.
  * @param {Object} [opts]
  * @param {Function} [opts.exec] - execFile inyectable (callback style) para selectWorkspace.
@@ -137,6 +197,73 @@ export function createCmuxHost(opts = {}) {
     return lastSnapshot.get(ref)?.needs_input ?? false;
   }
 
+  /**
+   * Descubre las sesiones-agente ad-hoc de cmux y las devuelve como datos
+   * host-agnósticos AgentSurface[]. DETECT-01.
+   *
+   * OPTIONAL (NOT in HOST_METHODS — FROZEN at 4). Detected at the call site via
+   * `typeof host.listAgentSurfaces === 'function'` (espejo 1:1 de getTaskState/
+   * createTask). El consumer (Phase 56) hace el set-difference contra state.json,
+   * keyeado por sessionId/cwd (D-06). adopt.js/reconcile.js NO llaman esto.
+   *
+   * Enumeración de DOS pasos (no existe `surface resume list` en cmux 0.64.16):
+   *   1. `tree --all --json --id-format both` → refs de surfaces vivas.
+   *   2. fan-out `surface resume show --json --surface <ref>` por cada ref.
+   *
+   * never-throws (D-05). Fallo del paso-1 (tree exec/parse) → `[]`. Un `resume
+   * show` individual que falla (not_found / parse) → se OMITE esa surface
+   * (try/catch DENTRO del bucle, fila-a-fila — Pitfall 3), el resto del array
+   * sobrevive. cleared/sin binding/source≠agent-hook → omitidos vía normalizeSurface.
+   *
+   * @returns {Promise<import('./interface.js').AgentSurface[]>}
+   */
+  async function listAgentSurfaces() {
+    const started = Date.now();
+    let treeRaw;
+    try {
+      treeRaw = await run(['tree', '--all', '--json', '--id-format', 'both']);
+    } catch (err) {
+      logger?.warn?.('host.list_agent_surfaces.fail', {
+        code: err?.code || 'EXEC_ERROR',
+        detail: String(err?.message || '').trim(),
+        duration_ms: Date.now() - started,
+      });
+      return [];
+    }
+
+    let surfaceRefs;
+    try {
+      surfaceRefs = extractSurfaceRefs(JSON.parse(treeRaw));
+    } catch (err) {
+      logger?.warn?.('host.list_agent_surfaces.fail', {
+        code: 'PARSE_ERROR',
+        detail: String(err?.message || '').trim(),
+        duration_ms: Date.now() - started,
+      });
+      return [];
+    }
+
+    const out = [];
+    for (const ref of surfaceRefs) {
+      let raw;
+      try {
+        // try/catch DENTRO del bucle: un fallo individual omite la surface, no
+        // rompe el array (D-05 fila-a-fila, Pitfall 3). NUNCA `return` aquí.
+        raw = JSON.parse(await run(['surface', 'resume', 'show', '--json', '--surface', ref]));
+      } catch {
+        continue; // not_found / exec error / parse → omitir esta surface
+      }
+      const surface = normalizeSurface(raw); // null si cleared/sin binding/source≠agent-hook
+      if (surface) out.push(surface);
+    }
+
+    logger?.info?.('host.list_agent_surfaces.ok', {
+      count: out.length,
+      duration_ms: Date.now() - started,
+    });
+    return out;
+  }
+
   // _legacy: métodos Cmux-specific de lifecycle/management que NO son parte del
   // contrato D-03 (observation-only) pero que manager.js/health.js necesitan.
   // Prefijo `_` marca scope interno: transición temporal hasta que un futuro
@@ -175,5 +302,5 @@ export function createCmuxHost(opts = {}) {
     },
   };
 
-  return { listWorkspaces, selectWorkspace, isAlive, needsInput, _legacy };
+  return { listWorkspaces, selectWorkspace, isAlive, needsInput, listAgentSurfaces, _legacy };
 }
