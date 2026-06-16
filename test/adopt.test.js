@@ -97,6 +97,25 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // WR-03: never-throws contract — hostile/edge inputs return a discriminant
+  // instead of throwing before the try/catch.
+  // ---------------------------------------------------------------------
+  it('returns UNSUPPORTED (never throws) when provider is null (WR-03)', async () => {
+    const r = await adoptSession(baseArgs({ provider: null }));
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'UNSUPPORTED');
+  });
+
+  it('returns INVALID_INPUT (never throws) when cwd is omitted (WR-03)', async () => {
+    const args = baseArgs();
+    delete args.cwd;
+    const r = await adoptSession(args);
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'INVALID_INPUT');
+    assert.ok(r.detail.missing.includes('cwd'), 'detail.missing names the absent arg');
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-03/04: ok:true seeds the row + reconcile-owned/GSD omission invariant.
   // ---------------------------------------------------------------------
   it('ok:true seeds the state.json row and omits reconcile-owned + GSD fields', async () => {

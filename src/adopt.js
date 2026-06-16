@@ -134,6 +134,7 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
  *
  *   { ok:true, task, session }
  *   { ok:false, code:'UNSUPPORTED',      detail:{ providerName } }
+ *   { ok:false, code:'INVALID_INPUT',    detail:{ missing } }
  *   { ok:false, code:'ALREADY_ADOPTED',  detail:{ task_id } }
  *   { ok:false, code:'CREATE_FAILED',    detail:{ message } }
  *   { ok:false, code:'PERSIST_FAILED',   detail:{ task_id, task_url, hint, message } }
@@ -166,10 +167,30 @@ export async function adoptSession(
   const addSessionFn = deps.addSession || addSession;
   const findSessionFn = deps.findSession || findSession;
 
-  // (a) Capability gate (BIDIR-03). typeof-detected — createTask lives OUTSIDE
-  // the FROZEN-9 contract. POST is never reached when absent.
-  if (typeof provider.createTask !== 'function') {
+  // (a) Capability gate (BIDIR-03 / WR-03). typeof-detected — createTask lives
+  // OUTSIDE the FROZEN-9 contract. Guard a null/undefined provider FIRST so the
+  // typeof read cannot throw (never-throws contract). POST is never reached when
+  // createTask is absent.
+  if (!provider || typeof provider.createTask !== 'function') {
     return { ok: false, code: 'UNSUPPORTED', detail: { providerName } };
+  }
+
+  // (a2) Required-input guard (WR-03). The pre-POST steps run OUTSIDE try/catch
+  // and would throw on hostile inputs (e.g. basename(undefined)). Validate the
+  // required string args at the entry and return a discriminant rather than
+  // throwing, preserving the never-throws contract.
+  const missing = [];
+  for (const [name, value] of [
+    ['cwd', cwd],
+    ['workspaceRef', workspaceRef],
+    ['sessionId', sessionId],
+    ['projectPath', projectPath],
+    ['projectId', projectId],
+  ]) {
+    if (typeof value !== 'string' || value.length === 0) missing.push(name);
+  }
+  if (missing.length > 0) {
+    return { ok: false, code: 'INVALID_INPUT', detail: { missing } };
   }
 
   // (b) Sanitize BEFORE the POST (BIDIR-08 / D-06 backstop).
