@@ -104,7 +104,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. `kodo adopt --workspace <ref> --cwd <path> --title <t> --project <p> --description <d>` crea la tarea y registra la sesión, recibiendo el workspace/cwd **explícito** (no depende de detección automática).
   2. El comando deriva sus exit codes deterministas directamente del discriminante de `adoptSession` (espejo de `kodo gsd verify`).
   3. En éxito, el feedback muestra el `task_id` + `task_url` de la tarea creada; en fallo, el `code`/`detail` legible.
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 54-01-PLAN.md — CLI `kodo adopt`: handler runAdoptCli + registro commander + tests
 
 ### Phase 55: Contrato `HostProvider.describeSurface()` (cmux)
 **Goal**: Añadir al contrato `HostProvider` (`src/host/interface.js`, Phase 38) un método **opcional typeof-detected** — p. ej. `describeSurface(ref)` / `listAgentSurfaces()` — implementado en `src/host/cmux.js` sobre `cmux surface resume show --json`, que descubre las sesiones `claude` ad-hoc devolviendo `{ workspaceRef, cwd, sessionId, kind }` por surface. **Ya NO es un spike de research abierto**: la viabilidad está probada empíricamente (`.planning/research/CMUX-CAPABILITIES.md` P0, cmux 0.64.15; `resume_binding.checkpoint_id` == `session_id` de Claude Code). El deliverable es código de producción + fixture, no un veredicto. Es el **seam del host** que consumen Phase 56 (dashboard) y, opcionalmente, Phase 54 (auto-derivar `--cwd`/`session_id`) y Phase 57.

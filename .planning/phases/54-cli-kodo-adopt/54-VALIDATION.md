@@ -2,8 +2,8 @@
 phase: 54
 slug: cli-kodo-adopt
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-16
 ---
 
@@ -38,7 +38,9 @@ created: 2026-06-16
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| {planner fills} | {NN} | {wave} | BIDIR-07 | T-54-xx / — | {expected behavior} | unit | `node --test test/adopt-cli.test.js` | ❌ W0 | ⬜ pending |
+| T1 | 54-01 | 1 | BIDIR-07 | T-54-04 | Test Wave 0: exit-code map (6 shapes) + render éxito/fallo + --json byte-det + projectPath unmapped (RED hasta T2) | unit | `node --test test/adopt-cli.test.js` | ❌ W0 | ⬜ pending |
+| T2 | 54-01 | 1 | BIDIR-07 | T-54-01 / T-54-02 | Handler runAdoptCli: exit ok/ALREADY→0, INVALID/UNSUPPORTED/PERSIST→1, CREATE→2; PERSIST_FAILED LOUD stderr; --project unmapped fail-fast antes del POST | unit | `node --test test/adopt-cli.test.js` | ✅ (GREEN tras T2) | ⬜ pending |
+| T3 | 54-01 | 1 | BIDIR-07 (invariante) | — | src/cli/adopt.js importa format.js, nunca picocolors (color isolation) | static | `node --test test/format-isolation.test.js` | ✅ extend PHASE_15_CALLSITES | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -76,4 +78,4 @@ created: 2026-06-16
 - [ ] Feedback latency < 30s
 - [ ] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved (planner) — nyquist_compliant=true; Wave 0 (test/adopt-cli.test.js) cubre todas las refs MISSING; sampling continuo (cada task tiene <automated>); sin watch-mode; latencia <30s.
