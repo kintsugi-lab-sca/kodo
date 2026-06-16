@@ -11,7 +11,10 @@
 //
 // Tres garantías:
 //   (1) Tras una escritura (addSession → saveState) no queda residuo `.tmp`.
-//   (2) saveState + loadState round-trip durable (sin corrupción).
+//   (2) saveState + loadState round-trip atómico, sin torn reader (sin corrupción).
+//       (WR-01: la garantía BIDIR-05 es ATOMICITY — no torn reader —, NO
+//       fsync-durability ante power-loss; el wording se ajusta para no
+//       sobre-prometer.)
 //   (3) El path del backup `.bak.<ts>` de la migración NO se ve perturbado por
 //       el upgrade — sigue produciendo exactamente un snapshot timestamped.
 
@@ -105,9 +108,10 @@ describe('saveState atomic tmp+rename (BIDIR-05 / D-05)', () => {
   });
 
   // -----------------------------------------------------------------------
-  // Caso 2: round-trip durable — saveState seguido de loadState es exacto.
+  // Caso 2: round-trip atómico (no torn reader) — saveState seguido de loadState
+  // es exacto. WR-01: la garantía es atomicity, no fsync-durability.
   // -----------------------------------------------------------------------
-  it('round-trips durably (saveState → loadState deep-equal)', () => {
+  it('round-trips atomically, no torn reader (saveState → loadState deep-equal)', () => {
     const state = cleanV3();
     state.sessions['task-rt'] = sessionRecord('task-rt');
     saveState(state);
