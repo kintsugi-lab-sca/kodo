@@ -472,6 +472,49 @@ describe('manager — pure helpers', () => {
       assert.ok(!cmd.includes('--dangerously-skip-permissions'),
         'non-GSD non-yolo sessions must not get skip-perms');
     });
+
+    // Bugfix: el prompt ya NO se teclea inline. `cmux send` inyecta el comando
+    // como keystrokes e interpreta \n/\r/\t como Enter/Tab (y puede perder
+    // caracteres durante el init del shell), partiendo el comando a mitad. El
+    // prompt se escribe a un fichero y el comando solo lo referencia vía
+    // `"$(cat …)"`, así la línea tecleada es corta, ASCII y sin escapes.
+    it('referencia el prompt por fichero (`$(cat …)`), no lo teclea inline', () => {
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'sess-fileref',
+        makeTask(),
+        'desc',
+        null,
+        [],
+        null,
+      );
+      assert.match(cmd, /"\$\(cat .+\)"$/,
+        'el comando debe terminar en `"$(cat <path>)"` (prompt por fichero)');
+      // No debe quedar el prompt entre comillas simples inline (regresión al
+      // tecleo del prompt completo como keystrokes).
+      assert.ok(!/'.*Trabaja en:/.test(cmd),
+        'el prompt no debe ir inline entre comillas simples');
+    });
+
+    it('el fichero de prompt conserva el contenido VERBATIM (escapes, comillas, multibyte)', () => {
+      // Veneno: \n y \t literales, backslashes de ruta, comilla simple, em-dash, acentos.
+      const description = "Ruta C:\\new\\tabla, regex \\t, 'única' opción 4–5 fotografías.";
+      const cmd = buildClaudeCommand(
+        makeConfig(),
+        'sess-verbatim',
+        makeTask({ title: "Hero 'difícil'" }),
+        description,
+        null,
+        ['yolo'],
+        'FVF',
+      );
+      const m = cmd.match(/"\$\(cat (.+)\)"$/);
+      assert.ok(m, 'el comando debe referenciar un fichero de prompt');
+      const written = readFileSync(m[1], 'utf-8');
+      const expected = `Trabaja en: Hero 'difícil'. Módulo: FVF. Descripción: ${description}`;
+      assert.equal(written, expected,
+        'el fichero debe contener el prompt exacto, sin escapar ni colapsar nada');
+    });
   });
 });
 

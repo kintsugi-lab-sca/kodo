@@ -1,5 +1,8 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { loadConfig, loadProjects } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
@@ -323,18 +326,45 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // garantizar el path determinístico `<projectPath>/.bg-shell/<sessionId>`.
   //
   // Orden de flags (contractual, golden-bytes QUICK-07):
-  //   --model X --session-id Y --worktree Y [--dangerously-skip-permissions] '<prompt>'
+  //   --model X --session-id Y --worktree Y [--dangerously-skip-permissions] <prompt-ref>
   //
   // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
-  // (último arg, escapado entre comillas) — añadir `--worktree` en el header NO
-  // muta los offsets relativos de las tags. Phase 20 (HOOK-01) operará sobre
-  // buildSessionContext/buildGsdContext, no sobre el header del cmd.
-  return `claude --model ${model} --session-id ${sessionId} --worktree ${sessionId} ${cliFlags} '${escapeShell(prompt)}'`.replace(/\s+/g, ' ').trim();
+  // (último arg) — añadir `--worktree` en el header NO muta los offsets relativos
+  // de las tags. Phase 20 (HOOK-01) opera sobre buildSessionContext/buildGsdContext.
+  const header = `claude --model ${model} --session-id ${sessionId} --worktree ${sessionId} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+
+  // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
+  // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como
+  // Enter/Tab; además puede perder caracteres mientras el shell del workspace
+  // termina de arrancar (powerlevel10k instant-prompt, nvm, direnv…). Cualquiera
+  // de las dos cosas parte el comando a mitad → el síntoma "prompt cortado, hay
+  // que ponerlo a mano". Lo escribimos a un fichero temporal y tecleamos solo una
+  // referencia corta y ASCII; el shell expande `"$(cat …)"` EN EJECUCIÓN, sin
+  // escapes ni multibyte en la línea tecleada. El contenido va sin tocar: command
+  // substitution entre comillas dobles lo pasa como un único argumento literal a
+  // claude (sin re-interpretar comillas ni colapsar espacios).
+  const promptPath = writePromptFile(sessionId, prompt);
+  return `${header} "$(cat ${promptPath})"`;
 }
 
-/** @param {string} str */
-function escapeShell(str) {
-  return str.replace(/'/g, "'\\''");
+/**
+ * Persist a session prompt to a temp file so the launch command can reference it
+ * via `$(cat …)` en vez de teclear el prompt entero como keystrokes.
+ *
+ * Un fichero por sessionId (UUID): únicos por sesión, sin clobber concurrente.
+ * No se borra al leer — si el tecleo del comando falla y el operador lo
+ * re-ejecuta a mano, el fichero sigue disponible.
+ *
+ * @param {string} sessionId
+ * @param {string} prompt
+ * @returns {string} absolute path al fichero de prompt
+ */
+function writePromptFile(sessionId, prompt) {
+  const dir = path.join(tmpdir(), 'kodo-prompts');
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${sessionId}.txt`);
+  writeFileSync(file, prompt, 'utf8');
+  return file;
 }
 
 /**
