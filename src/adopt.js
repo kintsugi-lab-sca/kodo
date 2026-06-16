@@ -210,7 +210,15 @@ export async function adoptSession(
   // non-ok (Phase 52 D-08) — caught here and converted to CREATE_FAILED.
   let task;
   try {
-    task = await provider.createTask({ projectId, title: clean.title, description: clean.description });
+    // WR-04: omit `description` entirely when absent (mirror the
+    // `...(x ? {x} : {})` idiom in buildSessionFromTask) so an explicit
+    // `undefined` never reaches the provider client to be coerced to null or
+    // surface an unintended key. Behavior unchanged when a description IS given.
+    task = await provider.createTask({
+      projectId,
+      title: clean.title,
+      ...(clean.description !== undefined ? { description: clean.description } : {}),
+    });
   } catch (err) {
     return { ok: false, code: 'CREATE_FAILED', detail: { message: err?.message ?? String(err) } };
   }

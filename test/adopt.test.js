@@ -182,6 +182,36 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // WR-04: createTask payload omits `description` when absent; includes it
+  // (unchanged) when provided.
+  // ---------------------------------------------------------------------
+  it('omits description key from createTask payload when absent (WR-04)', async () => {
+    let received;
+    const capturing = {
+      createTask: async (payload) => {
+        received = payload;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: capturing }));
+    assert.equal(r.ok, true);
+    assert.ok(!('description' in received), 'description key must be omitted when absent');
+  });
+
+  it('forwards description in createTask payload when provided (WR-04)', async () => {
+    let received;
+    const capturing = {
+      createTask: async (payload) => {
+        received = payload;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: capturing, description: 'a note' }));
+    assert.equal(r.ok, true);
+    assert.equal(received.description, 'a note');
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-08 / D-06: sanitizeAdoptionData — title default, home redaction,
   // abs-path strip, no transcript param (structural).
   // ---------------------------------------------------------------------
