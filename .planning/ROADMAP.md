@@ -92,7 +92,9 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   2. Un re-run sobre una sesión ya adoptada retorna `ALREADY_ADOPTED` **sin** crear tarea (guard `findSession({workspaceRef, cwd})` ANTES del POST + re-check TOCTOU con `loadState()` fresco; cero duplicados).
   3. La secuencia es POST-primero, escritura local último (tmp+rename atómico); si el POST tiene éxito pero la escritura local falla, el fallo es **LOUD** con `task_id` + `task_url` en el mensaje y es recuperable por re-run idempotente.
   4. Los datos de la tarea se auto-derivan y sanean antes del POST: título default `basename(cwd)` editable, proyecto destino vía `listProjects`, descripción opcional; se hace strip de rutas absolutas / redacción del home dir / nunca se embeben bodies de transcript; el estado inicial es sano (no "sin triar").
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 53-01-PLAN.md — saveState tmp+rename atomic upgrade + .bak-independence regression (Wave 1, BIDIR-05)
+  - [ ] 53-02-PLAN.md — src/adopt.js (adoptSession + buildSessionFromAdoption + sanitizeAdoptionData) + test/adopt.test.js (Wave 2, BIDIR-03/04/05/08)
 
 ### Phase 54: CLI `kodo adopt`
 **Goal**: El operador puede adoptar una sesión ad-hoc desde la línea de comandos con input explícito. Es el consumidor determinista de referencia (0-token) que la tecla del dashboard y el orquestador shellean; ships sí o sí con independencia del veredicto del spike.
