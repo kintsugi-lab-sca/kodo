@@ -204,6 +204,60 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
     assert.equal(r.description, '~/notes.md');
   });
 
+  // CR-01 regression: the path-sanitization backstop must close the documented
+  // leak shapes. Each input crosses the local→external trust boundary and MUST
+  // NOT survive with filesystem layout intact.
+  it('sanitizeAdoptionData redacts //double-slash absolute paths (CR-01)', () => {
+    const r = sanitizeAdoptionData(
+      { cwd: '/dev/foo', title: '//etc/secret' },
+      () => '/Users/alex',
+    );
+    assert.equal(r.title, '<path>', '//-rooted runs must not survive verbatim');
+    assert.ok(!r.title.includes('etc/secret'));
+  });
+
+  it('sanitizeAdoptionData redacts a path after a bare colon key:/abs (CR-01)', () => {
+    const r = sanitizeAdoptionData(
+      { cwd: '/dev/foo', title: 'path:/Users/bob/x' },
+      () => '/Users/alex',
+    );
+    assert.ok(!r.title.includes('/Users/bob/x'), 'key:/abs must be redacted, not spared as a URL');
+    assert.equal(r.title, 'path:<path>');
+  });
+
+  it('sanitizeAdoptionData does NOT corrupt a superset-username path (CR-01)', () => {
+    // home '/Users/alex' must NOT partial-match '/Users/alexandra/...' — the old
+    // naive split() produced '~andra/secret' (partial leak + nonsense path).
+    const r = sanitizeAdoptionData(
+      { cwd: '/dev/foo', title: '/Users/alexandra/secret' },
+      () => '/Users/alex',
+    );
+    assert.ok(!r.title.startsWith('~andra'), 'must not corrupt into ~andra/...');
+    assert.ok(!r.title.includes('andra/secret'), 'sibling-user tail must not leak');
+    assert.equal(r.title, '<path>');
+  });
+
+  it('sanitizeAdoptionData still strips abs paths when home is empty (CR-01)', () => {
+    // A stubbed/containerized homedirFn returning '' must NOT disable the abs-path
+    // strip — home redaction is skipped safely, step (2) still fires.
+    const r = sanitizeAdoptionData(
+      { cwd: '/dev/foo', title: 'see /Users/bob/private/notes' },
+      () => '',
+    );
+    assert.ok(!r.title.includes('/Users/bob/private/notes'), 'empty home must not widen the leak');
+    assert.equal(r.title, 'see <path>');
+  });
+
+  it('sanitizeAdoptionData spares genuine URLs while redacting abs paths (CR-01)', () => {
+    const r = sanitizeAdoptionData(
+      { cwd: '/dev/foo', title: 'see https://x/KL-99 at /Users/bob/z' },
+      () => '/Users/alex',
+    );
+    assert.ok(r.title.includes('https://x/KL-99'), 'real URLs must survive');
+    assert.ok(!r.title.includes('/Users/bob/z'), 'abs path must still be redacted');
+    assert.equal(r.title, 'see https://x/KL-99 at <path>');
+  });
+
   it('sanitizeAdoptionData has no transcript parameter (structural backstop)', () => {
     // Passing a transcript key must NOT leak into the output — the function does
     // not accept/forward it (defense by construction, not a filter).

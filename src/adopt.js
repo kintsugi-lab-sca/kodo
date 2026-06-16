@@ -38,20 +38,32 @@ import { homedir } from 'node:os';
  */
 function redactPaths(str, home) {
   let out = str;
-  // (1) Home redaction — longest-prefix first so '~' lands before the generic
-  // abs-path strip can touch the home-rooted segment.
+  // (1) Home redaction at a PATH-SEGMENT boundary (CR-01). Naive
+  // `split(home).join('~')` corrupts a superset username: home '/Users/alex'
+  // applied to '/Users/alexandra/x' would emit '~andra/x' (partial leak +
+  // nonsense path). Anchoring the replacement on end-of-string / '/' / whitespace
+  // ensures home only matches when it ends at a real segment boundary. Regex
+  // metachars in `home` are escaped. Falsy/empty `home` is skipped safely.
   if (home) {
-    out = out.split(home).join('~');
+    const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(esc + '(?=$|/|\\s)', 'g'), '~');
   }
-  // (2) Strip remaining POSIX absolute paths: a leading '/' followed by at least
-  // one path segment (no whitespace). Redacted to a literal placeholder so no
-  // local filesystem layout crosses to the external system. Conservative — the
-  // negative lookbehind excludes:
-  //   - '\w' / ':' / '/'  → URL paths (http(s)://…) and mid-word slashes,
-  //   - '~'               → the home dir we just redacted in step (1): '~/secret'
-  //                         must survive as a home-relative tail, not be stripped,
-  //   - '.'               → './x' and '../x' relative paths.
-  out = out.replace(/(?<![\w:/~.])\/[^\s/]+(?:\/[^\s]*)?/g, '<path>');
+  // (2) Strip remaining absolute-path runs to '<path>' (CR-01). Single pass over
+  // two alternatives, URL FIRST so it consumes 'scheme://host…' before the path
+  // alternative can bite into it:
+  //   - <url>  : a genuine 'scheme://host…' URL → re-emitted UNTOUCHED (spared).
+  //   - <path> : a '/'-rooted run (one OR two leading slashes) → redacted.
+  // The leading-boundary group anchors on start | whitespace | one of ([{=, OR a
+  // single ':' — so the previously-leaking shapes are now caught:
+  //   - '//etc/secret'        (double-slash, no scheme)        → '<path>'
+  //   - 'key:/Users/bob/x'    (single slash after a bare ':')  → 'key:<path>'
+  //   - '/Users/alexandra/x'  (superset username, see step 1)  → '<path>'
+  // while './x', '../x', '~/x' and mid-word 'a/b' never start at a boundary
+  // immediately followed by '/' and therefore survive.
+  out = out.replace(
+    /(?<lead>^|[\s([{=,:])(?:(?<url>[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]*)|(?<path>\/{1,2}[^\s/]+(?:\/[^\s]*)?))/g,
+    (m, lead, url) => (url !== undefined ? m : lead + '<path>'),
+  );
   return out;
 }
 
