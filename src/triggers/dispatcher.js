@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects } from '../config.js';
-import { parseKodoLabels, getGsdMode, isGsdChild } from '../labels.js';
+import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js';
 import { listSessions, removeSession, computeWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
@@ -68,6 +68,20 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   if (isGsdChild(task.labels)) {
     console.log(`[kodo:dispatch] Ignored — kodo:gsd-child filtered (anti-recursion)`);
     return { action: 'ignored', code: 'gsd_child' };
+  }
+
+  // 1c. Anti-recursion guard — kodo:adopted marks tasks created by `createTask`
+  // for an adopted ad-hoc session (Phase 52 BIDIR-06). Drop them BEFORE any
+  // further processing, even under opts.force. Hard safety property (D-02):
+  // cuts before parseKodoLabels / lock / resolver / launch so a freshly adopted
+  // task is NEVER re-dispatched into a second, colliding session. LOAD-BEARING
+  // (Pitfall 1): parseKodoLabels treats kodo:adopted as isKodo:true, so the
+  // primary "no kodo label" gate below would NOT suppress it once the marker is
+  // present — this early cut is what fully suppresses it, and --force does NOT
+  // bypass it (must precede the force-skip block below).
+  if (isAdopted(task.labels)) {
+    console.log(`[kodo:dispatch] Ignored — kodo:adopted filtered (anti-recursion)`);
+    return { action: 'ignored', code: 'adopted' };
   }
 
   // 2. Check kodo labels (skip if force=true)
