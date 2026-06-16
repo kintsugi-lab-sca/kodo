@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
-status: completed
+status: executing
 stopped_at: Phase 53 context gathered
-last_updated: "2026-06-16T10:28:42.925Z"
-last_activity: 2026-06-16
+last_updated: "2026-06-16T10:46:47.925Z"
+last_activity: 2026-06-16 -- Phase 53 planning complete
 progress:
   total_phases: 8
   completed_phases: 1
-  total_plans: 3
+  total_plans: 5
   completed_plans: 3
   percent: 13
 ---
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 Phase: 52 (createTask + contrato + anti-recursión) — COMPLETE
 Plan: 3 of 3 (all plans shipped)
-Status: Phase complete — ready for Phase 53 (fontanería `src/adopt.js`)
-Last activity: 2026-06-16
+Status: Ready to execute
+Last activity: 2026-06-16 -- Phase 53 planning complete
 
 ## Roadmap v0.13 (active)
 
