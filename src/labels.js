@@ -121,3 +121,42 @@ export function isGsdChild(labels) {
     return typeof name === 'string' && name.toLowerCase() === KODO_LABEL_GSD_CHILD;
   });
 }
+
+/**
+ * Adopted-session marker label. Tasks created by `createTask` for an adopted
+ * ad-hoc session (Phase 52 BIDIR-06, Plans 02/03) carry this marker. The
+ * dispatcher (Phase 52 D-02) drops them BEFORE lock/resolver/launch — even
+ * under --force — so a freshly adopted task is NEVER re-dispatched into a
+ * second, colliding session. The marker also makes the task's provenance
+ * (origin = adopted session) visible/filterable (D-03) — an honest signal,
+ * not just a guard.
+ *
+ * Mirror of KODO_LABEL_GSD_CHILD: standalone constant, single source of truth
+ * for the literal. Source-hygiene (labels-hygiene.test.js) enforces that no
+ * inline 'kodo:adopted' lives outside this file.
+ */
+export const KODO_LABEL_ADOPTED = 'kodo:adopted';
+
+/**
+ * Returns true iff the labels array contains the `kodo:adopted` marker.
+ * Defensive parity with `isGsdChild`: tolerates both `string[]` and
+ * `Array<{name: string}>` inputs (dispatcher passes string[]; provider
+ * adapters typically pass {name} objects). Case-insensitive.
+ *
+ * Phase 52 D-02: única fuente de verdad para el check `adopted`. Callsites
+ * MUST use this helper, not `task.labels.some(l => l === 'kodo:adopted')`
+ * inline. Source-hygiene blinda el invariante.
+ *
+ * @param {Array<any>} labels
+ * @returns {boolean}
+ */
+export function isAdopted(labels) {
+  if (!Array.isArray(labels)) return false;
+  return labels.some((l) => {
+    const name =
+      typeof l === 'object' && l !== null ? l.name :
+      typeof l === 'string' ? l :
+      null;
+    return typeof name === 'string' && name.toLowerCase() === KODO_LABEL_ADOPTED;
+  });
+}
