@@ -199,6 +199,7 @@ function makeFakeGitHubClient(overrides = {}) {
     addComment: [],
     updateIssue: [],
     listLabels: [],
+    createIssue: [],
   };
   return {
     calls,
@@ -235,6 +236,23 @@ function makeFakeGitHubClient(overrides = {}) {
       if (overrides.listLabels) return overrides.listLabels(owner, repo);
       return [];
     },
+    // createTask → createIssue POST 201. Devuelve un raw issue shape como el getIssue
+    // default + created_at/updated_at (REQUERIDOS por assertTaskItemShape — Phase 28 D-01).
+    async createIssue(owner, repo, fields) {
+      calls.createIssue.push({ owner, repo, fields });
+      if (overrides.createIssue) return overrides.createIssue(owner, repo, fields);
+      return {
+        node_id: 'I_kwTEST_CREATED',
+        number: 101,
+        title: fields.title,
+        body: fields.body,
+        labels: fields.labels,
+        state: 'open',
+        html_url: `https://github.com/${owner}/${repo}/issues/101`,
+        created_at: '2026-06-16T09:00:00.000Z',
+        updated_at: '2026-06-16T09:00:00.000Z',
+      };
+    },
   };
 }
 
@@ -243,15 +261,21 @@ function makeFakeGitHubClient(overrides = {}) {
  * cualquier path no mapeado lanza `Error('plane stub miss: ...')` en lugar
  * de devolver `{ results: [] }` default (que oculta endpoints olvidados).
  *
- * @param {Record<string, () => any>} routes
+ * Las route fns reciben `method` (default 'GET') para poder divergir GET vs POST sobre
+ * el mismo suffix (A3): `/work-items/` sirve `{results:[...]}` en GET (list) y el work item
+ * crudo en POST (createWorkItem consume `res.json()` directo, sin desempaquetar `results`);
+ * `/labels/` sirve `{results:[...]}` en GET (init warmup) y un label crudo en POST (createLabel).
+ *
+ * @param {Record<string, (method?: string) => any>} routes
  * @returns {{ calls: Record<string, number>, restore: () => void }}
  */
 function stubPlaneFetch(routes) {
   const original = globalThis.fetch;
   const calls = {};
   // @ts-ignore — intentional override scoped to the test caller.
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     const path = new URL(url).pathname;
+    const method = (init && init.method) || 'GET';
     // Strict suffix matching only — `/projects/` would otherwise shadow
     // `/projects/{uuid}/work-items/` via `String.includes()` (the work-items
     // path also contains the substring `/projects/`).
@@ -260,7 +284,7 @@ function stubPlaneFetch(routes) {
       throw new Error(`plane stub miss: ${path}`);
     }
     calls[matched] = (calls[matched] || 0) + 1;
-    const body = routes[matched]();
+    const body = routes[matched](method);
     return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -297,8 +321,13 @@ async function instantiateProvider(name) {
           },
         ],
       }),
-      // init() — labels por proyecto
-      '/labels/': () => ({ results: planeLabels }),
+      // init() — labels por proyecto (GET). createTask → createLabel hace POST aquí:
+      // devuelve un label CRUDO `{id,name}` (createLabel consume `res.json()` directo),
+      // permitiendo que el marker `kodo:adopted` se resuelva/cachee antes del work-item POST.
+      '/labels/': (method) =>
+        method === 'POST'
+          ? { id: 'adopted-label-uuid', name: 'kodo:adopted' }
+          : { results: planeLabels },
       // init() — states por proyecto. UUID matching plane-workitem.json's `state`
       '/states/': () => ({
         results: [
@@ -313,8 +342,12 @@ async function instantiateProvider(name) {
       // expand=state_detail. Suffix más específico que /work-items/ (endsWith strict).
       // planeWorkItem.state_detail = {name:'In Progress', group:'started'} → in_progress.
       [`/work-items/${planeWorkItem.id}/`]: () => planeWorkItem,
-      // listPendingTasks + getWorkItemBySequence — ambos pegan a /work-items/
-      '/work-items/': () => ({ results: [planeWorkItem] }),
+      // listPendingTasks + getWorkItemBySequence pegan a /work-items/ en GET → {results}.
+      // createTask → createWorkItem hace POST → devuelve el work item CRUDO (createWorkItem
+      // consume `res.json()` directo; normalizeWorkItem espera la forma cruda con `id`,
+      // `sequence_id`, `state`/`state_detail`, no envuelta en `results`).
+      '/work-items/': (method) =>
+        method === 'POST' ? planeWorkItem : { results: [planeWorkItem] },
     });
     const provider = createPlaneProvider(MOCK_PLANE_CONFIG);
     return { provider, cleanup: stub.restore };
@@ -380,6 +413,26 @@ function getTaskStateArg(name) {
   throw new Error(`No getTaskState arg for: ${name}`);
 }
 
+/**
+ * Argumento por-provider para `createTask` (Phase 52 BIDIR-01/02). `projectId` matchea el
+ * stub `/projects/` (Plane UUID) / `listProjects` shape (GitHub 'owner/repo'); `title` +
+ * `description` son los datos ya resueltos que Phase 53 (BIDIR-08) pasará.
+ * @param {string} name
+ */
+function getCreateTaskArg(name) {
+  if (name === 'plane') {
+    return {
+      projectId: 'p0p0p0p0-1111-2222-3333-444444444444',
+      title: 'adopt smoke',
+      description: 'desc',
+    };
+  }
+  if (name === 'github') {
+    return { projectId: 'octocat/hello-world', title: 'adopt smoke', description: 'desc' };
+  }
+  throw new Error(`No createTask arg for: ${name}`);
+}
+
 /** Vocabulario normalizado cerrado de provider_state (PSTATE-01/02). */
 const PROVIDER_STATE_VOCAB = Object.freeze([
   'in_progress',
@@ -436,6 +489,18 @@ for (const providerName of PROVIDERS) {
           `[${providerName}] missing method: ${method}`,
         );
       }
+      // FROZEN-9 negative-assert (Phase 52 D-13): createTask is an OPTIONAL typeof-detected
+      // method, NEVER in the contract list. The registry's 9-method validation loop iterates
+      // TASK_PROVIDER_METHODS — adding createTask there would break every provider lacking it.
+      assert.equal(
+        TASK_PROVIDER_METHODS.length,
+        9,
+        `[${providerName}] TASK_PROVIDER_METHODS must stay FROZEN at 9, got: ${TASK_PROVIDER_METHODS.length}`,
+      );
+      assert.ok(
+        !TASK_PROVIDER_METHODS.includes('createTask'),
+        `[${providerName}] createTask must NOT be in TASK_PROVIDER_METHODS (FROZEN at 9, D-13)`,
+      );
     });
 
     // B2 — getTask(validRef) returns TaskItem canonical shape (Pattern E + D-18)
@@ -502,6 +567,17 @@ for (const providerName of PROVIDERS) {
         PROVIDER_STATE_VOCAB.includes(state),
         `[${providerName}] getTaskState must return one of ${PROVIDER_STATE_VOCAB.join('|')}, got: ${state}`,
       );
+    });
+
+    // B9 — createTask (OPTIONAL, capability-gated, Phase 52 BIDIR-01/02 / D-07)
+    // Espejo de B8: skip-without-failing si el provider no lo implementa (preserva el
+    // determinismo PROVIDERS × N_asserts y el gate `typeof === 'function'` del call site).
+    // Cierra BIDIR-01 (Plane) + BIDIR-02 (GitHub): un 201 mockeado round-trippea a un
+    // TaskItem canónico shape-idéntico a uno fetcheado (D-06), para AMBOS providers.
+    it('createTask (if supported) round-trips a 201 to a canonical TaskItem', async () => {
+      if (typeof provider.createTask !== 'function') return; // capability-gated skip
+      const task = await provider.createTask(getCreateTaskArg(providerName));
+      assertTaskItemShape(task, providerName);
     });
   });
 }
