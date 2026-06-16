@@ -245,6 +245,37 @@ program
     }
   });
 
+// --- kodo adopt ---
+program
+  .command('adopt')
+  .description('Adopt an ad-hoc session into a persistent task (deterministic, 0-token)')
+  .requiredOption('--workspace <ref>', 'Workspace reference of the live session')
+  .requiredOption('--cwd <path>', 'Working directory of the session')
+  .requiredOption('--session-id <id>', 'Claude Code session id')
+  .requiredOption('--project <id>', 'Target project id (must be mapped in kodo config)')
+  .option('--title <t>', 'Task title (default: basename(cwd), applied by the core)')
+  .option('--description <d>', 'Task description (optional)')
+  .option('--json', 'Emit the discriminant as JSON (scriptable, byte-deterministic)')
+  .action(async (opts) => {
+    try {
+      await ensureConfig();
+      const { runAdoptCli } = await import('./cli/adopt.js');
+      const code = await runAdoptCli({
+        workspaceRef: opts.workspace,
+        cwd: opts.cwd,
+        sessionId: opts.sessionId,
+        projectId: opts.project,
+        title: opts.title,
+        description: opts.description,
+        json: opts.json || false,
+      });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo status ---
 program
   .command('status')

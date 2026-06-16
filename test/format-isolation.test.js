@@ -136,6 +136,7 @@ describe('Phase 15 cableado: callsites importan format.js (positive) + no picoco
     'src/check.js',
     'src/cli/gsd-inspect.js',
     'src/cli/gsd-verify.js',
+    'src/cli/adopt.js',
   ]);
 
   it('Phase 15 callsites import src/cli/format.js (cableado verificado tras Plans 15-01..15-04)', () => {
