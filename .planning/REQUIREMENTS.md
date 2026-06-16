@@ -13,12 +13,12 @@ Driver: el flujo inverso `sesión → tarea`. El research (`.planning/research/`
 
 - [x] **BIDIR-01**: `createTask` implementado como método **opcional typeof-detected** en el adapter **Plane** (`POST .../work-items/`, solo `name` required, `X-API-Key` ya presente en `PlaneClient.request()`), normalizando la respuesta 201 de vuelta a `TaskItem` canónico vía el `normalizeWorkItem` existente. `TASK_PROVIDER_METHODS` permanece FROZEN en 9; el loop de validación de `registry.js` queda intacto; un `it()` capability-gated en `test/providers/contract.test.js` espeja el test B8 de `getTaskState`.
 - [x] **BIDIR-02**: `createTask` implementado igualmente en el adapter **GitHub** (`POST /repos/{o}/{r}/issues`, solo `title` required, body en **Markdown** — divergencia ya conocida del split de `addComment`), con el scope PAT mínimo (`issues:write`/`repo`) documentado. Contract matrix Plane+GitHub itera la capability como en v0.10.
-- [ ] **BIDIR-03**: Fontanería `src/adopt.js` (`adoptSession()` + `buildSessionFromAdoption()` puro) — capability-gate → `createTask` → normalize → `addSession`, retornando el discriminante never-throws universal del codebase `{ ok:true, task, session } | { ok:false, code, detail }`. Vive como módulo top-level provider-agnostic (NO bajo `src/gsd/` — la adopción no sabe de GSD). `adoptSession` **siembra** la fila en `state.json` vía el `addSession` existente (misma clase de escritura que el launch); NO escribe `dead_since`/`last_seen_alive` (reconcile-owned) — la invariante "`reconcileTick` único escritor de `alive`" se preserva.
-- [ ] **BIDIR-04**: **Guard de idempotencia / double-adopt** — `findSession({ workspaceRef, cwd })` (escanea sessions+history) ANTES del POST; si la sesión ya está adoptada → `ALREADY_ADOPTED` sin crear tarea (cero duplicados). Re-check TOCTOU con `loadState()` fresco al estilo del 409 del dismiss (v0.10 Phase 42). La ventaja estructural de kodo: el mapeo autoritativo es **local** (`state.json`), no requiere búsqueda remota difusa.
-- [ ] **BIDIR-05**: **Atomicidad create+adopt** — orden POST-primero, escritura local `state.json` último (tmp+rename atómico). Si el POST tiene éxito pero la escritura local falla → fallo **LOUD** con `task_id` + `task_url` en el mensaje (never-throws es solo para los carriles de lectura; un huérfano de proveedor es irrecuperable porque kodo no borra tareas), recuperable vía re-run idempotente (BIDIR-04).
+- [x] **BIDIR-03**: Fontanería `src/adopt.js` (`adoptSession()` + `buildSessionFromAdoption()` puro) — capability-gate → `createTask` → normalize → `addSession`, retornando el discriminante never-throws universal del codebase `{ ok:true, task, session } | { ok:false, code, detail }`. Vive como módulo top-level provider-agnostic (NO bajo `src/gsd/` — la adopción no sabe de GSD). `adoptSession` **siembra** la fila en `state.json` vía el `addSession` existente (misma clase de escritura que el launch); NO escribe `dead_since`/`last_seen_alive` (reconcile-owned) — la invariante "`reconcileTick` único escritor de `alive`" se preserva.
+- [x] **BIDIR-04**: **Guard de idempotencia / double-adopt** — `findSession({ workspaceRef, cwd })` (escanea sessions+history) ANTES del POST; si la sesión ya está adoptada → `ALREADY_ADOPTED` sin crear tarea (cero duplicados). Re-check TOCTOU con `loadState()` fresco al estilo del 409 del dismiss (v0.10 Phase 42). La ventaja estructural de kodo: el mapeo autoritativo es **local** (`state.json`), no requiere búsqueda remota difusa.
+- [x] **BIDIR-05**: **Atomicidad create+adopt** — orden POST-primero, escritura local `state.json` último (tmp+rename atómico). Si el POST tiene éxito pero la escritura local falla → fallo **LOUD** con `task_id` + `task_url` en el mensaje (never-throws es solo para los carriles de lectura; un huérfano de proveedor es irrecuperable porque kodo no borra tareas), recuperable vía re-run idempotente (BIDIR-04).
 - [x] **BIDIR-06**: **Anti-recursión** — una tarea recién adoptada **NUNCA** debe ser re-despachada por el poller/webhook lanzando una segunda sesión que colisione con la sesión ad-hoc viva. El `first-tick skip` (`polling.js:173`) NO protege el caso de una tarea creada mientras el daemon ya corre. Mitigación espejo del corte `isGsdChild` (`dispatcher.js:68`, ANTES de lock/resolver/launch, `--force` no bypasea) + crear en estado **no-trigger** para que `listPendingTasks` no la devuelva. Propiedad de corrección del núcleo, construida junto a `createTask` (precedente: anti-recursión shipped *con* el reporting en Phase 29, no después).
 - [ ] **BIDIR-07**: Comando CLI **`kodo adopt`** (consumidor determinista, 0-token) con flags `--workspace`/`--cwd`/`--title`/`--project`/`--description`. Recibe el workspace/cwd **explícito** → no depende de la detección automática; **ships sí o sí** con independencia del veredicto del spike. Exit codes deterministas desde el discriminante; feedback de éxito con `task_id` + `task_url`.
-- [ ] **BIDIR-08**: **Datos auto-derivados editables + sanitización** — título default `basename(cwd)`, editable (nunca commit silencioso); proyecto destino vía `listProjects` (ya en los 9 FROZEN — reuse directo); descripción opcional. Sanitizar antes del POST: strip de rutas absolutas, redacción del home dir, nunca embeber bodies de transcript. Estado inicial sano (in-progress/todo) — la tarea adoptada no cae en "sin triar".
+- [x] **BIDIR-08**: **Datos auto-derivados editables + sanitización** — título default `basename(cwd)`, editable (nunca commit silencioso); proyecto destino vía `listProjects` (ya en los 9 FROZEN — reuse directo); descripción opcional. Sanitizar antes del POST: strip de rutas absolutas, redacción del home dir, nunca embeber bodies de transcript. Estado inicial sano (in-progress/todo) — la tarea adoptada no cae en "sin triar".
 
 ### Detección de sesiones ad-hoc + tecla del dashboard (DETECT)
 
@@ -88,12 +88,12 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 |-------------|-------|--------|
 | BIDIR-01 | Phase 52 | Complete |
 | BIDIR-02 | Phase 52 | Complete |
-| BIDIR-03 | Phase 53 | Pending |
-| BIDIR-04 | Phase 53 | Pending |
-| BIDIR-05 | Phase 53 | Pending |
+| BIDIR-03 | Phase 53 | Complete |
+| BIDIR-04 | Phase 53 | Complete |
+| BIDIR-05 | Phase 53 | Complete |
 | BIDIR-06 | Phase 52 | Complete |
 | BIDIR-07 | Phase 54 | Pending |
-| BIDIR-08 | Phase 53 | Pending |
+| BIDIR-08 | Phase 53 | Complete |
 | DETECT-01 | Phase 55 | Pending |
 | DETECT-02 | Phase 56 | Pending |
 | ORCH-01 | Phase 57 | Pending |
