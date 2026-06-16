@@ -141,7 +141,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Active
 
-**Milestone v0.13 kodo bidireccional** (iniciado 2026-06-15). Requirements en definición; ver `REQUIREMENTS.md` y `ROADMAP.md`. En scope: flujo `sesión → tarea` (`createTask` opcional Plane+GitHub + `adoptSession` + CLI `kodo adopt`), adopción asistida por el orquestador, tecla del dashboard gated por spike de detección, y saldo de la deuda viva de v0.12 (XSS WR-01 + HUMAN-UAT 50.1).
+**Milestone v0.13 kodo bidireccional** (iniciado 2026-06-15). Requirements en definición; ver `REQUIREMENTS.md` y `ROADMAP.md`. En scope: flujo `sesión → tarea` (`createTask` opcional Plane+GitHub + `adoptSession` + CLI `kodo adopt`), adopción asistida por el orquestador, tecla del dashboard gated por spike de detección, cierre del lifecycle de `/exit` (LIFE-03 — hook `SessionEnd` para cleanup limpio, hoy las sesiones cerradas quedan colgadas como `dead`; spike-confirmado en Claude Code 2.1.177), y saldo de la deuda viva de v0.12 (XSS WR-01 + HUMAN-UAT 50.1).
 
 **Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App
 

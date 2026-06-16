@@ -29,7 +29,7 @@
 - [ ] **Phase 55: SPIKE detección cmux (HARD GATE)** — veredicto empírico VIABLE/INVIABLE sobre detectar sesiones `claude` ad-hoc ausentes de `state.json`; gobierna Phase 56
 - [ ] **Phase 56: Tecla del dashboard (condicional/cuttable)** — *(solo si Phase 55 = VIABLE)* tecla `a` descubre + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos
 - [ ] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño
-- [ ] **Phase 58: Deuda heredada de v0.12** — hardening XSS WR-01 (`src/server.js`) + cierre del HUMAN-UAT diferido de Phase 50.1; tail independiente
+- [ ] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03) + hardening XSS WR-01 (`src/server.js`) + cierre del HUMAN-UAT diferido de Phase 50.1; tail independiente
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -133,13 +133,14 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   3. La implementación shellea el mismo `kodo adopt --title "<derived>"` (el carril 0-token del núcleo se preserva; el LLM vive estrictamente en el consumidor) — prosa del skill `kodo-orchestrate` actualizada, cero lógica de negocio nueva en el orquestador.
 **Plans**: TBD
 
-### Phase 58: Deuda heredada de v0.12
-**Goal**: Saldar los dos items diferidos al cierre de v0.12 (`## Deferred Items` de STATE.md). Tail independiente, schedulable en paralelo a cualquier fase de adopción; bajo riesgo.
+### Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12
+**Goal**: Cerrar el gap del lifecycle de sesión (una sesión cerrada por `/exit` queda colgada como `dead` porque kodo no escucha `SessionEnd`) y saldar los dos items diferidos al cierre de v0.12 (`## Deferred Items` de STATE.md). Tail independiente, schedulable en paralelo a cualquier fase de adopción; bajo riesgo. La separación de responsabilidades `Stop` (per-turn → `idle`) vs `SessionEnd` (cierre → cleanup terminal) se resuelve en discuss-phase.
 **Depends on**: Nothing (independiente del flujo de adopción; schedulable en cualquier momento)
-**Requirements**: DEBT-01, DEBT-02
+**Requirements**: LIFE-03, DEBT-01, DEBT-02
 **Success Criteria** (what must be TRUE):
-  1. El carril HTML del dashboard (`src/server.js`) aplica la allowlist de protocolo `http(s)` (con `new URL()`) + escaping antes de renderizar `task_url` como `<a href>`, cerrando el XSS latente WR-01 (`javascript:`/`data:` ya no inyectable).
-  2. Los 3 escenarios + `50.1-VERIFICATION.md` del display de progreso vivo `N/M` quedan verificados visualmente en un TTY real con una sesión GSD viva (HUMAN-UAT de Phase 50.1 cerrado).
+  1. Una sesión cerrada con `/exit` dispara el hook `SessionEnd` de kodo → cleanup terminal limpio (`removeSession` + worktree + release de lock GSD); la fila **desaparece** del dashboard en vez de quedar colgada como `dead`. Reusa el cleanup de `stop.js` (sin duplicar), idempotente con el hook `Stop`, never-throws. `install.js`/`uninstall` cubren el tercer evento.
+  2. El carril HTML del dashboard (`src/server.js`) aplica la allowlist de protocolo `http(s)` (con `new URL()`) + escaping antes de renderizar `task_url` como `<a href>`, cerrando el XSS latente WR-01 (`javascript:`/`data:` ya no inyectable).
+  3. Los 3 escenarios + `50.1-VERIFICATION.md` del display de progreso vivo `N/M` quedan verificados visualmente en un TTY real con una sesión GSD viva (HUMAN-UAT de Phase 50.1 cerrado).
 **Plans**: TBD
 
 ## Backlog
