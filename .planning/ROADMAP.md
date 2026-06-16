@@ -19,15 +19,15 @@
 
 ### 🚧 v0.13 kodo bidireccional (Phases 52-58)
 
-**Milestone Goal:** Cerrar el puente en la dirección inversa `sesión → tarea`: una sesión Claude Code creada ad-hoc en cmux (no nacida de una tarea Plane/GitHub) se promueve a una **tarea persistente** del gestor, para que el trabajo ad-hoc no se evapore al cerrar el sprint. Arquitectura **"una fontanería, tres consumidores"**: una base determinista 0-token (`createTask` + `adoptSession`) reusada por el CLI, la tecla del dashboard (gated) y el orquestador (único carril LLM) — ninguno dueño del flujo.
+**Milestone Goal:** Cerrar el puente en la dirección inversa `sesión → tarea`: una sesión Claude Code creada ad-hoc en cmux (no nacida de una tarea Plane/GitHub) se promueve a una **tarea persistente** del gestor, para que el trabajo ad-hoc no se evapore al cerrar el sprint. Arquitectura **"una fontanería, tres consumidores"**: una base determinista 0-token (`createTask` + `adoptSession`) reusada por el CLI, la tecla del dashboard y el orquestador (único carril LLM) — ninguno dueño del flujo. La detección cmux entra por el contrato `HostProvider` (regla transversal).
 
-**Build order (research-validated):** `createTask + contrato + anti-recursión` → `fontanería src/adopt.js` → `CLI kodo adopt` → `SPIKE detección cmux (HARD GATE)` → `tecla dashboard (condicional/cuttable)` → `orquestador asistido` → `deuda v0.12 (tail independiente)`. La base determinista ships antes que cualquier consumidor; la tecla del dashboard queda GATED tras el spike (espejo Phase 49→50 de v0.12).
+**Build order (research-validated):** `createTask + contrato + anti-recursión` → `fontanería src/adopt.js` → `CLI kodo adopt` → `contrato HostProvider.describeSurface() (cmux)` → `tecla dashboard` → `orquestador asistido` → `deuda v0.12 (tail independiente)`. La base determinista ships antes que cualquier consumidor. **Nota (2026-06-16):** la antigua Phase 55 "SPIKE detección cmux (HARD GATE)" se reconvirtió en un contrato `HostProvider` concreto y la Phase 56 dejó de estar gated — la viabilidad de la detección quedó probada empíricamente en `research/CMUX-CAPABILITIES.md` (P0, `cmux surface resume show --json`).
 
 - [ ] **Phase 52: createTask + contrato + anti-recursión** — `createTask` opcional typeof-detected en Plane+GitHub (FROZEN-at-9 intacto), anti-recursión shipped junto al método
 - [ ] **Phase 53: Fontanería `src/adopt.js`** — base determinista 0-token (`adoptSession` + guard double-adopt + atomicidad LOUD + datos sanitizados), inverso exacto de `manager.launchWorkItem`
 - [ ] **Phase 54: CLI `kodo adopt`** — consumidor determinista que recibe workspace/cwd explícito; ships sí o sí, independiente del spike
-- [ ] **Phase 55: SPIKE detección cmux (HARD GATE)** — veredicto empírico VIABLE/INVIABLE sobre detectar sesiones `claude` ad-hoc ausentes de `state.json`; gobierna Phase 56
-- [ ] **Phase 56: Tecla del dashboard (condicional/cuttable)** — *(solo si Phase 55 = VIABLE)* tecla `a` descubre + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos
+- [ ] **Phase 55: Contrato `HostProvider.describeSurface()` (cmux)** — método opcional typeof-detected (`src/host/interface.js` + `src/host/cmux.js`) que descubre surfaces ad-hoc (`cwd` + `session_id` + `kind`) vía `cmux surface resume show --json`, fixture-locked + fail-open. Viabilidad YA probada (`CMUX-CAPABILITIES.md` P0) — ya NO un spike
+- [ ] **Phase 56: Tecla del dashboard** — tecla `a` descubre (vía DETECT-01) + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos. Ya NO gated (la detección es VIABLE por construcción)
 - [ ] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño
 - [ ] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03) + hardening XSS WR-01 (`src/server.js`) + cierre del HUMAN-UAT diferido de Phase 50.1; tail independiente
 
@@ -80,7 +80,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   4. Una tarea recién creada **NUNCA** es re-despachada por el poller/webhook (anti-recursión: corte espejo de `isGsdChild` ANTES de lock/resolver/launch + creación en estado no-trigger para que `listPendingTasks` no la devuelva; ni `--force` la bypasea).
 **Plans**: 3 plans
   - [x] 52-01-PLAN.md — Anti-recursión: KODO_LABEL_ADOPTED + isAdopted (labels.js) + corte en dispatcher.js + tests (BIDIR-06)
-  - [ ] 52-02-PLAN.md — Plane createTask: createWorkItem/createLabel transport + provider typeof-detected + marker UUID + normalize 6-campos (BIDIR-01)
+  - [x] 52-02-PLAN.md — Plane createTask: createWorkItem/createLabel transport + provider typeof-detected + marker UUID + normalize 6-campos (BIDIR-01)
   - [ ] 52-03-PLAN.md — GitHub createTask: createIssue transport + provider LOUD-on-403/404 + contract it() capability-gated + FROZEN-9 negative-assert (BIDIR-02, BIDIR-01)
 
 ### Phase 53: Fontanería `src/adopt.js`
@@ -104,23 +104,24 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   3. En éxito, el feedback muestra el `task_id` + `task_url` de la tarea creada; en fallo, el `code`/`detail` legible.
 **Plans**: TBD
 
-### Phase 55: SPIKE detección cmux (HARD GATE)
-**Goal**: Veredicto empírico escrito **VIABLE / INVIABLE** sobre si las sesiones `claude` ad-hoc (ausentes de `state.json`) son detectables de forma fiable en la build instalada de cmux. Su deliverable es la evidencia cruda + el verdict, no código de producción. Gobierna un gate duro sobre Phase 56 (espejo exacto del spike de Phase 49 en v0.12).
-**Depends on**: Phase 54 (el consumidor que la tecla shelleará ya existe; el spike no lo necesita para correr pero ordena el milestone)
+### Phase 55: Contrato `HostProvider.describeSurface()` (cmux)
+**Goal**: Añadir al contrato `HostProvider` (`src/host/interface.js`, Phase 38) un método **opcional typeof-detected** — p. ej. `describeSurface(ref)` / `listAgentSurfaces()` — implementado en `src/host/cmux.js` sobre `cmux surface resume show --json`, que descubre las sesiones `claude` ad-hoc devolviendo `{ workspaceRef, cwd, sessionId, kind }` por surface. **Ya NO es un spike de research abierto**: la viabilidad está probada empíricamente (`.planning/research/CMUX-CAPABILITIES.md` P0, cmux 0.64.15; `resume_binding.checkpoint_id` == `session_id` de Claude Code). El deliverable es código de producción + fixture, no un veredicto. Es el **seam del host** que consumen Phase 56 (dashboard) y, opcionalmente, Phase 54 (auto-derivar `--cwd`/`session_id`) y Phase 57.
+**Depends on**: Nada duro (reusa el contrato `HostProvider` de Phase 38 + el `run` DI de `src/host/cmux.js`). Lo consumen 56/54/57.
 **Requirements**: DETECT-01
 **Success Criteria** (what must be TRUE):
-  1. El veredicto VIABLE/INVIABLE queda escrito con evidencia cruda capturada de la build instalada de cmux (`list-workspaces --json` → `current_directory` + UUID estable; `list-panels --json` → `resume_binding.kind === "claude"`).
-  2. VIABLE exige que el set-difference contra `state.json` se endurezca con `current_directory`/UUID estable (NO el `workspace_ref` reciclable — defensa contra el bug de Phase 43).
-  3. El fixture JSON queda capturado y asertado vía el `run` DI de `src/host/cmux.js`, de modo que un cambio de contrato de cmux falle ruidosamente.
-  4. El veredicto determina si cmux expone el `--session-id` de la sesión ad-hoc (gobierna la precisión del liveness en reconcile).
+  1. El método existe en `src/host/cmux.js` como parte del contrato `HostProvider`, detectado por `typeof` en el call site (degrada fail-open si el host no lo soporta — espejo de `getTaskState`/`createTask`).
+  2. Devuelve por surface `{ workspaceRef, cwd, sessionId (= resume_binding.checkpoint_id), kind }` parseando `cmux surface resume show --json`.
+  3. La salida real de cmux 0.64.15 queda **fixture-lockeada** y asertada vía el `run` DI, de modo que un cambio de contrato de cmux falle ruidosamente.
+  4. Modos de fallo manejados fail-open: `cleared: true`, `resume_binding` ausente, `source != agent-hook`, socket de cmux no disponible → degrada sin romper (never-throws).
+  5. **Regla transversal:** todo lo cmux-específico vive AQUÍ; `adopt.js`/`reconcile.js` permanecen host-agnósticos (reciben los campos como datos, jamás llaman a `cmux`).
 **Plans**: TBD
 
-### Phase 56: Tecla del dashboard (condicional/cuttable)
-**Goal**: *(CONDICIONAL — solo se planifica/ejecuta si Phase 55 concluye VIABLE)* El operador descubre y adopta sesiones ad-hoc desde el dashboard con una tecla. Si Phase 55 sale INVIABLE, este requirement se **difiere a BIDIR-F1 sin penalizar el cierre del milestone** — el núcleo + CLI + orquestador + deuda ya entregan el milestone.
-**Depends on**: Phase 55 (GATE DURO: solo si VIABLE) + Phase 54 (shelleará `kodo adopt`)
+### Phase 56: Tecla del dashboard
+**Goal**: El operador descubre y adopta sesiones ad-hoc desde el dashboard con una tecla. **Ya NO es condicional** — la detección (DETECT-01 / `describeSurface()`) es VIABLE por construcción. Sesiones adoptables = surfaces con `kind == "claude"` cuyo `sessionId` no está ya en `state.json`.
+**Depends on**: Phase 55 (consume `describeSurface()`) + Phase 54 (shelleará `kodo adopt`)
 **Requirements**: DETECT-02
 **Success Criteria** (what must be TRUE):
-  1. Una tecla dedicada (`a`) sobre una sesión ad-hoc descubierta shellea `kodo adopt` vía `execFile` sin shell (argv literal, espejo de `focus.js`/`runOpen`).
+  1. Una tecla dedicada (`a`) sobre una sesión ad-hoc descubierta (vía `describeSurface()`) shellea `kodo adopt` vía `execFile` sin shell (argv literal, espejo de `focus.js`/`runOpen`).
   2. El descubrimiento es on-demand al pulsar la tecla (NO un poll loop) y se confirma con double-confirm (espejo del dismiss de Phase 42).
   3. **Cero endpoints nuevos** en `src/server.js` (preserva el invariante "cero endpoints nuevos desde v0.10") y never-throws (el panel ink permanece montado).
 **Plans**: TBD
@@ -158,11 +159,11 @@ _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el das
 ## Progress
 
 **Execution Order:**
-Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 → 58. Phase 56 está GATED tras el veredicto VIABLE de Phase 55. Phase 57 es paralelizable con Phase 56. Phase 58 (deuda) es independiente y schedulable en cualquier momento.
+Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 → 58. Phase 55 es ahora un contrato `HostProvider.describeSurface()` concreto (ya NO un spike) y Phase 56 ya NO está gated (detección probada VIABLE, `CMUX-CAPABILITIES.md` P0). Phase 57 es paralelizable con Phase 56. Phase 58 (deuda + lifecycle LIFE-03) es independiente y schedulable en cualquier momento. **Regla transversal LOCKED:** todo lo cmux-específico entra por el contrato `HostProvider` (`src/host/`), nunca esparcido por `adopt.js`/`reconcile.js`/hooks.
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 52. createTask + contrato + anti-recursión | v0.13 | 1/3 | In Progress|  |
+| 52. createTask + contrato + anti-recursión | v0.13 | 2/3 | In Progress|  |
 | 53. Fontanería `src/adopt.js` | v0.13 | 0/TBD | Not started | - |
 | 54. CLI `kodo adopt` | v0.13 | 0/TBD | Not started | - |
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 0/TBD | Not started | - |
