@@ -1187,3 +1187,154 @@ describe('REPORT-01 — dispatcher.js source hygiene', () => {
     );
   });
 });
+
+describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
+  const baseEvent = { provider: 'test', taskRef: 'KL-ADOPTED', action: 'state_change', raw: {} };
+  const adoptedTask = {
+    id: 'task-adopted-1',
+    ref: 'KL-ADOPTED',
+    title: 'Adopted ad-hoc session',
+    state: 'In Progress',
+    labels: ['kodo:adopted'],
+    description: '',
+    projectId: 'proj-1',
+    projectName: 'Test',
+    groups: [],
+    url: 'https://example.com/KL-ADOPTED',
+    priority: 'medium',
+  };
+
+  function makeDeps({
+    verdict,
+    acquireResult = { acquired: true },
+    launchResult = { session_id: 'sess-1' },
+    task = adoptedTask,
+  } = {}) {
+    const inspectState = {
+      releaseCalled: false,
+      launchCalledWith: null,
+      acquireCalled: false,
+      resolveCalled: false,
+      removeCalled: false,
+    };
+    return {
+      getProviderFn: () => ({
+        getTask: async () => task,
+        init: async () => {},
+        updateTaskState: async () => {},
+        addComment: async () => {},
+        listPendingTasks: async () => [],
+        parseTriggerEvent: () => null,
+        verifySignature: () => true,
+        resolveRef: async () => '',
+      }),
+      resolveProjectPathFn: () => '/tmp/fake-project',
+      acquireGsdLockFn: () => { inspectState.acquireCalled = true; return acquireResult; },
+      releaseGsdLockFn: () => { inspectState.releaseCalled = true; },
+      resolvePhaseFn: () => { inspectState.resolveCalled = true; return verdict; },
+      listSessionsFn: () => [],
+      listWorkspacesFn: async () => '',
+      removeSessionFn: () => { inspectState.removeCalled = true; },
+      launchWorkItemFn: async (_ref, opts) => { inspectState.launchCalledWith = opts; return launchResult; },
+      _inspect: () => inspectState,
+    };
+  }
+
+  it('BIDIR-06: returns {action:"ignored", code:"adopted"} for kodo:adopted task', async () => {
+    const deps = makeDeps({ task: adoptedTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
+  });
+
+  it('BIDIR-06: filter cuts BEFORE acquireGsdLock / resolvePhase / launchWorkItem (D-02)', async () => {
+    const deps = makeDeps({ task: adoptedTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const { acquireCalled, resolveCalled, launchCalledWith, removeCalled } = deps._inspect();
+    assert.equal(acquireCalled, false, 'acquireGsdLock must not be called');
+    assert.equal(resolveCalled, false, 'resolvePhase must not be called');
+    assert.equal(launchCalledWith, null, 'launchWorkItem must not be called');
+    assert.equal(removeCalled, false, 'removeSession must not be called');
+  });
+
+  it('BIDIR-06: filter applies even under opts.force:true (D-02 hard safety — --force does NOT bypass)', async () => {
+    const deps = makeDeps({ task: adoptedTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, { force: true }, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
+    const { acquireCalled, resolveCalled, launchCalledWith } = deps._inspect();
+    assert.equal(acquireCalled, false);
+    assert.equal(resolveCalled, false);
+    assert.equal(launchCalledWith, null);
+  });
+
+  it('BIDIR-06: filter applies when kodo:adopted + kodo:gsd both present (marker wins, Pitfall 1)', async () => {
+    const bothTask = { ...adoptedTask, labels: ['kodo:adopted', 'kodo:gsd'] };
+    const deps = makeDeps({ task: bothTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const result = await dispatchTrigger(baseEvent, {}, deps);
+    assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
+  });
+
+  it('BIDIR-06: emits console.log with [kodo:dispatch] Ignored — prefix and adopted + anti-recursion mentions', async (t) => {
+    const lines = [];
+    t.mock.method(console, 'log', (msg) => { lines.push(String(msg)); });
+    const deps = makeDeps({ task: adoptedTask });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const filterLine = lines.find((l) => /\[kodo:dispatch\] Ignored —/.test(l) && /adopted/i.test(l));
+    assert.ok(filterLine, `expected [kodo:dispatch] Ignored — ... adopted line. Got:\n${lines.join('\n')}`);
+    assert.match(filterLine, /anti-recursion|filtered/i, 'log line must mention anti-recursion or filtered');
+  });
+
+  it('BIDIR-06: control test — non-adopted kodo:gsd task DOES reach resolver (no false positive)', async () => {
+    const gsdTask = { ...adoptedTask, ref: 'KL-GSD', labels: ['kodo', 'kodo:gsd'] };
+    const deps = makeDeps({
+      task: gsdTask,
+      verdict: { action: 'phase', phase_id: '1', match_heading: '### Phase 1: x', match_reason: 'exact' },
+    });
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    await dispatchTrigger(baseEvent, {}, deps);
+    const { resolveCalled } = deps._inspect();
+    assert.equal(resolveCalled, true, 'kodo:gsd (without adopted) must reach the resolver');
+  });
+});
+
+describe('BIDIR-06 — dispatcher.js adopted source hygiene', () => {
+  const DISPATCHER_PATH = 'src/triggers/dispatcher.js';
+
+  it('BIDIR-06: dispatcher imports isAdopted from ../labels.js (D-02 contract)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    assert.match(
+      source,
+      /import\s*\{[^}]*isAdopted[^}]*\}\s*from\s*['"]\.\.\/labels\.js['"]/,
+      'dispatcher.js must import isAdopted from ../labels.js',
+    );
+  });
+
+  it('BIDIR-06: dispatcher does NOT inline `labels.some(... adopted ...)` (D-02 anti-inline)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(
+      !/labels\.some\([^)]*adopted/.test(stripped),
+      'dispatcher.js must use isAdopted(task.labels), not inline labels.some(... adopted ...)',
+    );
+  });
+
+  it('BIDIR-06: adopted filter inserted BEFORE if (!opts.force) block (D-02 — hard safety property)', () => {
+    const source = readFileSync(DISPATCHER_PATH, 'utf-8');
+    const filterIdx = source.indexOf('isAdopted(task.labels)');
+    const forceIdx = source.search(/if\s*\(!opts\.force\)/);
+    assert.ok(filterIdx > 0, 'isAdopted(task.labels) must appear in dispatcher.js');
+    assert.ok(forceIdx > 0, 'if (!opts.force) must appear in dispatcher.js');
+    assert.ok(
+      filterIdx < forceIdx,
+      `adopted filter (idx ${filterIdx}) must precede the if (!opts.force) block (idx ${forceIdx}) — D-02 hard safety, --force must NOT bypass anti-recursion`,
+    );
+  });
+});
