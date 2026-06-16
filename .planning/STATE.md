@@ -4,8 +4,8 @@ milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
 stopped_at: Phase 55 context gathered
-last_updated: "2026-06-16T16:08:51.376Z"
-last_activity: 2026-06-16 -- Phase 55 planning complete
+last_updated: "2026-06-16T16:09:46.294Z"
+last_activity: 2026-06-16 -- Phase 55 execution started
 progress:
   total_phases: 8
   completed_phases: 3
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
 
-**Current focus:** Phase 55 — contrato `hostprovider.describesurface()` (cmux)
+**Current focus:** Phase 55 — contrato-hostprovider-describesurface-cmux
 
 ## Current Position
 
-Phase: 55
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-16 -- Phase 55 planning complete
+Phase: 55 (contrato-hostprovider-describesurface-cmux) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 55
+Last activity: 2026-06-16 -- Phase 55 execution started
 
 ## Roadmap v0.13 (active)
 

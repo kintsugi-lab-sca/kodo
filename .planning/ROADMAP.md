@@ -118,7 +118,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   4. Modos de fallo manejados fail-open: `cleared: true`, `resume_binding` ausente, `source != agent-hook`, socket de cmux no disponible → degrada sin romper (never-throws).
   5. **Regla transversal:** todo lo cmux-específico vive AQUÍ; `adopt.js`/`reconcile.js` permanecen host-agnósticos (reciben los campos como datos, jamás llaman a `cmux`).
 **Plans**: 1 plan
-  - [ ] 55-01-PLAN.md — listAgentSurfaces() en CmuxHost: enumeración 2-pasos (tree → fan-out surface resume show) + normalizeSurface + fixture-lock 0.64.16 + fail-open (DETECT-01)
+  - [x] 55-01-PLAN.md — listAgentSurfaces() en CmuxHost: enumeración 2-pasos (tree → fan-out surface resume show) + normalizeSurface + fixture-lock 0.64.16 + fail-open (DETECT-01)
 
 ### Phase 56: Tecla del dashboard
 **Goal**: El operador descubre y adopta sesiones ad-hoc desde el dashboard con una tecla. **Ya NO es condicional** — la detección (DETECT-01 / `describeSurface()`) es VIABLE por construcción. Sesiones adoptables = surfaces con `kind == "claude"` cuyo `sessionId` no está ya en `state.json`.
@@ -170,7 +170,7 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 52. createTask + contrato + anti-recursión | v0.13 | 3/3 | Complete   | 2026-06-16 |
 | 53. Fontanería `src/adopt.js` | v0.13 | 2/2 | Complete    | 2026-06-16 |
 | 54. CLI `kodo adopt` | v0.13 | 1/1 | Complete    | 2026-06-16 |
-| 55. SPIKE detección cmux (HARD GATE) | v0.13 | 0/TBD | Not started | - |
+| 55. SPIKE detección cmux (HARD GATE) | v0.13 | 1/1 | Complete   | 2026-06-16 |
 | 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 0/TBD | Not started | - |
 | 57. Orquestador asistido | v0.13 | 0/TBD | Not started | - |
 | 58. Deuda heredada de v0.12 | v0.13 | 0/TBD | Not started | - |
