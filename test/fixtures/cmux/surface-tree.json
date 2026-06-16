@@ -1,0 +1,114 @@
+{
+  "_fixture_meta": "Salida cruda de `cmux tree --all --json --id-format both` — capturada del binario real cmux 0.64.16 (96) [5321becb6] el 2026-06-16. Paso-1 de la enumeración de listAgentSurfaces(). NO 0.64.15. surface_refs ampliado a surface:1..surface:4 para ejercer los 4 casos D-05 de surface-resume-show.json.",
+  "active": {
+    "is_browser_surface": false,
+    "pane_ref": "pane:1",
+    "surface_ref": "surface:1",
+    "surface_type": "terminal",
+    "window_ref": "window:1",
+    "workspace_ref": "workspace:1"
+  },
+  "caller": {
+    "is_browser_surface": false,
+    "pane_ref": "pane:1",
+    "surface_ref": "surface:1",
+    "surface_type": "terminal",
+    "window_ref": "window:1",
+    "workspace_ref": "workspace:1"
+  },
+  "windows": [
+    {
+      "active": true,
+      "current": true,
+      "id": "9731F05B-F126-45C3-B0D9-471C2CD599DF",
+      "index": 0,
+      "ref": "window:1",
+      "selected_workspace_ref": "workspace:1",
+      "visible": true,
+      "workspace_count": 1,
+      "workspaces": [
+        {
+          "active": true,
+          "description": null,
+          "id": "046CD47B-6B1C-40B0-9C43-D17D7FDE8F18",
+          "index": 0,
+          "panes": [
+            {
+              "active": true,
+              "focused": true,
+              "id": "A2E5C22A-DC86-42ED-BFEA-490DBF9EB4D9",
+              "index": 0,
+              "ref": "pane:1",
+              "selected_surface_ref": "surface:1",
+              "surface_count": 4,
+              "surface_refs": [
+                "surface:1",
+                "surface:2",
+                "surface:3",
+                "surface:4"
+              ],
+              "surfaces": [
+                {
+                  "active": true,
+                  "focused": true,
+                  "here": true,
+                  "id": "DCA27269-5495-4922-8A18-AB201D6DA55C",
+                  "index": 0,
+                  "pane_ref": "pane:1",
+                  "ref": "surface:1",
+                  "title": "⠂ Claude Code",
+                  "tty": "ttys005",
+                  "type": "terminal",
+                  "url": null
+                },
+                {
+                  "active": false,
+                  "focused": false,
+                  "here": false,
+                  "id": "017E2756-1020-4065-9B28-4BCFF631BC21",
+                  "index": 1,
+                  "pane_ref": "pane:1",
+                  "ref": "surface:2",
+                  "title": "kodo start",
+                  "tty": "ttys001",
+                  "type": "terminal",
+                  "url": null
+                },
+                {
+                  "active": false,
+                  "focused": false,
+                  "here": false,
+                  "id": "B7E1A0C4-9D2F-4E3A-8C5B-1F6D2E9A4C71",
+                  "index": 2,
+                  "pane_ref": "pane:1",
+                  "ref": "surface:3",
+                  "title": "Claude Code (cleared)",
+                  "tty": "ttys006",
+                  "type": "terminal",
+                  "url": null
+                },
+                {
+                  "active": false,
+                  "focused": false,
+                  "here": false,
+                  "id": "C8F2B1D5-AE30-4F4B-9D6C-2A7E3F0B5D82",
+                  "index": 3,
+                  "pane_ref": "pane:1",
+                  "ref": "surface:4",
+                  "title": "claude (tmux source)",
+                  "tty": "ttys007",
+                  "type": "terminal",
+                  "url": null
+                }
+              ]
+            }
+          ],
+          "pinned": true,
+          "ref": "workspace:1",
+          "selected": true,
+          "title": "KODO DEV"
+        }
+      ]
+    }
+  ]
+}
