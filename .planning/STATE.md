@@ -2,11 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
-status: planning
-last_updated: "2026-06-15T17:32:00.000Z"
-last_activity: 2026-06-15
+status: "Roadmap created — awaiting `/gsd:plan-phase 52`"
+stopped_at: Phase 52 context gathered
+last_updated: "2026-06-16T08:05:31.457Z"
+last_activity: 2026-06-15 — Roadmap v0.13 creado (7 phases, 13/13 requirements)
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -122,8 +123,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-15T17:32:00.000Z
-- **Stopped at:** Roadmap v0.13 creado (7 phases 52-58, 13/13 requirements mapeados, traceability completa)
+- **Last session:** 2026-06-16T08:05:31.449Z
+- **Stopped at:** Phase 52 context gathered
 - **Next action:** `/gsd:plan-phase 52` (createTask + contrato + anti-recursión). Phase 58 (deuda v0.12) puede correr en paralelo en cualquier momento. Phase 56 (tecla dashboard) queda gated tras el veredicto de Phase 55.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.13 kodo bidireccional)
