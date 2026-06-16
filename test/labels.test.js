@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD } from '../src/labels.js';
+import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD, isAdopted, KODO_LABEL_ADOPTED } from '../src/labels.js';
 
 describe('parseKodoLabels', () => {
   it('returns isKodo=false when no labels', () => {
@@ -211,5 +211,47 @@ describe('REPORT-01 — isGsdChild + KODO_LABEL_GSD_CHILD', () => {
   it('REPORT-01: isGsdChild tolerates mixed garbage in array', () => {
     assert.equal(isGsdChild([null, undefined, 42, true, 'kodo:gsd-child']), true);
     assert.equal(isGsdChild([null, undefined, 42, true, {}, { name: null }]), false);
+  });
+});
+
+describe('BIDIR-06 — isAdopted + KODO_LABEL_ADOPTED', () => {
+  it('BIDIR-06: KODO_LABEL_ADOPTED const value is "kodo:adopted"', () => {
+    assert.equal(KODO_LABEL_ADOPTED, 'kodo:adopted');
+  });
+
+  it('BIDIR-06: isAdopted([]) returns false (empty array)', () => {
+    assert.equal(isAdopted([]), false);
+  });
+
+  it('BIDIR-06: isAdopted defensive — null/undefined/non-array returns false', () => {
+    assert.equal(isAdopted(null), false);
+    assert.equal(isAdopted(undefined), false);
+    assert.equal(isAdopted('kodo:adopted'), false, 'plain string is not an array');
+    assert.equal(isAdopted(42), false);
+  });
+
+  it('BIDIR-06: isAdopted(["kodo:adopted"]) returns true (string form)', () => {
+    assert.equal(isAdopted(['kodo:adopted']), true);
+  });
+
+  it('BIDIR-06: isAdopted([{name: "kodo:adopted"}]) returns true (object form)', () => {
+    assert.equal(isAdopted([{ name: 'kodo:adopted' }]), true);
+  });
+
+  it('BIDIR-06: isAdopted case-insensitive (string and object forms)', () => {
+    assert.equal(isAdopted(['KODO:ADOPTED']), true);
+    assert.equal(isAdopted([{ name: 'Kodo:Adopted' }]), true);
+  });
+
+  it('BIDIR-06: isAdopted rejects similar-but-different labels', () => {
+    assert.equal(isAdopted(['kodo:adopted-x']), false, 'suffix is not the marker');
+    assert.equal(isAdopted(['kodo:adopt']), false, 'prefix-truncated is not the marker');
+    assert.equal(isAdopted(['adopted']), false, 'missing kodo: prefix');
+  });
+
+  it('BIDIR-06: isAdopted tolerates mixed garbage in array', () => {
+    assert.equal(isAdopted(['kodo:gsd', { name: 'kodo:adopted' }]), true);
+    assert.equal(isAdopted([null, undefined, 42, true, 'kodo:adopted']), true);
+    assert.equal(isAdopted([null, undefined, 42, true, {}, { name: null }]), false);
   });
 });

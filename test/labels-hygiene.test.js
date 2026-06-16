@@ -63,3 +63,29 @@ describe('REPORT-05 — labels source hygiene (Phase 29 D-17)', () => {
     assert.match(source, /export\s+function\s+isGsdChild\s*\(/);
   });
 });
+
+describe('BIDIR-06 — adopted-marker source hygiene (Phase 52 D-02)', () => {
+  it('BIDIR-06: no inline "kodo:adopted" literal outside src/labels.js (post-stripComments)', () => {
+    const files = listJsFilesExcept(SRC, LABELS_FILE);
+    const violations = [];
+    for (const file of files) {
+      const source = readFileSync(file, 'utf-8');
+      const stripped = stripComments(source);
+      if (stripped.includes("'kodo:adopted'") || stripped.includes('"kodo:adopted"')) {
+        violations.push(relative(REPO, file));
+      }
+    }
+    assert.deepEqual(
+      violations,
+      [],
+      `Inline 'kodo:adopted' literal found in: ${violations.join(', ')}.\n` +
+        `Use KODO_LABEL_ADOPTED const + isAdopted(labels) helper from src/labels.js.`,
+    );
+  });
+
+  it('BIDIR-06: src/labels.js (the legitimate source) DOES export KODO_LABEL_ADOPTED and isAdopted', () => {
+    const source = readFileSync(LABELS_FILE, 'utf-8');
+    assert.match(source, /export\s+const\s+KODO_LABEL_ADOPTED\s*=\s*['"]kodo:adopted['"]/);
+    assert.match(source, /export\s+function\s+isAdopted\s*\(/);
+  });
+});
