@@ -300,6 +300,34 @@ export class GitHubClient {
   }
 
   /**
+   * POST /repos/{owner}/{repo}/issues → raw issue 201 (Phase 52 BIDIR-02 / createTask).
+   *
+   * Mirror estructural EXACTO de `addComment` (mismo `request()`, misma auth PAT). Path
+   * SIN number ni trailing slash (convención GitHub, base de `listIssues` :264). `fields`
+   * es `{ title, body?, labels? }`: `title` required; `body` es **Markdown** (NO HTML —
+   * divergencia conocida de Plane, igual que `addComment` :285); `labels` es un array de
+   * strings planos (GitHub no usa UUIDs — el marker `kodo:adopted` se adjunta directo).
+   *
+   * Error handling LOAD-BEARING (D-08 / Pitfall 4): `request()` ya lanza un `Error`
+   * canónico con `.code` (`'forbidden'`/`'not_found'`) + `.status` en non-ok (:168-195).
+   * `createIssue` deja que PROPAGUE — NUNCA catch-and-default a un TaskItem vacío.
+   * Never-throws es solo para los carriles de lectura; el create es una mutación.
+   *
+   * @param {string} owner
+   * @param {string} repo
+   * @param {{ title: string, body?: string, labels?: string[] }} fields
+   * @returns {Promise<any>}
+   */
+  async createIssue(owner, repo, fields) {
+    const o = encodeURIComponent(owner);
+    const r = encodeURIComponent(repo);
+    return this.request(`/repos/${o}/${r}/issues`, {
+      method: 'POST',
+      body: fields,
+    });
+  }
+
+  /**
    * PATCH /repos/{owner}/{repo}/issues/{number} → raw issue payload.
    * `updates.labels` es REPLACE, no merge.
    *
