@@ -2,6 +2,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PlaneClient } from './client.js';
 import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
+import { KODO_LABEL_ADOPTED } from '../../labels.js';
 
 /**
  * @typedef {{
@@ -260,6 +261,69 @@ export function createPlaneProvider(config, opts = {}) {
       }
       const meta = stateMetaByUuid.get(stateId) || {};
       return mapPlaneState(meta.name, meta.group);
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected at
+    // the call site via `typeof provider.createTask === 'function'`.
+    //
+    // Creates a work item (BIDIR-01) for an adopted ad-hoc session. The item is created
+    // in the configured in-progress/trigger state (D-04 — reflects reality: the human is
+    // already working it; never Backlog) and carries the `kodo:adopted` marker (D-02 /
+    // Open Q1: label-UUID lookup-or-create BEFORE the POST so the marker is present at the
+    // next poll tick and the dispatcher's isAdopted cut suppresses re-dispatch, even under
+    // --force). The 201 is normalized back to a canonical TaskItem via the EXISTING
+    // normalizeWorkItem with the FULL 6-field context (Pitfall 2 — a partial context yields
+    // url/state undefined), so the returned TaskItem is shape-identical to a fetched one
+    // (D-06); Phase 53's adoptSession consumes it with no special case. Errors propagate
+    // LOUD (D-08); the {ok,code,detail} taxonomy belongs to Phase 53. Sanitization /
+    // title-derivation is Phase 53 (BIDIR-08) — createTask receives resolved args.
+    async createTask({ projectId, title, description }) {
+      const proj = config.projects.find((p) => p.id === projectId);
+      const html = description ? '<p>' + description.replace(/\n/g, '<br>') + '</p>' : '';
+
+      // Resolve the trigger state UUID (D-04), mirroring updateTaskState's refresh-on-miss
+      // against stateByName. Unlike updateTaskState, do NOT throw if unresolved — leave
+      // `state` off the body and let Plane apply the project default.
+      let stateId = stateByName.get(projectId)?.get(config.states.trigger);
+      if (!stateId) {
+        const states = await client.listStates(projectId);
+        const byName = stateByName.get(projectId) || new Map();
+        for (const s of states) {
+          stateCache.set(s.id, s.name);
+          byName.set(s.name, s.id);
+        }
+        stateByName.set(projectId, byName);
+        stateId = byName.get(config.states.trigger);
+      }
+
+      // Resolve/create the marker label UUID (Open Q1). Plane labels are UUIDs, so look up
+      // `kodo:adopted` by name in labelCache; if absent, create it via client.createLabel
+      // and record the new {id,name} so subsequent creates reuse it.
+      let adoptedLabel = labelCache.find(
+        (l) => l.name?.toLowerCase() === KODO_LABEL_ADOPTED,
+      );
+      if (!adoptedLabel) {
+        const created = await client.createLabel(projectId, KODO_LABEL_ADOPTED);
+        adoptedLabel = { id: created.id, name: created.name };
+        labelCache.push(adoptedLabel);
+      }
+
+      const raw = await client.createWorkItem(projectId, {
+        name: title,
+        description_html: html,
+        ...(stateId ? { state: stateId } : {}),
+        labels: [adoptedLabel.id],
+      });
+
+      const context = {
+        labels: labelCache,
+        projectIdentifier: proj?.identifier || 'UNKNOWN',
+        baseUrl: config.baseUrl,
+        webUrl: config.webUrl,
+        workspaceSlug: config.workspaceSlug,
+        stateMap: stateCache,
+      };
+      return normalizeWorkItem(raw, context);
     },
 
     async listPendingTasks() {
