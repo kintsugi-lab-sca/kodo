@@ -15,6 +15,21 @@ const FIXTURES = join(__dirname, '..', 'fixtures', 'cmux');
 
 const LIST_FIXTURE = readFileSync(join(FIXTURES, 'list-workspaces.json'), 'utf-8');
 const NOTIF_FIXTURE = readFileSync(join(FIXTURES, 'notification-list.json'), 'utf-8');
+const TREE_FIXTURE = readFileSync(join(FIXTURES, 'surface-tree.json'), 'utf-8');
+const SURFACE_FIXTURE = readFileSync(join(FIXTURES, 'surface-resume-show.json'), 'utf-8');
+const SURFACE_MAP = JSON.parse(SURFACE_FIXTURE); // mapa surfaceRef → showOutput (DETECT-01)
+
+/**
+ * Extrae el valor de `--surface <ref>` de un argv ya unido con espacios y devuelve
+ * la salida cruda de `surface resume show` para ese ref desde la fixture map.
+ * Si el ref no está en el map, devuelve '' (simula not_found / surface sin binding).
+ */
+function surfaceShowFor(argv) {
+  const m = argv.match(/--surface\s+(\S+)/);
+  const ref = m ? m[1] : null;
+  const entry = ref && SURFACE_MAP[ref];
+  return entry ? JSON.stringify(entry) : '';
+}
 
 const IMPLS = ['cmux', 'null'];
 
@@ -38,6 +53,8 @@ function fakeExecFromFixtures() {
     let payload = '';
     if (argv.includes('list-workspaces')) payload = LIST_FIXTURE;
     else if (argv.includes('notification.list')) payload = NOTIF_FIXTURE;
+    else if (argv.includes('surface resume show')) payload = surfaceShowFor(argv);
+    else if (argv.includes('tree')) payload = TREE_FIXTURE;
     else payload = '';
     // selectWorkspace path: never-throws, código 0.
     if (typeof cb === 'function') {
@@ -67,16 +84,20 @@ function assertWorkspaceInfoShape(item, label) {
  * Para 'cmux' inyecta exec fake + run fake que cargan los fixtures.
  * Para 'null' instancia directa sin DI.
  */
-function instantiateHost(name) {
+function instantiateHost(name, runOverride) {
   if (name === 'cmux') {
     return getHost('cmux', {
       exec: fakeExecFromFixtures(),
-      run: async (args) => {
-        const argv = (args || []).join(' ');
-        if (argv.includes('list-workspaces')) return LIST_FIXTURE;
-        if (argv.includes('notification.list')) return NOTIF_FIXTURE;
-        return '';
-      },
+      run:
+        runOverride ||
+        (async (args) => {
+          const argv = (args || []).join(' ');
+          if (argv.includes('list-workspaces')) return LIST_FIXTURE;
+          if (argv.includes('notification.list')) return NOTIF_FIXTURE;
+          if (argv.includes('surface resume show')) return surfaceShowFor(argv);
+          if (argv.includes('tree')) return TREE_FIXTURE;
+          return '';
+        }),
       binary: '/fake/cmux',
     });
   }
@@ -167,6 +188,83 @@ describe('WorkspaceHost contract matrix', () => {
     test('alive=true para todo workspace presente en list-workspaces', async () => {
       const items = await host.listWorkspaces();
       for (const w of items) assert.equal(w.alive, true);
+    });
+  });
+
+  // DETECT-01 — listAgentSurfaces() (método OPCIONAL typeof-detected, FUERA de
+  // HOST_METHODS). Golden asserts campo a campo contra surface-resume-show.json
+  // (cmux 0.64.16) + casos fail-open D-05 (never-throws, fila-a-fila).
+  describe('CmuxHost — listAgentSurfaces (DETECT-01)', () => {
+    let host;
+    before(() => {
+      host = instantiateHost('cmux');
+    });
+
+    test('retorna AgentSurface[] con {workspaceRef,cwd,sessionId,kind} campo a campo', async () => {
+      const surfaces = await host.listAgentSurfaces();
+      assert.ok(Array.isArray(surfaces), 'listAgentSurfaces retorna array');
+      // surface:1 es el único adoptable de la fixture (source=agent-hook ∧ cleared=false).
+      const adoptable = surfaces.find(
+        (s) => s.sessionId === 'c1c3ed6d-fa07-43af-add7-44274b1e0a64',
+      );
+      assert.ok(adoptable, 'la surface adoptable está presente');
+      // D-02: sessionId ← resume_binding.checkpoint_id (literal de la fixture).
+      assert.equal(adoptable.sessionId, 'c1c3ed6d-fa07-43af-add7-44274b1e0a64');
+      assert.equal(adoptable.cwd, '/Users/alex/dev/klab/kodo');
+      assert.equal(adoptable.kind, 'claude');
+      assert.equal(typeof adoptable.workspaceRef, 'string');
+      assert.equal(adoptable.workspaceRef, 'workspace:1');
+    });
+
+    test('omite cleared:true / sin resume_binding / source!=agent-hook (D-05)', async () => {
+      const surfaces = await host.listAgentSurfaces();
+      // La fixture tiene 4 refs; solo surface:1 es adoptable.
+      assert.equal(surfaces.length, 1, 'solo la surface adoptable sobrevive');
+      // Ninguna inválida se cuela: ni cleared (surface:3) ni source!=agent-hook (surface:4).
+      assert.ok(!surfaces.some((s) => s.sessionId === '9f2a1b7c-3d4e-4f5a-b6c7-8d9e0f1a2b3c'));
+      assert.ok(!surfaces.some((s) => s.kind === 'tmux'));
+    });
+
+    test('tree falla → [] (fail-open D-05), nunca lanza', async () => {
+      const failTree = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('tree')) throw new Error('socket caído');
+        return surfaceShowFor(argv);
+      };
+      const h = instantiateHost('cmux', failTree);
+      let res;
+      await assert.doesNotReject(async () => {
+        res = await h.listAgentSurfaces();
+      });
+      assert.deepEqual(res, []);
+    });
+
+    test('un resume show individual falla → se omite esa surface, no rompe el array (D-05 fila-a-fila)', async () => {
+      // Devuelve el tree, sirve surface:1 OK pero throws para surface:1... no:
+      // hacemos throw en una surface NO adoptable (surface:2) y servimos surface:1 OK.
+      const partialFail = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('tree')) return TREE_FIXTURE;
+        if (argv.includes('surface resume show')) {
+          if (argv.includes('--surface surface:2')) throw new Error('not_found');
+          return surfaceShowFor(argv);
+        }
+        return '';
+      };
+      const h = instantiateHost('cmux', partialFail);
+      let res;
+      await assert.doesNotReject(async () => {
+        res = await h.listAgentSurfaces();
+      });
+      // surface:1 (adoptable) sobrevive pese al fallo de surface:2.
+      assert.equal(res.length, 1);
+      assert.equal(res[0].sessionId, 'c1c3ed6d-fa07-43af-add7-44274b1e0a64');
+    });
+
+    test('null host NO implementa listAgentSurfaces (rama degradación typeof, D-03)', () => {
+      // El consumer (Phase 56) hace `typeof host.listAgentSurfaces === 'function'`
+      // y degrada fail-open. NullHost lo deja AUSENTE para documentar esa rama.
+      assert.notEqual(typeof getHost('null').listAgentSurfaces, 'function');
     });
   });
 });

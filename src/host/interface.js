@@ -24,6 +24,24 @@ const require = createRequire(import.meta.url);
  */
 
 /**
+ * @typedef {Object} AgentSurface
+ * Shape host-agnóstico de una sesión-agente ad-hoc descubierta vía el método OPCIONAL
+ * typeof-detected `listAgentSurfaces()` (DETECT-01, FUERA de HOST_METHODS — congelado en 4).
+ * camelCase consciente (D-02): alineado EXACTAMENTE con la firma de entrada de adoptSession
+ * ({ workspaceRef, cwd, sessionId, ... }, src/adopt.js) para encajar SIN transformación.
+ * Divergencia deliberada del WorkspaceInfo snake_case (aquel es observación de lifecycle;
+ * éste es input de adopción).
+ * @property {string} workspaceRef - Ref del workspace del surface (host-specific, ← workspace_ref).
+ *   NO usar como identidad estable: cmux recicla `workspace:N` (defensa Phase 43); el dedup
+ *   downstream (Phase 56, D-06) se keyea por sessionId/cwd.
+ * @property {string} cwd - cwd de la sesión-agente (← resume_binding.cwd).
+ * @property {string} sessionId - Identidad estable (← resume_binding.checkpoint_id == session_id
+ *   de Claude Code, CMUX-CAPABILITIES.md §P0).
+ * @property {string} kind - Tipo de agente (← resume_binding.kind; el CONSUMER filtra por kind,
+ *   NO listAgentSurfaces — D-05).
+ */
+
+/**
  * Los 4 métodos que todo WorkspaceHost debe implementar (D-03).
  *   listWorkspaces() => Promise<WorkspaceInfo[]>
  *   selectWorkspace(ref) => Promise<{ok, code?, detail?}>  (fire-and-forget, never-throws)
