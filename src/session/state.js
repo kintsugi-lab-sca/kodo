@@ -1,5 +1,6 @@
 // @ts-check
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { KODO_DIR } from '../config.js';
 // LOG-12: import only the zero-import noop logger, NEVER logger.js. The noop
@@ -239,9 +240,20 @@ export function loadState() {
 
 /** @param {State} state */
 export function saveState(state) {
-  const tmp = STATE_PATH + '.tmp';
-  writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
-  renameSync(tmp, STATE_PATH);
+  // WR-02: unique temp name per write (pid + UUID) so two concurrent writers
+  // never share a single '.tmp' file and clobber each other's PARTIAL bytes.
+  // The final rename remains atomic (no torn reader); byte-identical final
+  // serialization preserved. On success the tmp is consumed by renameSync; on a
+  // write/rename failure we best-effort clean the stray tmp so no '.tmp.*'
+  // residue is left behind.
+  const tmp = STATE_PATH + '.tmp.' + process.pid + '.' + randomUUID();
+  try {
+    writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
+    renameSync(tmp, STATE_PATH);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 /**
