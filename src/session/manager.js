@@ -1,14 +1,12 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { loadConfig, loadProjects } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
+import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
 
 /**
@@ -345,26 +343,6 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // claude (sin re-interpretar comillas ni colapsar espacios).
   const promptPath = writePromptFile(sessionId, prompt);
   return `${header} "$(cat ${promptPath})"`;
-}
-
-/**
- * Persist a session prompt to a temp file so the launch command can reference it
- * via `$(cat …)` en vez de teclear el prompt entero como keystrokes.
- *
- * Un fichero por sessionId (UUID): únicos por sesión, sin clobber concurrente.
- * No se borra al leer — si el tecleo del comando falla y el operador lo
- * re-ejecuta a mano, el fichero sigue disponible.
- *
- * @param {string} sessionId
- * @param {string} prompt
- * @returns {string} absolute path al fichero de prompt
- */
-function writePromptFile(sessionId, prompt) {
-  const dir = path.join(tmpdir(), 'kodo-prompts');
-  mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, `${sessionId}.txt`);
-  writeFileSync(file, prompt, 'utf8');
-  return file;
 }
 
 /**

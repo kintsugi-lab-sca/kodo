@@ -12,6 +12,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession, removeSession } from '../session/state.js';
+import { removePromptFile } from '../session/prompt-file.js';
 import { getSessionMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
@@ -275,6 +276,11 @@ export async function runStopHook(input, deps = {}) {
         console.error(`[kodo:stop] worktree cleanup outer error: ${/** @type {Error} */ (outerErr).message}`);
       }
     }
+
+    // Limpieza del fichero de prompt de la sesión (mismo ciclo de vida que el
+    // worktree: creado en el lanzamiento por buildClaudeCommand, borrado aquí al
+    // terminar). Incondicional — toda sesión de launchWorkItem tiene uno. Fail-open.
+    removePromptFile(session.session_id);
 
     removeSessionFn(id);
     console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
