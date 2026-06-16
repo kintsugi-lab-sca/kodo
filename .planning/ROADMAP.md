@@ -93,7 +93,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   3. La secuencia es POST-primero, escritura local último (tmp+rename atómico); si el POST tiene éxito pero la escritura local falla, el fallo es **LOUD** con `task_id` + `task_url` en el mensaje y es recuperable por re-run idempotente.
   4. Los datos de la tarea se auto-derivan y sanean antes del POST: título default `basename(cwd)` editable, proyecto destino vía `listProjects`, descripción opcional; se hace strip de rutas absolutas / redacción del home dir / nunca se embeben bodies de transcript; el estado inicial es sano (no "sin triar").
 **Plans**: 2 plans
-  - [ ] 53-01-PLAN.md — saveState tmp+rename atomic upgrade + .bak-independence regression (Wave 1, BIDIR-05)
+  - [x] 53-01-PLAN.md — saveState tmp+rename atomic upgrade + .bak-independence regression (Wave 1, BIDIR-05)
   - [ ] 53-02-PLAN.md — src/adopt.js (adoptSession + buildSessionFromAdoption + sanitizeAdoptionData) + test/adopt.test.js (Wave 2, BIDIR-03/04/05/08)
 
 ### Phase 54: CLI `kodo adopt`
@@ -166,7 +166,7 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 52. createTask + contrato + anti-recursión | v0.13 | 3/3 | Complete   | 2026-06-16 |
-| 53. Fontanería `src/adopt.js` | v0.13 | 0/TBD | Not started | - |
+| 53. Fontanería `src/adopt.js` | v0.13 | 1/2 | In Progress|  |
 | 54. CLI `kodo adopt` | v0.13 | 0/TBD | Not started | - |
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 0/TBD | Not started | - |
 | 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 0/TBD | Not started | - |
