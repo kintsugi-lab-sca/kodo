@@ -39,6 +39,7 @@
 
 import { GitHubClient } from './client.js';
 import { normalizeIssue } from './normalize.js';
+import { KODO_LABEL_ADOPTED } from '../../labels.js';
 
 /**
  * @typedef {{
@@ -177,6 +178,29 @@ export function createGitHubProvider(config, opts = {}) {
     async getTaskState({ ref }) {
       const task = await provider.getTask(ref); // single getIssue fetch
       return mapGithubLabels(task.labels, task.state);
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected via
+    // `typeof provider.createTask === 'function'` at the call site.
+    //
+    // Phase 52 BIDIR-02 / createTask: creates an adopted task as a GitHub issue via
+    // `POST /repos/{o}/{r}/issues` (title required, body Markdown — divergence from Plane's
+    // HTML). The `kodo:adopted` marker (D-02/D-03) is attached AT CREATE — GitHub labels are
+    // plain strings, so no UUID resolution (unlike Plane); the marker is present at the next
+    // poll tick so the dispatcher's isAdopted cut suppresses re-dispatch even under --force.
+    // D-04: the issue stays `open` by default (no state field) — reflects reality (the human
+    // is already working it). The 201 is normalized via the EXISTING normalizeIssue with the
+    // trivial `{ projectId: 'owner/repo' }` context (D-06), so the returned TaskItem is
+    // shape-identical to a fetched one; Phase 53's adoptSession consumes it with no special
+    // case. Errors propagate LOUD (D-08) — no swallowing try/catch; create is a mutation.
+    async createTask({ projectId, title, description }) {
+      const [owner, repo] = projectId.split('/');
+      const raw = await client.createIssue(owner, repo, {
+        title,
+        body: description || '',
+        labels: [KODO_LABEL_ADOPTED],
+      });
+      return normalizeIssue(raw, { projectId: `${owner}/${repo}` });
     },
 
     // D-26: GitHub polling-only en v0.7. Webhook ingress fuera de scope.
