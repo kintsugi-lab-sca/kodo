@@ -128,7 +128,9 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. Una tecla dedicada (`a`) sobre una sesión ad-hoc descubierta (vía `describeSurface()`) shellea `kodo adopt` vía `execFile` sin shell (argv literal, espejo de `focus.js`/`runOpen`).
   2. El descubrimiento es on-demand al pulsar la tecla (NO un poll loop) y se confirma con double-confirm (espejo del dismiss de Phase 42).
   3. **Cero endpoints nuevos** en `src/server.js` (preserva el invariante "cero endpoints nuevos desde v0.10") y never-throws (el panel ink permanece montado).
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 56-01-PLAN.md — runAdopt (clon de runOpen, execFile sin shell vía process.execPath) + computeAdoptable + resolveProjectId (derives puros) + unit tests (DETECT-02)
+  - [ ] 56-02-PLAN.md — tecla `a`: discover on-demand → picker overlay con cursor → double-confirm por sessionId → shell de kodo adopt; wiring del host cmux in-process en index.js; cero endpoints nuevos (DETECT-02)
 **UI hint**: yes
 
 ### Phase 57: Orquestador asistido
