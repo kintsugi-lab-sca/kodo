@@ -65,7 +65,10 @@ blocked: 0
     - "findSession/adopt guard keyed by sessionId (== resume_binding.checkpoint_id), consistent with Phase 55 D-06 + Phase 56 computeAdoptable"
     - "A way for runAdopt/App.js to distinguish a real adopt from an ALREADY_ADOPTED no-op (so the footer doesn't show false success)"
 
-- truth: "(secondary) ad-hoc claude session at ~/dev/roman/fvf appears as adoptable"
-  status: not_a_bug
-  reason: "The fvf surface (sessionId 72ac6713) IS the kodo-launched ROMAN-182 session already in state.json — computeAdoptable correctly excludes it. Working as designed."
+- truth: "(secondary) the INDEPENDENT ad-hoc claude at ~/dev/roman/fvf (not ROMAN-182) appears as adoptable"
+  status: known_limitation
+  reason: |
+    Two distinct fvf claude sessions exist: (a) ROMAN-182 'Hero home' = surface:5, sessionId 72ac6713, kodo-launched, in state.json → correctly excluded by computeAdoptable. (b) the INDEPENDENT 'Claude Code' = surface:7 / workspace:4, cmux session 11049528, cwd=/Users/alex/dev/roman/fvf.
+    surface:7 returns `resume_binding: null` from `cmux surface resume show`, and ~/.cmuxterm/claude-hook-sessions.json marks 11049528 `restorable: false`. cmux only exposes a resume_binding (with checkpoint_id == Claude session_id) for sessions it can RESTORE (started via its agent-hook/checkpoint integration). A claude launched outside that integration has no checkpoint → no session_id to bind → cannot be resumed if adopted.
+    Phase 55 listAgentSurfaces (locked D-05) requires source:agent-hook + valid checkpoint_id, so it correctly omits non-restorable surfaces. This is a documented detection limitation (CMUX-CAPABILITIES P0), NOT a Phase 56 defect. Expanding detection to non-restorable sessions is future scope (and low value — they can't be resumed).
   test: 1
