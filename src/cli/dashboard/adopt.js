@@ -15,6 +15,7 @@
 //       { ok: false, code: 'ENOENT',         detail: string }         — kodo/node no encontrado
 //       { ok: false, code: 'NON_ZERO_EXIT',  detail: number }         — exit code ≠ 0 (1/2 kodo adopt)
 //       { ok: false, code: 'SPAWN_ERROR',    detail: string }         — cualquier otro fallo de exec
+//       { ok: false, code: 'ALREADY_ADOPTED',detail: string|undef }   — 56-03: exit 0 + --json no-op
 //   Jamás una excepción que llegue al caller en App.js (D-07). Patrón heredado de
 //   `focus.js` (Phase 37) / `open.js` (Phase 48) / `client.js#fetchStatus` (Phase 35 D-07).
 //
@@ -52,7 +53,13 @@
  * (sin BAD_PROTOCOL — esa es divergencia de open.js).
  *
  * @typedef {{ ok: true }
- *   | { ok: false, code: 'ENOENT' | 'NON_ZERO_EXIT' | 'SPAWN_ERROR', detail: any }} AdoptResult
+ *   | { ok: false, code: 'ENOENT' | 'NON_ZERO_EXIT' | 'SPAWN_ERROR' | 'ALREADY_ADOPTED', detail: any }} AdoptResult
+ *
+ * 56-03: ALREADY_ADOPTED is a NEW code. `kodo adopt` exits 0 for it (idempotent
+ * by design — the exit contract is shared with Phase 57 and does NOT change), so
+ * the only way to distinguish a real adopt from a duplicate no-op is to parse the
+ * `--json` discriminant on the exit-0 branch. The `detail` is the existing task_id
+ * when present.
  */
 
 /**
@@ -103,9 +110,29 @@ export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId
         sessionId,
         '--project',
         projectId,
+        // 56-03: --json as the FINAL argv element. The CLI's --json branch bypasses
+        // renderHuman and prints the never-throws discriminant (byte-deterministic,
+        // no color) to stdout, so the exit-0 branch below can distinguish a real
+        // adopt from an ALREADY_ADOPTED no-op (both exit 0 — the contract stands).
+        '--json',
       ];
       exec(execPath, argv, { timeout: timeoutMs }, (err, _stdout, _stderr) => {
         if (!err) {
+          // 56-03: exit 0 covers BOTH a genuine adopt and an idempotent
+          // ALREADY_ADOPTED no-op. Parse the --json discriminant DEFENSIVELY
+          // (try/catch — the never-throws contract is absolute; a malformed
+          // stdout must never reject or throw). Only an explicit
+          // { ok:false, code:'ALREADY_ADOPTED' } surfaces the distinct code;
+          // any other shape (parse fails, ok:true, anything else) stays { ok:true }.
+          try {
+            const parsed = JSON.parse(_stdout);
+            if (parsed && parsed.ok === false && parsed.code === 'ALREADY_ADOPTED') {
+              resolve({ ok: false, code: 'ALREADY_ADOPTED', detail: parsed.detail?.task_id });
+              return;
+            }
+          } catch {
+            // Unparseable stdout — fall through to the as-today { ok:true }.
+          }
           resolve({ ok: true });
           return;
         }
