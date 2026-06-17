@@ -48,7 +48,11 @@ blocked: 0
 ## Gaps
 
 - truth: "Adoptar una sesión ad-hoc descubierta la convierte en una tarea trackeada visible en el dashboard"
-  status: failed
+  status: fix_applied  # 56-03 gap-fix merged (commits dbc76d8/4e244a2/b13948c). Re-test pending in a RESTARTED dashboard.
+  fix: |
+    FIX A: adoptSession guard now keys by sessionId (src/adopt.js:212 findSessionFn({sessionId})) — alinea con Phase 55 D-06 / computeAdoptable. Una sesión nueva con el mismo cwd que otra ya adoptada YA NO se rechaza como ALREADY_ADOPTED.
+    FIX B: runAdopt añade --json y parsea el discriminante; ALREADY_ADOPTED real → footer ámbar "already adopted" (no verde engañoso). exitCodeFor sin cambios (contrato compartido con Phase 57).
+    Suite full 1420 pass / 1 skip / 0 fail. Color isolation + zero endpoints intactos.
   reason: "Identity mismatch: computeAdoptable (Phase 56) keys by sessionId; adoptSession idempotency guard (Phase 53 src/adopt.js:201-205, findSession) keys by {workspaceRef, cwd}. Two ad-hoc sessions sharing a cwd → core falsely returns ALREADY_ADOPTED (exit 0) for a genuinely-new session → green 'adopted' footer but no task created, no row appears."
   severity: blocker
   test: 1
