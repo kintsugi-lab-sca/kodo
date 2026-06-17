@@ -16,6 +16,7 @@ files_reviewed_list:
   - test/dashboard-render.test.js
 findings:
   critical: 1
+  critical_resolved: 1
   warning: 3
   info: 2
   total: 6
@@ -45,6 +46,8 @@ All 31 phase tests pass. However, the **never-throws-into-React invariant is bro
 ## Critical Issues
 
 ### CR-01: `resolveProjectId` throws synchronously into React when `projects.json` contains a non-string path
+
+**Status:** RESOLVED (commit `1a2eea0`) — `resolveProjectId` now filters out non-string `projects` values and tolerates a non-string `cwd` before normalizing, so no synchronous `TypeError` can reach the ink `useInput` handler. Regression tests added in `test/dashboard/select-adopt.test.js`.
 
 **File:** `src/cli/dashboard/select.js:373` (call site `src/cli/dashboard/App.js:511`)
 
