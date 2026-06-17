@@ -135,4 +135,39 @@ describe('Phase 56 Plan 01: resolveProjectId reverse-lookup cwd→projectId (D-0
   it('proyectos vacíos → { error: "none" }', () => {
     assert.deepEqual(resolveProjectId('/home/op/kodo', {}), { error: 'none' });
   });
+
+  it('never-throws sobre valores no-string (projects.json operator-corruptible, CR-01)', () => {
+    // loadProjects() hace JSON.parse SIN validar el tipo de los valores. Un valor no-string
+    // (número/null/array de un hand-edit) haría `.replace` lanzar un TypeError SÍNCRONO dentro
+    // del handler `a` (sin try/catch hasta el useInput de ink → tearing-down del panel). El
+    // helper DEBE saltar las entradas malformadas y resolver contra las válidas, jamás lanzar.
+    const projects = { valid: '/home/op/kodo', bad: 123 };
+    assert.doesNotThrow(() => resolveProjectId('/home/op/kodo/src', projects));
+    assert.deepEqual(
+      resolveProjectId('/home/op/kodo/src', projects),
+      { projectId: 'valid' },
+      'la entrada string válida resuelve; la numérica se ignora',
+    );
+  });
+
+  it('never-throws cuando TODOS los valores son no-string → { error: "none" }', () => {
+    const projects = { a: 123, b: null, c: ['/arr'], d: { default: '/obj' } };
+    assert.doesNotThrow(() => resolveProjectId('/home/op/kodo', projects));
+    assert.deepEqual(resolveProjectId('/home/op/kodo', projects), { error: 'none' });
+  });
+
+  it('never-throws sobre projects null/undefined/no-objeto', () => {
+    assert.doesNotThrow(() => resolveProjectId('/home/op/kodo', null));
+    assert.doesNotThrow(() => resolveProjectId('/home/op/kodo', undefined));
+    assert.deepEqual(resolveProjectId('/home/op/kodo', null), { error: 'none' });
+    assert.deepEqual(resolveProjectId('/home/op/kodo', undefined), { error: 'none' });
+  });
+
+  it('never-throws sobre cwd no-string / ausente → { error: "none" }', () => {
+    const projects = { kodo: '/home/op/kodo' };
+    assert.doesNotThrow(() => resolveProjectId(undefined, projects));
+    assert.doesNotThrow(() => resolveProjectId(123, projects));
+    assert.deepEqual(resolveProjectId(undefined, projects), { error: 'none' });
+    assert.deepEqual(resolveProjectId(123, projects), { error: 'none' });
+  });
 });

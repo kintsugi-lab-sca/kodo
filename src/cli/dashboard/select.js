@@ -365,17 +365,32 @@ export function computeAdoptable(surfaces, statusSessions) {
  * El fallo (none/ambiguous) es el ÚNICO punto que puede impedir el shell de `kodo adopt`; el
  * caller lo mapea a un footer never-throws hacia el escape-hatch del CLI (D-05).
  *
+ * Never-throws sobre cualquier shape de entrada (CR-01 Phase 56): `loadProjects()` hace
+ * `JSON.parse` de `~/.kodo/projects.json` (operator-editable) SIN validar el tipo de los
+ * valores — el comentario `Record<string,string>` es la forma INTENDED, no ENFORCED. Un valor
+ * no-string (número, null, array de un hand-edit) haría `path.replace(...)` lanzar un
+ * `TypeError` SÍNCRONO dentro del handler `a` de App.js (sin try/catch hasta el `useInput` de
+ * ink → tearing-down del panel, violando el invariante never-throws D-07). Por eso se filtran
+ * las entradas cuyo valor no es string ANTES de normalizar (misma disciplina de tolerancia de
+ * input que `computeAdoptable` aplica a los suyos). `cwd` no-string colapsa a `''` por el guard
+ * del map sobre los paths (ninguno casará), nunca lanza.
+ *
  * @param {string} cwd — cwd de la surface elegida.
  * @param {Record<string, string>} projects — mapa `projectId → path` (de `loadProjects()`).
  * @returns {{ projectId: string } | { error: 'none' | 'ambiguous' }}
  */
 export function resolveProjectId(cwd, projects) {
   const norm = (/** @type {string} */ p) => p.replace(/\/+$/, ''); // strip trailing slash(es)
-  const c = norm(cwd);
-  const matches = Object.entries(projects ?? {}).filter(([, path]) => {
-    const p = norm(path);
-    return c === p || c.startsWith(p + '/'); // exacto o descendiente (separator-boundary safe)
-  });
+  // never-throws: si `cwd` no es string (entrada degradada) → '' (no casa ninguno, jamás lanza).
+  const c = typeof cwd === 'string' ? norm(cwd) : '';
+  const matches = Object.entries(projects ?? {})
+    // Salta entradas con valor no-string (projects.json operator-corruptible): `norm` llamaría
+    // `.replace` sobre un no-string y lanzaría TypeError SÍNCRONO en el handler `a` (CR-01).
+    .filter(([, path]) => typeof path === 'string')
+    .filter(([, path]) => {
+      const p = norm(path);
+      return c === p || c.startsWith(p + '/'); // exacto o descendiente (separator-boundary safe)
+    });
   if (matches.length === 0) return { error: 'none' };
   // Desempate: ancestro más largo (más específico). Dos paths de igual longitud que mapean a
   // projectIds distintos → ambiguo (config no determinista).
