@@ -130,7 +130,7 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   3. **Cero endpoints nuevos** en `src/server.js` (preserva el invariante "cero endpoints nuevos desde v0.10") y never-throws (el panel ink permanece montado).
 **Plans**: 2 plans
   - [x] 56-01-PLAN.md — runAdopt (clon de runOpen, execFile sin shell vía process.execPath) + computeAdoptable + resolveProjectId (derives puros) + unit tests (DETECT-02)
-  - [ ] 56-02-PLAN.md — tecla `a`: discover on-demand → picker overlay con cursor → double-confirm por sessionId → shell de kodo adopt; wiring del host cmux in-process en index.js; cero endpoints nuevos (DETECT-02)
+  - [x] 56-02-PLAN.md — tecla `a`: discover on-demand → picker overlay con cursor → double-confirm por sessionId → shell de kodo adopt; wiring del host cmux in-process en index.js; cero endpoints nuevos (DETECT-02)
 **UI hint**: yes
 
 ### Phase 57: Orquestador asistido
@@ -173,6 +173,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 53. Fontanería `src/adopt.js` | v0.13 | 2/2 | Complete    | 2026-06-16 |
 | 54. CLI `kodo adopt` | v0.13 | 1/1 | Complete    | 2026-06-16 |
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 1/1 | Complete    | 2026-06-16 |
-| 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 1/2 | In Progress|  |
+| 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 2/2 | Complete   | 2026-06-17 |
 | 57. Orquestador asistido | v0.13 | 0/TBD | Not started | - |
 | 58. Deuda heredada de v0.12 | v0.13 | 0/TBD | Not started | - |
