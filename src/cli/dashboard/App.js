@@ -65,6 +65,8 @@ import {
   mapDismissResult,
   deriveAnyGsd,
   deriveAnyProgress,
+  computeAdoptable,
+  resolveProjectId,
 } from './select.js';
 import { deriveRepo } from './format.js';
 import { readPlan } from './plan.js';
@@ -162,6 +164,32 @@ export const OPEN_ERR_BAD_PROTOCOL = '[!] refused non-http(s) URL — press any 
 /** @param {number|string} code */
 export const openErrFailed = (code) => `[!] open failed (code ${code}) — press any key`;
 
+// Phase 56 D-03/D-05/D-07 (DETECT-02): copy literal-estable del flujo adopt (tecla `a`).
+// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
+// patrón que FOCUS_ERR_* / DISMISS_* / OPEN_*). La LITERAL copy es el contrato (UI-SPEC
+// §Copywriting); los nombres son guía.
+//
+// ADOPT_NONE (informativo, no error): el host no soporta listAgentSurfaces o no hay surfaces
+//   adoptables → footer informativo, mode SIGUE en list (NO abre picker, D-02/D-03). Sin `[!]`.
+// ADOPT_CONFIRM (cyan): armed prompt PERSISTENTE del double-confirm (espejo léxico de
+//   DISMISS_CONFIRM, armado por sessionId — D-04). Se deriva de mode==='confirm' + armedSessionId
+//   (NO de focusError), así el clear-on-any-input no consume el segundo `a` (Pitfall 2/4).
+// ADOPT_OK (verde): éxito transitorio, clona la forma de OPEN_OK (ellipsis de un char `…`, sin `[!]`).
+// ADOPT_NO_PROJECT (rojo, D-05): el reverse-lookup cwd→projectId falló (none/ambiguous) → NO se
+//   shellea; falla ruidoso hacia el escape-hatch del CLI (echo del cwd al TTY local, T-56-08 accept).
+// ADOPT_ERR_ENOENT / adoptErrFailed (rojo): errores reales del shell de `kodo adopt` (espejo OPEN_*).
+export const ADOPT_NONE = 'no adoptable sessions found';
+/** @param {string} ref */
+export const ADOPT_CONFIRM = (ref) => `adopt ${ref}? press a again · Esc cancel`;
+/** @param {string} ref */
+export const ADOPT_OK = (ref) => `adopted ${ref}…`;
+/** @param {string} cwd */
+export const ADOPT_NO_PROJECT = (cwd) =>
+  `[!] no/ambiguous project for ${cwd} — use kodo adopt --project <id>`;
+export const ADOPT_ERR_ENOENT = '[!] kodo not found — press any key';
+/** @param {number|string} code */
+export const adoptErrFailed = (code) => `[!] adopt failed (code ${code}) — press any key`;
+
 // Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
 // SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
 // (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
@@ -196,6 +224,19 @@ export const OVERLAY_VIEWPORT = 18;
  *   `runOpen({exec, url})`. El handler de `o` lo `await`a tras el guard no-URL (D-05) y mapea
  *   `result.code` a OPEN_ERR_ENOENT / OPEN_ERR_BAD_PROTOCOL / openErrFailed; en éxito muestra
  *   el footer verde OPEN_OK (D-01/D-02). SIN guard alive (D-04: alive/zombie/dismissed por igual).
+ * @param {() => Promise<Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>>} [props.onAdoptDiscover]
+ *   Phase 56 D-01/D-03: callback never-throws inyectado por `runDashboard` (index.js) que invoca
+ *   `host.listAgentSurfaces()` typeof-gated (fail-open a `[]` si el host no lo soporta). El handler
+ *   de `a` lo `await`a, diffea contra el snapshot vivo de `/status` (computeAdoptable, D-02) y abre
+ *   el picker overlay con las adoptables; vacío/unsupported → footer ADOPT_NONE, mode sigue list.
+ * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
+ *   Phase 56 D-06/D-07: callback never-throws inyectado por `runDashboard` que invoca
+ *   `runAdopt({exec, execPath, kodoBin, ...})`. El segundo `a` del double-confirm lo `await`a y mapea
+ *   `result.code` a ADOPT_OK (verde) / ADOPT_ERR_ENOENT / adoptErrFailed (rojo). never-throws (D-07).
+ * @param {Record<string, string>} [props.projects]
+ *   Phase 56 D-05: mapa `projectId → path` (de `loadProjects()`, inyectado por index.js). El reverse-
+ *   lookup `resolveProjectId(surface.cwd, projects)` resuelve el `--project` del adopt al armar;
+ *   none/ambiguous → footer ADOPT_NO_PROJECT y NO se shellea. Default `{}` (tests del módulo sin DI).
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -210,6 +251,9 @@ export default function App({
   maxMs,
   onFocus,
   onOpen,
+  onAdoptDiscover,
+  onAdopt,
+  projects = {},
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -260,6 +304,22 @@ export default function App({
   const [armedTaskId, setArmedTaskId] = useState(/** @type {string | null} */ (null));
   const [armedTaskRef, setArmedTaskRef] = useState(/** @type {string | null} */ (null));
 
+  // Phase 56 D-04 (DETECT-02): target ARMADO del confirm de ADOPT, capturado por IDENTIDAD
+  // (sessionId de la surface elegida — NUNCA un índice ni un snapshot de fila). Es un estado
+  // SEPARADO de armedTaskId/armedTaskRef (el dismiss arma por task_id; la surface ad-hoc NO es una
+  // fila de /status → no tiene task_id). Pitfall 2: la rama mode==='confirm' rutea la segunda tecla
+  // por cuál armed-id está set (armedSessionId → `a` ejecuta adopt; armedTaskId → `d` ejecuta
+  // dismiss). `armedSurface` stashea {workspaceRef,cwd,sessionId,projectId} resuelto al armar, para
+  // pasárselo a onAdopt en el confirm sin re-resolver. `null` cuando no hay adopt armado.
+  const [armedSessionId, setArmedSessionId] = useState(/** @type {string | null} */ (null));
+  const [armedSurface, setArmedSurface] = useState(
+    /** @type {{ workspaceRef: string, cwd: string, sessionId: string, projectId: string } | null} */ (null),
+  );
+  // Phase 56 D-03/Pitfall 3: cursor SELECCIONABLE del picker de adopt (índice clamped sobre
+  // overlaySnapshot.adoptable, [0, len-1] sin wrap — molde de resolveSelection). Distinto de
+  // scrollOffset (lectura): ↑/↓ MUEVEN este cursor cuando overlaySnapshot.kind==='adopt'.
+  const [adoptCursor, setAdoptCursor] = useState(0);
+
   // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
   // y cursor por IDENTIDAD (selectedTaskId, NUNCA un índice — D-05). El índice visible se DERIVA
   // en cada render via resolveSelection sobre la lista ya ordenada+filtrada (TUI-08).
@@ -294,10 +354,10 @@ export default function App({
   //     pero este objeto NO se re-escribe por onResult → el texto del overlay no salta bajo el lector.
   //     Forma: { kind, taskRef, status:'ok'|'empty'|'not-found'|'error', lines: string[] } donde
   //     `lines` ya viene proyectado a strings (comentarios o `msg` de cada log entry).
-  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'plan'|null} */ (null));
+  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'plan'|'adopt'|null} */ (null));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [overlaySnapshot, setOverlaySnapshot] = useState(
-    /** @type {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }|null} */ (null),
+    /** @type {{ kind: 'comments'|'logs'|'plan'|'adopt', taskRef: string, status: string, lines: string[], adoptable?: Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }> }|null} */ (null),
   );
 
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
@@ -422,6 +482,57 @@ export default function App({
           setOverlayKind(null);
           return;
         }
+        // Phase 56 D-03/D-04/Pitfall 3: SUB-MODO picker de adopt. Diverge del overlay c/l/p de
+        // lectura: ↑/↓ mueven un CURSOR seleccionable sobre adoptable[] (no scroll); `a` ARMA el
+        // adopt de la surface bajo el cursor (resuelve projectId; none/ambiguous → ADOPT_NO_PROJECT
+        // + cierra picker, no arma). Cualquier otra tecla se traga mientras se elige.
+        if (overlaySnapshot && overlaySnapshot.kind === 'adopt') {
+          const adoptable = overlaySnapshot.adoptable ?? [];
+          if (key.upArrow) {
+            setAdoptCursor((i) => Math.max(0, i - 1)); // clamp [0,len-1] sin wrap (molde resolveSelection)
+            return;
+          }
+          if (key.downArrow) {
+            setAdoptCursor((i) => Math.min(adoptable.length - 1, i + 1));
+            return;
+          }
+          if (input === 'a') {
+            // Arma el adopt de la surface bajo el cursor. D-05: el reverse-lookup cwd→projectId es el
+            // ÚNICO punto que puede impedir el shell — none/ambiguous → footer ADOPT_NO_PROJECT (rojo)
+            // + cierra el picker, NUNCA arma (cero onAdopt). Match único → arma por sessionId (D-04) y
+            // stashea el payload resuelto para el confirm.
+            const surface = adoptable[adoptCursor];
+            if (!surface) {
+              overlayReqRef.current++;
+              setMode('list');
+              setOverlayKind(null);
+              return;
+            }
+            const r = resolveProjectId(surface.cwd, projects);
+            if ('error' in r) {
+              setFocusError(ADOPT_NO_PROJECT(surface.cwd));
+              setFooterColor('red');
+              overlayReqRef.current++; // cierra el picker
+              setMode('list');
+              setOverlayKind(null);
+              return;
+            }
+            // Match único: arma el confirm por IDENTIDAD (sessionId) + stashea el payload. NO se setea
+            // footer al entrar en confirm (Pitfall 4): ADOPT_CONFIRM se DERIVA de armedSessionId en
+            // SessionTable, así el clear-on-any-input no consume el segundo `a`.
+            setArmedSessionId(surface.sessionId);
+            setArmedSurface({
+              workspaceRef: surface.workspaceRef,
+              cwd: surface.cwd,
+              sessionId: surface.sessionId,
+              projectId: r.projectId,
+            });
+            setOverlayKind(null);
+            setMode('confirm');
+            return;
+          }
+          return; // traga el resto mientras el operador elige en el picker
+        }
         if (key.upArrow) {
           setScrollOffset((o) => Math.max(0, o - 1));
           return;
@@ -443,6 +554,50 @@ export default function App({
       // (NO de focusError), así el clear-on-any-input no consume el segundo `d`. El armed prompt es
       // persistente (D-03: sin timer); solo `d` ejecuta, cualquier otra tecla (incl. Esc) cancela.
       if (mode === 'confirm') {
+        // Phase 56 Pitfall 2 (DETECT-02): el confirm tiene DOS consumidores que esperan teclas
+        // distintas (dismiss=`d`, adopt=`a`). Se rutea por cuál armed-id está set — armedSessionId
+        // != null → flujo ADOPT (solo `a` ejecuta; cualquier otra tecla, incl. `d`/Esc, cancela).
+        // Esto va ANTES de la rama dismiss para que una `a` NUNCA dispare un dismiss y una `d` NUNCA
+        // dispare un adopt. El dismiss arma por task_id; el adopt por sessionId — estados disjuntos.
+        if (armedSessionId != null) {
+          if (input === 'a') {
+            // Segundo `a` → ejecuta. onAdopt es never-throws (Plan 01 contract / D-07) → el `await`
+            // es legal sin try/catch (ningún throw llega a React, el panel ink sigue montado). El `?.`
+            // cubre el contexto degradado sin onAdopt (tests del módulo sin DI). WR guard: si por bug
+            // de estado armedSurface es null, aborta silenciosamente.
+            if (!armedSurface) {
+              setArmedSessionId(null);
+              setMode('list');
+              return;
+            }
+            const ref = armedSurface.workspaceRef;
+            const result = await onAdopt?.(armedSurface);
+            if (!result || result.ok !== false) {
+              // Éxito (o contexto degradado sin onAdopt): footer verde transitorio (D-07). REF =
+              // workspaceRef (el identificador legible de la surface ad-hoc, no hay task_ref aún).
+              setFocusError(ADOPT_OK(ref));
+              setFooterColor('green');
+            } else if (result.code === 'ENOENT') {
+              setFocusError(ADOPT_ERR_ENOENT);
+              setFooterColor('red');
+            } else {
+              // NON_ZERO_EXIT (`detail` = exit code 1/2 de kodo adopt) o SPAWN_ERROR (`detail` =
+              // Error.message). El dashboard NO reinterpreta la semántica — muestra el código (D-07).
+              const n = result.detail ?? 'unknown';
+              setFocusError(adoptErrFailed(n));
+              setFooterColor('red');
+            }
+            setArmedSessionId(null);
+            setArmedSurface(null);
+            setMode('list');
+            return;
+          }
+          // Cualquier otra tecla (Esc, `d`, etc.) cancela el adopt. Sin mensaje, sin timer (D-04).
+          setArmedSessionId(null);
+          setArmedSurface(null);
+          setMode('list');
+          return;
+        }
         if (input === 'd') {
           // D-02: segunda `d` → ejecuta. dismissSession es never-throws (D-10) → el `await` es legal
           // sin try/catch (ningún throw llega a React, SC#4). El re-check TOCTOU autoritativo vive
@@ -664,6 +819,31 @@ export default function App({
         }
         return;
       }
+      if (input === 'a') {
+        // Phase 56 D-01/D-02/D-03 (DETECT-02): handler de adopt. Descubre surfaces ad-hoc ON-DEMAND
+        // (NO poll loop) vía onAdoptDiscover (typeof-gated upstream en index.js, fail-open a []),
+        // diffea contra el snapshot vivo de /status (computeAdoptable, keyeado por sessionId — D-02)
+        // y abre el picker overlay con las adoptables. Vacío/unsupported → footer ADOPT_NONE y mode
+        // SIGUE en list (NO abre overlay, D-03). Mold del `o` handler (async never-throws) + del `c`/`l`
+        // reqId-guard alrededor del await (CR-01: una apertura encolada/Esc invalida la post-await).
+        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
+        const surfaces = (await onAdoptDiscover?.()) ?? [];
+        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
+        const adoptable = computeAdoptable(surfaces, sessions);
+        if (adoptable.length === 0) {
+          // D-02/D-03: set adoptable vacío / host sin soporte → footer informativo, NO abre picker.
+          setFocusError(ADOPT_NONE);
+          setFooterColor('yellow');
+          return;
+        }
+        // D-03: abre el picker congelado con el cursor en 0. El poll sigue corriendo por debajo
+        // (snapshot congelado en overlaySnapshot.adoptable, mold c/l/p).
+        setOverlaySnapshot({ kind: 'adopt', taskRef: '', status: 'ok', lines: [], adoptable });
+        setAdoptCursor(0);
+        setOverlayKind('adopt');
+        setMode('overlay');
+        return;
+      }
       if (key.upArrow) {
         // Mueve el índice DERIVADO arriba y re-fija selectedTaskId; clamp en 0, SIN wrap (D-07).
         const ni = Math.max(0, sel.index - 1);
@@ -752,11 +932,14 @@ export default function App({
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)
-        overlayKind, // Phase 39: qué overlay está abierto (comments/logs/null)
+        armedSessionId, // Phase 56 Pitfall 2: si != null el confirm es de ADOPT (ruta el copy ADOPT_CONFIRM)
+        armedSurfaceRef: armedSurface?.workspaceRef ?? null, // Phase 56 D-04: ref legible del adopt armado
+        adoptCursor, // Phase 56 D-03/Pitfall 3: cursor seleccionable del picker
+        overlayKind, // Phase 39: qué overlay está abierto (comments/logs/plan/adopt/null)
         scrollOffset, // Phase 39 D-06: primera línea visible del body scrollable
         overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · q quit'),
   );
 }
