@@ -198,9 +198,18 @@ export async function adoptSession(
 
   // (c) Idempotency guard (BIDIR-04 / D-04). findSession() calls loadState()
   // internally — this IS the fresh read immediately before the POST (no separate
-  // loadState). Keyed by workspaceRef→workspace_ref and cwd→project_path
-  // (Pitfall 1/6: findSession does NOT key by task_id, which doesn't exist yet).
-  const existing = findSessionFn({ workspaceRef, cwd });
+  // loadState). Keyed by sessionId (== resume_binding.checkpoint_id, the STABLE
+  // session identity), NOT by workspaceRef/cwd: cmux RECYCLES workspace refs
+  // (Phase 43 defense / Phase 55 D-06) and a single cwd is shared by multiple
+  // ad-hoc sessions, so keying by {workspaceRef, cwd} falsely rejects a
+  // genuinely-new session as ALREADY_ADOPTED (56-03 UAT blocker). findSession
+  // with sessionId-only matches ONLY by session_id (state.js:364-369 checks
+  // query.sessionId first) — exactly the stable identity we want, and consistent
+  // with Phase 56 computeAdoptable which keys adoptables by sessionId. sessionId
+  // is already validated non-empty by the INVALID_INPUT guard above, so it is
+  // always present. (Pitfall 1/6: findSession does NOT key by task_id, which
+  // doesn't exist yet.)
+  const existing = findSessionFn({ sessionId });
   if (existing) {
     return { ok: false, code: 'ALREADY_ADOPTED', detail: { task_id: existing.session.task_id } };
   }

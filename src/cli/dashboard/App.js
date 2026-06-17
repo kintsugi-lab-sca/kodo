@@ -183,6 +183,11 @@ export const ADOPT_NONE = 'no adoptable sessions found';
 export const ADOPT_CONFIRM = (ref) => `adopt ${ref}? press a again · Esc cancel`;
 /** @param {string} ref */
 export const ADOPT_OK = (ref) => `adopted ${ref}…`;
+// ADOPT_ALREADY (ámbar/yellow, 56-03): el núcleo devolvió ALREADY_ADOPTED — `kodo adopt` sale 0
+// (idempotente por diseño) pero NO crea fila nueva. Distinto del verde ADOPT_OK para que el
+// footer no mienta ("no ha hecho nada" UAT blocker). Sin `[!]`: no es un error, es un no-op.
+/** @param {string} ref */
+export const ADOPT_ALREADY = (ref) => `already adopted ${ref}`;
 /** @param {string} cwd */
 export const ADOPT_NO_PROJECT = (cwd) =>
   `[!] no/ambiguous project for ${cwd} — use kodo adopt --project <id>`;
@@ -572,7 +577,14 @@ export default function App({
             }
             const ref = armedSurface.workspaceRef;
             const result = await onAdopt?.(armedSurface);
-            if (!result || result.ok !== false) {
+            if (result?.code === 'ALREADY_ADOPTED') {
+              // 56-03: `kodo adopt` salió 0 pero el discriminante --json es un no-op idempotente
+              // (la sesión ya estaba adoptada). NO es éxito (no se crea fila) ni error — footer
+              // ámbar distinto, para no mostrar el verde engañoso "adopted" del UAT blocker. Va
+              // ANTES del check de éxito genérico (result.ok !== false) para no caer en verde.
+              setFocusError(ADOPT_ALREADY(ref));
+              setFooterColor('yellow');
+            } else if (!result || result.ok !== false) {
               // Éxito (o contexto degradado sin onAdopt): footer verde transitorio (D-07). REF =
               // workspaceRef (el identificador legible de la surface ad-hoc, no hay task_ref aún).
               setFocusError(ADOPT_OK(ref));
