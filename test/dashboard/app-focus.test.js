@@ -191,10 +191,20 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
         /workspace gone/,
         `focusError debe limpiarse en la siguiente tecla (D-04).\nframe:\n${lastFrame()}`,
       );
+      // Phase 56: la línea de hints se extendió con `· a adopt` y a este ancho de terminal ink la
+      // envuelve a dos líneas. El match contiguo del footer completo es frágil bajo wrap, así que se
+      // verifica la restauración por dos segmentos del hint (su cabeza siempre en la 1ª línea + el
+      // sufijo `a adopt · q quit` aunque parta) — prueba inequívoca de que el footer normal volvió.
       assert.match(
         lastFrame(),
-        /↑↓ move · c comments · l logs · p plan · \/ filter \(ps:state\) · d dismiss · o open · q quit/,
+        /↑↓ move · c comments · l logs · p plan · \/ filter \(ps:state\) · d dismiss · o open/,
         `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
+      );
+      // Colapsa bordes de caja (│) + whitespace para tolerar el wrap de ink a este ancho.
+      assert.match(
+        lastFrame().replace(/[│\s]+/g, ' '),
+        /a adopt · q quit/,
+        `el hint de adopt debe estar en el footer restaurado.\nframe:\n${lastFrame()}`,
       );
       assert.equal(
         focusCalls,
