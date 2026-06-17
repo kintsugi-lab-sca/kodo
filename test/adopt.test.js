@@ -152,6 +152,36 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // 56-03 UAT gap-fix: the idempotency guard MUST key by sessionId (stable
+  // checkpoint_id), NOT by {workspaceRef, cwd}. cmux RECYCLES workspace refs and
+  // a single cwd is shared by multiple ad-hoc sessions, so keying by
+  // workspaceRef/cwd falsely rejects a genuinely-new session as ALREADY_ADOPTED
+  // (UAT Test 1 blocker). Consistent with Phase 55 D-06 + Phase 56 computeAdoptable.
+  // ---------------------------------------------------------------------
+  it('two adoptions sharing cwd+workspaceRef but DIFFERENT sessionId both succeed (UAT blocker)', async () => {
+    // First adopt seeds a row at /dev/foo + w:1 + sessionId s1.
+    const r1 = await adoptSession(baseArgs({ sessionId: 's1' }));
+    assert.equal(r1.ok, true);
+
+    // Second adopt: SAME cwd + SAME workspaceRef, but a genuinely-new sessionId.
+    // The OLD guard ({workspaceRef, cwd}) would falsely return ALREADY_ADOPTED.
+    // The sessionId-keyed guard must let this through as a real adopt.
+    const r2 = await adoptSession(baseArgs({ sessionId: 's2' }));
+    assert.equal(r2.ok, true, 'a new sessionId in the same cwd/workspace must NOT be ALREADY_ADOPTED');
+    assert.notEqual(r2.code, 'ALREADY_ADOPTED');
+  });
+
+  it('true re-adopt (SAME sessionId) still returns ALREADY_ADOPTED', async () => {
+    const args = baseArgs({ sessionId: 's-stable' });
+    const r1 = await adoptSession(args);
+    assert.equal(r1.ok, true);
+
+    const r2 = await adoptSession(args);
+    assert.equal(r2.ok, false, 're-adopting the SAME sessionId must be idempotent');
+    assert.equal(r2.code, 'ALREADY_ADOPTED');
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-05 / D-03: PERSIST_FAILED carries task_id + task_url (LOUD orphan).
   // ---------------------------------------------------------------------
   it('PERSIST_FAILED carries task_id + task_url when addSession throws', async () => {

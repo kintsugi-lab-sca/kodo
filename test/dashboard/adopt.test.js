@@ -70,9 +70,45 @@ describe('Phase 56 Plan 01: runAdopt never-throws + execPath binary + literal 8-
         SESSION_ID,
         '--project',
         PROJECT_ID,
+        '--json',
       ],
-      'argv literal: [kodoBin, adopt, --workspace, ref, --cwd, cwd, --session-id, sid, --project, pid]',
+      'argv literal: [..., --project, pid, --json] — 56-03: --json is the FINAL argv element',
     );
+    assert.equal(captured.args[captured.args.length - 1], '--json', '--json debe ser el último elemento del argv');
+  });
+
+  // 56-03 UAT gap-fix: `kodo adopt` exits 0 even for ALREADY_ADOPTED (idempotent by
+  // design — the exit contract is shared with Phase 57 and does NOT change). With
+  // --json now appended, runAdopt parses stdout on the exit-0 branch and surfaces an
+  // ALREADY_ADOPTED no-op distinctly so the dashboard footer is not falsely green.
+  it('ALREADY_ADOPTED: exit 0 + stdout discriminant → { ok:false, code:"ALREADY_ADOPTED" }', async () => {
+    const stdout =
+      JSON.stringify({ ok: false, code: 'ALREADY_ADOPTED', detail: { task_id: 'KL-7' } }, null, 2) + '\n';
+    const exec = (cmd, args, opts, cb) => {
+      setImmediate(() => cb(null, stdout, ''));
+    };
+    const result = await runAdopt({ exec, ...base });
+    assert.equal(result.ok, false);
+    if (result.ok) return; // narrowing
+    assert.equal(result.code, 'ALREADY_ADOPTED');
+    assert.equal(result.detail, 'KL-7', 'detail debe ser el task_id existente cuando está presente');
+  });
+
+  it('ALREADY_ADOPTED defensive: exit 0 + ok:true stdout → { ok:true } (genuine adopt)', async () => {
+    const stdout = JSON.stringify({ ok: true, task: { id: 'KL-9' } }, null, 2) + '\n';
+    const exec = (cmd, args, opts, cb) => {
+      setImmediate(() => cb(null, stdout, ''));
+    };
+    const result = await runAdopt({ exec, ...base });
+    assert.deepEqual(result, { ok: true }, 'un ok:true (adopt real) debe seguir resolviendo { ok:true }');
+  });
+
+  it('ALREADY_ADOPTED defensive: exit 0 + unparseable stdout → { ok:true } (never throws)', async () => {
+    const exec = (cmd, args, opts, cb) => {
+      setImmediate(() => cb(null, 'not json at all', ''));
+    };
+    const result = await runAdopt({ exec, ...base });
+    assert.deepEqual(result, { ok: true }, 'un stdout no parseable NO debe romper — cae a { ok:true } como hoy');
   });
 
   it('ENOENT mapping: err.code="ENOENT" → { ok:false, code:"ENOENT", detail }', async () => {

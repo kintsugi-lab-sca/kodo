@@ -29,6 +29,7 @@ import App, {
   ADOPT_NONE,
   ADOPT_CONFIRM,
   ADOPT_OK,
+  ADOPT_ALREADY,
   ADOPT_NO_PROJECT,
 } from '../../src/cli/dashboard/App.js';
 
@@ -218,6 +219,42 @@ describe('DETECT-02: picker cursor + double-confirm (D-04)', () => {
       assert.equal(adopts[0].cwd, '/home/op/kodo/lib', 'cwd de la surface bajo el cursor');
       assert.equal(adopts[0].workspaceRef, 'ws-3', 'workspaceRef de la surface bajo el cursor');
       assert.match(okFrame, escRe(ADOPT_OK('ws-3')), `éxito debe mostrar ADOPT_OK verde\n${okFrame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('(d2) 56-03: onAdopt → ALREADY_ADOPTED muestra footer ámbar (NO verde ADOPT_OK)', async () => {
+    const clock = makeFakeClock();
+    const { fetchFn } = makeRouter();
+    /** @type {Array<object>} */
+    const adopts = [];
+    const onAdoptDiscover = async () => [
+      { workspaceRef: 'ws-1', cwd: '/home/op/kodo/src', sessionId: 'sess-A', kind: 'claude' },
+    ];
+    // El CLI sale 0 pero el discriminante es un no-op idempotente → runAdopt lo
+    // resuelve como { ok:false, code:'ALREADY_ADOPTED' }. El footer NO debe ser verde.
+    const onAdopt = async (/** @type {object} */ p) => {
+      adopts.push(p);
+      return { ok: false, code: 'ALREADY_ADOPTED', detail: 'KL-7' };
+    };
+    const { lastFrame, stdin, unmount } = render(
+      createElement(App, injectProps(clock, fetchFn, { onAdoptDiscover, onAdopt })),
+    );
+    try {
+      await drain();
+      stdin.write('a'); // picker
+      await drain();
+      stdin.write('a'); // arma
+      await drain();
+      assert.match(lastFrame(), escRe(ADOPT_CONFIRM('ws-1')), 'precondición: armado');
+      stdin.write('a'); // ejecuta
+      await drain();
+      await drain(); // Pitfall 1: ink no awaitea el handler async
+      const frame = lastFrame();
+      assert.equal(adopts.length, 1, 'el segundo a debe shellear onAdopt una vez');
+      assert.match(frame, escRe(ADOPT_ALREADY('ws-1')), `ALREADY_ADOPTED → footer ámbar 'already adopted'\n${frame}`);
+      assert.doesNotMatch(frame, escRe(ADOPT_OK('ws-1')), `NO debe mostrar el verde engañoso 'adopted'\n${frame}`);
     } finally {
       unmount();
     }
