@@ -308,3 +308,80 @@ export function mapDismissResult(res, taskRef) {
   if (actions.some((a) => a.result === 'moved-dirty')) return { kind: 'dirty', color: 'yellow' };
   return { kind: 'ok', color: 'green' };
 }
+
+// ── Phase 56 Plan 01 (DETECT-02): derives del flujo adopt ─────────────────────────────────
+//
+// Dos funciones puras React-free (mismo invariante color-isolation del módulo): el
+// set-difference de surfaces adoptables y el reverse-lookup cwd→projectId. Ambas alimentan el
+// handler `a` de App.js (Plan 02); viven aquí (derive) y NO en format.js (presentación).
+
+/**
+ * @typedef {{ workspaceRef: string, cwd: string, sessionId: string, kind: string }} AgentSurface
+ */
+
+/**
+ * Set-difference de surfaces ADOPTABLES (D-02). Sobre el array de surfaces descubierto por
+ * `host.listAgentSurfaces()` (Phase 55) y el snapshot vivo de `/status` (que porta
+ * `session_id` por el `...s` pass-through, server.js:447), devuelve las surfaces que:
+ *   - tienen `kind === 'claude'` (Pitfall 5: listAgentSurfaces NO pre-filtra por kind — es
+ *     responsabilidad explícita del consumer, DETECT-02), Y
+ *   - tienen un `sessionId` truthy (sin identidad no son adoptables), Y
+ *   - cuyo `sessionId` NO está entre los `session_id` ya trackeados.
+ *
+ * El diff se keyea por `sessionId`, NUNCA por `workspaceRef` (cmux recicla `workspace:N` —
+ * defensa Phase 43 / D-06 Phase 55: un workspaceRef reciclado enmascararía una sesión nueva).
+ * NO se hace un read nuevo de `state.json`: se reusa el dato ya polleado (D-02). Never-throws:
+ * inputs null/undefined → `[]`.
+ *
+ * @param {Array<AgentSurface>|null|undefined} surfaces — surfaces descubiertas (puede ser null).
+ * @param {Array<{ session_id?: string|null }>|null|undefined} statusSessions — filas del snapshot
+ *   `/status` (cada una porta `session_id`).
+ * @returns {Array<AgentSurface>} las adoptables (subconjunto de `surfaces`).
+ */
+export function computeAdoptable(surfaces, statusSessions) {
+  const tracked = new Set((statusSessions ?? []).map((s) => s.session_id).filter(Boolean));
+  return (surfaces ?? []).filter(
+    (s) => s.kind === 'claude' && s.sessionId && !tracked.has(s.sessionId),
+  );
+}
+
+/**
+ * Reverse-lookup `cwd → projectId` (D-05). `kodo adopt` exige `--project <id>`, pero el
+ * descubrimiento NO devuelve proyecto. Invierte el mapa `projectId → path` de `loadProjects()`
+ * (VERIFICADO `Record<string,string>`, config.js:142-151) resolviendo el proyecto cuyo path es
+ * el ANCESTRO MÁS CERCANO de `cwd` (semántica ancestro, no match exacto: el operador abre
+ * claude habitualmente en un subdirectorio del proyecto).
+ *
+ * Algoritmo (puro, sin I/O — NO `realpathSync`):
+ *   - normaliza trailing-slash en ambos lados (`norm`),
+ *   - filtra los proyectos cuyo path normalizado es igual a `cwd` o es prefijo separator-safe
+ *     (`cwd === path` || `cwd.startsWith(path + '/')`) — el `+ '/'` evita que
+ *     `/home/op/kodo-sibling` matchee `/home/op/kodo`,
+ *   - sin matches → `{ error: 'none' }`,
+ *   - ordena por longitud de path DESC (el ancestro más específico gana); si los DOS primeros
+ *     tienen la MISMA longitud → `{ error: 'ambiguous' }` (config no determinista),
+ *   - si no → `{ projectId }` del match más largo.
+ *
+ * El fallo (none/ambiguous) es el ÚNICO punto que puede impedir el shell de `kodo adopt`; el
+ * caller lo mapea a un footer never-throws hacia el escape-hatch del CLI (D-05).
+ *
+ * @param {string} cwd — cwd de la surface elegida.
+ * @param {Record<string, string>} projects — mapa `projectId → path` (de `loadProjects()`).
+ * @returns {{ projectId: string } | { error: 'none' | 'ambiguous' }}
+ */
+export function resolveProjectId(cwd, projects) {
+  const norm = (/** @type {string} */ p) => p.replace(/\/+$/, ''); // strip trailing slash(es)
+  const c = norm(cwd);
+  const matches = Object.entries(projects ?? {}).filter(([, path]) => {
+    const p = norm(path);
+    return c === p || c.startsWith(p + '/'); // exacto o descendiente (separator-boundary safe)
+  });
+  if (matches.length === 0) return { error: 'none' };
+  // Desempate: ancestro más largo (más específico). Dos paths de igual longitud que mapean a
+  // projectIds distintos → ambiguo (config no determinista).
+  matches.sort((a, b) => norm(b[1]).length - norm(a[1]).length);
+  if (matches.length > 1 && norm(matches[0][1]).length === norm(matches[1][1]).length) {
+    return { error: 'ambiguous' };
+  }
+  return { projectId: matches[0][0] };
+}
