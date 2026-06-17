@@ -113,6 +113,12 @@ export async function runDashboard(deps = {}) {
   // Phase 48: runOpen (lanzador puro never-throws de `open <url>`, Plan 02). Mismo patrón lazy.
   const { runOpen } = await import('./open.js');
 
+  // Phase 56 (DETECT-02): runAdopt (orquestador puro never-throws de `kodo adopt`, Plan 01) +
+  // getHost factory para instanciar el host cmux IN-PROCESS (D-01, getHost designa "el wiring del
+  // dashboard" en interface.js). Mismo patrón lazy que runFocus/runOpen — cero overhead en arranque.
+  const { runAdopt } = await import('./adopt.js');
+  const { getHost } = await import('../../host/interface.js');
+
   // execFile-shaped default cuando exec no fue inyectado. Lazy: solo se carga si se cablea el TUI
   // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
   const execImpl = exec ?? (await import('node:child_process')).execFile;
@@ -123,6 +129,24 @@ export async function runDashboard(deps = {}) {
   // loadConfig (cero coste real — primera invocación ya cacheó por la lectura de baseUrl arriba;
   // segunda lectura solo re-deserializa el config en memoria).
   const cmuxBin = loadConfig().cmux.binary;
+
+  // Phase 56 D-01: host cmux IN-PROCESS (reusa el MISMO execImpl + cmuxBin ya resueltos — CERO
+  // endpoint nuevo en el server, preserva el invariante "cero endpoints desde v0.10"). `listAgentSurfaces`
+  // NO está en HOST_METHODS → se detecta por typeof en el prop onAdoptDiscover (fail-open a []).
+  const host = getHost('cmux', { exec: execImpl, binary: cmuxBin });
+
+  // Phase 56 D-05: mapa projectId → path para el reverse-lookup cwd→projectId (resolveProjectId en
+  // App.js). Mismo loadProjects() que lee src/cli/adopt.js — el dashboard resuelve el `--project`.
+  const { loadProjects } = await import('../../config.js');
+  const projects = loadProjects();
+
+  // Phase 56 Pattern 3 / Pitfall 4: resolución del binario kodo. `bin/kodo` es un script
+  // `#!/usr/bin/env node`, NO un ejecutable nativo → el binario de exec es process.execPath (node) y
+  // kodoBin es argv[0] (espejo de polling.js:resolveKodoBin). DEPTH: dashboard/index.js está UN nivel
+  // más abajo que cli/polling.js → TRES `..`. Path absoluto, cero PATH lookup (mitigación EoP T-56-07).
+  const { fileURLToPath } = await import('node:url');
+  const { join, dirname } = await import('node:path');
+  const kodoBin = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'bin', 'kodo');
 
   // Entrar al alternate screen buffer ANTES de render (post non-TTY guard, así
   // pipes/CI no reciben secuencias ANSI). Sin esto, cada redraw a un ancho de
@@ -141,6 +165,17 @@ export async function runDashboard(deps = {}) {
     // node:child_process). NO lee binario de config — open.js defaultea `binary` a 'open'
     // internamente (D-06, divergencia con cmuxBin). runOpen es never-throws (Plan 02 contract).
     onOpen: async (url) => runOpen({ exec: execImpl, url }),
+    // Phase 56 D-01/D-03: discovery on-demand, typeof-gated (fail-open a [] si el host no soporta el
+    // método — listAgentSurfaces NO está en HOST_METHODS). El handler `a` de App.js diffea el array
+    // contra el snapshot vivo de /status (computeAdoptable, D-02) y abre el picker.
+    onAdoptDiscover: async () =>
+      typeof host.listAgentSurfaces === 'function' ? host.listAgentSurfaces() : [],
+    // Phase 56 D-06/D-07: shell never-throws de `kodo adopt`. binary = process.execPath (node) +
+    // kodoBin como argv[0] (Pitfall 4). runAdopt colapsa todo fallo a {ok:false} — App.js mapea a footer.
+    onAdopt: async ({ workspaceRef, cwd, sessionId, projectId }) =>
+      runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId }),
+    // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
+    projects,
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.

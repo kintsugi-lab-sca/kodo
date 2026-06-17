@@ -37,6 +37,7 @@ import {
   OVERLAY_PLAN_ERROR,
   OVERLAY_VIEWPORT,
   DISMISS_CONFIRM,
+  ADOPT_CONFIRM,
 } from './App.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
@@ -192,6 +193,38 @@ function renderOverlay(snap, scrollOffset, kind) {
 }
 
 /**
+ * Render del picker de adopt (Phase 56, DETECT-02 / D-03/Pitfall 3). Diverge de renderOverlay
+ * (lectura con scroll): lista las surfaces ADOPTABLES con un CURSOR SELECCIONABLE (gutter `› ` +
+ * bold sobre la fila del cursor — mismo patrón fzf/vim que la tabla). Cada fila muestra
+ * `cwd · <sessionId corto> · <kind>` (D-03). Color SOLO de nombres ink (color-isolation D-12).
+ *
+ * @param {Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>} adoptable
+ * @param {number} cursor - índice seleccionado [0, len-1].
+ * @returns {import('react').ReactElement}
+ */
+function renderAdoptPicker(adoptable, cursor) {
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: 'cyan', bold: true }, 'adopt session'),
+  );
+  const rows = adoptable.map((s, i) => {
+    const selected = i === cursor;
+    const shortId = (s.sessionId ?? '').slice(0, 8);
+    const text = `${s.cwd} · ${shortId} · ${s.kind}`;
+    return h(
+      Box,
+      { key: s.sessionId ?? `adopt-${i}`, flexDirection: 'row' },
+      h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      h(Text, { bold: selected }, text),
+    );
+  });
+  const body = h(Box, { flexDirection: 'column' }, ...rows);
+  const footer = h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, '↑↓ move · a adopt · Esc close'));
+  return h(Box, { flexDirection: 'column' }, header, body, footer);
+}
+
+/**
  * Tabla viva del dashboard (presentacional). Recibe la lista YA ordenada+filtrada, el índice
  * seleccionado YA derivado, los contadores y el connection state reusado.
  *
@@ -227,7 +260,13 @@ function renderOverlay(snap, scrollOffset, kind) {
  *   actions[] (no de un color lookup). Default 'red' (retro-compat con el focusError de Phase 37).
  * @param {string|null} [props.armedTaskRef] - Phase 42 D-02: task_ref del confirm armado, para el
  *   copy persistente DISMISS_CONFIRM cuando mode==='confirm'.
- * @param {'comments'|'logs'|'plan'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l), Phase 44: 'plan' (p), o null.
+ * @param {string|null} [props.armedSessionId] - Phase 56 Pitfall 2: si != null, el confirm armado es
+ *   de ADOPT (rutea el copy a ADOPT_CONFIRM); si null, es de dismiss (DISMISS_CONFIRM).
+ * @param {string|null} [props.armedSurfaceRef] - Phase 56 D-04: workspaceRef de la surface del adopt
+ *   armado, para el copy persistente ADOPT_CONFIRM.
+ * @param {number} [props.adoptCursor] - Phase 56 D-03/Pitfall 3: índice del cursor seleccionable del
+ *   picker de adopt (overlaySnapshot.kind==='adopt').
+ * @param {'comments'|'logs'|'plan'|'adopt'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l), Phase 44: 'plan' (p), Phase 56: 'adopt' (a), o null.
  * @param {number} [props.scrollOffset] - Phase 39 D-06: primera línea visible del body del overlay.
  * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
  *   Phase 39 D-05: contenido CONGELADO del overlay (no salta bajo el poll). status discrimina la copy.
@@ -249,6 +288,9 @@ export default function SessionTable({
   focusError = null,
   footerColor = 'red',
   armedTaskRef = null,
+  armedSessionId = null,
+  armedSurfaceRef = null,
+  adoptCursor = 0,
   overlayKind = null,
   scrollOffset = 0,
   overlaySnapshot = null,
@@ -257,6 +299,11 @@ export default function SessionTable({
   // tabla: cuando hay un overlay abierto ocupa el área de la tabla (D-01). Mantiene SessionTable
   // como único punto de render. Color SOLO vía `<Text color>` de ink (D-12, cero picocolors/ANSI).
   if (mode === 'overlay' && overlaySnapshot) {
+    // Phase 56 D-03/Pitfall 3: el picker de adopt diverge del overlay de lectura (cursor
+    // seleccionable, no scroll). Se enruta por kind ANTES de renderOverlay.
+    if (overlaySnapshot.kind === 'adopt') {
+      return renderAdoptPicker(overlaySnapshot.adoptable ?? [], adoptCursor);
+    }
     return renderOverlay(overlaySnapshot, scrollOffset, overlayKind);
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
@@ -295,9 +342,22 @@ export default function SessionTable({
   // (RESEARCH Pitfall 4). Misma forma `<Box marginTop=1>` que filterLine/errorLine. Color cyan
   // (armed/actionable, UI-SPEC §Color) via nombre de ink — color-isolation intacta. Precede a
   // errorLine/filterLine mientras está armado.
+  // Phase 56 Pitfall 2 (DETECT-02): el confirm tiene DOS consumidores. Se rutea el copy por cuál
+  // armed-id está set: armedSessionId != null → ADOPT_CONFIRM (adopt, ref = workspaceRef de la
+  // surface); si no → DISMISS_CONFIRM (dismiss, ref = task_ref). Mismo color cyan (armed/actionable).
   const confirmLine =
     mode === 'confirm'
-      ? h(Box, { marginTop: 1 }, h(Text, { color: 'cyan' }, DISMISS_CONFIRM(armedTaskRef ?? '')))
+      ? h(
+          Box,
+          { marginTop: 1 },
+          h(
+            Text,
+            { color: 'cyan' },
+            armedSessionId != null
+              ? ADOPT_CONFIRM(armedSurfaceRef ?? '')
+              : DISMISS_CONFIRM(armedTaskRef ?? ''),
+          ),
+        )
       : null;
 
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):

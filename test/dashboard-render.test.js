@@ -55,7 +55,9 @@ describe('TUI-01: dashboard chrome (D-01)', () => {
     // (reemplaza el `starting…` de Phase 34). Cobertura de los estados live/stale en
     // test/dashboard-status-line.test.js.
     assert.match(frame, /waiting for server/, `status line de arranque "waiting for server" missing\nframe:\n${frame}`);
-    assert.match(frame, /q quit/, `footer hint "q quit" missing\nframe:\n${frame}`);
+    // Phase 56: la línea de hints se extendió con `· a adopt`; a este ancho ink la envuelve a dos
+    // líneas, partiendo `q quit`. Se colapsan bordes (│) + whitespace para tolerar el wrap.
+    assert.match(frame.replace(/[│\s]+/g, ' '), /q quit/, `footer hint "q quit" missing\nframe:\n${frame}`);
   });
 
   it('q triggers clean exit (extra unmount frame vs an ignored key)', async () => {
