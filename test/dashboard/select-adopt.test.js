@@ -171,3 +171,99 @@ describe('Phase 56 Plan 01: resolveProjectId reverse-lookup cwd→projectId (D-0
     assert.deepEqual(resolveProjectId(123, projects), { error: 'none' });
   });
 });
+
+describe('Phase 56 Plan 04 (UAT gap-fix): resolveProjectId maneja forma {default, modules}', () => {
+  // BLOCKER UAT: projects.json real tiene 7/8 entradas con forma OBJETO {default, modules}
+  // (solo kodo es string plano). El resolveProjectId post-CR-01 solo matcheaba VALOR STRING
+  // → casi todos los proyectos reales devolvían {error:'none'} y adopt fallaba (fvf live-confirmed).
+
+  it('entrada OBJETO resuelve vía `default` (caso fvf real)', () => {
+    const projects = {
+      add88b2b: { default: '/Users/alex/dev/roman/fvf', modules: {} },
+    };
+    assert.deepEqual(
+      resolveProjectId('/Users/alex/dev/roman/fvf', projects),
+      { projectId: 'add88b2b' },
+      'el path `default` del objeto debe resolver el projectId',
+    );
+  });
+
+  it('cwd bajo un path de `modules` resuelve a ese proyecto', () => {
+    const projects = {
+      mono: {
+        default: '/home/op/mono',
+        modules: { api: '/home/op/mono/services/api', web: '/home/op/mono/apps/web' },
+      },
+    };
+    assert.deepEqual(
+      resolveProjectId('/home/op/mono/services/api/src', projects),
+      { projectId: 'mono' },
+      'un cwd bajo un módulo del proyecto resuelve a ese proyecto',
+    );
+  });
+
+  it('nearest-ancestor: el path de `modules` más largo gana sobre el `default`', () => {
+    const projects = {
+      mono: {
+        default: '/home/op/mono',
+        modules: { api: '/home/op/mono/services/api' },
+      },
+    };
+    assert.deepEqual(
+      resolveProjectId('/home/op/mono/services/api/lib', projects),
+      { projectId: 'mono' },
+    );
+  });
+
+  it('nearest-ancestor entre DOS proyectos: el más específico gana', () => {
+    const projects = {
+      mono: { default: '/home/op/mono', modules: {} },
+      sub: { default: '/home/op/mono/packages/api', modules: {} },
+    };
+    assert.deepEqual(
+      resolveProjectId('/home/op/mono/packages/api/src', projects),
+      { projectId: 'sub' },
+      'el ancestro más largo (sub) gana sobre mono',
+    );
+  });
+
+  it('forma MIXTA (string + objeto) en el mismo mapa: ambas resuelven', () => {
+    const projects = {
+      kodo: '/Users/alex/dev/klab/kodo',
+      add88b2b: { default: '/Users/alex/dev/roman/fvf', modules: {} },
+    };
+    assert.deepEqual(resolveProjectId('/Users/alex/dev/klab/kodo/src', projects), { projectId: 'kodo' });
+    assert.deepEqual(resolveProjectId('/Users/alex/dev/roman/fvf/app', projects), { projectId: 'add88b2b' });
+  });
+
+  it('ambiguo: dos proyectos objeto con el MISMO path → { error: "ambiguous" }', () => {
+    const projects = {
+      a: { default: '/home/op/shared', modules: {} },
+      b: { default: '/home/op/shared', modules: {} },
+    };
+    assert.deepEqual(resolveProjectId('/home/op/shared/x', projects), { error: 'ambiguous' });
+  });
+
+  it('objeto sin match → { error: "none" }', () => {
+    const projects = { add88b2b: { default: '/Users/alex/dev/roman/fvf', modules: {} } };
+    assert.deepEqual(resolveProjectId('/tmp/elsewhere', projects), { error: 'none' });
+  });
+
+  it('never-throws: objeto con `default` no-string / `modules` con valores no-string', () => {
+    const projects = {
+      a: { default: 123, modules: { x: null, y: '/home/op/valid' } },
+    };
+    assert.doesNotThrow(() => resolveProjectId('/home/op/valid/src', projects));
+    assert.deepEqual(
+      resolveProjectId('/home/op/valid/src', projects),
+      { projectId: 'a' },
+      'el candidato string válido del módulo resuelve; los no-string se ignoran',
+    );
+  });
+
+  it('never-throws: objeto sin `default` ni `modules` (objeto vacío) → no casa, no lanza', () => {
+    const projects = { a: {}, b: '/home/op/kodo' };
+    assert.doesNotThrow(() => resolveProjectId('/home/op/kodo/src', projects));
+    assert.deepEqual(resolveProjectId('/home/op/kodo/src', projects), { projectId: 'b' });
+  });
+});
