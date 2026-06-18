@@ -223,3 +223,140 @@ describe('PlaneProvider', () => {
     });
   });
 });
+
+describe('PlaneClient.createLabel idempotency on name-conflict 409 (Phase 56 Plan 04 UAT gap-fix)', () => {
+  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  let PlaneClient;
+
+  beforeEach(async () => {
+    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+  });
+
+  // Explicit opts bypass loadConfig() (config.plane is undefined under the v2 schema; passing
+  // baseUrl/apiKey/workspaceSlug short-circuits the `opts.x || config.plane.x` reads).
+  const CLIENT_OPTS = {
+    baseUrl: 'https://test.example.com',
+    apiKey: 'test-key',
+    workspaceSlug: 'test',
+  };
+
+  const LABELS_409_BODY =
+    '{"error":"Label with the same name already exists in the project","id":"e69e7ac6-1111-2222-3333-444444444444"}';
+
+  /**
+   * Stub globalThis.fetch: POST a /labels/ lanza el 409 'already exists', GET re-lista labels.
+   * @param {{ existingLabels: any[] }} cfg
+   */
+  function stubLabels(cfg) {
+    const original = globalThis.fetch;
+    const calls = { post: 0, get: 0 };
+    globalThis.fetch = async (url, init) => {
+      const path = new URL(url).pathname;
+      const method = (init && init.method) || 'GET';
+      if (path.endsWith('/labels/') && method === 'POST') {
+        calls.post++;
+        // request() throws on !res.ok with this exact message shape.
+        return new Response(LABELS_409_BODY, {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (path.endsWith('/labels/') && method === 'GET') {
+        calls.get++;
+        return new Response(JSON.stringify({ results: cfg.existingLabels }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch: ${method} ${path}`);
+    };
+    return { calls, restore: () => { globalThis.fetch = original; } };
+  }
+
+  it('409 name-conflict → re-lista y RETORNA el label existente (idempotente)', async () => {
+    const existing = { id: 'e69e7ac6-1111-2222-3333-444444444444', name: 'kodo:adopted' };
+    const stub = stubLabels({ existingLabels: [{ id: 'other', name: 'bug' }, existing] });
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      const result = await client.createLabel('proj-uuid', 'kodo:adopted');
+      assert.equal(result.id, existing.id, 'reusa el id del label existente');
+      assert.equal(result.name, 'kodo:adopted');
+      assert.equal(stub.calls.post, 1, 'intentó el POST una vez');
+      assert.equal(stub.calls.get, 1, 're-listó labels una vez');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('match de nombre case-insensitive al re-listar', async () => {
+    const existing = { id: 'lbl-ci', name: 'Kodo:Adopted' };
+    const stub = stubLabels({ existingLabels: [existing] });
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      const result = await client.createLabel('proj-uuid', 'kodo:adopted');
+      assert.equal(result.id, 'lbl-ci');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('409 pero el label NO aparece al re-listar → re-lanza el error original (no enmascara fallo)', async () => {
+    const stub = stubLabels({ existingLabels: [{ id: 'x', name: 'unrelated' }] });
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      await assert.rejects(
+        () => client.createLabel('proj-uuid', 'kodo:adopted'),
+        /Plane API 409/,
+        'sin match en la re-lista, el 409 original se propaga LOUD',
+      );
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('error NO-409 (p.ej. 500) sigue fallando LOUD (D-08 intacto)', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const method = (init && init.method) || 'GET';
+      if (method === 'POST') {
+        return new Response('{"error":"boom"}', { status: 500, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error('GET should never be reached for a non-409 error');
+    };
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      await assert.rejects(
+        () => client.createLabel('proj-uuid', 'kodo:adopted'),
+        /Plane API 500/,
+        'un 500 no es name-conflict → re-throw sin re-listar',
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('éxito normal (POST 201) → retorna el label crudo sin re-listar', async () => {
+    const original = globalThis.fetch;
+    const calls = { post: 0, get: 0 };
+    globalThis.fetch = async (url, init) => {
+      const method = (init && init.method) || 'GET';
+      if (method === 'POST') {
+        calls.post++;
+        return new Response(JSON.stringify({ id: 'new-uuid', name: 'kodo:adopted' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      calls.get++;
+      throw new Error('GET should never be reached on success');
+    };
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      const result = await client.createLabel('proj-uuid', 'kodo:adopted');
+      assert.equal(result.id, 'new-uuid');
+      assert.equal(calls.get, 0, 'no re-lista en el happy path');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

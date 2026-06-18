@@ -209,7 +209,16 @@ export class PlaneClient {
    * Create a project label (BIDIR-01 / Open Q1). Same authenticated `request()` POST
    * pattern. The `kodo:adopted` marker is a label UUID that must exist before the
    * work-item POST — `provider.createTask` looks it up or creates it via this method.
-   * Fails LOUD like `createWorkItem` (D-08).
+   *
+   * IDEMPOTENT on name-conflict 409 ONLY (Phase 56 Plan 04, UAT blocker): Plane rejects a
+   * duplicate label name with `Plane API 409: /projects/<id>/labels/ — Label with the same
+   * name already exists in the project`. That happens when the label already exists (a prior
+   * adopt attempt, or the project was never warmed into labelCache) — a NON-ERROR for our
+   * lookup-or-create flow. On that specific 409 we re-list the project's labels and RETURN the
+   * existing one (case-insensitive name match), so `createTask` proceeds instead of fatally
+   * failing with CREATE_FAILED. If the label is somehow absent after re-listing, the original
+   * 409 is re-thrown (don't mask a genuine failure). EVERY OTHER failure (other statuses, a
+   * 409 that isn't the name-conflict shape) still propagates LOUD (D-08 contract preserved).
    *
    * @param {string} projectId
    * @param {string} name - label name
@@ -217,10 +226,29 @@ export class PlaneClient {
    * @returns {Promise<any>} raw label with `id` (UUID)
    */
   async createLabel(projectId, name, color) {
-    return this.request(`/projects/${projectId}/labels/`, {
-      method: 'POST',
-      body: { name, color: color || '#6b7280' },
-    });
+    try {
+      return await this.request(`/projects/${projectId}/labels/`, {
+        method: 'POST',
+        body: { name, color: color || '#6b7280' },
+      });
+    } catch (e) {
+      // Detect the label-already-exists 409 ONLY. Anything else fails LOUD (D-08).
+      const msg = e instanceof Error ? e.message : String(e);
+      const isNameConflict409 =
+        msg.includes('Plane API 409') && (msg.includes('already exists') || msg.includes('labels/'));
+      if (!isNameConflict409) throw e;
+      // Re-list and reuse the existing label by case-insensitive name (more robust than
+      // regex-parsing the id out of the 409 body).
+      const data = await this.request(`/projects/${projectId}/labels/`);
+      const labels = data.results || data;
+      const target = (name || '').toLowerCase();
+      const existing = Array.isArray(labels)
+        ? labels.find((l) => (l.name || '').toLowerCase() === target)
+        : undefined;
+      if (existing) return existing;
+      // No match after re-listing → the 409 was not a recoverable name-conflict; re-throw LOUD.
+      throw e;
+    }
   }
 
   async listProjects() {
