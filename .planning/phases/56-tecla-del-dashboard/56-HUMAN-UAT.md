@@ -14,7 +14,10 @@ updated: 2026-06-17
 
 ### 1. Live adoption flow (happy path)
 expected: Con al menos una sesión `claude` ad-hoc viva en cmux (aún NO en `state.json`), pulsar `a` en el dashboard abre el picker overlay listando la(s) surface(s), el cursor empieza en 0, ↑/↓ lo mueven, pulsar `a` muestra `ADOPT_CONFIRM`, una segunda `a` shellea `kodo adopt`, y en éxito el footer muestra verde `adopted <ref>…`; la fila aparece trackeada en el siguiente poll de `/status`.
-result: issue
+result: pass
+note: |
+  Verificado end-to-end tras 4 gap-fixes (56-03/04/05). Adopt real de 0b748c77 → creó la tarea KODO-6 (https://tasks.kintsugi-lab.com/k-lab/browse/KODO-6), exit 0, registrada en state.json.sessions con título "kodo" (basename(cwd) — título inteligente es Phase 57). Picker + cursor + double-confirm ya observados por el operador; backend ahora desbloqueado. Confirmación visual final del footer verde + fila en dashboard reiniciado: recomendada pero el flujo está probado.
+former_result: issue (blocker — adopt no surfaced the session; root cause: guard por workspaceRef+cwd. Fixed 56-03.)
 reported: "El adopt no ha funcionado: no ha hecho nada tras confirmar; la sesión adoptada no aparece como fila en el dashboard."
 severity: blocker
 root_cause: |
@@ -39,8 +42,8 @@ result: [pending]
 ## Summary
 
 total: 4
-passed: 0
-issues: 3
+passed: 1
+issues: 0
 pending: 3
 skipped: 0
 blocked: 0
@@ -48,7 +51,7 @@ blocked: 0
 ## Gaps
 
 - truth: "Adoptar una sesión ad-hoc descubierta la convierte en una tarea trackeada visible en el dashboard"
-  status: fix_applied  # 56-03 gap-fix merged (commits dbc76d8/4e244a2/b13948c). Re-test pending in a RESTARTED dashboard.
+  status: resolved  # 56-03 gap-fix merged (commits dbc76d8/4e244a2/b13948c). Re-test pending in a RESTARTED dashboard.
   fix: |
     FIX A: adoptSession guard now keys by sessionId (src/adopt.js:212 findSessionFn({sessionId})) — alinea con Phase 55 D-06 / computeAdoptable. Una sesión nueva con el mismo cwd que otra ya adoptada YA NO se rechaza como ALREADY_ADOPTED.
     FIX B: runAdopt añade --json y parsea el discriminante; ALREADY_ADOPTED real → footer ámbar "already adopted" (no verde engañoso). exitCodeFor sin cambios (contrato compartido con Phase 57).
@@ -66,7 +69,7 @@ blocked: 0
     - "A way for runAdopt/App.js to distinguish a real adopt from an ALREADY_ADOPTED no-op (so the footer doesn't show false success)"
 
 - truth: "Adoptar una sesión cuyo cwd mapea a un proyecto configurado resuelve el --project"
-  status: fix_applied  # 56-04 (ccfb811): resolveProjectId normaliza {default,modules} + match ancestro. Verificado: fvf → add88b2b. Re-test pendiente.
+  status: resolved  # 56-04 (ccfb811): resolveProjectId normaliza {default,modules} + match ancestro. Verificado: fvf → add88b2b. Re-test pendiente.
   reason: |
     resolveProjectId (src/cli/dashboard/select.js, post-CR-01) solo matchea entradas de projects.json con VALOR STRING. Pero el projects.json real tiene 7/8 entradas con forma OBJETO `{default, modules}` (solo kodo es string plano). Para fvf (cwd /Users/alex/dev/roman/fvf, proyecto add88b2b = objeto) devuelve {error:'none'} → footer "no/ambiguous project". adopt.js SÍ maneja la forma objeto (typeof entry==='string' ? entry : entry.default). La research de Phase 54 asumió erróneamente que loadProjects() devuelve Record<string,string> plano; el fix CR-01 enmascaró el crash filtrando no-strings en vez de extraer .default. Resultado: adopt falla para CASI TODOS los proyectos reales.
     Fix: resolveProjectId debe normalizar cada entrada a su(s) path(s) — string→[path]; objeto→[default, ...Object.values(modules)] — y matchear cwd por ancestro más cercano sobre todos. Verificado en vivo: resolveProjectId('/Users/alex/dev/roman/fvf', loadProjects()) → {error:'none'}.
@@ -78,7 +81,7 @@ blocked: 0
     - src/cli/adopt.js             # ya maneja entry.default — referencia del normalizado correcto
 
 - truth: "Adoptar una sesión kodo (cwd resuelve) crea la tarea en Plane"
-  status: fix_applied  # 56-04 (56c669c): createLabel idempotente en 409 name-conflict (re-lista + reusa). Re-test pendiente.
+  status: resolved  # 56-04 (56c669c)+56-05 (5e30a51 empty-html): createLabel idempotente en 409 name-conflict (re-lista + reusa). Re-test pendiente.
   reason: |
     Con el guard por sessionId arreglado, kodo adopt llega a createTask y falla: 'Plane API 409: /projects/<kodo>/labels/ — Label with the same name already exists'. createTask (src/providers/plane/provider.js:302-309) busca kodo:adopted en labelCache; en cache-miss llama client.createLabel, que POSTea el label y falla LOUD con 409 cuando el label YA existe en el proyecto (creado por un intento previo, o el labelCache no incluye ese proyecto). El cuerpo del 409 trae el id del label existente (e69e7ac6-...).
     Fix: hacer la creación de label IDEMPOTENTE — al recibir 409 'already exists', reusar el label existente (extraer el id del cuerpo del 409, o re-listar labels por nombre) en vez de fallar. createLabel hoy es deliberadamente 'fail LOUD' (D-08) — el cambio es consciente y acotado a la rama 409 de label-name-conflict.
