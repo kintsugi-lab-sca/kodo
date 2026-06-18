@@ -14,7 +14,7 @@ files_touched:
 commits:
   - fb85a1c  # fix(57-04): single-quote ALL kodo adopt args + executable example (CR-01)
   - 45b4f12  # fix(57-04): fail-closed charset + quote ALL args + post-parse rationale in prompt.md (WR)
-  - <amend>  # fix(57-04): SINGLE-quote (not double) ALL args — double quotes leak $/`/$() (CR-01 correction)
+  - 34dd148  # fix(57-04): SINGLE-quote (not double) ALL args — double quotes leak $/`/$() (CR-01 correction)
 ---
 
 # Phase 57 — Gap-fix 57-04: shell-safety del `kodo adopt` asistido
