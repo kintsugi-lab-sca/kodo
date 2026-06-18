@@ -29,24 +29,52 @@ root_cause: |
 
 ### 2. Empty discovery path
 expected: Sin sesiones ad-hoc adoptables (todas ya en `state.json`, o el host no soporta `listAgentSurfaces`), pulsar `a` muestra el footer informativo `no adoptable sessions found` y NO abre overlay.
-result: [pending]
+result: issue
+reported: "No puedo reproducir el empty-state: las que quedan en el picker dicen 'already adopted' al intentarlas."
+severity: major
+root_cause: |
+  Síntoma del mismo bug que el dead/zombie (ver gap LIVENESS abajo). Una sesión adoptada que reconcile marca dead → se archiva a history. computeAdoptable (select.js:342) deduplica SOLO contra las sesiones activas de /status, no contra history → re-ofrece la sesión ya adoptada → el guard de adopt (findSession escanea sessions+history por sessionId) la rechaza ALREADY_ADOPTED → footer ámbar. El picker nunca llega a "no adoptable sessions found" porque sigue habiendo surfaces re-ofrecidas.
+  El dashboard NO puede deduplicar contra history sin un endpoint nuevo (/status solo expone sesiones activas; "cero endpoints nuevos" es invariante). La raíz real es LIVENESS: si la adoptada no fuera marcada dead, seguiría activa en /status y computeAdoptable la excluiría.
 
 ### 3. No/ambiguous project guard
 expected: Con una surface cuyo `cwd` no mapea a ningún proyecto de `~/.kodo/projects.json` (o mapea ambiguamente), confirmar la adopción muestra el footer never-throws apuntando al CLI (`adopt via kodo adopt --project <id>`) y NO shellea; el panel ink permanece montado.
-result: [pending]
+result: pass
+note: "Confirmado por el operador (2026-06-18)."
 
 ### 4. Pitfall 2 — confirm-key isolation in live TTY
 expected: `a` (adopt) y `d` (dismiss) permanecen aislados en sus respectivos flujos de double-confirm; armar uno no dispara el otro. Cubierto por `app-dismiss.test.js` + `app-adopt.test.js` con stubs; el TTY real confirma que el aislamiento es perceptible para el operador.
-result: [pending]
+result: pass
+note: "Confirmado por el operador (2026-06-18)."
 
 ## Summary
 
 total: 4
-passed: 1
-issues: 0
-pending: 3
+passed: 3
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
+
+## Cross-cutting gap — LIVENESS de sesiones adoptadas (raíz de Test 2 + el dead/zombie)
+
+- truth: "Una sesión ad-hoc adoptada (viva) aparece viva (running/idle) en el dashboard, no dead/zombie"
+  status: failed
+  severity: major
+  scope: "FUERA de los 3 success criteria de Phase 56 (que SÍ se cumplen: tecla a → kodo adopt vía execFile, on-demand+double-confirm, cero endpoints+never-throws). Es un gap de integración con la reconciliación de liveness (Phase 38/43) + el contrato del host."
+  root_cause: |
+    reconcile.liveForSession (src/session/reconcile.js:85-89) identifica la entrada viva del host por titleIdentifiesSession(live.title, session.task_ref): exige que el TÍTULO del workspace cmux contenga el task_ref de kodo (defensa anti-reciclaje de workspace_ref, Phase 43). Las sesiones LANZADAS por kodo tienen el workspace auto-nombrado con el task_ref (p.ej. "ROMAN-182 [FVF]: …") → match → vivas. Una sesión ADOPTADA vive en un workspace con título puesto por cmux/usuario a partir de su propio contenido (p.ej. "Conversación casual sobre el día") que NUNCA contiene el ROMAN-184 que Plane acaba de generar → liveForSession devuelve undefined → deriveTarget → 'dead' (aunque listWorkspaces reporta workspace:4 alive=true).
+    Efecto cascada: dead → archivada a history → fuera de /status → computeAdoptable la re-ofrece (Test 2) → guard la rechaza ALREADY_ADOPTED.
+    Evidencia: workspace:4 listWorkspaces → alive=true, title="✳ Conversación casual sobre el día"; ROMAN-184 record alive=false state=dead worktree_path=(none).
+  artifacts:
+    - src/session/reconcile.js:85-89   # liveForSession — identidad por título contiene task_ref
+    - src/session/reconcile.js:61-73   # titleIdentifiesSession
+    - src/host/cmux.js                 # listWorkspaces NO expone session_id/checkpoint_id (solo title)
+    - src/host/interface.js            # WorkspaceInfo typedef (no session_id)
+    - src/cli/dashboard/select.js:342  # computeAdoptable dedup solo contra /status activo, no history
+  fix_options: |
+    A (principled): listWorkspaces expone session_id por workspace (cmux lo sabe vía el binding / activeSessionsByWorkspace de claude-hook-sessions.json); liveForSession matchea por session_id (identidad ESTABLE) con fallback a titleIdentifiesSession. Aditivo a WorkspaceInfo (HOST_METHODS sigue en 4). Toca host + reconcile core (verificados) → merece discuss/plan propio. Mejora ADEMÁS la defensa de reciclaje existente.
+    B (mínimo, no resuelve la raíz): aceptar el footer ámbar "already adopted" como degradación graceful; documentar el dead/zombie como deuda. Phase 56 cumple sus 3 criterios.
+    C: doblar el alcance — adopt renombra el workspace cmux con el task_ref (requiere capacidad de escritura cmux nueva + acoplamiento). No recomendado.
 
 ## Gaps
 
