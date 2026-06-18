@@ -347,55 +347,83 @@ export function computeAdoptable(surfaces, statusSessions) {
 
 /**
  * Reverse-lookup `cwd → projectId` (D-05). `kodo adopt` exige `--project <id>`, pero el
- * descubrimiento NO devuelve proyecto. Invierte el mapa `projectId → path` de `loadProjects()`
- * (VERIFICADO `Record<string,string>`, config.js:142-151) resolviendo el proyecto cuyo path es
- * el ANCESTRO MÁS CERCANO de `cwd` (semántica ancestro, no match exacto: el operador abre
- * claude habitualmente en un subdirectorio del proyecto).
+ * descubrimiento NO devuelve proyecto. Invierte el mapa de `loadProjects()` resolviendo el
+ * proyecto cuyo path es el ANCESTRO MÁS CERCANO de `cwd` (semántica ancestro, no match exacto:
+ * el operador abre claude habitualmente en un subdirectorio del proyecto).
  *
- * Algoritmo (puro, sin I/O — NO `realpathSync`):
+ * Forma REAL de projects.json (UAT Phase 56 Plan 04): `loadProjects()` devuelve
+ * `Record<projectId, string | { default?: string, modules?: Record<string,string> }>`. El
+ * comentario histórico `Record<string,string>` era la forma INTENDED, no la real — en el
+ * projects.json de producción 7/8 entradas son OBJETO `{default, modules}` y solo una es string
+ * plano. El fix CR-01 anterior solo matcheaba entradas con VALOR STRING → casi todos los
+ * proyectos reales devolvían `{error:'none'}` y `kodo adopt` fallaba (confirmado en vivo para
+ * /Users/alex/dev/roman/fvf). Por eso cada entrada se normaliza a su(s) path(s) candidato(s):
+ * un string → `[value]`; un objeto → `[default, ...Object.values(modules)]`. `src/cli/adopt.js`
+ * (PASO 2) usa el mismo `entry.default` — este reverse-lookup se alinea con ese normalizado.
+ *
+ * Algoritmo (puro, sin I/O — NO `realpathSync`, NO `path` module → color isolation D-12):
  *   - normaliza trailing-slash en ambos lados (`norm`),
- *   - filtra los proyectos cuyo path normalizado es igual a `cwd` o es prefijo separator-safe
- *     (`cwd === path` || `cwd.startsWith(path + '/')`) — el `+ '/'` evita que
- *     `/home/op/kodo-sibling` matchee `/home/op/kodo`,
+ *   - por cada entrada, deriva sus paths candidato (string|objeto), conserva SOLO los string,
+ *   - un candidato `p` casa cuando `cwd === p` || `cwd.startsWith(p + '/')` (el `+ '/'` evita que
+ *     `/home/op/kodo-sibling` matchee `/home/op/kodo`),
+ *   - de cada projectId con ≥1 candidato que casa, se queda el path que casa MÁS LARGO,
  *   - sin matches → `{ error: 'none' }`,
- *   - ordena por longitud de path DESC (el ancestro más específico gana); si los DOS primeros
- *     tienen la MISMA longitud → `{ error: 'ambiguous' }` (config no determinista),
- *   - si no → `{ projectId }` del match más largo.
+ *   - el match más largo entre todos gana (ancestro más específico); si los dos primeros tienen
+ *     IGUAL longitud y son projectIds DISTINTOS → `{ error: 'ambiguous' }` (config no determinista).
  *
  * El fallo (none/ambiguous) es el ÚNICO punto que puede impedir el shell de `kodo adopt`; el
  * caller lo mapea a un footer never-throws hacia el escape-hatch del CLI (D-05).
  *
- * Never-throws sobre cualquier shape de entrada (CR-01 Phase 56): `loadProjects()` hace
- * `JSON.parse` de `~/.kodo/projects.json` (operator-editable) SIN validar el tipo de los
- * valores — el comentario `Record<string,string>` es la forma INTENDED, no ENFORCED. Un valor
- * no-string (número, null, array de un hand-edit) haría `path.replace(...)` lanzar un
- * `TypeError` SÍNCRONO dentro del handler `a` de App.js (sin try/catch hasta el `useInput` de
- * ink → tearing-down del panel, violando el invariante never-throws D-07). Por eso se filtran
- * las entradas cuyo valor no es string ANTES de normalizar (misma disciplina de tolerancia de
- * input que `computeAdoptable` aplica a los suyos). `cwd` no-string colapsa a `''` por el guard
- * del map sobre los paths (ninguno casará), nunca lanza.
+ * Never-throws sobre cualquier shape de entrada (CR-01 Phase 56, preservado): `loadProjects()`
+ * hace `JSON.parse` de `~/.kodo/projects.json` (operator-editable) SIN validar tipos. Un
+ * `default`/`modules`/value no-string (número, null, array de un hand-edit) haría `.replace`
+ * lanzar un `TypeError` SÍNCRONO dentro del handler `a` de App.js (sin try/catch hasta el
+ * `useInput` de ink → tearing-down del panel, violando el invariante never-throws D-07). Por
+ * eso TODOS los candidatos no-string se filtran ANTES de normalizar. `cwd` no-string colapsa a
+ * `''` (ningún candidato casará), nunca lanza.
  *
  * @param {string} cwd — cwd de la surface elegida.
- * @param {Record<string, string>} projects — mapa `projectId → path` (de `loadProjects()`).
+ * @param {Record<string, string | { default?: string, modules?: Record<string, string> }>} projects
+ *   — mapa `projectId → path | {default, modules}` (de `loadProjects()`).
  * @returns {{ projectId: string } | { error: 'none' | 'ambiguous' }}
  */
 export function resolveProjectId(cwd, projects) {
   const norm = (/** @type {string} */ p) => p.replace(/\/+$/, ''); // strip trailing slash(es)
   // never-throws: si `cwd` no es string (entrada degradada) → '' (no casa ninguno, jamás lanza).
   const c = typeof cwd === 'string' ? norm(cwd) : '';
-  const matches = Object.entries(projects ?? {})
-    // Salta entradas con valor no-string (projects.json operator-corruptible): `norm` llamaría
-    // `.replace` sobre un no-string y lanzaría TypeError SÍNCRONO en el handler `a` (CR-01).
-    .filter(([, path]) => typeof path === 'string')
-    .filter(([, path]) => {
-      const p = norm(path);
-      return c === p || c.startsWith(p + '/'); // exacto o descendiente (separator-boundary safe)
-    });
+
+  // Deriva los paths candidato de una entrada: string → [value]; objeto → [default, ...modules].
+  // Conserva SOLO los string (projects.json operator-corruptible; un no-string en `default` o
+  // dentro de `modules` lanzaría TypeError en `norm` — CR-01 never-throws).
+  const candidatesOf = (/** @type {any} */ value) => {
+    if (typeof value === 'string') return [value];
+    if (value && typeof value === 'object') {
+      return [value.default, ...Object.values(value.modules ?? {})].filter(
+        (p) => typeof p === 'string',
+      );
+    }
+    return [];
+  };
+
+  /** @type {Array<[string, number]>} matches: [projectId, longitud del path que casa MÁS largo] */
+  const matches = [];
+  for (const [projectId, value] of Object.entries(projects ?? {})) {
+    let best = -1;
+    for (const cand of candidatesOf(value)) {
+      const p = norm(/** @type {string} */ (cand));
+      if (c === p || c.startsWith(p + '/')) {
+        // exacto o descendiente (separator-boundary safe)
+        if (p.length > best) best = p.length;
+      }
+    }
+    if (best >= 0) matches.push([projectId, best]);
+  }
+
   if (matches.length === 0) return { error: 'none' };
-  // Desempate: ancestro más largo (más específico). Dos paths de igual longitud que mapean a
-  // projectIds distintos → ambiguo (config no determinista).
-  matches.sort((a, b) => norm(b[1]).length - norm(a[1]).length);
-  if (matches.length > 1 && norm(matches[0][1]).length === norm(matches[1][1]).length) {
+  // Desempate: ancestro más largo (más específico). Dos projectIds con paths de igual longitud
+  // → ambiguo (config no determinista).
+  matches.sort((a, b) => b[1] - a[1]);
+  if (matches.length > 1 && matches[0][1] === matches[1][1]) {
     return { error: 'ambiguous' };
   }
   return { projectId: matches[0][0] };
