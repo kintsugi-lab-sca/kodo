@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
-status: executing
-stopped_at: Phase 56 context gathered
-last_updated: "2026-06-17T09:15:26.629Z"
+status: ready_to_plan
+stopped_at: Phase 56 complete (4/2) — ready to discuss Phase 57
+last_updated: 2026-06-18T14:46:15.192Z
 last_activity: 2026-06-17 -- Phase 56 execution started
 progress:
   total_phases: 8
   completed_phases: 4
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 11
   percent: 50
 ---
 
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
 
-**Current focus:** Phase 56 — tecla-del-dashboard
+**Current focus:** Phase 57 — orquestador asistido
 
 ## Current Position
 
-Phase: 56 (tecla-del-dashboard) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 56
-Last activity: 2026-06-17 -- Phase 56 execution started
+Phase: 57
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-18
 
 ## Roadmap v0.13 (active)
 
