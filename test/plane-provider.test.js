@@ -360,3 +360,66 @@ describe('PlaneClient.createLabel idempotency on name-conflict 409 (Phase 56 Pla
     }
   });
 });
+
+describe('PlaneProvider.createTask description_html omission (Phase 56 Plan 05 UAT gap-fix)', () => {
+  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  let createPlaneProvider;
+  beforeEach(async () => {
+    ({ createPlaneProvider } = await import('../src/providers/plane/provider.js'));
+  });
+
+  /**
+   * Stub fetch: init() pre-caches labels (incl. kodo:adopted) + states (incl. trigger),
+   * so createTask reuses them and only POSTs /work-items/. Captures that POST body.
+   * @returns {{ getBody: () => any, restore: () => void }}
+   */
+  function stubCreateTask() {
+    const original = globalThis.fetch;
+    let captured = null;
+    globalThis.fetch = async (url, init) => {
+      const path = new URL(url).pathname;
+      const method = (init && init.method) || 'GET';
+      if (path.endsWith('/labels/') && method === 'GET') {
+        return new Response(JSON.stringify({ results: [{ id: 'lbl-adopted', name: 'kodo:adopted' }] }), { status: 200 });
+      }
+      if (path.endsWith('/states/') && method === 'GET') {
+        return new Response(JSON.stringify({ results: [{ id: 'st-trigger', name: 'In Progress', group: 'started' }] }), { status: 200 });
+      }
+      if (path.endsWith('/work-items/') && method === 'POST') {
+        captured = JSON.parse(init.body);
+        return new Response(JSON.stringify({ id: 'wi-new', name: captured.name, state: 'st-trigger' }), { status: 201 });
+      }
+      throw new Error(`unexpected fetch: ${method} ${path}`);
+    };
+    return { getBody: () => captured, restore: () => { globalThis.fetch = original; } };
+  }
+
+  it('omits description_html entirely when no description (Plane 400 "Invalid HTML passed" blocker)', async () => {
+    const stub = stubCreateTask();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.createTask({ projectId: 'proj-uuid', title: 'adopted task' });
+      const body = stub.getBody();
+      assert.ok(body, 'work-items POST must fire');
+      assert.equal(body.name, 'adopted task');
+      assert.ok(!('description_html' in body), 'description_html MUST be omitted when empty (not sent as "")');
+      assert.deepEqual(body.labels, ['lbl-adopted']);
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('includes description_html when a description IS given', async () => {
+    const stub = stubCreateTask();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.createTask({ projectId: 'proj-uuid', title: 't', description: 'hello\nworld' });
+      const body = stub.getBody();
+      assert.equal(body.description_html, '<p>hello<br>world</p>');
+    } finally {
+      stub.restore();
+    }
+  });
+});

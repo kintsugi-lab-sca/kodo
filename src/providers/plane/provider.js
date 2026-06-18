@@ -308,9 +308,12 @@ export function createPlaneProvider(config, opts = {}) {
         labelCache.push(adoptedLabel);
       }
 
+      // Omit description_html when empty (no description): Plane rejects an empty
+      // string with `400 {"non_field_errors":["Invalid HTML passed"]}` (Phase 56 UAT
+      // blocker). Mirror the optional-field idiom used for `state` below.
       const raw = await client.createWorkItem(projectId, {
         name: title,
-        description_html: html,
+        ...(html ? { description_html: html } : {}),
         ...(stateId ? { state: stateId } : {}),
         labels: [adoptedLabel.id],
       });
