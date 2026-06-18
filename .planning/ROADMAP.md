@@ -159,6 +159,20 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 _Este backlog item **se materializó** como el milestone activo **v0.13 kodo bidireccional** (iniciado 2026-06-15). Las 4 piezas (detectar / crear / adoptar / datos) están desplegadas en las Phases 52-58 bajo la arquitectura "una fontanería, tres consumidores". `createTask` se añade como método OPCIONAL typeof-detected (espejo `getTaskState` Phase 40), manteniendo el contrato FROZEN en 9. La detección de cmux quedó como SPIKE / HARD GATE (Phase 55) gobernando la tecla del dashboard (Phase 56, condicional/cuttable). Origen: ideado 2026-06-12 en conversación tras cerrar la Fase 48._
 
+### Phase 59: Liveness de sesiones adoptadas
+
+**Goal:** Una sesión ad-hoc adoptada (viva) se refleja **viva** (`running`/`idle`/`needs-input`) en el dashboard, no `dead/zombie`, y deja de re-ofrecerse en el picker de adopt. **Origen:** UAT de Phase 56 (`56-HUMAN-UAT.md` §"Cross-cutting gap — LIVENESS"). Raíz: `reconcile.liveForSession` (`src/session/reconcile.js:85-89`) identifica la entrada viva del host por `titleIdentifiesSession(workspace.title, task_ref)` — defensa anti-reciclaje de `workspace_ref` (Phase 43). Las sesiones lanzadas por kodo tienen el workspace auto-nombrado con el `task_ref`; una sesión **adoptada** vive en un workspace titulado por cmux/usuario (p.ej. "Conversación casual…") que nunca contiene el `task_ref` recién creado → marcada `dead` → archivada a history → `computeAdoptable` (que solo deduplica contra `/status` activo) la re-ofrece.
+**Requirements**: TBD (definir en discuss — candidato LIVE-04 / DETECT-03)
+**Depends on:** Phase 56 (consume el flujo de adopción) + el contrato `WorkspaceHost` de Phase 38
+**Success Criteria** (what must be TRUE):
+  1. `reconcile.liveForSession` identifica la sesión por **identidad estable (`session_id`/`checkpoint_id`)** con **fallback** a `titleIdentifiesSession` — una sesión adoptada viva NO se marca `dead` por no llevar el `task_ref` en el título del workspace. Refuerza (no debilita) la defensa anti-reciclaje existente.
+  2. `WorkspaceHost.listWorkspaces` (`src/host/cmux.js`) expone el `session_id` por workspace (cmux lo conoce vía el binding / `activeSessionsByWorkspace` de `~/.cmuxterm/claude-hook-sessions.json`); `WorkspaceInfo` se extiende aditivamente (HOST_METHODS sigue congelado en 4; regla transversal LOCKED: lo cmux-específico vive en `src/host/`).
+  3. Una sesión adoptada que sigue viva NO reaparece como adoptable en el picker; el set-difference de `computeAdoptable` deja de degradarse a `ALREADY_ADOPTED` por el ciclo dead→history.
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 59 to break down)
+
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
 
