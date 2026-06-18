@@ -132,15 +132,31 @@ que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
    `~/.claude/projects/<cwd-encoded>/<sessionId>.jsonl`
    (path computable; trátalo como enriquecimiento opcional — `git log` es la
    señal primaria, siempre disponible). Compón UNA línea concisa estilo título de
-   tarea. NO reimplementes el default ni el saneo: solo produces un string mejor
-   que `basename(cwd)`.
+   tarea (≤ ~80 chars). NO reimplementes el default ni el saneo: solo produces un
+   string mejor que `basename(cwd)`. **El título que compongas pasa
+   OBLIGATORIAMENTE por el filtro de charset del §3 ANTES de shellear (§6)** — no
+   concatenes subjects de commit en crudo (ahí viven los metacaracteres):
+   summarízalos.
 
 3. **⚠ Restringir el título a un charset seguro ANTES de invocar (mandato
-   LOAD-BEARING)** — el título es una frase humana de una línea (≤ ~80 chars).
-   Prohíbe/elimina del título derivado estos metacaracteres: `` \ $ ` " ' ; | & <
-   > `` y newlines. **Summariza** los subjects de commit, nunca los copies
-   verbatim: un subject `` feat(x): add $FOO via `bar` `` se vuelve `Añadir FOO
-   via bar`. El saneo del núcleo (`sanitizeAdoptionData`, `src/adopt.js`) redacta
+   LOAD-BEARING, fail-closed)** — el título es una frase humana de una línea (≤
+   ~80 chars). Son DOS controles obligatorios Y ordenados, no alternativas:
+   **PRIMERO** restringe el charset, **DESPUÉS** envuelve en comillas simples (§6).
+   El wrap NO sustituye la restricción de charset.
+   - **Charset (paso 1).** Estos metacaracteres NO pueden sobrevivir en el título
+     derivado: `` \ $ ` " ' ; | & < > `` y newlines. NO los strippees a ciegas
+     (un strip silencioso puede mutilar el título — `feat: add 'X'` → `feat: add
+     X` — y el operador podría confirmarlo sin notarlo). En su lugar **re-deriva**
+     el título sin esos caracteres (reformula la frase). El `'` en particular
+     NUNCA debe sobrevivir: es el único carácter que rompe el contenedor de
+     comillas simples del §6. Si no puedes producir un título seguro y legible,
+     **ABORTA la adopción** y pide al operador que lo escriba a mano — nunca
+     adoptes con un valor que no pudiste hacer seguro.
+   - **Summariza (insumo del paso 1).** Los subjects de commit NUNCA se copian
+     verbatim: un subject `` feat(x): add $FOO via `bar` `` se vuelve `Añadir FOO
+     via bar`.
+
+   El saneo del núcleo (`sanitizeAdoptionData`, `src/adopt.js`) redacta
    rutas/home pero **NO** neutraliza metacaracteres shell, y corre DENTRO de
    `kodo adopt` — DESPUÉS de que tu shell ya parseó el comando. Por eso el saneo
    del núcleo NO protege contra la inyección y NO debes apoyarte en él para la
@@ -156,17 +172,44 @@ que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
    `cat ~/.kodo/projects.json` para resolver `--project <id>`; si el mapping no
    existe, pregunta al operador antes de crear.
 
-6. **Shellear `kodo adopt` de forma shell-segura** — pasa el título como UN
-   argumento literal entre comillas SIMPLES. Dentro de comillas simples nada se
-   interpola:
+6. **Shellear `kodo adopt` de forma shell-segura** — eres un LLM emitiendo UN
+   comando one-shot con tu herramienta Bash, NO un script con variables
+   exportadas. **CADA valor que insertes es untrusted al nivel del shell** y va
+   como UN argumento literal entre comillas **SIMPLES**. No existe un
+   `$WS`/`$CWD`/`$SID`/`$PROJ` exportado: si copias `"$WS"` literal, el shell lo
+   expande a vacío; si inlineas el valor crudo sin citar, abres una vía de
+   inyección. Reglas:
+   - **TODOS los argumentos** (`--title`, `--workspace`, `--cwd`, `--session-id`,
+     `--project`) van entre comillas **SIMPLES**. Las comillas simples son las
+     ÚNICAS que neutralizan por completo `$`, `` ` `` y `$(...)`; las comillas
+     DOBLES NO bastan — bajo dobles el shell todavía expande `$VAR`, `` `cmd` `` y
+     `$(cmd)`.
+   - El **`--title`** ya pasó por el charset del §3. Los demás
+     (`--workspace`/`--cwd`/`--session-id`/`--project`, resueltos de
+     `~/.kodo/state.json` y `~/.kodo/projects.json`) NO son tokens "confiables":
+     `cwd` en particular es un path que el operador eligió y puede contener
+     legítimamente espacios o metacaracteres (`$ & ; ( )` — y hasta `` ` `` o
+     `$(...)` — son legales en nombres de directorio). `sanitizeAdoptionData`
+     NO te protege aquí: corre DESPUÉS de que tu shell parseó (§3).
+   - Inserta los **valores reales** inline, cada uno entre comillas simples. Si
+     ALGÚN valor contiene un `'` literal no puedes hacerlo seguro dentro de
+     comillas simples → **ABORTA** y pide al operador que adopte desde el
+     dashboard (tecla `a`); no intentes escaparlo. (Workspace refs / session-ids
+     / project-ids nunca traen `'`; un `cwd` podría, aunque es rarísimo — misma
+     postura fail-closed que el charset del título en §3.)
 
    ```bash
-   # SAFE — título como un único argumento literal entre comillas simples:
-   kodo adopt --workspace "$WS" --cwd "$CWD" --session-id "$SID" \
-              --project "$PROJ" --title 'Investigar tags y comportamiento del orquestador'
-   # UNSAFE — NO generes esto (metacaracteres ejecutados por tu shell):
-   kodo adopt --title "$(git log -1 --format=%s)"        # command substitution ejecuta
-   kodo adopt --title "feat: add `thing`; rm -rf x"      # backticks + ; ejecutan
+   # SAFE — valores reales inline, CADA argumento entre comillas SIMPLES:
+   kodo adopt --title 'Investigar tags del orquestador' \
+              --workspace 'workspace:3' --cwd '/Users/op/dev/foo bar' \
+              --session-id '0b748c77-1e2f-4a3b-9c5d-6e7f8a9b0c1d' \
+              --project '7246e3fe-proj-id'
+   # UNSAFE — NO generes nada de esto:
+   kodo adopt --workspace "$WS" --cwd "$CWD" --title 'x'  # $WS/$CWD vacíos: no hay vars exportadas
+   kodo adopt --cwd /Users/op/dev/foo bar --title 'x'     # cwd sin comillas: el espacio parte el arg
+   kodo adopt --cwd "/path/$(whoami)" --title 'x'         # comillas DOBLES NO bastan: $(...) ejecuta igual
+   kodo adopt --title "$(git log -1 --format=%s)"         # command substitution ejecuta
+   kodo adopt --title "feat: add `thing`; rm -rf x"       # backticks ejecutan `thing`; además `;` encadena `rm -rf x`
    ```
 
    Solo `--title` esta fase — OMITE `--description` (diferido a una fase futura).

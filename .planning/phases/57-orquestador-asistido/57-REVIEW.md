@@ -12,6 +12,12 @@ findings:
   info: 2
   total: 6
 status: issues_found
+resolved:
+  - CR-01
+  - WR-01
+  - WR-02
+  - WR-03
+gap_closure: 57-04-SUMMARY.md
 ---
 
 # Phase 57: Code Review Report
@@ -52,6 +58,8 @@ and the canonical SAFE example uses unexplained shell-variable syntax (`"$WS"`,
 ## Critical Issues
 
 ### CR-01: SAFE example mandates `--title` quoting but leaves the other four interpolated args unguided and ambiguous
+
+> **RESOLVED (57-04 gap-fix, commits fb85a1c + 45b4f12).** El §6 ahora exige citar TODOS los argumentos interpolados (`--title` en simples, `--workspace`/`--cwd`/`--session-id`/`--project` en dobles), declara cada valor untrusted al nivel del shell, y el ejemplo SAFE usa valores literales concretos ejecutables por un LLM one-shot (no `"$VAR"`). Espejado en `prompt.md`. Ver `57-04-SUMMARY.md`.
 
 **File:** `.claude/skills/kodo-orchestrate/skill.md:159-170` (mirror: `src/orchestrator/prompt.md:42,44`)
 
@@ -117,6 +125,8 @@ from kodo-managed JSON and therefore safe to double-quote verbatim — but the
 
 ### WR-01: "Prohíbe/elimina" is ambiguous about fail-closed vs. silent-strip ordering
 
+> **RESOLVED (57-04 gap-fix).** §3 ahora es fail-closed y ordenado: PRIMERO charset (re-derivar, NO strip ciego), DESPUÉS wrap en simples; ambos obligatorios; `'` nunca sobrevive; abortar si no se puede hacer seguro.
+
 **File:** `.claude/skills/kodo-orchestrate/skill.md:139-141`
 
 **Issue:** The mandate reads `Prohíbe/elimina del título derivado estos
@@ -140,6 +150,8 @@ because it is the one character that breaks the single-quote container.
 
 ### WR-02: prompt.md mirror omits the "core sanitizer runs AFTER shell parse" rationale
 
+> **RESOLVED (57-04 gap-fix).** El bullet de seguridad de `prompt.md` ahora añade "…y corre después de que tu shell ya parseó el comando."
+
 **File:** `src/orchestrator/prompt.md:44`
 
 **Issue:** The skill (lines 142-148) explains *why* the LLM cannot lean on the
@@ -157,6 +169,8 @@ place it was cut.
 shell **y corre después de que tu shell ya parseó el comando.**"
 
 ### WR-03: No upper bound enforced on inputs feeding the title; `-N` / "~5 commits" is non-binding
+
+> **RESOLVED (57-04 gap-fix).** §2 y §3 quedan cruzados: el título derivado "pasa OBLIGATORIAMENTE por el filtro de charset del §3 ANTES de shellear (§6)"; el cap ≤80 chars se trae a §2 y se reafirma "no concatenes subjects en crudo: summarízalos".
 
 **File:** `.claude/skills/kodo-orchestrate/skill.md:130-136`
 
