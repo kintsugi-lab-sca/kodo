@@ -175,30 +175,39 @@ que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
 6. **Shellear `kodo adopt` de forma shell-segura** — eres un LLM emitiendo UN
    comando one-shot con tu herramienta Bash, NO un script con variables
    exportadas. **CADA valor que insertes es untrusted al nivel del shell** y va
-   como UN argumento literal entre comillas. No existe un `$WS`/`$CWD`/`$SID`/`$PROJ`
-   exportado: si copias `"$WS"` literal, el shell lo expande a vacío; si inlineas
-   el valor crudo sin citar, abres una vía de inyección. Reglas:
-   - **`--title`** va entre comillas **SIMPLES** (ya pasó por el charset del §3).
-   - **`--workspace` / `--cwd` / `--session-id` / `--project`** (resueltos de
-     `~/.kodo/state.json` y `~/.kodo/projects.json`) van entre comillas
-     **DOBLES** — NO son tokens "confiables": `cwd` en particular es un path que
-     el operador eligió y puede contener legítimamente espacios o metacaracteres
-     (`$ & ; ( )` son legales en nombres de directorio). `sanitizeAdoptionData`
+   como UN argumento literal entre comillas **SIMPLES**. No existe un
+   `$WS`/`$CWD`/`$SID`/`$PROJ` exportado: si copias `"$WS"` literal, el shell lo
+   expande a vacío; si inlineas el valor crudo sin citar, abres una vía de
+   inyección. Reglas:
+   - **TODOS los argumentos** (`--title`, `--workspace`, `--cwd`, `--session-id`,
+     `--project`) van entre comillas **SIMPLES**. Las comillas simples son las
+     ÚNICAS que neutralizan por completo `$`, `` ` `` y `$(...)`; las comillas
+     DOBLES NO bastan — bajo dobles el shell todavía expande `$VAR`, `` `cmd` `` y
+     `$(cmd)`.
+   - El **`--title`** ya pasó por el charset del §3. Los demás
+     (`--workspace`/`--cwd`/`--session-id`/`--project`, resueltos de
+     `~/.kodo/state.json` y `~/.kodo/projects.json`) NO son tokens "confiables":
+     `cwd` en particular es un path que el operador eligió y puede contener
+     legítimamente espacios o metacaracteres (`$ & ; ( )` — y hasta `` ` `` o
+     `$(...)` — son legales en nombres de directorio). `sanitizeAdoptionData`
      NO te protege aquí: corre DESPUÉS de que tu shell parseó (§3).
-   - Inserta los **valores reales** inline, cada uno citado. Si algún valor
-     contiene un `"` literal (raro en refs/paths kodo, pero posible), no puedes
-     hacerlo seguro con comillas dobles → **ABORTA** y pide al operador que adopte
-     desde el dashboard (tecla `a`).
+   - Inserta los **valores reales** inline, cada uno entre comillas simples. Si
+     ALGÚN valor contiene un `'` literal no puedes hacerlo seguro dentro de
+     comillas simples → **ABORTA** y pide al operador que adopte desde el
+     dashboard (tecla `a`); no intentes escaparlo. (Workspace refs / session-ids
+     / project-ids nunca traen `'`; un `cwd` podría, aunque es rarísimo — misma
+     postura fail-closed que el charset del título en §3.)
 
    ```bash
-   # SAFE — valores reales inline, cada argumento citado (título en SIMPLES, el resto en DOBLES):
-   kodo adopt --workspace "workspace:3" --cwd "/Users/op/dev/foo bar" \
-              --session-id "0b748c77-1e2f-4a3b-9c5d-6e7f8a9b0c1d" \
-              --project "7246e3fe-proj-id" \
-              --title 'Investigar tags del orquestador'
+   # SAFE — valores reales inline, CADA argumento entre comillas SIMPLES:
+   kodo adopt --title 'Investigar tags del orquestador' \
+              --workspace 'workspace:3' --cwd '/Users/op/dev/foo bar' \
+              --session-id '0b748c77-1e2f-4a3b-9c5d-6e7f8a9b0c1d' \
+              --project '7246e3fe-proj-id'
    # UNSAFE — NO generes nada de esto:
    kodo adopt --workspace "$WS" --cwd "$CWD" --title 'x'  # $WS/$CWD vacíos: no hay vars exportadas
    kodo adopt --cwd /Users/op/dev/foo bar --title 'x'     # cwd sin comillas: el espacio parte el arg
+   kodo adopt --cwd "/path/$(whoami)" --title 'x'         # comillas DOBLES NO bastan: $(...) ejecuta igual
    kodo adopt --title "$(git log -1 --format=%s)"         # command substitution ejecuta
    kodo adopt --title "feat: add `thing`; rm -rf x"       # backticks ejecutan `thing`; además `;` encadena `rm -rf x`
    ```

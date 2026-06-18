@@ -14,6 +14,7 @@ files_touched:
 commits:
   - fb85a1c  # fix(57-04): single-quote ALL kodo adopt args + executable example (CR-01)
   - 45b4f12  # fix(57-04): fail-closed charset + quote ALL args + post-parse rationale in prompt.md (WR)
+  - <amend>  # fix(57-04): SINGLE-quote (not double) ALL args — double quotes leak $/`/$() (CR-01 correction)
 ---
 
 # Phase 57 — Gap-fix 57-04: shell-safety del `kodo adopt` asistido
@@ -30,14 +31,18 @@ El mandato shell-safe endurecía SOLO `--title`. El mismo `kodo adopt` interpola
 ## Qué se cambió
 
 **`skill.md`:**
-- **§6 (CR-01):** cada valor interpolado va citado y es untrusted al nivel del shell — `--title` en comillas SIMPLES, los otros cuatro en comillas DOBLES. Ejemplo SAFE reescrito con valores literales concretos ejecutables por un LLM one-shot; ejemplos UNSAFE incluyen el anti-patrón `"$VAR"` y el `cwd` sin citar.
+- **§6 (CR-01):** los CINCO argumentos interpolados (`--title`, `--workspace`, `--cwd`, `--session-id`, `--project`) van entre comillas **SIMPLES** y se declaran untrusted al nivel del shell. Las comillas simples son las únicas que neutralizan `$`, `` ` `` y `$(...)`; las DOBLES NO bastan (bajo dobles `$VAR`/`` `cmd` ``/`$(cmd)` siguen ejecutando). Ejemplo SAFE reescrito con valores literales concretos ejecutables por un LLM one-shot, todos en simples; ejemplos UNSAFE incluyen el anti-patrón `"$VAR"`, el `cwd` sin citar, y el `cwd` con comillas DOBLES + `$(whoami)` (substitución que ejecuta igual). Edge `'` literal: ABORTAR (adoptar desde dashboard), no escapar.
 - **§3 (WR-01):** charset fail-closed y ordenado — PRIMERO restringir charset (re-derivar el título, NO strip ciego), DESPUÉS envolver en simples; ambos controles obligatorios; el `'` nunca sobrevive; ABORTAR si no se puede hacer seguro.
 - **§2↔§3 (WR-03):** acoplados explícitamente — el título derivado pasa obligatoriamente por el filtro de charset del §3 antes del shell-out; cap ≤80 chars traído a §2; "summariza, no concatenes en crudo".
 
 **`prompt.md` (espejo condensado):**
-- Refleja "cita CADA valor" (simples para título, dobles para el resto) con valores reales inline, no `"$VAR"`.
+- Refleja "cita CADA valor en comillas SIMPLES" (los cinco args) con valores reales inline, no `"$VAR"`; advierte que las dobles NO bastan (`--cwd "/path/$(whoami)"` ejecuta). Edge `'` literal → ABORTAR.
 - Charset fail-closed condensado.
 - **WR-02:** añade la razón temporal — el saneo del núcleo "corre después de que tu shell ya parseó el comando", no solo "no neutraliza metacaracteres".
+
+## Corrección post-review del coordinador
+
+Primera iteración (commits fb85a1c/45b4f12) citaba los cuatro args no-título en comillas **DOBLES**. Error: las dobles NO neutralizan `$`/`` ` ``/`$(...)`, y un `cwd` de state.json puede contener legítimamente `$(...)` o backticks → command substitution seguía abierta (la clase de inyección exacta de CR-01). Corregido a comillas **SIMPLES** en los cinco args (consistente con `--title`), con la regla fail-closed para el `'` literal y un nuevo contra-ejemplo UNSAFE de doble-comilla + `$(...)`.
 
 ## Verificación
 
