@@ -141,7 +141,8 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
   1. El orquestador propone adoptar una sesión ad-hoc y deriva un título inteligente del contexto real (cwd / commits / transcript).
   2. El título derivado pasa por el sanitizador del núcleo (BIDIR-08) y se confirma (humano/CLI) antes de crear la tarea.
   3. La implementación shellea el mismo `kodo adopt --title "<derived>"` (el carril 0-token del núcleo se preserva; el LLM vive estrictamente en el consumidor) — prosa del skill `kodo-orchestrate` actualizada, cero lógica de negocio nueva en el orquestador.
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 57-01-PLAN.md — sección §"Adopción asistida" en skill.md (flujo numerado + mandato shell-seguro T-57-01 + exit codes) + espejo condensado en prompt.md; consumidor LLM no dueño, cero lógica nueva (ORCH-01)
 
 ### Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12
 **Goal**: Cerrar el gap del lifecycle de sesión (una sesión cerrada por `/exit` queda colgada como `dead` porque kodo no escucha `SessionEnd`) y saldar los dos items diferidos al cierre de v0.12 (`## Deferred Items` de STATE.md). Tail independiente, schedulable en paralelo a cualquier fase de adopción; bajo riesgo. La separación de responsabilidades `Stop` (per-turn → `idle`) vs `SessionEnd` (cierre → cleanup terminal) se resuelve en discuss-phase.

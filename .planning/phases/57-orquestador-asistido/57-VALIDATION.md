@@ -44,7 +44,8 @@ created: 2026-06-18
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| {N}-01-01 | 01 | 1 | ORCH-01 | T-57-01 (shell-injection) | El mandato de invocación shell-segura del `--title` derivado está presente en el skill (charset seguro + arg entre comillas + confirmación humana) | prose-assert + suite | `node --test test/prompt.test.js test/skill-sync.test.js test/orchestrator-launch-isolation.test.js` | ✅ existing | ⬜ pending |
+| 57-01-01 | 01 | 1 | ORCH-01 | T-57-01 (shell-injection) | El mandato shell-seguro del `--title` (charset seguro + arg single-quote literal + confirmación humana D-03) presente en skill.md §"Adopción asistida" | prose-assert + suite | `node --test test/prompt.test.js test/skill-sync.test.js test/orchestrator-launch-isolation.test.js` | ✅ existing | ⬜ pending |
+| 57-01-02 | 01 | 1 | ORCH-01 | T-57-01 (shell-injection) | El mismo mandato shell-seguro (single-quote literal + charset seguro) espejado en prompt.md, en el cuerpo always-on ANTES de `<!-- BEGIN reporting -->` | prose-assert + suite | `node --test test/prompt.test.js test/skill-sync.test.js test/orchestrator-launch-isolation.test.js` | ✅ existing | ⬜ pending |
 
 *Planner fills this map (Dimension 8) keyed to ORCH-01. For a prose phase, acceptance is: (a) the skill section exists with the load-bearing safe-shell mandate + confirm step, (b) prompt.md mirror present + placeholders/golden bytes preserved, (c) launch.js untouched, (d) full suite green.*
 
