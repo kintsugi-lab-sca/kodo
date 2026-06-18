@@ -108,6 +108,75 @@ al workspace del orquestador. El texto varía según el modo:
 Cuando recibas un nudge → ejecuta una ronda de supervisión inmediatamente, no
 esperes al siguiente ciclo.
 
+## Adopción asistida (sesión → tarea)
+
+Cuando el operador tenga una sesión `claude` ad-hoc (lanzada fuera de kodo) que
+quiere convertir en tarea, propón proactivamente adoptarla. Tu valor aquí es el
+**título inteligente** derivado del trabajo real — no descubrir surfaces (eso es
+la tecla `a` del dashboard). El resto es reuso: shelleas el mismo `kodo adopt`
+que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
+
+1. **Obtener las coordenadas (input explícito)** — NO auto-descubres surfaces. El
+   operador nombra la sesión por su ancla humana (p. ej. "la sesión en
+   `~/dev/foo`"); rellena `workspace_ref` / `session_id` haciendo
+   `cat ~/.kodo/state.json` y matcheando por `cwd` (mismo patrón del §"Proceso de
+   inicio"). Escape hatch: si la sesión ad-hoc nunca fue sembrada en
+   `state.json` y no puedes resolver las coordenadas, pide al operador que la
+   adopte desde el dashboard (tecla `a`). NUNCA llames a `cmux` directamente
+   (invariante LOCKED: todo cmux entra por `src/host/`).
+
+2. **Derivar el título inteligente** — ancla en `basename(cwd)` y enriquece con
+   `git log --oneline -N` en el `cwd` (los subjects de commit son la mejor señal
+   de "qué es este trabajo"; ~5 commits basta). Opcionalmente lee un resumen del
+   transcript en
+   `~/.claude/projects/<cwd-encoded>/<sessionId>.jsonl`
+   (path computable; trátalo como enriquecimiento opcional — `git log` es la
+   señal primaria, siempre disponible). Compón UNA línea concisa estilo título de
+   tarea. NO reimplementes el default ni el saneo: solo produces un string mejor
+   que `basename(cwd)`.
+
+3. **⚠ Restringir el título a un charset seguro ANTES de invocar (mandato
+   LOAD-BEARING)** — el título es una frase humana de una línea (≤ ~80 chars).
+   Prohíbe/elimina del título derivado estos metacaracteres: `` \ $ ` " ' ; | & <
+   > `` y newlines. **Summariza** los subjects de commit, nunca los copies
+   verbatim: un subject `` feat(x): add $FOO via `bar` `` se vuelve `Añadir FOO
+   via bar`. El saneo del núcleo (`sanitizeAdoptionData`, `src/adopt.js`) redacta
+   rutas/home pero **NO** neutraliza metacaracteres shell, y corre DENTRO de
+   `kodo adopt` — DESPUÉS de que tu shell ya parseó el comando. Por eso el saneo
+   del núcleo NO protege contra la inyección y NO debes apoyarte en él para la
+   seguridad shell. (La redacción de rutas vive solo en el núcleo; no la
+   dupliques en prosa.)
+
+4. **Proponer + esperar aprobación** — propón el título derivado + el proyecto
+   destino al operador y ESPERA su aprobación/edición. Nunca crees
+   silenciosamente: el operador ve el título antes de que corra (backstop humano
+   de la mitigación).
+
+5. **Resolver el proyecto destino** — reusa §"Mapeo de proyectos":
+   `cat ~/.kodo/projects.json` para resolver `--project <id>`; si el mapping no
+   existe, pregunta al operador antes de crear.
+
+6. **Shellear `kodo adopt` de forma shell-segura** — pasa el título como UN
+   argumento literal entre comillas SIMPLES. Dentro de comillas simples nada se
+   interpola:
+
+   ```bash
+   # SAFE — título como un único argumento literal entre comillas simples:
+   kodo adopt --workspace "$WS" --cwd "$CWD" --session-id "$SID" \
+              --project "$PROJ" --title 'Investigar tags y comportamiento del orquestador'
+   # UNSAFE — NO generes esto (metacaracteres ejecutados por tu shell):
+   kodo adopt --title "$(git log -1 --format=%s)"        # command substitution ejecuta
+   kodo adopt --title "feat: add `thing`; rm -rf x"      # backticks + ; ejecutan
+   ```
+
+   Solo `--title` esta fase — OMITE `--description` (diferido a una fase futura).
+   Exit codes deterministas de `kodo adopt`:
+   - `0` — adoptada o `ALREADY_ADOPTED` (éxito o no-op idempotente; re-run
+     seguro).
+   - `1` — error interno (`config` / `input` / `persist`); no retryable sin
+     corregir.
+   - `2` — POST transient al provider (red/timeout); retryable.
+
 ## Diagnóstico
 
 Cuatro flujos síntoma → comando. Sigue el orden de cada uno antes de escalar.

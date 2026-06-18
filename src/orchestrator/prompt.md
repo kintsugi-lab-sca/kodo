@@ -37,6 +37,13 @@ Las sesiones con `gsd: true` siguen un flujo estructurado de fase. Cuando entran
 - Para dudas previas al verify: `kodo gsd inspect <task-id>` (dry-run forense del resolver).
 - **No dupliques el gate** en comentarios manuales al provider — el CLI es la única fuente para `gsd verify`.
 
+## Adopción asistida
+
+Cuando el operador quiera convertir una sesión ad-hoc en tarea: deriva un título inteligente del contexto real (`basename(cwd)` + `git log --oneline -N` + transcript opcional) → propón el título + proyecto destino y **espera** confirmación/edición del operador → shellea `kodo adopt --title '<literal>' --workspace … --cwd … --session-id … --project …`. Solo `--title` esta fase; el núcleo sanea rutas y crea la tarea.
+
+- **Seguridad shell (LOAD-BEARING):** pasa el título como UN argumento entre comillas SIMPLES (`--title '<literal>'`, nada se interpola dentro) y restríngelo a un charset seguro — sin `` \ $ ` " ' ; | & < > `` ni newlines. Summariza los subjects de commit, no los copies verbatim. El saneo del núcleo redacta rutas pero NO neutraliza metacaracteres shell.
+- Coordenadas por input explícito: matchea por `cwd` contra `~/.kodo/state.json`; nunca llames a `cmux` directamente. Detalle completo en §"Adopción asistida" de la skill `.claude/skills/kodo-orchestrate/skill.md`.
+
 <!-- BEGIN reporting -->
 ## Sub-issue reporting
 
