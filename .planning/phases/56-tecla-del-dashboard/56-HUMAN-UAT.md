@@ -40,7 +40,7 @@ result: [pending]
 
 total: 4
 passed: 0
-issues: 1
+issues: 3
 pending: 3
 skipped: 0
 blocked: 0
@@ -64,6 +64,29 @@ blocked: 0
   missing:
     - "findSession/adopt guard keyed by sessionId (== resume_binding.checkpoint_id), consistent with Phase 55 D-06 + Phase 56 computeAdoptable"
     - "A way for runAdopt/App.js to distinguish a real adopt from an ALREADY_ADOPTED no-op (so the footer doesn't show false success)"
+
+- truth: "Adoptar una sesión cuyo cwd mapea a un proyecto configurado resuelve el --project"
+  status: failed
+  reason: |
+    resolveProjectId (src/cli/dashboard/select.js, post-CR-01) solo matchea entradas de projects.json con VALOR STRING. Pero el projects.json real tiene 7/8 entradas con forma OBJETO `{default, modules}` (solo kodo es string plano). Para fvf (cwd /Users/alex/dev/roman/fvf, proyecto add88b2b = objeto) devuelve {error:'none'} → footer "no/ambiguous project". adopt.js SÍ maneja la forma objeto (typeof entry==='string' ? entry : entry.default). La research de Phase 54 asumió erróneamente que loadProjects() devuelve Record<string,string> plano; el fix CR-01 enmascaró el crash filtrando no-strings en vez de extraer .default. Resultado: adopt falla para CASI TODOS los proyectos reales.
+    Fix: resolveProjectId debe normalizar cada entrada a su(s) path(s) — string→[path]; objeto→[default, ...Object.values(modules)] — y matchear cwd por ancestro más cercano sobre todos. Verificado en vivo: resolveProjectId('/Users/alex/dev/roman/fvf', loadProjects()) → {error:'none'}.
+  severity: blocker
+  test: 1
+  artifacts:
+    - src/cli/dashboard/select.js  # resolveProjectId — solo maneja string, ignora {default,modules}
+    - src/config.js                # loadProjects() devuelve la forma mixta real
+    - src/cli/adopt.js             # ya maneja entry.default — referencia del normalizado correcto
+
+- truth: "Adoptar una sesión kodo (cwd resuelve) crea la tarea en Plane"
+  status: failed
+  reason: |
+    Con el guard por sessionId arreglado, kodo adopt llega a createTask y falla: 'Plane API 409: /projects/<kodo>/labels/ — Label with the same name already exists'. createTask (src/providers/plane/provider.js:302-309) busca kodo:adopted en labelCache; en cache-miss llama client.createLabel, que POSTea el label y falla LOUD con 409 cuando el label YA existe en el proyecto (creado por un intento previo, o el labelCache no incluye ese proyecto). El cuerpo del 409 trae el id del label existente (e69e7ac6-...).
+    Fix: hacer la creación de label IDEMPOTENTE — al recibir 409 'already exists', reusar el label existente (extraer el id del cuerpo del 409, o re-listar labels por nombre) en vez de fallar. createLabel hoy es deliberadamente 'fail LOUD' (D-08) — el cambio es consciente y acotado a la rama 409 de label-name-conflict.
+  severity: blocker
+  test: 1
+  artifacts:
+    - src/providers/plane/client.js:219-224   # createLabel — fail LOUD on 409
+    - src/providers/plane/provider.js:299-309 # createTask label resolve/create step
 
 - truth: "(secondary) the INDEPENDENT ad-hoc claude at ~/dev/roman/fvf (not ROMAN-182) appears as adoptable"
   status: known_limitation
