@@ -138,6 +138,17 @@ que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
    concatenes subjects de commit en crudo (ahí viven los metacaracteres):
    summarízalos.
 
+2b. **Derivar el resumen-descripción (Phase 60)** — además del título, compón un
+   **resumen** corto (2-4 frases) de QUÉ es este trabajo: usa los mismos insumos
+   (`git log --oneline -N`, opcionalmente `git diff --stat` y el transcript) pero
+   describe el alcance, no lo copies verbatim. Es el cuerpo que rellena la tarea
+   (`--description` en el §6, o un comentario vía `kodo comment` en el backfill).
+   **NUNCA embebas bodies crudos de transcript** (BIDIR-08) — resume. Aplica el
+   mismo fail-closed shell del §3/§6: el `'` literal no puede sobrevivir; si no
+   puedes hacerlo seguro, omite el resumen antes que arriesgar la inyección. El
+   saneo de rutas/home es del núcleo; tú solo summarizas y garantizas la seguridad
+   shell.
+
 3. **⚠ Restringir el título a un charset seguro ANTES de invocar (mandato
    LOAD-BEARING, fail-closed)** — el título es una frase humana de una línea (≤
    ~80 chars). Son DOS controles obligatorios Y ordenados, no alternativas:
@@ -212,13 +223,61 @@ que el dashboard, el núcleo determinista hace el saneo y crea la tarea.
    kodo adopt --title "feat: add `thing`; rm -rf x"       # backticks ejecutan `thing`; además `;` encadena `rm -rf x`
    ```
 
-   Solo `--title` esta fase — OMITE `--description` (diferido a una fase futura).
+   **`--description` (Phase 60)** — además del `--title`, pasa el resumen derivado
+   en el paso 2b como `--description '<resumen>'`, entre comillas **SIMPLES** igual
+   que el resto. El cuerpo es free-text aún más peligroso que el título (sale de
+   `git log`/diff/transcript): aplica el MISMO fail-closed del §3 — el `'` literal
+   NUNCA puede sobrevivir (rompe el contenedor de comillas simples); si no puedes
+   re-derivar un resumen sin `'`, **omite `--description`** (la tarea nace solo con
+   título — degradación aceptable) en vez de arriesgar la inyección. Los newlines SÍ
+   son válidos dentro de comillas simples (markdown multilínea OK). El saneo de
+   rutas/home lo hace el núcleo (`sanitizeAdoptionData`) DESPUÉS — tú solo garantizas
+   la seguridad shell.
+
+   ```bash
+   # SAFE — título + descripción, ambos entre comillas SIMPLES:
+   kodo adopt --title 'Refactor del poller de GitHub' \
+              --description 'Trabajo: extraído el backoff a un módulo. 3 commits, suite verde.' \
+              --workspace 'workspace:3' --cwd '/Users/op/dev/foo' \
+              --session-id '0b748c77-...' --project '7246e3fe-proj-id'
+   ```
+
    Exit codes deterministas de `kodo adopt`:
    - `0` — adoptada o `ALREADY_ADOPTED` (éxito o no-op idempotente; re-run
      seguro).
    - `1` — error interno (`config` / `input` / `persist`); no retryable sin
      corregir.
    - `2` — POST transient al provider (red/timeout); retryable.
+
+### Backfill: enriquecer una tarea YA adoptada (`kodo comment`)
+
+Las tareas adoptadas desde el dashboard (tecla `a`) nacen con título = `basename(cwd)`
+y **sin** resumen. Cuando el operador quiera enriquecer una de esas tareas a posteriori,
+NO recreas nada: posteas un comentario-resumen en la tarea existente con `kodo comment`,
+que reusa el método `addComment` del contrato (cero superficie de provider nueva). La
+descripción del cuerpo no se edita in-place — el resumen vive como comentario (decisión
+de diseño LOCKED de Phase 60: `addComment` sobre `updateTask`).
+
+1. **Derivar el resumen** — igual que el paso 2b: `git log`/diff/transcript → 2-4 frases,
+   nunca verbatim, **fail-closed** sobre el `'` (mismo mandato shell del §3/§6).
+2. **Proponer + esperar aprobación** — muestra el resumen al operador y ESPERA su
+   confirmación antes de postear (backstop humano, espejo del at-adopt §4).
+3. **Shellear `kodo comment` shell-seguro** — el `<ref>` (p. ej. `ROMAN-192`) y el
+   `--body` van entre comillas **SIMPLES**; el `--body` es free-text (mismo riesgo que
+   `--description`). El núcleo sanea rutas/home (`sanitizeAdoptionData`) DENTRO de
+   `kodo comment` antes del POST — tú solo garantizas la seguridad shell.
+
+   ```bash
+   # SAFE — ref + body entre comillas SIMPLES:
+   kodo comment 'ROMAN-192' \
+     --body 'Resumen: investigada la propagación de títulos en el adopt flow. 4 commits, suite verde.'
+   ```
+
+   Exit codes deterministas de `kodo comment`:
+   - `0` — comentario posteado.
+   - `1` — `INVALID_INPUT` (ref o body vacío); corrige el input.
+   - `2` — `FETCH_FAILED`/`POST_FAILED` transient (red/timeout, tarea no encontrada);
+     retryable.
 
 ## Diagnóstico
 
