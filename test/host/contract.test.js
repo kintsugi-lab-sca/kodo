@@ -417,15 +417,18 @@ describe('WorkspaceHost contract matrix', () => {
       });
     });
 
-    test('cmux/client.js rename emite argv `workspace-action --action set-title --workspace <ws> --title <t>`', () => {
+    test('cmux/client.js rename emite argv canónico `workspace rename <ws> --title <t>`', () => {
       // client.js no tiene seam de DI sobre execFile (resuelve el binario de config);
       // aserción a nivel de fuente del argv (espejo de los source-hygiene tests del suite).
+      // Forma canónica cmux 0.64.16: `workspace rename` — NO `workspace-action --action set-title`
+      // (esa acción no existe; verificado en vivo, "Unknown workspace action").
       const src = readFileSync(join(__dirname, '..', '..', 'src', 'cmux', 'client.js'), 'utf-8');
       assert.match(
         src,
-        /workspace-action['"],\s*['"]--action['"],\s*['"]set-title['"],\s*['"]--workspace['"],\s*opts\.workspace,\s*['"]--title['"],\s*opts\.title/,
-        'rename construye el argv set-title con workspace + title',
+        /['"]workspace['"],\s*['"]rename['"],\s*opts\.workspace,\s*['"]--title['"],\s*opts\.title/,
+        'rename construye el argv canónico workspace rename con workspace + title',
       );
+      assert.doesNotMatch(src, /--action['"],\s*['"]set-title/, 'NO usa la acción inexistente set-title');
     });
   });
 });

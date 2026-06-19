@@ -67,7 +67,10 @@ export async function setColor(opts) {
  * @param {{ workspace: string, title: string }} opts
  */
 export async function rename(opts) {
-  return run(['workspace-action', '--action', 'set-title', '--workspace', opts.workspace, '--title', opts.title]);
+  // Forma canónica cmux 0.64.16: `cmux workspace rename <ws> --title <new>`.
+  // NO `workspace-action --action set-title` — esa acción NO existe ("Unknown
+  // workspace action"); la acción de renombrar se llama `rename`. Verificado en vivo.
+  return run(['workspace', 'rename', opts.workspace, '--title', opts.title]);
 }
 
 /**
