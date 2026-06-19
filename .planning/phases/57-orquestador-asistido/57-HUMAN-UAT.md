@@ -8,7 +8,23 @@ updated: 2026-06-18
 
 ## Current Test
 
-[awaiting human testing]
+[Test 1 aún SIN ejercitar — el operador adoptó vía la tecla `a` del dashboard (Phase 56, determinista, correcto), no vía el orquestador (Phase 57). El test del orquestador sigue pendiente.]
+
+## Module-placement gap (surfaced 2026-06-19, fixing now)
+
+- truth: "La tarea adoptada aparece en su MÓDULO de Plane (no solo en el proyecto)"
+  status: in_progress  # fix en curso
+  severity: major
+  scope: "Cross-cutting — afecta a los 3 consumidores (CLI/dashboard/orquestador); ninguno pasa módulo. NO es específico de Phase 57."
+  reason: |
+    `kodo adopt` solo acepta `--project`, no `--module`. La tarea creada cae en el proyecto pero sin módulo → no aparece en su tablero ("no sale en su sitio"). El provider Plane sabe LEER módulos (listModules + moduleCache para getTaskState) pero createTask/createWorkItem NO asocia módulo al crear (en Plane el módulo es asociación aparte, module-issues). projects.json YA mapea cwd→módulo (add88b2b → FVF → /Users/alex/dev/roman/fvf), así que es derivable.
+  fix: |
+    Auto-derivar el módulo del --cwd en `kodo adopt` (los 3 consumidores shellean `kodo adopt --cwd …` → lo reciben gratis): CLI añade `--module` opcional + reverse-lookup cwd→moduleName contra projects.json modules; adoptSession enhebra el param; Plane createTask resuelve name→moduleId (listModules) y POST module-issues, FAIL-OPEN (si no resuelve, la tarea se crea igual). GitHub ignora module.
+  artifacts:
+    - src/cli/adopt.js + src/cli.js   # --module flag + auto-derive from cwd
+    - src/adopt.js                    # thread module → createTask
+    - src/providers/plane/provider.js # createTask asocia el work-item al módulo
+    - src/providers/plane/client.js   # POST /projects/{id}/modules/{mid}/module-issues/
 
 ## Tests
 
