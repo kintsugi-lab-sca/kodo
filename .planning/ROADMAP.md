@@ -174,6 +174,21 @@ _Este backlog item **se materializó** como el milestone activo **v0.13 kodo bid
 Plans:
 - [ ] TBD (run /gsd-plan-phase 59 to break down)
 
+### Phase 60: Enriquecimiento de tareas adoptadas por el orquestador
+
+**Goal:** Una tarea adoptada acaba con **información real** — un título inteligente Y una **descripción-resumen** del trabajo (cwd / git log / transcript / diff), derivados por el orquestador (único carril LLM). Cierra la queja "la tarea se crea sin información". **Origen:** UAT Phase 56/57 (2026-06-19). Es la materialización de **BIDIR-F2** (backfill de descripción), promovido de futuro a fase.
+**Requirements**: BIDIR-F2 (promover de Deferred a activo en REQUIREMENTS.md durante discuss)
+**Depends on:** Phase 57 (el orquestador ya deriva título; esta fase añade la descripción) + Phase 54 (`kodo adopt --description` ya existe para el camino at-adopt)
+**Success Criteria** (what must be TRUE):
+  1. El orquestador deriva una **descripción-resumen** del contexto real de la sesión (git log / transcript / diff), además del título inteligente (Phase 57), pasando ambos por el sanitizador del núcleo (BIDIR-08, nunca embeber bodies crudos de transcript).
+  2. **Camino at-adopt** (adopción nueva vía orquestador): shellea `kodo adopt --title '<t>' --description '<resumen>'` (plumbing de Phase 54 ya existe) — shell-seguro (mandato Phase 57). La tarea nace rellena.
+  3. **Camino backfill** (tareas ya adoptadas vía dashboard, p.ej. con título basename y sin descripción): el orquestador las detecta y las enriquece. **DECISIÓN DE DISEÑO (discuss):** ¿editar título+descripción vía un **método nuevo del provider** (updateTask, fuera de los 9 FROZEN, typeof-detected espejo de getTaskState/createTask) o **postear un comentario-resumen** (reusa `addComment`, contrato intacto)? Resolver en discuss-phase.
+  4. Confirmación humana antes de escribir (espejo Phase 57 D-03); carril 0-token del núcleo intacto; el LLM vive estrictamente en el orquestador (prosa del skill).
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 60 to break down)
+
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
 
