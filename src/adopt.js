@@ -154,6 +154,7 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
  *   projectPath: string,
  *   title?: string,
  *   description?: string,
+ *   module?: string,
  * }} args
  * @param {{ addSession?: Function, findSession?: Function }} [deps]
  *        DI — defaults to the real state.js imports; tests inject a throwing
@@ -161,7 +162,7 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
  * @returns {Promise<object>}
  */
 export async function adoptSession(
-  { provider, providerName, workspaceRef, cwd, sessionId, projectId, projectPath, title, description },
+  { provider, providerName, workspaceRef, cwd, sessionId, projectId, projectPath, title, description, module },
   deps = {},
 ) {
   const addSessionFn = deps.addSession || addSession;
@@ -227,6 +228,13 @@ export async function adoptSession(
       projectId,
       title: clean.title,
       ...(clean.description !== undefined ? { description: clean.description } : {}),
+      // Module placement (Phase 57 gap-fix). `module` is a config/cwd-DERIVED module NAME, NOT user
+      // free-text — it is NOT routed through sanitizeAdoptionData (which strips paths/redacts home).
+      // We DO guard it's a non-empty string (mirror the optional-field idiom): a non-string/empty
+      // value is omitted entirely so an explicit `undefined` never reaches the provider, and the
+      // GitHub provider (no modules concept) simply ignores the key. The provider FAILS OPEN on a
+      // missing/unresolvable module, so a bad value never downgrades a successful create.
+      ...(typeof module === 'string' && module.length > 0 ? { module } : {}),
     });
   } catch (err) {
     return { ok: false, code: 'CREATE_FAILED', detail: { message: err?.message ?? String(err) } };

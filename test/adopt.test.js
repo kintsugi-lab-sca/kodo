@@ -242,6 +242,49 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // Phase 57 module-placement gap-fix: `module` is threaded into createTask
+  // when provided (config-derived NAME, NOT sanitized), omitted otherwise.
+  // ---------------------------------------------------------------------
+  it('forwards module in createTask payload when provided (Phase 57)', async () => {
+    let received;
+    const capturing = {
+      createTask: async (payload) => {
+        received = payload;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: capturing, module: 'FVF' }));
+    assert.equal(r.ok, true);
+    assert.equal(received.module, 'FVF', 'module name threaded through unchanged');
+  });
+
+  it('omits module key from createTask payload when absent (Phase 57)', async () => {
+    let received;
+    const capturing = {
+      createTask: async (payload) => {
+        received = payload;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: capturing }));
+    assert.equal(r.ok, true);
+    assert.ok(!('module' in received), 'module key omitted when not supplied');
+  });
+
+  it('omits module when given a non-string/empty value (Phase 57)', async () => {
+    let received;
+    const capturing = {
+      createTask: async (payload) => {
+        received = payload;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: capturing, module: '' }));
+    assert.equal(r.ok, true);
+    assert.ok(!('module' in received), 'empty-string module omitted (never reaches provider)');
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-08 / D-06: sanitizeAdoptionData — title default, home redaction,
   // abs-path strip, no transcript param (structural).
   // ---------------------------------------------------------------------

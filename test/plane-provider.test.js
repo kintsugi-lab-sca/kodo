@@ -423,3 +423,169 @@ describe('PlaneProvider.createTask description_html omission (Phase 56 Plan 05 U
     }
   });
 });
+
+describe('PlaneProvider.createTask module placement (Phase 57 module-placement gap-fix)', () => {
+  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  let createPlaneProvider;
+  beforeEach(async () => {
+    ({ createPlaneProvider } = await import('../src/providers/plane/provider.js'));
+  });
+
+  /**
+   * Stub fetch: labels + states pre-seeded so createTask reaches the work-items POST. The
+   * /modules/ GET returns the configured module list; the module-issues POST is captured. Each
+   * leg is configurable so the fail-open cases can return an empty module list or a 500.
+   *
+   * @param {{ modules?: any[], modulesStatus?: number, assocStatus?: number }} [cfg]
+   */
+  function stubModulePlacement(cfg = {}) {
+    const modules = cfg.modules ?? [{ id: 'mod-fvf', name: 'FVF' }];
+    const original = globalThis.fetch;
+    const calls = { workItemPost: 0, modulesGet: 0, assocPost: 0 };
+    let assocBody = null;
+    globalThis.fetch = async (url, init) => {
+      const path = new URL(url).pathname;
+      const method = (init && init.method) || 'GET';
+      if (path.endsWith('/labels/') && method === 'GET') {
+        return new Response(JSON.stringify({ results: [{ id: 'lbl-adopted', name: 'kodo:adopted' }] }), { status: 200 });
+      }
+      if (path.endsWith('/states/') && method === 'GET') {
+        return new Response(JSON.stringify({ results: [{ id: 'st-trigger', name: 'In Progress', group: 'started' }] }), { status: 200 });
+      }
+      if (path.endsWith('/work-items/') && method === 'POST') {
+        calls.workItemPost++;
+        const body = JSON.parse(init.body);
+        return new Response(JSON.stringify({ id: 'wi-new', name: body.name, state: 'st-trigger' }), { status: 201 });
+      }
+      if (path.endsWith('/modules/') && method === 'GET') {
+        calls.modulesGet++;
+        if (cfg.modulesStatus && cfg.modulesStatus >= 400) {
+          return new Response('{"error":"boom"}', { status: cfg.modulesStatus });
+        }
+        return new Response(JSON.stringify({ results: modules }), { status: 200 });
+      }
+      if (path.endsWith('/module-issues/') && method === 'POST') {
+        calls.assocPost++;
+        assocBody = JSON.parse(init.body);
+        if (cfg.assocStatus && cfg.assocStatus >= 400) {
+          return new Response('{"error":"assoc boom"}', { status: cfg.assocStatus });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 201 });
+      }
+      throw new Error(`unexpected fetch: ${method} ${path}`);
+    };
+    return { calls, getAssocBody: () => assocBody, restore: () => { globalThis.fetch = original; } };
+  }
+
+  it('resolves module NAME→id via listModules and POSTs module-issues with { issues: [workItemId] }', async () => {
+    const stub = stubModulePlacement();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      const task = await provider.createTask({ projectId: 'proj-uuid', title: 'adopt me', module: 'FVF' });
+      assert.equal(task.id, 'wi-new', 'returns the created task');
+      assert.equal(stub.calls.assocPost, 1, 'module-issues POST fired exactly once');
+      assert.deepEqual(stub.getAssocBody(), { issues: ['wi-new'] });
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('matches the module name case-insensitively', async () => {
+    const stub = stubModulePlacement({ modules: [{ id: 'mod-fvf', name: 'FVF' }] });
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.createTask({ projectId: 'proj-uuid', title: 't', module: 'fvf' });
+      assert.equal(stub.calls.assocPost, 1, 'case-insensitive name match resolves the module');
+      assert.deepEqual(stub.getAssocBody(), { issues: ['wi-new'] });
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('no module arg → never lists modules, never associates (unchanged behavior)', async () => {
+    const stub = stubModulePlacement();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      stub.calls.modulesGet = 0; // discount the init() module-cache warm-up; count only createTask
+      const task = await provider.createTask({ projectId: 'proj-uuid', title: 't' });
+      assert.equal(task.id, 'wi-new');
+      assert.equal(stub.calls.modulesGet, 0, 'no module → no listModules');
+      assert.equal(stub.calls.assocPost, 0, 'no module → no association POST');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('FAIL-OPEN: module name not found → still returns the created task (no throw, no assoc)', async () => {
+    const stub = stubModulePlacement({ modules: [{ id: 'mod-other', name: 'Other' }] });
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      stub.calls.modulesGet = 0; // discount the init() module-cache warm-up; count only createTask
+      const task = await provider.createTask({ projectId: 'proj-uuid', title: 't', module: 'FVF' });
+      assert.equal(task.id, 'wi-new', 'work item still returned despite unresolvable module');
+      assert.equal(stub.calls.modulesGet, 1, 'attempted to resolve the module name');
+      assert.equal(stub.calls.assocPost, 0, 'no association when the name does not resolve');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('FAIL-OPEN: module-issues POST 500 → still returns the created task (no throw)', async () => {
+    const stub = stubModulePlacement({ assocStatus: 500 });
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      const task = await provider.createTask({ projectId: 'proj-uuid', title: 't', module: 'FVF' });
+      assert.equal(task.id, 'wi-new', 'a failed association must NOT downgrade the created task');
+      assert.equal(stub.calls.assocPost, 1, 'attempted the association once');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('FAIL-OPEN: listModules 500 → still returns the created task (no throw)', async () => {
+    const stub = stubModulePlacement({ modulesStatus: 500 });
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      const task = await provider.createTask({ projectId: 'proj-uuid', title: 't', module: 'FVF' });
+      assert.equal(task.id, 'wi-new', 'a failed module list must NOT downgrade the created task');
+      assert.equal(stub.calls.assocPost, 0, 'never reached the association POST');
+    } finally {
+      stub.restore();
+    }
+  });
+});
+
+describe('PlaneClient.addWorkItemToModule (Phase 57 module-placement gap-fix)', () => {
+  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  let PlaneClient;
+  beforeEach(async () => {
+    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+  });
+  const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
+
+  it('POSTs /modules/<id>/module-issues/ with { issues: [workItemId] }', async () => {
+    const original = globalThis.fetch;
+    let captured = null;
+    globalThis.fetch = async (url, init) => {
+      const path = new URL(url).pathname;
+      const method = (init && init.method) || 'GET';
+      assert.equal(method, 'POST');
+      assert.ok(path.endsWith('/projects/proj-uuid/modules/mod-1/module-issues/'), `path was ${path}`);
+      captured = JSON.parse(init.body);
+      return new Response(JSON.stringify({ ok: true }), { status: 201 });
+    };
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      await client.addWorkItemToModule('proj-uuid', 'mod-1', 'wi-7');
+      assert.deepEqual(captured, { issues: ['wi-7'] });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
