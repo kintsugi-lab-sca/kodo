@@ -25,7 +25,33 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { runAdoptCli } from '../src/cli/adopt.js';
+import { runAdoptCli, resolveProjectPath } from '../src/cli/adopt.js';
+
+describe('resolveProjectPath — project_path = ancestro más cercano del cwd (UAT 2026-06-19)', () => {
+  const roman = {
+    default: '/Users/alex/dev/roman/fvf',
+    modules: { OptiAI: '/Users/alex/dev/roman/optiai', WAG: '/Users/alex/dev/roman/wag/app' },
+  };
+  it('cwd en un módulo → path del módulo (no el default)', () => {
+    assert.equal(resolveProjectPath('/Users/alex/dev/roman/optiai', roman), '/Users/alex/dev/roman/optiai');
+  });
+  it('cwd en subdir de un módulo → path del módulo', () => {
+    assert.equal(resolveProjectPath('/Users/alex/dev/roman/optiai/src', roman), '/Users/alex/dev/roman/optiai');
+  });
+  it('cwd en el default → default', () => {
+    assert.equal(resolveProjectPath('/Users/alex/dev/roman/fvf', roman), '/Users/alex/dev/roman/fvf');
+  });
+  it('cwd sin match → fallback al default', () => {
+    assert.equal(resolveProjectPath('/tmp/elsewhere', roman), '/Users/alex/dev/roman/fvf');
+  });
+  it('entrada string plana → tal cual', () => {
+    assert.equal(resolveProjectPath('/Users/alex/dev/klab/kodo/sub', '/Users/alex/dev/klab/kodo'), '/Users/alex/dev/klab/kodo');
+  });
+  it('cwd no-string / modules basura → no lanza, cae al default', () => {
+    assert.equal(resolveProjectPath(undefined, roman), '/Users/alex/dev/roman/fvf');
+    assert.equal(resolveProjectPath('/x', { default: '/d', modules: { bad: 123 } }), '/d');
+  });
+});
 
 /**
  * Captures writes to stdout/stderr for assertion.
@@ -313,8 +339,10 @@ describe('runAdoptCli — module auto-derive from cwd (Phase 57 module-placement
     );
     assert.equal(code, 0);
     assert.equal(get().module, 'FVF', 'cwd under the FVF module path → module FVF');
-    // projectPath still resolved from the object `default`.
-    assert.equal(get().projectPath, '/Users/op/dev/roman');
+    // UAT 2026-06-19: projectPath = ancestro más cercano del cwd (el path del módulo FVF),
+    // NO el default ciego — para que la columna repo del dashboard y la resolución de plan
+    // apunten al sitio real (ROMAN-192 salía como fvf estando en optiai).
+    assert.equal(get().projectPath, '/Users/op/dev/roman/fvf');
   });
 
   it('M2: explicit --module overrides the derived value', async () => {

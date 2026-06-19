@@ -30,6 +30,35 @@ import { createFormatter } from './format.js';
 // ~/.kodo/projects.json.
 
 /**
+ * Resuelve el `project_path` a registrar para una sesión adoptada: el path configurado
+ * (default o de un módulo) que es el ANCESTRO MÁS CERCANO del `cwd` de la sesión. Una
+ * entrada string plana se devuelve tal cual. Para `{ default, modules }`, considera
+ * `default` + todos los paths de `modules` y elige el más largo que sea ancestro (o igual)
+ * del cwd; si ninguno casa, cae al `default`. Puro, never-throws sobre shapes raros.
+ *
+ * @param {string} cwd
+ * @param {string | { default?: string, modules?: Record<string, string> }} entry
+ * @returns {string}
+ */
+export function resolveProjectPath(cwd, entry) {
+  if (typeof entry === 'string') return entry;
+  const fallback = typeof entry?.default === 'string' ? entry.default : '';
+  const candidates = [entry?.default, ...Object.values(entry?.modules || {})].filter(
+    (p) => typeof p === 'string' && p.length > 0,
+  );
+  const norm = (p) => p.replace(/\/+$/, '');
+  const c = typeof cwd === 'string' ? norm(cwd) : '';
+  let best = '';
+  if (c) {
+    for (const p of candidates) {
+      const n = norm(p);
+      if ((c === n || c.startsWith(`${n}/`)) && n.length > best.length) best = n;
+    }
+  }
+  return best || fallback;
+}
+
+/**
  * @typedef {{
  *   workspaceRef: string,
  *   cwd: string,
@@ -104,7 +133,13 @@ export async function runAdoptCli(opts, deps = {}) {
     );
     return 1;
   }
-  const projectPath = typeof entry === 'string' ? entry : (entry.default ?? '');
+  // project_path = el path configurado ANCESTRO MÁS CERCANO del cwd de la sesión, NO el
+  // default ciego: una sesión adoptada en un MÓDULO (p.ej. optiai bajo el proyecto roman
+  // cuyo default es fvf) debe registrar SU path, para que la columna `repo` del dashboard y
+  // la resolución de plan (worktree_path ?? project_path) apunten al sitio real (UAT
+  // 2026-06-19 — ROMAN-192 salía como fvf estando en optiai). Misma semántica que el
+  // reverse-lookup de resolveProjectId/deriveModuleFromCwd. Fallback al default.
+  const projectPath = resolveProjectPath(opts.cwd, entry);
   if (!projectPath) {
     err(`Project "${opts.projectId}" mapped but no default path.\n`);
     return 1;
