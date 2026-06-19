@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: Phase 57 context gathered
-last_updated: "2026-06-18T15:17:06.904Z"
-last_activity: 2026-06-18 -- Phase 57 execution started
+stopped_at: Phase 59-01 (liveness sesiones adoptadas) mergeado a main; Phase 60 registrada (vacía); Phase 58 sin empezar
+last_updated: "2026-06-19T10:30:00.000Z"
+last_activity: 2026-06-19 -- Phase 59-01 liveness gap-fix mergeado + Phase 60 registrada desde UAT 56/57
 progress:
   total_phases: 9
-  completed_phases: 5
-  total_plans: 10
-  completed_plans: 11
-  percent: 56
+  completed_phases: 6
+  total_plans: 13
+  completed_plans: 13
+  percent: 85
 ---
 
 # Project State
@@ -25,14 +25,15 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
 
-**Current focus:** Phase 57 — orquestador-asistido
+**Current focus:** Cierre de cola v0.13 — Phases 58 (deuda), 59 (liveness, gap-fix mergeado), 60 (enriquecimiento, registrada)
 
 ## Current Position
 
-Phase: 57 (orquestador-asistido) — EXECUTING
-Plan: 1 of 1
-Status: Executing Phase 57
-Last activity: 2026-06-18 -- Phase 57 execution started
+Phases 52-57: COMPLETE (núcleo bidireccional `sesión → tarea` entregado).
+Phase 58 (deuda v0.12 + LIFE-03): NOT STARTED — sin directorio.
+Phase 59 (liveness sesiones adoptadas): 59-01 mergeado a main (SUMMARY en disco), SIN PLAN formal ni cierre/UAT — entró por gap-fix.
+Phase 60 (enriquecimiento orquestador / BIDIR-F2): registrada (directorio vacío), surgió del UAT 56/57.
+Last activity: 2026-06-19 -- liveness gap-fix mergeado + Phase 60 registrada
 
 ## Roadmap v0.13 (active)
 
@@ -125,9 +126,9 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-18T14:59:22.239Z
-- **Stopped at:** Phase 57 context gathered
-- **Next action:** Operator runs the D-07 manual Plane CE `POST .../work-items/` smoke test (see `52-02-SUMMARY.md` checkpoint section), then replies "approved" with the observed `sequence_id` (or pastes the raw 201 JSON if the shape diverges). On approval: mark BIDIR-01 complete, advance the plan counter, and continue Phase 52. Phase 58 (deuda v0.12) puede correr en paralelo. Phase 56 (tecla dashboard) gated tras el veredicto de Phase 55.
+- **Last session:** 2026-06-19 (reconciliación STATE↔realidad vía /gsd-progress)
+- **Stopped at:** Phases 52-57 complete; 59-01 liveness mergeado a main; Phase 60 registrada vacía; Phase 58 sin empezar
+- **Next action:** Decidir el orden de cierre de cola v0.13 entre tres frentes abiertos: **Phase 58** (deuda v0.12: XSS WR-01 + HUMAN-UAT 50.1 + hook `SessionEnd`/LIFE-03), **Phase 60** (enriquecimiento orquestador, lo más fresco del UAT), o **formalizar/cerrar Phase 59** (gap-fix de liveness ya mergeado pero sin PLAN ni UAT). El checkpoint D-07 de Phase 52 (smoke test Plane) ya quedó superado — Phase 52 está completa.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.13 kodo bidireccional)
   - `.planning/ROADMAP.md` (v0.13 activo Phases 52-58; v0.10/v0.11/v0.12 colapsados en archived; backlog 999.1 materializado)
@@ -137,4 +138,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Planificar la primera fase con `/gsd:plan-phase 52`
+- Elegir el siguiente frente de cierre de v0.13:
+  - `/gsd:discuss-phase 58` — deuda v0.12 (XSS WR-01 + HUMAN-UAT 50.1 + `SessionEnd`/LIFE-03)
+  - `/gsd:discuss-phase 60` — enriquecimiento de tareas adoptadas (BIDIR-F2; promover de Deferred a activo en REQUIREMENTS.md)
+  - `/gsd:plan-phase 59` o `/gsd:verify-work 59` — formalizar/cerrar el gap-fix de liveness ya mergeado

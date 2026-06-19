@@ -13,23 +13,25 @@
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
-- 🚧 **v0.13 kodo bidireccional** — Phases 52-58 (en construcción)
+- 🚧 **v0.13 kodo bidireccional** — Phases 52-60 (en construcción; 52-57 ✅, 58 pendiente, 59 gap-fix mergeado, 60 registrada)
 
 ## Phases
 
-### 🚧 v0.13 kodo bidireccional (Phases 52-58)
+### 🚧 v0.13 kodo bidireccional (Phases 52-60)
 
 **Milestone Goal:** Cerrar el puente en la dirección inversa `sesión → tarea`: una sesión Claude Code creada ad-hoc en cmux (no nacida de una tarea Plane/GitHub) se promueve a una **tarea persistente** del gestor, para que el trabajo ad-hoc no se evapore al cerrar el sprint. Arquitectura **"una fontanería, tres consumidores"**: una base determinista 0-token (`createTask` + `adoptSession`) reusada por el CLI, la tecla del dashboard y el orquestador (único carril LLM) — ninguno dueño del flujo. La detección cmux entra por el contrato `HostProvider` (regla transversal).
 
 **Build order (research-validated):** `createTask + contrato + anti-recursión` → `fontanería src/adopt.js` → `CLI kodo adopt` → `contrato HostProvider.describeSurface() (cmux)` → `tecla dashboard` → `orquestador asistido` → `deuda v0.12 (tail independiente)`. La base determinista ships antes que cualquier consumidor. **Nota (2026-06-16):** la antigua Phase 55 "SPIKE detección cmux (HARD GATE)" se reconvirtió en un contrato `HostProvider` concreto y la Phase 56 dejó de estar gated — la viabilidad de la detección quedó probada empíricamente en `research/CMUX-CAPABILITIES.md` (P0, `cmux surface resume show --json`).
 
-- [ ] **Phase 52: createTask + contrato + anti-recursión** — `createTask` opcional typeof-detected en Plane+GitHub (FROZEN-at-9 intacto), anti-recursión shipped junto al método
-- [ ] **Phase 53: Fontanería `src/adopt.js`** — base determinista 0-token (`adoptSession` + guard double-adopt + atomicidad LOUD + datos sanitizados), inverso exacto de `manager.launchWorkItem`
-- [ ] **Phase 54: CLI `kodo adopt`** — consumidor determinista que recibe workspace/cwd explícito; ships sí o sí, independiente del spike
-- [ ] **Phase 55: Contrato `HostProvider.describeSurface()` (cmux)** — método opcional typeof-detected (`src/host/interface.js` + `src/host/cmux.js`) que descubre surfaces ad-hoc (`cwd` + `session_id` + `kind`) vía `cmux surface resume show --json`, fixture-locked + fail-open. Viabilidad YA probada (`CMUX-CAPABILITIES.md` P0) — ya NO un spike
-- [ ] **Phase 56: Tecla del dashboard** — tecla `a` descubre (vía DETECT-01) + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos. Ya NO gated (la detección es VIABLE por construcción)
-- [ ] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño
+- [x] **Phase 52: createTask + contrato + anti-recursión** — `createTask` opcional typeof-detected en Plane+GitHub (FROZEN-at-9 intacto), anti-recursión shipped junto al método ✅ 2026-06-16
+- [x] **Phase 53: Fontanería `src/adopt.js`** — base determinista 0-token (`adoptSession` + guard double-adopt + atomicidad LOUD + datos sanitizados), inverso exacto de `manager.launchWorkItem` ✅ 2026-06-16
+- [x] **Phase 54: CLI `kodo adopt`** — consumidor determinista que recibe workspace/cwd explícito; ships sí o sí, independiente del spike ✅ 2026-06-16
+- [x] **Phase 55: Contrato `HostProvider.describeSurface()` (cmux)** — método opcional typeof-detected (`src/host/interface.js` + `src/host/cmux.js`) que descubre surfaces ad-hoc (`cwd` + `session_id` + `kind`) vía `cmux surface resume show --json`, fixture-locked + fail-open ✅ 2026-06-16
+- [x] **Phase 56: Tecla del dashboard** — tecla `a` descubre (vía DETECT-01) + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos ✅ 2026-06-18
+- [x] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño ✅ 2026-06-18
 - [ ] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03) + hardening XSS WR-01 (`src/server.js`) + cierre del HUMAN-UAT diferido de Phase 50.1; tail independiente
+- [~] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). 59-01 **mergeado a `main`** vía gap-fix; falta PLAN/UAT formal. Detalle en §Backlog
+- [ ] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — el orquestador deriva título + descripción-resumen reales del contexto (BIDIR-F2). Registrada, sin planificar. Detalle en §Backlog
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -162,6 +164,8 @@ _Este backlog item **se materializó** como el milestone activo **v0.13 kodo bid
 
 ### Phase 59: Liveness de sesiones adoptadas
 
+> **PROMOVIDA → v0.13 activa (2026-06-19).** 59-01 mergeado a `main` vía gap-fix (rename del workspace cmux); falta PLAN/UAT formal. Goal/Success Criteria abajo siguen vigentes como referencia.
+
 **Goal:** Una sesión ad-hoc adoptada (viva) se refleja **viva** (`running`/`idle`/`needs-input`) en el dashboard, no `dead/zombie`, y deja de re-ofrecerse en el picker de adopt. **Origen:** UAT de Phase 56 (`56-HUMAN-UAT.md` §"Cross-cutting gap — LIVENESS"). Raíz: `reconcile.liveForSession` (`src/session/reconcile.js:85-89`) identifica la entrada viva del host por `titleIdentifiesSession(workspace.title, task_ref)` — defensa anti-reciclaje de `workspace_ref` (Phase 43). Las sesiones lanzadas por kodo tienen el workspace auto-nombrado con el `task_ref`; una sesión **adoptada** vive en un workspace titulado por cmux/usuario (p.ej. "Conversación casual…") que nunca contiene el `task_ref` recién creado → marcada `dead` → archivada a history → `computeAdoptable` (que solo deduplica contra `/status` activo) la re-ofrece.
 **Requirements**: TBD (definir en discuss — candidato LIVE-04 / DETECT-03)
 **Depends on:** Phase 56 (consume el flujo de adopción) + el contrato `WorkspaceHost` de Phase 38
@@ -175,6 +179,8 @@ Plans:
 - [ ] TBD (run /gsd-plan-phase 59 to break down)
 
 ### Phase 60: Enriquecimiento de tareas adoptadas por el orquestador
+
+> **PROMOVIDA → v0.13 activa (2026-06-19).** Registrada (directorio vacío), pendiente de discuss/plan.
 
 **Goal:** Una tarea adoptada acaba con **información real** — un título inteligente Y una **descripción-resumen** del trabajo (cwd / git log / transcript / diff), derivados por el orquestador (único carril LLM). Cierra la queja "la tarea se crea sin información". **Origen:** UAT Phase 56/57 (2026-06-19). Es la materialización de **BIDIR-F2** (backfill de descripción), promovido de futuro a fase.
 **Requirements**: BIDIR-F2 (promover de Deferred a activo en REQUIREMENTS.md durante discuss)
@@ -205,4 +211,8 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 1/1 | Complete    | 2026-06-16 |
 | 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 4/2 | Complete    | 2026-06-18 |
 | 57. Orquestador asistido | v0.13 | 1/1 | Complete   | 2026-06-18 |
-| 58. Deuda heredada de v0.12 | v0.13 | 0/TBD | Not started | - |
+| 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 0/TBD | Not started | - |
+| 59. Liveness de sesiones adoptadas | v0.13 | 1/TBD | Gap-fix mergeado (sin PLAN/UAT formal) | 2026-06-19 |
+| 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 0/TBD | Registrada (sin planificar) | - |
+
+> **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.
