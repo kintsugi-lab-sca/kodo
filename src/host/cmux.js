@@ -350,6 +350,10 @@ export function createCmuxHost(opts = {}) {
     async setColor(opts) {
       return (await import('../cmux/client.js')).setColor(opts);
     },
+    /** @param {{ workspace: string, title: string }} opts */
+    async rename(opts) {
+      return (await import('../cmux/client.js')).rename(opts);
+    },
     /** @param {{ workspace: string, text: string }} opts */
     async send(opts) {
       return (await import('../cmux/client.js')).send(opts);

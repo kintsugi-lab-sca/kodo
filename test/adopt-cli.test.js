@@ -51,6 +51,15 @@ function okResult() {
   };
 }
 
+/** ok:true con un TaskItem completo (ref + title) — usado por los tests de liveness rename (Phase 59). */
+function okResultWithRef() {
+  return {
+    ok: true,
+    task: { id: 'T-1', ref: 'ROMAN-192', title: 'Casual chat session', url: 'https://plane.example/T-1' },
+    session: { session_id: 'S-1' },
+  };
+}
+
 function alreadyAdoptedResult() {
   return { ok: false, code: 'ALREADY_ADOPTED', detail: { task_id: 'T-9' } };
 }
@@ -376,6 +385,81 @@ describe('runAdoptCli — module auto-derive from cwd (Phase 57 module-placement
     );
     assert.equal(code, 0);
     assert.ok(!('module' in get()), 'fvf-sibling must not match the fvf module');
+  });
+});
+
+describe('runAdoptCli — liveness workspace rename (Phase 59 gap-fix)', () => {
+  it('L1: on a successful adopt, renames the workspace to a title carrying the task_ref (word-bounded); exit still 0', async () => {
+    let renamed;
+    const code = await runAdoptCli(
+      OPTS,
+      baseDeps({
+        adoptSessionFn: async () => okResultWithRef(),
+        renameWorkspaceFn: async (args) => {
+          renamed = args;
+        },
+      }),
+    );
+    assert.equal(code, 0, 'success exit code unchanged');
+    assert.ok(renamed, 'renameWorkspaceFn was invoked on a successful adopt');
+    assert.equal(renamed.workspaceRef, 'W', 'renamed the adopted workspaceRef');
+    // El título DEBE llevar el ref con límite de palabra: el ':' tras el ref satisface
+    // titleIdentifiesSession (reconcile.js).
+    assert.ok(renamed.title.startsWith('ROMAN-192:'), `title carries the ref: ${renamed.title}`);
+    assert.match(renamed.title, /ROMAN-192/);
+  });
+
+  it('L2: fail-open — when renameWorkspaceFn throws, runAdoptCli still returns exit 0 and renders success', async () => {
+    const out = makeStdoutStub();
+    let code;
+    await assert.doesNotReject(async () => {
+      code = await runAdoptCli(
+        OPTS,
+        baseDeps({
+          adoptSessionFn: async () => okResultWithRef(),
+          writeFn: out.write,
+          renameWorkspaceFn: async () => {
+            throw new Error('cmux socket down');
+          },
+        }),
+      );
+    });
+    assert.equal(code, 0, 'rename failure must NOT change the success exit code');
+    // El render de éxito sigue presente (la adopción ocurrió).
+    assert.match(out.get(), /Adopted/);
+    assert.match(out.get(), /task_id:\s+T-1/);
+  });
+
+  it('L3: rename NOT called on ALREADY_ADOPTED / INVALID_INPUT / CREATE_FAILED (solo en result.ok===true)', async () => {
+    for (const builder of [alreadyAdoptedResult, invalidInputResult, createFailedResult]) {
+      let called = 0;
+      await runAdoptCli(
+        OPTS,
+        baseDeps({
+          adoptSessionFn: async () => builder(),
+          renameWorkspaceFn: async () => {
+            called += 1;
+          },
+        }),
+      );
+      assert.equal(called, 0, `renameWorkspaceFn NOT called for ${builder.name}`);
+    }
+  });
+
+  it('L4: rename SKIPPED (not called) when task.ref is missing/empty (fail-open, no throw)', async () => {
+    let called = 0;
+    const code = await runAdoptCli(
+      OPTS,
+      baseDeps({
+        // okResult() has no task.ref → rename must be skipped.
+        adoptSessionFn: async () => okResult(),
+        renameWorkspaceFn: async () => {
+          called += 1;
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.equal(called, 0, 'no ref → no rename attempt');
   });
 });
 

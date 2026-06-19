@@ -87,6 +87,10 @@ function createNullHost() {
     selectWorkspace: async () => ({ ok: true }),
     isAlive: async () => false,
     needsInput: async () => false,
+    // _legacy.rename no-op (Phase 59): un host non-cmux/null degrada fail-open al
+    // renombrar para liveness. El CLI también protege con `typeof host?._legacy?.rename
+    // === 'function'`; este no-op documenta la rama de degradación explícitamente.
+    _legacy: { rename: async () => {} },
   };
 }
 
