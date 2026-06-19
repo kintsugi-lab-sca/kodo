@@ -31,7 +31,7 @@
 - [x] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño ✅ 2026-06-18
 - [ ] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03) + hardening XSS WR-01 (`src/server.js`) + cierre del HUMAN-UAT diferido de Phase 50.1; tail independiente
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
-- [ ] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — el orquestador deriva título + descripción-resumen reales del contexto (BIDIR-F2). Registrada, sin planificar. Detalle en §Backlog
+- [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -213,6 +213,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 57. Orquestador asistido | v0.13 | 1/1 | Complete   | 2026-06-18 |
 | 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 0/TBD | Not started | - |
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
-| 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 0/TBD | Registrada (sin planificar) | - |
+| 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.
