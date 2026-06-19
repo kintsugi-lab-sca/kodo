@@ -278,6 +278,28 @@ program
     }
   });
 
+// --- kodo comment ---
+program
+  .command('comment <ref>')
+  .description('Post a summary comment on an existing task (backfill enrichment, deterministic, 0-token)')
+  .requiredOption('--body <text>', 'Comment body (markdown; sanitized by the core before POST)')
+  .option('--json', 'Emit the result as JSON (scriptable)')
+  .action(async (ref, opts) => {
+    try {
+      await ensureConfig();
+      const { runCommentCli } = await import('./cli/comment.js');
+      const code = await runCommentCli({
+        ref,
+        body: opts.body,
+        json: opts.json || false,
+      });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo status ---
 program
   .command('status')
