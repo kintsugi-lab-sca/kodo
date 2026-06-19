@@ -13,7 +13,7 @@ updated: 2026-06-18
 ## Module-placement gap (surfaced 2026-06-19, fixing now)
 
 - truth: "La tarea adoptada aparece en su MÓDULO de Plane (no solo en el proyecto)"
-  status: in_progress  # fix en curso
+  status: resolved  # 57-05 (6ea4f39/660d8c3): kodo adopt --module + auto-derive del cwd + Plane createTask asocia module-issues (fail-open). POST shape VERIFICADO en vivo contra Plane (module-issues POST {issues:[id]} → 200; FVF tiene 68 issues, re-add idempotente OK). Suite 1454 pass. Re-test visual pendiente (adoptar fvf → cae en módulo FVF).
   severity: major
   scope: "Cross-cutting — afecta a los 3 consumidores (CLI/dashboard/orquestador); ninguno pasa módulo. NO es específico de Phase 57."
   reason: |
