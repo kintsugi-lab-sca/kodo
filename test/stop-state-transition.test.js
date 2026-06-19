@@ -192,7 +192,7 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       assert.equal(transition.fields.from, 'review', 'D-05: from debe ser el status previo (review post-verify)');
       assert.equal(transition.fields.to, 'idle', 'Phase 38 D-12: to migrado de "done" a "idle" (esperando humano)');
       assert.equal(transition.fields.reason, 'session-stop:lock-released', 'Phase 38 D-12: reason migrado (lock released, no muerta)');
-      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession se ejecutó (sanity)');
+      assert.deepEqual(removeSessionCalls, [], 'Phase 58 LIFE-03: Stop ya NO remueve la sesión (migró a SessionEnd)');
     } finally {
       cleanup();
     }
@@ -280,7 +280,7 @@ describe('SC#5 LOG-15: stop hook state.transition coverage', () => {
       assert.equal(transition.fields.from, 'running', 'from debe ser el status previo (running)');
       assert.equal(transition.fields.to, 'idle', 'Phase 38 D-12: to migrado a "idle" — aplica también a non-GSD');
       assert.equal(transition.fields.reason, 'session-stop:lock-released', 'Phase 38 D-12: reason migrado');
-      assert.deepEqual(removeSessionCalls, [session.task_id], 'removeSession sí se ejecuta (sanity)');
+      assert.deepEqual(removeSessionCalls, [], 'Phase 58 LIFE-03: Stop ya NO remueve la sesión (migró a SessionEnd)');
     } finally {
       cleanup();
     }

@@ -134,25 +134,28 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
     writtenTaskIds.push(session.task_id);
     addSession(session.task_id, session);
 
-    const { runStopHook } = await import('../../src/hooks/stop.js');
+    // Phase 58 LIFE-03: el cleanup destructivo (removeSession→history) migró del
+    // Stop hook al SessionEnd hook. La idempotencia vía guard `source === 'history'`
+    // ahora se ejercita sobre runSessionEndHook.
+    const { runSessionEndHook } = await import('../../src/hooks/session-end.js');
 
     // ===== FIRST INVOCATION =====
-    // Usamos el findSession real (importado por stop.js) para que el flow
+    // Usamos el findSession real (importado por el hook) para que el flow
     // post-primera-invocación encuentre la entry en state.history de forma
     // realista (no mockeada). El cleanup natural de removeSession (dentro de
-    // stop.js) mueve la session de state.sessions → state.history.
+    // performTerminalCleanup) mueve la session de state.sessions → state.history.
     const { logger: logger1, events: events1 } = makeLogger();
     const { stub: cmux1, calls: cmuxCalls1 } = makeCmuxStub();
+    void cmuxCalls1; // SessionEnd no toca cmux — el stub se pasa pero se ignora.
     const removeSessionCalls1 = [];
 
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
         cmux: cmux1,
         loggerFactory: () => logger1,
-        // NO inyectamos findSessionFn ni removeSessionFn — usamos los reales
-        // para que el state.json del tmpdir refleje la transición real
-        // sessions→history que el bug CR-01 explota.
+        // NO inyectamos findSessionFn — usamos el real para que el state.json del
+        // tmpdir refleje la transición real sessions→history que el guard explota.
         removeSessionFn: (id) => {
           removeSessionCalls1.push(id);
           removeSession(id);
@@ -160,15 +163,10 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
       },
     );
 
-    // Sanity: primera invocación procesó la sesión completa.
-    const transition1 = events1.find((e) => e.fields?.event === 'state.transition');
-    assert.ok(transition1, 'primera invocación debe emitir state.transition');
-    assert.equal(transition1.fields.to, 'idle', 'Phase 38 D-12: primera invocación transita to=idle (esperando humano)');
-    assert.equal(
-      cmuxCalls1.filter((c) => c.fn === 'setColor').length,
-      1,
-      'primera invocación llama setColor 1 vez',
-    );
+    // Sanity: primera invocación emitió el typed session.end (terminal) y removió.
+    const sessionEnd1 = events1.find((e) => e.fields?.event === 'session.end');
+    assert.ok(sessionEnd1, 'primera invocación de SessionEnd debe emitir session.end');
+    assert.deepEqual(removeSessionCalls1, [session.task_id], 'primera invocación remueve la sesión');
 
     // Después del primer run, removeSession ya movió la entry a history.
     const sessionsAfterFirst = listSessions();
@@ -190,7 +188,8 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
     const { stub: cmux2, calls: cmuxCalls2 } = makeCmuxStub();
     const removeSessionCalls2 = [];
 
-    await runStopHook(
+    void cmuxCalls2; // SessionEnd no toca cmux — el stub se pasa pero se ignora.
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
         cmux: cmux2,

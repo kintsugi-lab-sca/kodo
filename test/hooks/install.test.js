@@ -76,6 +76,26 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
       commandsOf(hooks, 'Stop').some((c) => c.includes('stop.js')),
       'Stop debe tener el command de stop.js',
     );
+    // Phase 58 LIFE-03: tercer evento SessionEnd → cleanup terminal.
+    assert.ok(
+      commandsOf(hooks, 'SessionEnd').some((c) => c.includes('session-end.js')),
+      'SessionEnd debe tener el command de session-end.js',
+    );
+  });
+
+  it('Test 1b (LIFE-03): uninstall limpia el hook SessionEnd kodo', () => {
+    writeSettings({
+      hooks: { SessionEnd: [{ hooks: [{ type: 'command', command: 'foreign-session-end' }] }] },
+    });
+    installHooks();
+    assert.ok(
+      commandsOf(readSettings().hooks, 'SessionEnd').some((c) => c.includes('session-end.js')),
+      'install añade el SessionEnd kodo',
+    );
+    uninstallHooks();
+    const after = commandsOf(readSettings().hooks, 'SessionEnd');
+    assert.ok(!after.some((c) => c.includes('session-end.js')), 'uninstall quita el SessionEnd kodo');
+    assert.ok(after.includes('foreign-session-end'), 'uninstall preserva el SessionEnd ajeno');
   });
 
   it('Test 2: idempotente — dos installHooks no duplican', () => {

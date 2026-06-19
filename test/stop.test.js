@@ -20,6 +20,10 @@ const STOP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'stop.js');
 // donde el código vive — el comportamiento sigue siendo idéntico (el test
 // contractual stop-worktree-cleanup.test.js permanece verde sin cambios).
 const CLEANUP_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'worktree-cleanup.js');
+// Phase 58 LIFE-03: el cleanup terminal destructivo (removeSession + worktree) migró
+// de stop.js a session-end.js (vía performTerminalCleanup en terminal-cleanup.js). Los
+// source-guards de orden lock→cleanup siguen el código a su nueva ubicación.
+const SESSIONEND_SOURCE_PATH = join(__dirname, '..', 'src', 'hooks', 'session-end.js');
 
 describe('stop.js source hygiene', () => {
   it('does not import PlaneClient', () => {
@@ -50,16 +54,17 @@ describe('stop.js source hygiene', () => {
     assert.match(source, /session\.gsd/, 'lock release must be conditional on session.gsd');
   });
 
-  it('releases lock before removeSession (order matters)', () => {
-    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+  it('releases lock before terminal cleanup (order matters) — Phase 58 LIFE-03 en session-end.js', () => {
+    // Phase 58 LIFE-03: el orden lock→removeSession ahora vive en session-end.js. La
+    // remoción concreta (removeSession) está dentro de performTerminalCleanup
+    // (terminal-cleanup.js); en session-end.js el marker del orden es la llamada
+    // `performTerminalCleanup(`, que DEBE ir después de releaseGsdLock.
+    const source = readFileSync(SESSIONEND_SOURCE_PATH, 'utf-8');
     const lockIdx = source.indexOf('releaseGsdLock(session.project_path');
-    // Phase 16 (LOG-15): main() refactor a runStopHook(input, deps) renombró el
-    // call site de removeSession(id) a removeSessionFn(id). Aceptamos ambas
-    // variantes — lo crítico es el orden, no el nombre del binding local.
-    const removeFnIdx = source.indexOf('removeSessionFn(id)');
-    const removeIdx = removeFnIdx >= 0 ? removeFnIdx : source.indexOf('removeSession(id)');
-    assert.ok(removeIdx > 0, 'must find removeSessionFn(id) or removeSession(id) call');
-    assert.ok(lockIdx < removeIdx, 'releaseGsdLock must come before remove call');
+    const cleanupIdx = source.indexOf('performTerminalCleanup({');
+    assert.ok(lockIdx > 0, 'must find releaseGsdLock call site in session-end.js');
+    assert.ok(cleanupIdx > 0, 'must find performTerminalCleanup({ call site in session-end.js');
+    assert.ok(lockIdx < cleanupIdx, 'releaseGsdLock must come before performTerminalCleanup');
   });
 
   it('uses dynamic import for gsd/lock.js (lazy load)', () => {
@@ -102,18 +107,18 @@ describe('stop.js source hygiene', () => {
     );
   });
 
-  it('Phase 19 D-07: worktree cleanup happens AFTER releaseGsdLock', () => {
-    const source = readFileSync(STOP_SOURCE_PATH, 'utf-8');
+  it('Phase 19 D-07 / Phase 58 LIFE-03: worktree cleanup happens AFTER releaseGsdLock (en session-end.js)', () => {
+    // Phase 58 LIFE-03: el cleanup (incl. worktree) migró a session-end.js vía
+    // performTerminalCleanup. El orden lock→cleanup se preserva: releaseGsdLock antes
+    // de performTerminalCleanup (que internamente hace cleanupWorktree, Phase 19 D-07).
+    const source = readFileSync(SESSIONEND_SOURCE_PATH, 'utf-8');
     const lockIdx = source.indexOf('releaseGsdLock(session.project_path');
-    assert.ok(lockIdx > 0, 'must find releaseGsdLock call site');
-    // Phase 41 D-11: el cleanup se delega al helper compartido `cleanupWorktree`.
-    // El call site en stop.js es el marker del orden — si alguien reordena y el
-    // saneo queda antes de releaseGsdLock, este test falla.
-    const cleanupIdx = source.indexOf('cleanupWorktree({');
-    assert.ok(cleanupIdx > 0, 'must find cleanupWorktree({ call site in stop.js');
+    assert.ok(lockIdx > 0, 'must find releaseGsdLock call site in session-end.js');
+    const cleanupIdx = source.indexOf('performTerminalCleanup({');
+    assert.ok(cleanupIdx > 0, 'must find performTerminalCleanup({ call site in session-end.js');
     assert.ok(
       lockIdx < cleanupIdx,
-      'cleanup must come AFTER releaseGsdLock (Phase 19 D-07)',
+      'cleanup must come AFTER releaseGsdLock (Phase 19 D-07 preserved across LIFE-03 split)',
     );
   });
 

@@ -1,5 +1,9 @@
 // @ts-check
-// Phase 19 WT-04: worktree cleanup en stop hook (fail-open).
+// Phase 19 WT-04: worktree cleanup (fail-open).
+// Phase 58 LIFE-03: el cleanup terminal (incl. worktree) migró del Stop hook al
+// SessionEnd hook (runSessionEndHook → performTerminalCleanup). La lógica de saneo
+// del worktree es IDÉNTICA (mismo helper cleanupWorktree); solo cambia el hook que
+// la dispara. Este test contractual ahora ejercita runSessionEndHook.
 // Cobertura mixta unit (gitFn stub) + E2E smoke (git real con tmpdir).
 
 import { describe, it, beforeEach, afterEach, before, after } from 'node:test';
@@ -15,8 +19,8 @@ import { join } from 'node:path';
 // KODO_DIR al HOME real y un test futuro sin DI corrompería el state del usuario.
 // Se carga dinámicamente tras aislar HOME (mismo patrón que stop.test.js,
 // raíz del bug cazado en UAT live de Phase 38).
-/** @type {typeof import('../src/hooks/stop.js').runStopHook} */
-let runStopHook;
+/** @type {typeof import('../src/hooks/session-end.js').runSessionEndHook} */
+let runSessionEndHook;
 let _origHome;
 let _tmpHome;
 before(async () => {
@@ -24,7 +28,7 @@ before(async () => {
   _tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-wt-cleanup-'));
   process.env.HOME = _tmpHome;
   mkdirSync(join(_tmpHome, '.kodo'), { recursive: true });
-  ({ runStopHook } = await import('../src/hooks/stop.js'));
+  ({ runSessionEndHook } = await import('../src/hooks/session-end.js'));
 });
 after(() => {
   if (_origHome === undefined) delete process.env.HOME;
@@ -89,7 +93,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       if (args.includes('--porcelain')) return '';
       return '';
     });
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -126,7 +130,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       if (args.includes('--porcelain')) return 'M file.txt\n?? new.txt\n';
       return '';
     });
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -154,7 +158,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       if (args[0] === 'worktree' && args[1] === 'remove') throw new Error('EBUSY: rmdir failed');
       return '';
     };
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -187,7 +191,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       return '';
     });
     try {
-      await runStopHook(
+      await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
@@ -213,7 +217,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     const session = makeSession({ worktree_path: undefined });
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub(() => '');
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -237,7 +241,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       if (args[0] === 'branch' && args[1] === '-D') throw new Error('cannot delete branch in use');
       return '';
     };
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -273,7 +277,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       return '';
     });
     try {
-      await runStopHook(
+      await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
@@ -312,7 +316,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       return '';
     });
     try {
-      await runStopHook(
+      await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
@@ -368,7 +372,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     const { repo, wt, branchName } = makeIsolatedRepoWithWorktree();
     const session = makeSession({ project_path: repo, worktree_path: wt, session_id: 'sess-e2e' });
     const { logger, events } = makeMemLogger();
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: repo },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
@@ -393,7 +397,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       session_id: 'sess-e2e-dirty',
     });
     const { logger, events } = makeMemLogger();
-    await runStopHook(
+    await runSessionEndHook(
       { session_id: session.session_id, cwd: repo },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
