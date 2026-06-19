@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: Phases 59 + 60 completas; Phase 58 parcial (DEBT-01 XSS cerrado; LIFE-03 + DEBT-02 pendientes — requieren humano/discuss)
-last_updated: "2026-06-19T11:25:00.000Z"
-last_activity: 2026-06-19 -- cierre de cola v0.13 (autónomo): 59 formalizada, 60 implementada, DEBT-01 verificado+test
+stopped_at: v0.13 CODE-complete (52-60). Única pendiente: DEBT-02 (HUMAN-UAT 50.1) requiere TTY real con sesión GSD viva
+last_updated: "2026-06-19T12:55:00.000Z"
+last_activity: 2026-06-19 -- cierre de cola v0.13 (autónomo): 59 formalizada, 60 implementada, 58 LIFE-03+DEBT-01 hechos
 progress:
   total_phases: 9
-  completed_phases: 8
-  total_plans: 15
-  completed_plans: 15
-  percent: 89
+  completed_phases: 9
+  total_plans: 16
+  completed_plans: 16
+  percent: 99
 ---
 
 # Project State
@@ -140,9 +140,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-Solo queda Phase 58 (parcial). Dos acciones, ambas requieren al humano:
+v0.13 está **CODE-complete** (todas las fases 52-60 entregadas en código, suite 1499 verde). Una sola acción pendiente, intrínsecamente humana:
 
-- **LIFE-03:** `/gsd:discuss-phase 58` para resolver las 4 sub-decisiones del re-choreograph `Stop`/`SessionEnd` ANTES de tocar código (Tier-3, alto riesgo). Verificar en TTY real.
-- **DEBT-02:** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` en un TTY con sesión GSD viva y registrar el resultado.
+- **DEBT-02 (HUMAN-UAT 50.1):** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` en un TTY real con sesión GSD viva y registrar el resultado. Tras eso, el milestone puede cerrarse con `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
 
-Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`, `9124cfa`, `93271d9`), DEBT-01 XSS verificado + test (`976f8a6`).
+Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`/`9124cfa`/`93271d9`), Phase 58 LIFE-03 hook SessionEnd (`5a8c2a0`/`0e2e7f8`/`b8129eb`) + DEBT-01 XSS test (`976f8a6`). Todo local, **sin push**.
