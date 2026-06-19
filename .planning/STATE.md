@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: Phase 59-01 (liveness sesiones adoptadas) mergeado a main; Phase 60 registrada (vacía); Phase 58 sin empezar
-last_updated: "2026-06-19T10:30:00.000Z"
-last_activity: 2026-06-19 -- Phase 59-01 liveness gap-fix mergeado + Phase 60 registrada desde UAT 56/57
+stopped_at: Phases 59 + 60 completas; Phase 58 parcial (DEBT-01 XSS cerrado; LIFE-03 + DEBT-02 pendientes — requieren humano/discuss)
+last_updated: "2026-06-19T11:25:00.000Z"
+last_activity: 2026-06-19 -- cierre de cola v0.13 (autónomo): 59 formalizada, 60 implementada, DEBT-01 verificado+test
 progress:
   total_phases: 9
-  completed_phases: 6
-  total_plans: 13
-  completed_plans: 13
-  percent: 85
+  completed_phases: 8
+  total_plans: 15
+  completed_plans: 15
+  percent: 89
 ---
 
 # Project State
@@ -69,7 +69,7 @@ Items reconocidos y diferidos (ninguno bloqueante). Los 2 items de deuda viva de
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
 | uat | Phase 50.1 (v0.12) `50.1-HUMAN-UAT.md` 3 escenarios + `50.1-VERIFICATION.md` `human_needed` (8/8 must-haves auto-verificados) — display de progreso vivo `N/M`; requiere TTY real con sesión GSD viva | → agendado **Phase 58** (DEBT-02) | v0.12 close |
-| security | Phase 48 (v0.12) XSS latente WR-01 — `src/server.js` renderiza `task_url` como `<a href>` sin allowlist `http(s)` (la TUI sí la aplica vía `runOpen`); `javascript:`/`data:` inyectable en el HTML servido | → agendado **Phase 58** (DEBT-01) | v0.12 close |
+| security | Phase 48 (v0.12) XSS latente WR-01 — `src/server.js` renderiza `task_url` como `<a href>` sin allowlist `http(s)` | ✓ **RESUELTO** (estaba ya mitigado en commit `77a5c0c` T-48-10: allowlist `safeHref` http(s) vía `new URL()` en los 3 renders; el item estaba **stale**). Test de regresión añadido `976f8a6` (DEBT-01) | v0.12 close |
 | nyquist | Phase 44 (v0.11) `44-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 44-VERIFICATION.md passed 10/10) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
 | nyquist | Phase 45 (v0.11) `45-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 45-VERIFICATION.md passed 7/7) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
 | nyquist | Phase 46 (v0.11) `46-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 46-VERIFICATION.md passed 6/6 + 46-HUMAN-UAT.md 2/2) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
@@ -126,9 +126,11 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-19 (reconciliación STATE↔realidad vía /gsd-progress)
-- **Stopped at:** Phases 52-57 complete; 59-01 liveness mergeado a main; Phase 60 registrada vacía; Phase 58 sin empezar
-- **Next action:** Decidir el orden de cierre de cola v0.13 entre tres frentes abiertos: **Phase 58** (deuda v0.12: XSS WR-01 + HUMAN-UAT 50.1 + hook `SessionEnd`/LIFE-03), **Phase 60** (enriquecimiento orquestador, lo más fresco del UAT), o **formalizar/cerrar Phase 59** (gap-fix de liveness ya mergeado pero sin PLAN ni UAT). El checkpoint D-07 de Phase 52 (smoke test Plane) ya quedó superado — Phase 52 está completa.
+- **Last session:** 2026-06-19 (cierre de cola v0.13 en modo autónomo)
+- **Stopped at:** Phases 52-57, 59, 60 COMPLETE. Phase 58 PARCIAL: DEBT-01 (XSS) cerrado; **LIFE-03 + DEBT-02 pendientes — bloqueados en decisión/TTY humano**.
+- **Next action:** Cerrar Phase 58, que NO se pudo terminar en autónomo por dos razones legítimas:
+  1. **LIFE-03 (hook `SessionEnd`)** — cirugía de lifecycle Tier-3 (mover `removeSession` de `Stop` per-turn a `SessionEnd` terminal, re-coreografiando el rescate desde `history` de `reconcileTick`). 4 sub-decisiones abiertas (ver §Open Questions Phase 58). NO se debe implementar a ciegas: requiere `/gsd:discuss-phase 58` y verificación en TTY real.
+  2. **DEBT-02 (HUMAN-UAT 50.1)** — los 3 escenarios del display de progreso vivo `N/M` requieren un TTY real con sesión GSD viva. Solo el operador puede ejecutarlo (`50.1-HUMAN-UAT.md`).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.13 kodo bidireccional)
   - `.planning/ROADMAP.md` (v0.13 activo Phases 52-58; v0.10/v0.11/v0.12 colapsados en archived; backlog 999.1 materializado)
@@ -138,7 +140,9 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Elegir el siguiente frente de cierre de v0.13:
-  - `/gsd:discuss-phase 58` — deuda v0.12 (XSS WR-01 + HUMAN-UAT 50.1 + `SessionEnd`/LIFE-03)
-  - `/gsd:discuss-phase 60` — enriquecimiento de tareas adoptadas (BIDIR-F2; promover de Deferred a activo en REQUIREMENTS.md)
-  - `/gsd:plan-phase 59` o `/gsd:verify-work 59` — formalizar/cerrar el gap-fix de liveness ya mergeado
+Solo queda Phase 58 (parcial). Dos acciones, ambas requieren al humano:
+
+- **LIFE-03:** `/gsd:discuss-phase 58` para resolver las 4 sub-decisiones del re-choreograph `Stop`/`SessionEnd` ANTES de tocar código (Tier-3, alto riesgo). Verificar en TTY real.
+- **DEBT-02:** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` en un TTY con sesión GSD viva y registrar el resultado.
+
+Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`, `9124cfa`, `93271d9`), DEBT-01 XSS verificado + test (`976f8a6`).

@@ -211,7 +211,7 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 1/1 | Complete    | 2026-06-16 |
 | 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 4/2 | Complete    | 2026-06-18 |
 | 57. Orquestador asistido | v0.13 | 1/1 | Complete   | 2026-06-18 |
-| 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 0/TBD | Not started | - |
+| 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | — | Parcial: DEBT-01 ✅ (XSS ya mitigado + test) · LIFE-03 + DEBT-02 pendientes (discuss/TTY humano) | - |
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 
