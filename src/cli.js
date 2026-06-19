@@ -255,6 +255,7 @@ program
   .requiredOption('--project <id>', 'Target project id (must be mapped in kodo config)')
   .option('--title <t>', 'Task title (default: basename(cwd), applied by the core)')
   .option('--description <d>', 'Task description (optional)')
+  .option('--module <name>', 'Plane module to place the task in (default: auto-derived from --cwd)')
   .option('--json', 'Emit the discriminant as JSON (scriptable, byte-deterministic)')
   .action(async (opts) => {
     try {
@@ -267,6 +268,7 @@ program
         projectId: opts.project,
         title: opts.title,
         description: opts.description,
+        module: opts.module,
         json: opts.json || false,
       });
       process.exit(code);

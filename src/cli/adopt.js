@@ -37,13 +37,14 @@ import { createFormatter } from './format.js';
  *   projectId: string,
  *   title?: string,
  *   description?: string,
+ *   module?: string,
  *   json?: boolean,
  * }} RunAdoptCliOpts
  *
  * @typedef {{
  *   adoptSessionFn?: typeof adoptSession,
  *   getProviderFn?: () => any,
- *   loadProjectsFn?: () => Record<string, string | { default?: string }>,
+ *   loadProjectsFn?: () => Record<string, string | { default?: string, modules?: Record<string, string> }>,
  *   loadConfigFn?: () => { provider: string },
  *   writeFn?: (s: string) => void,
  *   errFn?: (s: string) => void,
@@ -108,9 +109,23 @@ export async function runAdoptCli(opts, deps = {}) {
     return 1;
   }
 
-  // PASO 3 — delegar al core. NO derivamos módulo ni default de título/saneo:
-  // todo eso lo hace adoptSession (Pitfall 2 — el CLI solo resuelve datos de
-  // entrada). title/description se pasan SIN tocar (el core los sanea, BIDIR-08).
+  // PASO 2b — MODULE PLACEMENT (Phase 57 gap-fix). An adopted Plane work item must land in the
+  // correct MODULE board, not just the project. The explicit `--module` flag WINS; when absent we
+  // AUTO-DERIVE the module NAME from `opts.cwd` by reverse-looking-up the resolved project's
+  // `modules` map (path → name), nearest-ancestor wins — the SAME semantics as resolveProjectId in
+  // dashboard/select.js (`norm(cwd) === norm(p)` || `norm(cwd).startsWith(norm(p) + '/')`, longest
+  // match wins). A flat-string project entry (no modules) → no module. Never throws on a
+  // missing/garbage modules map (operator-editable projects.json). `module` is OPTIONAL downstream:
+  // none → undefined, behavior unchanged; the provider FAILS OPEN on an unresolvable module.
+  const module =
+    opts.module !== undefined && opts.module !== null
+      ? opts.module
+      : deriveModuleFromCwd(opts.cwd, entry);
+
+  // PASO 3 — delegar al core. NO derivamos default de título ni saneo: todo eso lo hace
+  // adoptSession (Pitfall 2 — el CLI solo resuelve datos de entrada). title/description se pasan
+  // SIN tocar (el core los sanea, BIDIR-08). `module` es un NOMBRE config-derivado (no free-text),
+  // por eso NO pasa por el sanitizer — pero sí lo valida string el core.
   const result = await adoptSessionFn({
     provider,
     providerName,
@@ -121,6 +136,7 @@ export async function runAdoptCli(opts, deps = {}) {
     projectPath,
     title: opts.title,
     description: opts.description,
+    ...(module !== undefined ? { module } : {}),
   });
 
   // PASO 4 — render. --json hace bypass total de renderHuman (byte-determinismo,
@@ -131,6 +147,46 @@ export async function runAdoptCli(opts, deps = {}) {
     renderHuman(result, write, err, fmt);
   }
   return exitCodeFor(result);
+}
+
+/**
+ * Reverse-lookup `cwd → module NAME` over a single resolved project entry (Phase 57 module-placement
+ * gap-fix). Pure, no I/O (string path ops only — NO `path`/`fs`). Mirrors the nearest-ancestor
+ * semantics of `resolveProjectId` (dashboard/select.js) but resolves the MODULE within ONE already-
+ * resolved project's `modules` map instead of the project across all entries.
+ *
+ * Algorithm:
+ *   - a flat-string entry (no modules) → undefined (no module concept),
+ *   - an object entry → over `modules: Record<name, path>`, a module path `p` matches when
+ *     `norm(cwd) === norm(p)` || `norm(cwd).startsWith(norm(p) + '/')` (the `+ '/'` prevents a
+ *     sibling like `/a/b-x` matching `/a/b`),
+ *   - the LONGEST matching path wins (most specific ancestor) → returns its module NAME,
+ *   - no match → undefined.
+ *
+ * Never-throws on a missing/garbage modules map (projects.json is operator-editable, UNvalidated):
+ * non-string module paths are filtered BEFORE `norm`; a non-string `cwd` collapses to '' (matches
+ * nothing). The caller passes `entry` (already resolved from `loadProjects()[projectId]`).
+ *
+ * @param {string} cwd
+ * @param {string | { default?: string, modules?: Record<string, string> } | undefined} entry
+ * @returns {string | undefined} module name, or undefined when none derivable.
+ */
+function deriveModuleFromCwd(cwd, entry) {
+  if (!entry || typeof entry !== 'object') return undefined; // flat-string entry → no modules
+  const modules = entry.modules;
+  if (!modules || typeof modules !== 'object') return undefined;
+  const norm = (/** @type {string} */ p) => p.replace(/\/+$/, '');
+  const c = typeof cwd === 'string' ? norm(cwd) : '';
+  /** @type {{ name: string, len: number } | null} */
+  let best = null;
+  for (const [name, rawPath] of Object.entries(modules)) {
+    if (typeof rawPath !== 'string') continue; // never-throws: skip garbage paths before norm()
+    const p = norm(rawPath);
+    if (c === p || c.startsWith(p + '/')) {
+      if (best === null || p.length > best.len) best = { name, len: p.length };
+    }
+  }
+  return best ? best.name : undefined;
 }
 
 /**

@@ -279,6 +279,106 @@ describe('runAdoptCli — projectPath fail-fast (T-54-02)', () => {
   });
 });
 
+describe('runAdoptCli — module auto-derive from cwd (Phase 57 module-placement gap-fix)', () => {
+  /** Capture the args passed to adoptSession. */
+  function capturingDeps(projects, extra = {}) {
+    let received;
+    const deps = baseDeps({
+      loadProjectsFn: () => projects,
+      adoptSessionFn: async (args) => {
+        received = args;
+        return okResult();
+      },
+      ...extra,
+    });
+    return { deps, get: () => received };
+  }
+
+  it('M1: derives the module NAME from cwd against the project modules map (nearest ancestor)', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: { default: '/Users/op/dev/roman', modules: { FVF: '/Users/op/dev/roman/fvf' } },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/fvf/sub' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.equal(get().module, 'FVF', 'cwd under the FVF module path → module FVF');
+    // projectPath still resolved from the object `default`.
+    assert.equal(get().projectPath, '/Users/op/dev/roman');
+  });
+
+  it('M2: explicit --module overrides the derived value', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: { default: '/Users/op/dev/roman', modules: { FVF: '/Users/op/dev/roman/fvf' } },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/fvf/sub', module: 'OVERRIDE' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.equal(get().module, 'OVERRIDE', 'explicit flag wins over auto-derive');
+  });
+
+  it('M3: flat-string project entry → no module (key omitted)', async () => {
+    const { deps, get } = capturingDeps({ MAPPED: '/tmp/mapped' });
+    const code = await runAdoptCli({ ...OPTS, projectId: 'MAPPED', cwd: '/tmp/mapped/x' }, deps);
+    assert.equal(code, 0);
+    assert.ok(!('module' in get()), 'flat-string entry has no modules → module omitted');
+  });
+
+  it('M4: non-matching cwd → no module (no throw)', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: { default: '/Users/op/dev/roman', modules: { FVF: '/Users/op/dev/roman/fvf' } },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/other' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.ok(!('module' in get()), 'cwd outside any module path → module omitted');
+  });
+
+  it('M5: longest-match wins among nested module paths', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: {
+        default: '/Users/op/dev/roman',
+        modules: { OUTER: '/Users/op/dev/roman/fvf', INNER: '/Users/op/dev/roman/fvf/inner' },
+      },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/fvf/inner/deep' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.equal(get().module, 'INNER', 'most specific (longest) ancestor path wins');
+  });
+
+  it('M6: garbage modules map (non-string path) never throws → no module', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: { default: '/Users/op/dev/roman', modules: { BAD: 123, NULLISH: null } },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/x' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.ok(!('module' in get()), 'non-string module paths skipped, no throw');
+  });
+
+  it('M7: sibling path does NOT match (separator boundary)', async () => {
+    const { deps, get } = capturingDeps({
+      ROMAN: { default: '/Users/op/dev/roman', modules: { FVF: '/Users/op/dev/roman/fvf' } },
+    });
+    const code = await runAdoptCli(
+      { ...OPTS, projectId: 'ROMAN', cwd: '/Users/op/dev/roman/fvf-sibling' },
+      deps,
+    );
+    assert.equal(code, 0);
+    assert.ok(!('module' in get()), 'fvf-sibling must not match the fvf module');
+  });
+});
+
 describe('src/cli.js — adopt command registration (static)', () => {
   const cli = readFileSync('src/cli.js', 'utf-8');
 
@@ -295,5 +395,10 @@ describe('src/cli.js — adopt command registration (static)', () => {
 
   it('CLI3: invoca runAdoptCli', () => {
     assert.ok(cli.includes('runAdoptCli'), 'expected runAdoptCli identifier');
+  });
+
+  it('CLI4: registra la opción --module y la pasa a runAdoptCli (Phase 57)', () => {
+    assert.ok(cli.includes("'--module <name>'"), 'expected --module option declaration');
+    assert.ok(cli.includes('module: opts.module'), 'expected module passed into runAdoptCli');
   });
 });
