@@ -97,6 +97,38 @@ function extractSurfaceRefs(treeJson) {
 }
 
 /**
+ * Construye un mapa `workspace_ref → custom_title` a partir de la salida cruda de
+ * `cmux workspace list --json` (Phase 56-06). Solo entra una entrada cuando cmux
+ * marca el título como custom (`has_custom_title === true`) Y `custom_title` es un
+ * string NO vacío — un workspace SIN título custom NO debe heredar el fallback
+ * basename(cwd) del core a través de un título vacío/auto.
+ *
+ * Puro y defensivo (never-throws): un shape inesperado (workspaces ausente, ref
+ * no-string) simplemente no aporta entradas. El caller (listAgentSurfaces) lo
+ * envuelve además en try/catch para FAIL-OPEN total (sin título si la fetch falla).
+ *
+ * @param {Object} listJson - salida parseada de `workspace list --json`.
+ * @returns {Map<string, string>} ref → custom_title (solo títulos custom no vacíos).
+ */
+function buildTitleMap(listJson) {
+  const map = new Map();
+  const workspaces = Array.isArray(listJson?.workspaces) ? listJson.workspaces : [];
+  for (const ws of workspaces) {
+    const ref = ws?.ref;
+    const customTitle = ws?.custom_title;
+    if (
+      typeof ref === 'string' &&
+      ws?.has_custom_title === true &&
+      typeof customTitle === 'string' &&
+      customTitle.length > 0
+    ) {
+      map.set(ref, customTitle);
+    }
+  }
+  return map;
+}
+
+/**
  * Factory de CmuxHost.
  * @param {Object} [opts]
  * @param {Function} [opts.exec] - execFile inyectable (callback style) para selectWorkspace.
@@ -265,6 +297,30 @@ export function createCmuxHost(opts = {}) {
       }
       const surface = normalizeSurface(raw); // null si cleared/sin binding/source≠agent-hook
       if (surface) out.push(surface);
+    }
+
+    // Phase 56-06: enriquece cada AgentSurface con el título auto-derivado de cmux
+    // (`workspace list --json`.custom_title) joineando por workspaceRef. FAIL-OPEN
+    // ESTRICTO: si la fetch o el parse del workspace-list falla, las surfaces se
+    // devuelven SIN título (el contrato never-throws de discovery NO se rompe — el
+    // título es una nicety; adopt cae al basename(cwd) del core). El join vive dentro
+    // del MISMO snapshot de enumeración (el reciclaje de workspace_ref es un concern
+    // cross-time, no dentro de una sola llamada). Reusa el `run` DI / el mismo comando
+    // que listWorkspaces. Mantiene la extracción cmux-specific confinada a este módulo.
+    if (out.length > 0) {
+      try {
+        const titleMap = buildTitleMap(JSON.parse(await run(['workspace', 'list', '--json'])));
+        for (const surface of out) {
+          const title = titleMap.get(surface.workspaceRef);
+          if (title) surface.title = title;
+        }
+      } catch (err) {
+        logger?.warn?.('host.list_agent_surfaces.title_fetch_fail', {
+          code: err?.code || 'EXEC_OR_PARSE_ERROR',
+          detail: String(err?.message || '').trim(),
+        });
+        // fail-open: surfaces sin título.
+      }
     }
 
     logger?.info?.('host.list_agent_surfaces.ok', {

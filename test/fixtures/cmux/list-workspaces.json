@@ -14,7 +14,9 @@
       "ref": "workspace:1",
       "remote": null,
       "selected": true,
-      "title": "KODO DEV"
+      "title": "KODO DEV",
+      "has_custom_title": true,
+      "custom_title": "KODO DEV"
     },
     {
       "current_directory": "/Users/alex/dev/otros/personalchat",
@@ -29,7 +31,9 @@
       "ref": "workspace:16",
       "remote": null,
       "selected": false,
-      "title": "personalchat"
+      "title": "personalchat",
+      "has_custom_title": false,
+      "custom_title": null
     },
     {
       "current_directory": "/Users/alex/dev/otros/nas",
