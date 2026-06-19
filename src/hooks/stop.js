@@ -11,8 +11,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findSession, removeSession } from '../session/state.js';
-import { removePromptFile } from '../session/prompt-file.js';
+import { findSession } from '../session/state.js';
 import { getSessionMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
 import { colorForStatus } from '../cmux/colors.js';
@@ -83,18 +82,18 @@ async function readStdin() {
  *
  * W-4 deps enumeration:
  *   - findSessionFn: mandatory para tests (lookup en fixture sintético)
- *   - removeSessionFn: mandatory para test no-GSD (sanity removeSession ejecuta)
  *   - cmux: mandatory para aislamiento — el flow invoca setColor/notify/listWorkspaces/send
  *           tanto en GSD como no-GSD; sin stub los tests intentarían conectar a cmuxd real.
- *   - loggerFactory: mandatory para captura de state.transition + session.end
+ *   - loggerFactory: mandatory para captura de state.transition
+ *
+ * Phase 58 LIFE-03: `removeSessionFn`/`gitFn` ya NO son deps de Stop — el cleanup
+ * destructivo (removeSession/worktree) migró a SessionEnd (session-end.js).
  *
  * @param {{session_id: string, cwd?: string, transcript_path?: string}} input
  * @param {{
  *   findSessionFn?: typeof findSession,
- *   removeSessionFn?: typeof removeSession,
  *   cmux?: typeof cmux,
  *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
- *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
  * }} [deps]
  * @returns {Promise<void>}
  *
@@ -118,14 +117,7 @@ async function readStdin() {
 export async function runStopHook(input, deps = {}) {
   // W-4: defaults vía OR — runtime productivo usa los imports estáticos.
   const findSessionFn = deps.findSessionFn || findSession;
-  const removeSessionFn = deps.removeSessionFn || removeSession;
   const cmuxClient = deps.cmux || cmux;
-  // Phase 19 WT-04: gitFn DI default — execFileSync wrapper para tests que stub-ean
-  // sub-pasos sin spawn. Tests inyectan handlers sync; producción usa execFileSync.
-  const gitFn = deps.gitFn || (async (cwd, args) => {
-    const { execFileSync } = await import('node:child_process');
-    return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' }).trim();
-  });
   try {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
@@ -179,12 +171,11 @@ export async function runStopHook(input, deps = {}) {
     } catch {}
 
     // Phase 19 CR-02 fix: markSessionStatus aplica a TODAS las sesiones (GSD + no-GSD)
-    // y debe ejecutarse ANTES de sessionEnd para que el observable NDJSON refleje el
-    // estado terminal real. REVIEW.md CR-02 + WR-03 mandatan console.error (no silent)
-    // porque markSessionStatus muta state.json — un fallo merece diagnóstico explícito.
-    // El logger se construye UNA sola vez y se comparte entre markSessionStatus + sessionEnd
-    // (W-2 Phase 16 pattern preservado; solo cambia el scope del mark — antes dentro de
-    // if (session.gsd), ahora aplica a todas las sesiones).
+    // para que el observable NDJSON refleje el estado real per-turn (idle/lock-released).
+    // REVIEW.md CR-02 + WR-03 mandatan console.error (no silent) porque markSessionStatus
+    // muta state.json — un fallo merece diagnóstico explícito. Phase 58 LIFE-03: el typed
+    // session.end event migró a SessionEnd; aquí el logger sirve a markSessionStatus (y al
+    // nudge). El mark aplica a todas las sesiones (antes dentro de if (session.gsd)).
     const log = (deps && deps.loggerFactory)
       ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
       : await (async () => {
@@ -215,20 +206,9 @@ export async function runStopHook(input, deps = {}) {
       console.error(`[kodo:stop] markSessionStatus failed: ${/** @type {Error} */ (err).message}`);
     }
 
-    // Emit typed session.end event BEFORE removeSession so the logger
-    // captures the transition while the session record still exists.
-    // Silent-failure: never crash Claude Code stop hook.
-    try {
-      const { sessionEnd } = await import('../logger-events.js');
-      sessionEnd(log, {
-        session_id: session.session_id,
-        task_id: session.task_id,
-        status: 'done',
-        ended_at: new Date().toISOString(),
-      });
-    } catch {
-      // silent — never crash Claude Code (logger fail-open per Phase 16 LOG-15)
-    }
+    // Phase 58 LIFE-03: el typed session.end event (status done) se MOVIÓ al hook
+    // SessionEnd (src/hooks/session-end.js) — refleja el cierre REAL una vez, no el
+    // fin de cada turno. Stop ya no lo emite (antes disparaba per-turn).
 
     // Release GSD lock if applicable (D-09: idempotent, verifies session_id).
     // Phase 19 CR-02: markSessionStatus ya corrió ANTES de este bloque para
@@ -242,48 +222,13 @@ export async function runStopHook(input, deps = {}) {
       }
     }
 
-    // Phase 41 Plan 01 (D-11): el saneo del worktree ahora vive en el helper
-    // compartido `cleanupWorktree` (src/hooks/worktree-cleanup.js) — la "una sola
-    // fuente de saneo" consumida también por doctor.js (Plan 02). El comportamiento
-    // es VERBATIM al bloque inline previo de Phase 19 WT-04 (branch read antes de
-    // borrar / status → clean-remove|dirty-move-aside / prune oportunista, fail-open).
-    // Conserva: el guard `if (session.worktree_path)`, el skip silencioso de sesiones
-    // legacy v0.5 sin ese campo (D-09), la construcción de cleanupLog (loggerFactory
-    // DI o createLogger child lazy), y el outer try/catch defensivo (runStopHook
-    // NUNCA debe crashear Claude Code). El saneo OCURRE DESPUÉS de releaseGsdLock (D-07).
-    if (session.worktree_path) {
-      try {
-        const { cleanupWorktree } = await import('./worktree-cleanup.js');
-        const cleanupLog = (deps && deps.loggerFactory)
-          ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
-          : await (async () => {
-              const { createLogger } = await import('../logger.js');
-              return createLogger({
-                sessionId: session.session_id,
-                minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
-              }).child({ component: 'hook', task_id: session.task_id });
-            })();
-
-        await cleanupWorktree({
-          project: session.project_path,
-          worktree: session.worktree_path,
-          sessionId: session.session_id,
-          gitFn,
-          logger: cleanupLog,
-        });
-      } catch (outerErr) {
-        // Defensive outer catch — runStopHook must NEVER crash Claude Code.
-        console.error(`[kodo:stop] worktree cleanup outer error: ${/** @type {Error} */ (outerErr).message}`);
-      }
-    }
-
-    // Limpieza del fichero de prompt de la sesión (mismo ciclo de vida que el
-    // worktree: creado en el lanzamiento por buildClaudeCommand, borrado aquí al
-    // terminar). Incondicional — toda sesión de launchWorkItem tiene uno. Fail-open.
-    removePromptFile(session.session_id);
-
-    removeSessionFn(id);
-    console.error(`[kodo:stop] Session ${session.task_ref} removed from state`);
+    // Phase 58 LIFE-03: el cleanup terminal DESTRUCTIVO (worktree cleanup +
+    // removePromptFile + removeSession) se MOVIÓ al hook SessionEnd
+    // (src/hooks/session-end.js → performTerminalCleanup). Stop dispara al final de
+    // CADA turno y ya NO archiva la sesión: solo deja el estado ligero (idle, lock
+    // liberado, color review, nudge). Así una sesión en review/needs-input permanece
+    // viva en el dashboard entre turnos sin depender del rescate desde history de
+    // reconcileTick; el cleanup terminal ocurre UNA vez al cierre real (`/exit`).
 
     // Notify orchestrator if running
     try {

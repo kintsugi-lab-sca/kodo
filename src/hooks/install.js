@@ -19,6 +19,8 @@ export function installHooks() {
   const kodoRoot = resolve(import.meta.dirname, '..', '..');
   const sessionStartCmd = `node "${join(kodoRoot, 'src', 'hooks', 'session-start.js')}"`;
   const stopCmd = `node "${join(kodoRoot, 'src', 'hooks', 'stop.js')}"`;
+  // Phase 58 LIFE-03: SessionEnd hace el cleanup terminal al cierre real (`/exit`).
+  const sessionEndCmd = `node "${join(kodoRoot, 'src', 'hooks', 'session-end.js')}"`;
 
   let settings;
   try {
@@ -40,11 +42,15 @@ export function installHooks() {
   // Install Stop hook
   changed = addHook(settings.hooks, 'Stop', stopCmd) || changed;
 
+  // Install SessionEnd hook (Phase 58 LIFE-03)
+  changed = addHook(settings.hooks, 'SessionEnd', sessionEndCmd) || changed;
+
   if (changed) {
     writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
     console.log('✓ Hooks instalados en ~/.claude/settings.json');
     console.log(`  SessionStart: ${sessionStartCmd}`);
     console.log(`  Stop: ${stopCmd}`);
+    console.log(`  SessionEnd: ${sessionEndCmd}`);
   } else {
     console.log('✓ Hooks ya estaban instalados');
   }
@@ -68,7 +74,7 @@ export function uninstallHooks() {
 
   let changed = false;
 
-  for (const event of ['SessionStart', 'Stop']) {
+  for (const event of ['SessionStart', 'Stop', 'SessionEnd']) {
     if (!Array.isArray(settings.hooks[event])) continue;
     const before = settings.hooks[event].length;
     settings.hooks[event] = settings.hooks[event].filter((entry) => {
