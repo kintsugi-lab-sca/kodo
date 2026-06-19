@@ -151,7 +151,8 @@ describe('DETECT-02: handler `a` → discover → picker', () => {
       stdin.write('a');
       await drain();
       const frame = lastFrame();
-      assert.match(frame, escRe('/home/op/kodo/src'), `el picker debe listar la surface adoptable\n${frame}`);
+      // 56-06: el cwd se acorta a los 2 últimos folders en el picker (/home/op/kodo/src → kodo/src).
+      assert.match(frame, escRe('kodo/src'), `el picker debe listar la surface adoptable (cwd acortado)\n${frame}`);
       // Las no-adoptables (non-claude / ya trackeada) NO aparecen.
       assert.doesNotMatch(frame, escRe('/home/op/other'), `la surface non-claude NO debe aparecer\n${frame}`);
     } finally {

@@ -196,9 +196,12 @@ function renderOverlay(snap, scrollOffset, kind) {
  * Render del picker de adopt (Phase 56, DETECT-02 / D-03/Pitfall 3). Diverge de renderOverlay
  * (lectura con scroll): lista las surfaces ADOPTABLES con un CURSOR SELECCIONABLE (gutter `› ` +
  * bold sobre la fila del cursor — mismo patrón fzf/vim que la tabla). Cada fila muestra
- * `cwd · <sessionId corto> · <kind>` (D-03). Color SOLO de nombres ink (color-isolation D-12).
+ * `<title> · <…últimos 2 folders del cwd> · <sessionId corto> · <kind>` (D-03 + 56-06: el
+ * título auto-derivado de cmux hace la fila intuitiva; el cwd se acorta a los 2 últimos
+ * segmentos para no saturar). El título se omite cuando la surface no lo trae. Color SOLO
+ * de nombres ink (color-isolation D-12).
  *
- * @param {Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>} adoptable
+ * @param {Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string, title?: string }>} adoptable
  * @param {number} cursor - índice seleccionado [0, len-1].
  * @returns {import('react').ReactElement}
  */
@@ -208,10 +211,16 @@ function renderAdoptPicker(adoptable, cursor) {
     { flexDirection: 'column', marginBottom: 1 },
     h(Text, { color: 'cyan', bold: true }, 'adopt session'),
   );
+  // Últimos 2 segmentos del cwd (p. ej. /Users/alex/dev/klab/kodo → klab/kodo). Puro.
+  const lastTwo = (cwd) => (cwd ?? '').split('/').filter(Boolean).slice(-2).join('/');
   const rows = adoptable.map((s, i) => {
     const selected = i === cursor;
     const shortId = (s.sessionId ?? '').slice(0, 8);
-    const text = `${s.cwd} · ${shortId} · ${s.kind}`;
+    // Título auto-derivado de cmux (56-06), cap a 50 chars; omitido si la surface no lo trae.
+    const rawTitle = typeof s.title === 'string' ? s.title.trim() : '';
+    const title = rawTitle.length > 50 ? `${rawTitle.slice(0, 49)}…` : rawTitle;
+    const titlePrefix = title ? `${title} · ` : '';
+    const text = `${titlePrefix}${lastTwo(s.cwd)} · ${shortId} · ${s.kind}`;
     return h(
       Box,
       { key: s.sessionId ?? `adopt-${i}`, flexDirection: 'row' },
