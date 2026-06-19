@@ -49,6 +49,7 @@ import { createFormatter } from './format.js';
  *   writeFn?: (s: string) => void,
  *   errFn?: (s: string) => void,
  *   formatterFn?: () => import('./format.js').Formatter,
+ *   renameWorkspaceFn?: (args: { workspaceRef: string, title: string }) => Promise<void>,
  * }} RunAdoptCliDeps
  */
 
@@ -146,7 +147,55 @@ export async function runAdoptCli(opts, deps = {}) {
   } else {
     renderHuman(result, write, err, fmt);
   }
+
+  // PASO 5 — LIVENESS (Phase 59 gap-fix). Tras una adopción NUEVA (result.ok === true),
+  // renombramos el workspace de cmux para que su título contenga el task_ref recién
+  // creado. reconcile.liveForSession identifica la sesión viva por
+  // titleIdentifiesSession(workspace.title, task_ref) — defensa anti-reciclaje de
+  // workspace_ref (Phase 43). Las sesiones LANZADAS por kodo ya tienen el workspace
+  // auto-nombrado con el ref; una sesión ADOPTADA vive en un workspace con título
+  // cmux/usuario que NUNCA contiene el ref recién creado → reconcile la marca dead/zombie.
+  // Fijar el título a "<ref>: <título>" hace que el check EXISTENTE pase en el próximo
+  // tick → la sesión se muestra running/idle/needs-input. UNA sola llamada a cmux en
+  // tiempo de adopt; cero coste por-tick; SIN tocar reconcile.
+  //
+  // FAIL-OPEN ABSOLUTO: el rename es un side-effect DESPUÉS de decidir el discriminante.
+  // Un fallo (cmux caído, sin host, host non-cmux, método ausente, set-title error) NUNCA
+  // debe fallar el adopt ni cambiar el exit code. La tarea ya está adoptada; un workspace
+  // mostrado dead es estrictamente mejor que un adopt fallido. exitCodeFor(result) intacto.
+  if (result.ok === true && result.task && typeof result.task.ref === 'string' && result.task.ref) {
+    try {
+      const title = `${result.task.ref}: ${result.task.title ?? ''}`;
+      const renameFn = deps.renameWorkspaceFn || defaultRenameWorkspace;
+      await renameFn({ workspaceRef: opts.workspaceRef, title });
+    } catch (e) {
+      // Swallow: liveness display degradado, adopción intacta. Log a warn como mucho.
+      err(`warn: workspace rename for liveness failed (task still adopted): ${String(e?.message || e)}\n`);
+    }
+  }
+
   return exitCodeFor(result);
+}
+
+/**
+ * Default `renameWorkspaceFn` — renombra el workspace cmux vía el contrato WorkspaceHost
+ * (`getHost('cmux')._legacy.rename`). Lazy-import para no acoplar el host al import del
+ * módulo CLI ni traer child_process salvo que se use. La regla transversal LOCKED exige
+ * que TODA llamada a cmux pase por `src/host/` (getHost) — nunca desde adopt.js/reconcile.
+ *
+ * never-throws-en-la-práctica: si el host no es cmux, no expone `_legacy.rename`, o el
+ * binario falla, el caller (runAdoptCli) ya lo envuelve en try/catch FAIL-OPEN. Aquí
+ * además guardamos `typeof host?._legacy?.rename === 'function'` para degradar limpio.
+ *
+ * @param {{ workspaceRef: string, title: string }} args
+ * @returns {Promise<void>}
+ */
+async function defaultRenameWorkspace({ workspaceRef, title }) {
+  const { getHost } = await import('../host/interface.js');
+  const host = getHost('cmux');
+  if (host && host._legacy && typeof host._legacy.rename === 'function') {
+    await host._legacy.rename({ workspace: workspaceRef, title });
+  }
 }
 
 /**

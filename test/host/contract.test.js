@@ -398,4 +398,34 @@ describe('WorkspaceHost contract matrix', () => {
       assert.notEqual(typeof getHost('null').listAgentSurfaces, 'function');
     });
   });
+
+  // Phase 59 (liveness gap-fix) — _legacy.rename para que `kodo adopt` renombre el
+  // workspace y su título lleve el task_ref (→ titleIdentifiesSession pasa en reconcile).
+  describe('_legacy.rename (Phase 59 liveness)', () => {
+    test('cmux host expone _legacy.rename como función', () => {
+      const host = instantiateHost('cmux');
+      assert.equal(typeof host?._legacy?.rename, 'function', 'cmux _legacy.rename presente');
+    });
+
+    test('null host expone un _legacy.rename no-op (fail-open en hosts non-cmux)', async () => {
+      const host = getHost('null');
+      assert.equal(typeof host?._legacy?.rename, 'function', 'NullHost _legacy.rename presente');
+      // no-op: no lanza y resuelve undefined.
+      await assert.doesNotReject(async () => {
+        const r = await host._legacy.rename({ workspace: 'workspace:1', title: 'X' });
+        assert.equal(r, undefined);
+      });
+    });
+
+    test('cmux/client.js rename emite argv `workspace-action --action set-title --workspace <ws> --title <t>`', () => {
+      // client.js no tiene seam de DI sobre execFile (resuelve el binario de config);
+      // aserción a nivel de fuente del argv (espejo de los source-hygiene tests del suite).
+      const src = readFileSync(join(__dirname, '..', '..', 'src', 'cmux', 'client.js'), 'utf-8');
+      assert.match(
+        src,
+        /workspace-action['"],\s*['"]--action['"],\s*['"]set-title['"],\s*['"]--workspace['"],\s*opts\.workspace,\s*['"]--title['"],\s*opts\.title/,
+        'rename construye el argv set-title con workspace + title',
+      );
+    });
+  });
 });
