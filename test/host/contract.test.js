@@ -216,6 +216,62 @@ describe('WorkspaceHost contract matrix', () => {
       assert.equal(adoptable.workspaceRef, 'workspace:1');
     });
 
+    // Phase 56-06: enriquecimiento del title (← workspace list --json custom_title).
+    test('setea title ← custom_title del workspace cuando has_custom_title===true (56-06)', async () => {
+      const surfaces = await host.listAgentSurfaces();
+      const adoptable = surfaces.find(
+        (s) => s.sessionId === 'c1c3ed6d-fa07-43af-add7-44274b1e0a64',
+      );
+      assert.ok(adoptable, 'la surface adoptable está presente');
+      // workspace:1 en list-workspaces.json tiene has_custom_title:true + custom_title:"KODO DEV".
+      assert.equal(adoptable.title, 'KODO DEV', 'title ← custom_title del workspace de la surface');
+    });
+
+    test('title undefined cuando el workspace NO tiene custom_title (fail-open, 56-06)', async () => {
+      // El workspace-list devuelve solo workspace:16 (has_custom_title:false). La surface
+      // adoptable cae en workspace:1 que NO está en este list → sin join → title undefined.
+      const noCustom = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('workspace list')) {
+          return JSON.stringify({
+            workspaces: [
+              { ref: 'workspace:1', has_custom_title: false, custom_title: null, title: 'auto' },
+            ],
+          });
+        }
+        if (argv.includes('tree')) return TREE_FIXTURE;
+        if (argv.includes('surface resume show')) return surfaceShowFor(argv);
+        return '';
+      };
+      const h = instantiateHost('cmux', noCustom);
+      const surfaces = await h.listAgentSurfaces();
+      const adoptable = surfaces.find(
+        (s) => s.sessionId === 'c1c3ed6d-fa07-43af-add7-44274b1e0a64',
+      );
+      assert.ok(adoptable, 'la surface adoptable está presente');
+      assert.equal(adoptable.title, undefined, 'sin custom_title → title ausente (core cae al basename)');
+    });
+
+    test('workspace-list fetch falla → surfaces SIN title, nunca lanza (fail-open, 56-06)', async () => {
+      // El title es una nicety: si la fetch del workspace-list falla, las surfaces se
+      // devuelven igual (sin título). El contrato never-throws de discovery NO se rompe.
+      const titleFetchFails = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('workspace list')) throw new Error('socket caído en workspace list');
+        if (argv.includes('tree')) return TREE_FIXTURE;
+        if (argv.includes('surface resume show')) return surfaceShowFor(argv);
+        return '';
+      };
+      const h = instantiateHost('cmux', titleFetchFails);
+      let surfaces;
+      await assert.doesNotReject(async () => {
+        surfaces = await h.listAgentSurfaces();
+      });
+      assert.equal(surfaces.length, 1, 'la surface adoptable sobrevive pese al fallo del title-fetch');
+      assert.equal(surfaces[0].sessionId, 'c1c3ed6d-fa07-43af-add7-44274b1e0a64');
+      assert.equal(surfaces[0].title, undefined, 'fail-open: sin title cuando la fetch del workspace-list falla');
+    });
+
     test('omite cleared:true / sin resume_binding / source!=agent-hook (D-05)', async () => {
       const surfaces = await host.listAgentSurfaces();
       // La fixture tiene 4 refs; solo surface:1 es adoptable.

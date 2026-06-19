@@ -39,6 +39,12 @@ const require = createRequire(import.meta.url);
  *   de Claude Code, CMUX-CAPABILITIES.md §P0).
  * @property {string} kind - Tipo de agente (← resume_binding.kind; el CONSUMER filtra por kind,
  *   NO listAgentSurfaces — D-05).
+ * @property {string} [title] - Título auto-derivado por cmux del workspace de la surface (←
+ *   `workspace list --json`.custom_title cuando has_custom_title===true). Phase 56-06: la TUI lo
+ *   pasa a `kodo adopt --title` para que la sesión adoptada herede el nombre legible del workspace
+ *   en vez del fallback basename(cwd) del core. OPCIONAL/aditivo: ausente cuando el workspace no
+ *   tiene custom_title (fail-open) → adopt cae al basename, comportamiento previo. NO cambia
+ *   HOST_METHODS (congelado en 4) ni los 4 campos existentes del shape.
  */
 
 /**

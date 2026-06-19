@@ -77,6 +77,79 @@ describe('Phase 56 Plan 01: runAdopt never-throws + execPath binary + literal 8-
     assert.equal(captured.args[captured.args.length - 1], '--json', '--json debe ser el último elemento del argv');
   });
 
+  // 56-06: cuando se pasa un `title` no vacío, runAdopt inserta `--title <title>` como par
+  // literal en el argv (antes de --json). execFile sin shell → el título es UN argumento literal,
+  // injection-safe automáticamente. Cuando el title es absent/empty se OMITE (core cae al basename).
+  it('56-06: title no vacío → inserta --title <title> en el argv (par literal, antes de --json)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    const result = await runAdopt({ exec, ...base, title: 'ROMAN-170 [FVF]' });
+    assert.deepEqual(result, { ok: true });
+    assert.ok(captured);
+    assert.deepEqual(
+      captured.args,
+      [
+        KODO_BIN,
+        'adopt',
+        '--workspace',
+        WORKSPACE_REF,
+        '--cwd',
+        CWD,
+        '--session-id',
+        SESSION_ID,
+        '--project',
+        PROJECT_ID,
+        '--title',
+        'ROMAN-170 [FVF]',
+        '--json',
+      ],
+      '--title <title> debe insertarse como par literal tras --project, antes de --json',
+    );
+    assert.equal(captured.args[captured.args.length - 1], '--json', '--json sigue siendo el último elemento');
+  });
+
+  it('56-06: title con prefijo `-` se pasa como argumento literal del flag (no se parsea como flag)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    await runAdopt({ exec, ...base, title: '--rm -rf' });
+    assert.ok(captured);
+    const i = captured.args.indexOf('--title');
+    assert.ok(i >= 0, '--title presente');
+    assert.equal(captured.args[i + 1], '--rm -rf', 'el valor del título va inmediatamente tras --title como literal');
+  });
+
+  it('56-06: title ausente → omite --title (core cae al basename(cwd))', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    await runAdopt({ exec, ...base }); // sin title
+    assert.ok(captured);
+    assert.ok(!captured.args.includes('--title'), 'sin title → ningún --title en el argv');
+  });
+
+  it('56-06: title vacío "" → omite --title (no fuerza un título vacío)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    await runAdopt({ exec, ...base, title: '' });
+    assert.ok(captured);
+    assert.ok(!captured.args.includes('--title'), 'title "" → omitido (core cae al basename)');
+  });
+
   // 56-03 UAT gap-fix: `kodo adopt` exits 0 even for ALREADY_ADOPTED (idempotent by
   // design — the exit contract is shared with Phase 57 and does NOT change). With
   // --json now appended, runAdopt parses stdout on the exit-0 branch and surfaces an

@@ -85,6 +85,19 @@ describe('Phase 56 Plan 01: computeAdoptable set-difference por sessionId (D-02)
     const status = [{ session_id: null }, { session_id: '' }, { session_id: 's2' }];
     assert.deepEqual(computeAdoptable(surfaces, status).map((s) => s.sessionId), ['s1']);
   });
+
+  it('56-06: preserva el campo title en las surfaces adoptables (rides along sin transformar)', () => {
+    const surfaces = [
+      { workspaceRef: 'ws:1', cwd: '/a', sessionId: 's1', kind: 'claude', title: 'KODO DEV' },
+      { workspaceRef: 'ws:2', cwd: '/b', sessionId: 's2', kind: 'claude' }, // sin title
+    ];
+    const result = computeAdoptable(surfaces, []);
+    assert.equal(result.length, 2);
+    const a = result.find((s) => s.sessionId === 's1');
+    const b = result.find((s) => s.sessionId === 's2');
+    assert.equal(a.title, 'KODO DEV', 'el title sobrevive el set-difference');
+    assert.equal(b.title, undefined, 'la surface sin title sigue sin title (no se inventa)');
+  });
 });
 
 describe('Phase 56 Plan 01: resolveProjectId reverse-lookup cwd→projectId (D-05)', () => {
