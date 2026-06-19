@@ -172,8 +172,8 @@ export async function runDashboard(deps = {}) {
       typeof host.listAgentSurfaces === 'function' ? host.listAgentSurfaces() : [],
     // Phase 56 D-06/D-07: shell never-throws de `kodo adopt`. binary = process.execPath (node) +
     // kodoBin como argv[0] (Pitfall 4). runAdopt colapsa todo fallo a {ok:false} — App.js mapea a footer.
-    onAdopt: async ({ workspaceRef, cwd, sessionId, projectId }) =>
-      runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId }),
+    onAdopt: async ({ workspaceRef, cwd, sessionId, projectId, title }) =>
+      runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title }),
     // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
     projects,
   }));

@@ -224,6 +224,73 @@ describe('DETECT-02: picker cursor + double-confirm (D-04)', () => {
     }
   });
 
+  it('(d3) 56-06: el armed adopt pasa el title de la surface a onAdopt (rides through hasta runAdopt)', async () => {
+    const clock = makeFakeClock();
+    const { fetchFn } = makeRouter();
+    /** @type {Array<object>} */
+    const adopts = [];
+    // surface CON title (auto-derivado por cmux) + surface SIN title.
+    const onAdoptDiscover = async () => [
+      { workspaceRef: 'ws-1', cwd: '/home/op/kodo/src', sessionId: 'sess-T', kind: 'claude', title: 'KODO DEV' },
+      { workspaceRef: 'ws-2', cwd: '/home/op/kodo/lib', sessionId: 'sess-N', kind: 'claude' },
+    ];
+    const onAdopt = async (/** @type {object} */ p) => {
+      adopts.push(p);
+      return { ok: true };
+    };
+    const { lastFrame, stdin, unmount } = render(
+      createElement(App, injectProps(clock, fetchFn, { onAdoptDiscover, onAdopt })),
+    );
+    try {
+      await drain();
+      stdin.write('a'); // picker (cursor 0 → sess-T, con title)
+      await drain();
+      stdin.write('a'); // arma
+      await drain();
+      assert.match(lastFrame(), escRe(ADOPT_CONFIRM('ws-1')), 'precondición: armado sobre sess-T');
+      stdin.write('a'); // ejecuta
+      await drain();
+      await drain(); // Pitfall 1: ink no awaitea el handler async
+      assert.equal(adopts.length, 1, 'el segundo a shellea onAdopt una vez');
+      assert.equal(adopts[0].sessionId, 'sess-T');
+      assert.equal(adopts[0].title, 'KODO DEV', 'onAdopt recibe el title auto-derivado de la surface');
+    } finally {
+      unmount();
+    }
+  });
+
+  it('(d4) 56-06: surface SIN title → onAdopt recibe title undefined (core cae al basename)', async () => {
+    const clock = makeFakeClock();
+    const { fetchFn } = makeRouter();
+    /** @type {Array<object>} */
+    const adopts = [];
+    const onAdoptDiscover = async () => [
+      { workspaceRef: 'ws-2', cwd: '/home/op/kodo/lib', sessionId: 'sess-N', kind: 'claude' },
+    ];
+    const onAdopt = async (/** @type {object} */ p) => {
+      adopts.push(p);
+      return { ok: true };
+    };
+    const { lastFrame, stdin, unmount } = render(
+      createElement(App, injectProps(clock, fetchFn, { onAdoptDiscover, onAdopt })),
+    );
+    try {
+      await drain();
+      stdin.write('a');
+      await drain();
+      stdin.write('a');
+      await drain();
+      assert.match(lastFrame(), escRe(ADOPT_CONFIRM('ws-2')), 'precondición: armado sobre sess-N');
+      stdin.write('a');
+      await drain();
+      await drain();
+      assert.equal(adopts.length, 1);
+      assert.equal(adopts[0].title, undefined, 'sin title en la surface → onAdopt lo recibe undefined');
+    } finally {
+      unmount();
+    }
+  });
+
   it('(d2) 56-03: onAdopt → ALREADY_ADOPTED muestra footer ámbar (NO verde ADOPT_OK)', async () => {
     const clock = makeFakeClock();
     const { fetchFn } = makeRouter();

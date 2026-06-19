@@ -82,10 +82,13 @@
  * @param {string} args.cwd — cwd de la surface (validado string por normalizeSurface).
  * @param {string} args.sessionId — identidad de la surface (== resume_binding.checkpoint_id).
  * @param {string} args.projectId — projectId resuelto por el reverse-lookup (D-05).
+ * @param {string} [args.title] — 56-06: título auto-derivado de cmux (AgentSurface.title). Cuando
+ *   es un string no vacío se inserta como `--title <title>` (literal argv, injection-safe sin
+ *   shell); cuando es absent/empty se OMITE y el core cae al basename(cwd).
  * @param {number} [args.timeoutMs=5000] — D-06: 5s; un adopt colgado no debe enmascarar la UI.
  * @returns {Promise<AdoptResult>}
  */
-export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, timeoutMs = 5_000 }) {
+export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, timeoutMs = 5_000 }) {
   // Leak guard ESTRUCTURAL: omitir `exec` produce TypeError visible (NO se degrada al
   // discriminado SPAWN_ERROR). Va ANTES del new Promise para que el TypeError propague
   // sincronamente, no quede atrapado en el try/catch del never-throws contract de abajo.
@@ -110,6 +113,14 @@ export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId
         sessionId,
         '--project',
         projectId,
+        // 56-06: --title <title> from cmux's auto-derived workspace name (AgentSurface.title).
+        // Inserted as a LITERAL argv pair (T-56-01 — each value preceded by its explicit flag),
+        // so a title starting with `-` is consumed as the flag's argument, not parsed as a new
+        // flag. runAdopt uses execFile with a literal argv (NO shell) → the title is one literal
+        // argument, injection-safe automatically; NO shell-quoting. OMITTED when title is
+        // absent/empty so the core falls back to basename(cwd) — unchanged. The core's
+        // sanitizeAdoptionData still redacts paths/home in the title downstream.
+        ...(typeof title === 'string' && title.length > 0 ? ['--title', title] : []),
         // 56-03: --json as the FINAL argv element. The CLI's --json branch bypasses
         // renderHuman and prints the never-throws discriminant (byte-deterministic,
         // no color) to stdout, so the exit-0 branch below can distinguish a real

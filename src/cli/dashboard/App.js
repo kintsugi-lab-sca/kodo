@@ -531,6 +531,10 @@ export default function App({
               cwd: surface.cwd,
               sessionId: surface.sessionId,
               projectId: r.projectId,
+              // Phase 56-06: el título auto-derivado de cmux (← AgentSurface.title) viaja
+              // hasta runAdopt como `--title`. Ausente cuando el workspace no tiene custom
+              // title → onAdopt lo omite y el core cae al basename(cwd).
+              title: surface.title,
             });
             setOverlayKind(null);
             setMode('confirm');
