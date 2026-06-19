@@ -217,7 +217,7 @@ describe('launchOrchestrator real spawn observables (ADVISORY-03)', () => {
 
     // cmux shim: script node ejecutable que responde a las subcommands del
     // cliente cmux. `new-workspace` imprime "OK workspace:99" para satisfacer
-    // el regex /(workspace:\d+)/ del cmux/client.js. `list-workspaces` imprime
+    // el regex /(workspace:\d+)/ del cmux/client.js. `workspace list` imprime
     // string vacío → launchOrchestrator NO entra en la rama "already exists".
     // Las demás subcommands (send, workspace-action, notify) salen 0 sin
     // output.
@@ -228,7 +228,7 @@ describe('launchOrchestrator real spawn observables (ADVISORY-03)', () => {
       '#!/usr/bin/env node\n' +
       'const sub = process.argv[2];\n' +
       'if (sub === "new-workspace") { console.log("OK workspace:99"); }\n' +
-      'else if (sub === "list-workspaces") { process.stdout.write(""); }\n' +
+      'else if (sub === "workspace" && process.argv[3] === "list") { process.stdout.write(""); }\n' +
       'process.exit(0);\n';
     writeFileSync(shimPath, shimContent, 'utf-8');
     chmodSync(shimPath, 0o755);

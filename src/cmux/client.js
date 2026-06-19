@@ -74,7 +74,7 @@ export async function rename(opts) {
  * @returns {Promise<string>}
  */
 export async function listWorkspaces() {
-  return run(['list-workspaces']);
+  return run(['workspace', 'list']);
 }
 
 /**

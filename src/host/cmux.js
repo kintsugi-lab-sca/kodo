@@ -124,7 +124,7 @@ export function createCmuxHost(opts = {}) {
    * en versiones futuras, este host requiere actualización — el test contract con
    * fixture JSON real lo detectará.
    *
-   * Known limitation (RESEARCH §P-4): cmux list-workspaces sin --window retorna
+   * Known limitation (RESEARCH §P-4): cmux workspace list sin --window retorna
    * solo los workspaces del window activo del caller. Multi-window no soportado.
    *
    * @returns {Promise<import('./interface.js').WorkspaceInfo[]>}
@@ -135,7 +135,7 @@ export function createCmuxHost(opts = {}) {
     let notifRaw;
     try {
       [wsRaw, notifRaw] = await Promise.all([
-        run(['list-workspaces', '--json']),
+        run(['workspace', 'list', '--json']),
         run(['rpc', 'notification.list']),
       ]);
     } catch (err) {
@@ -168,7 +168,7 @@ export function createCmuxHost(opts = {}) {
       );
       return {
         workspace_ref: ref,
-        alive: true, // presencia en list-workspaces = tab viva
+        alive: true, // presencia en workspace list = tab viva
         needs_input,
         last_activity: w.latest_submitted_at ?? null,
         // Identidad del workspace (kodo fija el título con el task_ref). reconcile la usa para
@@ -306,7 +306,7 @@ export function createCmuxHost(opts = {}) {
     async readScreen(opts) {
       return (await import('../cmux/client.js')).readScreen(opts);
     },
-    /** @returns {Promise<string>} raw stdout de `cmux list-workspaces` (texto, sin --json) */
+    /** @returns {Promise<string>} raw stdout de `cmux workspace list` (texto, sin --json) */
     async listWorkspaces() {
       return (await import('../cmux/client.js')).listWorkspaces();
     },

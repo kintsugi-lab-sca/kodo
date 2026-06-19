@@ -51,7 +51,7 @@ function fakeExecFromFixtures() {
   return (binary, args, opts, cb) => {
     const argv = (args || []).join(' ');
     let payload = '';
-    if (argv.includes('list-workspaces')) payload = LIST_FIXTURE;
+    if (argv.includes('workspace list')) payload = LIST_FIXTURE;
     else if (argv.includes('notification.list')) payload = NOTIF_FIXTURE;
     else if (argv.includes('surface resume show')) payload = surfaceShowFor(argv);
     else if (argv.includes('tree')) payload = TREE_FIXTURE;
@@ -92,7 +92,7 @@ function instantiateHost(name, runOverride) {
         runOverride ||
         (async (args) => {
           const argv = (args || []).join(' ');
-          if (argv.includes('list-workspaces')) return LIST_FIXTURE;
+          if (argv.includes('workspace list')) return LIST_FIXTURE;
           if (argv.includes('notification.list')) return NOTIF_FIXTURE;
           if (argv.includes('surface resume show')) return surfaceShowFor(argv);
           if (argv.includes('tree')) return TREE_FIXTURE;
