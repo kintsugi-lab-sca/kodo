@@ -168,6 +168,27 @@ export class PlaneClient {
   }
 
   /**
+   * Associate a work item to a module (BIDIR-01, Phase 57 module-placement gap-fix). POSTs to the
+   * `module-issues` collection — the EXACT same endpoint shape the cache build / `getWorkItemModule`
+   * already GET at client.js:161, confirming `/projects/<id>/modules/<id>/module-issues/` is the
+   * membership collection. The body is `{ issues: [<workItemId>] }` (Plane accepts a batch of
+   * work-item UUIDs on the module). Same authenticated `request()` POST (X-API-Key, 10s timeout,
+   * rate-limit retry, error throw centralized). Does NOT swallow — the CALLER (provider.createTask)
+   * owns the fail-open posture so a missing module never downgrades a created work item.
+   *
+   * @param {string} projectId
+   * @param {string} moduleId
+   * @param {string} workItemId
+   * @returns {Promise<any>} raw response
+   */
+  async addWorkItemToModule(projectId, moduleId, workItemId) {
+    return this.request(`/projects/${projectId}/modules/${moduleId}/module-issues/`, {
+      method: 'POST',
+      body: { issues: [workItemId] },
+    });
+  }
+
+  /**
    * @param {string} projectId
    * @param {string} workItemId
    * @param {string} commentHtml

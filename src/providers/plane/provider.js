@@ -42,6 +42,8 @@ export function createPlaneProvider(config, opts = {}) {
   const stateByName = new Map();
   /** @type {Map<string, string>} workItem UUID → module name */
   const moduleCache = new Map();
+  /** @type {Map<string, Map<string, string>>} projectId → Map<lowercased module name, moduleId> */
+  const moduleByName = new Map();
   let initTimestamp = 0;
   const INIT_TTL_MS = 5 * 60 * 1000; // re-init every 5min
 
@@ -277,7 +279,7 @@ export function createPlaneProvider(config, opts = {}) {
     // (D-06); Phase 53's adoptSession consumes it with no special case. Errors propagate
     // LOUD (D-08); the {ok,code,detail} taxonomy belongs to Phase 53. Sanitization /
     // title-derivation is Phase 53 (BIDIR-08) — createTask receives resolved args.
-    async createTask({ projectId, title, description }) {
+    async createTask({ projectId, title, description, module }) {
       const proj = config.projects.find((p) => p.id === projectId);
       const html = description ? '<p>' + description.replace(/\n/g, '<br>') + '</p>' : '';
 
@@ -317,6 +319,45 @@ export function createPlaneProvider(config, opts = {}) {
         ...(stateId ? { state: stateId } : {}),
         labels: [adoptedLabel.id],
       });
+
+      // Module placement (Phase 57 module-placement gap-fix). `module` is a module NAME string
+      // (config/cwd-derived, NOT user free-text). The work item ALREADY EXISTS at this point —
+      // a module-resolution/association failure is a DEGRADED outcome (the item lands in the
+      // project but not the module board), NEVER a fatal CREATE_FAILED. FAIL-OPEN by construction:
+      // the whole resolve+associate is wrapped in try/catch and ALWAYS falls through to the return
+      // of the created task. Mirrors the idempotent posture of the label-409 fix.
+      if (typeof module === 'string' && module.length > 0) {
+        try {
+          const target = module.toLowerCase();
+          let byName = moduleByName.get(projectId);
+          let moduleId = byName?.get(target);
+          if (!moduleId) {
+            // Cache miss (or never warmed): list this project's modules and (re)build the name→id map.
+            const modules = await client.listModules(projectId);
+            byName = byName || new Map();
+            for (const mod of modules) {
+              byName.set((mod.name || '').toLowerCase(), mod.id);
+            }
+            moduleByName.set(projectId, byName);
+            moduleId = byName.get(target);
+          }
+          if (moduleId) {
+            await client.addWorkItemToModule(projectId, moduleId, raw.id);
+          } else {
+            console.warn(
+              `[kodo] Module "${module}" not found in project ${proj?.identifier || projectId}; ` +
+                `work item created without module placement.`,
+            );
+          }
+        } catch (err) {
+          // FAIL-OPEN: the work item is already created; a module failure must NOT throw out of
+          // createTask (would surface as CREATE_FAILED and lose the created item from local state).
+          console.warn(
+            `[kodo] Module placement failed for "${module}": ${err?.message ?? err}; ` +
+              `work item created without module placement.`,
+          );
+        }
+      }
 
       const context = {
         labels: labelCache,
