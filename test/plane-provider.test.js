@@ -145,6 +145,49 @@ describe('PlaneProvider', () => {
     });
   });
 
+  describe('getTask labels — F2 regression (2026-06-22)', () => {
+    // F2: getTask devolvía labels:[] para tareas con label `kodo` porque
+    // getWorkItemBySequence NO expandía labels → venían como UUIDs y se resolvían
+    // contra labelCache (que podía no tener el id). El fix expande `labels` →
+    // objetos con `name` → resolveWorkItemLabels mapea directo, sin cache.
+    it('getTask resuelve labels desde la work-item expandida, con labelCache VACÍO', async () => {
+      let workItemsUrl = null;
+      const original = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        const u = new URL(url);
+        const p = u.pathname;
+        if (p.endsWith('/work-items/')) {
+          workItemsUrl = u.toString();
+          // Work-item con labels como OBJETOS expandidos (lo que devuelve el fix).
+          return new Response(JSON.stringify({
+            results: [{
+              id: 'wi-1', sequence_id: 1, name: 'Test task', state: 's1',
+              project: 'proj-uuid',
+              labels: [{ id: 'l-kodo', name: 'kodo' }],
+            }],
+          }), { status: 200 });
+        }
+        // labelCache VACÍO a propósito: si el fix dependiera del cache, fallaría.
+        if (p.endsWith('/labels/')) return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        if (p.endsWith('/states/')) return new Response(JSON.stringify({ results: [{ id: 's1', name: 'In Progress' }] }), { status: 200 });
+        return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      };
+      try {
+        const provider = createPlaneProvider(MOCK_CONFIG);
+        await provider.init();
+        const task = await provider.getTask('TST-1');
+        assert.deepEqual(task.labels, ['kodo'], 'getTask resuelve el label aunque el labelCache esté vacío');
+        assert.ok(workItemsUrl, 'work-items endpoint fue golpeado');
+        assert.ok(
+          /expand=[^&]*labels/.test(decodeURIComponent(workItemsUrl)),
+          'getWorkItemBySequence DEBE expandir labels (fix F2)',
+        );
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+  });
+
   describe('getTaskState mapping (D-08/D-09/D-10)', () => {
     /**
      * Build a provider whose work item is ASSIGNED the given state definition. The Plane

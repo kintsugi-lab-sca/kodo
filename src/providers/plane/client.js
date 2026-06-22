@@ -123,8 +123,13 @@ export class PlaneClient {
    * @param {number} sequenceId
    */
   async getWorkItemBySequence(projectId, sequenceId) {
+    // F2 fix (2026-06-22): expandir `labels` para que la work-item los traiga como
+    // OBJETOS (con `name`) en vez de UUIDs. Sin esto, getTask los resuelve contra el
+    // `labelCache` (built en init, TTL) que puede no contener el id → labels:[] →
+    // tarea vista como no-kodo (launch ignorado). Con expand, resolveWorkItemLabels
+    // mapea `.name` directo, sin depender del cache. Verificado contra la API live.
     const data = await this.request(`/projects/${projectId}/work-items/`, {
-      params: { expand: 'state_detail,project_detail' },
+      params: { expand: 'state_detail,project_detail,labels' },
     });
     const results = data.results || data;
     return results.find((item) => item.sequence_id === sequenceId) || null;
