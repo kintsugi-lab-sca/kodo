@@ -101,7 +101,13 @@ Items reconocidos y diferidos (ninguno bloqueante). Los 2 items de deuda viva de
 
 ### Open Blockers
 
-None.
+**DEBT-02 (HUMAN-UAT 50.1) — BLOQUEADO POR UPSTREAM (2026-06-22).** La validación del progreso vivo `N/M` no se puede completar porque ninguna sesión llega a la combinación necesaria (`gsd:true` + worktree con STATE.md poblado). El **read-path del progreso está probado** (el dashboard lee el `progress:` del worktree STATE.md correctamente); el fallo está aguas arriba, en que el flag `gsd` no se setea en los caminos de launch probados. Tres hallazgos de la UAT:
+
+- **F2 — `getTask` devuelve `labels: []` para KODO-4 pese a tener el label `kodo` en Plane.** Evidencia: `kodo launch KODO-4` → `Task: KODO-4 — labels: []` / `isKodo: false`, mientras la API de Plane (`list_work_items` expand=labels) sí muestra el label `kodo` (id `1c7ff1c9`). Hipótesis: el `getTask`/normalize del adapter Plane no trae/mapea los labels de esa work-item. Dónde mirar: `src/plane/client.js` getTask + `normalizeWorkItem` (mapeo de labels).
+- **F3 — Launch con `--force` viene `gsd:undefined` (sin `gsd.bootstrap`).** Evidencia: sesión `e3d7c49c…` (KODO-4) → `gsd=undefined, gsd_mode=undefined, phase_id=undefined`; NO hay evento `gsd.bootstrap` en su log (ROMAN-175 sí lo tenía). Hipótesis: la detección/bootstrap GSD se salta en el path `--force` o depende del label que vino vacío (F2). Efecto: la sesión queda gateada fuera del progreso (`App.js:419`). Dónde mirar: `src/triggers/dispatcher.js` (rama force + gsd bootstrap / resolvePhase).
+- **F4 — El worktree se crea desde el último commit PUSHEADO, no desde `main` local.** Evidencia: worktree de `e3d7c49c…` en `6830b4b chore: archive v0.12 milestone`; `main` local en `7eaccd9`. Como no se ha hecho `git push` en toda la sesión, el worktree (y su STATE.md → `5/6`) está 30+ commits stale. Posiblemente by-design (branch desde `origin/main`), pero sorprendente; verificar la elección de base branch en el launch. Dónde mirar: `src/session/manager.js` (creación del worktree / base ref).
+
+**Nota:** F2/F3 bloquean también el progreso vivo de sesiones GSD **lanzadas** (complementario a Phase 61, que es para **adoptadas**). Conjuntamente sugieren que el flag `gsd` no es fiable en varios caminos.
 
 ### Open Questions
 
@@ -142,7 +148,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 v0.13 tiene las fases 52-60 entregadas en código (suite 1499 verde). Pendientes:
 
-- **DEBT-02 (HUMAN-UAT 50.1):** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` con una sesión GSD **lanzada por kodo** (NO adoptada — ver Phase 61) en un TTY real, y registrar el resultado.
+- **DEBT-02 (HUMAN-UAT 50.1): BLOQUEADO POR UPSTREAM** (ver §Open Blockers F2/F3/F4, 2026-06-22). El read-path del progreso está probado, pero el flag `gsd` no se setea en los launches probados → la columna se queda en `—`. Desbloquear requiere arreglar F2 (labels) / F3 (gsd en launch) primero.
 - **Phase 61 (NUEVA, registrada desde UAT 2026-06-22):** progreso vivo para sesiones **adoptadas**. Hallazgo del UAT de DEBT-02: una sesión GSD adoptada NO muestra `N/M` porque (1) la adopción no marca `gsd` (`buildSessionFromAdoption` lo omite → gate `App.js:419`) y (2) el lector asume worktree de kodo (`computeRealWorktreePath`, `App.js:433`) que una adoptada no tiene. Sin planificar — `/gsd:discuss-phase 61`.
 
 Tras DEBT-02 (y decidir si Phase 61 entra en v0.13 o se difiere): `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.

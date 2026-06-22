@@ -216,6 +216,15 @@ Plans:
 **Plans:** 0 plans
 - [ ] TBD (run /gsd-plan-phase 61 to break down)
 
+### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
+
+Destapados al validar DEBT-02 (detalle + evidencia en `STATE.md` §Open Blockers):
+- **F2:** `getTask` Plane devuelve `labels: []` para KODO-4 pese a tener el label `kodo` → `isKodo:false`, launch ignorado sin `--force`. (`src/plane/client.js`)
+- **F3:** launch `--force` viene `gsd:undefined` (sin `gsd.bootstrap`) → gateado fuera del progreso vivo. (`src/triggers/dispatcher.js`)
+- **F4:** el worktree del launch se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → código/STATE.md stale si no se ha hecho push. (`src/session/manager.js`) — verificar si es by-design.
+
+F2/F3 bloquean el progreso vivo de sesiones GSD **lanzadas** (complementan Phase 61, que cubre las **adoptadas**). Triage pendiente: ¿bug-fixes sueltos o una Phase 62 "fiabilidad del flag gsd en launch"?
+
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
 
