@@ -140,8 +140,11 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-v0.13 está **CODE-complete** (todas las fases 52-60 entregadas en código, suite 1499 verde). Una sola acción pendiente, intrínsecamente humana:
+v0.13 tiene las fases 52-60 entregadas en código (suite 1499 verde). Pendientes:
 
-- **DEBT-02 (HUMAN-UAT 50.1):** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` en un TTY real con sesión GSD viva y registrar el resultado. Tras eso, el milestone puede cerrarse con `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
+- **DEBT-02 (HUMAN-UAT 50.1):** ejecutar los 3 escenarios de `50.1-HUMAN-UAT.md` con una sesión GSD **lanzada por kodo** (NO adoptada — ver Phase 61) en un TTY real, y registrar el resultado.
+- **Phase 61 (NUEVA, registrada desde UAT 2026-06-22):** progreso vivo para sesiones **adoptadas**. Hallazgo del UAT de DEBT-02: una sesión GSD adoptada NO muestra `N/M` porque (1) la adopción no marca `gsd` (`buildSessionFromAdoption` lo omite → gate `App.js:419`) y (2) el lector asume worktree de kodo (`computeRealWorktreePath`, `App.js:433`) que una adoptada no tiene. Sin planificar — `/gsd:discuss-phase 61`.
+
+Tras DEBT-02 (y decidir si Phase 61 entra en v0.13 o se difiere): `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
 
 Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`/`9124cfa`/`93271d9`), Phase 58 LIFE-03 hook SessionEnd (`5a8c2a0`/`0e2e7f8`/`b8129eb`) + DEBT-01 XSS test (`976f8a6`). Todo local, **sin push**.

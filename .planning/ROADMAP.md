@@ -32,6 +32,7 @@
 - [~] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03 ✅) + XSS WR-01 ya mitigado + test (DEBT-01 ✅). Pendiente solo DEBT-02 (HUMAN-UAT 50.1, requiere TTY real) 🧑 2026-06-19
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
 - [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
+- [ ] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -195,6 +196,26 @@ Plans:
 Plans:
 - [ ] TBD (run /gsd-plan-phase 60 to break down)
 
+### Phase 61: Progreso vivo para sesiones adoptadas
+
+> **Registrada desde UAT (2026-06-22).** Hallazgo durante el HUMAN-UAT de DEBT-02 (Phase 58): una sesión GSD **adoptada** (no lanzada por kodo) NO muestra la columna `prog` (`N/M`) en el dashboard. Es un gap de interacción entre la adopción (v0.13) y el progreso vivo (50.1/v0.12), NO un fallo de DEBT-02 (cuyos 3 escenarios cubren sesiones GSD **lanzadas** por kodo).
+
+**Goal:** Una sesión GSD adoptada refleja su progreso vivo `N/M` en el dashboard igual que una lanzada por kodo.
+
+**Origen / dos causas raíz (diagnóstico 2026-06-22):**
+1. **La adopción no marca `gsd`.** `buildSessionFromAdoption` (`src/adopt.js:114-129`) omite `gsd`/`gsd_mode`/`phase_id`. El gate del dashboard (`App.js:419`, `if (row?.gsd !== true) → '—'`) la excluye. La adopción no detecta que el cwd es un proyecto GSD.
+2. **El path del STATE.md asume worktree de kodo.** `App.js:433` usa `computeRealWorktreePath(project_path, session_id)` = `<project_path>/.claude/worktrees/<session_id>/.planning/STATE.md` — solo existe para sesiones lanzadas (worktree aislado). Una adoptada corre en su cwd real; su STATE.md está en `<cwd>/.planning/STATE.md`. Marcado *load-bearing / Pitfall 1* — la asunción del worktree-path es defensa anti-`bg-shell` equivocado.
+
+**Depends on:** Phase 53/54 (adopción) + Phase 50.1 (lector de progreso vivo).
+**Requirements:** TBD (definir en discuss — candidato PROG-04 / DETECT-03).
+**Success Criteria** (what must be TRUE):
+  1. Al adoptar, kodo **detecta** si el cwd es un proyecto GSD (p. ej. `.planning/PROJECT.md`/`STATE.md` presentes) y, si lo es, marca la fila `gsd: true` (+ `gsd_mode`/`phase_id` derivables) — sin romper la fontanería determinista 0-token.
+  2. El lector de progreso resuelve el STATE.md correcto para sesiones **sin worktree** (adoptadas): cuando no hay worktree de kodo, usa `<cwd o project_path>/.planning/STATE.md`; cuando lo hay, mantiene `computeRealWorktreePath` (no debilita la defensa Pitfall 1).
+  3. Una sesión GSD adoptada viva muestra `N/M` real (y `N/M✓` al completar); una adoptada no-GSD sigue mostrando `—`. Never-throws preservado.
+
+**Plans:** 0 plans
+- [ ] TBD (run /gsd-plan-phase 61 to break down)
+
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
 
@@ -214,5 +235,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 1/1 | LIFE-03 ✅ (SessionEnd hook) + DEBT-01 ✅ (XSS) · DEBT-02 human_needed (HUMAN-UAT 50.1, TTY) | 2026-06-19 |
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
+| 61. Progreso vivo para sesiones adoptadas | v0.13 | 0/TBD | Registrada desde UAT (sin planificar) | - |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.
