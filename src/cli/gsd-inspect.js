@@ -23,7 +23,7 @@ import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask } from '../gsd/brief.js';
 import { buildGsdContext } from '../hooks/session-start.js';
 import { resolveProjectPath } from '../session/manager.js';
-import { loadProjects } from '../config.js';
+import { loadProjects, loadConfig } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { createFormatter } from './format.js';
 
@@ -58,7 +58,13 @@ export async function runGsdInspect(opts, deps = {}) {
   let getProviderFn = deps.getProviderFn;
   if (!getProviderFn) {
     await initRegistry();
-    getProviderFn = () => getProvider(/** @type {any} */ (undefined));
+    // KODO-4 fix: inspect es dry-run sin estado (D-18), así que NO hay
+    // session.provider que leer — el provider se resuelve desde el default del
+    // config (`config.provider`). Antes se invocaba `getProvider(undefined)`
+    // → "Unknown provider: undefined". Patrón canónico: getProvider(config.provider)
+    // (server.js:366, manager.js:174).
+    const providerName = loadConfig().provider;
+    getProviderFn = () => getProvider(providerName);
   }
   const resolveProjectPathFn = deps.resolveProjectPathFn
     || ((task) => resolveProjectPath(task, /** @type {any} */ (loadProjects())));

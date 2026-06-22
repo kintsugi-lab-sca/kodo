@@ -96,16 +96,25 @@ export async function runGsdVerify(opts, deps = {}) {
         minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
       }).child({ component: 'gsd' }));
 
+  // --- 1. Resolve session ------------------------------------------------
+  const session = findSessionFn({ sessionId: opts.sessionId });
+  if (!session) throw new Error(`session not found for session_id: ${opts.sessionId}`);
+  if (!session.gsd) throw new Error(`session is not GSD: ${opts.sessionId}`);
+
+  // --- Provider resolution -----------------------------------------------
+  // KODO-4 fix: el nombre del provider se resuelve DESDE la sesión
+  // (`session.provider`, poblado en state.json), con fallback al default del
+  // config. Antes se invocaba `getProvider(undefined)` → "Unknown provider:
+  // undefined". Patrón canónico: getProvider(config.provider) (server.js,
+  // manager.js) / getProvider(name || event.provider) (dispatcher.js). El
+  // getProviderFn se construye AQUÍ (tras resolver la sesión) para tener
+  // `session.provider` en scope.
   let getProviderFn = deps.getProviderFn;
   if (!getProviderFn) {
     await initRegistry();
-    getProviderFn = () => getProvider(/** @type {any} */ (undefined));
+    const providerName = session.provider || loadConfigFn().provider;
+    getProviderFn = () => getProvider(providerName);
   }
-
-  // --- 1. Resolve session ------------------------------------------------
-  const session = findSessionFn({ sessionId: opts.sessionId });
-  if (!session) throw new Error(`session not found: ${opts.sessionId}`);
-  if (!session.gsd) throw new Error(`session is not GSD: ${opts.sessionId}`);
 
   const log = loggerFactory(session.session_id).child({ task_id: session.task_id });
 
