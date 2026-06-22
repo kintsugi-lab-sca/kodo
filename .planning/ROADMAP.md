@@ -219,7 +219,7 @@ Plans:
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
 Destapados al validar DEBT-02 (detalle + root-cause en `STATE.md` §Open Blockers):
-- **F2 (BUG REAL):** `getTask` Plane devuelve `labels: []` para KODO-4 pese a tener el label `kodo`. Root cause: `getWorkItemBySequence` no expande `labels` → se resuelven vía `labelCache` (init, per-proyecto, TTL); en cache-miss/stale → `[]`. Fix: fallback on-miss para labels (espejo del de módulos en `getTask`) o expandir labels. (`src/providers/plane/{client,provider,normalize}.js`)
+- **F2 (✅ RESUELTO, commit `c87baad`):** `getTask` devolvía `labels: []` pese al label `kodo`. Root cause: `getWorkItemBySequence` no expandía `labels` → UUIDs resueltos vía `labelCache` (init/TTL) que podía no tenerlos → `[]`. Fix aplicado: expandir `labels` (objetos con `name`, sin dependencia del cache). Requiere reiniciar el daemon kodo para surtir efecto en vivo.
 - **F3 (CORREGIDO — NO es bug):** `gsd:undefined` en KODO-4 es correcto — no tiene label `kodo:gsd`/`kodo:gsd-quick` → no es tarea GSD. `--force` solo salta el gate `isKodo`, no inventa modo GSD.
 - **F4 (verificar):** el worktree se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → código/STATE.md stale si no se ha hecho push. (`src/session/manager.js`) — confirmar si es by-design.
 
