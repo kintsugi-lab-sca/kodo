@@ -222,8 +222,9 @@ Destapados al validar DEBT-02 (detalle + root-cause en `STATE.md` §Open Blocker
 - **F2 (✅ RESUELTO, commit `c87baad`):** `getTask` devolvía `labels: []` pese al label `kodo`. Root cause: `getWorkItemBySequence` no expandía `labels` → UUIDs resueltos vía `labelCache` (init/TTL) que podía no tenerlos → `[]`. Fix aplicado: expandir `labels` (objetos con `name`, sin dependencia del cache). Requiere reiniciar el daemon kodo para surtir efecto en vivo.
 - **F3 (CORREGIDO — NO es bug):** `gsd:undefined` en KODO-4 es correcto — no tiene label `kodo:gsd`/`kodo:gsd-quick` → no es tarea GSD. `--force` solo salta el gate `isKodo`, no inventa modo GSD.
 - **F4 (verificar):** el worktree se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → código/STATE.md stale si no se ha hecho push. (`src/session/manager.js`) — confirmar si es by-design.
+- **F5 (BUG REAL, HUMAN-UAT 2026-06-23):** keep-last-good del progreso vivo NO persiste → al hacer el STATE.md ilegible la columna `prog` **desaparece** en vez de mantener el último `N/M`. **DEBT-02 escenario 2 FALLA.** Lógica correcta (simulada); bug en la integración React (`lastGood.set` durante el render, `App.js:436`). Detalle/fix-direction en `STATE.md` §Open Blockers.
 
-Único bug confirmado: **F2**. Triage: ¿bug-fix suelto de F2, o se pliega con Phase 61 (ambas tocan la fiabilidad del flag `gsd`/labels en el dashboard)?
+**DEBT-02 (HUMAN-UAT 50.1):** Esc.1 ✅ · Esc.3 ✅ · **Esc.2 ❌ (F5).** Bugs confirmados: **F2** (resuelto), **F5** (abierto). Triage: F5 merece un fix del keep-last-good en el dashboard (quizá Phase 62 junto a Phase 61 — ambas tocan el render del progreso).
 
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
