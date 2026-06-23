@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runGsdVerify, renderComment } from '../src/gsd/verify.js';
+import { computeRealWorktreePath } from '../src/session/state.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,14 +54,6 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
       workspace_ref: 'workspace:1',
       gsd: true,
       phase_id: '10',
-    };
-  }
-
-  // Phase 19 D-06: sesión v0.6+ con worktree_path → phasesRoot resuelve allí.
-  function makeSessionWithWorktree(tmpWorktree) {
-    return {
-      ...makeSession(),
-      worktree_path: tmpWorktree,
     };
   }
 
@@ -423,33 +416,33 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.ok(apiFailed, 'planeApiCallFailed should fire on updateTaskState error');
   });
 
-  it('Phase 19 D-06: verify reads VERIFICATION.md from worktree_path when present', async () => {
-    // Sembrar VERIFICATION.md SOLO en el worktree (no en project_path / tmpRoot).
-    const wt = mkdtempSync(join(tmpdir(), 'kodo-verify-wt-'));
-    try {
-      const phaseDir = join(wt, '.planning', 'phases', '10-test');
-      mkdirSync(phaseDir, { recursive: true });
-      writeFileSync(
-        join(phaseDir, '10-VERIFICATION.md'),
-        [
-          '---',
-          'status: passed',
-          'must_haves_total: 4',
-          'must_haves_verified: 4',
-          'gaps_count: 0',
-          '---',
-          '',
-          '# Phase 10 — Worktree read',
-        ].join('\n'),
-      );
-      const session = makeSessionWithWorktree(wt);
-      const { deps } = makeDeps(session);
-      const result = await runGsdVerify({ sessionId: session.session_id }, deps);
-      assert.equal(result.verdict.action, 'pass', 'must read VERIFICATION.md from worktree');
-      assert.equal(result.verdict.must_haves, 4);
-    } finally {
-      rmSync(wt, { recursive: true, force: true });
-    }
+  it('Phase 19 D-06 + KODO-4: verify reads VERIFICATION.md from the REAL worktree (.claude/worktrees/<id>)', async () => {
+    // KODO-4: el worktree real se deriva con computeRealWorktreePath(project_path,
+    // session_id) — NO el worktree_path persistido (apunta a la ruta `.bg-shell`
+    // equivocada). Sembrar VERIFICATION.md SOLO en el worktree real; project_path
+    // (tmpRoot) NO tiene el archivo en la fase 10 → si el código leyera de tmpRoot
+    // daría 'missing'.
+    const session = makeSession();
+    const realWorktree = computeRealWorktreePath(session.project_path, session.session_id);
+    const phaseDir = join(realWorktree, '.planning', 'phases', '10-test');
+    mkdirSync(phaseDir, { recursive: true });
+    writeFileSync(
+      join(phaseDir, '10-VERIFICATION.md'),
+      [
+        '---',
+        'status: passed',
+        'must_haves_total: 4',
+        'must_haves_verified: 4',
+        'gaps_count: 0',
+        '---',
+        '',
+        '# Phase 10 — Worktree read',
+      ].join('\n'),
+    );
+    const { deps } = makeDeps(session);
+    const result = await runGsdVerify({ sessionId: session.session_id }, deps);
+    assert.equal(result.verdict.action, 'pass', 'must read VERIFICATION.md from real worktree');
+    assert.equal(result.verdict.must_haves, 4);
   });
 
   it('Phase 19 D-09: legacy session without worktree_path falls back to project_path silently', async () => {
@@ -477,11 +470,19 @@ describe('runGsdVerify — integración con filesystem real (.planning/ sintéti
     assert.equal(warns.length, 0, 'no warn-level events for fallback (D-09 silent)');
   });
 
-  it('Phase 19 D-06 source-hygiene: verify.js resolves phasesRoot with worktree_path nullish coalescing', () => {
+  it('KODO-4 source-hygiene: verify.js deriva phasesRoot con computeRealWorktreePath, fallback project_path', () => {
     const source = readFileSync(VERIFY_SOURCE_PATH, 'utf-8');
     assert.ok(
-      /session\.worktree_path\s*\?\?\s*session\.project_path/.test(source),
-      'phasesRoot must use session.worktree_path ?? session.project_path (D-06 + D-09 fallback)',
+      /computeRealWorktreePath\(session\.project_path,\s*session\.session_id\)/.test(source),
+      'phasesRoot debe derivar el worktree real con computeRealWorktreePath(project_path, session_id)',
+    );
+    assert.ok(
+      /:\s*session\.project_path/.test(source),
+      'debe mantener el fallback silent a session.project_path (D-09)',
+    );
+    assert.ok(
+      !/session\.worktree_path\s*\?\?/.test(source),
+      'NO debe usar el worktree_path persistido (apunta a la ruta .bg-shell equivocada)',
     );
   });
 

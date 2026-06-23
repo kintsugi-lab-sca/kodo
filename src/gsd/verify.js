@@ -21,11 +21,12 @@
 //   - Fail-open Plane: getTask/addComment/updateTaskState en try/catch individuales (D-17).
 //   - Provider obtenido UNA sola vez por ejecución (hoisted const provider). Sub-concern H.
 //   - Idempotencia NO implementada en v0.3: duplicados aceptados (Pitfall #7).
-//   - Phase 19 D-06: phasesRoot resuelve `session.worktree_path ?? session.project_path`.
-//     Sesiones v0.6+ leen VERIFICATION.md desde el worktree (escrito por el agente);
-//     sesiones legacy v0.5 sin `worktree_path` siguen leyendo del project_path
-//     silently (D-09 — no warn de fallback). Pitfall #6 Opción A: exit codes +
-//     bytes Plane comment IDÉNTICOS al comportamiento v0.5.
+//   - Phase 19 D-06 + KODO-4: phasesRoot se deriva del worktree REAL de Claude Code
+//     `computeRealWorktreePath(project_path, session_id)` (= `.claude/worktrees/<id>`),
+//     donde el agente escribe VERIFICATION.md. NO se usa `session.worktree_path`
+//     persistido — apunta a la ruta legacy `.bg-shell/<id>` inexistente (mismo
+//     Pitfall 1 que el dashboard App.js:342). Si el worktree real no contiene
+//     `.planning/`, fallback silent a project_path (D-09 — no warn de fallback).
 //
 // Legacy verdict mapping (Pitfall #2):
 //   pass + side-effects OK  → 'approved' (reason: 'gate-passed')
@@ -36,7 +37,7 @@
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { findSession } from '../session/state.js';
+import { findSession, computeRealWorktreePath } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseVerificationFrontmatter, computeVerdict } from './verification.js';
@@ -135,11 +136,18 @@ export async function runGsdVerify(opts, deps = {}) {
   const padded = /^\d+$/.test(session.phase_id)
     ? session.phase_id.padStart(2, '0')
     : session.phase_id; // "02.1" se queda como está
-  // Phase 19 D-06: lee desde el worktree cuando existe (sesiones v0.6+ tras
-  // Phase 18 wiring), con fallback silent a project_path para sesiones legacy
-  // v0.5 sin worktree_path (D-09 — sin warn de fallback). Pitfall #6 Opción A
-  // invariante: exit codes + bytes Plane comment IDÉNTICOS al comportamiento v0.5.
-  const phasesRoot = join(session.worktree_path ?? session.project_path, '.planning', 'phases');
+  // Phase 19 D-06 + KODO-4 (worktree fix): el agente escribe VERIFICATION.md en
+  // el worktree REAL de Claude Code (`.claude/worktrees/<session_id>`), derivado
+  // con computeRealWorktreePath(project_path, session_id) — NUNCA el
+  // `session.worktree_path` persistido, que apunta a la ruta legacy `.bg-shell/<id>`
+  // inexistente (mismo Pitfall 1 que el dashboard App.js:342). Si el worktree real
+  // no contiene `.planning/` (sesión legacy v0.5, o ejecución sin worktree), se hace
+  // fallback silent a project_path (D-09 — sin warn de fallback).
+  const realWorktree = computeRealWorktreePath(session.project_path, session.session_id);
+  const worktreeRoot = existsFn(join(realWorktree, '.planning'))
+    ? realWorktree
+    : session.project_path;
+  const phasesRoot = join(worktreeRoot, '.planning', 'phases');
 
   /** @type {VerdictWithMissing} */
   let verdict;
