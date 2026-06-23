@@ -29,7 +29,7 @@
 - [x] **Phase 55: Contrato `HostProvider.describeSurface()` (cmux)** — método opcional typeof-detected (`src/host/interface.js` + `src/host/cmux.js`) que descubre surfaces ad-hoc (`cwd` + `session_id` + `kind`) vía `cmux surface resume show --json`, fixture-locked + fail-open ✅ 2026-06-16
 - [x] **Phase 56: Tecla del dashboard** — tecla `a` descubre (vía DETECT-01) + adopta sesiones ad-hoc shelleando `kodo adopt`; cero endpoints nuevos ✅ 2026-06-18
 - [x] **Phase 57: Orquestador asistido** — el orquestador (único carril LLM) deriva un título inteligente del contexto real y shellea el mismo `kodo adopt`; consumidor no dueño ✅ 2026-06-18
-- [~] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` para cleanup limpio en `/exit` (LIFE-03 ✅) + XSS WR-01 ya mitigado + test (DEBT-01 ✅). Pendiente solo DEBT-02 (HUMAN-UAT 50.1, requiere TTY real) 🧑 2026-06-19
+- [x] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` (LIFE-03 ✅) + XSS WR-01 mitigado + test (DEBT-01 ✅) + HUMAN-UAT 50.1 validado (DEBT-02 ✅) ✅ 2026-06-23
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
 - [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
 - [ ] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog
@@ -222,9 +222,9 @@ Destapados al validar DEBT-02 (detalle + root-cause en `STATE.md` §Open Blocker
 - **F2 (✅ RESUELTO, commit `c87baad`):** `getTask` devolvía `labels: []` pese al label `kodo`. Root cause: `getWorkItemBySequence` no expandía `labels` → UUIDs resueltos vía `labelCache` (init/TTL) que podía no tenerlos → `[]`. Fix aplicado: expandir `labels` (objetos con `name`, sin dependencia del cache). Requiere reiniciar el daemon kodo para surtir efecto en vivo.
 - **F3 (CORREGIDO — NO es bug):** `gsd:undefined` en KODO-4 es correcto — no tiene label `kodo:gsd`/`kodo:gsd-quick` → no es tarea GSD. `--force` solo salta el gate `isKodo`, no inventa modo GSD.
 - **F4 (verificar):** el worktree se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → código/STATE.md stale si no se ha hecho push. (`src/session/manager.js`) — confirmar si es by-design.
-- **F5 (BUG REAL, HUMAN-UAT 2026-06-23):** keep-last-good del progreso vivo NO persiste → al hacer el STATE.md ilegible la columna `prog` **desaparece** en vez de mantener el último `N/M`. **DEBT-02 escenario 2 FALLA.** Lógica correcta (simulada); bug en la integración React (`lastGood.set` durante el render, `App.js:436`). Detalle/fix-direction en `STATE.md` §Open Blockers.
+- **F5 (CORREGIDO — NO es bug, 2026-06-23):** registrado primero como "keep-last-good roto", pero un test de componente (`test/dashboard/app-progress-keeplast.test.js`) prueba que el keep-last-good **funciona** (mantiene `N/M` en fallo transitorio). La columna que cayó en vivo fue el worktree borrándose al terminar la sesión (ENOENT → `no-progress` → `—`, correcto). El test queda como regresión.
 
-**DEBT-02 (HUMAN-UAT 50.1):** Esc.1 ✅ · Esc.3 ✅ · **Esc.2 ❌ (F5).** Bugs confirmados: **F2** (resuelto), **F5** (abierto). Triage: F5 merece un fix del keep-last-good en el dashboard (quizá Phase 62 junto a Phase 61 — ambas tocan el render del progreso).
+**DEBT-02 (HUMAN-UAT 50.1): ✅ PASSED.** Esc.1 ✅ · Esc.3 ✅ · Esc.2 ✅ (vía test de componente). Único bug real de toda la UAT: **F2** (resuelto, `c87baad`). F3 y F5 fueron misdiagnósticos corregidos. F4 por verificar.
 
 ---
 _Histórico: la **anterior** Phase 999.1 ("Dismiss de sesiones dead desde el dashboard ink") fue **promovida a Phase 42 y shipped en v0.10** (2026-06-08). Traza de origen completa en `milestones/v0.10-ROADMAP.md`._
@@ -242,7 +242,7 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 55. SPIKE detección cmux (HARD GATE) | v0.13 | 1/1 | Complete    | 2026-06-16 |
 | 56. Tecla del dashboard (condicional/cuttable) | v0.13 | 4/2 | Complete    | 2026-06-18 |
 | 57. Orquestador asistido | v0.13 | 1/1 | Complete   | 2026-06-18 |
-| 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 1/1 | LIFE-03 ✅ (SessionEnd hook) + DEBT-01 ✅ (XSS) · DEBT-02 human_needed (HUMAN-UAT 50.1, TTY) | 2026-06-19 |
+| 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 1/1 | Complete: LIFE-03 ✅ + DEBT-01 ✅ + DEBT-02 ✅ (HUMAN-UAT passed 2026-06-23) | 2026-06-23 |
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 | 61. Progreso vivo para sesiones adoptadas | v0.13 | 0/TBD | Registrada desde UAT (sin planificar) | - |

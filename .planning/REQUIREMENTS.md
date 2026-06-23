@@ -38,7 +38,7 @@ Driver: el orquestador es el **único carril con LLM** (constraint "vigilante/se
 Driver: saldar los 2 items diferidos al cierre de v0.12 (STATE.md `## Deferred Items`), schedulables independientemente del flujo de adopción.
 
 - [ ] **DEBT-01** *(security)*: Hardening del **XSS latente WR-01** — el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo `http(s)` que el carril TUI sí aplica (`runOpen`); un `javascript:`/`data:` en `task_url` es inyectable en el HTML servido. Aplicar la misma allowlist `http(s)` (con `new URL()`) + escaping antes de renderizar el `<a href>`.
-- [ ] **DEBT-02** *(uat)*: Cerrar el **HUMAN-UAT diferido de Phase 50.1** — los 3 escenarios + `50.1-VERIFICATION.md` (`human_needed`, 8/8 must-haves auto-verificados) del display de progreso vivo `N/M`, verificados visualmente en un TTY real con una sesión GSD viva (montable ahora que el milestone retoma trabajo activo).
+- [x] **DEBT-02** *(uat)*: Cerrar el **HUMAN-UAT diferido de Phase 50.1** — los 3 escenarios + `50.1-VERIFICATION.md` (`human_needed`, 8/8 must-haves auto-verificados) del display de progreso vivo `N/M`, verificados visualmente en un TTY real con una sesión GSD viva (montable ahora que el milestone retoma trabajo activo).
 
 ### Ciclo de vida de cierre (LIFE)
 
@@ -98,5 +98,5 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 | DETECT-02 | Phase 56 | Complete |
 | ORCH-01 | Phase 57 | Pending |
 | DEBT-01 | Phase 58 | Pending |
-| DEBT-02 | Phase 58 | Pending |
+| DEBT-02 | Phase 58 | Done (HUMAN-UAT passed 2026-06-23) |
 | LIFE-03 | Phase 58 | Pending |

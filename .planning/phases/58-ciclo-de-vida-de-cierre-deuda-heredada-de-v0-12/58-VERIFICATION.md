@@ -1,12 +1,11 @@
 ---
 phase: 58-ciclo-de-vida-de-cierre-deuda-heredada-de-v0-12
-status: human_needed
-verified: 2026-06-19
+status: passed
+verified: 2026-06-23
 suite: 1499 pass / 0 fail / 1 skip (full) · 8/8 isolation walkers
 human_verification:
-  count: 1
-  items:
-    - DEBT-02: HUMAN-UAT 50.1 — los 3 escenarios del display de progreso vivo N/M en un TTY real con sesión GSD viva (50.1-HUMAN-UAT.md)
+  count: 0
+  note: "DEBT-02 HUMAN-UAT 50.1 validado 2026-06-23 — esc.1/3 en vivo (prog 3/7 + gate), esc.2 (keep-last-good) vía test de componente app-progress-keeplast.test.js. F2 (labels) corregido c87baad."
 ---
 
 # Phase 58 Verification — Ciclo de vida de cierre + deuda v0.12
@@ -44,8 +43,13 @@ human_verification:
 ## DEBT-01 — XSS WR-01 ✅ PASSED (ya estaba mitigado)
 Ver `.planning/REQUIREMENTS.md`. El item estaba **stale**: la allowlist `safeHref` (http(s) vía `new URL()`) ya estaba en `src/server.js` desde commit `77a5c0c` (T-48-10), aplicada a los 3 renders de `task_url`. Test de regresión añadido: `test/server-xss-allowlist.test.js` (`976f8a6`).
 
-## DEBT-02 — HUMAN-UAT 50.1 ⏳ HUMAN-NEEDED
-Los 3 escenarios del display de progreso vivo `N/M` requieren un **TTY real con una sesión GSD viva** — solo el operador puede ejecutarlos (`50.1-HUMAN-UAT.md`). No es código. Pendiente de verificación humana.
+## DEBT-02 — HUMAN-UAT 50.1 ✅ PASSED (2026-06-23)
+Validado en TTY real (dashboard kodo) sembrando un `STATE.md` con `progress:` en una sesión `gsd:true` viva (ROMAN-175):
+- **Esc.1** (prog desde STATE.md): la columna `prog` mostró `3/7` leído del worktree ✅.
+- **Esc.3** (gate GSD/no-GSD): ROMAN-175 mostró `3/7`; las adoptadas/no-gsd `—` ✅.
+- **Esc.2** (keep-last-good): validado vía test de componente determinista `test/dashboard/app-progress-keeplast.test.js` (ink-testing-library) — ante un fallo transitorio la columna MANTIENE `N/M`. La anomalía observada en vivo (columna desaparece) fue el worktree borrándose al terminar la sesión (ENOENT → `no-progress`, correcto), NO un fallo del keep-last-good.
+
+**Hallazgos colaterales de la UAT:** F2 (getTask perdía labels) corregido `c87baad`; F3 y F5 fueron misdiagnósticos corregidos; Phase 61 (progreso de sesiones adoptadas) registrada; F4 (worktree base) por verificar.
 
 ## Tests (live, 2026-06-19)
 ```

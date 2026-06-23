@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: v0.13 CODE-complete (52-60). Única pendiente: DEBT-02 (HUMAN-UAT 50.1) requiere TTY real con sesión GSD viva
-last_updated: "2026-06-19T12:55:00.000Z"
-last_activity: 2026-06-19 -- cierre de cola v0.13 (autónomo): 59 formalizada, 60 implementada, 58 LIFE-03+DEBT-01 hechos
+stopped_at: v0.13 — Phases 52-60 hechas; DEBT-02 (HUMAN-UAT 50.1) PASSED 2026-06-23. Abierto- Phase 61 (progreso adoptadas) + F4 (worktree base) + F2 fix necesita verificar en vivo
+last_updated: "2026-06-23T16:00:00.000Z"
+last_activity: 2026-06-23 -- DEBT-02 validado (HUMAN-UAT): prog 3/7 en vivo + keep-last-good vía test componente; F2 fix; F3/F5 misdiagnósticos corregidos
 progress:
   total_phases: 9
   completed_phases: 9
   total_plans: 16
   completed_plans: 16
-  percent: 99
+  percent: 100
 ---
 
 # Project State
@@ -101,15 +101,15 @@ Items reconocidos y diferidos (ninguno bloqueante). Los 2 items de deuda viva de
 
 ### Open Blockers
 
-**DEBT-02 (HUMAN-UAT 50.1) — BLOQUEADO POR UPSTREAM (2026-06-22).** La validación del progreso vivo `N/M` no se puede completar porque ninguna sesión llega a la combinación necesaria (`gsd:true` + worktree con STATE.md poblado). El **read-path del progreso está probado** (el dashboard lee el `progress:` del worktree STATE.md correctamente); el fallo está aguas arriba, en que el flag `gsd` no se setea en los caminos de launch probados. Tres hallazgos de la UAT:
+**DEBT-02 (HUMAN-UAT 50.1) — ✅ PASSED (2026-06-23).** Validado tras desbloquear el setup (sesión `gsd:true` + worktree con STATE.md poblado, sembrado en ROMAN-175). Esc.1 (prog `3/7` en vivo) ✅, esc.3 (gate) ✅, esc.2 (keep-last-good) ✅ vía test de componente. Camino hasta aquí (histórico de la UAT, con 2 misdiagnósticos corregidos):
 
 - **F2 (✅ RESUELTO 2026-06-22, commit `c87baad`) — `getTask` devolvía `labels: []` para KODO-4 pese a tener el label `kodo` en Plane.** Fix: `getWorkItemBySequence` ahora expande `labels` → vienen como objetos con `name` → `resolveWorkItemLabels` los mapea directo, sin depender del `labelCache`. Probe live confirmó la causa (la work-item traía el label como UUID; con expand viene el objeto) + regresión con labelCache vacío. **Requiere reiniciar el daemon/server kodo para que el fix surta efecto en launches vivos.** Detalle del root-cause original: Evidencia: `kodo launch KODO-4` → `Task: KODO-4 — labels: []` / `isKodo: false`, mientras `list_work_items` (expand=labels) muestra el label `kodo` (id `1c7ff1c9`). **Root cause (2026-06-22):** `getWorkItemBySequence` (`src/providers/plane/client.js:125`) NO expande `labels` → la work-item trae labels como UUIDs; `getTask` los resuelve vía `resolveWorkItemLabels(uuids, labelCache)` (`normalize.js`), y `labelCache` se construye en `init()` (`provider.js:124-131`) por proyecto configurado con TTL (`INIT_TTL_MS`). Si el `labelCache` está stale o no cubre ese label → se cae a `[]`. **Fix direction:** `getTask` ya tiene fallback on-miss para módulos (`getWorkItemModule`, `provider.js:187-195`); replicar el mismo patrón para labels (re-fetch del label en cache-miss) o expandir `labels` en `getWorkItemBySequence`.
 - **F3 (CORREGIDO — NO es bug) — `gsd:undefined` en KODO-4 es comportamiento CORRECTO.** Mi registro inicial era erróneo. El modo GSD sale de un label `kodo:gsd`/`kodo:gsd-quick` (`getGsdMode`, `dispatcher.js:104`). KODO-4 solo tiene `kodo` → no es tarea GSD → `gsd:undefined` correcto; no hay `gsd.bootstrap` porque no debe haberlo. `--force` solo salta el gate `isKodo`, no inventa modo GSD. **Lección para DEBT-02:** validar el progreso vivo requiere una tarea con label `kodo:gsd`/`kodo:gsd-quick` EN un proyecto con `.planning/STATE.md` ya poblado.
 - **F4 (verificar si by-design) — El worktree se crea desde el último commit PUSHEADO, no desde `main` local.** Evidencia: worktree de `e3d7c49c…` en `6830b4b chore: archive v0.12 milestone`; `main` local en `7eaccd9`. Como no se ha hecho `git push` en toda la sesión, el worktree (y su STATE.md → `5/6`) está 30+ commits stale. Posiblemente by-design (branch desde `origin/main`), pero sorprendente; verificar la elección de base branch en el launch. Dónde mirar: `src/session/manager.js` (creación del worktree / base ref).
 
-- **F5 (BUG REAL, hallado en HUMAN-UAT 2026-06-23) — keep-last-good del progreso vivo NO persiste en el dashboard → DEBT-02 escenario 2 FALLA.** Repro: sesión `gsd:true` con `STATE.md` poblado muestra `N/M`; al hacer el STATE.md ilegible (`chmod 000`, fallo transitorio), la columna `prog` **desaparece** en vez de mantener el último `N/M` (keep-last-good). **Diagnóstico:** la LÓGICA es correcta (simulación determinista con Map persistente: pasada-2 con archivo ilegible mantiene `3/7`, `anyProgress` true). El bug está en la integración React: el enrich escribe `lastGood.set()` DURANTE el render (`App.js:436`) — anti-patrón (write-ref-in-render); el `useRef` Map aparece vacío en el re-render del fallo → `status:'error'` → `deriveAnyProgress` false (`select.js:242`, solo cuenta `'ok'`) → columna omitida. **Dónde mirar:** `src/cli/dashboard/App.js:416-445` (mover la escritura del lastGood fuera del render / a un useEffect, o garantizar la persistencia del ref). Los unit tests de 50.1 prueban la lógica pura, no el lifecycle React → por eso no lo cazaron.
+- **F5 (CORREGIDO — NO es bug; misdiagnóstico, 2026-06-23) — el keep-last-good FUNCIONA.** Registrado primero como bug ("la columna `prog` desaparece al hacer el STATE.md ilegible"), pero un **test de componente determinista** (`test/dashboard/app-progress-keeplast.test.js`, ink-testing-library) prueba que ante un fallo transitorio (`readGsdProgress 'error'`) la columna **mantiene** el `N/M` (keep-last-good correcto a través de re-renders). La columna que desapareció en vivo fue porque **el worktree de ROMAN-175 se borró** (la sesión terminó ~13:49 local → `.planning` desaparece → ENOENT → `no-progress` → `—`, comportamiento CORRECTO), NO un fallo del keep-last-good. Mi hipótesis (write-ref-in-render no persiste) era falsa. El test queda como regresión valiosa (ningún test cubría el lifecycle React del lastGood).
 
-**Resumen DEBT-02 (HUMAN-UAT 50.1, 2026-06-23):** Escenario 1 (prog desde STATE.md) ✅ PASS · Escenario 3 (gate GSD/no-GSD) ✅ PASS · **Escenario 2 (keep-last-good) ❌ FAIL (F5).** El read-path y el gate funcionan; el keep-last-good está roto en el dashboard. F2 (labels) corregido. F3 falso. F4/F5 abiertos.
+**Resumen DEBT-02 (HUMAN-UAT 50.1, 2026-06-23): ✅ PASSED.** Esc.1 (prog desde STATE.md) ✅ · Esc.3 (gate GSD/no-GSD) ✅ · Esc.2 (keep-last-good) ✅ (probado por el test de componente; la anomalía en vivo fue el worktree borrándose al terminar la sesión). El F2 (labels) está corregido. F3 y F5 fueron misdiagnósticos (corregidos). F4 (worktree desde commit pusheado) sigue por verificar.
 
 ### Open Questions
 
@@ -148,11 +148,13 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-v0.13 tiene las fases 52-60 entregadas en código (suite 1499 verde). Pendientes:
+v0.13: Phases 52-60 entregadas en código. **DEBT-02 (HUMAN-UAT 50.1) PASSED** (2026-06-23). Pendientes reales:
 
-- **DEBT-02 (HUMAN-UAT 50.1): BLOQUEADO POR UPSTREAM** (ver §Open Blockers F2/F3/F4, 2026-06-22). El read-path del progreso está probado, pero el flag `gsd` no se setea en los launches probados → la columna se queda en `—`. Desbloquear requiere arreglar F2 (labels) / F3 (gsd en launch) primero.
-- **Phase 61 (NUEVA, registrada desde UAT 2026-06-22):** progreso vivo para sesiones **adoptadas**. Hallazgo del UAT de DEBT-02: una sesión GSD adoptada NO muestra `N/M` porque (1) la adopción no marca `gsd` (`buildSessionFromAdoption` lo omite → gate `App.js:419`) y (2) el lector asume worktree de kodo (`computeRealWorktreePath`, `App.js:433`) que una adoptada no tiene. Sin planificar — `/gsd:discuss-phase 61`.
+- **F2 (fix de labels, `c87baad`): verificar en vivo** — el daemon ya se reinició; confirmar que `kodo launch` de una tarea `kodo`-labelada ya NO se ignora.
+- **Phase 61 (registrada desde UAT):** progreso vivo para sesiones **adoptadas** (no muestran `N/M` porque la adopción no marca `gsd` + el lector asume worktree de kodo). `/gsd:discuss-phase 61`.
+- **F4 (verificar):** el worktree del launch se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → stale si no se ha hecho push. Confirmar si by-design (`src/session/manager.js`).
+- **`git push`:** v0.13 + todos los fixes siguen SOLO en local — nunca pusheado.
 
-Tras DEBT-02 (y decidir si Phase 61 entra en v0.13 o se difiere): `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
+Para cerrar el milestone (si Phase 61 se difiere a un follow-up): `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
 
 Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`/`9124cfa`/`93271d9`), Phase 58 LIFE-03 hook SessionEnd (`5a8c2a0`/`0e2e7f8`/`b8129eb`) + DEBT-01 XSS test (`976f8a6`). Todo local, **sin push**.
