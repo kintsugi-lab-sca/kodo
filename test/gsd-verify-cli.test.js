@@ -163,7 +163,7 @@ describe('runGsdVerify — DI + session resolution', () => {
   it('T1: throws cuando session-id no encontrado', async () => {
     await assert.rejects(
       () => runGsdVerify({ sessionId: 'nope' }, { findSessionFn: () => undefined }),
-      /session not found: nope/,
+      /session not found for session_id: nope/,
     );
   });
 
