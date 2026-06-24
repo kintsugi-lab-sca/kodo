@@ -31,20 +31,20 @@ Driver: descubrir las sesiones `claude` ad-hoc para adoptarlas desde el dashboar
 
 Driver: el orquestador es el **único carril con LLM** (constraint "vigilante/server 0 tokens"), así que es quien puede derivar un título *bueno* del contexto real de la sesión en vez de `basename(cwd)` = `agent-xyz`. Es un **consumidor** de la misma fontanería, no dueño ni mecanismo paralelo. No depende del spike (deriva el título y shells `kodo adopt` con input explícito) → paralelizable con DETECT-02.
 
-- [ ] **ORCH-01**: El orquestador propone proactivamente adoptar una sesión ad-hoc y deriva un **título inteligente** del contexto real (cwd / commits / transcript), que pasa por el sanitizador del núcleo (BIDIR-08) y se confirma (humano/CLI) antes de crear. Implementado shelleando el mismo `kodo adopt --title "<derived>"` — el carril 0-token del núcleo se preserva, el LLM vive estrictamente en el consumidor (prosa del skill `kodo-orchestrate` actualizada; cero lógica de negocio nueva en el orquestador).
+- [~] **ORCH-01** *(código ✅ verificado 9/9 · HUMAN-UAT del comportamiento LLM pendiente)*: El orquestador propone proactivamente adoptar una sesión ad-hoc y deriva un **título inteligente** del contexto real (cwd / commits / transcript), que pasa por el sanitizador del núcleo (BIDIR-08) y se confirma (humano/CLI) antes de crear. Implementado shelleando el mismo `kodo adopt --title "<derived>"` — el carril 0-token del núcleo se preserva, el LLM vive estrictamente en el consumidor (prosa del skill `kodo-orchestrate` actualizada; cero lógica de negocio nueva en el orquestador).
 
 ### Deuda heredada de v0.12 (DEBT)
 
 Driver: saldar los 2 items diferidos al cierre de v0.12 (STATE.md `## Deferred Items`), schedulables independientemente del flujo de adopción.
 
-- [ ] **DEBT-01** *(security)*: Hardening del **XSS latente WR-01** — el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo `http(s)` que el carril TUI sí aplica (`runOpen`); un `javascript:`/`data:` en `task_url` es inyectable en el HTML servido. Aplicar la misma allowlist `http(s)` (con `new URL()`) + escaping antes de renderizar el `<a href>`.
+- [x] **DEBT-01** *(security)*: Hardening del **XSS latente WR-01** — el carril HTML del dashboard (`src/server.js`) renderiza `task_url` como `<a href>` sin la allowlist de protocolo `http(s)` que el carril TUI sí aplica (`runOpen`); un `javascript:`/`data:` en `task_url` es inyectable en el HTML servido. Aplicar la misma allowlist `http(s)` (con `new URL()`) + escaping antes de renderizar el `<a href>`.
 - [x] **DEBT-02** *(uat)*: Cerrar el **HUMAN-UAT diferido de Phase 50.1** — los 3 escenarios + `50.1-VERIFICATION.md` (`human_needed`, 8/8 must-haves auto-verificados) del display de progreso vivo `N/M`, verificados visualmente en un TTY real con una sesión GSD viva (montable ahora que el milestone retoma trabajo activo).
 
 ### Ciclo de vida de cierre (LIFE)
 
 Driver: hoy una sesión cerrada por `/exit` queda colgada como `dead` en el dashboard hasta el sellado a 30 días. **Causa raíz confirmada por spike** (Claude Code 2.1.177, doc oficial de hooks): `/exit` emite el evento **`SessionEnd`** (`end_reason: "prompt_input_exit"`), **NO** `Stop`; kodo solo registra `SessionStart` + `Stop` (`install.js:38,41`), así que el cierre interactivo no dispara ningún hook de kodo y `reconcileTick` solo lo marca `dead` vía `pgrep` (nunca hace `removeSession`). El spike también verificó que `SessionEnd` no puede bloquear (solo side-effects, ideal para cleanup), su payload trae `session_id`/`cwd`/`transcript_path`/`end_reason` (correlación a la tarea vía el `findSession` existente), y soporta matcher por `end_reason`. Continúa la numeración histórica LIFE-01/02 (v0.8 Phase 30). **Nota:** la *sincronización con el provider al cerrar* (transicionar la tarea en Plane/GitHub) queda explícitamente FUERA — una sesión cerrada con `/exit` no implica "done" (el trabajo puede estar a medias) y rompería la invariante "el agente posee las interacciones con el provider"; diferida como LIFE-F1.
 
-- [ ] **LIFE-03**: kodo registra un hook **`SessionEnd`** que dispara **cleanup terminal limpio** cuando una sesión termina por `/exit` (u otros `end_reason`) — la fila desaparece del dashboard (`removeSession` + worktree cleanup + release del lock GSD) en vez de quedar colgada como `dead`. Reusa el cleanup compartido de `stop.js` (NO duplica). Resuelve la **separación de responsabilidades** entre los dos hooks: `Stop` (que dispara al final de **cada turno**) queda para el estado ligero (`idle`, lock liberado, esperando humano), y el cleanup **destructivo** (`removeSession`/worktree) se concentra en `SessionEnd`. **Idempotente**: ambos hooks pueden coexistir sin pelear (guard `source === 'history'` ya presente en `stop.js:153` + re-check). El handler `SessionEnd` es never-throws / fail-open como el resto de hooks (jamás crashea Claude Code). `install.js`/`uninstall` extendidos al tercer evento; golden-bytes de los hooks existentes preservados.
+- [x] **LIFE-03**: kodo registra un hook **`SessionEnd`** que dispara **cleanup terminal limpio** cuando una sesión termina por `/exit` (u otros `end_reason`) — la fila desaparece del dashboard (`removeSession` + worktree cleanup + release del lock GSD) en vez de quedar colgada como `dead`. Reusa el cleanup compartido de `stop.js` (NO duplica). Resuelve la **separación de responsabilidades** entre los dos hooks: `Stop` (que dispara al final de **cada turno**) queda para el estado ligero (`idle`, lock liberado, esperando humano), y el cleanup **destructivo** (`removeSession`/worktree) se concentra en `SessionEnd`. **Idempotente**: ambos hooks pueden coexistir sin pelear (guard `source === 'history'` ya presente en `stop.js:153` + re-check). El handler `SessionEnd` es never-throws / fail-open como el resto de hooks (jamás crashea Claude Code). `install.js`/`uninstall` extendidos al tercer evento; golden-bytes de los hooks existentes preservados.
 
 ### Progreso vivo de sesiones adoptadas (PROG)
 
@@ -102,8 +102,8 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 | BIDIR-08 | Phase 53 | Complete |
 | DETECT-01 | Phase 55 | Complete |
 | DETECT-02 | Phase 56 | Complete |
-| ORCH-01 | Phase 57 | Pending |
-| DEBT-01 | Phase 58 | Pending |
+| ORCH-01 | Phase 57 | Code complete (verificado 9/9 2026-06-18) · HUMAN-UAT LLM pendiente |
+| DEBT-01 | Phase 58 | Complete (2026-06-23) |
 | DEBT-02 | Phase 58 | Done (HUMAN-UAT passed 2026-06-23) |
-| LIFE-03 | Phase 58 | Pending |
+| LIFE-03 | Phase 58 | Complete (2026-06-23) |
 | PROG-04 | Phase 61 | Done (2026-06-24) |
