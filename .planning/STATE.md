@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: v0.13 — Phases 52-60 hechas; DEBT-02 (HUMAN-UAT 50.1) PASSED 2026-06-23. Abierto- Phase 61 (progreso adoptadas) + F4 (worktree base) + F2 fix necesita verificar en vivo
-last_updated: "2026-06-23T16:00:00.000Z"
-last_activity: 2026-06-23 -- DEBT-02 validado (HUMAN-UAT): prog 3/7 en vivo + keep-last-good vía test componente; F2 fix; F3/F5 misdiagnósticos corregidos
+stopped_at: v0.13 — Phases 52-61 COMPLETE (incl. DEBT-02 UAT passed + Phase 61 PROG-04). Pendiente solo audit/complete-milestone + git push. Abierto menor- F4 (worktree base) + verificar F2/Phase 61 en vivo
+last_updated: "2026-06-24T12:00:00.000Z"
+last_activity: 2026-06-24 -- Phase 61 (PROG-04) implementada: progreso vivo para sesiones adoptadas (gate dinámico + path fallback + adopt.js detección GSD). Suite 1509 verde
 progress:
-  total_phases: 9
-  completed_phases: 9
-  total_plans: 16
-  completed_plans: 16
+  total_phases: 10
+  completed_phases: 10
+  total_plans: 17
+  completed_plans: 17
   percent: 100
 ---
 

@@ -50,7 +50,7 @@ Driver: hoy una sesión cerrada por `/exit` queda colgada como `dead` en el dash
 
 Driver: HUMAN-UAT de DEBT-02 (2026-06-23) — una sesión GSD **adoptada** no muestra `N/M` porque (1) la adopción no marca `gsd` y (2) el lector del progreso asume worktree de kodo que una adoptada no tiene.
 
-- [ ] **PROG-04**: una sesión GSD **adoptada** refleja su progreso vivo `N/M` en el dashboard igual que una lanzada. (D-1) El gate del progreso pasa de "flag `gsd`" a **"STATE.md GSD legible en el path resuelto"** (dinámico — cubre adoptadas que se vuelven GSD después). (D-2) El lector resuelve el path con fallback worktree→`project_path` (preserva Pitfall 1 para lanzadas). (D-3) `adopt.js` setea `gsd`/`gsd_mode`/`phase_id` at-adopt para las columnas phase/mode. NO toca `readGsdProgress`/keep-last-good/reconcile. Bootstrap de GSD al adoptar queda FUERA (PROG-F1).
+- [x] **PROG-04**: una sesión GSD **adoptada** refleja su progreso vivo `N/M` en el dashboard igual que una lanzada. (D-1) El gate del progreso pasa de "flag `gsd`" a **"STATE.md GSD legible en el path resuelto"** (dinámico — cubre adoptadas que se vuelven GSD después). (D-2) El lector resuelve el path con fallback worktree→`project_path` (preserva Pitfall 1 para lanzadas). (D-3) `adopt.js` setea `gsd`/`gsd_mode`/`phase_id` at-adopt para las columnas phase/mode. NO toca `readGsdProgress`/keep-last-good/reconcile. Bootstrap de GSD al adoptar queda FUERA (PROG-F1).
 
 ## v2 Requirements
 
@@ -106,4 +106,4 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 | DEBT-01 | Phase 58 | Pending |
 | DEBT-02 | Phase 58 | Done (HUMAN-UAT passed 2026-06-23) |
 | LIFE-03 | Phase 58 | Pending |
-| PROG-04 | Phase 61 | Planned |
+| PROG-04 | Phase 61 | Done (2026-06-24) |

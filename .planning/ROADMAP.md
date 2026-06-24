@@ -13,11 +13,11 @@
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
-- 🚧 **v0.13 kodo bidireccional** — Phases 52-60 (en construcción; 52-57 ✅, 58 pendiente, 59 gap-fix mergeado, 60 registrada)
+- 🚧 **v0.13 kodo bidireccional** — Phases 52-61 (todas ✅; DEBT-02 HUMAN-UAT passed 2026-06-23; pendiente solo audit/complete + `git push`)
 
 ## Phases
 
-### 🚧 v0.13 kodo bidireccional (Phases 52-60)
+### 🚧 v0.13 kodo bidireccional (Phases 52-61)
 
 **Milestone Goal:** Cerrar el puente en la dirección inversa `sesión → tarea`: una sesión Claude Code creada ad-hoc en cmux (no nacida de una tarea Plane/GitHub) se promueve a una **tarea persistente** del gestor, para que el trabajo ad-hoc no se evapore al cerrar el sprint. Arquitectura **"una fontanería, tres consumidores"**: una base determinista 0-token (`createTask` + `adoptSession`) reusada por el CLI, la tecla del dashboard y el orquestador (único carril LLM) — ninguno dueño del flujo. La detección cmux entra por el contrato `HostProvider` (regla transversal).
 
@@ -32,7 +32,7 @@
 - [x] **Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12** — hook `SessionEnd` (LIFE-03 ✅) + XSS WR-01 mitigado + test (DEBT-01 ✅) + HUMAN-UAT 50.1 validado (DEBT-02 ✅) ✅ 2026-06-23
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
 - [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
-- [ ] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog
+- [x] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog ✅ 2026-06-24
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -214,7 +214,7 @@ Plans:
   3. Una sesión GSD adoptada viva muestra `N/M` real (y `N/M✓` al completar); una adoptada no-GSD sigue mostrando `—`. Never-throws preservado.
 
 **Plans:** 1 plan
-- [ ] 61-01-PLAN.md — reader gate dinámico + fallback de path (D-1/D-2) + adopt.js detección GSD (D-3) + tests (PROG-04)
+- [x] 61-01-PLAN.md — reader gate dinámico + fallback de path (D-1/D-2) + adopt.js detección GSD (D-3) + tests (PROG-04)
 
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
@@ -245,6 +245,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 58. Deuda heredada de v0.12 + LIFE-03 | v0.13 | 1/1 | Complete: LIFE-03 ✅ + DEBT-01 ✅ + DEBT-02 ✅ (HUMAN-UAT passed 2026-06-23) | 2026-06-23 |
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
-| 61. Progreso vivo para sesiones adoptadas | v0.13 | 0/TBD | Registrada desde UAT (sin planificar) | - |
+| 61. Progreso vivo para sesiones adoptadas | v0.13 | 1/1 | Complete (PROG-04, 5/5 must_haves) | 2026-06-24 |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.
