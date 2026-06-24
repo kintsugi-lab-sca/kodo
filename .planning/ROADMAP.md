@@ -168,7 +168,7 @@ _Este backlog item **se materializó** como el milestone activo **v0.13 kodo bid
 > **PROMOVIDA → v0.13 activa (2026-06-19).** 59-01 mergeado a `main` vía gap-fix (rename del workspace cmux); falta PLAN/UAT formal. Goal/Success Criteria abajo siguen vigentes como referencia.
 
 **Goal:** Una sesión ad-hoc adoptada (viva) se refleja **viva** (`running`/`idle`/`needs-input`) en el dashboard, no `dead/zombie`, y deja de re-ofrecerse en el picker de adopt. **Origen:** UAT de Phase 56 (`56-HUMAN-UAT.md` §"Cross-cutting gap — LIVENESS"). Raíz: `reconcile.liveForSession` (`src/session/reconcile.js:85-89`) identifica la entrada viva del host por `titleIdentifiesSession(workspace.title, task_ref)` — defensa anti-reciclaje de `workspace_ref` (Phase 43). Las sesiones lanzadas por kodo tienen el workspace auto-nombrado con el `task_ref`; una sesión **adoptada** vive en un workspace titulado por cmux/usuario (p.ej. "Conversación casual…") que nunca contiene el `task_ref` recién creado → marcada `dead` → archivada a history → `computeAdoptable` (que solo deduplica contra `/status` activo) la re-ofrece.
-**Requirements**: TBD (definir en discuss — candidato LIVE-04 / DETECT-03)
+**Requirements**: PROG-04 (definido en discuss 2026-06-24)
 **Depends on:** Phase 56 (consume el flujo de adopción) + el contrato `WorkspaceHost` de Phase 38
 **Success Criteria** (what must be TRUE):
   1. `reconcile.liveForSession` identifica la sesión por **identidad estable (`session_id`/`checkpoint_id`)** con **fallback** a `titleIdentifiesSession` — una sesión adoptada viva NO se marca `dead` por no llevar el `task_ref` en el título del workspace. Refuerza (no debilita) la defensa anti-reciclaje existente.
@@ -213,8 +213,8 @@ Plans:
   2. El lector de progreso resuelve el STATE.md correcto para sesiones **sin worktree** (adoptadas): cuando no hay worktree de kodo, usa `<cwd o project_path>/.planning/STATE.md`; cuando lo hay, mantiene `computeRealWorktreePath` (no debilita la defensa Pitfall 1).
   3. Una sesión GSD adoptada viva muestra `N/M` real (y `N/M✓` al completar); una adoptada no-GSD sigue mostrando `—`. Never-throws preservado.
 
-**Plans:** 0 plans
-- [ ] TBD (run /gsd-plan-phase 61 to break down)
+**Plans:** 1 plan
+- [ ] 61-01-PLAN.md — reader gate dinámico + fallback de path (D-1/D-2) + adopt.js detección GSD (D-3) + tests (PROG-04)
 
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
