@@ -21,8 +21,31 @@
 // orchestrator Phase 57) reuse this base without owning it.
 
 import { findSession, addSession } from './session/state.js';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
+
+/**
+ * Detecta si `projectPath` es un proyecto GSD comprobando la presencia de
+ * `.planning/PROJECT.md` o `.planning/STATE.md` (Phase 61 / PROG-04 D-3). Puro salvo
+ * el fs read; never-throws; `existsSyncFn` inyectable para tests. NO usa cmux ni
+ * provider — solo filesystem (no rompe la regla "cmux solo via src/host/").
+ *
+ * @param {string} projectPath
+ * @param {(p: string) => boolean} [existsSyncFn]
+ * @returns {boolean}
+ */
+export function isGsdProject(projectPath, existsSyncFn = existsSync) {
+  if (typeof projectPath !== 'string' || !projectPath) return false;
+  try {
+    return (
+      existsSyncFn(join(projectPath, '.planning', 'PROJECT.md')) ||
+      existsSyncFn(join(projectPath, '.planning', 'STATE.md'))
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Redact a string for export to an external task manager (BIDIR-08 / D-06):
@@ -111,7 +134,15 @@ export function sanitizeAdoptionData({ cwd, title, description }, homedirFn = ho
  * }} params
  * @returns {import('./session/state.js').Session}
  */
-export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd, sessionId, projectPath }) {
+export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd, sessionId, projectPath, existsSyncFn = existsSync }) {
+  // Phase 61 (PROG-04, D-3): si el project_path es un proyecto GSD, marcar la fila como GSD
+  // para que las columnas phase/mode del dashboard la reconozcan. El progreso vivo (columna
+  // prog) ya NO depende de este flag — el lector lo detecta dinámicamente por STATE.md (D-1).
+  // Una sesión adoptada GSD es full-mode por naturaleza (no quick); phase_id NO se deriva
+  // (un adopt no mapea a una fase del roadmap — requeriría resolvePhase y no sería significativo).
+  const gsdFields = isGsdProject(projectPath, existsSyncFn)
+    ? { gsd: /** @type {const} */ (true), gsd_mode: /** @type {const} */ ('full') }
+    : {};
   return {
     workspace_ref: workspaceRef,
     session_id: sessionId,
@@ -125,6 +156,7 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
     project_path: projectPath,
     task_url: task.url,
     project_name: task.projectName,
+    ...gsdFields,
   };
 }
 

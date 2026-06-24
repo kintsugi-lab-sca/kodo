@@ -30,6 +30,7 @@ let origHome;
 let adoptSession;
 let buildSessionFromAdoption;
 let sanitizeAdoptionData;
+let isGsdProject;
 
 const STATE = ['.kodo', 'state.json'];
 
@@ -71,6 +72,7 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
     adoptSession = mod.adoptSession;
     buildSessionFromAdoption = mod.buildSessionFromAdoption;
     sanitizeAdoptionData = mod.sanitizeAdoptionData;
+    isGsdProject = mod.isGsdProject;
   });
 
   after(() => {
@@ -399,7 +401,7 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   // ---------------------------------------------------------------------
   // buildSessionFromAdoption pure-shape invariant (mirrors buildSessionFromTask).
   // ---------------------------------------------------------------------
-  it('buildSessionFromAdoption produces status:running and omits reconcile/GSD fields', () => {
+  it('buildSessionFromAdoption produces status:running and omits reconcile/GSD fields (non-GSD project)', () => {
     const s = buildSessionFromAdoption({
       task: fakeTaskItem,
       providerName: 'plane',
@@ -407,18 +409,47 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
       cwd: '/dev/foo',
       sessionId: 's1',
       projectPath: '/dev/foo',
+      existsSyncFn: () => false, // Phase 61: project_path no-GSD → gsd fields omitidos (determinista)
     });
     assert.equal(s.status, 'running');
     assert.equal(s.task_id, fakeTaskItem.id);
     assert.equal(s.task_url, fakeTaskItem.url);
     assert.equal(s.project_path, '/dev/foo');
     assert.equal(s.summary, fakeTaskItem.title);
-    // Reconcile-owned + GSD fields MUST be absent.
+    // Reconcile-owned fields MUST be absent siempre; GSD fields ausentes cuando NO es proyecto GSD.
     for (const k of [
       'dead_since', 'last_seen_alive', 'alive', 'tab_alive', 'process_alive',
       'needs_input', 'state', 'gsd', 'gsd_mode', 'phase_id', 'brief', 'worktree_path',
     ]) {
       assert.equal(s[k], undefined, `buildSessionFromAdoption must omit ${k}`);
     }
+  });
+
+  // Phase 61 (PROG-04, D-3): detección GSD al adoptar.
+  it('buildSessionFromAdoption marca gsd:true + gsd_mode:full cuando project_path es proyecto GSD', () => {
+    const s = buildSessionFromAdoption({
+      task: fakeTaskItem,
+      providerName: 'plane',
+      workspaceRef: 'w:1',
+      cwd: '/dev/gsd',
+      sessionId: 's2',
+      projectPath: '/dev/gsd',
+      existsSyncFn: (p) => p.endsWith('.planning/PROJECT.md') || p.endsWith('.planning/STATE.md'),
+    });
+    assert.equal(s.gsd, true, 'gsd:true cuando hay .planning/PROJECT.md o STATE.md');
+    assert.equal(s.gsd_mode, 'full', 'gsd_mode:full para sesión adoptada GSD');
+    assert.equal(s.phase_id, undefined, 'phase_id NO se deriva (un adopt no mapea a una fase del roadmap)');
+  });
+
+  it('isGsdProject: true si existe .planning/PROJECT.md o STATE.md; false si no; never-throws', () => {
+    const yes = isGsdProject('/p', (path) => path.endsWith('.planning/STATE.md'));
+    const yes2 = isGsdProject('/p', (path) => path.endsWith('.planning/PROJECT.md'));
+    const no = isGsdProject('/p', () => false);
+    assert.equal(yes, true);
+    assert.equal(yes2, true);
+    assert.equal(no, false);
+    assert.equal(isGsdProject('', () => true), false, 'projectPath vacío → false');
+    assert.equal(isGsdProject(undefined, () => true), false, 'projectPath no-string → false');
+    assert.equal(isGsdProject('/p', () => { throw new Error('fs error'); }), false, 'never-throws → false');
   });
 });
