@@ -71,6 +71,7 @@ import {
 import { deriveRepo } from './format.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
+import { existsSync } from 'node:fs';
 import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
@@ -415,8 +416,6 @@ export default function App({
   // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
   const lastGood = progressLastGoodRef.current;
   const enriched = sorted.map((row) => {
-    // DG-03: solo sesiones GSD se enriquecen con progreso; las no-GSD no contribuyen ('—').
-    if (row?.gsd !== true) return { ...row, progress: { status: 'no-progress' } };
     const projectPath = row.project_path;
     const sessionId = row.session_id;
     // DG-04: la ruta del STATE.md se deriva de project_path + session_id, NUNCA de
@@ -430,7 +429,16 @@ export default function App({
       !sessionId.includes('\\') &&
       !sessionId.includes('..');
     if (!usable) return { ...row, progress: { status: 'no-progress' } };
-    const base = computeRealWorktreePath(projectPath, sessionId);
+    // Phase 61 (PROG-04, D-2): resolución de path con FALLBACK. Sesión LANZADA por kodo →
+    // su STATE.md vive en el worktree aislado (`.claude/worktrees/<sid>`, computeRealWorktreePath,
+    // preserva Pitfall 1). Sesión ADOPTADA → no tiene worktree de kodo; su STATE.md vive en
+    // `<project_path>/.planning/STATE.md`. Si el dir del worktree existe usamos ese; si no, project_path.
+    const worktreeBase = computeRealWorktreePath(projectPath, sessionId);
+    const base = existsSync(worktreeBase) ? worktreeBase : projectPath;
+    // Phase 61 (PROG-04, D-1): gate DINÁMICO. El progreso se muestra si hay un STATE.md GSD legible
+    // en el path resuelto, SIN depender del flag `gsd` persistido (una sesión adoptada que se vuelve
+    // GSD después se enciende sola). readGsdProgress es never-throws: 'no-progress' (ENOENT / sin
+    // progress:) → '—'; 'error' → keep-last-good; 'ok' → N/M. Reemplaza el corte por flag (DG-03).
     const res = readGsdProgress(base, {}); // never-throws (mold readLightPlan)
     if (res.status === 'ok') {
       lastGood.set(sessionId, { n: res.n, m: res.m, completed: res.completed });
