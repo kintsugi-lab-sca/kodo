@@ -229,10 +229,12 @@ Plans:
   2. Fuentes de memoria correctas: proyecto **GSD** (`.planning/` presente vía `isGsdProject`) → `PROJECT.md` + `ROADMAP.md` + `STATE.md` (alcance global, arregla el F2 del UAT); **non-GSD** → `git log --oneline` + **primer prompt del transcript** (vía `resolveTranscriptPath`). NO cae a basename salvo fallo. (D-04/D-05/D-06)
   3. Fail-open acotado: timeout (~8s de referencia), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
   4. Al confirmar, shellea `kodo adopt --title '<t>' --description '<d>'` con argv literal (`execFile`, inyección estructuralmente inerte); el `{title, description}` derivado pasa por `sanitizeAdoptionData` (BIDIR-08). Suelo determinista 0-token del núcleo (`adoptSession`/`createTask`) intacto; el LLM vive SOLO en el paso de derivación del dashboard. (D-10/D-11/D-12/D-13)
-**Plans:** 0 plans
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 62 to break down)
+- [ ] 62-01-PLAN.md — enrich.js: derivador LLM one-shot never-throws (spawn Haiku + parse --json-schema + ramas GSD/non-GSD + transcript) (wave 1)
+- [ ] 62-02-PLAN.md — runAdopt extiende el argv con --description (espejo literal de --title) (wave 1)
+- [ ] 62-03-PLAN.md — App.js estado 'deriving' + render confirm con propuesta + wiring onDerive/onAdopt(description) en index.js (wave 2)
 
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
