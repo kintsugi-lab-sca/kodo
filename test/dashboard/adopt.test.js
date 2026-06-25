@@ -242,3 +242,128 @@ describe('Phase 56 Plan 01: runAdopt never-throws + execPath binary + literal 8-
     );
   });
 });
+
+// 62-02 (ORCH-02 SC#4, D-10/D-13): el par `--description <d>` es el ESPEJO EXACTO del par
+// `--title` (Phase 56-06). La descripción derivada por Haiku (Plan 01) viaja como cuerpo
+// at-adopt vía `--description`, NO como comentario post-hoc (D-10). execFile sin shell → la
+// description es UN argumento literal, metacaracteres inertes (D-13/T-62-07). El saneo
+// (sanitizeAdoptionData / BIDIR-08) sigue aguas abajo en adoptSession (D-12); runAdopt no re-sanea.
+describe('Phase 62 (ORCH-02): runAdopt --description (espejo literal de --title, injection-inerte)', () => {
+  it('description no vacía → inserta --description <description> en el argv (par literal, antes de --json)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    const result = await runAdopt({ exec, ...base, description: 'Refactor del resolver de fases' });
+    assert.deepEqual(result, { ok: true });
+    assert.ok(captured);
+    assert.deepEqual(
+      captured.args,
+      [
+        KODO_BIN,
+        'adopt',
+        '--workspace',
+        WORKSPACE_REF,
+        '--cwd',
+        CWD,
+        '--session-id',
+        SESSION_ID,
+        '--project',
+        PROJECT_ID,
+        '--description',
+        'Refactor del resolver de fases',
+        '--json',
+      ],
+      '--description <d> debe insertarse como par literal tras --project, antes de --json',
+    );
+    assert.equal(captured.args[captured.args.length - 1], '--json', '--json sigue siendo el último elemento');
+  });
+
+  it('title Y description juntos → orden argv: ...--title, T, --description, D, --json (--json último)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    const result = await runAdopt({ exec, ...base, title: 'ROMAN-170 [FVF]', description: 'cuerpo derivado' });
+    assert.deepEqual(result, { ok: true });
+    assert.ok(captured);
+    assert.deepEqual(
+      captured.args,
+      [
+        KODO_BIN,
+        'adopt',
+        '--workspace',
+        WORKSPACE_REF,
+        '--cwd',
+        CWD,
+        '--session-id',
+        SESSION_ID,
+        '--project',
+        PROJECT_ID,
+        '--title',
+        'ROMAN-170 [FVF]',
+        '--description',
+        'cuerpo derivado',
+        '--json',
+      ],
+      'orden exacto: --title antes de --description, --json último (D-10: el título existe antes del createTask)',
+    );
+    const ti = captured.args.indexOf('--title');
+    const di = captured.args.indexOf('--description');
+    assert.ok(ti >= 0 && di >= 0 && ti < di, '--title debe preceder a --description en el argv');
+    assert.equal(captured.args[captured.args.length - 1], '--json', '--json último');
+  });
+
+  it('description ausente → omite --description (core cae al cuerpo at-adopt por defecto)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    await runAdopt({ exec, ...base }); // sin description
+    assert.ok(captured);
+    assert.ok(!captured.args.includes('--description'), 'sin description → ningún --description en el argv');
+  });
+
+  it('description vacía "" → omite --description (no fuerza una descripción vacía)', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    await runAdopt({ exec, ...base, description: '' });
+    assert.ok(captured);
+    assert.ok(!captured.args.includes('--description'), 'description "" → omitido (core cae al cuerpo por defecto)');
+  });
+
+  it('injection-inerte (D-13/T-62-07): description con metacaracteres → un solo arg literal tras --description', async () => {
+    /** @type {{ args: string[] } | undefined} */
+    let captured;
+    const exec = (cmd, args, opts, cb) => {
+      captured = { args };
+      setImmediate(() => cb(null, '', ''));
+    };
+    const evil = '$(rm -rf /); `whoami` && echo pwned | tee /etc/passwd';
+    await runAdopt({ exec, ...base, description: evil });
+    assert.ok(captured);
+    const i = captured.args.indexOf('--description');
+    assert.ok(i >= 0, '--description presente');
+    assert.equal(
+      captured.args[i + 1],
+      evil,
+      'la description con metacaracteres viaja como UN solo arg literal (execFile sin shell → inerte)',
+    );
+    // Verificación estructural: el valor es exactamente UN elemento del array (no fragmentado).
+    assert.equal(
+      captured.args.filter((a) => a === evil).length,
+      1,
+      'el valor adversarial ocupa exactamente un elemento del argv (no se fragmenta por metacaracteres)',
+    );
+  });
+});
