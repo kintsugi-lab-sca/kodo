@@ -85,10 +85,17 @@
  * @param {string} [args.title] — 56-06: título auto-derivado de cmux (AgentSurface.title). Cuando
  *   es un string no vacío se inserta como `--title <title>` (literal argv, injection-safe sin
  *   shell); cuando es absent/empty se OMITE y el core cae al basename(cwd).
+ * @param {string} [args.description] — 62-02 (ORCH-02, D-10): cuerpo at-adopt derivado por Haiku
+ *   (Plan 01). Espejo EXACTO del par `--title`: cuando es un string no vacío se inserta como
+ *   `--description <description>` (literal argv, injection-safe sin shell → metacaracteres inertes,
+ *   D-13/T-62-07); cuando es absent/empty se OMITE y el core deja el cuerpo at-adopt por defecto.
+ *   La descripción viaja como `--description` at-adopt, NO como comentario post-hoc (D-10). El
+ *   saneo (sanitizeAdoptionData / BIDIR-08) sigue aguas abajo en adoptSession (D-12); runAdopt no
+ *   re-sanea.
  * @param {number} [args.timeoutMs=5000] — D-06: 5s; un adopt colgado no debe enmascarar la UI.
  * @returns {Promise<AdoptResult>}
  */
-export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, timeoutMs = 5_000 }) {
+export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, description, timeoutMs = 5_000 }) {
   // Leak guard ESTRUCTURAL: omitir `exec` produce TypeError visible (NO se degrada al
   // discriminado SPAWN_ERROR). Va ANTES del new Promise para que el TypeError propague
   // sincronamente, no quede atrapado en el try/catch del never-throws contract de abajo.
@@ -121,6 +128,17 @@ export function runAdopt({ exec, execPath, kodoBin, workspaceRef, cwd, sessionId
         // absent/empty so the core falls back to basename(cwd) — unchanged. The core's
         // sanitizeAdoptionData still redacts paths/home in the title downstream.
         ...(typeof title === 'string' && title.length > 0 ? ['--title', title] : []),
+        // 62-02 (ORCH-02, D-10/D-13): --description <description> from Haiku's derived body
+        // (Plan 01). EXACT mirror of the --title pair above — inserted as a LITERAL argv pair
+        // (T-62-07 — each value preceded by its explicit flag), so a description starting with
+        // `-` is consumed as the flag's argument, not parsed as a new flag. runAdopt uses
+        // execFile with a literal argv (NO shell) → the description is one literal argument,
+        // shell metacharacters inert automatically; NO shell-quoting (D-13). OMITTED when
+        // description is absent/empty so the core keeps the default at-adopt body — unchanged.
+        // The description travels as --description AT-adopt, NOT as a post-hoc comment (D-10).
+        // The core's sanitizeAdoptionData (BIDIR-08) still redacts paths/home in the description
+        // downstream in adoptSession (D-12); runAdopt does NOT re-sanitize.
+        ...(typeof description === 'string' && description.length > 0 ? ['--description', description] : []),
         // 56-03: --json as the FINAL argv element. The CLI's --json branch bypasses
         // renderHuman and prints the never-throws discriminant (byte-deterministic,
         // no color) to stdout, so the exit-0 branch below can distinguish a real
