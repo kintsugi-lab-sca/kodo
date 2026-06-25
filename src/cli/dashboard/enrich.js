@@ -76,7 +76,7 @@ export function spawnDerive({ spawnFn, prompt, timeoutMs = DEFAULT_TIMEOUT_MS })
         prompt, // argv literal — execFile, NO shell → injection-inerte (D-13)
       ];
       // 'claude' por PATH (D-15 / Pitfall 3): NO config.claude.binary.
-      spawnFn('claude', argv, { timeout: timeoutMs }, (err, stdout) => {
+      const child = spawnFn('claude', argv, { timeout: timeoutMs }, (err, stdout) => {
         if (err) return resolve({}); // ENOENT / timeout(killed) / exit≠0
         try {
           const env = JSON.parse(stdout); // capa 1: envelope
@@ -92,6 +92,16 @@ export function spawnDerive({ spawnFn, prompt, timeoutMs = DEFAULT_TIMEOUT_MS })
           resolve({}); // parse-fail → fail-open
         }
       });
+      // Cierra stdin (≈ `< /dev/null`): sin esto `claude` espera 3s a recibir entrada antes de
+      // proceder (Pitfall 1bis). Esos 3s, sumados a la latencia API (8.7-21.9s), rozan el timeout
+      // de 25s y causan fail-open intermitente (síntoma: título=surface.title sin descripción).
+      // `execFile` ignora `stdio` cuando lleva callback, así que cerramos el stream del child.
+      // El `?.` protege a los spawnFn fake de los tests, que no devuelven un child.
+      try {
+        child?.stdin?.end();
+      } catch {
+        /* sin child / sin stdin → noop */
+      }
     } catch {
       resolve({}); // spawn sync-throw → fail-open
     }

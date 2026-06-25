@@ -121,6 +121,24 @@ describe('Phase 62 Plan 01: spawnDerive — parse del envelope + fail-open a {}'
     };
     assert.deepEqual(await spawnDerive({ spawnFn, prompt: 'p' }), {});
   });
+
+  it('cierra stdin del child (≈ < /dev/null): evita la espera de 3s de claude (UAT 2026-06-25)', async () => {
+    let stdinEnded = false;
+    // spawnFn que DEVUELVE un child con stdin (espejo de execFile real inyectado en index.js).
+    const spawnFn = (cmd, args, opts, cb) => {
+      setImmediate(() => cb(null, JSON.stringify({ type: 'result', is_error: false, result: '{}' }), ''));
+      return { stdin: { end: () => { stdinEnded = true; } } };
+    };
+    await spawnDerive({ spawnFn, prompt: 'p' });
+    assert.equal(stdinEnded, true, 'spawnDerive debe cerrar child.stdin para que claude no espere stdin 3s');
+  });
+
+  it('spawnFn sin child (fake de test): no rompe el cierre de stdin', async () => {
+    // Los spawnFn fake no devuelven child → child?.stdin?.end() es noop, never-throws.
+    const spawnFn = (cmd, args, opts, cb) =>
+      setImmediate(() => cb(null, JSON.stringify({ type: 'result', is_error: false, result: '{}' }), ''));
+    assert.deepEqual(await spawnDerive({ spawnFn, prompt: 'p' }), {});
+  });
 });
 
 // ──────────────────────────────────────────────────────── firstUserPrompt
