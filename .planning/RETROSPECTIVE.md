@@ -390,6 +390,38 @@ Dashboard profundizado en dos direcciones desde la fila de sesión. *Hacia afuer
 
 ---
 
+## Milestone: v0.13 — kodo bidireccional
+
+**Shipped:** 2026-06-25
+**Phases:** 11 (52-62) | **Plans:** 17 | **Commits:** ~235 | **Timeline:** 9 días (2026-06-16 → 06-25)
+
+### What Was Built
+El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se promueve a tarea persistente. Arquitectura "una fontanería, tres consumidores" — base determinista 0-token (`createTask` opcional Plane+GitHub + `adoptSession`) reusada por el CLI `kodo adopt`, la tecla `a` del dashboard (vía contrato `HostProvider.listAgentSurfaces()`) y el orquestador. Cierre del milestone (ORCH-02): un derivador LLM one-shot (`claude -p` Haiku, fail-open) propone `{title, description}` a nivel tarea desde la intención de la sesión + memoria del proyecto, antes de shellear `kodo adopt`. Más lifecycle de cierre (`SessionEnd`), liveness, progreso vivo de adoptadas y saldo de deuda v0.12.
+
+### What Worked
+- **Ejecución por waves en worktree aislado** (Phase 62): 2 plans disjuntos en paralelo + 1 dependiente; merge limpio sin conflictos. El overhead de worktree pagó porque los plans tocaban archivos disjuntos.
+- **La UAT humana en vivo destapó 2 bugs que ningún test automático habría pillado**: título a nivel proyecto (prompt mal orientado) y timeout intermitente (3s de espera de stdin de `claude`). Ambos reproducidos con coordenadas reales y corregidos con red de test.
+- **Reproducir el bug con las coordenadas reales** (cwd+sessionId del surface) antes de tocar código evitó adivinar — el diagnóstico fue determinista.
+
+### What Was Inefficient
+- El `phase.complete` del SDK no marcó el checkbox del ROADMAP (formato de título largo no matcheó su regex) — requirió corrección manual. Tercer milestone con drift de checkbox/tracking.
+- ORCH-01 (Phase 57) se construyó entero antes de que la UAT revelara que su diseño at-adopt era inalcanzable (coordenadas irresolubles); se reubicó en ORCH-02. Una validación de coordenadas más temprana lo habría pillado antes.
+
+### Patterns Established
+- **Derivador LLM como módulo DI never-throws aislado**: todo el carril `claude -p` vive en un único `enrich.js` inyectable, preservando el suelo 0-token del núcleo. `child.stdin.end()` para no esperar stdin (execFile ignora `stdio` con callback).
+- **Intent del transcript (primer prompt del usuario) como señal primaria de TAREA**, memoria del proyecto como contexto de fondo desambiguador — no al revés.
+
+### Key Lessons
+1. Un derivador LLM disparado por tecla debe medir su latencia real contra el timeout ANTES de fijarlo: el RESEARCH midió 8.7-21.9s y puso 25s, pero no contó los +3s de espera de stdin de `claude` → fail-open intermitente. Los overheads del wrapper agéntico (`claude -p` ≠ API directa) son invisibles hasta medirlos en vivo.
+2. La UAT humana no es ceremonia: en esta fase fue la única red que pilló los 2 bugs reales (calidad semántica + latencia). Los tests verdes daban falsa confianza.
+3. (Recurrente, 4º milestone) El verifier/SDK debería marcar el checkbox del ROADMAP automáticamente — el drift manual es bug de proceso, no descuido.
+
+### Cost Observations
+- Model mix: opus (orquestación execute-phase + 2 fixes de UAT + diagnóstico) + sonnet (code-reviewer/verifier).
+- Notable: el coste de latencia de la adopción inteligente (~10-20s) es overhead del runtime agéntico de Claude Code, no de Haiku — registrado como deferred candidate (API directa) con su trade-off (gestión de API key).
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -407,6 +439,7 @@ Dashboard profundizado en dos direcciones desde la fila de sesión. *Hacia afuer
 | v0.10 | 10 | 4 | Dogfooding/verificación-en-vivo como gate de cierre (3 bugs reales no cazados por suite) + 1ª ruptura consciente de invariante (TUI read-only → dismiss read-write) con UAT firmado |
 | v0.11 | 5 | 4 | kodo produce su propio artefacto (plan ligero) en vez de olfatear internals frágiles de un tercero + verificación byte-a-byte del contrato de ruta cross-phase + audit de milestone como gate opcional pre-cierre |
 | v0.12 | 10 | 5 | Spike-gate como fase separada antes de feature condicional + corrección de fuente in-milestone (Phase 50→50.1) cuando la superficie validada por el spike resultó vacía en el flujo real + reconciliación manual de deuda al cierre (drift vs obsoleto vs señal) |
+| v0.13 | 17 | 11 | "Una fontanería, tres consumidores" (base determinista 0-token + N consumidores, LLM aislado en un solo carril) + UAT humana en vivo como única red para bugs semánticos/de-latencia + reubicación de requisito (ORCH-01→ORCH-02) cuando la UAT reveló un diseño inalcanzable + fixes post-verificación dentro de la misma fase |
 
 ### Cumulative Quality
 
@@ -423,6 +456,7 @@ Dashboard profundizado en dos direcciones desde la fila de sesión. *Hacia afuer
 | v0.10 | 1213 | — | — |
 | v0.11 | 1263 | — | — |
 | v0.12 | 1307 | — | — |
+| v0.13 | 1543 | — | — |
 
 ### Top Lessons (Verified Across Milestones)
 
