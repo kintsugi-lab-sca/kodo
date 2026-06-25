@@ -268,13 +268,13 @@ Plans:
   3. Fail-open acotado: timeout (~25-30s; evidencia empírica RESEARCH Pitfall 1: latencias medidas 8.7–21.9s — un timeout de 8s cortaría derivaciones legítimas), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
   4. Al confirmar, shellea `kodo adopt --title '<t>' --description '<d>'` con argv literal (`execFile`, inyección estructuralmente inerte); el `{title, description}` derivado pasa por `sanitizeAdoptionData` (BIDIR-08). Suelo determinista 0-token del núcleo (`adoptSession`/`createTask`) intacto; el LLM vive SOLO en el paso de derivación del dashboard. (D-10/D-11/D-12/D-13)
 
-**Plans:** 3 plans
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 62-01-PLAN.md — enrich.js: derivador LLM one-shot never-throws (spawn Haiku + parse --json-schema + ramas GSD/non-GSD + transcript) (wave 1)
-- [ ] 62-02-PLAN.md — runAdopt extiende el argv con --description (espejo literal de --title) (wave 1)
+- [x] 62-01-PLAN.md — enrich.js: derivador LLM one-shot never-throws (spawn Haiku + parse --json-schema + ramas GSD/non-GSD + transcript) (wave 1)
+- [x] 62-02-PLAN.md — runAdopt extiende el argv con --description (espejo literal de --title) (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -311,6 +311,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 | 61. Progreso vivo para sesiones adoptadas | v0.13 | 1/1 | Complete (PROG-04, 5/5 must_haves) | 2026-06-24 |
-| 62. Adopción inteligente desde el dashboard | v0.13 | 0/? | Registrada (ORCH-02; pendiente discuss/plan) | — |
+| 62. Adopción inteligente desde el dashboard | v0.13 | 2/3 | In Progress|  |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.
