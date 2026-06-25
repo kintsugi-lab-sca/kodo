@@ -4,14 +4,14 @@ milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
 stopped_at: Phase 62 context gathered
-last_updated: "2026-06-25T08:13:48.452Z"
-last_activity: 2026-06-19 -- liveness gap-fix mergeado + Phase 60 registrada
+last_updated: "2026-06-25T09:06:03.741Z"
+last_activity: 2026-06-25 -- Phase 62 planning complete
 progress:
-  total_phases: 11
+  total_phases: 12
   completed_phases: 10
-  total_plans: 14
+  total_plans: 17
   completed_plans: 19
-  percent: 91
+  percent: 83
 ---
 
 # Project State
@@ -33,7 +33,7 @@ Phases 52-57: COMPLETE (núcleo bidireccional `sesión → tarea` entregado).
 Phase 58 (deuda v0.12 + LIFE-03): NOT STARTED — sin directorio.
 Phase 59 (liveness sesiones adoptadas): 59-01 mergeado a main (SUMMARY en disco), SIN PLAN formal ni cierre/UAT — entró por gap-fix.
 Phase 60 (enriquecimiento orquestador / BIDIR-F2): registrada (directorio vacío), surgió del UAT 56/57.
-Last activity: 2026-06-19 -- liveness gap-fix mergeado + Phase 60 registrada
+Last activity: 2026-06-25 -- Phase 62 planning complete
 
 ## Roadmap v0.13 (active)
 

@@ -74,88 +74,116 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 ## Phase Details
 
 ### Phase 52: createTask + contrato + anti-recursión
+
 **Goal**: kodo gana la capacidad de **crear** tareas (primera vez en su historia) sin romper el contrato FROZEN-at-9. `createTask` aterriza como método opcional typeof-detected en ambos adapters, y la anti-recursión que protege contra re-despacho viaja con él como propiedad de corrección del núcleo.
 **Depends on**: Nothing (primera fase de v0.13; reusa el transporte POST con auth ya existente en `plane/client.js` + `github/client.js`)
 **Requirements**: BIDIR-01, BIDIR-02, BIDIR-06
 **Success Criteria** (what must be TRUE):
+
   1. El adapter Plane crea una work-item vía `createTask` (`POST .../work-items/`, solo `name` required) y normaliza la respuesta 201 a un `TaskItem` canónico vía `normalizeWorkItem`.
   2. El adapter GitHub crea una issue vía `createTask` (`POST /repos/{o}/{r}/issues`, solo `title` required, body Markdown) con el scope PAT mínimo documentado.
   3. `TASK_PROVIDER_METHODS` permanece FROZEN en 9: el loop de validación de `registry.js` queda intacto y un `it()` capability-gated en la contract matrix Plane+GitHub espeja el test B8 de `getTaskState`.
   4. Una tarea recién creada **NUNCA** es re-despachada por el poller/webhook (anti-recursión: corte espejo de `isGsdChild` ANTES de lock/resolver/launch + creación en estado no-trigger para que `listPendingTasks` no la devuelva; ni `--force` la bypasea).
+
 **Plans**: 3 plans
+
   - [x] 52-01-PLAN.md — Anti-recursión: KODO_LABEL_ADOPTED + isAdopted (labels.js) + corte en dispatcher.js + tests (BIDIR-06)
   - [x] 52-02-PLAN.md — Plane createTask: createWorkItem/createLabel transport + provider typeof-detected + marker UUID + normalize 6-campos (BIDIR-01)
   - [x] 52-03-PLAN.md — GitHub createTask: createIssue transport + provider LOUD-on-403/404 + contract it() capability-gated + FROZEN-9 negative-assert (BIDIR-02, BIDIR-01)
 
 ### Phase 53: Fontanería `src/adopt.js`
+
 **Goal**: Existe la base determinista 0-token de la adopción — el inverso exacto de `manager.launchWorkItem` (`createTask → addSession`). Es un módulo top-level provider-agnostic que los tres consumidores reusan sin poseer; nunca usa LLM, nunca rompe la invariante "`reconcileTick` único escritor de `alive`".
 **Depends on**: Phase 52 (llama a `provider.createTask`)
 **Requirements**: BIDIR-03, BIDIR-04, BIDIR-05, BIDIR-08
 **Success Criteria** (what must be TRUE):
+
   1. `adoptSession()` ejecuta capability-gate → `createTask` → normalize → `addSession` y retorna el discriminante never-throws universal `{ ok:true, task, session } | { ok:false, code, detail }`, sembrando la fila en `state.json` vía el `addSession` existente (sin escribir `dead_since`/`last_seen_alive`).
   2. Un re-run sobre una sesión ya adoptada retorna `ALREADY_ADOPTED` **sin** crear tarea (guard `findSession({workspaceRef, cwd})` ANTES del POST + re-check TOCTOU con `loadState()` fresco; cero duplicados).
   3. La secuencia es POST-primero, escritura local último (tmp+rename atómico); si el POST tiene éxito pero la escritura local falla, el fallo es **LOUD** con `task_id` + `task_url` en el mensaje y es recuperable por re-run idempotente.
   4. Los datos de la tarea se auto-derivan y sanean antes del POST: título default `basename(cwd)` editable, proyecto destino vía `listProjects`, descripción opcional; se hace strip de rutas absolutas / redacción del home dir / nunca se embeben bodies de transcript; el estado inicial es sano (no "sin triar").
+
 **Plans**: 2 plans
+
   - [x] 53-01-PLAN.md — saveState tmp+rename atomic upgrade + .bak-independence regression (Wave 1, BIDIR-05)
   - [x] 53-02-PLAN.md — src/adopt.js (adoptSession + buildSessionFromAdoption + sanitizeAdoptionData) + test/adopt.test.js (Wave 2, BIDIR-03/04/05/08)
 
 ### Phase 54: CLI `kodo adopt`
+
 **Goal**: El operador puede adoptar una sesión ad-hoc desde la línea de comandos con input explícito. Es el consumidor determinista de referencia (0-token) que la tecla del dashboard y el orquestador shellean; ships sí o sí con independencia del veredicto del spike.
 **Depends on**: Phase 53 (consume `adoptSession`)
 **Requirements**: BIDIR-07
 **Success Criteria** (what must be TRUE):
+
   1. `kodo adopt --workspace <ref> --cwd <path> --title <t> --project <p> --description <d>` crea la tarea y registra la sesión, recibiendo el workspace/cwd **explícito** (no depende de detección automática).
   2. El comando deriva sus exit codes deterministas directamente del discriminante de `adoptSession` (espejo de `kodo gsd verify`).
   3. En éxito, el feedback muestra el `task_id` + `task_url` de la tarea creada; en fallo, el `code`/`detail` legible.
+
 **Plans**: 1 plan
+
   - [x] 54-01-PLAN.md — CLI `kodo adopt`: handler runAdoptCli + registro commander + tests
 
 ### Phase 55: Contrato `HostProvider.describeSurface()` (cmux)
+
 **Goal**: Añadir al contrato `HostProvider` (`src/host/interface.js`, Phase 38) un método **opcional typeof-detected** — p. ej. `describeSurface(ref)` / `listAgentSurfaces()` — implementado en `src/host/cmux.js` sobre `cmux surface resume show --json`, que descubre las sesiones `claude` ad-hoc devolviendo `{ workspaceRef, cwd, sessionId, kind }` por surface. **Ya NO es un spike de research abierto**: la viabilidad está probada empíricamente (`.planning/research/CMUX-CAPABILITIES.md` P0, cmux 0.64.15; `resume_binding.checkpoint_id` == `session_id` de Claude Code). El deliverable es código de producción + fixture, no un veredicto. Es el **seam del host** que consumen Phase 56 (dashboard) y, opcionalmente, Phase 54 (auto-derivar `--cwd`/`session_id`) y Phase 57.
 **Depends on**: Nada duro (reusa el contrato `HostProvider` de Phase 38 + el `run` DI de `src/host/cmux.js`). Lo consumen 56/54/57.
 **Requirements**: DETECT-01
 **Success Criteria** (what must be TRUE):
+
   1. El método existe en `src/host/cmux.js` como parte del contrato `HostProvider`, detectado por `typeof` en el call site (degrada fail-open si el host no lo soporta — espejo de `getTaskState`/`createTask`).
   2. Devuelve por surface `{ workspaceRef, cwd, sessionId (= resume_binding.checkpoint_id), kind }` parseando `cmux surface resume show --json`.
   3. La salida real de cmux 0.64.15 queda **fixture-lockeada** y asertada vía el `run` DI, de modo que un cambio de contrato de cmux falle ruidosamente.
   4. Modos de fallo manejados fail-open: `cleared: true`, `resume_binding` ausente, `source != agent-hook`, socket de cmux no disponible → degrada sin romper (never-throws).
   5. **Regla transversal:** todo lo cmux-específico vive AQUÍ; `adopt.js`/`reconcile.js` permanecen host-agnósticos (reciben los campos como datos, jamás llaman a `cmux`).
+
 **Plans**: 1 plan
+
   - [x] 55-01-PLAN.md — listAgentSurfaces() en CmuxHost: enumeración 2-pasos (tree → fan-out surface resume show) + normalizeSurface + fixture-lock 0.64.16 + fail-open (DETECT-01)
 
 ### Phase 56: Tecla del dashboard
+
 **Goal**: El operador descubre y adopta sesiones ad-hoc desde el dashboard con una tecla. **Ya NO es condicional** — la detección (DETECT-01 / `describeSurface()`) es VIABLE por construcción. Sesiones adoptables = surfaces con `kind == "claude"` cuyo `sessionId` no está ya en `state.json`.
 **Depends on**: Phase 55 (consume `describeSurface()`) + Phase 54 (shelleará `kodo adopt`)
 **Requirements**: DETECT-02
 **Success Criteria** (what must be TRUE):
+
   1. Una tecla dedicada (`a`) sobre una sesión ad-hoc descubierta (vía `describeSurface()`) shellea `kodo adopt` vía `execFile` sin shell (argv literal, espejo de `focus.js`/`runOpen`).
   2. El descubrimiento es on-demand al pulsar la tecla (NO un poll loop) y se confirma con double-confirm (espejo del dismiss de Phase 42).
   3. **Cero endpoints nuevos** en `src/server.js` (preserva el invariante "cero endpoints nuevos desde v0.10") y never-throws (el panel ink permanece montado).
+
 **Plans**: 2 plans
+
   - [x] 56-01-PLAN.md — runAdopt (clon de runOpen, execFile sin shell vía process.execPath) + computeAdoptable + resolveProjectId (derives puros) + unit tests (DETECT-02)
   - [x] 56-02-PLAN.md — tecla `a`: discover on-demand → picker overlay con cursor → double-confirm por sessionId → shell de kodo adopt; wiring del host cmux in-process en index.js; cero endpoints nuevos (DETECT-02)
+
 **UI hint**: yes
 
 ### Phase 57: Orquestador asistido
+
 **Goal**: El orquestador (único carril con LLM) propone proactivamente adoptar una sesión ad-hoc y deriva un título *inteligente* del contexto real, mucho mejor que `basename(cwd)`. Es un **consumidor** de la misma fontanería, no dueño ni mecanismo paralelo; no depende del spike (toma input explícito).
 **Depends on**: Phase 54 (shellea `kodo adopt`); paralelizable con Phase 56 (independiente del gate)
 **Requirements**: ORCH-01
 **Success Criteria** (what must be TRUE):
+
   1. El orquestador propone adoptar una sesión ad-hoc y deriva un título inteligente del contexto real (cwd / commits / transcript).
   2. El título derivado pasa por el sanitizador del núcleo (BIDIR-08) y se confirma (humano/CLI) antes de crear la tarea.
   3. La implementación shellea el mismo `kodo adopt --title "<derived>"` (el carril 0-token del núcleo se preserva; el LLM vive estrictamente en el consumidor) — prosa del skill `kodo-orchestrate` actualizada, cero lógica de negocio nueva en el orquestador.
+
 **Plans**: 1 plan
+
   - [x] 57-01-PLAN.md — sección §"Adopción asistida" en skill.md (flujo numerado + mandato shell-seguro T-57-01 + exit codes) + espejo condensado en prompt.md; consumidor LLM no dueño, cero lógica nueva (ORCH-01)
 
 ### Phase 58: Ciclo de vida de cierre + deuda heredada de v0.12
+
 **Goal**: Cerrar el gap del lifecycle de sesión (una sesión cerrada por `/exit` queda colgada como `dead` porque kodo no escucha `SessionEnd`) y saldar los dos items diferidos al cierre de v0.12 (`## Deferred Items` de STATE.md). Tail independiente, schedulable en paralelo a cualquier fase de adopción; bajo riesgo. La separación de responsabilidades `Stop` (per-turn → `idle`) vs `SessionEnd` (cierre → cleanup terminal) se resuelve en discuss-phase.
 **Depends on**: Nothing (independiente del flujo de adopción; schedulable en cualquier momento)
 **Requirements**: LIFE-03, DEBT-01, DEBT-02
 **Success Criteria** (what must be TRUE):
+
   1. Una sesión cerrada con `/exit` dispara el hook `SessionEnd` de kodo → cleanup terminal limpio (`removeSession` + worktree + release de lock GSD); la fila **desaparece** del dashboard en vez de quedar colgada como `dead`. Reusa el cleanup de `stop.js` (sin duplicar), idempotente con el hook `Stop`, never-throws. `install.js`/`uninstall` cubren el tercer evento.
   2. El carril HTML del dashboard (`src/server.js`) aplica la allowlist de protocolo `http(s)` (con `new URL()`) + escaping antes de renderizar `task_url` como `<a href>`, cerrando el XSS latente WR-01 (`javascript:`/`data:` ya no inyectable).
   3. Los 3 escenarios + `50.1-VERIFICATION.md` del display de progreso vivo `N/M` quedan verificados visualmente en un TTY real con una sesión GSD viva (HUMAN-UAT de Phase 50.1 cerrado).
+
 **Plans**: TBD
 
 ## Backlog
@@ -172,12 +200,15 @@ _Este backlog item **se materializó** como el milestone activo **v0.13 kodo bid
 **Requirements**: PROG-04 (definido en discuss 2026-06-24)
 **Depends on:** Phase 56 (consume el flujo de adopción) + el contrato `WorkspaceHost` de Phase 38
 **Success Criteria** (what must be TRUE):
+
   1. `reconcile.liveForSession` identifica la sesión por **identidad estable (`session_id`/`checkpoint_id`)** con **fallback** a `titleIdentifiesSession` — una sesión adoptada viva NO se marca `dead` por no llevar el `task_ref` en el título del workspace. Refuerza (no debilita) la defensa anti-reciclaje existente.
   2. `WorkspaceHost.listWorkspaces` (`src/host/cmux.js`) expone el `session_id` por workspace (cmux lo conoce vía el binding / `activeSessionsByWorkspace` de `~/.cmuxterm/claude-hook-sessions.json`); `WorkspaceInfo` se extiende aditivamente (HOST_METHODS sigue congelado en 4; regla transversal LOCKED: lo cmux-específico vive en `src/host/`).
   3. Una sesión adoptada que sigue viva NO reaparece como adoptable en el picker; el set-difference de `computeAdoptable` deja de degradarse a `ALREADY_ADOPTED` por el ciclo dead→history.
+
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 59 to break down)
 
 ### Phase 60: Enriquecimiento de tareas adoptadas por el orquestador
@@ -188,13 +219,16 @@ Plans:
 **Requirements**: BIDIR-F2 (promover de Deferred a activo en REQUIREMENTS.md durante discuss)
 **Depends on:** Phase 57 (el orquestador ya deriva título; esta fase añade la descripción) + Phase 54 (`kodo adopt --description` ya existe para el camino at-adopt)
 **Success Criteria** (what must be TRUE):
+
   1. El orquestador deriva una **descripción-resumen** del contexto real de la sesión (git log / transcript / diff), además del título inteligente (Phase 57), pasando ambos por el sanitizador del núcleo (BIDIR-08, nunca embeber bodies crudos de transcript).
   2. **Camino at-adopt** (adopción nueva vía orquestador): shellea `kodo adopt --title '<t>' --description '<resumen>'` (plumbing de Phase 54 ya existe) — shell-seguro (mandato Phase 57). La tarea nace rellena.
   3. **Camino backfill** (tareas ya adoptadas vía dashboard, p.ej. con título basename y sin descripción): el orquestador las detecta y las enriquece. **DECISIÓN DE DISEÑO (discuss):** ¿editar título+descripción vía un **método nuevo del provider** (updateTask, fuera de los 9 FROZEN, typeof-detected espejo de getTaskState/createTask) o **postear un comentario-resumen** (reusa `addComment`, contrato intacto)? Resolver en discuss-phase.
   4. Confirmación humana antes de escribir (espejo Phase 57 D-03); carril 0-token del núcleo intacto; el LLM vive estrictamente en el orquestador (prosa del skill).
+
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 60 to break down)
 
 ### Phase 61: Progreso vivo para sesiones adoptadas
@@ -204,17 +238,20 @@ Plans:
 **Goal:** Una sesión GSD adoptada refleja su progreso vivo `N/M` en el dashboard igual que una lanzada por kodo.
 
 **Origen / dos causas raíz (diagnóstico 2026-06-22):**
+
 1. **La adopción no marca `gsd`.** `buildSessionFromAdoption` (`src/adopt.js:114-129`) omite `gsd`/`gsd_mode`/`phase_id`. El gate del dashboard (`App.js:419`, `if (row?.gsd !== true) → '—'`) la excluye. La adopción no detecta que el cwd es un proyecto GSD.
 2. **El path del STATE.md asume worktree de kodo.** `App.js:433` usa `computeRealWorktreePath(project_path, session_id)` = `<project_path>/.claude/worktrees/<session_id>/.planning/STATE.md` — solo existe para sesiones lanzadas (worktree aislado). Una adoptada corre en su cwd real; su STATE.md está en `<cwd>/.planning/STATE.md`. Marcado *load-bearing / Pitfall 1* — la asunción del worktree-path es defensa anti-`bg-shell` equivocado.
 
 **Depends on:** Phase 53/54 (adopción) + Phase 50.1 (lector de progreso vivo).
 **Requirements:** TBD (definir en discuss — candidato PROG-04 / DETECT-03).
 **Success Criteria** (what must be TRUE):
+
   1. Al adoptar, kodo **detecta** si el cwd es un proyecto GSD (p. ej. `.planning/PROJECT.md`/`STATE.md` presentes) y, si lo es, marca la fila `gsd: true` (+ `gsd_mode`/`phase_id` derivables) — sin romper la fontanería determinista 0-token.
   2. El lector de progreso resuelve el STATE.md correcto para sesiones **sin worktree** (adoptadas): cuando no hay worktree de kodo, usa `<cwd o project_path>/.planning/STATE.md`; cuando lo hay, mantiene `computeRealWorktreePath` (no debilita la defensa Pitfall 1).
   3. Una sesión GSD adoptada viva muestra `N/M` real (y `N/M✓` al completar); una adoptada no-GSD sigue mostrando `—`. Never-throws preservado.
 
 **Plans:** 1 plan
+
 - [x] 61-01-PLAN.md — reader gate dinámico + fallback de path (D-1/D-2) + adopt.js detección GSD (D-3) + tests (PROG-04)
 
 ### Phase 62: Adopción inteligente desde el dashboard (ORCH-02)
@@ -225,20 +262,28 @@ Plans:
 **Requirements:** ORCH-02
 **Depends on:** Phase 56 (tecla `a` + estados de confirm en `App.js`) + Phase 54 (`kodo adopt --title`; esta fase añade `--description`) + Phase 61 (`isGsdProject` para la rama GSD/non-GSD). Supersede el camino at-adopt de Phase 57 (ORCH-01 queda como está).
 **Success Criteria** (what must be TRUE):
+
   1. Al pulsar `a` sobre un surface ad-hoc, kodo dispara una derivación LLM one-shot (`claude -p --model claude-haiku-4-5`, headless, sin tools, contexto inline pre-leído) y propone `{title, description}` ANTES de crear la tarea (UX derive-then-confirm: pick → "derivando…" → propuesta → segunda `a` confirma). (D-01/D-02/D-08)
   2. Fuentes de memoria correctas: proyecto **GSD** (`.planning/` presente vía `isGsdProject`) → `PROJECT.md` + `ROADMAP.md` + `STATE.md` (alcance global, arregla el F2 del UAT); **non-GSD** → `git log --oneline` + **primer prompt del transcript** (vía `resolveTranscriptPath`). NO cae a basename salvo fallo. (D-04/D-05/D-06)
   3. Fail-open acotado: timeout (~25-30s; evidencia empírica RESEARCH Pitfall 1: latencias medidas 8.7–21.9s — un timeout de 8s cortaría derivaciones legítimas), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
   4. Al confirmar, shellea `kodo adopt --title '<t>' --description '<d>'` con argv literal (`execFile`, inyección estructuralmente inerte); el `{title, description}` derivado pasa por `sanitizeAdoptionData` (BIDIR-08). Suelo determinista 0-token del núcleo (`adoptSession`/`createTask`) intacto; el LLM vive SOLO en el paso de derivación del dashboard. (D-10/D-11/D-12/D-13)
+
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 62-01-PLAN.md — enrich.js: derivador LLM one-shot never-throws (spawn Haiku + parse --json-schema + ramas GSD/non-GSD + transcript) (wave 1)
 - [ ] 62-02-PLAN.md — runAdopt extiende el argv con --description (espejo literal de --title) (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 62-03-PLAN.md — App.js estado 'deriving' + render confirm con propuesta + wiring onDerive/onAdopt(description) en index.js (wave 2)
 
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
 Destapados al validar DEBT-02 (detalle + root-cause en `STATE.md` §Open Blockers):
+
 - **F2 (✅ RESUELTO, commit `c87baad`):** `getTask` devolvía `labels: []` pese al label `kodo`. Root cause: `getWorkItemBySequence` no expandía `labels` → UUIDs resueltos vía `labelCache` (init/TTL) que podía no tenerlos → `[]`. Fix aplicado: expandir `labels` (objetos con `name`, sin dependencia del cache). Requiere reiniciar el daemon kodo para surtir efecto en vivo.
 - **F3 (CORREGIDO — NO es bug):** `gsd:undefined` en KODO-4 es correcto — no tiene label `kodo:gsd`/`kodo:gsd-quick` → no es tarea GSD. `--force` solo salta el gate `isKodo`, no inventa modo GSD.
 - **F4 (verificar):** el worktree se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → código/STATE.md stale si no se ha hecho push. (`src/session/manager.js`) — confirmar si es by-design.
