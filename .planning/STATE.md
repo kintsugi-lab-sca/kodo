@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
 status: executing
-stopped_at: v0.13 — Phases 52-61 COMPLETE (incl. DEBT-02 UAT passed + Phase 61 PROG-04). Pendiente solo audit/complete-milestone + git push. Abierto menor- F4 (worktree base) + verificar F2/Phase 61 en vivo
-last_updated: "2026-06-24T12:00:00.000Z"
-last_activity: 2026-06-24 -- Phase 61 (PROG-04) implementada: progreso vivo para sesiones adoptadas (gate dinámico + path fallback + adopt.js detección GSD). Suite 1509 verde
+stopped_at: Phase 62 context gathered
+last_updated: "2026-06-25T08:13:48.452Z"
+last_activity: 2026-06-19 -- liveness gap-fix mergeado + Phase 60 registrada
 progress:
-  total_phases: 10
+  total_phases: 11
   completed_phases: 10
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
+  total_plans: 14
+  completed_plans: 19
+  percent: 91
 ---
 
 # Project State
@@ -134,8 +134,8 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Session Continuity
 
-- **Last session:** 2026-06-19 (cierre de cola v0.13 en modo autónomo)
-- **Stopped at:** Phases 52-57, 59, 60 COMPLETE. Phase 58 PARCIAL: DEBT-01 (XSS) cerrado; **LIFE-03 + DEBT-02 pendientes — bloqueados en decisión/TTY humano**.
+- **Last session:** 2026-06-25T08:13:48.442Z
+- **Stopped at:** Phase 62 context gathered
 - **Next action:** Cerrar Phase 58, que NO se pudo terminar en autónomo por dos razones legítimas:
   1. **LIFE-03 (hook `SessionEnd`)** — cirugía de lifecycle Tier-3 (mover `removeSession` de `Stop` per-turn a `SessionEnd` terminal, re-coreografiando el rescate desde `history` de `reconcileTick`). 4 sub-decisiones abiertas (ver §Open Questions Phase 58). NO se debe implementar a ciegas: requiere `/gsd:discuss-phase 58` y verificación en TTY real.
   2. **DEBT-02 (HUMAN-UAT 50.1)** — los 3 escenarios del display de progreso vivo `N/M` requieren un TTY real con sesión GSD viva. Solo el operador puede ejecutarlo (`50.1-HUMAN-UAT.md`).
