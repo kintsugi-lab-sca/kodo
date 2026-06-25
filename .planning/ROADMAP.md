@@ -13,11 +13,11 @@
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
-- 🚧 **v0.13 kodo bidireccional** — Phases 52-61 (todas ✅; DEBT-02 HUMAN-UAT passed 2026-06-23; pendiente solo audit/complete + `git push`)
+- 🚧 **v0.13 kodo bidireccional** — Phases 52-62 (52-61 ✅; Phase 62 abierta: adopción inteligente desde el dashboard, cierra el intent de ORCH-01 que falló UAT 2026-06-24)
 
 ## Phases
 
-### 🚧 v0.13 kodo bidireccional (Phases 52-61)
+### 🚧 v0.13 kodo bidireccional (Phases 52-62)
 
 **Milestone Goal:** Cerrar el puente en la dirección inversa `sesión → tarea`: una sesión Claude Code creada ad-hoc en cmux (no nacida de una tarea Plane/GitHub) se promueve a una **tarea persistente** del gestor, para que el trabajo ad-hoc no se evapore al cerrar el sprint. Arquitectura **"una fontanería, tres consumidores"**: una base determinista 0-token (`createTask` + `adoptSession`) reusada por el CLI, la tecla del dashboard y el orquestador (único carril LLM) — ninguno dueño del flujo. La detección cmux entra por el contrato `HostProvider` (regla transversal).
 
@@ -33,6 +33,7 @@
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
 - [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
 - [x] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog ✅ 2026-06-24
+- [ ] **Phase 62: Adopción inteligente desde el dashboard (ORCH-02)** — al pulsar `a`, un paso de derivación LLM one-shot (`claude -p` Haiku, headless, fail-open) lee la memoria del proyecto (GSD: PROJECT.md/ROADMAP/STATE) + el primer prompt del transcript de la sesión y propone `{title, description}` ANTES de crear; confirmas y shellea `kodo adopt --title --description`. Resuelve el fallo de UAT de ORCH-01 (el orquestador no podía resolver coordenadas de una sesión sin adoptar; el dashboard SÍ las tiene vía `listAgentSurfaces()`). Suelo determinista intacto (fallback a `basename(cwd)`); el LLM vive solo en el paso de derivación; `execFile` argv → inyección inerte. Origen: UAT ORCH-01 2026-06-24. Detalle en §Backlog
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
@@ -246,5 +247,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 | 61. Progreso vivo para sesiones adoptadas | v0.13 | 1/1 | Complete (PROG-04, 5/5 must_haves) | 2026-06-24 |
+| 62. Adopción inteligente desde el dashboard | v0.13 | 0/? | Registrada (ORCH-02; pendiente discuss/plan) | — |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.

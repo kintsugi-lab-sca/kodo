@@ -1,9 +1,10 @@
 ---
-status: partial
+status: issue
 phase: 57-orquestador-asistido
 source: [57-VERIFICATION.md]
 started: 2026-06-18
-updated: 2026-06-18
+updated: 2026-06-24
+resolved_by: ORCH-02 (Phase 62)
 ---
 
 ## Current Test
@@ -38,15 +39,42 @@ expected: |
 why_human: El comportamiento es LLM-driven (calidad del título + seguir la prosa) y requiere una sesión orquestador viva + una sesión ad-hoc; no es determinista. La capa automática verificó la estructura/prosa/invariantes; solo el comportamiento en vivo es manual.
 adversarial_check: |
   Probar con un cwd/título que contenga metacaracteres adversariales (p.ej. trabajar en un dir con `$` o un commit subject con backticks/`;`) y confirmar que el orquestador (a) restringe/aborta y (b) NUNCA emite un comando donde el metacarácter se ejecute. Este es el corazón de T-57-01.
-result: [pending]
+result: [issue]
+executed: 2026-06-24
+evidence: ROMAN-194 (proyecto add88b2b / scp-cmri)
+findings: |
+  Ejecutado 2026-06-24 contra una sesión ad-hoc real (scp-cmri, proyecto GSD Rails). Resultado: ISSUE, no pass.
+
+  - **F1 (mayor — gap arquitectónico):** el orquestador NO pudo resolver las coordenadas
+    (`workspace_ref`/`session_id`) de la sesión ad-hoc. El skill §1 manda resolverlas
+    matcheando por `cwd` en `state.json`, pero una sesión sin adoptar no está en
+    `state.json` (huevo y gallina) y el skill prohíbe descubrir surfaces directamente.
+    → degradó a "adopta tú primero por el dashboard". El camino at-adopt de ORCH-01 (su
+    razón de ser: derivar título ANTES de crear) quedó SIN ejercitar. La adopción la hizo
+    el dashboard (Phase 56, determinista) → título = `basename(cwd)` = `scp-cmri`.
+  - **Checks 1/2/3 (título inteligente / confirmación / shell-safety at-adopt):** N/A —
+    nunca se shelleó `kodo adopt --title` por el orquestador.
+  - **F2 (menor — calidad del resumen):** el único aporte fue un comentario de backfill
+    (Phase 60) derivado de `git log --oneline -N` → se ancló en los últimos commits
+    ("la Fase 2 acaba de cerrarse…") en vez del alcance global del proyecto. Para un
+    proyecto GSD la mejor señal del alcance es `.planning/PROJECT.md`/`ROADMAP.md`, que
+    el skill no manda leer. De ahí la vaguedad relativa a la amplitud real de la tarea.
+resolution: |
+  ORCH-01 queda como "code-complete (9/9) · UAT fallido". El intent se reubica en
+  **ORCH-02 (Phase 62 — adopción inteligente desde el dashboard)**: el dashboard YA tiene
+  las coordenadas vía `listAgentSurfaces()` (disuelve F1) y leerá la memoria del proyecto
+  (disuelve F2). Ver REQUIREMENTS.md ORCH-02 + ROADMAP.md Phase 62.
 
 ## Summary
 
 total: 1
 passed: 0
-issues: 0
-pending: 1
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+- F1 (mayor): coordenadas irresolubles para sesión ad-hoc no adoptada → camino at-adopt inalcanzable. Reubicado a ORCH-02/Phase 62.
+- F2 (menor): resumen anclado en git log reciente, no en el alcance del proyecto (PROJECT.md). Reubicado a ORCH-02/Phase 62.
