@@ -1,7 +1,8 @@
 ---
 phase: 57-orquestador-asistido
 verified: 2026-06-18T17:35:00+02:00
-status: human_needed
+status: superseded
+superseded_by: ORCH-02 (Phase 62) — at-adopt del orquestador inalcanzable (coordenadas irresolubles); intent reubicado al dashboard. UAT humano 2026-06-24.
 score: 9/9 must-haves verified
 overrides_applied: 0
 human_verification:

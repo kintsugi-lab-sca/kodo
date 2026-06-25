@@ -1,9 +1,9 @@
 ---
-status: partial
+status: resolved
 phase: 56-tecla-del-dashboard
 source: [56-VERIFICATION.md]
 started: 2026-06-17
-updated: 2026-06-17
+updated: 2026-06-25
 ---
 
 ## Current Test
