@@ -185,6 +185,31 @@ describe('Phase 62 Plan 01: deriveAdoptionMeta — rama GSD vs non-GSD (never-th
     assert.ok(readPaths.includes(join(planning, 'STATE.md')), 'lee STATE.md');
   });
 
+  it('rama GSD: el primer prompt del transcript entra como Session intent PRIMARY (título a nivel tarea, UAT 2026-06-25)', async () => {
+    const INTENT = 'arregla el bug del reproductor de audio en el feed';
+    // El transcript devuelve un turno user real; los .planning/*.md devuelven memoria de proyecto.
+    const readFileFn = (p) => {
+      if (String(p).includes('.planning')) return `Liken: plataforma de contenido audio y social — ${p}`;
+      return JSON.stringify({ type: 'user', message: { role: 'user', content: INTENT } }) + '\n';
+    };
+    const existsSyncFn = () => true; // isGsdProject → true
+    let capturedPrompt = '';
+    const spawnFn = (cmd, args, opts, cb) => {
+      capturedPrompt = args[args.length - 1]; // el prompt viaja como último arg (argv literal)
+      const result = JSON.stringify({ title: 'Fix audio player', description: 'Fix the audio player bug in the feed' });
+      setImmediate(() => cb(null, JSON.stringify({ type: 'result', is_error: false, result }), ''));
+    };
+    await deriveAdoptionMeta({ spawnFn, readFileFn, existsSyncFn, cwd: CWD, sessionId: SESSION_ID });
+    assert.ok(capturedPrompt.includes('Session intent (PRIMARY'), 'el prompt etiqueta la intención de la sesión como PRIMARY');
+    assert.ok(capturedPrompt.includes(INTENT), 'el primer prompt del transcript se inyecta en el contexto GSD');
+    assert.ok(
+      /SPECIFIC TASK/.test(capturedPrompt) && !/PROJECT SCOPE/.test(capturedPrompt),
+      'la instrucción pide la TAREA de la sesión, no el alcance global del proyecto',
+    );
+    // La memoria del proyecto sigue presente, pero marcada como contexto de fondo.
+    assert.ok(capturedPrompt.includes('Project background'), 'la memoria GSD pasa a contexto de fondo');
+  });
+
   it('rama non-GSD (existsSyncFn=false): usa git log (spawnFn git) + firstUserPrompt', async () => {
     /** @type {string[][]} */
     const gitCalls = [];

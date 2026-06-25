@@ -3,8 +3,9 @@
 // src/cli/dashboard/enrich.js — Phase 62 Plan 01 (ORCH-02).
 //
 // Derivador LLM one-shot never-throws para la adopción inteligente desde el dashboard.
-// Lee la memoria del proyecto (GSD: PROJECT.md/ROADMAP.md/STATE.md; non-GSD: git log +
-// primer prompt del transcript), la inyecta en un prompt mínimo, y spawnea
+// Lee la intención de la sesión (primer prompt del transcript) como señal PRIMARIA + contexto
+// de fondo (GSD: PROJECT.md/ROADMAP.md/STATE.md; non-GSD: git log), lo inyecta en un prompt
+// mínimo orientado a la TAREA de esta sesión, y spawnea
 // `claude -p --model claude-haiku-4-5 --output-format json --json-schema <SCHEMA>` para
 // derivar `{ title, description }`. CUALQUIER fallo (ENOENT, timeout, exit≠0, is_error,
 // parse-fail, sync-throw) → fail-open a `{}` → App.js cae a surface.title/basename(cwd).
@@ -187,17 +188,19 @@ export function firstUserPrompt({ cwd, sessionId, readFileFn }) {
 
 /**
  * Prompt mínimo NUEVO (D-07) — en inglés, sin mandato charset/single-quote (la shell-safety
- * la da execFile argv literal, D-13). Pide derivar el ALCANCE del proyecto, no el directorio
- * ni el último commit.
+ * la da execFile argv literal, D-13). Pide derivar la TAREA de esta sesión (el trabajo en
+ * curso), no el alcance global del proyecto, no el directorio, no el último commit.
  *
  * @param {{ contextLabel: string, contextBody: string }} args
  * @returns {string}
  */
 function buildDerivePrompt({ contextLabel, contextBody }) {
   return [
-    'Derive a concise task title and a one-paragraph description for a coding session,',
-    'based ONLY on the project context below. The title must reflect the PROJECT SCOPE',
-    '(what the project is about) — NOT the directory name, NOT the latest commit.',
+    'Derive a concise title and a one-paragraph description for the SPECIFIC TASK this',
+    'coding session is working on, based PRIMARILY on the session intent below. The title',
+    'must name the task / work in progress (what this session is doing) — NOT the overall',
+    'project, NOT the directory name, NOT the latest commit. Use any project background',
+    'only to disambiguate domain terms, never as the title subject itself.',
     'Return ONLY the structured fields requested.',
     '',
     `## ${contextLabel}`,
@@ -224,15 +227,29 @@ export async function deriveAdoptionMeta({ spawnFn, readFileFn, existsSyncFn, cw
     let contextLabel;
     let contextBody;
     if (isGsdProject(cwd, existsSyncFn)) {
-      // D-04: GSD — alcance global del proyecto.
-      contextLabel = 'Project memory (GSD)';
-      contextBody = gsdContext({ cwd, readFileFn });
-    } else {
-      // D-05: non-GSD — actividad (git log) + intención (primer prompt del transcript).
-      const log = await gitLog({ cwd, spawnFn });
+      // D-04 (revisado tras UAT 2026-06-25): el título debe reflejar la TAREA de esta sesión,
+      // no el alcance global. El primer prompt del transcript = intención PRIMARIA; la memoria
+      // GSD pasa a ser contexto de fondo desambiguador, no el sujeto del título.
       const intent = firstUserPrompt({ cwd, sessionId, readFileFn });
-      contextLabel = 'Recent activity + intent';
-      contextBody = [log, intent].filter(Boolean).join('\n\n---\n\n');
+      const memory = gsdContext({ cwd, readFileFn });
+      contextLabel = 'Session intent + project background (GSD)';
+      contextBody = [
+        intent && `### Session intent (PRIMARY — what the user asked in this session)\n${intent}`,
+        memory && `### Project background (context only — do NOT make this the title subject)\n${memory}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n---\n\n');
+    } else {
+      // D-05: non-GSD — intención (primer prompt, PRIMARIA) + actividad (git log, secundaria).
+      const intent = firstUserPrompt({ cwd, sessionId, readFileFn });
+      const log = await gitLog({ cwd, spawnFn });
+      contextLabel = 'Session intent + recent activity';
+      contextBody = [
+        intent && `### Session intent (PRIMARY — what the user asked in this session)\n${intent}`,
+        log && `### Recent activity (context only)\n${log}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n---\n\n');
     }
     const prompt = buildDerivePrompt({ contextLabel, contextBody });
     return spawnDerive({ spawnFn, prompt, timeoutMs });
