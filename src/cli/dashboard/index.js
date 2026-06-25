@@ -119,6 +119,14 @@ export async function runDashboard(deps = {}) {
   const { runAdopt } = await import('./adopt.js');
   const { getHost } = await import('../../host/interface.js');
 
+  // Phase 62 (ORCH-02): deriveAdoptionMeta (derivador LLM one-shot never-throws, Plan 01) +
+  // readFileSync/existsSync de node:fs (DI del derivador — en enrich.js van inyectados, SOLO aquí
+  // se resuelven los builtins reales). El LLM (claude -p --json-schema) vive SOLO en este carril
+  // (D-11/D-14): el suelo determinista 0-token (adoptSession/createTask) no cambia. Mismo patrón
+  // lazy que runAdopt/runFocus. execFile argv literal injection-inerte (D-13).
+  const { deriveAdoptionMeta } = await import('./enrich.js');
+  const { readFileSync, existsSync } = await import('node:fs');
+
   // execFile-shaped default cuando exec no fue inyectado. Lazy: solo se carga si se cablea el TUI
   // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
   const execImpl = exec ?? (await import('node:child_process')).execFile;
@@ -170,10 +178,21 @@ export async function runDashboard(deps = {}) {
     // contra el snapshot vivo de /status (computeAdoptable, D-02) y abre el picker.
     onAdoptDiscover: async () =>
       typeof host.listAgentSurfaces === 'function' ? host.listAgentSurfaces() : [],
+    // Phase 62 D-08/D-11 (ORCH-02): derivador LLM never-throws. El handler `a` de App.js entra en
+    // 'deriving' y lo await entre el armado y el confirm; el {title,description} resuelto se fusiona
+    // en armedSurface (fail-open a {} → App.js cae a surface.title/basename). El `execImpl` (execFile
+    // real, ya resuelto arriba) es el spawnFn DI del derivador — execFile-shaped, NO config.cmux.binary
+    // (Pitfall 3: 'claude' se resuelve por PATH dentro de spawnDerive). El timeout (~25s) vive DENTRO
+    // de spawnDerive (default 25_000, Plan 01) — no se cablea aquí. fs por DI (readFileSync/existsSync).
+    // El LLM vive SOLO en este carril (D-11/D-14); execFile argv literal injection-inerte (D-13).
+    onDerive: async ({ cwd, sessionId }) =>
+      deriveAdoptionMeta({ spawnFn: execImpl, readFileFn: readFileSync, existsSyncFn: existsSync, cwd, sessionId }),
     // Phase 56 D-06/D-07: shell never-throws de `kodo adopt`. binary = process.execPath (node) +
     // kodoBin como argv[0] (Pitfall 4). runAdopt colapsa todo fallo a {ok:false} — App.js mapea a footer.
-    onAdopt: async ({ workspaceRef, cwd, sessionId, projectId, title }) =>
-      runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title }),
+    // Phase 62 (ORCH-02): pasa `description` (derivada por onDerive, fusionada en armedSurface) a
+    // runAdopt → `kodo adopt --description` (D-10). El cuerpo at-adopt cruza injection-inerte (D-13).
+    onAdopt: async ({ workspaceRef, cwd, sessionId, projectId, title, description }) =>
+      runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, description }),
     // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
     projects,
   }));

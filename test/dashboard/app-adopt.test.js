@@ -27,11 +27,19 @@ import { render } from 'ink-testing-library';
 import { createElement } from 'react';
 import App, {
   ADOPT_NONE,
-  ADOPT_CONFIRM,
   ADOPT_OK,
   ADOPT_ALREADY,
   ADOPT_NO_PROJECT,
+  ADOPT_DERIVED_CONFIRM,
+  ADOPT_DERIVED_CONFIRM_FALLBACK,
 } from '../../src/cli/dashboard/App.js';
+
+// Phase 62 (ORCH-02): el confirm de adopt cambió de copy. Tras armar, el flujo pasa por el estado
+// transitorio 'deriving' (await onDerive) y muestra la PROPUESTA derivada en el confirm. Cuando el
+// test no inyecta onDerive (estos casos de Phase 56), `derived` cae a {} → el confirm usa la copy
+// DEGRADADA ADOPT_DERIVED_CONFIRM_FALLBACK (sin título derivado). El comportamiento del double-confirm
+// (segunda `a` shellea una vez; cualquier otra tecla cancela) es IDÉNTICO — solo cambia el texto.
+const ADOPT_CONFIRM = ADOPT_DERIVED_CONFIRM_FALLBACK;
 
 // ── Fake clock (idéntico a app-dismiss.test.js) ──────────────────────────────
 function makeFakeClock(startMs = 1_000_000) {
@@ -248,7 +256,10 @@ describe('DETECT-02: picker cursor + double-confirm (D-04)', () => {
       await drain();
       stdin.write('a'); // arma
       await drain();
-      assert.match(lastFrame(), escRe(ADOPT_CONFIRM('ws-1')), 'precondición: armado sobre sess-T');
+      // Phase 62 (ORCH-02): la surface trae title 'KODO DEV' → el fallback de surface.title alimenta
+      // la propuesta del confirm (línea `título: KODO DEV` + ADOPT_DERIVED_CONFIRM, NO el fallback).
+      assert.match(lastFrame(), escRe(ADOPT_DERIVED_CONFIRM('ws-1')), 'precondición: armado sobre sess-T');
+      assert.match(lastFrame(), escRe('título: KODO DEV'), 'el confirm muestra el título de la surface como propuesta');
       stdin.write('a'); // ejecuta
       await drain();
       await drain(); // Pitfall 1: ink no awaitea el handler async
