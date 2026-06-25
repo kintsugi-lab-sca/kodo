@@ -124,9 +124,16 @@ describe('ORCH-02 (D-08): derive-then-confirm — estado deriving + propuesta en
     let deriveCalls = 0;
     /** @type {Array<object>} */
     const deriveArgs = [];
+    // onDerive CONTROLADO: resuelve sólo cuando llamamos releaseDerive(), para poder observar el
+    // frame transitorio 'deriving' (DERIVE_PROGRESS) antes de que la derivación complete el confirm.
+    let releaseDerive;
+    const derivePromise = new Promise((resolve) => {
+      releaseDerive = resolve;
+    });
     const onDerive = async (/** @type {object} */ a) => {
       deriveCalls += 1;
       deriveArgs.push(a);
+      await derivePromise;
       return { title: 'kodo bidireccional', description: 'sincroniza tareas en ambos sentidos' };
     };
     const onDiscover = async () => adoptableSurface();
@@ -137,15 +144,15 @@ describe('ORCH-02 (D-08): derive-then-confirm — estado deriving + propuesta en
       await drain();
       stdin.write('a'); // abre picker
       await drain();
-      stdin.write('a'); // arma → entra en deriving
-      // NO drain todavía: el frame inmediato debe mostrar DERIVE_PROGRESS antes de que onDerive resuelva.
-      await new Promise((r) => setImmediate(r));
+      stdin.write('a'); // arma → entra en deriving (onDerive en vuelo, sin resolver)
+      await drain();
       const derivingFrame = lastFrame();
       assert.match(
         derivingFrame,
         escRe(DERIVE_PROGRESS),
         `tras armar debe mostrar el spinner DERIVE_PROGRESS\n${derivingFrame}`,
       );
+      releaseDerive(); // libera onDerive → resuelve {title,description}
       await drain(); // onDerive resuelve → confirm
       const confirmFrame = lastFrame();
       assert.match(confirmFrame, escRe('kodo bidireccional'), `confirm muestra el título propuesto\n${confirmFrame}`);

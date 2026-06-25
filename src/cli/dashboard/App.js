@@ -196,6 +196,26 @@ export const ADOPT_ERR_ENOENT = '[!] kodo not found — press any key';
 /** @param {number|string} code */
 export const adoptErrFailed = (code) => `[!] adopt failed (code ${code}) — press any key`;
 
+// Phase 62 D-08/D-09 (ORCH-02): copy literal-estable del flujo derive-then-confirm de la tecla `a`.
+// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo patrón
+// que ADOPT_* de Phase 56). La LITERAL copy es el contrato (UI-SPEC §Copywriting, español); los
+// nombres son guía. Mezcla consciente de idioma (las ADOPT_* de Phase 56 quedan en inglés, las
+// nuevas en español — aceptado por UI-SPEC).
+//
+// DERIVE_PROGRESS (dimColor, spinner NEUTRAL): estado transitorio `mode==='deriving'` mientras
+//   onDerive corre. dimColor (NO cyan, reservado al prompt armado). Ellipsis `…` (un char, NO `...`).
+// ADOPT_DERIVED_CONFIRM (cyan): confirm CON propuesta derivada (espejo léxico de ADOPT_CONFIRM, pero
+//   precedido de las líneas título:/desc: en SessionTable). Se deriva de mode==='confirm' +
+//   armedSessionId + armedSurface.title presente.
+// ADOPT_DERIVED_CONFIRM_FALLBACK (cyan): confirm DEGRADADO (fail-open T4) — onDerive resolvió {} o
+//   sin title → NO se renderizan líneas título:/desc:; el copy avisa "(título por defecto)". NO rojo.
+export const DERIVE_PROGRESS = 'derivando título…';
+/** @param {string} ref */
+export const ADOPT_DERIVED_CONFIRM = (ref) => `adoptar ${ref}? pulsa a de nuevo · Esc cancela`;
+/** @param {string} ref */
+export const ADOPT_DERIVED_CONFIRM_FALLBACK = (ref) =>
+  `adoptar ${ref} (título por defecto)? pulsa a de nuevo · Esc cancela`;
+
 // Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
 // SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
 // (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
@@ -235,10 +255,16 @@ export const OVERLAY_VIEWPORT = 18;
  *   `host.listAgentSurfaces()` typeof-gated (fail-open a `[]` si el host no lo soporta). El handler
  *   de `a` lo `await`a, diffea contra el snapshot vivo de `/status` (computeAdoptable, D-02) y abre
  *   el picker overlay con las adoptables; vacío/unsupported → footer ADOPT_NONE, mode sigue list.
- * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
+ * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
  *   Phase 56 D-06/D-07: callback never-throws inyectado por `runDashboard` que invoca
  *   `runAdopt({exec, execPath, kodoBin, ...})`. El segundo `a` del double-confirm lo `await`a y mapea
  *   `result.code` a ADOPT_OK (verde) / ADOPT_ERR_ENOENT / adoptErrFailed (rojo). never-throws (D-07).
+ *   Phase 62 ORCH-02: el `args` lleva ahora `title`/`description` derivados por onDerive (fusión).
+ * @param {(args: { cwd: string, sessionId: string }) => Promise<{ title?: string, description?: string }>} [props.onDerive]
+ *   Phase 62 D-08/D-11 (ORCH-02): callback never-throws inyectado por `runDashboard` (index.js) que
+ *   invoca `deriveAdoptionMeta(...)` (Plan 01). El handler `a` del picker entra en `mode==='deriving'`
+ *   y lo `await`a entre el armado y el confirm; el `{title, description}` resuelto se fusiona en
+ *   `armedSurface` (T4 fail-open a {} conserva surface.title). Never-throws — el panel sigue montado.
  * @param {Record<string, string>} [props.projects]
  *   Phase 56 D-05: mapa `projectId → path` (de `loadProjects()`, inyectado por index.js). El reverse-
  *   lookup `resolveProjectId(surface.cwd, projects)` resuelve el `--project` del adopt al armar;
@@ -259,6 +285,7 @@ export default function App({
   onOpen,
   onAdoptDiscover,
   onAdopt,
+  onDerive,
   projects = {},
 }) {
   const { exit } = useApp();
@@ -319,7 +346,7 @@ export default function App({
   // pasárselo a onAdopt en el confirm sin re-resolver. `null` cuando no hay adopt armado.
   const [armedSessionId, setArmedSessionId] = useState(/** @type {string | null} */ (null));
   const [armedSurface, setArmedSurface] = useState(
-    /** @type {{ workspaceRef: string, cwd: string, sessionId: string, projectId: string } | null} */ (null),
+    /** @type {{ workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string } | null} */ (null),
   );
   // Phase 56 D-03/Pitfall 3: cursor SELECCIONABLE del picker de adopt (índice clamped sobre
   // overlaySnapshot.adoptable, [0, len-1] sin wrap — molde de resolveSelection). Distinto de
@@ -336,7 +363,7 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving'} */ ('list'));
   const [query, setQuery] = useState('');
   const prevIndexRef = useRef(0);
   // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
@@ -531,20 +558,49 @@ export default function App({
               return;
             }
             // Match único: arma el confirm por IDENTIDAD (sessionId) + stashea el payload. NO se setea
-            // footer al entrar en confirm (Pitfall 4): ADOPT_CONFIRM se DERIVA de armedSessionId en
-            // SessionTable, así el clear-on-any-input no consume el segundo `a`.
+            // footer al entrar en confirm/deriving (Pitfall 4): el copy se DERIVA de mode+armedSurface
+            // en SessionTable, así el clear-on-any-input no consume el segundo `a`.
             setArmedSessionId(surface.sessionId);
+            setOverlayKind(null);
+            // Phase 62 D-08 (ORCH-02): derive-then-confirm. Entre el armado y el confirm se interpone
+            // el estado transitorio 'deriving': armamos el payload BASE (con el title de la surface
+            // como fallback), entramos en 'deriving' (spinner DERIVE_PROGRESS), y await onDerive. El
+            // handler ya es async (usa await onAdopt en el confirm) → el await es legal. onDerive es
+            // never-throws (Plan 01 contract / D-11): el try/catch fail-open a {} es defensa en
+            // profundidad (el contrato es que NUNCA lanza, pero si lo hiciera el panel sigue montado).
             setArmedSurface({
               workspaceRef: surface.workspaceRef,
               cwd: surface.cwd,
               sessionId: surface.sessionId,
               projectId: r.projectId,
-              // Phase 56-06: el título auto-derivado de cmux (← AgentSurface.title) viaja
-              // hasta runAdopt como `--title`. Ausente cuando el workspace no tiene custom
-              // title → onAdopt lo omite y el core cae al basename(cwd).
+              // Phase 56-06: el título auto-derivado de cmux (← AgentSurface.title) es el FALLBACK del
+              // título derivado (T4 fail-open conserva surface.title). Ausente → onAdopt lo omite.
               title: surface.title,
             });
-            setOverlayKind(null);
+            setMode('deriving');
+            // Phase 62 D-09/T5: token de generación (reusa overlayReqRef, espejo del CR-01 de c/l).
+            // Esc en deriving avanza el ref → el resultado tardío se descarta tras el await.
+            const reqId = ++overlayReqRef.current;
+            /** @type {{ title?: string, description?: string }} */
+            let derived = {};
+            try {
+              derived = (await onDerive?.({ cwd: surface.cwd, sessionId: surface.sessionId })) ?? {};
+            } catch {
+              derived = {}; // never-throws / fail-open (D-11): defensa en profundidad
+            }
+            // T5: si overlayReqRef avanzó durante el await (Esc en deriving u otra apertura), esta
+            // derivación quedó OBSOLETA → se descarta sin reabrir el confirm.
+            if (overlayReqRef.current !== reqId) return;
+            // Fusión: el {title, description} derivado entra en armedSurface. T4 fail-open conserva
+            // surface.title cuando derived.title es undefined; description undefined cuando no hay.
+            setArmedSurface({
+              workspaceRef: surface.workspaceRef,
+              cwd: surface.cwd,
+              sessionId: surface.sessionId,
+              projectId: r.projectId,
+              title: derived.title ?? surface.title,
+              description: derived.description,
+            });
             setMode('confirm');
             return;
           }
@@ -564,6 +620,22 @@ export default function App({
           return;
         }
         return; // traga el resto mientras el operador lee el overlay
+      }
+      // Phase 62 D-09 (ORCH-02): SUB-MODO deriving. Va ANTES del confirm: mientras onDerive está en
+      // vuelo el footer muestra el spinner DERIVE_PROGRESS (derivado de mode==='deriving' en
+      // SessionTable). Esc CANCELA e invalida la derivación en vuelo (avanza overlayReqRef → el
+      // resultado tardío se descarta tras el await, T5) y vuelve a list, limpiando el armado. Una
+      // segunda `a` (o cualquier otra tecla) se TRAGA: NO encola un segundo onDerive (la derivación
+      // ya está corriendo). El poll de /status sigue por debajo (T-62-09: no bloquea el panel).
+      if (mode === 'deriving') {
+        if (key.escape) {
+          overlayReqRef.current++; // T5: invalida la derivación en vuelo (resultado tardío descartado)
+          setArmedSessionId(null);
+          setArmedSurface(null);
+          setMode('list');
+          return;
+        }
+        return; // traga el resto (incl. `a`) mientras la derivación está en vuelo
       }
       // Phase 42 D-01/D-02/D-04 (DISMISS-02): SUB-MODO confirm. Va DESPUÉS del clear-on-any-input
       // y del overlay, ANTES de filter/list. CRÍTICO (RESEARCH Pitfall 4): entrar en `confirm` NO
@@ -958,6 +1030,8 @@ export default function App({
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)
         armedSessionId, // Phase 56 Pitfall 2: si != null el confirm es de ADOPT (ruta el copy ADOPT_CONFIRM)
         armedSurfaceRef: armedSurface?.workspaceRef ?? null, // Phase 56 D-04: ref legible del adopt armado
+        armedSurfaceTitle: armedSurface?.title ?? null, // Phase 62 D-08: título derivado (propuesta del confirm)
+        armedSurfaceDescription: armedSurface?.description ?? null, // Phase 62 D-08: descripción derivada
         adoptCursor, // Phase 56 D-03/Pitfall 3: cursor seleccionable del picker
         overlayKind, // Phase 39: qué overlay está abierto (comments/logs/plan/adopt/null)
         scrollOffset, // Phase 39 D-06: primera línea visible del body scrollable

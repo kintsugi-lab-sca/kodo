@@ -38,6 +38,9 @@ import {
   OVERLAY_VIEWPORT,
   DISMISS_CONFIRM,
   ADOPT_CONFIRM,
+  DERIVE_PROGRESS,
+  ADOPT_DERIVED_CONFIRM,
+  ADOPT_DERIVED_CONFIRM_FALLBACK,
 } from './App.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
@@ -193,6 +196,22 @@ function renderOverlay(snap, scrollOffset, kind) {
 }
 
 /**
+ * Trunca un string a `max` chars con ellipsis de UN solo carácter `…` (Phase 62 D-08, ORCH-02).
+ * Puro y never-throws sobre input falsy. El `…` (NO `...`) mantiene el footer compacto y respeta
+ * el copywriting de UI-SPEC (§Copywriting: ellipsis de un char). Colapsa whitespace interno (saltos
+ * de línea de la descripción derivada) a un espacio para que el footer no salte de varias líneas.
+ *
+ * @param {string} s
+ * @param {number} max - longitud máxima ANTES del ellipsis.
+ * @returns {string}
+ */
+function truncateEllipsis(s, max) {
+  const flat = String(s ?? '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return `${flat.slice(0, max)}…`;
+}
+
+/**
  * Render del picker de adopt (Phase 56, DETECT-02 / D-03/Pitfall 3). Diverge de renderOverlay
  * (lectura con scroll): lista las surfaces ADOPTABLES con un CURSOR SELECCIONABLE (gutter `› ` +
  * bold sobre la fila del cursor — mismo patrón fzf/vim que la tabla). Cada fila muestra
@@ -257,8 +276,9 @@ function renderAdoptPicker(adoptable, cursor) {
  *   Cuando es `false` la columna `prog` (cabecera + toda celda) NO se emite y su ancho se recupera
  *   vía flex (sin aritmética de anchos). Reaparece sola cuando una sesión reporta progreso. Default
  *   `false` (retro-compat: oculta la columna si no se pasa, espejo invertido de anyGsd).
- * @param {'list'|'filter'|'overlay'|'confirm'} [props.mode] - modo de interacción. En `filter` se
- *   muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt persistente.
+ * @param {'list'|'filter'|'overlay'|'confirm'|'deriving'} [props.mode] - modo de interacción. En
+ *   `filter` se muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt
+ *   persistente; en `deriving` (Phase 62) el spinner DERIVE_PROGRESS mientras onDerive corre.
  * @param {string} [props.query] - texto del filtro EN VIVO (Plan 03), renderizado en la línea modal.
  * @param {string|null} [props.focusError] - Phase 37 D-04: si != null, sustituye el footer
  *   (filterLine y/o footer normal en App.js) por el mensaje del error/resultado en la línea modal.
@@ -273,6 +293,11 @@ function renderAdoptPicker(adoptable, cursor) {
  *   de ADOPT (rutea el copy a ADOPT_CONFIRM); si null, es de dismiss (DISMISS_CONFIRM).
  * @param {string|null} [props.armedSurfaceRef] - Phase 56 D-04: workspaceRef de la surface del adopt
  *   armado, para el copy persistente ADOPT_CONFIRM.
+ * @param {string|null} [props.armedSurfaceTitle] - Phase 62 D-08: título DERIVADO por onDerive del
+ *   adopt armado. Si != null, el confirm muestra la propuesta (`título: …`) y usa la copy
+ *   ADOPT_DERIVED_CONFIRM; si null (fail-open T4), usa ADOPT_DERIVED_CONFIRM_FALLBACK (degradado).
+ * @param {string|null} [props.armedSurfaceDescription] - Phase 62 D-08: descripción DERIVADA por
+ *   onDerive. Render `desc: …` (dimColor) bajo el título cuando está presente.
  * @param {number} [props.adoptCursor] - Phase 56 D-03/Pitfall 3: índice del cursor seleccionable del
  *   picker de adopt (overlaySnapshot.kind==='adopt').
  * @param {'comments'|'logs'|'plan'|'adopt'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l), Phase 44: 'plan' (p), Phase 56: 'adopt' (a), o null.
@@ -299,6 +324,8 @@ export default function SessionTable({
   armedTaskRef = null,
   armedSessionId = null,
   armedSurfaceRef = null,
+  armedSurfaceTitle = null,
+  armedSurfaceDescription = null,
   adoptCursor = 0,
   overlayKind = null,
   scrollOffset = 0,
@@ -346,27 +373,49 @@ export default function SessionTable({
       ? h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, footerError))
       : null;
 
+  // Phase 62 D-08 (ORCH-02): derivingLine es el spinner NEUTRAL del estado transitorio `deriving`
+  // (onDerive en vuelo). Mismo molde `<Box marginTop=1>` que filterLine/errorLine. dimColor (NO
+  // cyan — el cyan queda reservado al prompt armado/actionable; el spinner es informativo, UI-SPEC
+  // §Color). Precede a TODO en la cadena de precedencia (el operador está esperando la propuesta).
+  const derivingLine =
+    mode === 'deriving'
+      ? h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, DERIVE_PROGRESS))
+      : null;
+
   // Phase 42 D-02/D-12 (DISMISS-02): confirmLine es el armed prompt PERSISTENTE (no transitorio):
   // se deriva de `mode==='confirm'` (NO de focusError) para que el clear-on-any-input no lo consuma
   // (RESEARCH Pitfall 4). Misma forma `<Box marginTop=1>` que filterLine/errorLine. Color cyan
   // (armed/actionable, UI-SPEC §Color) via nombre de ink — color-isolation intacta. Precede a
   // errorLine/filterLine mientras está armado.
   // Phase 56 Pitfall 2 (DETECT-02): el confirm tiene DOS consumidores. Se rutea el copy por cuál
-  // armed-id está set: armedSessionId != null → ADOPT_CONFIRM (adopt, ref = workspaceRef de la
-  // surface); si no → DISMISS_CONFIRM (dismiss, ref = task_ref). Mismo color cyan (armed/actionable).
+  // armed-id está set: armedSessionId != null → adopt (ref = workspaceRef); si no → DISMISS_CONFIRM.
+  // Phase 62 D-08 (ORCH-02): cuando el confirm es de ADOPT, se muestra la PROPUESTA derivada:
+  //   - con título derivado (armedSurfaceTitle != null): líneas multi-render
+  //       `título: <title truncado…>` (bold) + `desc: <description truncada…>` (dimColor) +
+  //       ADOPT_DERIVED_CONFIRM(ref) (cyan).
+  //   - sin título derivado (fail-open T4): SOLO ADOPT_DERIVED_CONFIRM_FALLBACK(ref) (cyan), sin
+  //     líneas título:/desc:. NO error rojo (es degradado, no fallo).
+  // Truncado con `…` (un char). El `…` mantiene el footer en 1-2 líneas (no desborda la TUI).
+  const adoptConfirmContent = () => {
+    const ref = armedSurfaceRef ?? '';
+    if (armedSurfaceTitle != null) {
+      const title = truncateEllipsis(armedSurfaceTitle, 60);
+      const desc =
+        armedSurfaceDescription != null ? truncateEllipsis(armedSurfaceDescription, 120) : null;
+      return [
+        h(Text, { key: 'title', bold: true }, `título: ${title}`),
+        desc != null ? h(Text, { key: 'desc', dimColor: true }, `desc: ${desc}`) : null,
+        h(Text, { key: 'prompt', color: 'cyan' }, ADOPT_DERIVED_CONFIRM(ref)),
+      ].filter(Boolean);
+    }
+    // Fail-open T4: confirm degradado, sin líneas título:/desc:.
+    return [h(Text, { key: 'prompt', color: 'cyan' }, ADOPT_DERIVED_CONFIRM_FALLBACK(ref))];
+  };
   const confirmLine =
     mode === 'confirm'
-      ? h(
-          Box,
-          { marginTop: 1 },
-          h(
-            Text,
-            { color: 'cyan' },
-            armedSessionId != null
-              ? ADOPT_CONFIRM(armedSurfaceRef ?? '')
-              : DISMISS_CONFIRM(armedTaskRef ?? ''),
-          ),
-        )
+      ? armedSessionId != null
+        ? h(Box, { marginTop: 1, flexDirection: 'column' }, ...adoptConfirmContent())
+        : h(Box, { marginTop: 1 }, h(Text, { color: 'cyan' }, DISMISS_CONFIRM(armedTaskRef ?? '')))
       : null;
 
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):
@@ -375,7 +424,7 @@ export default function SessionTable({
   //   - connected + 0 filas sin query      → `no active sessions`.
   // La línea de filtro se anexa al pie en TODAS las ramas (el operador ve su query aunque oculte todo).
   if (!connected && lastGoodAt == null) {
-    return h(Box, { flexDirection: 'column' }, header, (confirmLine ?? errorLine ?? filterLine));
+    return h(Box, { flexDirection: 'column' }, header, (derivingLine ?? confirmLine ?? errorLine ?? filterLine));
   }
   if (rows.length === 0) {
     const emptyCopy = hasQuery ? 'no sessions match' : 'no active sessions';
@@ -384,7 +433,7 @@ export default function SessionTable({
       { flexDirection: 'column' },
       header,
       h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, emptyCopy)),
-      (confirmLine ?? errorLine ?? filterLine),
+      (derivingLine ?? confirmLine ?? errorLine ?? filterLine),
     );
   }
 
@@ -475,6 +524,6 @@ export default function SessionTable({
     { flexDirection: 'column' },
     header,
     h(Box, { marginTop: 1, flexDirection: 'column' }, columnHeader, ...dataRows),
-    (confirmLine ?? errorLine ?? filterLine),
+    (derivingLine ?? confirmLine ?? errorLine ?? filterLine),
   );
 }
