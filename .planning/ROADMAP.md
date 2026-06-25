@@ -217,6 +217,23 @@ Plans:
 **Plans:** 1 plan
 - [x] 61-01-PLAN.md — reader gate dinámico + fallback de path (D-1/D-2) + adopt.js detección GSD (D-3) + tests (PROG-04)
 
+### Phase 62: Adopción inteligente desde el dashboard (ORCH-02)
+
+> **Registrada tras fallo de UAT de ORCH-01 (2026-06-24, ROMAN-194).** Supersede el camino at-adopt del orquestador (Phase 57): el orquestador no podía resolver las coordenadas (`workspaceRef`/`cwd`/`sessionId`/`kind`) de una sesión sin adoptar; el dashboard SÍ las tiene vía `listAgentSurfaces()` (DETECT-01). Mueve la derivación al dashboard.
+
+**Goal:** Al pulsar `a` sobre un surface ad-hoc, kodo ejecuta un paso de **derivación LLM one-shot** (`claude -p --model claude-haiku-4-5`, headless, fail-open) que produce `{ title, description }` desde la memoria del proyecto + la intención de la sesión, los **propone** al operador, y al confirmar shellea `kodo adopt --title '…' --description '…'`. Cierra la queja de ORCH-01: el título refleja el proyecto, no el `basename(cwd)` ni el último commit.
+**Requirements:** ORCH-02
+**Depends on:** Phase 56 (tecla `a` + estados de confirm en `App.js`) + Phase 54 (`kodo adopt --title`; esta fase añade `--description`) + Phase 61 (`isGsdProject` para la rama GSD/non-GSD). Supersede el camino at-adopt de Phase 57 (ORCH-01 queda como está).
+**Success Criteria** (what must be TRUE):
+  1. Al pulsar `a` sobre un surface ad-hoc, kodo dispara una derivación LLM one-shot (`claude -p --model claude-haiku-4-5`, headless, sin tools, contexto inline pre-leído) y propone `{title, description}` ANTES de crear la tarea (UX derive-then-confirm: pick → "derivando…" → propuesta → segunda `a` confirma). (D-01/D-02/D-08)
+  2. Fuentes de memoria correctas: proyecto **GSD** (`.planning/` presente vía `isGsdProject`) → `PROJECT.md` + `ROADMAP.md` + `STATE.md` (alcance global, arregla el F2 del UAT); **non-GSD** → `git log --oneline` + **primer prompt del transcript** (vía `resolveTranscriptPath`). NO cae a basename salvo fallo. (D-04/D-05/D-06)
+  3. Fail-open acotado: timeout (~8s de referencia), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
+  4. Al confirmar, shellea `kodo adopt --title '<t>' --description '<d>'` con argv literal (`execFile`, inyección estructuralmente inerte); el `{title, description}` derivado pasa por `sanitizeAdoptionData` (BIDIR-08). Suelo determinista 0-token del núcleo (`adoptSession`/`createTask`) intacto; el LLM vive SOLO en el paso de derivación del dashboard. (D-10/D-11/D-12/D-13)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 62 to break down)
+
 ### Hallazgos UAT 2026-06-22 (F2/F3/F4) — sin fase aún
 
 Destapados al validar DEBT-02 (detalle + root-cause en `STATE.md` §Open Blockers):
