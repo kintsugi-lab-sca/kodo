@@ -1,5 +1,29 @@
 # Milestones
 
+## v0.13 kodo bidireccional (Shipped: 2026-06-25)
+
+**Phases completed:** 11 phases, 17 plans, 19 tasks
+
+**Key accomplishments:**
+
+- `KODO_LABEL_ADOPTED` + `isAdopted` helper in labels.js plus a load-bearing `isAdopted(task.labels)` early cut in the dispatcher that drops `kodo:adopted` tasks with `{action:'ignored', code:'adopted'}` before lock/resolver/launch, surviving `--force`.
+- `createTask` delivered as a typeof-detected optional method on the Plane adapter (outside the FROZEN-9): an authenticated `POST .../work-items/` in the configured trigger state, stamped with the `kodo:adopted` marker (label-UUID lookup-or-create), with the 201 normalized back to a shape-identical canonical `TaskItem` via the existing `normalizeWorkItem` + full 6-field context.
+- `createTask` delivered as a typeof-detected optional method on the GitHub adapter (outside the FROZEN-9): an authenticated `POST /repos/{o}/{r}/issues` (title required, body Markdown) that stamps the `kodo:adopted` marker as a plain string at create and normalizes the 201 back to a shape-identical canonical `TaskItem` via the existing `normalizeIssue` — plus the capability-gated contract-matrix `it()` (mirror of B8) that round-trips a mocked 201 for BOTH providers, closing BIDIR-01 + BIDIR-02, and the FROZEN-9 negative-assert locking `createTask` out of `TASK_PROVIDER_METHODS`.
+- 1. [Rule 1 - Bug] Absolute-path regex over-redacted the home-relative tail
+- 1. [Aclaración] `grep -c "logger.js" src/host/cmux.js` devuelve 1, no 0
+- 1. [Rule 3 - Blocking] `projects` source for resolveProjectId was under-specified
+- FIX A — `src/adopt.js`:
+- `skill.md`:
+- 1. Plane client (`src/providers/plane/client.js`)
+- kodo ahora escucha `SessionEnd`: el cleanup terminal destructivo (removeSession + worktree + promptFile) ocurre UNA vez al cierre real de la sesión (`/exit`), mientras `Stop` (per-turn) queda solo para el estado ligero (idle/lock/color/nudge). Una sesión cerrada desaparece del dashboard en vez de quedar colgada como `dead`.
+- `kodo adopt` ahora renombra el workspace de cmux a `"<task_ref>: <título>"` justo después de crear la tarea, de modo que el check EXISTENTE `reconcile.liveForSession`/`titleIdentifiesSession` reconoce la sesión adoptada como viva (running/idle/needs-input) en vez de dead/zombie — exactamente como las sesiones lanzadas por kodo (p.ej. ROMAN-189).
+- Una tarea adoptada ahora acaba con información real: el orquestador deriva un título inteligente Y un resumen-descripción del contexto real, rellenando la tarea al adoptar (`kodo adopt --description`) o enriqueciéndola a posteriori con un comentario-resumen (`kodo comment` → `addComment`). El LLM vive solo en el orquestador (prosa); los consumidores CLI son deterministas 0-token.
+- Una sesión GSD adoptada ahora muestra su `N/M` en el dashboard igual que una lanzada. El gate del progreso pasó de "flag `gsd`" a "STATE.md GSD legible en el path resuelto" (dinámico), el lector resuelve el path con fallback worktree→project_path, y la adopción marca `gsd`/`gsd_mode` para las columnas phase/mode.
+- `runAdopt` inserta el par `--description <d>` en el argv como espejo literal de `--title` — implementa el carril shell de ORCH-02 SC#4 (cuerpo at-adopt derivado por Haiku, injection-inerte vía execFile sin shell)
+- El estado `mode==='deriving'` se interpone entre el armado de la tecla `a` y el confirm: arma la surface, espera `onDerive` (deriveAdoptionMeta, Plan 01) fail-open a `{}`, fusiona `{title, description}` en `armedSurface`, muestra la propuesta en el confirm (`título:/desc:` o degradado), y cablea `onDerive`/`onAdopt(description)` en index.js — cierra ORCH-02 end-to-end (UX derive-then-confirm + carril shell `kodo adopt --title --description`).
+
+---
+
 ## v0.12 Atajos al gestor y progreso vivo (Shipped: 2026-06-15)
 
 **Phases:** 5 phases (48, 49, 50, 50.1 insertada, 51), 10 plans, 10 tasks
@@ -18,6 +42,7 @@
 **Invariantes preservadas:** cero endpoints nuevos en `src/server.js`, contrato `TaskProvider` FROZEN en 9 (la URL va como campo de `TaskItem`, no método nuevo), color isolation, TUI never-throws, selección por identidad `task_id`, `execFile` fire-and-forget sin desmontar el panel.
 
 **Known deferred items at close: 2** (ver STATE.md `## Deferred Items`)
+
 - HUMAN-UAT de Phase 50.1 (3 escenarios) + `50.1-VERIFICATION.md` (`human_needed`, 8/8 must-haves auto-verificados): el display de progreso vivo requiere verificación visual en un TTY real con una sesión GSD viva, no montable en el momento del cierre. Diferido sin penalización — espejo de cómo v0.9/v0.10/v0.11 cerraron con deuda reconocida.
 
 ---

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
-status: ready_to_plan
-stopped_at: Phase 62 complete (3/3) — ready to discuss Phase 999.1
-last_updated: 2026-06-25T11:31:47.214Z
-last_activity: 2026-06-25 -- Phase 62 execution started
+status: Awaiting next milestone
+stopped_at: Phase 62 context gathered
+last_updated: "2026-06-25T11:40:39.131Z"
+last_activity: 2026-06-25 — Milestone v0.13 completed and archived
 progress:
   total_phases: 12
-  completed_phases: 10
+  completed_phases: 11
   total_plans: 17
   completed_plans: 22
-  percent: 83
+  percent: 92
 ---
 
 # Project State
@@ -29,13 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 ## Current Position
 
-Phase: 999.1
-Plan: Not started
-Phases 52-57: COMPLETE (núcleo bidireccional `sesión → tarea` entregado).
-Phase 58 (deuda v0.12 + LIFE-03): NOT STARTED — sin directorio.
-Phase 59 (liveness sesiones adoptadas): 59-01 mergeado a main (SUMMARY en disco), SIN PLAN formal ni cierre/UAT — entró por gap-fix.
-Phase 60 (enriquecimiento orquestador / BIDIR-F2): registrada (directorio vacío), surgió del UAT 56/57.
-Last activity: 2026-06-25
+Phase: Milestone v0.13 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-25 — Milestone v0.13 completed and archived
 
 ## Roadmap v0.13 (active)
 
@@ -150,13 +147,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-v0.13: Phases 52-60 entregadas en código. **DEBT-02 (HUMAN-UAT 50.1) PASSED** (2026-06-23). Pendientes reales:
-
-- **F2 (fix de labels, `c87baad`): verificar en vivo** — el daemon ya se reinició; confirmar que `kodo launch` de una tarea `kodo`-labelada ya NO se ignora.
-- **Phase 61 (registrada desde UAT):** progreso vivo para sesiones **adoptadas** (no muestran `N/M` porque la adopción no marca `gsd` + el lector asume worktree de kodo). `/gsd:discuss-phase 61`.
-- **F4 (verificar):** el worktree del launch se crea desde el último commit **pusheado** (`origin/main`), no desde `main` local → stale si no se ha hecho push. Confirmar si by-design (`src/session/manager.js`).
-- **`git push`:** v0.13 + todos los fixes siguen SOLO en local — nunca pusheado.
-
-Para cerrar el milestone (si Phase 61 se difiere a un follow-up): `/gsd:audit-milestone` → `/gsd:complete-milestone v0.13`.
-
-Lo cerrado en autónomo (2026-06-19): Phase 59 formalizada (`c47362f`), Phase 60 implementada (`b09be90`/`9124cfa`/`93271d9`), Phase 58 LIFE-03 hook SessionEnd (`5a8c2a0`/`0e2e7f8`/`b8129eb`) + DEBT-01 XSS test (`976f8a6`). Todo local, **sin push**.
+- Start the next milestone with /gsd-new-milestone
