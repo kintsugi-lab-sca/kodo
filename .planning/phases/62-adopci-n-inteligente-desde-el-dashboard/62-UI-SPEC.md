@@ -1,11 +1,12 @@
 ---
 phase: 62
 slug: adopci-n-inteligente-desde-el-dashboard
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 surface: tui-ink
 created: 2026-06-25
+reviewed_at: 2026-06-25
 ---
 
 # Phase 62 — UI Design Contract (TUI / ink)
