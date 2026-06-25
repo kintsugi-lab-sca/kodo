@@ -105,7 +105,7 @@ Qué fases cubren qué requirements. La llena el roadmapper durante la creación
 | DETECT-01 | Phase 55 | Complete |
 | DETECT-02 | Phase 56 | Complete |
 | ORCH-01 | Phase 57 | Code complete (9/9) · UAT falló 2026-06-24 (coordenadas irresolubles) → superado por ORCH-02 |
-| ORCH-02 | Phase 62 | Registrada (adopción inteligente desde el dashboard; pendiente discuss/plan) |
+| ORCH-02 | Phase 62 | Complete (2026-06-25) · UAT passed 4/4 · título derivado a nivel tarea + stdin cerrado (fixes 9a7bea0/b236cb9) |
 | DEBT-01 | Phase 58 | Complete (2026-06-23) |
 | DEBT-02 | Phase 58 | Done (HUMAN-UAT passed 2026-06-23) |
 | LIFE-03 | Phase 58 | Complete (2026-06-23) |

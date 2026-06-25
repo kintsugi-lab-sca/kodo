@@ -13,7 +13,7 @@
 - ✅ **v0.10 Higiene y estado real de sesiones** — Phases 40-43 (shipped 2026-06-08)
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
-- 🚧 **v0.13 kodo bidireccional** — Phases 52-62 (52-61 ✅; Phase 62 abierta: adopción inteligente desde el dashboard, cierra el intent de ORCH-01 que falló UAT 2026-06-24)
+- ✅ **v0.13 kodo bidireccional** — Phases 52-62 (todas ✅; Phase 62 cerró el intent de ORCH-01 que falló UAT 2026-06-24 — adopción inteligente desde el dashboard)
 
 ## Phases
 
@@ -33,7 +33,7 @@
 - [x] **Phase 59: Liveness de sesiones adoptadas** — `kodo adopt` renombra el workspace cmux a `<ref>: <título>` para que `titleIdentifiesSession` lo reconozca vivo (origen: UAT 56). Mergeado a `main` + formalizado retroactivo (CONTEXT/PLAN/VERIFICATION passed) ✅ 2026-06-19
 - [x] **Phase 60: Enriquecimiento de tareas adoptadas (orquestador)** — `kodo comment` (backfill vía addComment FROZEN-9) + at-adopt `--description` + prosa del skill (BIDIR-F2). 4/4 SC passed ✅ 2026-06-19
 - [x] **Phase 61: Progreso vivo para sesiones adoptadas** — una sesión GSD **adoptada** muestra su `N/M` en el dashboard (hoy NO: la adopción no marca `gsd` y el lector asume worktree de kodo). Registrada desde UAT 2026-06-22. Detalle en §Backlog ✅ 2026-06-24
-- [ ] **Phase 62: Adopción inteligente desde el dashboard (ORCH-02)** — al pulsar `a`, un paso de derivación LLM one-shot (`claude -p` Haiku, headless, fail-open) lee la memoria del proyecto (GSD: PROJECT.md/ROADMAP/STATE) + el primer prompt del transcript de la sesión y propone `{title, description}` ANTES de crear; confirmas y shellea `kodo adopt --title --description`. Resuelve el fallo de UAT de ORCH-01 (el orquestador no podía resolver coordenadas de una sesión sin adoptar; el dashboard SÍ las tiene vía `listAgentSurfaces()`). Suelo determinista intacto (fallback a `basename(cwd)`); el LLM vive solo en el paso de derivación; `execFile` argv → inyección inerte. Origen: UAT ORCH-01 2026-06-24. Detalle en §Backlog
+- [x] **Phase 62: Adopción inteligente desde el dashboard (ORCH-02)** — al pulsar `a`, un paso de derivación LLM one-shot (`claude -p` Haiku, headless, fail-open) lee la memoria del proyecto (GSD: PROJECT.md/ROADMAP/STATE) + el primer prompt del transcript de la sesión y propone `{title, description}` ANTES de crear; confirmas y shellea `kodo adopt --title --description`. Resuelve el fallo de UAT de ORCH-01 (el orquestador no podía resolver coordenadas de una sesión sin adoptar; el dashboard SÍ las tiene vía `listAgentSurfaces()`). Suelo determinista intacto (fallback a `basename(cwd)`); el LLM vive solo en el paso de derivación; `execFile` argv → inyección inerte. Origen: UAT ORCH-01 2026-06-24. Título derivado a nivel TAREA (no alcance de proyecto) tras HUMAN-UAT. ✅ 2026-06-25
 
 <details>
 <summary>✅ v0.12 Atajos al gestor y progreso vivo (Phases 48-51 + 50.1) — SHIPPED 2026-06-15</summary>
