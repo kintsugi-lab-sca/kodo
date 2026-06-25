@@ -311,6 +311,6 @@ Las fases ejecutan en orden numérico: 52 → 53 → 54 → 55 → 56 → 57 →
 | 59. Liveness de sesiones adoptadas | v0.13 | 1/1 | Complete (formalizado retroactivo, VERIFICATION passed) | 2026-06-19 |
 | 60. Enriquecimiento de tareas adoptadas (orquestador) | v0.13 | 1/1 | Complete (4/4 SC passed) | 2026-06-19 |
 | 61. Progreso vivo para sesiones adoptadas | v0.13 | 1/1 | Complete (PROG-04, 5/5 must_haves) | 2026-06-24 |
-| 62. Adopción inteligente desde el dashboard | v0.13 | 3/3 | Complete   | 2026-06-25 |
+| 62. Adopción inteligente desde el dashboard | v0.13 | 3/3 | Complete    | 2026-06-25 |
 
 > **Nota de reconciliación (2026-06-19):** Phases 59 y 60 surgieron del UAT de 56/57 y arrancaron como items de Backlog (ver §Backlog para sus Goals/Success Criteria completos). 59-01 (liveness vía rename del workspace cmux) ya está **mergeado a `main`** mediante gap-fix, pero sin PLAN ni cierre/UAT formal. 60 está registrada (directorio vacío). El rango efectivo del milestone v0.13 es **52–60**.

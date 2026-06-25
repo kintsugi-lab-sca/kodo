@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.13
 milestone_name: kodo bidireccional
-status: executing
-stopped_at: Phase 62 context gathered
-last_updated: "2026-06-25T09:08:46.790Z"
+status: ready_to_plan
+stopped_at: Phase 62 complete (3/3) — ready to discuss Phase 999.1
+last_updated: 2026-06-25T11:31:47.214Z
 last_activity: 2026-06-25 -- Phase 62 execution started
 progress:
   total_phases: 12
   completed_phases: 10
   total_plans: 17
-  completed_plans: 19
+  completed_plans: 22
   percent: 83
 ---
 
@@ -25,17 +25,17 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
 
-**Current focus:** Phase 62 — adopci-n-inteligente-desde-el-dashboard
+**Current focus:** Phase 999.1 — kodo bidireccional (promovido → v0.13 phases 52 58)
 
 ## Current Position
 
-Phase: 62 (adopci-n-inteligente-desde-el-dashboard) — EXECUTING
-Plan: 1 of 3
+Phase: 999.1
+Plan: Not started
 Phases 52-57: COMPLETE (núcleo bidireccional `sesión → tarea` entregado).
 Phase 58 (deuda v0.12 + LIFE-03): NOT STARTED — sin directorio.
 Phase 59 (liveness sesiones adoptadas): 59-01 mergeado a main (SUMMARY en disco), SIN PLAN formal ni cierre/UAT — entró por gap-fix.
 Phase 60 (enriquecimiento orquestador / BIDIR-F2): registrada (directorio vacío), surgió del UAT 56/57.
-Last activity: 2026-06-25 -- Phase 62 execution started
+Last activity: 2026-06-25
 
 ## Roadmap v0.13 (active)
 

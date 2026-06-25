@@ -1,9 +1,10 @@
 ---
 phase: 62-adopci-n-inteligente-desde-el-dashboard
 verified: 2026-06-25T11:50:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 overrides_applied: 0
+human_uat_resolved: 2026-06-25 — validado en vivo (62-HUMAN-UAT.md passed 4/4). Dos fixes post-verificación: 9a7bea0 (título a nivel tarea, no alcance de proyecto — corrige la expectativa del ítem 2 de abajo) + b236cb9 (cierra stdin → elimina timeout intermitente).
 human_verification:
   - test: "Pulsa `a` sobre una sesión ad-hoc real en el dashboard ink y observa el estado 'derivando título…' seguido de la propuesta título:/desc: en el confirm"
     expected: "El footer muestra 'derivando título…' (dimColor) durante ~2-25s, después cambia a la propuesta multi-línea (título: X bold + desc: Y dimColor + 'adoptar <ref>? pulsa a de nuevo · Esc cancela' cyan). Segunda `a` ejecuta `kodo adopt --title '...' --description '...'` y la fila aparece en la tabla."
