@@ -227,7 +227,7 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Al pulsar `a` sobre un surface ad-hoc, kodo dispara una derivación LLM one-shot (`claude -p --model claude-haiku-4-5`, headless, sin tools, contexto inline pre-leído) y propone `{title, description}` ANTES de crear la tarea (UX derive-then-confirm: pick → "derivando…" → propuesta → segunda `a` confirma). (D-01/D-02/D-08)
   2. Fuentes de memoria correctas: proyecto **GSD** (`.planning/` presente vía `isGsdProject`) → `PROJECT.md` + `ROADMAP.md` + `STATE.md` (alcance global, arregla el F2 del UAT); **non-GSD** → `git log --oneline` + **primer prompt del transcript** (vía `resolveTranscriptPath`). NO cae a basename salvo fallo. (D-04/D-05/D-06)
-  3. Fail-open acotado: timeout (~8s de referencia), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
+  3. Fail-open acotado: timeout (~25-30s; evidencia empírica RESEARCH Pitfall 1: latencias medidas 8.7–21.9s — un timeout de 8s cortaría derivaciones legítimas), parse-error, o `claude` ausente en PATH → fallback a `basename(cwd)`; el adopt **nunca se bloquea**. Never-throws preservado en el carril del dashboard. (D-03/D-15)
   4. Al confirmar, shellea `kodo adopt --title '<t>' --description '<d>'` con argv literal (`execFile`, inyección estructuralmente inerte); el `{title, description}` derivado pasa por `sanitizeAdoptionData` (BIDIR-08). Suelo determinista 0-token del núcleo (`adoptSession`/`createTask`) intacto; el LLM vive SOLO en el paso de derivación del dashboard. (D-10/D-11/D-12/D-13)
 **Plans:** 3 plans
 

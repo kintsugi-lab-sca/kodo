@@ -53,7 +53,7 @@ created: 2026-06-25
 | 62-XX | TBD | TBD | ORCH-02 | T-57-01 (inerte) | argv literal: title/description con metacaracteres → un solo arg (injection-inerte, `execFile`) | unit | idem (fakeExec captura argv) | ⚠️ extender | ⬜ pending |
 | 62-XX | TBD | TBD | ORCH-02 | — | App.js: estado `deriving` entre arm y confirm; onDerive fusiona en armedSurface | unit | `node --test test/dashboard/app-*.test.js` | ❌ W0 | ⬜ pending |
 | 62-XX | TBD | TBD | ORCH-02 | — | App.js: Esc en confirm cancela (v1 no-editable, D-09) | unit | idem | ⚠️ cubierto por confirm existente | ⬜ pending |
-| 62-XX | TBD | TBD | ORCH-02 | BIDIR-08 | `{title,description}` derivado pasa por `sanitizeAdoptionData` (redacción home/rutas) | unit | idem | ❌ W0 | ⬜ pending |
+| 62-XX | TBD | TBD | ORCH-02 | BIDIR-08 | `{title,description}` derivado pasa por `sanitizeAdoptionData` (redacción home/rutas) | unit | `node --test test/adopt.test.js` | ⚠️ cubierto por test existente (corre dentro de `adoptSession`, D-12 prohíbe saneo nuevo) | ✅ pre-existente |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 *Task IDs concretos los asigna el planner; este mapa fija la cobertura mínima.*

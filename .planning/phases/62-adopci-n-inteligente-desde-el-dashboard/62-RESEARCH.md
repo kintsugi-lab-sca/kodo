@@ -410,17 +410,19 @@ function gitLog({ cwd, spawnFn }) {
 
 > **A1 RESUELTA (verificado):** `kodo adopt --description` YA está registrado en `src/cli.js:250` y enhebrado por `src/cli/adopt.js:174` → `adoptSession` → `createTask`. NO requiere cambio en el CLI. El único trabajo del carril shell es que `runAdopt` (dashboard/adopt.js) inserte el par `--description` en el argv + el wiring `onAdopt` de index.js lo pase. [VERIFIED]
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿Mostrar la descripción completa en el confirm o solo el título?**
    - What we know: D-08 dice "muestra `{title, description}` propuestos"; el confirm actual solo muestra el ref.
    - What's unclear: cuánto espacio vertical hay en el footer/overlay para la descripción.
    - Recommendation: mostrar título completo + descripción truncada (1-2 líneas) en el confirm; el operador confirma o Esc.
+   - **RESOLVED (2026-06-25):** título truncado + descripción a 1-2 líneas con ellipsis `…`. Implementado en UI-SPEC §Visuals y en Plan 62-03 (SessionTable.js, confirm extendido).
 
 2. **¿Invalidar una derivación obsoleta si el operador pulsa Esc mientras `mode==='deriving'`?**
    - What we know: el `await onDerive` puede seguir en vuelo cuando el operador cancela.
    - What's unclear: si conviene el patrón `overlayReqRef` (App.js:347) para descartar el resultado tardío.
    - Recommendation: usar un token de generación (espejo de `overlayReqRef`) para que un resultado que llega tras Esc no reabra el confirm. Bajo riesgo (never-throws), pero limpio.
+   - **RESOLVED (2026-06-25):** sí, vía token de generación (espejo de `overlayReqRef`). Un resultado que llega tras Esc se descarta y no reabre el confirm. Implementado en Plan 62-03 (App.js, estado `deriving` + cancelación con token).
 
 ## Environment Availability
 
