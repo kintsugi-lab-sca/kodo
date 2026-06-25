@@ -1,0 +1,4 @@
+{"type":"summary","summary":"Previous session summary","leafUuid":"abc"}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-06-25T09:00:00Z"}
+{"type":"user","message":{"role":"user","content":"Refactor the auth module to use the new token rotation"},"uuid":"u1","timestamp":"2026-06-25T09:00:01Z"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Sure."}]},"uuid":"a1"}
