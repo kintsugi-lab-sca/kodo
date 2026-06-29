@@ -6,14 +6,14 @@ current_phase: 64
 current_phase_name: Editor de proyectos en el dashboard
 status: executing
 stopped_at: Phase 64 context gathered
-last_updated: "2026-06-29T15:40:45.921Z"
+last_updated: "2026-06-29T15:48:16.186Z"
 last_activity: 2026-06-29
-last_activity_desc: Phase 63 complete, transitioned to Phase 64
+last_activity_desc: Phase 64 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 7
+  completed_plans: 4
   percent: 50
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Con
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo); v0.13 cerró el puente inverso `sesión → tarea`. **v0.14 promueve el dashboard a superficie de configuración** de kodo.
 
-**Current focus:** Phase 63 — editor-de-configuraci-n-en-el-dashboard-fundaci-n-ajustes-co
+**Current focus:** Phase 64 — Editor de proyectos en el dashboard
 
 ## Current Position
 
-Phase: 64 — Editor de proyectos en el dashboard
-Plan: Not started
+Phase: 64 (Editor de proyectos en el dashboard) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-29 — Phase 63 complete, transitioned to Phase 64
+Last activity: 2026-06-29 — Phase 64 execution started
 
 ## Roadmap v0.14 (active)
 
@@ -106,7 +106,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 **Resume file:** .planning/phases/64-editor-de-proyectos-en-el-dashboard/64-CONTEXT.md
 
-- **Last session:** 2026-06-29T15:08:34.785Z
+- **Last session:** 2026-06-29T15:47:50.611Z
 - **Stopped at:** Phase 64 context gathered
 - **Next action:** `/gsd-plan-phase 63` (o `/gsd-discuss-phase 63` primero para resolver la decisión de diseño del text-input: componente controlado propio vs dep `ink-text-input`). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
 - **Files of record:**
@@ -126,6 +126,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 | Phase 63 P01 | 4 min | 2 tasks | 4 files |
 | Phase 63 P02 | 15 | 3 tasks | 4 files |
 | Phase 63 P03 | 6 | 1 tasks | 1 files |
+| Phase 64 P01 | 12min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -133,3 +134,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 - [Phase 63]: Config escrita de forma atómica temp+rename (writeFileAtomic, path por parámetro DI); fsync omitido en v1
 - [Phase ?]: [Phase 63]: Text-input del editor de config in-house (buffer+cursor, <Text inverse>); error de validación en estado dedicado (configEditError, no focusError)
 - [Phase ?]: Editor de config escribe config.json por import directo de saveConfig en el proceso ink (D-09), sin shell-out ni endpoint
+- [Phase 64]: Validador de ruta en módulo adyacente src/path-validate.js (no en config-validate.js) para preservar su invariante 0-I/O (D-04)
