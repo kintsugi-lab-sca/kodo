@@ -6,7 +6,7 @@ current_phase: 64
 current_phase_name: Editor de proyectos en el dashboard
 status: executing
 stopped_at: Phase 64 context gathered
-last_updated: "2026-06-29T16:04:09.789Z"
+last_updated: "2026-06-29T16:13:06.552Z"
 last_activity: 2026-06-29
 last_activity_desc: Phase 64 execution started
 progress:
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Con
 ## Current Position
 
 Phase: 64 (Editor de proyectos en el dashboard) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-29 — Phase 64 execution started
 
@@ -106,7 +106,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 **Resume file:** .planning/phases/64-editor-de-proyectos-en-el-dashboard/64-CONTEXT.md
 
-- **Last session:** 2026-06-29T16:03:24.796Z
+- **Last session:** 2026-06-29T16:13:00.262Z
 - **Stopped at:** Phase 64 context gathered
 - **Next action:** `/gsd-plan-phase 63` (o `/gsd-discuss-phase 63` primero para resolver la decisión de diseño del text-input: componente controlado propio vs dep `ink-text-input`). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
 - **Files of record:**
@@ -128,6 +128,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 | Phase 63 P03 | 6 | 1 tasks | 1 files |
 | Phase 64 P01 | 12min | 2 tasks | 4 files |
 | Phase 64 P02 | 12min | 3 tasks | 4 files |
+| Phase 64 P03 | 5min | 3 tasks | 3 files |
 
 ## Decisions
 
@@ -138,3 +139,5 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 - [Phase 64]: Validador de ruta en módulo adyacente src/path-validate.js (no en config-validate.js) para preservar su invariante 0-I/O (D-04)
 - [Phase ?]: Phase 64-02: projectsReqRef dedicado (no reusa overlayReqRef) para aislar el carril async de proyectos
 - [Phase ?]: Phase 64-02: estados dedicados projectsError/projectsEditError (no focusError) para no perder teclas r/Esc/edición (Pitfall 2)
+- [Phase ?]: Módulos: el 2º hop async reusa el MISMO projectsReqRef que el carril base (Pitfall 3)
+- [Phase ?]: Modo dedicado projects-modules-edit para que Enter llame setModulePath en vez de setProjectPath
