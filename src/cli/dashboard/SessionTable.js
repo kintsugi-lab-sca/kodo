@@ -42,8 +42,15 @@ import {
   ADOPT_DERIVED_CONFIRM,
   ADOPT_DERIVED_CONFIRM_FALLBACK,
   CONFIG_OVERLAY_TITLE,
+  PROJECTS_OVERLAY_TITLE,
+  PROJECTS_LOADING,
+  PROJECTS_UNMAPPED,
+  PROJECTS_LOAD_FAILED,
 } from './App.js';
 import { getEditableFields, getByPath } from '../../config-validate.js';
+// Phase 64 Plan 02 (D-06): lee el estado de mapeo de cada fila (forma dual). getProjectPath es puro
+// y never-throws (Plan 01) → '' si la entrada no está mapeada → la fila pinta PROJECTS_UNMAPPED.
+import { getProjectPath } from '../../projects-shape.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
@@ -332,6 +339,117 @@ function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, config
 }
 
 /**
+ * Render del estado transitorio `projects-loading` (Phase 64 Plan 02, D-01): cabecera + el texto de
+ * carga mientras listProjectsFn está en vuelo. El poll /status sigue por debajo (snapshot congelado).
+ *
+ * @returns {import('react').ReactElement}
+ */
+function renderProjectsLoading() {
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(Box, { marginBottom: 1 }, h(Text, { color: 'cyan', bold: true }, PROJECTS_OVERLAY_TITLE)),
+    h(Text, { dimColor: true }, PROJECTS_LOADING),
+  );
+}
+
+/**
+ * Render del estado de degradación `projects-error` (Phase 64 Plan 02, PROJ-05/D-07): panel rojo con
+ * PROJECTS_LOAD_FAILED(reason) + la pista de teclas (r reintentar · Esc salir, embebida en la copy).
+ * Never-throws: el panel ink permanece montado; projects.json NO se toca (carril de LECTURA).
+ *
+ * @param {string|null} projectsError - mensaje del fallo de fetch (red/timeout/HTTP).
+ * @returns {import('react').ReactElement}
+ */
+function renderProjectsError(projectsError) {
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(Box, { marginBottom: 1 }, h(Text, { color: 'cyan', bold: true }, PROJECTS_OVERLAY_TITLE)),
+    h(Text, { color: 'red' }, PROJECTS_LOAD_FAILED(projectsError ?? 'error desconocido')),
+  );
+}
+
+/**
+ * Render del overlay del EDITOR de proyectos (Phase 64 Plan 02, PROJ-01/02 / D-01/D-03). Molde de
+ * renderConfigOverlay/renderAdoptPicker: lista navegable con cursor (gutter `› ` + bold sobre la fila
+ * activa). Cada fila muestra `identifier — name` + su estado de mapeo derivado de getProjectPath
+ * (la ruta local mapeada, o PROJECTS_UNMAPPED). En `mode==='projects-edit'` la fila activa renderiza
+ * el text-input de la ruta con el carácter bajo el cursor invertido (`<Text inverse>` — color-isolation
+ * intacta, NO picocolors; Pitfall 6: el inverse se serializa como ANSI, los tests asseren por contenido).
+ *
+ * PERSIST-04 (T-64-09): el overlay solo itera snapshot.remote (proyectos del provider) + rutas locales —
+ * ningún api_key_env/base_url/workspace_slug entra al snapshot ni se renderiza (por construcción).
+ *
+ * @param {{ remote: Array<{ id: string, identifier: string, name: string }>, map: Record<string, any> }} snapshot
+ * @param {number} fieldCursor - índice del proyecto seleccionado [0, remote.length-1].
+ * @param {'projects'|'projects-edit'} mode
+ * @param {string} buffer - text-input controlado de la ruta (solo relevante en projects-edit).
+ * @param {number} cursor - posición del cursor en el buffer.
+ * @param {string|null} projectsEditError - error de validación de ruta (rojo) o null.
+ * @param {string|null} focusError - aviso transitorio post-guardado/quitar (PROJECTS_SAVED_RESTART /
+ *   PROJECTS_REMOVED) o null.
+ * @param {string} footerColor - color del aviso transitorio (yellow tras guardar/quitar).
+ * @returns {import('react').ReactElement}
+ */
+function renderProjectsOverlay(snapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor) {
+  const items = snapshot?.remote ?? [];
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: 'cyan', bold: true }, PROJECTS_OVERLAY_TITLE),
+  );
+
+  const rows = items.map((item, i) => {
+    const selected = i === fieldCursor;
+    const isEditing = selected && mode === 'projects-edit';
+    // Valor: el estado de mapeo (read-only) salvo en la fila que se edita, donde se pinta el text-input.
+    let valueEl;
+    if (isEditing) {
+      // Cursor por `inverse` (molde renderConfigOverlay). Si cursor===buffer.length, bloque al final.
+      const left = buffer.slice(0, cursor);
+      const under = buffer[cursor] ?? ' ';
+      const right = buffer.slice(cursor + 1);
+      valueEl = h(Text, null, left, h(Text, { inverse: true }, under), right);
+    } else {
+      const path = getProjectPath(snapshot.map[item.id]);
+      valueEl = path
+        ? h(Text, { bold: selected }, path)
+        : h(Text, { dimColor: true }, PROJECTS_UNMAPPED);
+    }
+    return h(
+      Box,
+      { key: item.id, flexDirection: 'row' },
+      h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      h(Box, { width: 24 }, h(Text, { bold: selected }, `${item.identifier} — ${item.name}`)),
+      valueEl,
+    );
+  });
+  const body = h(Box, { flexDirection: 'column' }, ...rows);
+
+  // Footer: el error de validación de ruta (rojo, projectsEditError dedicado) gana; si no, el aviso
+  // transitorio (focusError/footerColor) tras un guardado/quitar con éxito (PERSIST-03/D-06).
+  let statusLine = null;
+  if (projectsEditError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, projectsEditError));
+  } else if (focusError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, focusError));
+  }
+  const hint = h(
+    Box,
+    { marginTop: 1 },
+    h(
+      Text,
+      { dimColor: true },
+      mode === 'projects-edit'
+        ? '←→ move · ⌫ borrar · Enter guardar · Esc cancelar'
+        : '↑↓ move · Enter editar · x quitar · Esc cerrar',
+    ),
+  );
+  return h(Box, { flexDirection: 'column' }, header, body, statusLine, hint);
+}
+
+/**
  * Tabla viva del dashboard (presentacional). Recibe la lista YA ordenada+filtrada, el índice
  * seleccionado YA derivado, los contadores y el connection state reusado.
  *
@@ -414,6 +532,9 @@ export default function SessionTable({
   buffer = '',
   cursor = 0,
   configEditError = null,
+  projectsSnapshot = null,
+  projectsError = null,
+  projectsEditError = null,
 }) {
   // (0) Phase 39 (TUI-15/TUI-16 — D-01/D-04/D-05): OVERLAY full-screen. Early-return ANTES de la
   // tabla: cuando hay un overlay abierto ocupa el área de la tabla (D-01). Mantiene SessionTable
@@ -430,6 +551,19 @@ export default function SessionTable({
   // text-input), espejo del overlay de lectura. Ocupa el área de la tabla mientras está abierto.
   if ((mode === 'config' || mode === 'config-edit') && configSnapshot) {
     return renderConfigOverlay(configSnapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor);
+  }
+  // Phase 64 Plan 02 (D-01/D-02/D-07): early-returns del editor de PROYECTOS (carril async), espejo
+  // del overlay de config. Ocupan el área de la tabla mientras el editor está abierto. El orden cubre
+  // los cuatro modos: loading/error son transitorios (sin snapshot necesario); projects/projects-edit
+  // requieren el snapshot congelado.
+  if (mode === 'projects-loading') {
+    return renderProjectsLoading();
+  }
+  if (mode === 'projects-error') {
+    return renderProjectsError(projectsError);
+  }
+  if ((mode === 'projects' || mode === 'projects-edit') && projectsSnapshot) {
+    return renderProjectsOverlay(projectsSnapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor);
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);
