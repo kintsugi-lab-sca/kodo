@@ -133,6 +133,12 @@ export async function runDashboard(deps = {}) {
   const { deriveAdoptionMeta } = await import('./enrich.js');
   const { readFileSync, existsSync } = await import('node:fs');
 
+  // Phase 64 (PROJ-01/05): registro de providers para el wrapper never-throws de listProjectsFn.
+  // initRegistry registra los factories built-in (plane/github, idempotente); getProvider los instancia
+  // (el factory de 'plane' construye PlaneClient, que LANZA sin API key — capturado por el wrapper).
+  // Mismo patrón lazy + espejo del init de provider en cli.js:652.
+  const { initRegistry, getProvider } = await import('../../providers/registry.js');
+
   // execFile-shaped default cuando exec no fue inyectado. Lazy: solo se carga si se cablea el TUI
   // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
   const execImpl = exec ?? (await import('node:child_process')).execFile;
@@ -151,8 +157,66 @@ export async function runDashboard(deps = {}) {
 
   // Phase 56 D-05: mapa projectId → path para el reverse-lookup cwd→projectId (resolveProjectId en
   // App.js). Mismo loadProjects() que lee src/cli/adopt.js — el dashboard resuelve el `--project`.
-  const { loadProjects } = await import('../../config.js');
+  // Phase 64 (PERSIST-02): se añade `saveProjects` al MISMO lazy import (NO un import nuevo). El editor
+  // de proyectos escribe ~/.kodo/projects.json importando saveProjects DIRECTO en el proceso ink —
+  // sin shell-out y sin endpoint nuevo en src/server.js (D-08, espejo de saveConfig de Phase 63).
+  // saveProjects ya es atómico (writeFileAtomic, Phase 63) → escritura local no-corruptiva.
+  const { loadProjects, saveProjects } = await import('../../config.js');
   const projects = loadProjects();
+
+  // Phase 64 (PROJ-01/04/05 — cableado DI del editor de proyectos, espejo de loadConfigFn/onSaveConfig).
+  // El nombre del provider activo (plane/github) decide DOS cosas: (1) qué provider instancia el wrapper
+  // never-throws de listProjectsFn, y (2) si listModulesFn construye un PlaneClient o es no-op (Pattern 4
+  // — listModules NO está en el contrato TaskProvider, vive SOLO en PlaneClient). loadConfig ya está
+  // cacheado por la lectura de baseUrl/cmuxBin arriba → esta llamada solo re-deserializa en memoria.
+  const providerName = loadConfig().provider;
+
+  // listProjectsFn (RESEARCH Pattern 2 — wrapper never-throws DISCRIMINADO {ok:true,projects}|{ok:false,error}).
+  // CRÍTICO (Pitfall 1): el try/catch DEBE cubrir la CONSTRUCCIÓN del provider/PlaneClient (el factory de
+  // 'plane' instancia PlaneClient, cuyo constructor LANZA sin API key — client.js:13-15) Y la llamada de
+  // red (provider.listProjects() → fetch /projects/, que puede rechazar por timeout/HTTP/red). NO se hace
+  // fail-open a [] (no distinguiría "0 proyectos" de "error de red" — PROJ-05): App ramifica a projects-error
+  // SOLO si recibe {ok:false}. Espejo del wrapper de onSaveConfig (abajo) + del init de provider en cli.js:652.
+  const listProjectsFn = async () => {
+    try {
+      await initRegistry();
+      const provider = getProvider(providerName);
+      const projects = await provider.listProjects();
+      return { ok: true, projects };
+    } catch (e) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  };
+
+  // listModulesFn (RESEARCH Pattern 4 — wiring CONDICIONAL por provider, asimetría consciente). `listModules`
+  // NO está en el contrato `TaskProvider` (src/interface.js): vive SOLO en `PlaneClient` (client.js:151).
+  // Ampliar la interfaz tocaría github (que no tiene módulos — provider.js:224 devuelve config.repos sin
+  // módulos) y la validación de getProvider (registry.js:107) → excepción consciente (RESEARCH A1): para
+  // plane se construye el PlaneClient DIRECTO (espejo del wizard cli.js:704-710); para github/otros es un
+  // no-op que devuelve modules:[] (App lo surfacea como footer informativo "sin módulos", no como error).
+  let listModulesFn;
+  if (providerName === 'plane') {
+    const planeCfg = loadConfig().providers.plane;
+    listModulesFn = async (projectId) => {
+      try {
+        const { PlaneClient } = await import('../../providers/plane/client.js');
+        // La API key se LEE de process.env[api_key_env] SOLO para construir el cliente; jamás se pasa al
+        // snapshot/render ni se escribe (PERSIST-04/T-64-16). El constructor LANZA sin key (client.js:13)
+        // → capturado por el catch → {ok:false} sin crashear (Pitfall 1, espejo de listProjectsFn).
+        const client = new PlaneClient({
+          baseUrl: planeCfg.base_url,
+          apiKey: process.env[planeCfg.api_key_env],
+          workspaceSlug: planeCfg.workspace_slug,
+        });
+        const modules = await client.listModules(projectId);
+        return { ok: true, modules };
+      } catch (e) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    };
+  } else {
+    listModulesFn = async () => ({ ok: true, modules: [] });
+  }
 
   // Phase 56 Pattern 3 / Pitfall 4: resolución del binario kodo. `bin/kodo` es un script
   // `#!/usr/bin/env node`, NO un ejecutable nativo → el binario de exec es process.execPath (node) y
@@ -216,6 +280,16 @@ export async function runDashboard(deps = {}) {
         return { ok: false, error: String(e?.message ?? e) };
       }
     },
+    // Phase 64 D-08/PERSIST-02 (PROJ-01/04/05): cableado DI del editor de proyectos, espejo de
+    // loadConfigFn/onSaveConfig/onAdopt. listProjectsFn (wrapper never-throws que cubre construcción+red,
+    // discriminado para distinguir 0-proyectos de error — PROJ-05) y listModulesFn (condicional plane/github)
+    // se resolvieron arriba. loadProjectsFn/saveProjectsFn importan loadProjects/saveProjects de config.js
+    // DIRECTO en el proceso ink — saveProjects ya es síncrono y atómico (writeFileAtomic, Phase 63) → escritura
+    // local no-corruptiva, SIN red/server/shell ni endpoint nuevo (invariante "cero endpoints desde v0.10").
+    listProjectsFn,
+    listModulesFn,
+    loadProjectsFn: () => loadProjects(),
+    saveProjectsFn: (m) => saveProjects(m),
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
