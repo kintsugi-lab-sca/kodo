@@ -76,6 +76,12 @@ import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
 import { getEditableFields, validateField, getByPath, setByPath } from '../../config-validate.js';
+// Phase 64 Plan 02 (PROJ-02): validador de ruta-directorio never-throws (módulo adyacente, NO
+// config-validate.js que es 0-I/O — Plan 01). Corre ANTES de saveProjectsFn (T-64-06).
+import { validateExistingDir } from '../../path-validate.js';
+// Phase 64 Plan 02 (D-06): helpers PUROS de forma dual de projects.json (Plan 01). Preservan
+// EXACTAMENTE `string | { default, modules }` que consumen manager.js/adopt.js (T-64-07).
+import { setProjectPath, removeProjectMapping, getProjectPath } from '../../projects-shape.js';
 
 // Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
 // para que los tests las importen y asseren equality sin duplicar strings (espejo del
@@ -230,6 +236,29 @@ export const CONFIG_OVERLAY_TITLE = 'configuración de kodo';
 export const CONFIG_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
 export const CONFIG_SAVE_FAILED = '[!] no se pudo guardar la config — el archivo previo quedó intacto';
 
+// Phase 64 Plan 02 (D-01/D-02/D-07): copy literal-estable del editor de PROYECTOS. EXPORTADAS para
+// que los tests las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/OVERLAY_*).
+// SessionTable.js (Task 3) también las importa → mata el drift code/render.
+//   - PROJECTS_OVERLAY_TITLE / PROJECTS_LOADING: cabecera + estado transitorio del fetch async.
+//   - PROJECTS_UNMAPPED: estado de fila sin ruta (espejo del wizard `cli.js:667`).
+//   - PROJECTS_SAVED_RESTART (ámbar): aviso transitorio tras guardar — el server/daemon no recarga
+//     en caliente (PERSIST-03/D-06). Va en focusError/footerColor (transitorio, ya de vuelta en projects).
+//   - PROJECTS_REMOVED(ref) (ámbar): feedback de quitar un mapeo (PROJ-03).
+//   - PROJECTS_SAVE_FAILED (rojo): la escritura local falló; projects.json previo intacto (defensa en
+//     profundidad — saveProjects es síncrono atómico). Va en projectsEditError (estado dedicado).
+//   - PROJECTS_LOAD_FAILED(reason) (rojo): el fetch de la lista remota falló — dirige projects-error
+//     con la pista de teclas r/Esc (PROJ-05/D-07). LOAD-BEARING: distingue 0-proyectos de error de red.
+export const PROJECTS_OVERLAY_TITLE = 'proyectos de kodo';
+export const PROJECTS_LOADING = 'cargando proyectos…';
+export const PROJECTS_UNMAPPED = '[sin mapear]';
+export const PROJECTS_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
+export const PROJECTS_SAVE_FAILED = '[!] no se pudo guardar projects.json — el archivo previo quedó intacto';
+/** @param {string} ref - identifier del proyecto cuyo mapeo se quitó. */
+export const PROJECTS_REMOVED = (ref) => `mapeo de ${ref} quitado — reinicia el server/daemon para aplicar`;
+/** @param {string} reason - mensaje del fallo de fetch (red/timeout/HTTP). */
+export const PROJECTS_LOAD_FAILED = (reason) =>
+  `[!] no se pudo cargar la lista de proyectos (${reason}) — r reintentar · Esc salir`;
+
 // Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
 // de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
 // getEditableFields (provider + los 11 paths editables) — sin secretos. NO es la fuente de verdad de
@@ -306,6 +335,21 @@ export const OVERLAY_VIEWPORT = 18;
  *   `runDashboard` con un wrapper de `saveConfig` (escritura atómica temp+rename, PERSIST-05). El
  *   Enter de config-edit lo `await`a tras validar; `{ok:false}` → footer CONFIG_SAVE_FAILED (el
  *   archivo previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
+ * @param {() => Promise<{ ok: true, projects: Array<{ id: string, identifier: string, name: string }> } | { ok: false, error: string }>} [props.listProjectsFn]
+ *   Phase 64 D-01/D-08 (Plan 02, PROJ-01/05): fetch async de la lista de proyectos del provider.
+ *   Inyectado por `runDashboard` (Plan 04) con un wrapper NEVER-THROWS que devuelve un DISCRIMINADO
+ *   `{ok}` (NO fail-open a `[]` como onDerive — necesario para distinguir 0-proyectos de error de
+ *   red, PROJ-05/A4). El handler `m` lo `await`a bajo un guard de request-token (projectsReqRef):
+ *   `{ok:true}` → mode:'projects'; `{ok:false}` → mode:'projects-error'. Default inerte para tests
+ *   del módulo sin DI.
+ * @param {() => Record<string, any>} [props.loadProjectsFn]
+ *   Phase 64 D-08 (Plan 02): lee el mapa local `projects.json` (100% local, never-throws → `{}`).
+ *   Se fusiona con la lista remota en el snapshot CONGELADO al abrir. Inyectado con `loadProjects`
+ *   de src/config.js. Default `() => ({})` (tests del módulo sin DI).
+ * @param {(map: Record<string, any>) => void} [props.saveProjectsFn]
+ *   Phase 64 D-06/D-08 (Plan 02, PROJ-02/03): persiste el mapa editado (síncrono atómico vía
+ *   `saveProjects`/`writeFileAtomic`). Solo se llama en los carriles de ESCRITURA (editar ruta
+ *   válida, quitar mapeo) — JAMÁS en projects-error (carril de LECTURA, PROJ-05). Default inerte.
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -326,6 +370,9 @@ export default function App({
   projects = {},
   loadConfigFn = () => DEFAULT_EDITOR_CONFIG,
   onSaveConfig = async () => ({ ok: true }),
+  listProjectsFn = async () => ({ ok: true, projects: [] }),
+  loadProjectsFn = () => ({}),
+  saveProjectsFn = () => {},
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -402,7 +449,7 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error'} */ ('list'));
   const [query, setQuery] = useState('');
 
   // Phase 63 Plan 02 (UX-01/02, D-01/D-03/D-04/D-05): estado del editor de config.
@@ -417,6 +464,21 @@ export default function App({
   const [buffer, setBuffer] = useState('');
   const [cursor, setCursor] = useState(0);
   const [configEditError, setConfigEditError] = useState(/** @type {string | null} */ (null));
+
+  // Phase 64 Plan 02 (D-01/D-02/D-07): estado del editor de PROYECTOS (carril async).
+  //   - projectsSnapshot: { remote, map } CONGELADO al abrir (la lista remota fusionada con el mapa
+  //     local de loadProjectsFn). null cuando el editor está cerrado. El poll /status sigue por
+  //     debajo sin tocar este snapshot (molde overlaySnapshot, D-04 de 63).
+  //   - projectsError: mensaje del fallo de fetch (string|null). Dirige projects-error. Estado
+  //     DEDICADO (NO focusError) — el clear-on-any-input consumiría la tecla `r`/Esc (Pitfall 2).
+  //   - projectsEditError: error de validación de ruta / escritura inline (string|null). Estado
+  //     DEDICADO (NO focusError ni projectsError) — la siguiente tecla edita, no limpia (Pitfall 2).
+  // Reusa `fieldCursor` (cursor de la lista, clamp sin wrap) y `buffer`/`cursor` (text-input).
+  const [projectsSnapshot, setProjectsSnapshot] = useState(
+    /** @type {{ remote: Array<{ id: string, identifier: string, name: string }>, map: Record<string, any> } | null} */ (null),
+  );
+  const [projectsError, setProjectsError] = useState(/** @type {string | null} */ (null));
+  const [projectsEditError, setProjectsEditError] = useState(/** @type {string | null} */ (null));
   const prevIndexRef = useRef(0);
   // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
   // (await fetch). Si el operador encola un segundo `c`/`l` o cierra con Esc mientras una request
@@ -424,6 +486,13 @@ export default function App({
   // toma un reqId incrementando este ref; al cerrar (Esc) o reabrir, el ref avanza e invalida la
   // request en vuelo, que tras el await comprueba `overlayReqRef.current !== reqId` y se descarta.
   const overlayReqRef = useRef(0);
+
+  // Phase 64 Plan 02 (D-01, RESEARCH Anti-pattern): token de generación DEDICADO del carril de
+  // proyectos. NO reusa overlayReqRef (lo comparten c/l/adopt/deriving): un Esc en projects-loading
+  // que avanzara overlayReqRef invalidaría un overlay c/l legítimo en vuelo. Cada apertura/retry de
+  // listProjectsFn toma un reqId incrementando este ref; tras el await se descarta si quedó obsoleto
+  // (Esc o 2ª apertura durante el fetch — T-64-08 staleness, molde deriving T5).
+  const projectsReqRef = useRef(0);
 
   // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa por session_id → último
   // { n, m, completed } leído con status 'ok' (re-keyed en 50.1 desde task_id, ver DG-07 más
@@ -543,6 +612,29 @@ export default function App({
   // hasQuery distingue los dos estados vacíos en SessionTable (D-12): `no sessions match` (hay
   // query activa que oculta todo) vs `no active sessions` (lista realmente vacía).
   const hasQuery = query.trim().length > 0;
+
+  // Phase 64 Plan 02 (D-01, RESEARCH Pattern 1+2): apertura/retry del editor de proyectos. Compartido
+  // por el handler `m` (mode:'list') y por `r` (mode:'projects-error') — el carril es idéntico. Entra a
+  // projects-loading, captura un reqId DEDICADO (projectsReqRef), `await`a el fetch never-throws
+  // discriminado, y tras el await DESCARTA el resultado si el ref avanzó (Esc/2ª apertura, T-64-08).
+  // Éxito → snapshot CONGELADO { remote, map=loadProjectsFn() } + mode:'projects'. Fallo → projects-error
+  // (PROJ-05). NO toca selectedTaskId (UX-03: resolveSelection re-deriva la fila al volver).
+  const runProjectsFetch = useCallback(async () => {
+    setMode('projects-loading');
+    const reqId = ++projectsReqRef.current;
+    const result = await listProjectsFn();
+    if (projectsReqRef.current !== reqId) return; // T-64-08: cancelada/superada durante el await
+    if (result && result.ok) {
+      setProjectsSnapshot({ remote: result.projects ?? [], map: loadProjectsFn() });
+      setFieldCursor(0);
+      setProjectsError(null);
+      setProjectsEditError(null);
+      setMode('projects');
+    } else {
+      setProjectsError((result && result.error) || 'error desconocido');
+      setMode('projects-error');
+    }
+  }, [listProjectsFn, loadProjectsFn]);
 
   // useInput mode-gated (TUI-08/TUI-12). Declarado DESPUÉS del pipeline para que el closure capture
   // `filtered`/`sel` actuales (su índice derivado es la base del movimiento clamp del cursor).
@@ -884,6 +976,136 @@ export default function App({
         }
         return; // traga el resto (teclas de control no mapeadas)
       }
+      // Phase 64 Plan 02 (D-01/D-02/D-07): SUB-MÁQUINA del editor de PROYECTOS. Va ENTRE config-edit
+      // y filter (espejo del orden D-02 "antes del mode-gate de filtro"). Cuatro modos: el transitorio
+      // projects-loading (fetch en vuelo), la lista navegable projects, el text-input projects-edit y
+      // la degradación projects-error (PROJ-05). Todos never-throws — el panel ink jamás se desmonta.
+      if (mode === 'projects-loading') {
+        // Esc CANCELA e invalida el fetch en vuelo: avanza projectsReqRef → el resultado tardío se
+        // descarta tras el await (T-64-08, molde deriving ~682). selectedTaskId intacto (UX-03).
+        if (key.escape) {
+          projectsReqRef.current++;
+          setMode('list');
+          return;
+        }
+        return; // traga el resto mientras carga
+      }
+      if (mode === 'projects') {
+        const items = projectsSnapshot?.remote ?? [];
+        if (key.escape) {
+          setMode('list'); // UX-03: selectedTaskId intacto → el cursor de la tabla se conserva
+          return;
+        }
+        if (key.upArrow) {
+          setFieldCursor((i) => Math.max(0, i - 1)); // clamp sin wrap (molde adoptCursor)
+          return;
+        }
+        if (key.downArrow) {
+          setFieldCursor((i) => Math.min(items.length - 1, i + 1));
+          return;
+        }
+        if (key.return) {
+          // Precarga la ruta ACTUAL del proyecto (forma dual D-06: string|{default}|sin mapear → '')
+          // y entra a projects-edit con el cursor al final. El id se re-deriva del snapshot en edit.
+          const item = items[fieldCursor];
+          if (!item) return;
+          const current = getProjectPath(projectsSnapshot.map[item.id]);
+          setBuffer(current);
+          setCursor(current.length);
+          setProjectsEditError(null);
+          setMode('projects-edit');
+          return;
+        }
+        if (input === 'x') {
+          // PROJ-03/D-03/D-06: quitar el mapeo DIRECTO (sin modal — re-mapeable, no destructivo).
+          // removeProjectMapping es puro (clon sin la key); saveProjectsFn persiste el mapa nuevo.
+          // El aviso transitorio va en focusError/footerColor (molde config D-10).
+          const item = items[fieldCursor];
+          if (!item) return;
+          const next = removeProjectMapping(projectsSnapshot.map, item.id);
+          saveProjectsFn(next);
+          setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
+          setFocusError(PROJECTS_REMOVED(item.identifier));
+          setFooterColor('yellow');
+          return;
+        }
+        return; // traga el resto mientras navega la lista
+      }
+      if (mode === 'projects-edit') {
+        // Mismo molde de text-input que config-edit (~818-886): Esc cancela sin guardar; ←/→ clamp
+        // cursor; backspace||delete (juntos, Pitfall 3) borra char anterior; char imprimible inserta
+        // en cursor; Enter valida con validateExistingDir ANTES de saveProjectsFn (PROJ-02/T-64-06).
+        const items = projectsSnapshot?.remote ?? [];
+        const item = items[fieldCursor];
+        if (key.escape) {
+          setMode('projects'); // cancela sin guardar (D-03)
+          return;
+        }
+        if (key.leftArrow) {
+          setCursor((c) => Math.max(0, c - 1));
+          return;
+        }
+        if (key.rightArrow) {
+          setCursor((c) => Math.min(buffer.length, c + 1));
+          return;
+        }
+        if (key.backspace || key.delete) {
+          if (cursor > 0) {
+            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
+            setCursor((c) => c - 1);
+          }
+          return;
+        }
+        if (key.return) {
+          if (!item) {
+            setMode('projects');
+            return;
+          }
+          // Validación con I/O never-throws (src/path-validate.js). Un inválido NUNCA alcanza el disco
+          // (PROJ-02/T-64-06): se guarda en projectsEditError (dedicado, Pitfall 2) y se sigue en
+          // projects-edit — la siguiente tecla edita, no se gasta limpiando el error.
+          const res = validateExistingDir(buffer);
+          if (!res.ok) {
+            setProjectsEditError(res.error);
+            return;
+          }
+          // setProjectPath es puro y preserva la forma dual (modules INTACTO si la entrada es objeto,
+          // D-06/T-64-07). saveProjectsFn es síncrono atómico; el try/catch es defensa en profundidad
+          // (never-throws — si lanzara, el panel ink sigue montado, D-07).
+          const next = setProjectPath(projectsSnapshot.map, item.id, res.value);
+          try {
+            saveProjectsFn(next);
+            setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
+            setProjectsEditError(null);
+            setFocusError(PROJECTS_SAVED_RESTART);
+            setFooterColor('yellow');
+            setMode('projects');
+          } catch {
+            setProjectsEditError(PROJECTS_SAVE_FAILED); // never-throws de respaldo
+          }
+          return;
+        }
+        // Char imprimible: inserta en la posición del cursor (NO append ciego, molde config-edit).
+        if (input && !key.ctrl && !key.meta) {
+          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
+          setCursor((c) => c + input.length);
+          return;
+        }
+        return; // traga el resto (teclas de control no mapeadas)
+      }
+      if (mode === 'projects-error') {
+        // PROJ-05/D-07: `r` re-dispara el fetch (mismo carril que `m`); Esc sale a list. saveProjectsFn
+        // JAMÁS se llama aquí (carril de LECTURA remota — projects.json intacto).
+        if (input === 'r') {
+          await runProjectsFetch();
+          return;
+        }
+        if (key.escape) {
+          setMode('list');
+          return;
+        }
+        return; // traga el resto
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -929,6 +1151,15 @@ export default function App({
         setFieldCursor(0);
         setConfigEditError(null);
         setMode('config');
+        return;
+      }
+      if (input === 'm') {
+        // Phase 64 Plan 02 D-01/D-02/D-10 (PROJ-01): abre el editor de PROYECTOS SIN salir del
+        // dashboard. `m` está LIBRE en mode:'list' (verificado: q / e c l p d o a + arrows/Enter; Esc
+        // ignorado — RESEARCH Pitfall 0). Dispara el fetch async token-guarded (runProjectsFetch):
+        // entra a projects-loading, await listProjectsFn, ramifica a projects (snapshot congelado) o
+        // projects-error (PROJ-05). NO toca selectedTaskId (UX-03 gratis al volver).
+        await runProjectsFetch();
         return;
       }
       if (input === 'c') {
@@ -1211,8 +1442,11 @@ export default function App({
         buffer, // Phase 63 Plan 02 D-01: text-input controlado de mode:'config-edit'
         cursor, // Phase 63 Plan 02 D-01: posición del cursor en el buffer
         configEditError, // Phase 63 Plan 02 Pitfall 2: error de validación/escritura (estado dedicado)
+        projectsSnapshot, // Phase 64 Plan 02 D-01: snapshot congelado del editor de proyectos (null si cerrado)
+        projectsError, // Phase 64 Plan 02 D-07: mensaje del fallo de fetch (dirige projects-error)
+        projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · m projects · q quit'),
   );
 }
