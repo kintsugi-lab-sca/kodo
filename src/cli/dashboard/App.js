@@ -75,6 +75,7 @@ import { existsSync } from 'node:fs';
 import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
 import SessionTable from './SessionTable.js';
+import { getEditableFields, validateField, getByPath, setByPath } from '../../config-validate.js';
 
 // Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
 // para que los tests las importen y asseren equality sin duplicar strings (espejo del
@@ -216,6 +217,31 @@ export const ADOPT_DERIVED_CONFIRM = (ref) => `adoptar ${ref}? pulsa a de nuevo 
 export const ADOPT_DERIVED_CONFIRM_FALLBACK = (ref) =>
   `adoptar ${ref} (título por defecto)? pulsa a de nuevo · Esc cancela`;
 
+// Phase 63 D-10/D-12/UX-01 (Plan 02): copy literal-estable del editor de config. EXPORTADAS para que
+// los tests y SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón que
+// OVERLAY_* / DISMISS_* / ADOPT_*). La LITERAL copy es el contrato (UI-SPEC §Copywriting, español).
+//
+// CONFIG_OVERLAY_TITLE: cabecera del overlay de configuración (UX-01/D-02).
+// CONFIG_SAVED_RESTART (ámbar/yellow, PERSIST-03/D-10): aviso transitorio tras guardar con éxito —
+//   los procesos vivos (server/daemon) no recargan en caliente, hay que reiniciarlos para aplicar.
+// CONFIG_SAVE_FAILED (rojo, UX-04/D-12): la escritura falló; el config.json previo queda intacto
+//   (never-throws, PERSIST-05). Va en configEditError (estado dedicado), no en focusError (Pitfall 2).
+export const CONFIG_OVERLAY_TITLE = 'configuración de kodo';
+export const CONFIG_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
+export const CONFIG_SAVE_FAILED = '[!] no se pudo guardar la config — el archivo previo quedó intacto';
+
+// Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
+// de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
+// getEditableFields (provider + los 11 paths editables) — sin secretos. NO es la fuente de verdad de
+// runtime, solo evita un crash si App se renderiza sin la prop.
+const DEFAULT_EDITOR_CONFIG = {
+  provider: 'plane',
+  providers: { plane: { states: { trigger: 'In Progress', review: 'In review', done: 'Done' } } },
+  cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
+  claude: { default_model: 'opus', max_parallel: 3 },
+  server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
+};
+
 // Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
 // SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
 // (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
@@ -269,6 +295,17 @@ export const OVERLAY_VIEWPORT = 18;
  *   Phase 56 D-05: mapa `projectId → path` (de `loadProjects()`, inyectado por index.js). El reverse-
  *   lookup `resolveProjectId(surface.cwd, projects)` resuelve el `--project` del adopt al armar;
  *   none/ambiguous → footer ADOPT_NO_PROJECT y NO se shellea. Default `{}` (tests del módulo sin DI).
+ * @param {() => any} [props.loadConfigFn]
+ *   Phase 63 D-09 (Plan 02): lee el snapshot de config al abrir el editor (`e`). Inyectado por
+ *   `runDashboard` (Plan 03) con `loadConfig` de src/config.js. El handler `e` lo deep-clona
+ *   (`structuredClone`, Pitfall 1) antes de editar — NUNCA muta el objeto devuelto (su spread
+ *   superficial `{...DEFAULT_CONFIG}` aliasea el DEFAULT_CONFIG del módulo). Default inerte para
+ *   tests del módulo sin DI (espejo de onAdopt/onDerive).
+ * @param {(config: any) => Promise<{ ok: boolean, error?: any }>} [props.onSaveConfig]
+ *   Phase 63 D-10/UX-04 (Plan 02): escribe el config editado, never-throws. Inyectado por
+ *   `runDashboard` con un wrapper de `saveConfig` (escritura atómica temp+rename, PERSIST-05). El
+ *   Enter de config-edit lo `await`a tras validar; `{ok:false}` → footer CONFIG_SAVE_FAILED (el
+ *   archivo previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -287,6 +324,8 @@ export default function App({
   onAdopt,
   onDerive,
   projects = {},
+  loadConfigFn = () => DEFAULT_EDITOR_CONFIG,
+  onSaveConfig = async () => ({ ok: true }),
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -363,8 +402,21 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit'} */ ('list'));
   const [query, setQuery] = useState('');
+
+  // Phase 63 Plan 02 (UX-01/02, D-01/D-03/D-04/D-05): estado del editor de config.
+  //   - configSnapshot: clon CONGELADO del config al abrir (`e` → structuredClone(loadConfigFn()),
+  //     Pitfall 1). Todas las ediciones mutan SOLO clones de este objeto, jamás DEFAULT_CONFIG.
+  //   - fieldCursor: índice del campo seleccionado en mode:'config' (clamp [0, fields.length-1]).
+  //   - buffer/cursor: text-input controlado de mode:'config-edit' (inserción en `cursor`, NO append).
+  //   - configEditError: error de validación/escritura. Estado DEDICADO (NO focusError) — el
+  //     clear-on-any-input (línea ~510) consumiría la siguiente tecla si fuera focusError (Pitfall 2).
+  const [configSnapshot, setConfigSnapshot] = useState(/** @type {any} */ (null));
+  const [fieldCursor, setFieldCursor] = useState(0);
+  const [buffer, setBuffer] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [configEditError, setConfigEditError] = useState(/** @type {string | null} */ (null));
   const prevIndexRef = useRef(0);
   // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
   // (await fetch). Si el operador encola un segundo `c`/`l` o cierra con Esc mientras una request
@@ -726,6 +778,112 @@ export default function App({
         setMode('list');
         return;
       }
+      // Phase 63 Plan 02 (D-03): SUB-MODO config (lista de campos navegable, valor read-only). Va
+      // ENTRE el bloque confirm y el de filter (espejo del orden D-03 "antes del mode-gate de filtro").
+      // Esc → list SIN tocar selectedTaskId (UX-03). ↑/↓ mueven fieldCursor con clamp sin wrap (molde
+      // adoptCursor). Enter → precarga el valor del campo en el buffer y entra a config-edit.
+      if (mode === 'config') {
+        const fields = getEditableFields(configSnapshot);
+        if (key.escape) {
+          setMode('list'); // UX-03: selectedTaskId intacto → el cursor de la tabla se conserva
+          return;
+        }
+        if (key.upArrow) {
+          setFieldCursor((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setFieldCursor((i) => Math.min(fields.length - 1, i + 1));
+          return;
+        }
+        if (key.return) {
+          // Precarga el valor ACTUAL del campo (D-05). String(...) porque positiveInt es number en el
+          // snapshot — el buffer es siempre texto. cursor al final para edición tipo "append natural".
+          const field = fields[fieldCursor];
+          if (!field) return;
+          const current = String(getByPath(configSnapshot, field.path) ?? '');
+          setBuffer(current);
+          setCursor(current.length);
+          setConfigEditError(null);
+          setMode('config-edit');
+          return;
+        }
+        return; // traga el resto mientras navega la lista
+      }
+      // Phase 63 Plan 02 (D-01/D-05, RESEARCH Pattern 1): SUB-MODO config-edit (text-input controlado).
+      // Esc cancela SIN guardar (vuelve a config). ←/→ mueven el cursor con clamp. backspace||delete
+      // borra el char anterior al cursor (ambos juntos — Pitfall 3, muchos terminales mandan delete).
+      // Char imprimible se INSERTA en `cursor` (NO append ciego). Enter valida → inválido pinta el
+      // error (estado dedicado, sigue en config-edit) → válido guarda sobre un deep-clone y avisa.
+      if (mode === 'config-edit') {
+        const fields = getEditableFields(configSnapshot);
+        const field = fields[fieldCursor];
+        if (key.escape) {
+          setMode('config'); // cancela sin guardar (D-05)
+          return;
+        }
+        if (key.leftArrow) {
+          setCursor((c) => Math.max(0, c - 1));
+          return;
+        }
+        if (key.rightArrow) {
+          setCursor((c) => Math.min(buffer.length, c + 1));
+          return;
+        }
+        if (key.backspace || key.delete) {
+          if (cursor > 0) {
+            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
+            setCursor((c) => c - 1);
+          }
+          return;
+        }
+        if (key.return) {
+          if (!field) {
+            setMode('config');
+            return;
+          }
+          // Validación PURA never-throws (src/config-validate.js). Un inválido NUNCA alcanza el disco
+          // (CFG-05/D-05): se guarda en configEditError (estado dedicado, Pitfall 2) y se sigue en
+          // config-edit — la siguiente tecla edita, no se gasta limpiando el error.
+          const res = validateField(field, buffer);
+          if (!res.ok) {
+            setConfigEditError(res.error);
+            return;
+          }
+          // Pitfall 1: deep-clone ANTES de mutar — setByPath escribe sobre el clon, jamás el snapshot
+          // congelado ni DEFAULT_CONFIG. onSaveConfig es never-throws (D-10 contract); el try/catch es
+          // defensa en profundidad (si lanzara, el panel ink sigue montado — UX-04/D-12).
+          const next = structuredClone(configSnapshot);
+          setByPath(next, field.path, res.value);
+          try {
+            const result = await onSaveConfig(next);
+            if (!result || result.ok !== false) {
+              // Éxito: el snapshot adopta el valor guardado; aviso de reinicio transitorio (PERSIST-03/
+              // D-10). El aviso va en focusError/footerColor (transitorio, ya de vuelta en config) — el
+              // clear-on-any-input lo descarta con la próxima tecla, comportamiento deseado.
+              setConfigSnapshot(next);
+              setConfigEditError(null);
+              setFocusError(CONFIG_SAVED_RESTART);
+              setFooterColor('yellow');
+              setMode('config');
+            } else {
+              // Escritura fallida (PERSIST-05: el config previo quedó intacto). En configEditError (NO
+              // focusError) → sigue visible mientras el operador sigue en el editor (UX-04/D-12).
+              setConfigEditError(CONFIG_SAVE_FAILED);
+            }
+          } catch {
+            setConfigEditError(CONFIG_SAVE_FAILED); // never-throws de respaldo (defensa en profundidad)
+          }
+          return;
+        }
+        // Char imprimible: inserta en la posición del cursor (NO append ciego — RESEARCH Pattern 1).
+        if (input && !key.ctrl && !key.meta) {
+          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
+          setCursor((c) => c + input.length);
+          return;
+        }
+        return; // traga el resto (teclas de control no mapeadas)
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -759,6 +917,18 @@ export default function App({
       }
       if (input === '/') {
         setMode('filter'); // abre la línea de filtro modal (D-13)
+        return;
+      }
+      if (input === 'e') {
+        // Phase 63 Plan 02 D-02/UX-01: abre el editor de config SIN salir del dashboard. Pitfall 1:
+        // deep-clone OBLIGATORIO — `loadConfig` sin fichero devuelve `{...DEFAULT_CONFIG}` (spread
+        // superficial), así que mutar campos anidados aliasearía el DEFAULT_CONFIG del módulo. El
+        // structuredClone congela un snapshot propio del editor. NO se toca selectedTaskId (UX-03 gratis:
+        // resolveSelection re-deriva la misma fila al volver). fieldCursor a 0, error limpio.
+        setConfigSnapshot(structuredClone(loadConfigFn()));
+        setFieldCursor(0);
+        setConfigEditError(null);
+        setMode('config');
         return;
       }
       if (input === 'c') {
@@ -1036,8 +1206,13 @@ export default function App({
         overlayKind, // Phase 39: qué overlay está abierto (comments/logs/plan/adopt/null)
         scrollOffset, // Phase 39 D-06: primera línea visible del body scrollable
         overlaySnapshot, // Phase 39 D-05: contenido congelado del overlay
+        configSnapshot, // Phase 63 Plan 02: snapshot congelado del editor de config (null si cerrado)
+        fieldCursor, // Phase 63 Plan 02 D-03: campo seleccionado en mode:'config'
+        buffer, // Phase 63 Plan 02 D-01: text-input controlado de mode:'config-edit'
+        cursor, // Phase 63 Plan 02 D-01: posición del cursor en el buffer
+        configEditError, // Phase 63 Plan 02 Pitfall 2: error de validación/escritura (estado dedicado)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · q quit'),
   );
 }
