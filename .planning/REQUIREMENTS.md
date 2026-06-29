@@ -33,7 +33,7 @@ Requisitos del milestone v0.14. Cada uno mapea a una fase del roadmap.
 ### PERSIST — Persistencia, seguridad y propagación
 
 - [x] **PERSIST-01**: Los cambios de proyectos se persisten a `~/.kodo/projects.json` y los de ajustes a `~/.kodo/config.json`, preservando el formato y la migración de schema existentes (`loadConfig`/`saveConfig`/`loadProjects`/`saveProjects`).
-- [ ] **PERSIST-02**: La escritura ocurre localmente **sin añadir endpoints al server** (`src/server.js` intacto) — vía filesystem directo o shell-out a `kodo config`, preservando "cero endpoints nuevos desde v0.10".
+- [x] **PERSIST-02**: La escritura ocurre localmente **sin añadir endpoints al server** (`src/server.js` intacto) — vía filesystem directo o shell-out a `kodo config`, preservando "cero endpoints nuevos desde v0.10".
 - [x] **PERSIST-03**: Tras guardar, el dashboard avisa de que hay que reiniciar server/daemon para aplicar (sin hot-reload).
 - [x] **PERSIST-04**: Las API keys nunca se editan ni se muestran en el editor; siguen viviendo exclusivamente en `~/.kodo/.env`.
 - [x] **PERSIST-05**: La escritura es no-corruptiva: si falla, el archivo previo se preserva (nunca queda un `config.json`/`projects.json` a medias).
@@ -82,7 +82,7 @@ Qué fases cubren qué requisitos.
 | CFG-04 | Phase 63 | Complete |
 | CFG-05 | Phase 63 | Complete |
 | PERSIST-01 | Phase 63 | Complete |
-| PERSIST-02 | Phase 63 | Pending |
+| PERSIST-02 | Phase 63 | Complete |
 | PERSIST-03 | Phase 63 | Complete |
 | PERSIST-04 | Phase 63 | Complete |
 | PERSIST-05 | Phase 63 | Complete |
