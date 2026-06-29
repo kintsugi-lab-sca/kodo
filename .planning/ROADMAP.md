@@ -130,10 +130,22 @@ Plans:
   5. Si `listProjects()` falla (sin conexión / provider caído), el editor lo comunica y permite reintentar o salir, sin crashear (never-throws, panel ink montado) ni corromper el mapeo existente. (PROJ-05)
 
 **Plans**: 4 plans
+**Wave 1**
+
 - [ ] 64-01-PLAN.md — Fundación pura: validateExistingDir (path-validate.js) + helpers de forma dual (projects-shape.js) + tests unitarios
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 64-02-PLAN.md — Carril async base en App.js/SessionTable.js: modos projects/loading/edit/error, fetch listProjectsFn token-guarded, validación de ruta, quitar mapeo, degradación (PROJ-01/02/03/05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 64-03-PLAN.md — Soporte de módulos (PROJ-04): 2º hop listModulesFn, modos projects-modules, persistencia {default,modules}
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 64-04-PLAN.md — Cableado DI en index.js (los 4 *Fn, listProjectsFn never-throws, listModulesFn condicional) + checkpoint humano end-to-end
+
 **UI hint**: yes
 
 ## Progress
