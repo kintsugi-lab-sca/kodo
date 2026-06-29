@@ -4,17 +4,17 @@ milestone: v0.14
 milestone_name: Configuración editable desde el dashboard
 current_phase: 64
 current_phase_name: Editor de proyectos en el dashboard
-status: executing
+status: verifying
 stopped_at: Phase 64 context gathered
-last_updated: "2026-06-29T16:13:06.552Z"
+last_updated: "2026-06-29T16:22:43.474Z"
 last_activity: 2026-06-29
 last_activity_desc: Phase 64 execution started
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 5
-  percent: 50
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Con
 
 Phase: 64 (Editor de proyectos en el dashboard) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-29 — Phase 64 execution started
 
 ## Roadmap v0.14 (active)
@@ -106,7 +106,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 **Resume file:** .planning/phases/64-editor-de-proyectos-en-el-dashboard/64-CONTEXT.md
 
-- **Last session:** 2026-06-29T16:13:00.262Z
+- **Last session:** 2026-06-29T16:22:31.317Z
 - **Stopped at:** Phase 64 context gathered
 - **Next action:** `/gsd-plan-phase 63` (o `/gsd-discuss-phase 63` primero para resolver la decisión de diseño del text-input: componente controlado propio vs dep `ink-text-input`). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
 - **Files of record:**
@@ -129,6 +129,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 | Phase 64 P01 | 12min | 2 tasks | 4 files |
 | Phase 64 P02 | 12min | 3 tasks | 4 files |
 | Phase 64 P03 | 5min | 3 tasks | 3 files |
+| Phase 64 P04 | 8min | 1 tasks | 1 files |
 
 ## Decisions
 
@@ -141,3 +142,4 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 - [Phase ?]: Phase 64-02: estados dedicados projectsError/projectsEditError (no focusError) para no perder teclas r/Esc/edición (Pitfall 2)
 - [Phase ?]: Módulos: el 2º hop async reusa el MISMO projectsReqRef que el carril base (Pitfall 3)
 - [Phase ?]: Modo dedicado projects-modules-edit para que Enter llame setModulePath en vez de setProjectPath
+- [Phase ?]: [Phase 64-04]: index.js cablea los 4 *Fn del editor de proyectos (listProjectsFn never-throws construcción+red, listModulesFn condicional plane/github, load/saveProjectsFn import directo de config.js) — espejo de onAdopt/onSaveConfig, sin endpoint nuevo (PERSIST-02/D-08)
