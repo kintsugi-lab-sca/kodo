@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.13
-milestone_name: kodo bidireccional
-status: Awaiting next milestone
-stopped_at: Phase 62 context gathered
-last_updated: "2026-06-25T11:40:39.131Z"
-last_activity: 2026-06-25 — Milestone v0.13 completed and archived
+milestone: v0.14
+milestone_name: Configuración editable desde el dashboard
+status: planning
+last_updated: "2026-06-29T11:47:19.174Z"
+last_activity: 2026-06-29
 progress:
-  total_phases: 12
-  completed_phases: 11
-  total_plans: 17
-  completed_plans: 22
-  percent: 92
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Mile
 
 ## Current Position
 
-Phase: Milestone v0.13 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-25 — Milestone v0.13 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-29 — Milestone v0.14 started
 
 ## Roadmap v0.13 (active)
 

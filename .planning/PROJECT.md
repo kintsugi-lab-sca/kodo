@@ -10,8 +10,8 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ## Current State
 
-**Shipped:** v0.12 (2026-06-15) — Atajos al gestor y progreso vivo · cerrado con deuda reconocida (HUMAN-UAT del display de progreso vivo de Phase 50.1 diferido a verificación en TTY real; + XSS latente WR-01 en el carril HTML de `src/server.js`). 5 phases (48-51 + 50.1), 10 plans, 90 commits.
-**Next:** v0.13 kodo bidireccional — **code-complete (2026-06-25).** Las 11 fases (52-62) entregan el flujo inverso `sesión → tarea`: una fontanería determinista 0-token (`createTask` + `adoptSession`, Phases 52-53) con tres consumidores — CLI `kodo adopt` (54), tecla `a` del dashboard (56, vía contrato `HostProvider.listAgentSurfaces()` de la 55), y adopción asistida por el orquestador (57). Más ciclo de vida de cierre (58), liveness (59), enriquecimiento de descripción (60), progreso vivo de adoptadas (61) y, cerrando el milestone, **Phase 62 (ORCH-02): adopción inteligente desde el dashboard** — al pulsar `a`, un derivador LLM one-shot (`claude -p` Haiku, fail-open) propone `{title, description}` a nivel TAREA desde la intención de la sesión + memoria del proyecto, antes de shellear `kodo adopt --title --description`. UAT passed 4/4. Pendiente: cierre formal del milestone (`/gsd:complete-milestone`).
+**Shipped:** v0.13 (2026-06-25) — kodo bidireccional · flujo inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se promueve a tarea persistente del gestor. Arquitectura "una fontanería 0-token (`createTask` + `adoptSession`), tres consumidores" (CLI `kodo adopt`, tecla `a` del dashboard, orquestador asistido por LLM). 11 phases (52-62), 17 plans, UAT 4/4.
+**Next:** v0.14 Configuración editable desde el dashboard — editar la config de kodo desde la TUI sin re-correr el wizard lineal: proyectos (listar del provider + mapear ruta/módulos → `~/.kodo/projects.json`) y ajustes comunes (claude model/max_parallel, states trigger/review/done, server thresholds, cmux colors → `~/.kodo/config.json`). Escritura local (cero endpoints nuevos, 2ª ruptura consciente de "TUI read-only"), aviso de reinicio (sin hot-reload), API keys intactas en `~/.kodo/.env`.
 
 v0.12 profundiza el dashboard en dos direcciones desde la fila de sesión. *Hacia afuera:* la tecla `o` abre la tarea (Plane/GitHub) en el navegador vía `runOpen` (`execFile` never-throws + allowlist `http(s)` + argv literal), + fix del bug latente de browse-URL de Plane (`plane.web_url ?? base_url` end-to-end, `UNKNOWN-<seq>` suprimido); cerrado por HUMAN-UAT en macOS real (Phase 48). *Hacia adentro:* un spike empírico (Phase 49) dictaminó **VIABLE** capturar el progreso N/M en Claude Code 2.1.175, y el dashboard muestra ahora una columna condicional `prog` con `N/M` (= `completed_phases`/`total_phases`) por sesión GSD — leído del bloque `progress:` del `STATE.md` del worktree real (Phase 50 + corrección 50.1, que reemplazó la superficie inicial `~/.claude/tasks/` por STATE.md tras descubrirla vacía en sesiones GSD reales). + backfill de la deuda Nyquist de v0.11 (Phase 51, 3 VALIDATION.md citation-based). Cero endpoints nuevos, contrato `TaskProvider` FROZEN en 9. Suite 1307 pass + 1 skip. **Verificación humana del display de progreso (50.1) diferida** al no poder montarse una sesión GSD viva en el cierre.
 
@@ -50,24 +50,24 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Current Milestone: v0.13 kodo bidireccional
+## Current Milestone: v0.14 Configuración editable desde el dashboard
 
-**Goal:** Convertir una sesión Claude Code creada ad-hoc en cmux (no nacida de Plane/GitHub) en una **tarea persistente del gestor**, para que el trabajo ad-hoc no se evapore al cerrar el sprint. kodo deja de ser solo *tarea → sesión* y se vuelve un puente de ida y vuelta: el flujo inverso **sesión → tarea**.
+**Goal:** Editar la configuración de kodo desde el dashboard TUI — principalmente añadir/editar la ruta de un proyecto sin re-correr el wizard lineal (donde los proyectos están al final tras pasos obligatorios), más un puñado de ajustes comunes de uso diario. El dashboard pasa de observar+gestionar sesiones a también **configurar kodo**, sin tocar el contrato HTTP del server.
 
 **Target features:**
-- **`kodo adopt` (CLI)** — adopta una sesión ad-hoc: crea la tarea en el provider y la registra en `state.json` con el `task_id` nuevo. Core de bajo riesgo (recibe el workspace/cwd explícito, no depende de detección automática); ships sí o sí.
-- **`createTask` opcional en los adapters Plane + GitHub** — método **typeof-detected FUERA de los 9 FROZEN** (espejo de cómo `getTaskState` se añadió en la Fase 40); el contrato `TaskProvider` sigue "FROZEN en 9". Primera vez que kodo *crea* tareas (revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas").
-- **Adopción asistida por el orquestador** — el orquestador (único carril con LLM) es un **consumidor** de la misma fontanería: propone proactivamente adoptar sesiones ad-hoc y deriva un título *inteligente* del contexto real (cwd/commits/transcript), no `basename(workspace)`. NO es dueño del flujo ni un mecanismo paralelo.
-- **Datos auto-derivados editables** — título desde workspace/cwd como default editable; proyecto destino vía `listProjects` (ya en el contrato); descripción opcional.
-- **Spike de detección de cmux (HARD GATE)** — ¿cmux expone proceso/cwd por workspace para identificar un `claude` ad-hoc ausente de `state.json`? El veredicto gobierna si la **tecla en el dashboard** (descubrir + listar sesiones ad-hoc) es viable. Espejo del spike-gate de la Fase 49 (v0.12).
-- **Saldar deuda viva heredada de v0.12** — hardening XSS WR-01 (allowlist `http(s)` en el carril HTML de `src/server.js`) + HUMAN-UAT diferido del display de progreso (Phase 50.1).
+- **Editor de proyectos** — lista los proyectos del provider en vivo (`listProjects()` Plane/GitHub) → eliges uno → mapeas/editas/quitas su ruta local (+ módulos opcionales), escribiendo a `~/.kodo/projects.json`. Resuelve la fricción central: añadir un proyecto sin pasar por proveedor/api-key/workspace primero.
+- **Editor de ajustes comunes** — `claude.default_model` + `claude.max_parallel`, estados del provider (`states.trigger`/`review`/`done`), thresholds del server (`server.idle_threshold_min`/`stuck_threshold_min`) y colores cmux (`cmux.colors`), escribiendo a `~/.kodo/config.json`.
+- **Escritura local, cero endpoints nuevos** — el dashboard persiste vía filesystem local / shell-out (`saveConfig`/`saveProjects` o `kodo config`), nunca un `POST` nuevo en `src/server.js`. Apoyado en el precedente de v0.13 (la TUI ya escribe shelleando `kodo adopt` vía `execFile`).
+- **Aviso de reinicio (sin hot-reload)** — tras guardar, el dashboard indica que hay que reiniciar server/daemon para aplicar; honesto y simple, coherente con el comportamiento actual (la config se carga en memoria al arrancar).
+- **Secrets intactos** — las API keys nunca se editan ni se muestran; siguen viviendo exclusivamente en `~/.kodo/.env` (invariante de seguridad).
 
 **Key context:**
-- **Arquitectura: una fontanería, tres consumidores.** La capa base (`createTask` + `adoptSession` que registra en `state.json`) es **determinista y 0-token** (preserva la constraint "solo el orquestador usa LLM"); CLI, tecla del dashboard (gated) y orquestador son consumidores de esa base, nunca dueños.
-- "Adoptar" invierte el camino que kodo ya recorre al lanzar (registrar en `state.json`), pero al revés. La fontanería de POST con auth ya existe (`plane/client.js` y `github/client.js` ya hacen `POST` para `addComment`).
-- **Cero endpoints nuevos** sigue siendo invariante candidato (la adopción puede vivir en CLI + acción de dashboard sin tocar el contrato HTTP del server — a confirmar en planificación).
-- Numeración de fases **continua** desde Phase 51 → la siguiente es **Phase 52** (espejo de cada milestone).
-- Origen del concepto: ideado 2026-06-12 en conversación tras cerrar la Fase 48 (Phase 999.1 del backlog).
+- **2ª ruptura consciente de "TUI read-only".** El dismiss de sesiones dead (v0.10) fue la 1ª; este editor es la 2ª. La config NO vive en el server (vive en `~/.kodo/config.json` + `projects.json`), así que el dashboard la escribe localmente — preserva "cero endpoints nuevos desde v0.10".
+- **Input de texto en ink es patrón nuevo.** Los overlays actuales (`c`/`l`/`p`) son read-only y la única mutación (dismiss) es un double-confirm sin texto. Capturar rutas/valores requiere un componente de text-input (controlado vía `useInput` o dep tipo `ink-text-input`) — candidato a research/decisión de diseño.
+- **Listar proyectos requiere conexión** al provider (`listProjects()` en vivo); el editor debe degradar con gracia si la conexión falla (TUI never-throws sigue en pie).
+- **Vehículo: solo el dashboard.** El wizard `kodo config` lineal se deja como está en este milestone.
+- Numeración de fases **continúa** desde Phase 62 → la siguiente es **Phase 63**.
+- Origen: pedido del operador 2026-06-29, tras cerrar v0.13 — la fricción de re-correr el wizard entero para tocar un proyecto.
 
 ## Requirements
 
@@ -147,7 +147,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Active
 
-(Ninguno — v0.13 shipped 2026-06-25. El siguiente milestone se define con `/gsd:new-milestone`.)
+**v0.14 Configuración editable desde el dashboard** (en definición — REQUIREMENTS.md). Editor TUI para proyectos (listar del provider + mapear ruta/módulos) y ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors). Escritura local, cero endpoints nuevos, aviso de reinicio, secrets intactos.
 
 **Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · derivación de título vía API directa de Anthropic (latencia ~1-3s vs ~10-20s del CLI `claude -p`, a cambio de gestionar API key)
 
@@ -281,7 +281,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 — **Milestone v0.13 code-complete** (Phases 52-62, ORCH-02/Phase 62 cerrada con UAT passed). **Milestone v0.13 "kodo bidireccional" iniciado 2026-06-15.** El flujo inverso `sesión → tarea`: convertir una sesión Claude Code ad-hoc de cmux en una tarea persistente del gestor. Arquitectura "una fontanería (`createTask` opcional Plane+GitHub + `adoptSession`, determinista 0-token), tres consumidores" — CLI `kodo adopt`, tecla del dashboard (gated por spike de detección de cmux, espejo Fase 49), y adopción asistida por el orquestador (título inteligente desde el contexto real de la sesión). Incluye saldo de la deuda viva de v0.12 (XSS WR-01 en `src/server.js` + HUMAN-UAT del display 50.1). `createTask` revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas". Numeración de fases continúa desde la 51. Origen: Phase 999.1 del backlog (ideado 2026-06-12).*
+*Last updated: 2026-06-29 — **Milestone v0.14 "Configuración editable desde el dashboard" iniciado.** Editar la config de kodo desde la TUI sin re-correr el wizard lineal: proyectos (listar del provider + mapear ruta/módulos → `~/.kodo/projects.json`) y ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors → `~/.kodo/config.json`). Escritura local (cero endpoints nuevos — 2ª ruptura consciente de "TUI read-only" tras el dismiss de v0.10), aviso de reinicio (sin hot-reload), API keys intactas en `~/.kodo/.env`. Input de texto en ink es patrón nuevo (candidato a research). Numeración de fases continúa desde la 62 → primera fase **Phase 63**. Origen: pedido del operador tras cerrar v0.13. Las fases 52-62 de v0.13 archivadas a `milestones/v0.13-phases/`.*
+
+---
+*Previous: 2026-06-25 — **Milestone v0.13 code-complete** (Phases 52-62, ORCH-02/Phase 62 cerrada con UAT passed). **Milestone v0.13 "kodo bidireccional" iniciado 2026-06-15.** El flujo inverso `sesión → tarea`: convertir una sesión Claude Code ad-hoc de cmux en una tarea persistente del gestor. Arquitectura "una fontanería (`createTask` opcional Plane+GitHub + `adoptSession`, determinista 0-token), tres consumidores" — CLI `kodo adopt`, tecla del dashboard (gated por spike de detección de cmux, espejo Fase 49), y adopción asistida por el orquestador (título inteligente desde el contexto real de la sesión). Incluye saldo de la deuda viva de v0.12 (XSS WR-01 en `src/server.js` + HUMAN-UAT del display 50.1). `createTask` revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas". Numeración de fases continúa desde la 51. Origen: Phase 999.1 del backlog (ideado 2026-06-12).*
 
 ---
 *Previous: 2026-06-15 after v0.12 "Atajos al gestor y progreso vivo" milestone — 5 phases (48-51 + 50.1), 10 plans, 90 commits, suite 1307 pass + 1 skip. Open-in-manager (tecla `o`, Phase 48, HUMAN-UAT macOS real) + spike VIABLE (Phase 49) + display de progreso vivo `N/M` desde el STATE.md del worktree (Phase 50 + corrección 50.1) + backfill Nyquist v0.11 (Phase 51). Cerrado con deuda reconocida: HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`. Archivos: `milestones/v0.12-ROADMAP.md`, `milestones/v0.12-REQUIREMENTS.md`. Next: `/gsd:new-milestone`.*
