@@ -82,6 +82,10 @@ import { validateExistingDir } from '../../path-validate.js';
 // Phase 64 Plan 02 (D-06): helpers PUROS de forma dual de projects.json (Plan 01). Preservan
 // EXACTAMENTE `string | { default, modules }` que consumen manager.js/adopt.js (T-64-07).
 import { setProjectPath, removeProjectMapping, getProjectPath } from '../../projects-shape.js';
+// Phase 64 Plan 03 (PROJ-04/D-05): helpers de MÓDULOS de forma dual (Plan 01). setModulePath
+// materializa `{ default, modules:{[name]:ruta} }` preservando default y los otros módulos (D-06);
+// getModuleMap lee el mapeo actual de un módulo para precargar el text-input. Ambos PUROS/never-throws.
+import { setModulePath, getModuleMap } from '../../projects-shape.js';
 
 // Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
 // para que los tests las importen y asseren equality sin duplicar strings (espejo del
@@ -259,6 +263,17 @@ export const PROJECTS_REMOVED = (ref) => `mapeo de ${ref} quitado — reinicia e
 export const PROJECTS_LOAD_FAILED = (reason) =>
   `[!] no se pudo cargar la lista de proyectos (${reason}) — r reintentar · Esc salir`;
 
+// Phase 64 Plan 03 (PROJ-04/D-05): copy literal-estable del sub-editor de MÓDULOS. EXPORTADAS para
+// que tests y SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón
+// PROJECTS_*). El soporte de módulos es un SEGUNDO hop async (listModulesFn) espejo del wizard
+// (`cli.js:700-740`).
+//   - PROJECTS_MODULES_TITLE: cabecera del sub-overlay de módulos.
+//   - PROJECTS_NO_MODULES (informativo, no error): el provider no expone módulos (GitHub) o la lista
+//     viene vacía → footer no-op, never-throws, se vuelve a la lista de proyectos sin abrir el
+//     sub-overlay (espejo `cli.js:711-714`). Se muestra vía focusError en mode:'projects' (transitorio).
+export const PROJECTS_MODULES_TITLE = 'módulos del proyecto';
+export const PROJECTS_NO_MODULES = 'este provider no tiene módulos';
+
 // Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
 // de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
 // getEditableFields (provider + los 11 paths editables) — sin secretos. NO es la fuente de verdad de
@@ -350,6 +365,15 @@ export const OVERLAY_VIEWPORT = 18;
  *   Phase 64 D-06/D-08 (Plan 02, PROJ-02/03): persiste el mapa editado (síncrono atómico vía
  *   `saveProjects`/`writeFileAtomic`). Solo se llama en los carriles de ESCRITURA (editar ruta
  *   válida, quitar mapeo) — JAMÁS en projects-error (carril de LECTURA, PROJ-05). Default inerte.
+ * @param {(projectId: string) => Promise<{ ok: true, modules: Array<{ id: string, name: string }> } | { ok: false, error: string }>} [props.listModulesFn]
+ *   Phase 64 D-05 (Plan 03, PROJ-04): SEGUNDO hop async — lista los módulos de un proyecto del
+ *   provider. ASIMETRÍA (RESEARCH Pattern 4): `listModules` NO está en el contrato TaskProvider, solo
+ *   en PlaneClient — el cableado CONDICIONAL (plane sí, github no) vive en index.js (Plan 04); App solo
+ *   consume el DISCRIMINADO `{ok}` (espejo de listProjectsFn, NO fail-open). El handler `m` de
+ *   mode:'projects' lo `await`a bajo el MISMO guard de request-token (projectsReqRef, Pitfall 3 — dos
+ *   hops, un ref dedicado): `{ok:true, modules:[...]}` → mode:'projects-modules'; `{ok:true, modules:[]}`
+ *   (github/sin módulos) → footer PROJECTS_NO_MODULES no-op; `{ok:false}` → footer error. Todo
+ *   never-throws. Default inerte `async () => ({ ok: true, modules: [] })` (tests del módulo sin DI).
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -373,6 +397,7 @@ export default function App({
   listProjectsFn = async () => ({ ok: true, projects: [] }),
   loadProjectsFn = () => ({}),
   saveProjectsFn = () => {},
+  listModulesFn = async () => ({ ok: true, modules: [] }),
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -449,7 +474,7 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit'} */ ('list'));
   const [query, setQuery] = useState('');
 
   // Phase 63 Plan 02 (UX-01/02, D-01/D-03/D-04/D-05): estado del editor de config.
@@ -474,8 +499,12 @@ export default function App({
   //   - projectsEditError: error de validación de ruta / escritura inline (string|null). Estado
   //     DEDICADO (NO focusError ni projectsError) — la siguiente tecla edita, no limpia (Pitfall 2).
   // Reusa `fieldCursor` (cursor de la lista, clamp sin wrap) y `buffer`/`cursor` (text-input).
+  // Phase 64 Plan 03 (PROJ-04): el snapshot se EXTIENDE (no se duplica estado) con la lista de
+  // MÓDULOS congelada + el activeProjectId al abrir el sub-editor de módulos (2º hop). `fieldCursor`
+  // se reutiliza para la lista de módulos (se reinicia a 0 al entrar). Ambos campos son opcionales:
+  // sólo están presentes mientras el sub-overlay de módulos está abierto.
   const [projectsSnapshot, setProjectsSnapshot] = useState(
-    /** @type {{ remote: Array<{ id: string, identifier: string, name: string }>, map: Record<string, any> } | null} */ (null),
+    /** @type {{ remote: Array<{ id: string, identifier: string, name: string }>, map: Record<string, any>, modules?: Array<{ id: string, name: string }>, activeProjectId?: string } | null} */ (null),
   );
   const [projectsError, setProjectsError] = useState(/** @type {string | null} */ (null));
   const [projectsEditError, setProjectsEditError] = useState(/** @type {string | null} */ (null));
@@ -1029,6 +1058,38 @@ export default function App({
           setFooterColor('yellow');
           return;
         }
+        if (input === 'm') {
+          // Phase 64 Plan 03 (PROJ-04/D-05): SEGUNDO hop async. `m` en mode:'projects' abre los módulos
+          // del proyecto bajo el cursor. NO colisiona con el `m` de mode:'list' (esta rama se evalúa
+          // ANTES, Pitfall 0). Reusa el MISMO projectsReqRef (Pitfall 3 — dos hops, un ref dedicado):
+          // cada apertura captura su reqId y descarta el resultado si el ref avanzó (Esc en loading).
+          const item = items[fieldCursor];
+          if (!item) return;
+          const id = item.id;
+          setMode('projects-modules-loading');
+          const reqId = ++projectsReqRef.current;
+          const result = await listModulesFn(id);
+          if (projectsReqRef.current !== reqId) return; // T-64-12: cancelada/superada durante el await
+          if (result && result.ok && Array.isArray(result.modules) && result.modules.length) {
+            // Congela la lista de módulos + el proyecto activo en el snapshot (sin duplicar estado).
+            setProjectsSnapshot((s) => (s ? { ...s, modules: result.modules, activeProjectId: id } : s));
+            setFieldCursor(0); // el cursor de la lista de módulos arranca en 0
+            setProjectsEditError(null);
+            setMode('projects-modules');
+          } else if (result && result.ok) {
+            // Lista vacía (github / provider sin módulos): footer informativo no-op, NO abre el
+            // sub-overlay, NO escribe (PROJECTS_NO_MODULES, never-throws — T-64-10/D-05).
+            setFocusError(PROJECTS_NO_MODULES);
+            setFooterColor('yellow');
+            setMode('projects');
+          } else {
+            // Fallo del 2º hop: footer error + vuelve a projects (never-throws, no escribe).
+            setFocusError(PROJECTS_LOAD_FAILED((result && result.error) || 'error desconocido'));
+            setFooterColor('red');
+            setMode('projects');
+          }
+          return;
+        }
         return; // traga el resto mientras navega la lista
       }
       if (mode === 'projects-edit') {
@@ -1105,6 +1166,110 @@ export default function App({
           return;
         }
         return; // traga el resto
+      }
+      // Phase 64 Plan 03 (PROJ-04/D-05): SUB-MÁQUINA del editor de MÓDULOS (2º hop). Tres modos espejo
+      // del carril base: el transitorio projects-modules-loading (listModulesFn en vuelo), la lista
+      // navegable projects-modules y el text-input projects-modules-edit. Todos never-throws.
+      if (mode === 'projects-modules-loading') {
+        // Esc CANCELA e invalida el fetch del 2º hop en vuelo: avanza projectsReqRef → el resultado
+        // tardío se descarta tras el await (T-64-12) + vuelve a projects (no a list — el sub-editor se
+        // abrió DESDE projects).
+        if (key.escape) {
+          projectsReqRef.current++;
+          setMode('projects');
+          return;
+        }
+        return; // traga el resto mientras carga
+      }
+      if (mode === 'projects-modules') {
+        const modules = projectsSnapshot?.modules ?? [];
+        if (key.escape) {
+          setMode('projects'); // vuelve a la lista de proyectos
+          return;
+        }
+        if (key.upArrow) {
+          setFieldCursor((i) => Math.max(0, i - 1)); // clamp sin wrap (molde projects)
+          return;
+        }
+        if (key.downArrow) {
+          setFieldCursor((i) => Math.min(modules.length - 1, i + 1));
+          return;
+        }
+        if (key.return) {
+          // Precarga la ruta ACTUAL del módulo (getModuleMap del proyecto activo) en el text-input.
+          const mod = modules[fieldCursor];
+          if (!mod) return;
+          const activeId = projectsSnapshot?.activeProjectId;
+          const current = getModuleMap(projectsSnapshot?.map?.[activeId])[mod.name] ?? '';
+          setBuffer(current);
+          setCursor(current.length);
+          setProjectsEditError(null);
+          setMode('projects-modules-edit');
+          return;
+        }
+        return; // traga el resto mientras navega la lista de módulos
+      }
+      if (mode === 'projects-modules-edit') {
+        // Mismo molde de text-input que projects-edit: Esc cancela; ←/→ clamp cursor; backspace||delete
+        // borra char anterior; char imprimible inserta en cursor; Enter valida con validateExistingDir
+        // ANTES de setModulePath + saveProjectsFn (PROJ-04/T-64-11 reuso del validador del carril base).
+        const modules = projectsSnapshot?.modules ?? [];
+        const mod = modules[fieldCursor];
+        if (key.escape) {
+          setMode('projects-modules'); // cancela sin guardar, vuelve a la lista de módulos
+          return;
+        }
+        if (key.leftArrow) {
+          setCursor((c) => Math.max(0, c - 1));
+          return;
+        }
+        if (key.rightArrow) {
+          setCursor((c) => Math.min(buffer.length, c + 1));
+          return;
+        }
+        if (key.backspace || key.delete) {
+          if (cursor > 0) {
+            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
+            setCursor((c) => c - 1);
+          }
+          return;
+        }
+        if (key.return) {
+          if (!mod) {
+            setMode('projects-modules');
+            return;
+          }
+          // Validación FS never-throws ANTES de tocar el disco (PROJ-04): inválida → projectsEditError
+          // (dedicado, Pitfall 2) + sigue editando, NUNCA escribe.
+          const res = validateExistingDir(buffer);
+          if (!res.ok) {
+            setProjectsEditError(res.error);
+            return;
+          }
+          // setModulePath materializa { default, modules } preservando default y los OTROS módulos
+          // (D-06/T-64-13). La KEY es mod.name del provider (no input libre — T-64-11). saveProjectsFn
+          // es síncrono atómico; el try/catch es defensa en profundidad (never-throws).
+          const activeId = projectsSnapshot?.activeProjectId;
+          const next = setModulePath(projectsSnapshot.map, activeId, mod.name, res.value);
+          try {
+            saveProjectsFn(next);
+            setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
+            setProjectsEditError(null);
+            setFocusError(PROJECTS_SAVED_RESTART);
+            setFooterColor('yellow');
+            setMode('projects-modules');
+          } catch {
+            setProjectsEditError(PROJECTS_SAVE_FAILED); // never-throws de respaldo
+          }
+          return;
+        }
+        // Char imprimible: inserta en la posición del cursor (NO append ciego, molde projects-edit).
+        if (input && !key.ctrl && !key.meta) {
+          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
+          setCursor((c) => c + input.length);
+          return;
+        }
+        return; // traga el resto (teclas de control no mapeadas)
       }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
