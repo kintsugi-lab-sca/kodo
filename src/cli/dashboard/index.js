@@ -97,7 +97,13 @@ export async function runDashboard(deps = {}) {
   // aplica el optional chaining `cfg.server?.port ?? DEFAULT_CONFIG.server.port`
   // para no lanzar TypeError con un config v1 migrado (migrateConfig omite la
   // clave `server`), cayendo al default conocido 9090.
-  const { loadConfig } = await import('../../config.js');
+  // Phase 63 (PERSIST-02): se añade `saveConfig` al MISMO lazy import de loadConfig (NO un import
+  // nuevo). El editor de ajustes escribe ~/.kodo/config.json importando saveConfig DIRECTO en el
+  // proceso ink — sin shell-out a `kodo config` y sin endpoint nuevo en src/server.js (D-09):
+  // contraste deliberado con la tecla `a` de Phase 62, que SÍ shelleó `kodo adopt` por su lógica
+  // 0-token compleja; aquí `saveConfig` es función pura trivial (ya atómica tras Plan 01), así que
+  // importarla es más simple y determinista, y preserva el invariante "cero endpoints desde v0.10".
+  const { loadConfig, saveConfig } = await import('../../config.js');
   const baseUrl = resolveBaseUrl({ url, loadConfig });
 
   // Lazy import de ink/react/App: mantiene el arranque del CLI ligero y aísla
@@ -195,6 +201,21 @@ export async function runDashboard(deps = {}) {
       runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, description }),
     // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
     projects,
+    // Phase 63 D-09 (PERSIST-02): cableado DI del editor de ajustes, espejo de onAdopt/onDerive.
+    // loadConfigFn toma el snapshot del config real al pulsar `e` (App.js lo deep-clona internamente,
+    // Plan 02). onSaveConfig es el wrapper never-throws (UX-04/D-12): saveConfig es síncrono y atómico
+    // (Plan 01 → escritura local no-corruptiva, directa al filesystem, SIN red/server/shell), pero se
+    // envuelve en try/catch para que un fallo de escritura devuelva {ok:false,error} y el panel ink
+    // siga montado — jamás propaga un throw al árbol React.
+    loadConfigFn: () => loadConfig(),
+    onSaveConfig: async (cfg) => {
+      try {
+        saveConfig(cfg);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    },
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.
