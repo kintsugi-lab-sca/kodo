@@ -46,11 +46,13 @@ import {
   PROJECTS_LOADING,
   PROJECTS_UNMAPPED,
   PROJECTS_LOAD_FAILED,
+  PROJECTS_MODULES_TITLE,
 } from './App.js';
 import { getEditableFields, getByPath } from '../../config-validate.js';
 // Phase 64 Plan 02 (D-06): lee el estado de mapeo de cada fila (forma dual). getProjectPath es puro
 // y never-throws (Plan 01) → '' si la entrada no está mapeada → la fila pinta PROJECTS_UNMAPPED.
-import { getProjectPath } from '../../projects-shape.js';
+// Phase 64 Plan 03 (PROJ-04): getModuleMap lee el estado de mapeo de cada MÓDULO (forma dual).
+import { getProjectPath, getModuleMap } from '../../projects-shape.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
@@ -450,6 +452,101 @@ function renderProjectsOverlay(snapshot, fieldCursor, mode, buffer, cursor, proj
 }
 
 /**
+ * Render del estado transitorio `projects-modules-loading` (Phase 64 Plan 03, PROJ-04): cabecera del
+ * sub-overlay de módulos + el texto de carga mientras listModulesFn (2º hop) está en vuelo.
+ *
+ * @returns {import('react').ReactElement}
+ */
+function renderModulesLoading() {
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(Box, { marginBottom: 1 }, h(Text, { color: 'cyan', bold: true }, PROJECTS_MODULES_TITLE)),
+    h(Text, { dimColor: true }, PROJECTS_LOADING),
+  );
+}
+
+/**
+ * Render del sub-overlay del editor de MÓDULOS (Phase 64 Plan 03, PROJ-04/D-05). Molde de
+ * renderProjectsOverlay: lista navegable con cursor (gutter `› ` + bold sobre la fila activa). Cada
+ * fila muestra `mod.name` + su estado de mapeo derivado de getModuleMap(snapshot.map[activeProjectId])
+ * (la ruta local mapeada, o PROJECTS_UNMAPPED). En `mode==='projects-modules-edit'` la fila activa
+ * renderiza el text-input de la ruta con el carácter bajo el cursor invertido (`<Text inverse>` —
+ * color-isolation intacta, NO picocolors; Pitfall 6: el inverse se serializa como ANSI, los tests
+ * asseren por contenido).
+ *
+ * El sub-overlay solo itera snapshot.modules (módulos del provider) + rutas locales — ningún secreto
+ * entra al snapshot ni se renderiza (por construcción).
+ *
+ * @param {{ map: Record<string, any>, modules?: Array<{ id: string, name: string }>, activeProjectId?: string }} snapshot
+ * @param {number} fieldCursor - índice del módulo seleccionado [0, modules.length-1].
+ * @param {'projects-modules'|'projects-modules-edit'} mode
+ * @param {string} buffer - text-input controlado de la ruta (solo relevante en projects-modules-edit).
+ * @param {number} cursor - posición del cursor en el buffer.
+ * @param {string|null} projectsEditError - error de validación de ruta (rojo) o null.
+ * @param {string|null} focusError - aviso transitorio post-guardado (PROJECTS_SAVED_RESTART) o null.
+ * @param {string} footerColor - color del aviso transitorio (yellow tras guardar).
+ * @returns {import('react').ReactElement}
+ */
+function renderModulesOverlay(snapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor) {
+  const modules = snapshot?.modules ?? [];
+  const moduleMap = getModuleMap(snapshot?.map?.[snapshot?.activeProjectId]);
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: 'cyan', bold: true }, PROJECTS_MODULES_TITLE),
+  );
+
+  const rows = modules.map((mod, i) => {
+    const selected = i === fieldCursor;
+    const isEditing = selected && mode === 'projects-modules-edit';
+    // Valor: el estado de mapeo (read-only) salvo en la fila que se edita, donde se pinta el text-input.
+    let valueEl;
+    if (isEditing) {
+      // Cursor por `inverse` (molde renderProjectsOverlay). Si cursor===buffer.length, bloque al final.
+      const left = buffer.slice(0, cursor);
+      const under = buffer[cursor] ?? ' ';
+      const right = buffer.slice(cursor + 1);
+      valueEl = h(Text, null, left, h(Text, { inverse: true }, under), right);
+    } else {
+      const path = moduleMap[mod.name];
+      valueEl = path
+        ? h(Text, { bold: selected }, path)
+        : h(Text, { dimColor: true }, PROJECTS_UNMAPPED);
+    }
+    return h(
+      Box,
+      { key: mod.id ?? mod.name ?? `mod-${i}`, flexDirection: 'row' },
+      h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      h(Box, { width: 24 }, h(Text, { bold: selected }, mod.name)),
+      valueEl,
+    );
+  });
+  const body = h(Box, { flexDirection: 'column' }, ...rows);
+
+  // Footer: el error de validación de ruta (rojo, projectsEditError dedicado) gana; si no, el aviso
+  // transitorio (focusError/footerColor) tras un guardado con éxito (PROJECTS_SAVED_RESTART).
+  let statusLine = null;
+  if (projectsEditError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, projectsEditError));
+  } else if (focusError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, focusError));
+  }
+  const hint = h(
+    Box,
+    { marginTop: 1 },
+    h(
+      Text,
+      { dimColor: true },
+      mode === 'projects-modules-edit'
+        ? '←→ move · ⌫ borrar · Enter guardar · Esc cancelar'
+        : '↑↓ move · Enter editar · Esc volver',
+    ),
+  );
+  return h(Box, { flexDirection: 'column' }, header, body, statusLine, hint);
+}
+
+/**
  * Tabla viva del dashboard (presentacional). Recibe la lista YA ordenada+filtrada, el índice
  * seleccionado YA derivado, los contadores y el connection state reusado.
  *
@@ -564,6 +661,14 @@ export default function SessionTable({
   }
   if ((mode === 'projects' || mode === 'projects-edit') && projectsSnapshot) {
     return renderProjectsOverlay(projectsSnapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor);
+  }
+  // Phase 64 Plan 03 (PROJ-04/D-05): early-returns del sub-editor de MÓDULOS (2º hop). loading es
+  // transitorio (sin snapshot); projects-modules/-edit requieren la lista de módulos congelada.
+  if (mode === 'projects-modules-loading') {
+    return renderModulesLoading();
+  }
+  if ((mode === 'projects-modules' || mode === 'projects-modules-edit') && projectsSnapshot?.modules) {
+    return renderModulesOverlay(projectsSnapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor);
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);
