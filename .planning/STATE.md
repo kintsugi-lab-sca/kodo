@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.14
 milestone_name: Configuración editable desde el dashboard
-current_phase: 64
-current_phase_name: Editor de proyectos en el dashboard
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 status: verifying
 stopped_at: Phase 64 context gathered
-last_updated: "2026-06-29T16:22:43.474Z"
+last_updated: "2026-06-29T18:22:01.755Z"
 last_activity: 2026-06-29
-last_activity_desc: Phase 64 execution started
+last_activity_desc: Phase 64 complete, transitioned to Phase 999.1
 progress:
   total_phases: 2
   completed_phases: 2
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Con
 
 ## Current Position
 
-Phase: 64 (Editor de proyectos en el dashboard) — EXECUTING
-Plan: 4 of 4
+Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-06-29 — Phase 64 execution started
+Last activity: 2026-06-29 — Phase 64 complete, transitioned to Phase 999.1
 
 ## Roadmap v0.14 (active)
 

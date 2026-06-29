@@ -1,20 +1,24 @@
 ---
 phase: 64-editor-de-proyectos-en-el-dashboard
 verified: 2026-06-29T16:29:59Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Con ~/.kodo/.env válido y kodo server corriendo, ejecutar `kodo dashboard` en un terminal REAL (TTY). Pulsar `m` — debe abrirse el overlay de proyectos: breve cargando, luego la lista REAL del provider (Plane/GitHub) con su estado de mapeo ([ruta] o [sin mapear]), sin salir del dashboard. Confirmar que NO aparece ninguna API key / api_key_env / base_url (PERSIST-04)."
     expected: "El overlay muestra los proyectos reales del workspace con su estado de mapeo correcto. Ningún secreto visible en el overlay."
     why_human: "La integración test inyecta un fake de listProjectsFn. La llamada de red real va al Plane/GitHub API y el rendering es en ink-testing-library (no en una TTY real)."
+
   - test: "Degradación real: sin conexión o con API key inválida, abrir el dashboard y pulsar `m`. El overlay debe mostrar projects-error (panel rojo) con opción de reintentar (`r`) o salir (`Esc`). El dashboard NO debe crashear. Verificar que ~/.kodo/projects.json queda INTACTO (no se escribió nada en el carril de error)."
     expected: "Panel projects-error visible, dashboard no cuelga, projects.json sin cambios tras el intento."
     why_human: "Los tests inyectan un fake {ok:false}. Un fallo de red/key real ocurre fuera del árbol ink y no puede simularse con DI en el test."
+
   - test: "Mapear un proyecto, guardar (aviso de reinicio en footer), luego reiniciar kodo server. Confirmar que el nuevo mapeo se aplica en el server reiniciado (el aviso de reinicio era necesario — sin hot-reload). Verificar también `cat ~/.kodo/projects.json` antes y después: la forma dual (string o {default,modules}) debe ser correcta y el JSON bien formado, con las otras entradas intactas."
     expected: "Tras reinicio, el mapeo nuevo se usa. projects.json tiene forma dual correcta y las demás entradas sin tocar."
     why_human: "El reinicio real del daemon está fuera del árbol ink y de los tests unitarios. La efectividad del aviso de reinicio solo se puede confirmar manualmente."
+
   - test: "Sobre un proyecto de Plane, pulsar `m` para abrir el sub-overlay de módulos en una terminal REAL. Confirmar: (1) el layout y el cursor visible en ink (texto inverse) se muestran correctamente, (2) truncado de rutas largas sin desbordamiento, (3) mapear la ruta de un módulo a un dir real guarda con la forma {default, modules:{[name]:ruta}}. Si el provider es GitHub / el proyecto no tiene módulos, confirmar footer 'este provider no tiene módulos', sin crash."
     expected: "Sub-overlay renderiza correctamente en TTY real. Módulos se mapean y persisten con forma dual. GitHub/sin módulos degrada con footer, sin abrir sub-overlay."
     why_human: "ink-testing-library asierta contenido de texto, no el rendering ANSI ni el layout físico en TTY. El truncado de rutas y los colores inverse solo son verificables en terminal real."

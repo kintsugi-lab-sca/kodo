@@ -25,7 +25,7 @@
 **Build order (risk-graded):** `fundación + ajustes comunes` → `editor de proyectos`. La **base de bajo nivel** (overlay + text-input editable en ink + fontanería de escritura local no-corruptiva reusando `saveConfig`/`saveProjects`) se construye y se prueba end-to-end con el **editor de ajustes comunes** (carril 100% local, sin conexión al provider, menor riesgo). El **editor de proyectos** (mayor riesgo: depende de `listProjects()` en vivo) es el segundo consumidor que reusa esa base. Numeración **continúa** desde Phase 62 (v0.13) → primera fase **Phase 63** (NO reset). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
 
 - [x] **Phase 63: Editor de configuración en el dashboard — fundación + ajustes comunes** — overlay + text-input editable en ink + escritura local no-corruptiva (reuso `saveConfig`), probado con el editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors) — UX-01..04, CFG-01..05, PERSIST-01..05 (completed 2026-06-29)
-- [ ] **Phase 64: Editor de proyectos en el dashboard** — lista `listProjects()` en vivo + mapear/editar/quitar ruta local (+ módulos), reusando la fundación de Phase 63; degrada con gracia si el provider cae — PROJ-01..05
+- [x] **Phase 64: Editor de proyectos en el dashboard** — lista `listProjects()` en vivo + mapear/editar/quitar ruta local (+ módulos), reusando la fundación de Phase 63; degrada con gracia si el provider cae — PROJ-01..05 (completed 2026-06-29)
 
 <details>
 <summary>✅ v0.13 kodo bidireccional (Phases 52-62) — SHIPPED 2026-06-25</summary>
@@ -156,7 +156,7 @@ Phases execute in numeric order: 63 → 64
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 63. Editor config — fundación + ajustes comunes | 3/3 | Complete    | 2026-06-29 |
-| 64. Editor de proyectos | 4/4 | UAT pending | - |
+| 64. Editor de proyectos | 4/4 | Complete    | 2026-06-29 |
 
 ## Backlog
 
