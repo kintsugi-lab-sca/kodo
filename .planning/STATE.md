@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.14
 milestone_name: Configuración editable desde el dashboard
 status: planning
-last_updated: "2026-06-29T11:47:19.174Z"
+last_updated: "2026-06-29T12:36:00.000Z"
 last_activity: 2026-06-29
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,134 +16,99 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** **v0.13 kodo bidireccional** (iniciado 2026-06-15, roadmap creado). Flujo inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se promueve a tarea persistente del gestor. 7 phases (52-58), 13/13 requirements mapeados, 100% cobertura.
+**Active milestone:** **v0.14 Configuración editable desde el dashboard** (iniciado 2026-06-29, roadmap creado). El dashboard TUI gana la capacidad de **configurar kodo** sin re-correr el wizard lineal: editor de proyectos (listar del provider + mapear ruta/módulos → `~/.kodo/projects.json`) y editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors → `~/.kodo/config.json`). 2 phases (63-64), 19/19 requirements mapeados, 100% cobertura. Escritura local, cero endpoints nuevos, aviso de reinicio, API keys intactas.
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-15 — v0.13 iniciado; Current Milestone: kodo bidireccional).
+See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Configuración editable desde el dashboard).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo). **v0.13 cierra el puente en la dirección inversa** `sesión → tarea`.
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo); v0.13 cerró el puente inverso `sesión → tarea`. **v0.14 promueve el dashboard a superficie de configuración** de kodo.
 
-**Current focus:** Phase 999.1 — kodo bidireccional (promovido → v0.13 phases 52 58)
+**Current focus:** Phase 63 — Editor de configuración en el dashboard (fundación overlay + text-input editable + escritura local no-corruptiva, probado con el editor de ajustes comunes).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 63 — Not started (roadmap creado, pendiente de plan)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-29 — Milestone v0.14 started
+Status: Roadmap created — awaiting phase planning
+Last activity: 2026-06-29 — Roadmap v0.14 creado (Phases 63-64), traceability 19/19 mapeada
 
-## Roadmap v0.13 (active)
+## Roadmap v0.14 (active)
 
-Build order (research-validated): **createTask + contrato + anti-recursión → fontanería `src/adopt.js` → CLI `kodo adopt` → SPIKE detección cmux (HARD GATE) → tecla dashboard (condicional/cuttable) → orquestador asistido → deuda v0.12 (tail independiente)**. La base determinista 0-token ships antes que cualquier consumidor ("consumers reuse the base, never own it"); la tecla del dashboard queda GATED tras el spike (espejo Phase 49→50 de v0.12). Numeración continua desde Phase 51 → primera fase **Phase 52** (NO reset).
+Build order (risk-graded): **fundación + ajustes comunes (carril 100% local, menor riesgo) → editor de proyectos (mayor riesgo, `listProjects()` en vivo)**. La base de bajo nivel — overlay de configuración + text-input editable en ink + fontanería de escritura local no-corruptiva (reuso de `saveConfig`/`saveProjects` de `src/config.js`) — se construye y se prueba end-to-end con el editor de ajustes comunes (todo local), luego el editor de proyectos la reusa. Numeración **continua** desde Phase 62 (v0.13) → primera fase **Phase 63** (NO reset). El sub-trabajo text-input/overlay de Phase 63 es candidato a `/gsd-ui-phase`.
 
 | Phase | Goal | Requirements | Riesgo |
 |-------|------|--------------|--------|
-| 52. createTask + contrato + anti-recursión | `createTask` opcional typeof-detected Plane+GitHub (FROZEN-at-9 intacto) + anti-recursión shipped junto al método | BIDIR-01, BIDIR-02, BIDIR-06 | bajo (POST plumbing ya existe; espejo `getTaskState` Phase 40) |
-| 53. Fontanería `src/adopt.js` | Base determinista 0-token (`adoptSession` + double-adopt guard + atomicidad LOUD + datos sanitizados); inverso exacto de `manager.launchWorkItem` | BIDIR-03, BIDIR-04, BIDIR-05, BIDIR-08 | medio (núcleo reusado por 3 consumidores) |
-| 54. CLI `kodo adopt` | Consumidor determinista con workspace/cwd explícito; **ships sí o sí**, independiente del spike | BIDIR-07 | bajo (consumo de la base; espejo `launch <ref>`) |
-| 55. Contrato `HostProvider.describeSurface()` (cmux) | Método opcional typeof-detected sobre `cmux surface resume show --json` → `{cwd, sessionId, kind}` por surface, fixture-locked + fail-open. Ya NO spike (viabilidad probada, CMUX-CAPABILITIES.md P0) | DETECT-01 | bajo/medio (contrato concreto, no research) |
-| 56. Tecla del dashboard | tecla `a` descubre (vía describeSurface) + adopta shelleando `kodo adopt`; cero endpoints nuevos. Ya NO gated | DETECT-02 | medio (consumidor de DETECT-01) |
-| 57. Orquestador asistido | Título inteligente del contexto real → shellea el mismo `kodo adopt`; consumidor no dueño; paralelizable con 56 | ORCH-01 | bajo (prosa skill + shell-out; LLM solo en el consumidor) |
-| 58. Deuda heredada de v0.12 | Hardening XSS WR-01 (`src/server.js`) + cierre HUMAN-UAT diferido Phase 50.1; tail independiente | DEBT-01, DEBT-02 | bajo (independiente del flujo de adopción) |
+| 63. Editor config — fundación + ajustes comunes | Overlay + text-input editable en ink + escritura local no-corruptiva (reuso `saveConfig`), probado con el editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors → `config.json`) | UX-01..04, CFG-01..05, PERSIST-01..05 (14) | medio (text-input es patrón de UX NUEVO; los overlays actuales son read-only) |
+| 64. Editor de proyectos | Lista `listProjects()` en vivo + mapear/editar/quitar ruta local (+ módulos) → `projects.json`, reusando la fundación de 63; degrada con gracia si el provider cae | PROJ-01..05 (5) | mayor (depende de conexión al provider en vivo) |
 
-- **✅ GATE RESUELTO Phase 55 → 56 (2026-06-16):** el spike quedó probado **VIABLE** empíricamente — `.planning/research/CMUX-CAPABILITIES.md` (P0, cmux 0.64.15): `cmux surface resume show --json` da `cwd` + `resume_binding.checkpoint_id` (= `session_id`) + `kind` por surface. Phase 55 se **reconvirtió** de "SPIKE research abierto" a **contrato `HostProvider.describeSurface()`** (código de producción, no veredicto), y Phase 56 **dejó de estar gated**. BIDIR-F1 (fallback INVIABLE) queda moot. La superficie se fixture-lockea (no docs-pinned) para que un cambio de cmux falle ruidosamente.
-- **CLI ships sí o sí (Phase 54):** `kodo adopt` toma workspace/cwd explícito → base host-agnóstica. Debe existir antes que sus consumidores shell-out (Phase 56 dashboard + Phase 57 orquestador). **Opcional (post-55):** puede auto-derivar `--cwd`/`session_id` vía `describeSurface()` — el operador solo aporta lo que cmux no sabe (tarea/proyecto destino). El path explícito sigue siendo la interfaz canónica (mantiene el núcleo testeable sin cmux).
-- **Anti-recursión (BIDIR-06) ships CON `createTask` en Phase 52,** no como follow-up — es una propiedad de corrección del núcleo (precedente: anti-recursión shipped con el reporting en Phase 29).
-- **Phase 58 (deuda) independiente:** DEBT-01 (XSS) + DEBT-02 (HUMAN-UAT 50.1) son schedulables en paralelo / como low-risk tail; ni bloquean ni son bloqueadas por el flujo de adopción.
+- **Fundación antes que el segundo consumidor (63 antes de 64):** la base de bajo nivel (overlay + text-input + escritura local) vive en Phase 63 y se prueba con el editor de ajustes comunes (carril 100% local, sin provider). El editor de proyectos (64) la reusa para mapear rutas. Dentro de Phase 63, plan-phase debe secuenciar el text-input/overlay PRIMERO (es la pieza de UX nueva y candidata a `/gsd-ui-phase`).
+- **2ª ruptura consciente de "TUI read-only":** el dismiss de sesiones dead (v0.10) fue la 1ª; este editor es la 2ª. La config NO vive en el server (vive en `~/.kodo/config.json` + `projects.json`), así que el dashboard la escribe **localmente** (filesystem / shell-out a las funciones puras de `src/config.js`) — preserva "cero endpoints nuevos desde v0.10". Precedente directo: la tecla `a` de v0.13 ya escribe shelleando `kodo adopt` vía `execFile`.
+- **El editor de proyectos requiere conexión** (`listProjects()` en vivo, uno de los 9 métodos FROZEN); por eso es el carril de mayor riesgo y DEBE degradar con gracia (PROJ-05) — TUI never-throws sigue en pie.
 
 ## Most recent shipped milestone
 
-**v0.12 Atajos al gestor y progreso vivo** — shipped 2026-06-15 (5 phases 48-51 + 50.1 / 10 plans / 90 commits / suite 1307 pass + 1 skip). Cerrado con deuda reconocida (HUMAN-UAT del display 50.1 diferido a TTY real + XSS latente WR-01 en `src/server.js`) → **ambos saldados en Phase 58 de v0.13**. **Sin audit formal de milestone** (`/gsd:audit-milestone` no se corrió antes del cierre). Previo: **v0.11 Ventana al plan** shipped 2026-06-10.
+**v0.13 kodo bidireccional** — shipped 2026-06-25 (11 phases 52-62, 17 plans, UAT 4/4). Flujo inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se promueve a tarea persistente del gestor. Arquitectura "una fontanería 0-token (`createTask` + `adoptSession`), tres consumidores" (CLI `kodo adopt`, tecla `a` del dashboard, orquestador asistido por LLM). El cierre (Phase 62, ORCH-02) movió la derivación inteligente de título/descripción al dashboard, superando el bloqueo de UAT de ORCH-01.
 
-- Roadmap archive: `milestones/v0.12-ROADMAP.md`
-- Requirements archive: `milestones/v0.12-REQUIREMENTS.md`
-- Phase artifacts: `.planning/phases/` (48-51 + 50.1 — NO archivados a `milestones/v0.12-phases/`, siguen en `phases/`; usar `/gsd:cleanup` para archivar retroactivamente)
+- Roadmap archive: `milestones/v0.13-ROADMAP.md`
+- Requirements archive: `milestones/v0.13-REQUIREMENTS.md`
+- Audit: `milestones/v0.13-MILESTONE-AUDIT.md`
 
 ## Deferred Items
 
-Items reconocidos y diferidos (ninguno bloqueante). Los 2 items de deuda viva de v0.12 (XSS WR-01 + HUMAN-UAT 50.1) están **agendados en Phase 58 de v0.13** (DEBT-01, DEBT-02). La deuda Nyquist de v0.11 (Phases 44/45/46) quedó saldada en **Phase 51** (NYQ-03, citation-based).
+Reset al baseline de v0.14. La deuda de v0.12/v0.13 quedó saldada al cierre de v0.13: DEBT-01 (XSS WR-01, mitigado + test de regresión), DEBT-02 (HUMAN-UAT 50.1, ✅ PASSED 2026-06-23), y la deuda Nyquist de v0.11 (Phases 44/45/46) saldada en Phase 51 de v0.12. No hay items diferidos abiertos heredados que bloqueen v0.14.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| uat | Phase 50.1 (v0.12) `50.1-HUMAN-UAT.md` 3 escenarios + `50.1-VERIFICATION.md` `human_needed` (8/8 must-haves auto-verificados) — display de progreso vivo `N/M`; requiere TTY real con sesión GSD viva | → agendado **Phase 58** (DEBT-02) | v0.12 close |
-| security | Phase 48 (v0.12) XSS latente WR-01 — `src/server.js` renderiza `task_url` como `<a href>` sin allowlist `http(s)` | ✓ **RESUELTO** (estaba ya mitigado en commit `77a5c0c` T-48-10: allowlist `safeHref` http(s) vía `new URL()` en los 3 renders; el item estaba **stale**). Test de regresión añadido `976f8a6` (DEBT-01) | v0.12 close |
-| nyquist | Phase 44 (v0.11) `44-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 44-VERIFICATION.md passed 10/10) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
-| nyquist | Phase 45 (v0.11) `45-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 45-VERIFICATION.md passed 7/7) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
-| nyquist | Phase 46 (v0.11) `46-VALIDATION.md` → status=approved, nyquist_compliant=true (cita 46-VERIFICATION.md passed 6/6 + 46-HUMAN-UAT.md 2/2) | ✓ saldado Phase 51 (NYQ-03) | v0.11 close |
-| frontmatter | `requirements_completed: []` vacío en summaries de 46-01 y 47-01 (v0.11) — cobertura verificada por VERIFICATION + integration + traceability | cosmético | v0.11 close |
-| verification | Phase 37/38 (v0.9) sin VERIFICATION.md formal — cerradas vía UAT/HUMAN-UAT passed | covered-by-UAT | v0.9 close |
-| code | Ciclo de import ESM App.js ↔ SessionTable.js (constantes OVERLAY_*) — resuelto en runtime, suite verde, frágil | WARNING-01 | v0.9 close |
+| — | (ninguno abierto al iniciar v0.14) | — | — |
 
 ## Accumulated Context
 
-### Decisions (Roadmap v0.13)
+### Decisions (Roadmap v0.14)
 
-- **Numeración continua (NO reset):** v0.13 continúa desde Phase 51 (v0.12) → primera fase es **Phase 52**. El número del spike (Phase 55) flota con la secuencia, no es hardcoded.
-- **`createTask` opcional typeof-detected FUERA de los 9 FROZEN (Phase 52):** espejo exacto de `getTaskState` (Phase 40) — el contrato `TaskProvider` sigue FROZEN en 9, el loop de validación de `registry.js` queda intacto, un `it()` capability-gated en la contract matrix espeja el test B8. Primera vez que kodo *crea* tareas (revisa conscientemente el Out of Scope histórico "kodo no crea ni elimina tareas"; **nunca elimina** sigue en pie).
-- **Anti-recursión (BIDIR-06) shipped CON `createTask` en Phase 52,** no como follow-up: propiedad de corrección del núcleo (corte espejo `isGsdChild` ANTES de lock/resolver/launch + creación en estado no-trigger). Precedente: anti-recursión shipped con el reporting en Phase 29.
-- **BIDIR-06 ENTREGADO (Plan 52-01, 2026-06-16):** `KODO_LABEL_ADOPTED='kodo:adopted'` + `isAdopted(labels)` en `src/labels.js` (espejo byte-a-byte de `isGsdChild`, `parseKodoLabels` intacto) + corte `isAdopted(task.labels)` en `dispatcher.js` (step 1c) que devuelve `{action:'ignored', code:'adopted'}` ANTES del bloque force-skip → `--force` NO lo bypasea (Pitfall 1: `kodo:adopted` es `isKodo:true`, el corte es LOAD-BEARING). Source-hygiene: el literal solo vive en `labels.js`, ordering `filterIdx < forceIdx` testeado. Suite: 1333 pass / 0 fail / 1 skip. Plans 02/03 DEBEN importar `KODO_LABEL_ADOPTED` (nunca inline).
-- **Fontanería antes que consumidores (Phase 53 antes de 54/56/57):** "consumers reuse the base, never own it". `src/adopt.js` es módulo top-level provider-agnostic (NO bajo `src/gsd/`), inverso exacto de `manager.launchWorkItem`, determinista 0-token (preserva "solo el orquestador usa LLM"). Siembra la fila vía el `addSession` existente; NO escribe `dead_since`/`last_seen_alive` (preserva "`reconcileTick` único escritor de `alive`").
-- **BIDIR-08 (datos sanitizados) en la fontanería (Phase 53), no en el CLI:** el sanitizador (strip rutas absolutas, redacción home dir, nunca embeber transcript) es una propiedad del núcleo que los 3 consumidores reusan — incluido el orquestador (ORCH-01 pasa su título derivado por ese mismo sanitizador).
-- **CLI `kodo adopt` ships sí o sí (Phase 54),** independiente del spike: toma workspace/cwd explícito. Debe existir antes que la tecla del dashboard (56) y el orquestador (57), que lo shellean vía `execFile`.
-- **DETECT-01 reconvertido de SPIKE → contrato `HostProvider.describeSurface()` (2026-06-16):** el research empírico `CMUX-CAPABILITIES.md` (P0, cmux 0.64.15) probó la viabilidad sin ambigüedad — `cmux surface resume show --json` da `cwd` + `resume_binding.checkpoint_id` (= `session_id`) + `kind` por surface. Phase 55 deja de ser research abierto y pasa a ser un método opcional typeof-detected en `src/host/cmux.js`, fixture-locked + fail-open. **DETECT-02 (Phase 56) deja de estar gated/condicional**; BIDIR-F1 (fallback INVIABLE) queda moot. Defensa Phase 43 preservada: el set-difference se keyea por `sessionId`/`cwd` estable, nunca por `workspace_ref` reciclable. Decisión transversal LOCKED: todo cmux entra por `HostProvider` (ver Critical Invariants).
-- **ORCH-01 (Phase 57) NO depende del spike → paralelizable con Phase 56:** el orquestador es el único carril con LLM; deriva el título inteligente y shellea `kodo adopt --title "<derived>"` con input explícito. El LLM vive estrictamente en el consumidor, el núcleo sigue 0-token. Cero lógica de negocio nueva en el orquestador (solo prosa del skill `kodo-orchestrate`).
-- **DEBT-01 + DEBT-02 plegados en UNA fase tail (58):** ambos independientes del flujo de adopción y entre sí, schedulables en paralelo / como low-risk tail. Granularidad coarse → no se padean en dos fases.
-- **Cero endpoints nuevos preservado:** la adopción vive en CLI + acción de dashboard que shellea el CLI vía `execFile` (no `POST /adopt` en `src/server.js`). Invariante "cero endpoints nuevos desde v0.10" intacto.
+- **Numeración continua (NO reset):** v0.14 continúa desde Phase 62 (v0.13) → primera fase es **Phase 63**.
+- **Fundación + ajustes comunes plegados en UNA fase (63), no en dos:** granularidad `coarse` (2-4 phases). Una fase de fundación pura (solo plumbing, sin nada editable observable) sería un anti-patrón de capa horizontal con criterios que leen como tareas; en su lugar, la base (overlay + text-input + escritura local) se construye Y se prueba end-to-end editando los ajustes comunes (carril 100% local, menor riesgo). El sub-trabajo text-input/overlay queda señalado como candidato a `/gsd-ui-phase` dentro de la fase.
+- **Editor de proyectos como segunda fase (64), de mayor riesgo:** depende de `listProjects()` en vivo (conexión al provider) — superficie de riesgo distinta del editor 100% local de ajustes. Merece su propia fase para aislar la degradación-con-gracia (PROJ-05) y la validación de rutas en filesystem. Reusa la fundación de 63 (overlay + text-input + escritura no-corruptiva), nunca la reimplementa.
+- **Escritura LOCAL, cero endpoints nuevos (invariante LOCKED preservado):** el dashboard persiste reusando `saveConfig`/`saveProjects` de `src/config.js` (filesystem / shell-out), nunca un `POST /config` en `src/server.js`. 2ª ruptura consciente de "TUI read-only" tras el dismiss de v0.10; precedente: la tecla `a` de v0.13 ya escribe shelleando `kodo adopt` vía `execFile`.
+- **API keys intactas (invariante de seguridad LOCKED):** el editor NUNCA muestra ni edita secrets; siguen viviendo exclusivamente en `~/.kodo/.env`. PERSIST-04 lo enfuerza por construcción (no hay campo editable de keys).
+- **Escritura no-corruptiva (PERSIST-05):** si la escritura falla, el `config.json`/`projects.json` previo se preserva intacto — nunca un archivo a medias. Apoyado en la atomicidad ya usada por la fontanería de v0.13 (`adoptSession` escribió atómico).
+- **Text-input en ink es patrón de UX NUEVO:** los overlays actuales (`c`/`l`/`p`) son read-only y la única mutación previa (dismiss) es un double-confirm sin texto. Capturar rutas/valores requiere un componente de text-input controlado (vía `useInput` o dep tipo `ink-text-input`) — decisión de diseño a resolver en `/gsd-discuss-phase 63` (componente controlado propio vs dependencia).
 
 ### Roadmap Evolution
 
-- **v0.13 roadmap creado (2026-06-15):** 7 phases (52-58), numeración continua desde v0.12 (NO reset). Build order createTask+contrato+anti-recursión → fontanería → CLI → SPIKE(gate) → tecla dashboard(condicional) → orquestador → deuda. 13/13 requirements mapeados, 100% cobertura. Phase 56 GATED tras veredicto VIABLE de Phase 55. Backlog Phase 999.1 ("kodo bidireccional") materializado en este milestone.
+- **v0.14 roadmap creado (2026-06-29):** 2 phases (63-64), numeración continua desde v0.13 (NO reset). Build order fundación+ajustes comunes (local, menor riesgo) → editor de proyectos (mayor riesgo, `listProjects()` en vivo). 19/19 requirements mapeados, 100% cobertura, 0 duplicados. Granularidad `coarse`.
+- **v0.13 roadmap creado (2026-06-15):** 7 phases base (52-58) → expandido a 11 (52-62) durante ejecución. Arquitectura "una fontanería, tres consumidores".
 - **v0.12 roadmap creado (2026-06-11):** 4 phases (48-51). Build order OPEN CORE → SPIKE → DISPLAY CONDICIONAL → NYQUIST.
-- **v0.11 roadmap creado (2026-06-09):** 4 phases (44-47). Build order OVERLAY+POLISH → SPIKE → CAPTURA CONDICIONAL → NYQUIST.
 
 ### Open Blockers
 
-**DEBT-02 (HUMAN-UAT 50.1) — ✅ PASSED (2026-06-23).** Validado tras desbloquear el setup (sesión `gsd:true` + worktree con STATE.md poblado, sembrado en ROMAN-175). Esc.1 (prog `3/7` en vivo) ✅, esc.3 (gate) ✅, esc.2 (keep-last-good) ✅ vía test de componente. Camino hasta aquí (histórico de la UAT, con 2 misdiagnósticos corregidos):
-
-- **F2 (✅ RESUELTO 2026-06-22, commit `c87baad`) — `getTask` devolvía `labels: []` para KODO-4 pese a tener el label `kodo` en Plane.** Fix: `getWorkItemBySequence` ahora expande `labels` → vienen como objetos con `name` → `resolveWorkItemLabels` los mapea directo, sin depender del `labelCache`. Probe live confirmó la causa (la work-item traía el label como UUID; con expand viene el objeto) + regresión con labelCache vacío. **Requiere reiniciar el daemon/server kodo para que el fix surta efecto en launches vivos.** Detalle del root-cause original: Evidencia: `kodo launch KODO-4` → `Task: KODO-4 — labels: []` / `isKodo: false`, mientras `list_work_items` (expand=labels) muestra el label `kodo` (id `1c7ff1c9`). **Root cause (2026-06-22):** `getWorkItemBySequence` (`src/providers/plane/client.js:125`) NO expande `labels` → la work-item trae labels como UUIDs; `getTask` los resuelve vía `resolveWorkItemLabels(uuids, labelCache)` (`normalize.js`), y `labelCache` se construye en `init()` (`provider.js:124-131`) por proyecto configurado con TTL (`INIT_TTL_MS`). Si el `labelCache` está stale o no cubre ese label → se cae a `[]`. **Fix direction:** `getTask` ya tiene fallback on-miss para módulos (`getWorkItemModule`, `provider.js:187-195`); replicar el mismo patrón para labels (re-fetch del label en cache-miss) o expandir `labels` en `getWorkItemBySequence`.
-- **F3 (CORREGIDO — NO es bug) — `gsd:undefined` en KODO-4 es comportamiento CORRECTO.** Mi registro inicial era erróneo. El modo GSD sale de un label `kodo:gsd`/`kodo:gsd-quick` (`getGsdMode`, `dispatcher.js:104`). KODO-4 solo tiene `kodo` → no es tarea GSD → `gsd:undefined` correcto; no hay `gsd.bootstrap` porque no debe haberlo. `--force` solo salta el gate `isKodo`, no inventa modo GSD. **Lección para DEBT-02:** validar el progreso vivo requiere una tarea con label `kodo:gsd`/`kodo:gsd-quick` EN un proyecto con `.planning/STATE.md` ya poblado.
-- **F4 (verificar si by-design) — El worktree se crea desde el último commit PUSHEADO, no desde `main` local.** Evidencia: worktree de `e3d7c49c…` en `6830b4b chore: archive v0.12 milestone`; `main` local en `7eaccd9`. Como no se ha hecho `git push` en toda la sesión, el worktree (y su STATE.md → `5/6`) está 30+ commits stale. Posiblemente by-design (branch desde `origin/main`), pero sorprendente; verificar la elección de base branch en el launch. Dónde mirar: `src/session/manager.js` (creación del worktree / base ref).
-
-- **F5 (CORREGIDO — NO es bug; misdiagnóstico, 2026-06-23) — el keep-last-good FUNCIONA.** Registrado primero como bug ("la columna `prog` desaparece al hacer el STATE.md ilegible"), pero un **test de componente determinista** (`test/dashboard/app-progress-keeplast.test.js`, ink-testing-library) prueba que ante un fallo transitorio (`readGsdProgress 'error'`) la columna **mantiene** el `N/M` (keep-last-good correcto a través de re-renders). La columna que desapareció en vivo fue porque **el worktree de ROMAN-175 se borró** (la sesión terminó ~13:49 local → `.planning` desaparece → ENOENT → `no-progress` → `—`, comportamiento CORRECTO), NO un fallo del keep-last-good. Mi hipótesis (write-ref-in-render no persiste) era falsa. El test queda como regresión valiosa (ningún test cubría el lifecycle React del lastGood).
-
-**Resumen DEBT-02 (HUMAN-UAT 50.1, 2026-06-23): ✅ PASSED.** Esc.1 (prog desde STATE.md) ✅ · Esc.3 (gate GSD/no-GSD) ✅ · Esc.2 (keep-last-good) ✅ (probado por el test de componente; la anomalía en vivo fue el worktree borrándose al terminar la sesión). El F2 (labels) está corregido. F3 y F5 fueron misdiagnósticos (corregidos). F4 (worktree desde commit pusheado) sigue por verificar.
+Ninguno. v0.13 cerró sin deuda viva heredada que bloquee v0.14.
 
 ### Open Questions
 
 Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cada fase):
 
-- **Phase 52:** confirmar el path exacto del endpoint Plane `POST .../work-items/` + el shape del body GitHub Markdown; pin del scope PAT mínimo (`issues:write`/`repo`); el estado "no-trigger" exacto en que se crea la tarea para que `listPendingTasks` no la devuelva (label-aware en Plane vs state inicial en GitHub).
-- **Phase 53:** forma exacta del discriminante `{ok:false, code, detail}` (taxonomía de `code`); la regla de sanitización (allowlist vs blocklist) y el alcance de la redacción del home dir; estado inicial "sano" concreto por provider.
-- **Phase 55 (contrato, ya NO spike):** nombre exacto del método (`describeSurface(ref)` vs `listAgentSurfaces()`); qué campos de `resume_binding` se consumen y su estabilidad entre reinicios de cmux; capturar el fixture JSON real de `cmux surface resume show --json` (cmux 0.64.15) y asertarlo vía el `run` DI; modos de fallo fail-open (`cleared:true`, `resume_binding` ausente, `source!=agent-hook`, socket caído). Fuente: `research/CMUX-CAPABILITIES.md` P0.
-- **Phase 56 (ya NO condicional):** descubrimiento on-demand (set-difference por `sessionId`/`cwd` estable, NUNCA `workspace_ref` reciclable); UX del double-confirm; si la sesión ad-hoc se muestra en un overlay efímero o inline.
-- **Phase 58 (LIFE-03) — decisión central:** mapear EMPÍRICAMENTE el baile actual `Stop`↔`reconcileTick`-rescue↔`needs-input` ANTES de mover el cleanup. Hoy `runStopHook` (`stop.js`) hace el cleanup destructivo completo (`removeSession`) en CADA invocación del hook `Stop` (que dispara por turno, sin guard de "fin de sesión"); el dashboard no se vacía porque (a) las sesiones kodo son agénticas single-turn y (b) `reconcileTick` **rescata desde `history`** (`reconcile.js:195-222`, Phase 38 / ROMAN-151/152) las sesiones cuyo `workspace_ref` sigue vivo en cmux. Mover `removeSession` de `Stop` a `SessionEnd` (decisión confirmada por el operador) debe: (1) verificar que `needs-input` sigue visible SIN depender del rescate; (2) decidir si el rescate desde `history` se simplifica o se conserva; (3) mantener `Stop` solo para el estado ligero (`idle`); (4) idempotencia entre los dos hooks. NO es "mover una línea" — es re-coreografiar el lifecycle.
+- **Phase 63 (decisión de diseño central):** componente de text-input — ¿controlado propio (gestionado vía `useInput`, sin dep nueva, máximo control) o dependencia `ink-text-input` (más rápido, 5ª dep prod)? Forma del overlay de configuración (un único overlay con secciones navegables vs sub-overlays por grupo). Reglas exactas de validación por campo (`max_parallel`/thresholds enteros positivos; set conocido de `default_model`; formato de `cmux.colors`). Cómo se materializa el "aviso de reinicio" (footer transitorio vs línea persistente). Mecanismo de escritura: filesystem directo vía `saveConfig` (in-process) vs shell-out a `kodo config` (espejo del precedente `kodo adopt`).
+- **Phase 64:** UX del flujo lista→selección→edición de ruta (overlay anidado vs reuso del text-input de 63). Si `listProjects()` se cachea o se refetcha en cada apertura. Modos de fallo concretos del provider (timeout, sin auth, sin conexión) y su copy de degradación. Validación de existencia de ruta (`existsSync` síncrono vs check más rico). Forma exacta del soporte de módulos (espejo del wizard).
 
 ### Critical Invariants to Preserve (cross-milestone, must survive next milestone)
 
-- **TaskProvider contract: 9 obligatorios + getTaskState/createTask opcionales** (canonical en `src/interface.js`): `TASK_PROVIDER_METHODS` FROZEN en 9. **v0.13: `createTask` se añade typeof-detected FUERA de los 9 (espejo `getTaskState`); el loop de validación de `registry.js` queda intacto.**
-- **kodo NUNCA elimina tareas:** v0.13 introduce la creación (`createTask`) pero NO el delete — un huérfano de proveedor se resuelve por re-run idempotente (BIDIR-04/05), no por delete.
-- **Tokens: vigilante/server 0 tokens; solo el orquestador usa LLM.** **v0.13: la fontanería (`createTask` + `adoptSession`) es determinista 0-token; el LLM vive estrictamente en el consumidor orquestador (ORCH-01).**
-- **Cero endpoints nuevos desde v0.10:** **v0.13 lo preserva — la adopción vive en CLI + acción de dashboard que shellea el CLI vía `execFile`, no `POST /adopt`.**
-- **`reconcileTick` único escritor de `alive`** (v0.9 Phase 38): **v0.13: `adoptSession` siembra la fila vía `addSession`, NO escribe `dead_since`/`last_seen_alive`.**
-- **`execFile` fire-and-forget sin shell** (v0.9 Phase 37): **v0.13: la tecla del dashboard (56) y el orquestador (57) shellean `kodo adopt` con argv literal, nunca shell.**
-- **Todo lo cmux-específico entra por `HostProvider`** (LOCKED 2026-06-16, extiende color/cmux-isolation de Phase 38): las capacidades de cmux (incl. la detección de surfaces `describeSurface()`, Phase 55) viven en `src/host/interface.js` (contrato) + `src/host/cmux.js` (única implementación/llamador autorizado, never-throws, `run` DI), detectadas por `typeof` para degradar fail-open. `adopt.js`/`reconcile.js`/hooks permanecen **host-agnósticos** — reciben `{cwd, sessionId, kind}` como datos, JAMÁS llaman a `cmux`. Preserva la abstracción intercambiable cmux→orca. Fuente: `research/CMUX-CAPABILITIES.md`.
-- **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **TUI never-throws** (la tecla del dashboard never-throws, panel ink permanece montado) · **Selección por identidad `task_id`** · **TUI read-only salvo dismiss-de-dead** (la adopción shellea el CLI, no escribe desde la TUI) · **Worktree always-on Phase 18** · **LOG-12 guard** · **`--json` byte-determinismo** (DX-06). v0.13 no rompe estos carriles.
+- **TaskProvider contract: 9 obligatorios + getTaskState/createTask opcionales** (canonical en `src/interface.js`): `TASK_PROVIDER_METHODS` FROZEN en 9. v0.14 reusa `listProjects()` (uno de los 9) en vivo para el editor de proyectos — NO añade métodos.
+- **Cero endpoints nuevos desde v0.10:** **v0.14 lo preserva — la escritura de config es LOCAL (filesystem / shell-out a `src/config.js`), nunca `POST /config` en `src/server.js`.**
+- **TUI never-throws** (el editor degrada con gracia, el panel ink permanece montado ante config ilegible / provider caído / escritura fallida — UX-04, PROJ-05) · **Selección por identidad `task_id`** (preservada al entrar/salir del editor — UX-03) · **API keys solo en `~/.kodo/.env`** (nunca editadas ni mostradas — PERSIST-04, invariante de seguridad) · **Escritura no-corruptiva** (el archivo previo se preserva si falla — PERSIST-05).
+- **Color isolation** (`picocolors` solo desde `src/cli/format.js`; el dashboard usa color solo de `<Text>` de ink) · **`--json` byte-determinismo** (DX-06) · **Tokens: vigilante/server 0 tokens; solo el orquestador usa LLM** (el editor es determinista, no usa LLM) · **`execFile` fire-and-forget sin shell** (si se opta por shell-out a `kodo config`, argv literal nunca shell) · **`reconcileTick` único escritor de `alive`** · **Worktree always-on (Phase 18)** · **LOG-12 guard** · **Todo lo cmux-específico entra por `HostProvider`**. v0.14 no rompe estos carriles.
 
 ## Session Continuity
 
-- **Last session:** 2026-06-25T08:13:48.442Z
-- **Stopped at:** Phase 62 context gathered
-- **Next action:** Cerrar Phase 58, que NO se pudo terminar en autónomo por dos razones legítimas:
-  1. **LIFE-03 (hook `SessionEnd`)** — cirugía de lifecycle Tier-3 (mover `removeSession` de `Stop` per-turn a `SessionEnd` terminal, re-coreografiando el rescate desde `history` de `reconcileTick`). 4 sub-decisiones abiertas (ver §Open Questions Phase 58). NO se debe implementar a ciegas: requiere `/gsd:discuss-phase 58` y verificación en TTY real.
-  2. **DEBT-02 (HUMAN-UAT 50.1)** — los 3 escenarios del display de progreso vivo `N/M` requieren un TTY real con sesión GSD viva. Solo el operador puede ejecutarlo (`50.1-HUMAN-UAT.md`).
+- **Last session:** 2026-06-29T12:36:00.000Z
+- **Stopped at:** Roadmap v0.14 creado (Phases 63-64), traceability 19/19 mapeada
+- **Next action:** `/gsd-plan-phase 63` (o `/gsd-discuss-phase 63` primero para resolver la decisión de diseño del text-input: componente controlado propio vs dep `ink-text-input`). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone: v0.13 kodo bidireccional)
-  - `.planning/ROADMAP.md` (v0.13 activo Phases 52-58; v0.10/v0.11/v0.12 colapsados en archived; backlog 999.1 materializado)
-  - `.planning/REQUIREMENTS.md` (v0.13, traceability 13/13 → Phases 52-58)
-  - `.planning/research/` (ARCHITECTURE, FEATURES, PITFALLS, STACK — research v0.13 completo; build order en ARCHITECTURE.md §"Suggested Build Order")
-  - `.planning/MILESTONES.md` (entrada v0.12 completa)
+  - `.planning/PROJECT.md` (Current Milestone: v0.14 Configuración editable desde el dashboard)
+  - `.planning/ROADMAP.md` (v0.14 activo Phases 63-64; v0.10-v0.13 colapsados/archivados)
+  - `.planning/REQUIREMENTS.md` (v0.14, traceability 19/19 → Phases 63-64)
+  - `.planning/MILESTONES.md` (entrada v0.13 completa)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Planificar la primera fase con `/gsd-plan-phase 63` (opcionalmente `/gsd-discuss-phase 63` antes para la decisión de diseño del text-input).

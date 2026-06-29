@@ -63,35 +63,36 @@ Excluido explícitamente para prevenir scope creep.
 
 ## Traceability
 
-Qué fases cubren qué requisitos. Se completa al crear el roadmap.
+Qué fases cubren qué requisitos.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| UX-01 | TBD | Pending |
-| UX-02 | TBD | Pending |
-| UX-03 | TBD | Pending |
-| UX-04 | TBD | Pending |
-| PROJ-01 | TBD | Pending |
-| PROJ-02 | TBD | Pending |
-| PROJ-03 | TBD | Pending |
-| PROJ-04 | TBD | Pending |
-| PROJ-05 | TBD | Pending |
-| CFG-01 | TBD | Pending |
-| CFG-02 | TBD | Pending |
-| CFG-03 | TBD | Pending |
-| CFG-04 | TBD | Pending |
-| CFG-05 | TBD | Pending |
-| PERSIST-01 | TBD | Pending |
-| PERSIST-02 | TBD | Pending |
-| PERSIST-03 | TBD | Pending |
-| PERSIST-04 | TBD | Pending |
-| PERSIST-05 | TBD | Pending |
+| UX-01 | Phase 63 | Pending |
+| UX-02 | Phase 63 | Pending |
+| UX-03 | Phase 63 | Pending |
+| UX-04 | Phase 63 | Pending |
+| PROJ-01 | Phase 64 | Pending |
+| PROJ-02 | Phase 64 | Pending |
+| PROJ-03 | Phase 64 | Pending |
+| PROJ-04 | Phase 64 | Pending |
+| PROJ-05 | Phase 64 | Pending |
+| CFG-01 | Phase 63 | Pending |
+| CFG-02 | Phase 63 | Pending |
+| CFG-03 | Phase 63 | Pending |
+| CFG-04 | Phase 63 | Pending |
+| CFG-05 | Phase 63 | Pending |
+| PERSIST-01 | Phase 63 | Pending |
+| PERSIST-02 | Phase 63 | Pending |
+| PERSIST-03 | Phase 63 | Pending |
+| PERSIST-04 | Phase 63 | Pending |
+| PERSIST-05 | Phase 63 | Pending |
 
 **Coverage:**
 - v1 requirements: 19 total
-- Mapped to phases: 0 (pendiente de roadmap)
-- Unmapped: 19 ⚠️
+- Mapped to phases: 19 ✓ (Phase 63: 14 · Phase 64: 5)
+- Unmapped: 0 ✓
+- Duplicates: 0 (cada requisito mapea a exactamente una fase)
 
 ---
 *Requirements defined: 2026-06-29*
-*Last updated: 2026-06-29 — milestone v0.14 iniciado*
+*Last updated: 2026-06-29 — roadmap v0.14 creado (Phases 63-64), traceability 19/19 mapeada*
