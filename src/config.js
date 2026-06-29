@@ -1,5 +1,5 @@
 // @ts-check
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -73,6 +73,36 @@ function ensureDir() {
 }
 
 /**
+ * Escritura atómica no-corruptiva (Phase 63, D-08/PERSIST-05). Helper interno
+ * reusado por `saveConfig`/`saveProjects` (y futuro editor de proyectos de Phase 64).
+ *
+ * Escribe `data` a `path + '.tmp'` y luego `renameSync(tmp, path)`. Si la serialización
+ * o el `writeFileSync` previo fallan, el `renameSync` no se ejecuta y `path` queda
+ * INTACTO byte-a-byte (PERSIST-05). El lector nunca observa un fichero a medias.
+ *
+ * El `.tmp` se crea SIEMPRE en el mismo directorio que el destino: `rename(2)` solo
+ * es atómico intra-filesystem (un rename cross-fs lanza EXDEV — Pitfall 4). Por eso
+ * NUNCA se usa `os.tmpdir()`.
+ *
+ * `path` se recibe como PARÁMETRO (DI puro) para que los tests lo ejerciten contra un
+ * tmpdir sin depender de `KODO_DIR` (que este módulo cachea al import — fuga de
+ * aislamiento conocida, obs. 21811/22683).
+ *
+ * `fsync` se omite en v1 (A1): `rename` solo basta para crash-safety de PROCESO; la
+ * durabilidad ante corte de energía (fsync del fichero + del dir) se difiere — el
+ * config se regenera trivialmente.
+ *
+ * @param {string} path - destino final.
+ * @param {string} data - contenido ya serializado (incluye el `\n` final).
+ * @returns {void}
+ */
+function writeFileAtomic(path, data) {
+  const tmp = path + '.tmp';
+  writeFileSync(tmp, data); // si lanza, `path` no se tocó
+  renameSync(tmp, path);    // swap atómico intra-fs
+}
+
+/**
  * Migra un config object del schema v1 (plane.*) al v2 (providers.plane.*).
  * Función pura — no hace I/O.
  *
@@ -136,7 +166,7 @@ export function loadConfig() {
 /** @param {typeof DEFAULT_CONFIG} config */
 export function saveConfig(config) {
   ensureDir();
-  writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+  writeFileAtomic(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
 }
 
 /** @returns {Record<string, string>} projectId -> local path */
@@ -153,7 +183,7 @@ export function loadProjects() {
 /** @param {Record<string, string>} projects */
 export function saveProjects(projects) {
   ensureDir();
-  writeFileSync(PROJECTS_PATH, JSON.stringify(projects, null, 2) + '\n');
+  writeFileAtomic(PROJECTS_PATH, JSON.stringify(projects, null, 2) + '\n');
 }
 
 /**
@@ -230,4 +260,4 @@ export function getDefaultGithubProviderConfig() {
   };
 }
 
-export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG };
+export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG, writeFileAtomic };
