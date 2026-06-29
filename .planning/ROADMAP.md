@@ -100,11 +100,11 @@ Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
   4. Al guardar, el cambio se persiste a `~/.kodo/config.json` vía `saveConfig` (preservando formato y migración de schema), de forma **local sin endpoint nuevo** en `src/server.js`, y el dashboard avisa de reiniciar server/daemon para aplicar (sin hot-reload). (PERSIST-01, PERSIST-02, PERSIST-03)
   5. Ante un error (config ilegible, escritura fallida) el dashboard degrada con gracia — never-throws, el panel ink permanece montado, el `config.json` previo se preserva intacto (escritura no-corruptiva), y las API keys nunca se muestran ni se editan (siguen solo en `~/.kodo/.env`). (UX-04, PERSIST-04, PERSIST-05)
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 63-01-PLAN.md — Fundación pura: validadores (config-validate.js) + escritura atómica (writeFileAtomic) [Wave 1]
+- [x] 63-01-PLAN.md — Fundación pura: validadores (config-validate.js) + escritura atómica (writeFileAtomic) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -139,7 +139,7 @@ Phases execute in numeric order: 63 → 64
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 63. Editor config — fundación + ajustes comunes | 0/3 | Not started | - |
+| 63. Editor config — fundación + ajustes comunes | 1/3 | In Progress|  |
 | 64. Editor de proyectos | 0/TBD | Not started | - |
 
 ## Backlog

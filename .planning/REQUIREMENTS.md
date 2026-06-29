@@ -24,19 +24,19 @@ Requisitos del milestone v0.14. Cada uno mapea a una fase del roadmap.
 
 ### CFG — Editor de ajustes comunes
 
-- [ ] **CFG-01**: El operador puede editar `claude.default_model` y `claude.max_parallel`.
-- [ ] **CFG-02**: El operador puede editar los estados del provider (`states.trigger` / `review` / `done`).
-- [ ] **CFG-03**: El operador puede editar los thresholds del server (`server.idle_threshold_min` / `stuck_threshold_min`).
-- [ ] **CFG-04**: El operador puede editar los colores cmux (`cmux.colors`: running / done / error / review).
-- [ ] **CFG-05**: Los valores se validan antes de guardar (p.ej. `max_parallel` y thresholds enteros positivos; `default_model` de un set conocido); un valor inválido se rechaza con mensaje, sin escribir el archivo.
+- [x] **CFG-01**: El operador puede editar `claude.default_model` y `claude.max_parallel`.
+- [x] **CFG-02**: El operador puede editar los estados del provider (`states.trigger` / `review` / `done`).
+- [x] **CFG-03**: El operador puede editar los thresholds del server (`server.idle_threshold_min` / `stuck_threshold_min`).
+- [x] **CFG-04**: El operador puede editar los colores cmux (`cmux.colors`: running / done / error / review).
+- [x] **CFG-05**: Los valores se validan antes de guardar (p.ej. `max_parallel` y thresholds enteros positivos; `default_model` de un set conocido); un valor inválido se rechaza con mensaje, sin escribir el archivo.
 
 ### PERSIST — Persistencia, seguridad y propagación
 
-- [ ] **PERSIST-01**: Los cambios de proyectos se persisten a `~/.kodo/projects.json` y los de ajustes a `~/.kodo/config.json`, preservando el formato y la migración de schema existentes (`loadConfig`/`saveConfig`/`loadProjects`/`saveProjects`).
+- [x] **PERSIST-01**: Los cambios de proyectos se persisten a `~/.kodo/projects.json` y los de ajustes a `~/.kodo/config.json`, preservando el formato y la migración de schema existentes (`loadConfig`/`saveConfig`/`loadProjects`/`saveProjects`).
 - [ ] **PERSIST-02**: La escritura ocurre localmente **sin añadir endpoints al server** (`src/server.js` intacto) — vía filesystem directo o shell-out a `kodo config`, preservando "cero endpoints nuevos desde v0.10".
 - [ ] **PERSIST-03**: Tras guardar, el dashboard avisa de que hay que reiniciar server/daemon para aplicar (sin hot-reload).
-- [ ] **PERSIST-04**: Las API keys nunca se editan ni se muestran en el editor; siguen viviendo exclusivamente en `~/.kodo/.env`.
-- [ ] **PERSIST-05**: La escritura es no-corruptiva: si falla, el archivo previo se preserva (nunca queda un `config.json`/`projects.json` a medias).
+- [x] **PERSIST-04**: Las API keys nunca se editan ni se muestran en el editor; siguen viviendo exclusivamente en `~/.kodo/.env`.
+- [x] **PERSIST-05**: La escritura es no-corruptiva: si falla, el archivo previo se preserva (nunca queda un `config.json`/`projects.json` a medias).
 
 ## v2 Requirements
 
@@ -76,18 +76,19 @@ Qué fases cubren qué requisitos.
 | PROJ-03 | Phase 64 | Pending |
 | PROJ-04 | Phase 64 | Pending |
 | PROJ-05 | Phase 64 | Pending |
-| CFG-01 | Phase 63 | Pending |
-| CFG-02 | Phase 63 | Pending |
-| CFG-03 | Phase 63 | Pending |
-| CFG-04 | Phase 63 | Pending |
-| CFG-05 | Phase 63 | Pending |
-| PERSIST-01 | Phase 63 | Pending |
+| CFG-01 | Phase 63 | Complete |
+| CFG-02 | Phase 63 | Complete |
+| CFG-03 | Phase 63 | Complete |
+| CFG-04 | Phase 63 | Complete |
+| CFG-05 | Phase 63 | Complete |
+| PERSIST-01 | Phase 63 | Complete |
 | PERSIST-02 | Phase 63 | Pending |
 | PERSIST-03 | Phase 63 | Pending |
-| PERSIST-04 | Phase 63 | Pending |
-| PERSIST-05 | Phase 63 | Pending |
+| PERSIST-04 | Phase 63 | Complete |
+| PERSIST-05 | Phase 63 | Complete |
 
 **Coverage:**
+
 - v1 requirements: 19 total
 - Mapped to phases: 19 ✓ (Phase 63: 14 · Phase 64: 5)
 - Unmapped: 0 ✓
