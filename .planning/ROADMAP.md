@@ -129,14 +129,14 @@ Plans:
   4. Los cambios se persisten a `~/.kodo/projects.json` vía `saveProjects` (local, sin endpoint nuevo, no-corruptivo) con el mismo aviso de reinicio que el editor de ajustes. (reuso de la base PERSIST de Phase 63)
   5. Si `listProjects()` falla (sin conexión / provider caído), el editor lo comunica y permite reintentar o salir, sin crashear (never-throws, panel ink montado) ni corromper el mapeo existente. (PROJ-05)
 
-**Plans**: 1/4 plans executed
+**Plans**: 2/4 plans executed
 **Wave 1**
 
 - [x] 64-01-PLAN.md — Fundación pura: validateExistingDir (path-validate.js) + helpers de forma dual (projects-shape.js) + tests unitarios
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 64-02-PLAN.md — Carril async base en App.js/SessionTable.js: modos projects/loading/edit/error, fetch listProjectsFn token-guarded, validación de ruta, quitar mapeo, degradación (PROJ-01/02/03/05)
+- [x] 64-02-PLAN.md — Carril async base en App.js/SessionTable.js: modos projects/loading/edit/error, fetch listProjectsFn token-guarded, validación de ruta, quitar mapeo, degradación (PROJ-01/02/03/05)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -156,7 +156,7 @@ Phases execute in numeric order: 63 → 64
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 63. Editor config — fundación + ajustes comunes | 3/3 | Complete    | 2026-06-29 |
-| 64. Editor de proyectos | 1/4 | In Progress|  |
+| 64. Editor de proyectos | 2/4 | In Progress|  |
 
 ## Backlog
 

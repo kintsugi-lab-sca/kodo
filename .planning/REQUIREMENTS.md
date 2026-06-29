@@ -16,11 +16,11 @@ Requisitos del milestone v0.14. Cada uno mapea a una fase del roadmap.
 
 ### PROJ — Editor de proyectos
 
-- [ ] **PROJ-01**: El operador ve la lista de proyectos del provider (`listProjects()` en vivo) con su estado de mapeo actual (ruta local o "sin mapear").
+- [x] **PROJ-01**: El operador ve la lista de proyectos del provider (`listProjects()` en vivo) con su estado de mapeo actual (ruta local o "sin mapear").
 - [x] **PROJ-02**: El operador puede asignar o editar la ruta local de un proyecto; la ruta se valida (debe existir) antes de aceptarse.
 - [x] **PROJ-03**: El operador puede quitar el mapeo de un proyecto (dejarlo sin seguir) desde el editor.
 - [x] **PROJ-04**: El operador puede mapear carpetas de módulos independientes de un proyecto (opcional), espejo del soporte de módulos del wizard.
-- [ ] **PROJ-05**: Si `listProjects()` falla (sin conexión / provider caído), el editor lo comunica y permite reintentar o salir, sin crashear ni corromper el mapeo existente.
+- [x] **PROJ-05**: Si `listProjects()` falla (sin conexión / provider caído), el editor lo comunica y permite reintentar o salir, sin crashear ni corromper el mapeo existente.
 
 ### CFG — Editor de ajustes comunes
 
@@ -71,11 +71,11 @@ Qué fases cubren qué requisitos.
 | UX-02 | Phase 63 | Complete |
 | UX-03 | Phase 63 | Complete |
 | UX-04 | Phase 63 | Complete |
-| PROJ-01 | Phase 64 | Pending |
+| PROJ-01 | Phase 64 | Complete |
 | PROJ-02 | Phase 64 | Complete |
 | PROJ-03 | Phase 64 | Complete |
 | PROJ-04 | Phase 64 | Complete |
-| PROJ-05 | Phase 64 | Pending |
+| PROJ-05 | Phase 64 | Complete |
 | CFG-01 | Phase 63 | Complete |
 | CFG-02 | Phase 63 | Complete |
 | CFG-03 | Phase 63 | Complete |
