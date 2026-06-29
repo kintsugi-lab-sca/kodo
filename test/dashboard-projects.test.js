@@ -38,6 +38,8 @@ import App, {
   PROJECTS_SAVED_RESTART,
   PROJECTS_UNMAPPED,
   PROJECTS_LOAD_FAILED,
+  PROJECTS_MODULES_TITLE,
+  PROJECTS_NO_MODULES,
 } from '../src/cli/dashboard/App.js';
 
 // ── Fake clock (idéntico a dashboard-config.test.js) ─────────────────────────
@@ -109,9 +111,17 @@ function injectProps(clock, fetchFn, extra = {}) {
     listProjectsFn: async () => ({ ok: true, projects: PROJECTS_FIXTURE }),
     loadProjectsFn: () => ({}),
     saveProjectsFn: () => {},
+    // Phase 64 Plan 03 (PROJ-04): 2º hop async. Default del harness: plane con dos módulos conocidos.
+    listModulesFn: async () => ({ ok: true, modules: MODULES_FIXTURE }),
     ...extra,
   };
 }
+
+// listModulesFn por defecto del harness: dos módulos del proyecto (espejo del wizard cli.js:716-719).
+const MODULES_FIXTURE = [
+  { id: 'mod1', name: 'core' },
+  { id: 'mod2', name: 'web' },
+];
 
 // drain idéntico a dashboard-config.test.js: 6 ciclos del event loop purgan el re-subscribe de
 // useInput (un render tarde tras un cambio de modo) y resuelven los await de los *Fn async.
@@ -377,6 +387,116 @@ describe('PROJ-05 (race) / UX-03: Esc durante projects-loading descarta el resul
       assert.doesNotMatch(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `el resultado tardío NO debe abrir el overlay\n${frame}`);
       assert.match(frame, /›.*KL-1/, `selectedTaskId intacto: el cursor sigue en KL-1\n${frame}`);
       assert.equal(spy.calls, 0, 'una apertura cancelada nunca escribe');
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('PROJ-04 (mapear módulo) / D-05/D-06: tecla módulos → listModulesFn ok → {default,modules}', () => {
+  it('`m` en projects → módulos → Enter en core → ruta válida → save con {default, modules:{core}}', async () => {
+    const realDir = mkdtempSync(join(tmpdir(), 'kodo-mod-'));
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter();
+    const { spy, fn } = makeSaveSpy();
+    const { lastFrame, stdin, unmount } = render(
+      createElement(
+        App,
+        injectProps(clock, fetchFn, {
+          // p1 ya mapeado a /tmp (default existente) — debe PRESERVARSE al mapear el módulo (D-06).
+          loadProjectsFn: () => ({ p1: '/tmp' }),
+          saveProjectsFn: fn,
+        }),
+      ),
+    );
+    try {
+      await drain();
+      stdin.write('m'); // mode:list → projects
+      await drain();
+      stdin.write('m'); // mode:projects → projects-modules-loading → (await 2º hop) → projects-modules
+      await drain();
+      const frame = lastFrame();
+      assert.match(frame, new RegExp(PROJECTS_MODULES_TITLE), `el sub-overlay de módulos debe abrirse\n${frame}`);
+      assert.match(frame, /core/, `la lista de módulos debe mostrar core\n${frame}`);
+      assert.match(frame, /web/, `la lista de módulos debe mostrar web\n${frame}`);
+      stdin.write('\r'); // Enter en core (fieldCursor=0) → projects-modules-edit (core sin mapear → buffer '')
+      await drain();
+      stdin.write(realDir); // teclea la ruta REAL del módulo
+      await drain();
+      stdin.write('\r'); // Enter → valida realDir (ok) → setModulePath + save
+      await drain();
+      assert.equal(spy.calls, 1, 'mapear un módulo válido debe llamar a saveProjectsFn una vez');
+      assert.deepEqual(
+        spy.lastMap.p1,
+        { default: '/tmp', modules: { core: realDir } },
+        'el mapa guardado preserva el default y añade modules:{core: ruta} (forma dual D-06)',
+      );
+    } finally {
+      unmount();
+      rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PROJ-04 (sin módulos) / D-05: provider sin módulos → footer no-op, never-throws', () => {
+  it('listModulesFn {ok:true, modules:[]} → footer PROJECTS_NO_MODULES, sigue en projects, no escribe', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter();
+    const { spy, fn } = makeSaveSpy();
+    const { lastFrame, stdin, unmount } = render(
+      createElement(
+        App,
+        injectProps(clock, fetchFn, {
+          listModulesFn: async () => ({ ok: true, modules: [] }), // github / provider sin módulos
+          saveProjectsFn: fn,
+        }),
+      ),
+    );
+    try {
+      await drain();
+      stdin.write('m'); // → projects
+      await drain();
+      stdin.write('m'); // → projects-modules-loading → (await) → lista vacía → vuelve a projects
+      await drain();
+      const frame = lastFrame();
+      assert.ok(frame.includes(PROJECTS_NO_MODULES), `la lista vacía debe pintar PROJECTS_NO_MODULES\n${frame}`);
+      assert.match(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `el modo sigue en projects (no abre el sub-overlay)\n${frame}`);
+      assert.doesNotMatch(frame, new RegExp(PROJECTS_MODULES_TITLE), `NO debe abrir el sub-overlay de módulos\n${frame}`);
+      assert.equal(spy.calls, 0, 'el caso sin-módulos es no-op: saveProjectsFn NO se llama');
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('PROJ-04 (staleness 2º hop) / Pitfall 3: Esc durante modules-loading descarta el resultado tardío', () => {
+  it('Esc en projects-modules-loading invalida el fetch en vuelo; el resultado tardío NO entra a projects-modules', async () => {
+    /** @type {(v: any) => void} */
+    let resolveModules = () => {};
+    const listModulesFn = () =>
+      new Promise((res) => {
+        resolveModules = res;
+      });
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter();
+    const { spy, fn } = makeSaveSpy();
+    const { lastFrame, stdin, unmount } = render(
+      createElement(App, injectProps(clock, fetchFn, { listModulesFn, saveProjectsFn: fn })),
+    );
+    try {
+      await drain();
+      stdin.write('m'); // → projects (1er hop ok)
+      await drain();
+      stdin.write('m'); // → projects-modules-loading (2º hop queda en vuelo, deferred)
+      await drain(); // re-subscribe a la rama projects-modules-loading
+      stdin.write('\x1b'); // Esc → invalida (projectsReqRef++) + vuelve a projects
+      await drain();
+      resolveModules({ ok: true, modules: MODULES_FIXTURE }); // resultado TARDÍO
+      await drain();
+      const frame = lastFrame();
+      assert.doesNotMatch(frame, new RegExp(PROJECTS_MODULES_TITLE), `el resultado tardío NO debe abrir el sub-overlay\n${frame}`);
+      assert.match(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `Esc en modules-loading debe volver a la lista de proyectos\n${frame}`);
+      assert.equal(spy.calls, 0, 'una apertura de módulos cancelada nunca escribe');
     } finally {
       unmount();
     }
