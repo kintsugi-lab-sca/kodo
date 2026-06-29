@@ -156,7 +156,7 @@ Phases execute in numeric order: 63 → 64
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 63. Editor config — fundación + ajustes comunes | 3/3 | Complete    | 2026-06-29 |
-| 64. Editor de proyectos | 4/4 | Complete   | 2026-06-29 |
+| 64. Editor de proyectos | 4/4 | UAT pending | - |
 
 ## Backlog
 
