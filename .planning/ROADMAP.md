@@ -97,7 +97,11 @@ Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
   3. El operador edita `claude.default_model`/`max_parallel`, `states.trigger`/`review`/`done`, `server.idle_threshold_min`/`stuck_threshold_min` y `cmux.colors`; un valor inválido (p.ej. `max_parallel`/thresholds no enteros positivos, `default_model` fuera del set conocido) se rechaza con mensaje y el archivo NO se escribe. (CFG-01..05)
   4. Al guardar, el cambio se persiste a `~/.kodo/config.json` vía `saveConfig` (preservando formato y migración de schema), de forma **local sin endpoint nuevo** en `src/server.js`, y el dashboard avisa de reiniciar server/daemon para aplicar (sin hot-reload). (PERSIST-01, PERSIST-02, PERSIST-03)
   5. Ante un error (config ilegible, escritura fallida) el dashboard degrada con gracia — never-throws, el panel ink permanece montado, el `config.json` previo se preserva intacto (escritura no-corruptiva), y las API keys nunca se muestran ni se editan (siguen solo en `~/.kodo/.env`). (UX-04, PERSIST-04, PERSIST-05)
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 63-01-PLAN.md — Fundación pura: validadores (config-validate.js) + escritura atómica (writeFileAtomic) [Wave 1]
+- [ ] 63-02-PLAN.md — Editor UI: modos config/config-edit + text-input con cursor + validación/guardado (App.js, SessionTable.js) [Wave 2]
+- [ ] 63-03-PLAN.md — Cableado DI end-to-end (index.js) + checkpoint humano [Wave 3]
 **UI hint**: yes
 
 ### Phase 64: Editor de proyectos en el dashboard
@@ -120,7 +124,7 @@ Phases execute in numeric order: 63 → 64
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 63. Editor config — fundación + ajustes comunes | 0/TBD | Not started | - |
+| 63. Editor config — fundación + ajustes comunes | 0/3 | Not started | - |
 | 64. Editor de proyectos | 0/TBD | Not started | - |
 
 ## Backlog
