@@ -41,7 +41,9 @@ import {
   DERIVE_PROGRESS,
   ADOPT_DERIVED_CONFIRM,
   ADOPT_DERIVED_CONFIRM_FALLBACK,
+  CONFIG_OVERLAY_TITLE,
 } from './App.js';
+import { getEditableFields, getByPath } from '../../config-validate.js';
 
 // Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
 // la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
@@ -253,6 +255,83 @@ function renderAdoptPicker(adoptable, cursor) {
 }
 
 /**
+ * Render del overlay del EDITOR de config (Phase 63 Plan 02, UX-01/02 / D-01/D-03/D-11/D-12). Molde
+ * de renderAdoptPicker (lista con cursor seleccionable, gutter `› ` + bold sobre la fila activa).
+ * Lista los 11 campos de `getEditableFields(snapshot)` con su valor actual (read-only); el campo en
+ * `fieldCursor` se resalta. En `mode==='config-edit'` la fila activa renderiza el text-input con el
+ * carácter bajo el cursor invertido (`<Text inverse>` — color-isolation intacta, NO picocolors;
+ * Pitfall 5: el inverse se serializa como ANSI, los tests asseren por contenido). El footer pinta el
+ * error de validación/escritura (configEditError, rojo — derivado del estado dedicado, Pitfall 2) o,
+ * tras un guardado, el aviso de reinicio transitorio (focusError/footerColor — PERSIST-03/D-10).
+ *
+ * PERSIST-04 (D-11): la lista viene SOLO de getEditableFields (restringida por construcción) — ningún
+ * api_key_env/base_url/workspace_slug se itera ni se renderiza. Los secretos jamás entran al overlay.
+ *
+ * @param {any} snapshot - clon congelado del config en edición.
+ * @param {number} fieldCursor - índice del campo seleccionado [0, fields.length-1].
+ * @param {'config'|'config-edit'} mode
+ * @param {string} buffer - text-input controlado (solo relevante en config-edit).
+ * @param {number} cursor - posición del cursor en el buffer.
+ * @param {string|null} configEditError - error de validación/escritura (rojo) o null.
+ * @param {string|null} focusError - aviso transitorio post-guardado (PERSIST-03) o null.
+ * @param {string} footerColor - color del aviso transitorio (yellow tras guardar).
+ * @returns {import('react').ReactElement}
+ */
+function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor) {
+  const fields = getEditableFields(snapshot);
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: 'cyan', bold: true }, CONFIG_OVERLAY_TITLE),
+  );
+
+  const rows = fields.map((field, i) => {
+    const selected = i === fieldCursor;
+    const isEditing = selected && mode === 'config-edit';
+    // Valor: read-only salvo en la fila que se está editando, donde se pinta el text-input con cursor.
+    let valueEl;
+    if (isEditing) {
+      // Cursor por `inverse` (Pattern 1 RESEARCH). Si cursor===buffer.length, bloque (espacio) al final.
+      const left = buffer.slice(0, cursor);
+      const under = buffer[cursor] ?? ' ';
+      const right = buffer.slice(cursor + 1);
+      valueEl = h(Text, null, left, h(Text, { inverse: true }, under), right);
+    } else {
+      valueEl = h(Text, { bold: selected }, String(getByPath(snapshot, field.path) ?? ''));
+    }
+    return h(
+      Box,
+      { key: field.path, flexDirection: 'row' },
+      h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      h(Box, { width: 24 }, h(Text, { bold: selected }, `${field.label}:`)),
+      valueEl,
+    );
+  });
+  const body = h(Box, { flexDirection: 'column' }, ...rows);
+
+  // Footer: error de validación/escritura (rojo, configEditError dedicado) gana; si no, el aviso
+  // transitorio de reinicio (focusError/footerColor) tras un guardado con éxito (PERSIST-03/D-10).
+  let statusLine = null;
+  if (configEditError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, configEditError));
+  } else if (focusError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, focusError));
+  }
+  const hint = h(
+    Box,
+    { marginTop: 1 },
+    h(
+      Text,
+      { dimColor: true },
+      mode === 'config-edit'
+        ? '←→ move · ⌫ borrar · Enter guardar · Esc cancelar'
+        : '↑↓ move · Enter editar · Esc cerrar',
+    ),
+  );
+  return h(Box, { flexDirection: 'column' }, header, body, statusLine, hint);
+}
+
+/**
  * Tabla viva del dashboard (presentacional). Recibe la lista YA ordenada+filtrada, el índice
  * seleccionado YA derivado, los contadores y el connection state reusado.
  *
@@ -330,6 +409,11 @@ export default function SessionTable({
   overlayKind = null,
   scrollOffset = 0,
   overlaySnapshot = null,
+  configSnapshot = null,
+  fieldCursor = 0,
+  buffer = '',
+  cursor = 0,
+  configEditError = null,
 }) {
   // (0) Phase 39 (TUI-15/TUI-16 — D-01/D-04/D-05): OVERLAY full-screen. Early-return ANTES de la
   // tabla: cuando hay un overlay abierto ocupa el área de la tabla (D-01). Mantiene SessionTable
@@ -341,6 +425,11 @@ export default function SessionTable({
       return renderAdoptPicker(overlaySnapshot.adoptable ?? [], adoptCursor);
     }
     return renderOverlay(overlaySnapshot, scrollOffset, overlayKind);
+  }
+  // Phase 63 Plan 02 (UX-01/D-01/D-03): early-return del editor de config (lista navegable +
+  // text-input), espejo del overlay de lectura. Ocupa el área de la tabla mientras está abierto.
+  if ((mode === 'config' || mode === 'config-edit') && configSnapshot) {
+    return renderConfigOverlay(configSnapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor);
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
   const label = countsLabel(counts);

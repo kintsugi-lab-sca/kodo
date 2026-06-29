@@ -124,9 +124,15 @@ function injectProps(clock, fetchFn, extra = {}) {
   };
 }
 
+// El editor encadena transiciones de modo + tecleo INMEDIATO (Enter→config-edit→teclear). ink
+// re-suscribe el handler de `useInput` un render TARDE respecto al cambio de estado, así que la
+// primera tecla tras una transición se descarta con un drain de 2 (suficiente para los overlays
+// read-only, que no tipean en el modo recién abierto). Un terminal real tiene latencia humana de
+// sobra entre teclas; aquí se purga con varios ciclos del event loop para reflejar esa realidad.
 async function drain() {
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  for (let i = 0; i < 6; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 }
 
 function okResponse(body) {
@@ -346,7 +352,8 @@ describe('UX-04/D-12: escritura fallida deja el panel montado y el footer rojo',
       stdin.write('\r'); // intenta guardar → falla
       await drain();
       const frame = lastFrame();
-      assert.match(frame, new RegExp(CONFIG_SAVE_FAILED), `una escritura fallida pinta CONFIG_SAVE_FAILED\n${frame}`);
+      // CONFIG_SAVE_FAILED lleva `[!]` (metacaracteres de regex) → assert por substring literal.
+      assert.ok(frame.includes(CONFIG_SAVE_FAILED), `una escritura fallida pinta CONFIG_SAVE_FAILED\n${frame}`);
       assert.ok(frame.length > 0, 'el panel ink sigue montado (lastFrame no vacío)');
     } finally {
       unmount();
