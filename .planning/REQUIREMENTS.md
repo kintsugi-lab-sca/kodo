@@ -9,10 +9,10 @@ Requisitos del milestone v0.14. Cada uno mapea a una fase del roadmap.
 
 ### UX — Entrada y edición en la TUI
 
-- [ ] **UX-01**: El operador abre un editor de configuración desde el dashboard con una tecla dedicada (overlay), sin salir del dashboard ni re-correr `kodo config`.
-- [ ] **UX-02**: El operador puede escribir y editar valores de texto (rutas, números, strings) dentro del editor — campo editable en ink con cursor, backspace y confirmación.
-- [ ] **UX-03**: El operador puede cancelar la edición sin guardar (`Esc`) y volver al dashboard preservando su estado (selección de sesión por identidad `task_id`).
-- [ ] **UX-04**: El editor degrada con gracia ante errores (config ilegible, provider caído, escritura fallida) sin tumbar el dashboard — never-throws, panel ink permanece montado, mensaje claro al footer.
+- [x] **UX-01**: El operador abre un editor de configuración desde el dashboard con una tecla dedicada (overlay), sin salir del dashboard ni re-correr `kodo config`.
+- [x] **UX-02**: El operador puede escribir y editar valores de texto (rutas, números, strings) dentro del editor — campo editable en ink con cursor, backspace y confirmación.
+- [x] **UX-03**: El operador puede cancelar la edición sin guardar (`Esc`) y volver al dashboard preservando su estado (selección de sesión por identidad `task_id`).
+- [x] **UX-04**: El editor degrada con gracia ante errores (config ilegible, provider caído, escritura fallida) sin tumbar el dashboard — never-throws, panel ink permanece montado, mensaje claro al footer.
 
 ### PROJ — Editor de proyectos
 
@@ -34,7 +34,7 @@ Requisitos del milestone v0.14. Cada uno mapea a una fase del roadmap.
 
 - [x] **PERSIST-01**: Los cambios de proyectos se persisten a `~/.kodo/projects.json` y los de ajustes a `~/.kodo/config.json`, preservando el formato y la migración de schema existentes (`loadConfig`/`saveConfig`/`loadProjects`/`saveProjects`).
 - [ ] **PERSIST-02**: La escritura ocurre localmente **sin añadir endpoints al server** (`src/server.js` intacto) — vía filesystem directo o shell-out a `kodo config`, preservando "cero endpoints nuevos desde v0.10".
-- [ ] **PERSIST-03**: Tras guardar, el dashboard avisa de que hay que reiniciar server/daemon para aplicar (sin hot-reload).
+- [x] **PERSIST-03**: Tras guardar, el dashboard avisa de que hay que reiniciar server/daemon para aplicar (sin hot-reload).
 - [x] **PERSIST-04**: Las API keys nunca se editan ni se muestran en el editor; siguen viviendo exclusivamente en `~/.kodo/.env`.
 - [x] **PERSIST-05**: La escritura es no-corruptiva: si falla, el archivo previo se preserva (nunca queda un `config.json`/`projects.json` a medias).
 
@@ -67,10 +67,10 @@ Qué fases cubren qué requisitos.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| UX-01 | Phase 63 | Pending |
-| UX-02 | Phase 63 | Pending |
-| UX-03 | Phase 63 | Pending |
-| UX-04 | Phase 63 | Pending |
+| UX-01 | Phase 63 | Complete |
+| UX-02 | Phase 63 | Complete |
+| UX-03 | Phase 63 | Complete |
+| UX-04 | Phase 63 | Complete |
 | PROJ-01 | Phase 64 | Pending |
 | PROJ-02 | Phase 64 | Pending |
 | PROJ-03 | Phase 64 | Pending |
@@ -83,7 +83,7 @@ Qué fases cubren qué requisitos.
 | CFG-05 | Phase 63 | Complete |
 | PERSIST-01 | Phase 63 | Complete |
 | PERSIST-02 | Phase 63 | Pending |
-| PERSIST-03 | Phase 63 | Pending |
+| PERSIST-03 | Phase 63 | Complete |
 | PERSIST-04 | Phase 63 | Complete |
 | PERSIST-05 | Phase 63 | Complete |
 
