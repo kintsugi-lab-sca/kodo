@@ -422,6 +422,41 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 
 ---
 
+## Milestone: v0.14 — Configuración editable desde el dashboard
+
+**Shipped:** 2026-06-30
+**Phases:** 2 (63-64) | **Plans:** 7 | **Sessions:** 1 (cadena autónoma discuss→plan→execute→verify)
+
+### What Was Built
+- Editor de configuración en el dashboard (Phase 63): overlay TUI + text-input editable in-house en ink (cursor/backspace) + validadores puros (`config-validate.js`) + escritura local atómica temp+rename (`writeFileAtomic`); edición de model/max_parallel, states, server thresholds, cmux colors.
+- Editor de proyectos (Phase 64): `listProjects()` en vivo (1ª fuente async de red surfaced como estado, guard de request-token dedicado `projectsReqRef`), mapear/editar/quitar ruta + sub-editor de módulos (2º hop `listModulesFn`), validación de ruta pre-escritura, degradación never-throws con retry (PROJ-05).
+- Base reusable: `writeFileAtomic` compartido por `saveConfig`/`saveProjects`; forma dual `string | {default,modules}` de `projects.json` preservada para `manager.js`/`adopt.js`.
+
+### What Worked
+- Risk-graded build order: la fundación (text-input/overlay/validadores/escritura atómica) se construyó y verificó con el carril 100% local de bajo riesgo (config, Phase 63) antes de añadir el carril de mayor riesgo (provider async, Phase 64). Phase 64 reusó la base entera.
+- El research detectó dos trampas reales antes de planificar: `listModules` NO está en el contrato `TaskProvider` (solo en `PlaneClient`) → wiring condicional; y el rechazo async de `listProjects` necesita un wrapper discriminado `{ok}` (no fail-open a `[]`) para distinguir "0 proyectos" de "error de red".
+- TDD RED→GREEN en cada plan; suite cerró 1639 pass / 0 fail. El plan-checker pilló un `grep` BRE (`\|`) incompatible con BSD/macOS antes de ejecutar.
+
+### What Was Inefficient
+- El checkpoint `human-verify` del Plan 64-04 chocó con `--auto`: el editor necesita un provider en vivo + TTY real, que una sesión autónoma no tiene. Se resolvió auto-aprobando solo la finalización de código y difiriendo las validaciones manuales a `/gsd-verify-work` (UAT 4/4 posterior), pero el flujo `--auto` no distingue "checkpoint automatizable" de "checkpoint que requiere recursos externos".
+- `phase.complete` y `milestone.complete` tropezaron con el ítem de Backlog `Phase 999.1` (promovido/shipped, no pendiente) → necesitó `--force`; el heurístico cuenta cualquier heading tipo-fase en Backlog como trabajo sin empezar.
+
+### Patterns Established
+- **Wrapper never-throws discriminado** (`{ok:true,...}|{ok:false,error}`) en `index.js` como punto de muestreo del fallo async, cubriendo construcción del cliente + llamada de red.
+- **Validador con I/O en módulo adyacente** (`path-validate.js`) para no romper el invariante 0-I/O declarado de `config-validate.js`.
+- **Honest-auto-checkpoint**: en `--auto`, un checkpoint que requiere recursos no disponibles se finaliza-código + difiere a UAT explícito, nunca se marca "passed" fabricado.
+
+### Key Lessons
+1. Cuando un milestone reusa la fundación de su primera fase, planificar la fundación como carril aislado y testeado primero paga: Phase 64 fue casi todo integración, cero re-trabajo de la base.
+2. El research que verifica contratos reales (¿está este método en la interfaz?) evita planes que asumen simetría provider-agnostic donde no la hay.
+3. Los checkpoints manual-only deben sobrevivir a `--auto` como UAT diferido, no como auto-aprobación silenciosa — la honestidad del estado de verificación es load-bearing.
+
+### Cost Observations
+- Model mix: opus (orquestación discuss/plan/execute + researcher + planner + executores) + sonnet (plan-checker + verifier).
+- Notable: cadena autónoma completa en una sesión; el único gate humano real fue la UAT con provider en vivo (4/4 pass), correctamente separada del trabajo automatizable.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -457,6 +492,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.11 | 1263 | — | — |
 | v0.12 | 1307 | — | — |
 | v0.13 | 1543 | — | — |
+| v0.14 | 1639 | — | — |
 
 ### Top Lessons (Verified Across Milestones)
 
