@@ -14,18 +14,20 @@
 - ✅ **v0.11 Ventana al plan** — Phases 44-47 (shipped 2026-06-10)
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
 - ✅ **v0.13 kodo bidireccional** — Phases 52-62 (shipped 2026-06-25)
-- 🚧 **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (activo, iniciado 2026-06-29)
+- ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 
 ## Phases
 
-### 🚧 v0.14 Configuración editable desde el dashboard (Phases 63-64)
+<details>
+<summary>✅ v0.14 Configuración editable desde el dashboard (Phases 63-64) — SHIPPED 2026-06-30</summary>
 
-**Milestone Goal:** El dashboard TUI pasa de observar+gestionar sesiones a también **configurar kodo** — principalmente añadir/editar la ruta de un proyecto sin re-correr el wizard lineal (donde los proyectos están al final tras pasos obligatorios), más un puñado de ajustes comunes de uso diario. Escritura **local** (filesystem / shell-out a las funciones puras de `src/config.js`), **cero endpoints nuevos** (2ª ruptura consciente de "TUI read-only" tras el dismiss de v0.10), aviso de reinicio (sin hot-reload), API keys intactas en `~/.kodo/.env`.
+**Milestone Goal:** El dashboard TUI pasa de observar+gestionar sesiones a también **configurar kodo** — añadir/editar la ruta de un proyecto sin re-correr el wizard lineal, más ajustes comunes de uso diario. Escritura **local** (funciones puras de `src/config.js`), **cero endpoints nuevos** (2ª ruptura consciente de "TUI read-only" tras el dismiss de v0.10), aviso de reinicio (sin hot-reload), API keys intactas en `~/.kodo/.env`.
 
-**Build order (risk-graded):** `fundación + ajustes comunes` → `editor de proyectos`. La **base de bajo nivel** (overlay + text-input editable en ink + fontanería de escritura local no-corruptiva reusando `saveConfig`/`saveProjects`) se construye y se prueba end-to-end con el **editor de ajustes comunes** (carril 100% local, sin conexión al provider, menor riesgo). El **editor de proyectos** (mayor riesgo: depende de `listProjects()` en vivo) es el segundo consumidor que reusa esa base. Numeración **continúa** desde Phase 62 (v0.13) → primera fase **Phase 63** (NO reset). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
+- [x] Phase 63: Editor de configuración — fundación + ajustes comunes (overlay + text-input editable en ink + escritura local atómica `writeFileAtomic`) — UX-01..04, CFG-01..05, PERSIST-01..05 ✅ 2026-06-29
+- [x] Phase 64: Editor de proyectos en el dashboard (lista `listProjects()` en vivo + mapear/editar/quitar ruta + módulos, degradación never-throws) — PROJ-01..05 ✅ 2026-06-29
 
-- [x] **Phase 63: Editor de configuración en el dashboard — fundación + ajustes comunes** — overlay + text-input editable en ink + escritura local no-corruptiva (reuso `saveConfig`), probado con el editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors) — UX-01..04, CFG-01..05, PERSIST-01..05 (completed 2026-06-29)
-- [x] **Phase 64: Editor de proyectos en el dashboard** — lista `listProjects()` en vivo + mapear/editar/quitar ruta local (+ módulos), reusando la fundación de Phase 63; degrada con gracia si el provider cae — PROJ-01..05 (completed 2026-06-29)
+Archivo: `milestones/v0.14-ROADMAP.md` · Requirements: `milestones/v0.14-REQUIREMENTS.md`
+</details>
 
 <details>
 <summary>✅ v0.13 kodo bidireccional (Phases 52-62) — SHIPPED 2026-06-25</summary>
@@ -84,79 +86,7 @@ Archivo: `milestones/v0.10-ROADMAP.md` · Requirements: `milestones/v0.10-REQUIR
 Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
-
-## Phase Details
-
-### Phase 63: Editor de configuración en el dashboard — fundación + ajustes comunes
-
-**Goal**: El operador edita los ajustes comunes de kodo desde el dashboard mediante un overlay con campo de texto editable, y los cambios se persisten localmente a `~/.kodo/config.json` de forma no-corruptiva, sin re-correr `kodo config` ni añadir endpoints al server. Esta fase construye la **base de bajo nivel** del milestone — el overlay de configuración (UX-01), el componente de text-input editable en ink (UX-02, patrón de UX NUEVO: los overlays actuales `c`/`l`/`p` son read-only), el cancel que preserva la selección (UX-03), la degradación never-throws (UX-04), y la fontanería de escritura local no-corruptiva reusando `saveConfig`/`loadConfig` (PERSIST-01..05) — y la prueba end-to-end con el editor de **ajustes comunes** (carril 100% local, sin conexión al provider, menor riesgo). El sub-trabajo text-input/overlay es candidato a `/gsd-ui-phase`.
-**Depends on**: Nothing (primera fase de v0.14; reusa `loadConfig`/`saveConfig` + `migrateConfig` de `src/config.js` y la infra de overlays `mode:` del dashboard `useInput` mode-gated)
-**Requirements**: UX-01, UX-02, UX-03, UX-04, CFG-01, CFG-02, CFG-03, CFG-04, CFG-05, PERSIST-01, PERSIST-02, PERSIST-03, PERSIST-04, PERSIST-05
-**Success Criteria** (what must be TRUE):
-
-  1. El operador pulsa una tecla dedicada en el dashboard y se abre un overlay de edición de configuración, sin salir del dashboard ni re-correr `kodo config`. (UX-01)
-  2. El operador escribe/edita un valor en un campo de texto en ink (cursor, backspace) y lo confirma; o pulsa `Esc` para cancelar sin guardar y volver al dashboard con la misma sesión seleccionada por identidad `task_id`. (UX-02, UX-03)
-  3. El operador edita `claude.default_model`/`max_parallel`, `states.trigger`/`review`/`done`, `server.idle_threshold_min`/`stuck_threshold_min` y `cmux.colors`; un valor inválido (p.ej. `max_parallel`/thresholds no enteros positivos, `default_model` fuera del set conocido) se rechaza con mensaje y el archivo NO se escribe. (CFG-01..05)
-  4. Al guardar, el cambio se persiste a `~/.kodo/config.json` vía `saveConfig` (preservando formato y migración de schema), de forma **local sin endpoint nuevo** en `src/server.js`, y el dashboard avisa de reiniciar server/daemon para aplicar (sin hot-reload). (PERSIST-01, PERSIST-02, PERSIST-03)
-  5. Ante un error (config ilegible, escritura fallida) el dashboard degrada con gracia — never-throws, el panel ink permanece montado, el `config.json` previo se preserva intacto (escritura no-corruptiva), y las API keys nunca se muestran ni se editan (siguen solo en `~/.kodo/.env`). (UX-04, PERSIST-04, PERSIST-05)
-
-**Plans**: 3/3 plans complete
-Plans:
-**Wave 1**
-
-- [x] 63-01-PLAN.md — Fundación pura: validadores (config-validate.js) + escritura atómica (writeFileAtomic) [Wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 63-02-PLAN.md — Editor UI: modos config/config-edit + text-input con cursor + validación/guardado (App.js, SessionTable.js) [Wave 2]
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 63-03-PLAN.md — Cableado DI end-to-end (index.js) + checkpoint humano [Wave 3]
-
-**UI hint**: yes
-
-### Phase 64: Editor de proyectos en el dashboard
-
-**Goal**: El operador añade, edita o quita el mapeo de un proyecto del provider a una ruta local (+ módulos opcionales) desde el dashboard, reusando la fundación de edición de Phase 63 y la lista en vivo `listProjects()`, persistiendo a `~/.kodo/projects.json`. Es el carril de **mayor riesgo** (depende de conexión al provider) y debe degradar con gracia si la conexión falla. Resuelve la fricción central del milestone: añadir un proyecto sin pasar por proveedor/api-key/workspace primero en el wizard lineal.
-**Depends on**: Phase 63 (reusa el overlay + text-input + la fontanería de escritura local no-corruptiva; aquí el destino es `saveProjects`/`loadProjects`)
-**Requirements**: PROJ-01, PROJ-02, PROJ-03, PROJ-04, PROJ-05
-**Success Criteria** (what must be TRUE):
-
-  1. El operador ve la lista de proyectos del provider en vivo (`listProjects()` Plane/GitHub) con su estado de mapeo actual (ruta local o "sin mapear"). (PROJ-01)
-  2. El operador asigna o edita la ruta local de un proyecto y la ruta se valida (debe existir en el filesystem) antes de aceptarse. (PROJ-02)
-  3. El operador quita el mapeo de un proyecto (lo deja sin seguir) y, opcionalmente, mapea carpetas de módulos independientes, espejo del soporte de módulos del wizard. (PROJ-03, PROJ-04)
-  4. Los cambios se persisten a `~/.kodo/projects.json` vía `saveProjects` (local, sin endpoint nuevo, no-corruptivo) con el mismo aviso de reinicio que el editor de ajustes. (reuso de la base PERSIST de Phase 63)
-  5. Si `listProjects()` falla (sin conexión / provider caído), el editor lo comunica y permite reintentar o salir, sin crashear (never-throws, panel ink montado) ni corromper el mapeo existente. (PROJ-05)
-
-**Plans**: 4/4 plans complete
-**Wave 1**
-
-- [x] 64-01-PLAN.md — Fundación pura: validateExistingDir (path-validate.js) + helpers de forma dual (projects-shape.js) + tests unitarios
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 64-02-PLAN.md — Carril async base en App.js/SessionTable.js: modos projects/loading/edit/error, fetch listProjectsFn token-guarded, validación de ruta, quitar mapeo, degradación (PROJ-01/02/03/05)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 64-03-PLAN.md — Soporte de módulos (PROJ-04): 2º hop listModulesFn, modos projects-modules, persistencia {default,modules}
-
-**Wave 4** *(blocked on Wave 3 completion)*
-
-- [x] 64-04-PLAN.md — Cableado DI en index.js (los 4 *Fn, listProjectsFn never-throws, listModulesFn condicional) + checkpoint humano end-to-end
-
-**UI hint**: yes
-
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 63 → 64
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 63. Editor config — fundación + ajustes comunes | 3/3 | Complete    | 2026-06-29 |
-| 64. Editor de proyectos | 4/4 | Complete    | 2026-06-29 |
+Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
 
 ## Backlog
 

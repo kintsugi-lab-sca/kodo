@@ -1,5 +1,18 @@
 # Milestones
 
+## v0.14 Configuración editable desde el dashboard (Shipped: 2026-06-30)
+
+**Phases completed:** 2 phases, 7 plans, 9 tasks
+
+**Key accomplishments:**
+
+- Editor de configuración en el dashboard (Phase 63): overlay TUI con un text-input editable in-house en ink (cursor/backspace, 2ª ruptura consciente de "TUI read-only"), validadores puros (`config-validate.js`) y escritura local atómica temp+rename (`writeFileAtomic`) reusada por `saveConfig`/`saveProjects` — edición de model/max_parallel, states, server thresholds y cmux colors con persistencia no-corruptiva y aviso de reinicio, API keys intactas en `~/.kodo/.env`.
+- Validador de ruta-directorio never-throws (`src/path-validate.js`) + helpers puros de forma dual de `projects.json` (`src/projects-shape.js`), construidos y verificados en aislamiento (28 tests, sin ink ni red) para que la TUI de los planes 02-04 los consuma ya probados.
+- Editor de proyectos en el dashboard TUI (modos `projects`/`projects-loading`/`projects-edit`/`projects-error` en `App.js` + render en `SessionTable.js`): la primera fuente de datos ASYNC de red del dashboard surfaced como estado, con guard de request-token dedicado, validación de ruta pre-escritura, quitar mapeo, y degradación never-throws con retry — todo verificado end-to-end con 7 tests de integración y DI fakes.
+- Sub-editor de MÓDULOS (PROJ-04 / D-05) sobre el carril async del editor de proyectos: un SEGUNDO hop async (`listModulesFn`) guard-eado con el MISMO `projectsReqRef` (Pitfall 3 — dos hops, un ref), que mapea/edita la ruta de cada módulo (validada con `validateExistingDir`) y la persiste como `{ default, modules: { [mod.name]: ruta } }` vía `setModulePath` preservando la forma dual, degradando con un footer informativo no-op si el provider no tiene módulos — todo never-throws con DI fakes y 3 tests de integración nuevos.
+
+---
+
 ## v0.13 kodo bidireccional (Shipped: 2026-06-25)
 
 **Phases completed:** 11 phases, 17 plans, 19 tasks

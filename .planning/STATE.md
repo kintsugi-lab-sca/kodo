@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.14
 milestone_name: Configuración editable desde el dashboard
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
-status: verifying
+current_phase: 14
+status: Awaiting next milestone
 stopped_at: Phase 64 context gathered
-last_updated: "2026-06-29T18:22:01.755Z"
-last_activity: 2026-06-29
-last_activity_desc: Phase 64 complete, transitioned to Phase 999.1
+last_updated: "2026-06-30T07:58:32.853Z"
+last_activity: 2026-06-30
+last_activity_desc: Milestone v0.14 completed and archived
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 7
   completed_plans: 7
   percent: 100
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 ---
 
 # Project State
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Con
 
 ## Current Position
 
-Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-29 — Phase 64 complete, transitioned to Phase 999.1
+Phase: Milestone v0.14 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-30 — Milestone v0.14 completed and archived
 
 ## Roadmap v0.14 (active)
 
@@ -117,7 +117,7 @@ Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cad
 
 ## Operator Next Steps
 
-- Planificar la primera fase con `/gsd-plan-phase 63` (opcionalmente `/gsd-discuss-phase 63` antes para la decisión de diseño del text-input).
+- Start the next milestone with /gsd-new-milestone
 
 ## Performance Metrics
 
