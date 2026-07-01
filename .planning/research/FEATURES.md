@@ -1,165 +1,185 @@
 # Feature Research
 
-**Domain:** Developer tooling — "promote ad-hoc working session into tracked task" (reverse session → task flow)
-**Researched:** 2026-06-15
-**Confidence:** MEDIUM-HIGH (pattern well-established in dev tooling; one hard gate on cmux introspection has positive signal but needs a spike to confirm)
+**Domain:** Local-dev daemon lifecycle (`kodo up`) + dashboard-first onboarding + secure secret entry in a TUI — subsequent-milestone (v0.15) features on an existing Node.js CLI with an ink dashboard.
+**Researched:** 2026-07-01
+**Confidence:** HIGH (UX conventions are well-established and cross-verified against docker compose, brew services, supabase, tailscale, Textual/ink) · MEDIUM on the exact detach/attach model kodo should adopt (design choice, argued below)
 
-## Context for this milestone
+> Scope discipline: only the NEW surface is researched here — `kodo up` (decoupled persistent daemon + dashboard-as-viewer), unified `stop`/`status`, Homebrew + `brew services` install UX, and dashboard-first onboarding closing CFGF-03 (active provider / `base_url` / `workspace_slug` + masked API key). Already-shipped surfaces (v0.9–v0.14 dashboard, v0.7 polling daemon, `kodo config` wizard, `kodo adopt`) are treated as **existing dependencies**, not re-researched.
 
-kodo today does **tarea → sesión** (a task manager launches a Claude Code session via cmux). v0.13 adds the inverse: take an ad-hoc Claude Code session running in cmux (NOT born from a task) and **adopt** it into a persistent task in Plane/GitHub. This research maps the feature landscape for that "promote / save my work" capability so each piece becomes a scoped requirement.
+---
 
-The dominant real-world analogs are:
-- **GitHub CLI** (`gh issue create`) — terminal → tracker, no built-in idempotency (caller must check first).
-- **Linear Triage / Intake** — capture an inbox item, auto-derive a title from context, surface likely duplicates, then "accept" into the backlog.
-- **Branch-per-issue** workflows — a unit of in-flight work gets a persistent tracker identity.
+## Reusable assets already in the tree (the leverage)
 
-kodo's twist: the local source of truth (`state.json`) already maps sessions ↔ tasks, so **idempotency is a local lookup, not a remote search**. That is kodo's structural advantage over `gh issue create`.
+These decide most complexity ratings — the new features are mostly *composition*, not new machinery:
+
+- **`src/cli/polling.js` + `polling-daemon.js`** — the proven daemon template: `writePidFile`/`readPidFile`/`removePidFile`/`getPidPath` (PID file `{pid, started_at, repos}`, `chmod 0o600`), `spawn` detached, `stop` = SIGTERM + 5s wait + SIGKILL fallback, `status` = idle/running via `isPidAlive`, deterministic exit codes 0/1/2/3, `--json` byte-determinism, Windows guard refuse-with-guidance. **`kodo up`/`stop`/`status` should be a generalization of this, not a new invention.**
+- **`src/cli/dashboard/`** — overlay system (`mode:'overlay'`/`'confirm'`), in-house editable text-input in ink with cursor/backspace (Phase 63), `config-validate.js` pure validators, `writeFileAtomic` (temp+rename), `saveConfig`/`saveProjects` as single writers, never-throws data layer. **The onboarding "setup mode" is a new dashboard mode reusing this, not a new UI stack.**
+- **`~/.kodo/.env`** — the secret store. PERSIST-04 boundary (v0.14): API keys live only here, never rendered back, never in `/status`/logs. The masked-key editor must *extend* this boundary, not break it.
+- **`kodo start`** (server foreground) stays intact — `up` is a new command. Daemon model is **persistent** (LOCKED): survives dashboard close; `kodo stop` tears it down.
+
+---
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = the adopt flow feels broken or unsafe.
+Missing these makes `kodo up` feel broken or surprising vs the tools users already know (`docker compose up`, `supabase start`, `brew services`).
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **Create task in provider** (`createTask`) | The whole point — "save my work" must produce a real tracked task | MEDIUM | OPTIONAL method, typeof-detected, OUTSIDE the 9 FROZEN methods (mirror of `getTaskState` in Phase 40). POST plumbing already exists (`plane/client.js` + `github/client.js` already POST for `addComment`). Plane first (operator's daily driver). |
-| **Register adoption in `state.json`** (`adoptSession`) | Without this, the session stays invisible to the dashboard / orchestrator — adoption is meaningless | MEDIUM | Inverts the launch path: instead of task→session, write the new `task_id` + workspace into `state.json`. Deterministic, 0-token. Must persist enough to make the row a first-class citizen (`task_id`, `task_url`, `project_path`/`workspace_ref`). |
-| **`kodo adopt` CLI** receiving explicit workspace/cwd | A deterministic entry point that does NOT depend on auto-detection ships regardless of the cmux spike verdict | LOW-MEDIUM | Core, ships first. Caller passes the workspace explicitly → no detection risk. This is the de-risked rail. |
-| **Title (auto-derived, editable)** | Every promote-to-tracker flow lets you set a title; a blank/garbage title is worse than none | LOW | Default from `basename(workspace)`/cwd, editable. Editable is the table stake; *smart* derivation is the differentiator (below). |
-| **Project/destination selection** | A task with no project lands nowhere; Plane/GitHub both require a destination | LOW | `listProjects` is ALREADY in the 9-method contract — reuse it directly. For GitHub the "project" is the repo (likely auto-detected from git remote, as the polling wizard already does). |
-| **Idempotency / double-adopt guard** | Adopting twice would create duplicate tasks — the #1 failure mode of every terminal→tracker tool | LOW-MEDIUM | **kodo's advantage:** check `state.json` for an existing `task_id` bound to this workspace BEFORE calling `createTask`. If found → refuse/no-op with a clear message. This is a LOCAL lookup (cheap, deterministic), not a remote duplicate search like `gh`. Mirror the dismiss 3-layer guard discipline (TUI guard + a pre-create re-read of fresh state = TOCTOU re-check). **Flag explicitly as a hard requirement.** |
-| **Sane initial status for the new task** | A promoted task should land in a state that reflects "work already in progress", not "untriaged backlog" | LOW | Recommend the task start as **in-progress / todo-equivalent**, not "done" and not buried in triage — the session is live work. Use the provider's existing state vocabulary (`updateTaskState` / `getTaskState` mapping from Phase 40 already normalizes `in_progress`). Confirm the exact default with the operator; in-progress is the defensible default. |
-| **Optional description** | Lets the operator add context; expected as optional, never forced | LOW | Plain optional field at create time. Backfilling it from session activity is a differentiator (below). |
-| **Clear success/failure feedback** | Adoption hits the network; the operator must know if the task was really created and get the URL/id back | LOW | Never-throws end-to-end (kodo house style). On success surface the new `task_id` + `task_url`; on failure, do NOT half-write `state.json` (atomicity — see Pitfalls dependency). |
+| **`kodo up` = one command → daemon (server + polling) running in background + dashboard attaches as viewer** | This is the milestone's whole promise; `supabase start` sets the bar (one command → full stack up). | MEDIUM | Compose spawn-detached from `polling.js` + attach the existing dashboard process. The daemon is *decoupled*: dashboard is a viewer, closing it must NOT kill the daemon (LOCKED). |
+| **Idempotent `up`: if daemon already running, attach the dashboard instead of double-spawning / colliding on port** | Users re-run `up` reflexively. tailscaled's "failed to connect… already running as pid N" is the anti-example — kodo must *attach*, not error. | MEDIUM | PID-file liveness check (`isPidAlive`, already exists) BEFORE spawn. If alive → skip spawn, go straight to attach. Port-in-use must be a clean "already running" path, not an EADDRINUSE stack trace. |
+| **`kodo stop` tears down the *entire* daemon (server + polling) in one command** | If `up` starts everything, `stop` must stop everything — asymmetry is a bug users report. | LOW | SIGTERM + 5s + SIGKILL (already in `polling.js`). Must stop both concerns, not just polling. Idempotent: `stop` when nothing runs = clean exit 0 + "not running", not error. |
+| **`kodo status` reports the whole daemon: running/not, pid, uptime, what's up (server port + polling repos)** | `brew services list` / `docker compose ps` conditioned users to expect a status verb. | LOW | Generalize `runPollingStatusCli`. `--json` byte-deterministic (existing invariant). Exit codes: 0 running / 3 not-running (reuse the polling taxonomy). |
+| **Closing the dashboard (`q`/Ctrl-C) leaves the daemon running** | Core to "dashboard-as-viewer". Detaching a viewer must not kill the service — the whole point of decoupling. | MEDIUM | This is the deliberate DIVERGENCE from `docker compose up` foreground (where Ctrl-C stops containers). kodo's `up` behaves like `compose up -d` + auto-attach. Must be documented in `--help` so muscle memory doesn't cause surprise. |
+| **First-run onboarding: fresh `brew install kodo` → `kodo up` → dashboard opens in setup mode (no crash on missing config)** | A brand-new user with no `~/.kodo/config.json` must be *guided*, not hit an error. `ensureConfig` already does this for headless commands. | MEDIUM | Detect "no/incomplete config" and enter dashboard **setup mode** instead of the normal table. Minimum to reach "running": provider + base_url + workspace + API key. |
+| **Masked API-key entry in the TUI (characters shown as `•`/`*`, never echoed plaintext)** | Universal expectation for secret fields — every TUI framework (Textual `password=True`, Terminal.Gui) masks by default. | MEDIUM | New behavior on the Phase 63 text-input: render mask glyphs while keeping the real buffer in memory only. Writes to `~/.kodo/.env`, honoring PERSIST-04. |
+| **"Already set" indicator for a stored secret WITHOUT revealing it** | Users need to know a key exists without seeing it; showing the value (even masked-length) leaks length. | LOW | Show `••••••• (set)` or `[configured]` — a boolean presence flag read from `.env` key existence, never the value. Editing replaces; empty-submit keeps existing. |
+| **Homebrew install: `brew install kodo` with `depends_on node ≥20`** | The stated distribution channel; brew is the macOS default for CLI tools. | MEDIUM | Formula authoring + tap. `depends_on "node"` with version floor. This is packaging work, low code-risk but real infra. |
+| **`brew services start kodo` runs the daemon under launchd (survives logout/reboot, auto-restart)** | brew-services users expect `start`/`stop`/`restart`/`list` to just work once a formula is service-aware. | MEDIUM-HIGH | Requires the **foreground-supervised daemon mode** (launchd expects a non-forking process it supervises via the plist `run` block). This is why the daemon needs DUAL mode (see below). |
+| **Clear terminal feedback during `up`: "starting… / kodo is running at :PORT / attaching dashboard…"** | `supabase start` prints readiness + endpoints; silence during a multi-second spawn reads as a hang. | LOW | Reuse `createFormatter` for TTY-aware status lines. Non-TTY/`--json` stays byte-deterministic. |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set kodo apart. Not required to ship, but align with the Core Value ("the orchestrator is the only LLM rail; everything else is deterministic plumbing").
+Where kodo can feel nicer than the generic pattern — all aligned with the existing dashboard-centric identity.
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Dashboard keybinding (`a`) to adopt an ad-hoc row** | One-keystroke promote from the surface the operator already lives in; no context switch to type a CLI command | MEDIUM | **GATED by the cmux-detection spike (HARD GATE).** Requires discovering + listing ad-hoc sessions (a `claude` process in cmux absent from `state.json`). Positive signal: `cmux list-workspaces --json` and `cmux identify --json` exist and expose CWD/git branch per workspace (MEDIUM confidence, version-dependent). If the spike fails, this half defers and `kodo adopt` still ships. Mirror of the Phase 49 spike-gate discipline. |
-| **Smart title derivation from real session context** | `basename(workspace)` is lossy; a title derived from cwd + recent commits + transcript is far more useful (Linear does exactly this for Slack→issue) | MEDIUM | The orchestrator (ONLY LLM rail) derives a SMART title from real context. It is a **consumer** of the same plumbing, never the owner. The deterministic default (`basename`) is the fallback when the orchestrator isn't in the loop. |
-| **Orchestrator-assisted proactive adoption** | The orchestrator notices an ad-hoc session and *proposes* adopting it before it evaporates at sprint close — the original pain point | MEDIUM-HIGH | Mirrors Linear Triage's "proactively surface" behavior. Proposes, derives the SMART title, but the human/CLI/key still drives the actual create. Depends on the cmux detection surface (same gate as the keybinding). Build AFTER the deterministic core proves out. |
-| **Description backfill from session activity** | Auto-populate the description from commits/diff/transcript so the task carries real provenance, not an empty shell | MEDIUM | Orchestrator-driven (LLM), optional, enhances the table-stake "optional description". Keep it additive — never block adoption on it. |
+| **Dashboard-first onboarding (setup screen), not a separate readline wizard, for first run** | The dashboard is already the product's face; guiding config *inside* it (vs dropping to a linear prompt) is a coherent, modern UX. Closes CFGF-03 in the surface users already live in. | MEDIUM-HIGH | New dashboard `mode:'setup'` composing the Phase 63 text-input + `config-validate.js`. The friction v0.14 solved for projects, extended to provider/key. |
+| **CFGF-03 closed: edit active provider / `base_url` / `workspace_slug` + masked key from the dashboard** | These were explicitly deferred in v0.14; delivering them removes the last reason to hand-edit files or re-run the wizard. | MEDIUM | Structural fields → `config.json` via `saveConfig`; key → `.env` via a dedicated atomic `.env` writer (new, mirrors `writeFileAtomic`). Provider switch may need a re-validate/re-connect nudge. |
+| **`kodo config` (readline wizard) retained as the headless/scriptable twin of the same plumbing** | Power users / CI / SSH-without-TTY still get a path; both surfaces write through the SAME single writers (`saveConfig` + the new `.env` writer). | LOW | Non-goal to change the wizard's flow — just ensure it and the dashboard share writers so they can't diverge. Guards the "single writer" invariant. |
+| **Reveal toggle on the key field (show/hide while typing) + paste support** | Lets a user verify a long pasted key without leaving plaintext on screen after. Standard in good password fields (toggle icon). | LOW-MEDIUM | ink `useInput` receives pasted text as a burst — accept multi-char input in one event. Toggle key (e.g. Ctrl-R / a footer hint) flips mask on the render only; buffer unchanged. Default = masked. |
+| **`up` auto-detects and reports "already running → attaching" as a first-class, friendly state** | Turns the classic daemon foot-gun (double-start) into a smooth re-attach. | LOW | Falls out of the idempotency table-stake, but *phrasing it as a feature* (clear message, instant attach) is the differentiator. |
+| **Restart advisory after config change (honest "no hot-reload")** | v0.14 already set this expectation; extending it to provider/key changes keeps behavior predictable. | LOW | After saving provider/key, footer: "restart the daemon (`kodo stop && kodo up`) to apply". Consistent with existing config-load-at-boot model. |
+| **Windows: honest foreground fallback for `up` (documented constraint, not a crash)** | The polling daemon already refuses-with-guidance on Windows; `up` should degrade to a foreground run rather than pretend to daemonize. | LOW | Reuse the existing Windows guard pattern. `brew services` is macOS/Linux only anyway. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but violate kodo's boundaries or create maintenance traps.
+Explicitly out — these are the scope-creep traps for this milestone.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Full task CRUD (update/delete/close tasks)** | "If we can create, we should manage" | Explicit Out of Scope: "kodo no crea ni elimina tareas, solo las lee y actualiza". Adoption is a *narrow, deliberate* exception to the create-side; CRUD would balloon the FROZEN contract and the maintenance surface | Add ONLY `createTask` (optional, typeof-detected). Lifecycle continues via the existing `updateTaskState`. **kodo never deletes tasks.** |
-| **Auto-adopt every ad-hoc session silently** | "Never lose work — capture everything automatically" | Spams the tracker with throwaway/exploratory sessions; creates noise tasks the operator must then clean up (and kodo can't delete them). Removes operator intent | Orchestrator *proposes*; human/CLI/key confirms. Adoption is always an explicit act. |
-| **Listing ad-hoc sessions as rows in the main task table** | "Show everything in one place" | A session with no `task_id` / `provider_state` / plan is a second-class citizen in that table (already noted in the backlog). Pollutes the columnar model built across v0.9–v0.12 | Adopt via a CLI command or a dedicated key/action on a clearly-distinct surface — NOT a new section in the task table. |
-| **New HTTP endpoint on the server for adoption** | "It's a write, the server owns writes" | "Cero endpoints nuevos" has held since v0.10; adoption can live entirely in CLI + a (gated) dashboard action calling the same `adoptSession` plumbing | Keep adoption in CLI + dashboard action over shared deterministic plumbing. Confirm in planning, but default to no new endpoint. |
-| **Remote duplicate search before creating** (à la `gh`) | "Avoid creating a task that already exists in the tracker" | Slow, network-bound, fuzzy (title matching), and unnecessary — kodo already owns the authoritative local mapping | Check `state.json` for an existing `task_id` on this workspace. Local, exact, deterministic. |
-| **Two-way sync / continuous reconciliation of adopted tasks** | "Keep the adopted task perfectly in sync forever" | Adoption is a one-time promotion event; ongoing sync is a separate, much larger concern and re-opens the CRUD can of worms | Adopt once → the session then flows through the existing lifecycle (`updateTaskState`, dismiss, doctor) like any kodo session. |
+| **Generic process/service manager (start/stop arbitrary user commands, multiple named services, dependency graphs)** | "While we're building daemon lifecycle, make it general." | Explodes scope into a mini-`pm2`/`supervisord`; kodo manages exactly ONE thing (its own daemon = server + polling). LOCKED context: "núcleo = un entrypoint + ciclo de vida del daemon… NO gestor de procesos genérico". | One daemon, one lifecycle. `up`/`stop`/`status` operate on kodo's daemon only. |
+| **Generic secrets manager (multiple secrets, rotation, vault backends, encryption-at-rest)** | "Handle all my keys." | The milestone needs exactly ONE masked field (the provider API key) written to `~/.kodo/.env`. A secrets manager is a product of its own. LOCKED: "edición de secretos = extensión consciente, NO gestor de secretos genérico". | Single masked key field + "already set" indicator, writing the one `api_key_env` value to `.env`. |
+| **Hot-reload of config into the running daemon** | "Edit provider and have it apply instantly." | The daemon loads config in memory at boot; live-reload means watchers, safe-swap of the polling loop, provider re-init mid-flight — high risk for marginal value. v0.14 already chose restart-advisory. | Restart advisory (`kodo stop && kodo up`). Honest and simple, matches existing behavior. |
+| **`up` foreground-attach that stops the daemon on Ctrl-C (docker-compose-up semantics)** | Familiar from `docker compose up`. | Contradicts the LOCKED persistent-daemon model — closing the *viewer* must never kill the *service*. Adopting compose semantics would make the dashboard a foreground owner again. | `up` = attach a decoupled viewer (compose `-d` + auto-attach). Ctrl-C/`q` detaches the viewer only; `kodo stop` is the sole teardown. |
+| **Revealing / round-tripping the stored API key into the dashboard for "editing"** | "Let me see/edit the current key inline." | Breaks PERSIST-04: the key must never be rendered back, logged, or sent to `/status`. Loading it into a TUI buffer risks it on screen and in memory dumps. | Show `[configured]` only. To change: type a NEW value (replaces). Empty submit = keep existing. Never read the old value back into the UI. |
+| **Auto-installing / bootstrapping Node as part of `brew install`** | "Zero-dependency install." | brew's job is `depends_on "node"`; bundling/patching a runtime is fragile and fights the package manager. | `depends_on "node"` (≥20). Let brew resolve the runtime. |
+| **New HTTP endpoint(s) in `src/server.js` to drive setup/secret writes from the dashboard** | "The dashboard should POST config to the server." | Breaks the "cero endpoints nuevos desde v0.10" invariant; config/secrets live on the filesystem, not the server. v0.14 already proved local writes from the TUI. | Local writes via `saveConfig` + a new atomic `.env` writer, imported directly in the ink process (like Phase 63). |
+| **Multi-user / remote daemon control (start kodo's daemon on another host, auth for `stop`)** | "Manage kodo everywhere." | kodo is explicitly a single-user personal tool (PROJECT.md Out of Scope). | Local-only daemon, local PID file, local dashboard. |
+
+---
 
 ## Feature Dependencies
 
 ```
-kodo adopt (CLI)
-    └──requires──> createTask (optional provider method, Plane first)
-    └──requires──> adoptSession (writes state.json with new task_id)
-    └──requires──> listProjects (ALREADY in the 9-method contract)
-    └──requires──> idempotency guard (state.json lookup, pre-create)
+Homebrew formula (brew install kodo, depends_on node)
+    └──enables──> brew services start kodo (launchd plist)
+                       └──requires──> Daemon: foreground-supervised mode
+                                          │
+Daemon: dual mode  ─────────────────────┤
+  (a) self-detach  ──requires──> PID-file lifecycle (reuse polling-daemon.js)
+      (for `kodo up` without brew)              │
+  (b) foreground-supervised ──> (for launchd / brew services)
+                                          │
+kodo up ──requires──> Daemon spawn/attach ┘
+    │        └──requires──> idempotency (isPidAlive check before spawn)
+    │
+    ├──requires──> unified stop  (SIGTERM+SIGKILL, reuse polling stop)
+    └──requires──> unified status (isPidAlive + report, reuse polling status)
 
-Dashboard keybinding `a` (adopt)
-    └──requires──> kodo adopt plumbing (createTask + adoptSession)
-    └──requires──> cmux ad-hoc session DETECTION  ◄── HARD GATE (spike)
-                       (cmux list-workspaces --json / identify --json)
+kodo up (first run, no config)
+    └──triggers──> Dashboard setup mode
+                       └──requires──> ink text-input (Phase 63, exists)
+                       └──requires──> config-validate.js (exists)
+                       └──requires──> saveConfig  ──writes──> config.json (provider/base_url/workspace)
+                       └──requires──> NEW atomic .env writer ──writes──> ~/.kodo/.env (masked key)
+                                          └──enhanced-by──> masked field + reveal toggle + "already set" indicator
 
-Orchestrator-assisted adoption
-    └──requires──> kodo adopt plumbing (consumer, not owner)
-    └──requires──> cmux detection surface (same gate)
-    └──enhances──> smart title derivation (LLM, replaces basename default)
-    └──enhances──> description backfill (LLM, optional)
-
-Smart title derivation ──enhances──> Title (auto-derived, editable)
-Description backfill   ──enhances──> Optional description
-
-Auto-adopt-everything ──conflicts──> explicit-intent adoption (anti-feature)
+kodo config (readline wizard, existing)
+    └──shares──> saveConfig + NEW .env writer  (single-writer invariant)
 ```
 
 ### Dependency Notes
 
-- **`kodo adopt` requires `createTask` + `adoptSession`:** these two form the deterministic 0-token base layer. Everything else (CLI, key, orchestrator) is a *consumer* of this base — "una fontanería, tres consumidores".
-- **`listProjects` is already shipped (v0.2 contract):** no new contract work for destination selection — reuse directly. This de-risks project selection to LOW complexity.
-- **Idempotency guard depends on `state.json` + `findSession`:** `findSession` already scans `state.sessions` + `state.history` (v0.8 Phase 30). The guard is a local lookup keyed on workspace/cwd, NOT a remote search. Must include a pre-create TOCTOU re-read (fresh `loadState()`), mirroring the dismiss 409 re-check discipline (v0.10 Phase 42).
-- **Dashboard key + orchestrator both depend on the cmux detection gate:** if the spike says cmux can't enumerate ad-hoc `claude` processes by workspace/cwd, BOTH defer; the explicit-workspace CLI still ships. This is why the CLI must NOT depend on detection.
-- **Atomicity dependency (cross-cutting):** `createTask` (remote) then `adoptSession` (local write) is a two-step. If the remote succeeds but the local write fails, you get an orphan task kodo doesn't know about — and kodo can't delete it. Order so the local write is the last, cheapest, near-failure-free step, and surface partial-failure clearly. (Detail belongs in PITFALLS, flagged here for the requirement.)
+- **`brew services` requires foreground-supervised daemon mode:** launchd supervises a process via the plist `run` block and expects it NOT to fork/detach (it does the backgrounding). The **same daemon binary needs a mode that self-detaches** (for plain `kodo up` without brew). This dual mode is the linchpin dependency of Pilar 1 — get it wrong and either `kodo up` blocks the terminal or `brew services` can't supervise.
+- **`kodo up` idempotency requires the PID-file liveness check to run BEFORE spawn:** the `isPidAlive` helper already exists (`src/gsd/lock.js`, used by polling status). Attach-if-running is a small addition, but it is what prevents port collisions and double-spawn.
+- **Setup mode enhances (does not replace) `kodo config`:** both must write through the same `saveConfig` + new `.env` writer, or the two surfaces can silently diverge — the single-writer invariant is the safety rail.
+- **Masked key field depends on the Phase 63 text-input, extended:** adds a render-time mask + reveal toggle + "already set" presence read. The buffer/cursor logic is reused; only rendering + a presence check are new.
+- **The new `.env` writer is the one genuinely new low-level piece:** `writeFileAtomic` handles `config.json`; `.env` needs its own atomic key-upsert (parse existing lines, replace/append the one key, temp+rename, `chmod 0o600`) so it never clobbers other `.env` entries or leaks via a partial write.
+
+---
 
 ## MVP Definition
 
-### Launch With (v0.13 core)
+### Launch With (v0.15 core — Pilar 1, shippable on its own)
 
-Minimum viable to validate "ad-hoc work doesn't evaporate".
+- [ ] **Daemon with dual mode (self-detach + foreground-supervised)** — the linchpin; everything else composes on it.
+- [ ] **`kodo up`** — spawn decoupled daemon (server + polling) + attach dashboard as viewer; idempotent attach-if-running.
+- [ ] **`kodo stop` / `kodo status` unified** — one command each, whole-daemon, idempotent, deterministic exit codes + `--json`.
+- [ ] **Dashboard-as-viewer detach semantics** — closing dashboard leaves daemon running; `stop` is the only teardown.
+- [ ] **Homebrew formula (`brew install kodo`, `depends_on node ≥20`)** + `brew services start kodo` (launchd plist).
+- [ ] **Windows foreground fallback** for `up` (documented constraint).
 
-- [ ] **`createTask` (optional, Plane)** — the create-side, one provider first. Essential — no task, no point.
-- [ ] **`adoptSession` → `state.json`** — register the new `task_id`. Essential — makes the session a first-class kodo citizen.
-- [ ] **`kodo adopt` CLI with explicit workspace** — deterministic, detection-free entry point. Essential and ships regardless of the spike.
-- [ ] **Title (basename default, editable) + `listProjects` destination + optional description** — the minimal editable data set. Essential.
-- [ ] **Idempotency / double-adopt guard via `state.json`** — Essential; prevents the #1 failure mode (duplicate tasks kodo can't delete).
-- [ ] **Sane initial status (in-progress default) + success feedback with new task_id/URL** — Essential for trust.
+### Add After Validation (Pilar 2 — onboarding, layered on Pilar 1)
 
-### Add After Validation (v0.13 stretch / gated)
+- [ ] **Dashboard setup mode on first run** (no/incomplete config → guided screen).
+- [ ] **CFGF-03: edit active provider / base_url / workspace_slug** from the dashboard → `config.json`.
+- [ ] **Masked API-key field** (mask by default, reveal toggle, paste) → new atomic `.env` writer.
+- [ ] **"Already set" indicator** for the stored key (presence only, never value).
+- [ ] **Restart advisory** after provider/key change.
+- [ ] **`kodo config` wizard rewired** to share the new `.env` writer (single-writer invariant).
 
-- [ ] **`createTask` for GitHub** — trigger: Plane path proven; mirror to the second adapter to re-validate the typeof-detected pattern cross-provider.
-- [ ] **Dashboard keybinding `a`** — trigger: cmux-detection spike returns VIABLE.
-- [ ] **Orchestrator-assisted proactive adoption + smart title** — trigger: detection surface available AND deterministic core shipped.
+### Future Consideration (deferred / already in PROJECT.md)
 
-### Future Consideration (post-v0.13)
-
-- [ ] **Description backfill from transcript/diff** — defer: LLM-driven, additive polish; validate that operators want it before building.
-- [ ] **Adopt into ClickUp / local adapter** — defer: tied to those adapters existing at all (already deferred candidates).
+- [ ] Hot-reload of config into the running daemon — deferred; restart-advisory is the chosen model.
+- [ ] Direct Anthropic API key management for title-derivation (latency tradeoff) — already a deferred candidate.
+- [ ] Secrets beyond the single provider key — out of scope by design.
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| `createTask` (Plane, optional method) | HIGH | MEDIUM | P1 |
-| `adoptSession` → state.json | HIGH | MEDIUM | P1 |
-| `kodo adopt` CLI (explicit workspace) | HIGH | LOW-MEDIUM | P1 |
-| Idempotency / double-adopt guard | HIGH | LOW-MEDIUM | P1 |
-| Title (basename default, editable) | HIGH | LOW | P1 |
-| Destination via `listProjects` | HIGH | LOW | P1 (reuses existing) |
-| Sane initial status + success feedback | MEDIUM | LOW | P1 |
-| Optional description (manual) | MEDIUM | LOW | P1 |
-| `createTask` for GitHub | MEDIUM | MEDIUM | P2 |
-| Dashboard keybinding `a` | MEDIUM | MEDIUM | P2 (gated) |
-| Smart title derivation (orchestrator) | MEDIUM | MEDIUM | P2 (gated) |
-| Orchestrator proactive adoption | MEDIUM | HIGH | P2 (gated) |
-| Description backfill (LLM) | LOW-MEDIUM | MEDIUM | P3 |
+| Daemon dual mode (self-detach + supervised) | HIGH | MEDIUM-HIGH | P1 |
+| `kodo up` (spawn + attach + idempotent) | HIGH | MEDIUM | P1 |
+| Unified `stop` / `status` | HIGH | LOW | P1 |
+| Dashboard-as-viewer detach (don't kill daemon on quit) | HIGH | MEDIUM | P1 |
+| Homebrew formula + `brew services` | HIGH | MEDIUM-HIGH | P1 |
+| Dashboard setup mode (first-run onboarding) | HIGH | MEDIUM-HIGH | P1/P2 |
+| Masked API-key field + `.env` writer | HIGH | MEDIUM | P1/P2 |
+| CFGF-03 provider/base_url/workspace editor | MEDIUM-HIGH | MEDIUM | P2 |
+| "Already set" indicator | MEDIUM | LOW | P2 |
+| Reveal toggle + paste on key field | MEDIUM | LOW-MEDIUM | P2 |
+| Restart advisory after change | MEDIUM | LOW | P2 |
+| `kodo config` rewired to shared writer | MEDIUM | LOW | P2 |
+| Windows foreground fallback | LOW-MEDIUM | LOW | P2 |
 
-**Priority key:**
-- P1: Must have for the v0.13 core (the deterministic, detection-free rail)
-- P2: Should have, add when the cmux gate opens / Plane path is proven
-- P3: Nice to have, future polish
+**Priority key:** P1 = must have for the milestone's core promise (Pilar 1) · P2 = completes the milestone (Pilar 2 onboarding) · P3 = future.
 
-## Competitor / Analog Feature Analysis
+## Competitor Feature Analysis
 
-| Feature | GitHub CLI (`gh`) | Linear Triage/Intake | kodo's Approach |
-|---------|-------------------|----------------------|-----------------|
-| Create task from terminal/session | `gh issue create` (manual fields) | Email/Slack → Triage inbox | `kodo adopt` + optional `createTask` per provider |
-| Idempotency / dedupe | None built-in; caller must query first | LLM duplicate detection against existing issues | **Local `state.json` lookup** — exact, deterministic, cheap |
-| Smart title | None (you type it) | AI-generated title from message context | Orchestrator (LLM) derives from cwd/commits/transcript; `basename` fallback |
-| Proactive capture | None | Triage inbox surfaces incoming items | Orchestrator proposes adoption (gated) |
-| Lifecycle after capture | Full issue CRUD | Full issue management | **Adopt only** — then existing `updateTaskState`/dismiss/doctor; kodo never deletes |
+| Feature | docker compose | supabase / brew services / tailscale | Our Approach |
+|---------|----------------|--------------------------------------|--------------|
+| Single-command up | `up` (foreground) / `up -d` (detached) | `supabase start` (detached, prints endpoints) | `kodo up` = detached daemon + auto-attach viewer (compose `-d` + attach hybrid) |
+| Ctrl-C behavior | foreground: **stops** containers | supabase: containers persist (start already detached) | Ctrl-C/`q` **detaches the viewer only**; daemon persists (LOCKED) — diverges from compose foreground |
+| Re-run when running | `up` reconciles/attaches | tailscale errors "already running as pid N" (anti-example) | Idempotent: attach-if-running, never double-spawn / port-collide |
+| Stop | `compose down`/`stop` | `brew services stop` / `supabase stop` | `kodo stop` (whole daemon, SIGTERM+SIGKILL) |
+| Status | `compose ps` | `brew services list` | `kodo status` (running/pid/uptime/port/repos, `--json`) |
+| OS service integration | — | `brew services` → launchd | `brew services start kodo` → launchd plist (needs supervised daemon mode) |
+| First-run onboarding | — | supabase: `init` scaffolds | Dashboard **setup mode** (guided, in-TUI) — our differentiator |
+| Secret entry | env files / secrets | — | Masked TUI field + reveal toggle + "already set", writes `~/.kodo/.env` |
 
 ## Sources
 
-- [GitHub CLI Tutorial: Manage PRs and Issues From Terminal](https://www.commandinline.com/github-cli-tutorial-prs-issues/) — terminal→tracker baseline, no built-in idempotency
-- [Idempotent issue creation pattern (workspace-hub #1710)](https://github.com/vamseeachanta/workspace-hub/issues/1710) — check-before-create idempotency for issue creation
-- [Implementing Idempotency Keys in REST APIs — Zuplo](https://zuplo.com/learning-center/implementing-idempotency-keys-in-rest-apis-a-complete-guide) — general idempotency discipline
-- [Linear Triage Docs](https://linear.app/docs/triage) — capture/triage inbox, proactive surfacing
-- [Linear Intake](https://linear.app/intake) — convert incoming items into tracked issues
-- [Linear Changelog — auto-generated titles from context](https://linear.app/changelog) — smart title derivation precedent (Slack→issue)
-- [cmux configuration docs](https://cmux.com/docs/configuration) — sidebar exposes live CWD, git branch, PR per workspace
-- [cmux list-workspaces / identify --json (ck:cmux skill)](https://lobehub.com/skills/khanglvm-agent-tips-cmux) — JSON introspection commands exist (MEDIUM confidence, version-dependent — confirm in spike)
-- [tmux persistent sessions](https://dev.to/sysemperor/tmux-persistent-terminal-sessions-for-developers-436d) — "session as a unit of work that survives" mental model
+- [docker compose up — Docker Docs](https://docs.docker.com/reference/cli/docker/compose/up/) — foreground vs `-d`, Ctrl-C = SIGINT stops containers (exit 0)
+- [Make --detach the default on `up` (docker/compose #6330)](https://github.com/docker/compose/issues/6330) and [detach key-sequence (#4560)](https://github.com/docker/compose/issues/4560) — detach-without-stop is a known gap; informs kodo's viewer-detach design
+- [Starting and stopping background services with Homebrew — thoughtbot](https://thoughtbot.com/blog/starting-and-stopping-background-services-with-homebrew) and [Homebrew Formula Cookbook](https://docs.brew.sh/Formula-Cookbook) — `service do run … end` block, launchd plist generation, `~/Library/LaunchAgents`
+- [Make an existing formula 'brew services' aware (Homebrew/homebrew-services #37)](https://github.com/Homebrew/homebrew-services/issues/37) — supervised (non-forking) service expectation
+- [Supabase CLI getting started](https://supabase.com/docs/guides/local-development/cli/getting-started) / [supabase start reference](https://supabase.com/docs/reference/cli/supabase-start) — single-command up, prints endpoints, first-run vs warm-start timing
+- [Tailscale CLI](https://tailscale.com/docs/reference/tailscale-cli) / [tailscaled daemon](https://tailscale.com/docs/reference/tailscaled) — CLI-as-LocalAPI-client to a daemon; "already running as pid N" as the foot-gun to avoid
+- [Textual (Real Python)](https://realpython.com/python-textual/) + [Password input — Timely Design System](https://tui.supernova-docs.io/latest/product-design/components/text-input/password-input-fRBdSJVG-fRBdSJVG) — masked-by-default `password=True`, `•`/`*` glyphs, reveal toggle convention
+- **Codebase (primary):** `src/cli/polling.js`, `src/cli/polling-daemon.js` (PID-file daemon template); `src/cli/dashboard/index.js`, `App.js`, Phase 63 text-input + `config-validate.js` + `writeFileAtomic` + `saveConfig`; `.planning/PROJECT.md` (v0.15 LOCKED context, PERSIST-04 boundary, Out of Scope)
 
 ---
-*Feature research for: reverse session → task adoption flow (kodo bidireccional)*
-*Researched: 2026-06-15*
+*Feature research for: `kodo up` unified startup + dashboard-first onboarding (v0.15)*
+*Researched: 2026-07-01*

@@ -1,425 +1,267 @@
-# Architecture Research
+# Architecture Research — v0.15 «kodo up»
 
-**Domain:** kodo bidireccional — reverse flow `session → task` (adopt an ad-hoc cmux Claude session into a persistent provider task)
-**Researched:** 2026-06-15
-**Confidence:** HIGH (grounded in the actual source modules, not training data)
+**Domain:** Unified decoupled daemon entrypoint + OS-service distribution + dashboard-first onboarding for an existing Node.js CLI (kodo)
+**Researched:** 2026-07-01
+**Confidence:** HIGH (grounded in the shipped codebase; no new external tech — the proven `src/cli/polling.js` daemon pattern is the reference)
 
-> Scope of this doc: ONLY how the NEW flow integrates with the existing kodo architecture. Every recommendation below is anchored to a real module/signature read from the repo. New-vs-modified is made explicit per component, and a build order honoring the spike HARD GATE and the "fontanería first, consumers after" layering closes the doc.
+> Scope note: this is **integration-for-new-features** research, not greenfield ecosystem research. It answers "how do the v0.15 features graft onto the existing architecture, reusing the polling daemon pattern?" and feeds the roadmapper a risk-graded build order (Pilar 1 lifecycle+brew before Pilar 2 onboarding).
+
+---
+
+## Executive answer (the 4 sub-questions)
+
+- **(a) One supervised daemon, not PID-tracked children.** `kodo up` composes `startServer` + (conditional) `startPolling` in **one** Node process. Generalize the leaf primitives from `src/cli/polling.js` into a shared `src/daemon/lifecycle.js` + a name-parameterized PID module. Spawning them as separate children would recreate a generic process-manager — explicitly OUT of scope (PROJECT.md "NO gestor de procesos genérico", LOCKED) — and would break `brew services` (launchd would supervise a shell that forks unsupervised children: the double-fork antipattern).
+- **(b) The detach path spawns the foreground path.** This is *already* how `polling.js` works (`runPollingStartCli` spawns `kodo polling start --no-daemon`, polling.js:283-302). Mirror it: `kodo up` detach-spawns a new internal `kodo daemon run` foreground command; launchd/`brew services` invoke `kodo daemon run` **directly**. One foreground entrypoint, two callers.
+- **(c) Dashboard attaches as a pure HTTP viewer and detaches for free.** `runDashboard` (dashboard/index.js:85) is already a stateless `/status` client that owns nothing. `up` = ensure-daemon → poll `/health` until ready → `runDashboard({url})` unchanged → on quit, `up` exits while the **detached** daemon (separate process group via `detached:true`) survives. LOCKED persistent-daemon model falls out of `detached:true` for free.
+- **(d) Masked key → `~/.kodo/.env` via a new single writer; never crosses into config.json/status/logs.** Add `writeEnvVar`/`writeEnvFile` to `config.js` (atomic tmp+rename, `chmod 0o600`) as the *only* sink for secret values — mirror of `saveConfig`. The env var **name** stays in config.json (already does — `api_key_env`, config.js:198); only the **value** goes to `.env`. A source-hygiene grep test enforces the PERSIST-04 boundary, exactly like the color-isolation / mode-derivation guards.
 
 ---
 
 ## Standard Architecture
 
-### The core decision, mapped to real code
-
-"Una fontanería, tres consumidores" means: a deterministic, 0-token base layer (`createTask` + `adoptSession`) that all three consumers call. The base is the inverse of the launch path that `launchWorkItem` already walks (`src/session/manager.js`): launch goes `getTask → newWorkspace → addSession`; adopt goes `createTask → adoptSession (write state.json)` — same plumbing, reversed direction.
+### System Overview — target state after v0.15
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                           THREE CONSUMERS                                │
-│  ┌────────────────┐   ┌──────────────────────┐   ┌────────────────────┐ │
-│  │ CLI `kodo      │   │ Dashboard keybinding │   │ Orchestrator       │ │
-│  │ adopt` (det.)  │   │ (GATED by cmux spike)│   │ (the only LLM rail)│ │
-│  │ src/cli/adopt  │   │ src/cli/dashboard/   │   │ skill + prompt.md  │ │
-│  │ .js            │   │ adopt.js (TUI action)│   │ shells `kodo adopt`│ │
-│  └───────┬────────┘   └──────────┬───────────┘   └─────────┬──────────┘ │
-│          │  smart title          │ workspace+title         │ smart title │
-│          │  (default)            │ from row                │ from context│
-│          └──────────────┬────────┴─────────────────────────┘            │
-│                         ▼                                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│              THE FONTANERÍA  (deterministic, 0-token)                     │
-│   src/adopt.js  →  adoptSession({ provider, providerName, projectId,     │
-│                                   title, description?, workspaceRef,      │
-│                                   cwd, sessionId? })                      │
-│     1. provider.createTask({...})  →  raw provider payload               │
-│     2. normalize → canonical TaskItem (reuse normalizeWorkItem/Issue)    │
-│     3. addSession(task.id, buildSessionFromAdoption(...))  → state.json   │
-│     returns { ok:true, task, session } | { ok:false, code, detail }      │
-├─────────────────────────────────────────────────────────────────────────┤
-│            OPTIONAL PROVIDER METHOD  (outside the FROZEN 9)               │
-│   provider.createTask({ projectId, title, description })  →  raw payload  │
-│     Plane:  POST /projects/{id}/work-items/  (client.createWorkItem)     │
-│     GitHub: POST /repos/{o}/{r}/issues       (client.createIssue)        │
-│   typeof-detected at the call site — EXACT mirror of getTaskState (Ph40) │
-├─────────────────────────────────────────────────────────────────────────┤
-│   EXISTING, UNTOUCHED:  registry (9-method validate) · client.request    │
-│   POST plumbing · normalize.js · state.json single-writer-of-alive       │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  ENTRYPOINTS (src/cli.js — commander)                                  │
+│  ┌──────────┐  ┌───────────────┐  ┌──────────┐  ┌──────────────────┐  │
+│  │ kodo up  │  │ kodo daemon   │  │ kodo     │  │ kodo start (LEGACY│  │
+│  │ (detach  │  │   run         │  │ stop /   │  │  fg server —      │  │
+│  │  +attach)│  │ (foreground)  │  │ status   │  │  UNCHANGED)       │  │
+│  └────┬─────┘  └──────┬────────┘  └────┬─────┘  └──────────────────┘  │
+│       │  spawn detached│                │                              │
+│       │  ───────────► ─┘  ◄── launchd/brew services invoke directly    │
+├───────┼──────────────────────────────────────────────────────────────┤
+│  DAEMON LIFECYCLE (NEW: src/daemon/)                                   │
+│  ┌────────────────────┐   ┌──────────────────────────────────────┐    │
+│  │ lifecycle.js       │   │ run.js  (the ONE foreground funnel)   │    │
+│  │ startDaemon/stop/  │   │  composes startServer + startPolling  │    │
+│  │ status (generic)   │   │  writes ~/.kodo/kodo.pid, blocks fwd  │    │
+│  └─────────┬──────────┘   └───────────────┬──────────────────────┘    │
+│            │ reuses                        │ composes                  │
+├────────────┼─────────────────────────────┼───────────────────────────┤
+│  EXISTING SUBSYSTEMS (reused, lightly refactored)                     │
+│  ┌───────────────┐  ┌────────────────┐  ┌──────────────────────────┐  │
+│  │ server.js     │  │ triggers/      │  │ cli/polling-daemon.js    │  │
+│  │ startServer → │  │ polling.js     │  │ PID primitives (name-    │  │
+│  │  managed mode │  │ startPolling() │  │  parameterized)          │  │
+│  │ (no exit/pid) │  │ →{stop} handle │  │ + gsd/lock.js isPidAlive │  │
+│  └───────┬───────┘  └────────────────┘  └──────────────────────────┘  │
+├──────────┼─────────────────────────────────────────────────────────────┤
+│  VIEWER (unchanged) ── cli/dashboard/index.js runDashboard()          │
+│    pure HTTP client of GET /status + /health; owns nothing            │
+├──────────────────────────────────────────────────────────────────────┤
+│  STATE / SECRETS (single writers)                                      │
+│  config.json  projects.json  │  .env (0o600, NEW writeEnvVar sink)     │
+│  kodo.pid (daemon)  server.pid (legacy start)  polling.pid (legacy)    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | New / Modified | Real anchor |
-|-----------|----------------|----------------|-------------|
-| `src/adopt.js` (`adoptSession`) | The fontanería: orchestrate createTask → normalize → addSession; never-throws discriminated return | **NEW** | mirrors `manager.launchWorkItem` reversed |
-| `provider.createTask` (Plane + GitHub) | Optional method: POST a new task, return raw payload | **NEW (additive, optional)** | mirror of `getTaskState` Phase 40 |
-| `client.createWorkItem` / `client.createIssue` | Authenticated POST transport | **NEW (one method each)** | mirror of `createComment` / GitHub `addComment` |
-| `buildSessionFromAdoption` | Pure: shape a `Session` record from an adopted task + workspace | **NEW (pure helper)** | mirror of `buildSessionFromTask` (manager.js:32) |
-| `src/cli/adopt.js` + `program.command('adopt')` | Deterministic CLI consumer; explicit `--workspace`/`--cwd`/`--title`/`--project` | **NEW** | mirror of `launch <ref>` registration (cli.js:204) |
-| `src/cli/dashboard/adopt.js` | TUI keybinding consumer; shells `kodo adopt` like focus shells cmux | **NEW (gated by spike)** | mirror of `focus.js` `runFocus` |
-| Orchestrator skill / `prompt.md` | LLM consumer: proposes adoption, derives smart title, shells `kodo adopt` | **MODIFIED (skill prose)** | `.claude/skills/kodo-orchestrate/skill.md` |
-| `registry.getProvider` | 9-method validation — UNCHANGED (createTask is NOT in the loop) | **UNCHANGED** | registry.js:107 |
-| `TASK_PROVIDER_METHODS` | FROZEN at 9 — createTask is NOT added | **UNCHANGED** | interface.js:52 |
+| Component | Responsibility | New/Modified | Reuses |
+|-----------|----------------|--------------|--------|
+| `src/daemon/lifecycle.js` | Generic detach-spawn / stop (SIGTERM+5s+SIGKILL) / status. The "fontanería". | **NEW** | polling.js:212-324 (start), :492-521 (stop), :538-564 (status) as templates |
+| `src/daemon/run.js` | The **single foreground entrypoint**. Composes `startServer` + conditional `startPolling`, writes unified PID, installs signal cleanup, blocks forever. | **NEW** | `runForegroundPolling` polling.js:350-392 as template; `startServer`; `startPolling` |
+| `src/cli/up.js` | `runUp()`: setup-if-first-run → ensure-daemon → wait `/health` → `runDashboard` → exit (daemon persists). | **NEW** | `runDashboard`, lifecycle.js, fetchStatus/health |
+| `src/cli/polling-daemon.js` | PID file primitives, generalized to a `name` param (`~/.kodo/<name>.pid`). | **MODIFIED** (additive) | itself (already atomic + 0o600 + defensive shape) |
+| `src/server.js` `startServer` | Add `managed` mode: no `process.exit` on missing secret, no self-owned PID under the daemon. | **MODIFIED** | itself; PID ownership moves to daemon |
+| `src/config.js` | Add `writeEnvVar`/`writeEnvFile` single writer (atomic, 0o600); export `ENV_PATH`; make `loadEnvFile` re-callable. | **MODIFIED** (additive) | `writeFileAtomic` (config.js:99) |
+| `src/cli/dashboard/` setup mode | CFGF-03 fields (provider/base_url/workspace) + **masked** key input; first-run setup overlay. | **MODIFIED/NEW** | Phase 63/64 in-house text-input + overlay machine |
+| Homebrew formula + `brew services` | `brew install kodo` (depends_on node≥20) + launchd plist via formula `service do { run [bin,"daemon","run"] }`. | **NEW** (tap repo) | `kodo daemon run` foreground entrypoint |
 
 ---
 
-## Recommended Project Structure
+## The reuse map: polling.js → generalized daemon (concrete, file:line)
 
-```
-src/
-├── adopt.js                  # NEW — the fontanería. adoptSession() + buildSessionFromAdoption()
-│                             #       (pure helper). Top-level, sibling of interface.js —
-│                             #       it is provider-agnostic orchestration, not GSD, not a CLI.
-├── interface.js              # UNCHANGED — TASK_PROVIDER_METHODS stays at 9. Add a JSDoc
-│                             #             @typedef note documenting createTask as OPTIONAL
-│                             #             (mirror of the getTaskState doc-comment).
-├── providers/
-│   ├── registry.js           # UNCHANGED — 9-method validate loop untouched.
-│   ├── plane/
-│   │   ├── client.js         # MODIFIED — add createWorkItem(projectId, {name, description_html})
-│   │   ├── provider.js       # MODIFIED — add async createTask({projectId,title,description})
-│   │   └── normalize.js      # UNCHANGED — reuse normalizeWorkItem for the created payload
-│   └── github/
-│       ├── client.js         # MODIFIED — add createIssue(owner, repo, {title, body})
-│       ├── provider.js       # MODIFIED — add async createTask({projectId,title,description})
-│       └── normalize.js      # UNCHANGED — reuse normalizeIssue
-├── session/
-│   ├── state.js              # UNCHANGED (additive read of fields only). adoptSession calls
-│   │                         #            the EXISTING addSession(taskId, session).
-│   ├── manager.js            # UNCHANGED — launchWorkItem untouched; buildSessionFromAdoption
-│   │                         #            lives in adopt.js, not here (different direction).
-│   └── reconcile.js          # UNCHANGED — see "single-writer-of-alive" below.
-├── cli/
-│   └── adopt.js              # NEW — runAdoptCli({ ...flags, deps }). Deterministic.
-└── cli/dashboard/
-    └── adopt.js              # NEW (GATED) — runAdopt({ exec, binary, ...row }). Shells `kodo adopt`.
-                              #               Mirror of focus.js never-throws contract.
-test/
-├── providers/contract.test.js  # MODIFIED — add ONE capability-gated `it()` per the existing
-│                                #            loop (mirror of the getTaskState B8 test).
-├── adopt.test.js               # NEW — fontanería unit tests (DI providers + DI state writers).
-└── cli/dashboard/adopt.test.js # NEW (GATED) — never-throws shell-out tests (mirror focus tests).
-```
+The polling daemon is the **proven, tested, shipped** pattern to generalize. Every piece the v0.15 daemon needs already exists there:
 
-### Structure Rationale
+| Capability | Where it lives today | How v0.15 reuses it |
+|------------|----------------------|---------------------|
+| **Dual-mode funnel** (detach spawns foreground) | `runPollingStartCli` spawns `kodo polling start --no-daemon` (polling.js:283-302), then `child.unref()` (:303) | `up` detach-spawns `kodo daemon run`; launchd calls `kodo daemon run` directly. Same shape, generic command. |
+| **Detach spawn hygiene** | `spawn(process.execPath, [KODO_BIN,...], {detached:true, stdio:['ignore',logFd,logFd], env})` (polling.js:286-302); `resolveKodoBin()` absolute-path, cero PATH lookup (:180-183) | Lift verbatim into `lifecycle.startDaemon`; parameterize argv (`['daemon','run']`) and logfile name. |
+| **PID pre-flight (attach-if-running / idempotency)** | `readPidFile()` + `isPidAlive()` guard, stale cleanup (polling.js:260-268) | Same guard in `up` → if alive, **skip spawn and just attach** (idempotency requirement). |
+| **Bounded wait for readiness** | 2s poll loop on PID file (polling.js:315-323) | daemon: poll PID file; `up` also polls `/health` for HTTP readiness (port bind is later than PID write). |
+| **Foreground long-runner** | `runForegroundPolling`: start loop → `writePidFile` → SIGINT/SIGTERM cleanup (`handle.stop()`+`removePidFile`+`exit 0`) → `await new Promise(()=>{})` block-forever (polling.js:350-392) | `daemon/run.js` is the exact same shape but composes **two** handles (server + polling). |
+| **Stop protocol** | SIGTERM → 5s `isPidAlive` loop → SIGKILL → `removePidFile`; ESRCH→cleanup+0 (polling.js:492-521) | `stopDaemon` verbatim, name-parameterized. |
+| **Status** | `readPidFile` + `isPidAlive` → running\|idle, `--json` byte-deterministic 4 keys (polling.js:538-564) | `statusDaemon` verbatim. |
+| **PID file primitives** | atomic tmp+rename + `chmod 0o600` pre-rename + defensive shape check + lazy `homedir()` path (polling-daemon.js:70-118) | Generalize `getPidPath()` → `getPidPath(name='polling')`; add `kind` to payload. |
+| **Liveness** | `isPidAlive` (`process.kill(pid,0)`, EPERM=alive) (lock.js:67-74) | Shared, unchanged. |
+| **Signal cleanup ordering precedent** | `kodo orchestrate --polling` installs handlers *before* async setup, idempotent `pollingHandle?.stop()` (cli.js:133-200) | Same discipline for the composed daemon: install handlers before `startServer`/`startPolling`. |
 
-- **`src/adopt.js` at top level (sibling of `interface.js`/`labels.js`), NOT under `src/gsd/`:** The flow is provider-agnostic and has nothing to do with GSD phases. Placing it in `src/gsd/` would falsely couple it to the GSD rail. It is the inverse of `manager.launchWorkItem`, which lives in `src/session/`. Two valid homes: `src/adopt.js` (top-level) or `src/session/adopt.js`. **Recommendation: `src/adopt.js`** — `manager.js` is large and launch-specific; a sibling module keeps the reverse path independently testable and avoids growing manager.js further (Karpathy rule 2/3). It imports `addSession` from `session/state.js` and `getProvider` from `providers/registry.js` exactly as `manager.js` does.
-- **`buildSessionFromAdoption` lives in `adopt.js`, not `manager.js`:** It is a *different* shape derivation (no `task_ref` parse from a human ref, no `flags`/`gsd_mode`, an adopted session is never GSD at adoption time). Co-locating it with the fontanería keeps the single responsibility clean.
-- **CLI and dashboard consumers are thin:** They parse input and call the fontanería (CLI) or shell `kodo adopt` (dashboard). Neither owns state.json logic. This is the explicit "consumers never own the base" constraint.
+**Refactor risk grade:** generalizing the **leaf primitives** (PID path name param, `isPidAlive`) and writing a **new** `lifecycle.js`/`run.js` alongside polling.js is LOW risk. **Migrating polling.js itself** to consume the new lifecycle is a nice-to-have that touches a shipped/tested subsystem — defer or make it a separate low-priority phase. Recommended: `up` gets a fresh `lifecycle.js` modeled on polling.js; share only PID primitives + `isPidAlive`; leave polling.js running as-is.
 
 ---
 
 ## Architectural Patterns
 
-### Pattern 1: Optional provider method via typeof-detection (the FROZEN-at-9 contract)
+### Pattern 1: One daemon process, composed handles (NOT child supervision)
 
-**What:** `createTask` is added to each provider object literal but is NOT pushed into `TASK_PROVIDER_METHODS`. Callers gate with `typeof provider.createTask === 'function'`. This is the *exact* mechanism that added `getTaskState` in Phase 40 — verified in `provider.js:235-263` (the doc-comment literally says "OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13)").
+**What:** `daemon/run.js` calls `startServer(managed)` → server handle, and (if provider needs polling) `startPolling()` → `{stop}` handle, in the same process. One PID file. One SIGTERM tears down both.
+**When:** always, for `up`/`daemon run`/`brew services`.
+**Trade-offs:** (+) one liveness check, one stop, launchd-friendly, no cross-process races, mutex already implicit (per-repo lock GSD-10; reconcile loop is the single `state.json` writer, server.js:589-610). (−) a crash in one subsystem takes the whole daemon — acceptable for a personal tool and *desirable* under launchd `KeepAlive` (it just restarts).
+**Precedent:** `kodo orchestrate --polling` already runs polling in-process with the orchestrator and returns a `{stop}` handle (cli.js:156-159).
 
-**When to use:** Any capability not universal to all providers. The 9-method registry validation loop (`registry.js:107-111`) stays untouched, so the contract remains FROZEN at 9 and a provider without `createTask` still validates.
-
-**Trade-offs:** Caller must handle the unsupported case (a provider could lack `createTask`). That is desirable — it makes "which providers can be adopted into" a runtime capability, not a contract break.
-
-```javascript
-// In adopt.js — the capability gate (mirror of server/provider-state.js Phase 40)
-if (typeof provider.createTask !== 'function') {
-  return { ok: false, code: 'CREATE_UNSUPPORTED', detail: providerName };
-}
-const raw = await provider.createTask({ projectId, title, description });
-```
-
-```javascript
-// In plane/provider.js — additive method on the object literal, AFTER getTaskState.
-// Reuses normalizeWorkItem so the created task round-trips into a canonical TaskItem.
-async createTask({ projectId, title, description }) {
-  const html = description ? '<p>' + description.replace(/\n/g, '<br>') + '</p>' : '';
-  const workItem = await client.createWorkItem(projectId, { name: title, description_html: html });
-  const proj = config.projects.find((p) => p.id === projectId);
-  return normalizeWorkItem(workItem, {
-    labels: labelCache,
-    projectIdentifier: proj?.identifier || 'UNKNOWN',
-    baseUrl: config.baseUrl, webUrl: config.webUrl,
-    workspaceSlug: config.workspaceSlug, stateMap: stateCache,
-  });
+```js
+// src/daemon/run.js (sketch)
+export async function runDaemon() {
+  installSignalHandlersFirst();                 // before async — orchestrate.js precedent
+  const server = await startServer({ managed: true }); // no process.exit, no self-PID
+  const polling = providerUsesPolling(config)          // github → yes, plane(webhook) → no
+    ? startPolling({ provider, repos, intervalSec, logger })
+    : null;
+  writePidFile('kodo', { pid: process.pid, started_at: nowISO(), kind: 'daemon' });
+  const cleanup = () => { try{polling?.stop()}catch{}; try{server.close()}catch{}; removePidFile('kodo'); process.exit(0); };
+  process.on('SIGTERM', cleanup); process.on('SIGINT', cleanup);
+  await new Promise(() => {}); // block forever
 }
 ```
 
-### Pattern 2: Never-throws discriminated return (the fontanería's contract)
+### Pattern 2: Detach path spawns the foreground path (dual-mode)
 
-**What:** `adoptSession` returns `{ ok:true, task, session } | { ok:false, code, detail }` and never throws. This is the codebase's universal seam contract: `focus.js` (`{ok:false, code:'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR'}`), `client.js#fetchStatus` (`{ok:false, error}`), `markSessionStatus` (`{ok, reason}`), `server/dismiss.js`. All three consumers map the discriminant to their own surface (CLI exit code, TUI footer, orchestrator prose).
+**What:** `up` (detached) re-invokes `kodo daemon run` (foreground) as a detached, unref'd child; launchd/brew invoke `kodo daemon run` in foreground with `RunAtLoad`+`KeepAlive`. Both funnel through the same foreground code.
+**When:** `up` on macOS/Linux → detach; launchd/brew → foreground; Windows `up` → foreground fallback (documented constraint, no background).
+**Trade-offs:** (+) zero duplicate lifecycle logic; launchd correctly tracks the process (no double-fork). (−) `up` must poll for readiness because the spawned child binds the port asynchronously.
+**Precedent:** verbatim the polling.js self-spawn (`kodo polling start` → `kodo polling start --no-daemon`, polling.js:286-302).
 
-**When to use:** Always for the base — a CLI must exit cleanly, a TUI must never crash React, the orchestrator must read a structured result. A thrown error in the base would force every consumer to wrap try/catch differently.
+### Pattern 3: Dashboard as detach-safe pure viewer
 
-**Trade-offs:** The POST itself (network) can fail; the base catches and collapses to `{ok:false, code:'CREATE_FAILED', detail}`. Distinguish create-failure (task NOT created) from adopt-failure (task created but state write failed) — see Pitfall on partial failure.
+**What:** `runDashboard` is unchanged. `up` calls it after the daemon is healthy; when it returns, `up` exits, daemon persists.
+**When:** the attach half of `up`.
+**Trade-offs:** (+) the persistent-daemon LOCKED requirement is satisfied *for free* by `detached:true` — Ctrl-C in the terminal that ran `up` never reaches the daemon's separate process group. `up` must **not** register handlers that kill the daemon. (−) none material.
+**Key invariant:** `up` owns the dashboard lifecycle only; it must never signal `kodo.pid`. Stopping the daemon is exclusively `kodo stop`.
 
-```javascript
-export async function adoptSession({ provider, providerName, projectId, title, description,
-                                     workspaceRef, cwd, sessionId, addSessionFn = addSession }) {
-  if (typeof provider.createTask !== 'function')
-    return { ok: false, code: 'CREATE_UNSUPPORTED', detail: providerName };
-  let task;
-  try { task = await provider.createTask({ projectId, title, description }); }
-  catch (err) { return { ok: false, code: 'CREATE_FAILED', detail: err.message }; }
-  const session = buildSessionFromAdoption({ task, providerName, cwd, workspaceRef, sessionId });
-  try { addSessionFn(task.id, session); }
-  catch (err) { return { ok: false, code: 'ADOPT_FAILED', detail: err.message, task }; } // task EXISTS
-  return { ok: true, task, session };
+### Pattern 4: Secrets single-writer + PERSIST-04 boundary guard
+
+**What:** `writeEnvVar(name, value)` in config.js is the *only* place a secret value is written, to `~/.kodo/.env`, atomic + `chmod 0o600`. The dashboard masked-input calls an `onSaveApiKey` DI handler (mirror of `onSaveConfig`, dashboard/index.js:275-282). The value never enters the React snapshot, config.json, `/status`, or logs.
+**When:** CFGF-03 masked-key entry.
+**Trade-offs:** (+) one auditable sink; boundary enforceable by grep test. (−) `.env` is read only at import (`loadEnvFile`, config.js:30) → key change needs a daemon restart (honest "restart" notice, reuse v0.14 pattern; or first-run captures key *before* `up` starts the daemon so it loads fresh).
+
+```js
+// src/config.js (additive — mirror saveConfig)
+export function writeEnvVar(name, value) {
+  ensureDir();
+  const map = readEnvMap();                 // parse existing ~/.kodo/.env
+  map[name] = value;
+  const body = Object.entries(map).map(([k,v]) => `${k}=${v}`).join('\n') + '\n';
+  writeFileAtomic(ENV_PATH, body);          // tmp+rename (config.js:99)
+  chmodSync(ENV_PATH, 0o600);               // owner-only, like the PID file
 }
 ```
 
-### Pattern 3: Consumer shells the deterministic core (the dashboard rail)
-
-**What:** The dashboard keybinding does NOT call `adoptSession` in-process and does NOT add an HTTP endpoint. It `execFile`s `kodo adopt --workspace <ref> --cwd <path> --title <derived> --project <id>` exactly as `focus.js` shells `cmux select-workspace`. This preserves the "cero endpoints nuevos desde v0.10" invariant.
-
-**When to use:** When a TUI action needs to run deterministic logic that already exists as a CLI. The TUI process is the dashboard *client*; the server is the single writer of state.json. Shelling `kodo adopt` (a fresh process that writes state.json directly) avoids both a new endpoint AND a write from the dashboard client process.
-
-**Trade-offs:** A subprocess per adoption (acceptable — adoption is a rare, operator-initiated action, not a poll). The never-throws shell wrapper (`runAdopt`, mirror of `runFocus`) collapses ENOENT/non-zero-exit into a footer message.
-
-```javascript
-// src/cli/dashboard/adopt.js — mirror of focus.js runFocus
-export function runAdopt({ exec, binary, args, timeoutMs = 15_000 }) {
-  // args = ['adopt', '--workspace', ref, '--cwd', cwd, '--title', title, '--project', id]
-  // never-throws: { ok:true } | { ok:false, code, detail }  ← identical shape to FocusResult
-}
-```
-
-### Pattern 4: Orchestrator as consumer, never owner (the LLM rail)
-
-**What:** The orchestrator is the *only* LLM consumer. Its added value is deriving a **smart title** from real session context (cwd, recent commits, transcript) instead of `basename(workspace)`. But it produces the title and then shells the SAME `kodo adopt` CLI — it does NOT re-implement createTask/adoptSession. The skill prose instructs the LLM to call `kodo adopt --title "<derived>" ...`, keeping the deterministic base as the single rail that writes state.json.
-
-**When to use:** The orchestrator already shells kodo CLIs (`kodo gsd verify`, etc.) per the skill. Adoption is one more CLI invocation. The 0-token constraint is preserved because the base (createTask + adoptSession) consumes 0 tokens; only the title derivation (already inside an LLM session) uses tokens, and that is the orchestrator's existing rail.
-
-**Trade-offs:** None structurally — this is the cleanest way to keep "only the orchestrator uses LLM." The risk is prose drift; mitigate by making the skill point at `kodo adopt --help` as the source of truth.
+**Masked rendering rule:** the field starts empty; typing renders `•` per char; the editor probes `getProviderApiKey(provider)` → boolean "set / not set" for display, and **never** reads the value back. Add a source-hygiene test (walker/grep, mirror `test/format-isolation.test.js`) asserting no write of key values into config.json / status / logs and that `writeEnvVar` is the sole `.env` writer.
 
 ---
 
 ## Data Flow
 
-### Adopt flow (the reverse of launch)
-
+### `kodo up` (normal run, daemon not yet up)
 ```
-[Operator / Orchestrator decides to adopt an ad-hoc session]
-        ↓
-[title derived]   CLI: basename(cwd) default (deterministic)
-                  Orchestrator: smart title from cwd/commits/transcript (LLM)
-        ↓
-kodo adopt --workspace <ref> --cwd <path> --title <t> --project <id> [--description <d>]
-        ↓
-src/cli/adopt.js  →  initRegistry() + getProvider(config.provider)
-        ↓
-src/adopt.js  adoptSession({ provider, providerName, projectId, title, ... })
-        ↓ capability gate: typeof provider.createTask === 'function'
-        ↓
-provider.createTask({ projectId, title, description })
-        ↓
-client.createWorkItem / createIssue   →  POST (auth plumbing already exists)
-        ↓
-normalizeWorkItem / normalizeIssue    →  canonical TaskItem  (round-trip)
-        ↓
-buildSessionFromAdoption(task, providerName, cwd, workspaceRef, sessionId)
-        ↓
-addSession(task.id, session)          →  state.json  (EXISTING writer)
-        ↓
-{ ok:true, task, session }  →  CLI prints ref+url / TUI footer / orchestrator prose
+kodo up
+ └─ ensureConfigured()?  ── no ──► dashboard SETUP mode (CFGF-03) ──► writeEnvVar + saveConfig ──┐
+        │ yes                                                                                    │
+        ▼ ◄──────────────────────────────────────────────────────────────────────────────────── ┘
+ lifecycle.startDaemon('kodo'):
+   readPidFile('kodo') & isPidAlive?  ── yes ──► skip spawn (idempotent attach)
+        │ no
+        ▼
+   spawn detached [node, kodo, daemon, run] ─► child.unref()
+        │
+        ▼  daemon: startServer(managed)+startPolling ─► writePidFile('kodo') ─► listen(port)
+   poll /health until 200 (bounded)
+        ▼
+ runDashboard({ url })   ── polls GET /status every 5s (existing) ──►
+        │ user quits (q / Ctrl-C / SIGTERM)
+        ▼
+ up exits.   Daemon keeps running (detached, own PID file).   ← LOCKED persistent model
 ```
 
-### Comparison: launch (existing) vs adopt (new)
-
+### `kodo stop` / `status` (unified)
 ```
-LAUNCH (manager.launchWorkItem):     ADOPT (adopt.adoptSession):
-  provider.getTask(ref)         →       provider.createTask({...})     ← inverse
-  host.newWorkspace(...)        →       (workspace ALREADY exists)     ← skipped
-  buildSessionFromTask(...)     →       buildSessionFromAdoption(...)  ← mirror
-  addSession(task.id, session)  →       addSession(task.id, session)   ← SAME writer
-  host.send(claudeCmd)          →       (session ALREADY running)      ← skipped
+kodo stop   → lifecycle.stopDaemon('kodo') → SIGTERM kodo.pid → 5s isPidAlive → SIGKILL → rm pid
+              (daemon cleanup() stops server+polling)
+kodo status → lifecycle.statusDaemon('kodo') → readPidFile+isPidAlive → running|idle (+ port/health)
 ```
 
-The adopt path is strictly *smaller* than launch: it reuses `addSession`, skips workspace creation and the claude spawn (both already done by the operator ad-hoc), and replaces `getTask` with `createTask`.
-
-### state.json fields written by adoptSession (and the collision question)
-
-`buildSessionFromAdoption` produces a `Session` (typedef in `state.js:11-37`). Recommended fields:
-
-| Field | Value | Why |
-|-------|-------|-----|
-| `task_id` | `task.id` (newly created) | the new persistent identity; the state.json key |
-| `task_ref` | `task.ref` | from the created+normalized TaskItem |
-| `provider` / `project_id` | `config.provider` / `projectId` | provenance |
-| `summary` | `task.title` | the derived/edited title |
-| `task_url` / `project_name` | `task.url` / `task.projectName` | so dashboard `o`/columns work immediately |
-| `workspace_ref` | the ad-hoc cmux ref | so reconcile can match the live tab |
-| `session_id` | the ad-hoc claude `--session-id` if known, else `''`/omit | drives `isSessionProcessAlive` pgrep |
-| `project_path` | `cwd` | reconcile cwd-match + resolvers |
-| `started_at` | `new Date().toISOString()` | adoption time |
-| `status` | `'running'` | it IS a live session |
-| `state` (v3) | `'running'` | so reconcile/dashboard treat it as alive |
-| `process_alive` | `true` | matches a live ad-hoc claude |
-| `gsd` / `gsd_mode` / `phase_id` | OMITTED | adopted sessions are never GSD at adoption |
-
-**Critical: the `session_id` field is what makes reconcile work.** `runReconcileTick` derives `process_alive` via `isSessionProcessAlive(session_id)` = `pgrep -f "session-id <id>"` (reconcile.js:280-290). If the spike can recover the ad-hoc session's `--session-id`, write it and reconcile tracks liveness natively. If it CANNOT (the operator launched plain `claude` without `--session-id`), reconcile falls back to `!!s.process_alive` (reconcile.js:338) — so seed `process_alive:true` and rely on the `tab_alive`/`workspace_ref` title-match path. **This is the single most important field for the spike to investigate** (see HARD GATE).
-
----
-
-## Single-writer-of-alive: why adoptSession does NOT collide with reconcileTick
-
-This is the load-bearing invariant. The constraint reads "reconcileTick is the single writer of `alive`." Read literally against the code (reconcile.js + state.js), here is why a one-shot `adoptSession → addSession` write is safe:
-
-1. **`reconcileTick` is the single writer of the LIFECYCLE TRANSITION**, not the single writer of the state.json file. `addSession`, `updateSession`, `removeSession`, and `dismiss`→`doctor.execute` all write state.json today. `adoptSession` calling `addSession` is the same class of write as `launchWorkItem` calling `addSession` (manager.js:272) — and launch already does this on EVERY new session without colliding with reconcile.
-2. **Adoption seeds the initial record; reconcile then OWNS subsequent `alive` transitions.** This is identical to launch: `buildSessionFromTask` writes `status:'running'` pre-spawn, and from then on `reconcileTick` drives `running→idle→dead`. Adoption writes the same seed shape, and reconcile picks it up on the next 2.5s tick exactly as it does a launched session.
-3. **No write race in practice.** `reconcileTick` only *transitions* sessions it finds in `state.sessions`. If adoption's `addSession` lands between two ticks, the next tick simply sees a new session and derives its target from the live host (reconcile.js:138). If it lands mid-tick, `reconcileTick` operates on its own `loadState()` snapshot (reconcile.js:327) and the worst case is the new session is picked up one tick later — benign, identical to launch.
-
-**Recommendation:** adoptSession writes the seed via the existing `addSession` and sets `state:'running'`, `process_alive:true`, `alive:true`. It must NOT write `dead_since`/`last_seen_alive` (those are reconcile-owned). Do NOT add a new state.json writer — reuse `addSession` verbatim. This keeps the invariant: reconcile remains the only thing that *transitions* `alive`; adoption only *seeds* a new row, exactly like launch.
-
----
-
-## Idempotency: avoiding double-adopt
-
-Two double-adopt risks, both real:
-
-1. **Double-create (two POSTs → two provider tasks):** The CLI is deterministic and synchronous; a human double-pressing the dashboard key or the orchestrator proposing twice could fire two adoptions. **Mitigation:** before `createTask`, check `findSession({ workspaceRef, cwd })` (state.js:341 — already scans sessions AND history). If a session already exists for this workspace/cwd, return `{ ok:false, code:'ALREADY_ADOPTED', detail: existing.task_id }` BEFORE the POST. This is a pure read, 0-token, and reuses the existing `findSession`.
-2. **Create-succeeded-but-adopt-failed (orphan provider task):** If `createTask` succeeds but `addSession` throws, the provider has a task with no state.json row. Return `{ ok:false, code:'ADOPT_FAILED', task }` so the caller can surface "task created (KL-99) but not registered locally — re-run `kodo adopt --existing KL-99`." Do NOT auto-delete the task (Out of Scope: "kodo no crea ni elimina tareas" — we are consciously adding *create*, not *delete*).
-
-The dashboard double-press guard mirrors the dismiss double-`d`/`Esc` confirm pattern (Phase 42) at the UI layer, plus the `findSession` guard at the base layer — defense in two layers, same philosophy as the 3-layer `alive` guard in dismiss.
-
----
-
-## Scaling Considerations
-
-| Scale | Architecture Adjustments |
-|-------|--------------------------|
-| Personal tool (current) | None. Adoption is a rare, operator-initiated, single-shot action. No batching, no queue, no daemon. |
-| Many ad-hoc sessions/day | The dashboard "list ad-hoc sessions" view (gated by spike) may need to dedup against state.json by workspace_ref — already cheap via `findSession`. |
-| Multiple providers configured | `createTask` capability gate already handles "this provider can't be adopted into" gracefully. Start with ONE provider (Plane, per the backlog "Empezar por un solo provider"). |
-
-### Scaling Priorities
-
-1. **First bottleneck (none real):** This is not a hot path. The only "scale" concern is the spike's cmux-detection cost if the dashboard lists ALL ad-hoc sessions on every poll — defer that enumeration to keypress, not poll.
-2. **Provider breadth:** Adding `createTask` to a third provider is the same additive pattern; no base change.
-
----
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Adding `createTask` to `TASK_PROVIDER_METHODS`
-
-**What people do:** "It's a provider method, so add it to the frozen list."
-**Why it's wrong:** It breaks the FROZEN-at-9 contract and forces EVERY provider (and the registry validation loop at registry.js:107) to implement it. Phase 40 already established the correct precedent: optional methods live OUTSIDE the array, typeof-detected.
-**Do this instead:** Add `createTask` to the provider object literal only; gate callers with `typeof`. Add ONE capability-gated `it()` to `contract.test.js` (mirror of the B8 `getTaskState` test at contract.test.js:498 — `if (typeof provider.createTask !== 'function') return;`).
-
-### Anti-Pattern 2: A new HTTP endpoint for adoption (e.g. `POST /sessions`)
-
-**What people do:** Mirror the dismiss `DELETE /sessions/{id}` and add `POST /sessions` for adoption.
-**Why it's wrong:** Breaks "cero endpoints nuevos desde v0.10" — a standing invariant. Dismiss needed the server because it amplifies into `doctor.execute` server-side; adoption has no such server-side amplification. The deterministic write can happen in a fresh `kodo adopt` process.
-**Do this instead:** Dashboard shells `kodo adopt` (Pattern 3). The CLI process writes state.json directly. No endpoint.
-
-### Anti-Pattern 3: The orchestrator re-implementing the fontanería
-
-**What people do:** Give the orchestrator skill its own create+register logic so it can "do it all in one LLM turn."
-**Why it's wrong:** Creates a parallel rail that can drift from the deterministic base, and risks the LLM rail touching state.json semantics. Violates "consumers never own the base."
-**Do this instead:** The orchestrator derives ONLY the smart title (its unique value), then shells `kodo adopt --title "<derived>" ...`. Same base, single rail.
-
-### Anti-Pattern 4: The dashboard client writing state.json directly
-
-**What people do:** Have the ink TUI call `addSession` in-process on keypress.
-**Why it's wrong:** The dashboard is a read-mostly client; the server process owns reconcile's writes. An in-process write from the client races reconcile and duplicates the writer surface. (The dismiss precedent deliberately went through the *server*, not the client, for exactly this reason.)
-**Do this instead:** Shell `kodo adopt` — a separate short-lived process — keeping the dashboard client read-only except for the shell-out.
-
-### Anti-Pattern 5: Putting `adopt.js` under `src/gsd/`
-
-**What people do:** "It writes state.json like the GSD stuff, put it in gsd/."
-**Why it's wrong:** Adoption is provider-agnostic and GSD-unaware (adopted sessions are never GSD). `src/gsd/` is the GSD rail (resolver, verify, doctor, brief). Coupling them is a false dependency.
-**Do this instead:** `src/adopt.js` at top level, sibling of `interface.js`/`labels.js`/`manager.js`'s domain.
-
----
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| Plane API | `client.createWorkItem(projectId, {name, description_html})` → `POST /projects/{id}/work-items/` via existing `request()` (client.js:23, method:'POST') | Auth (`X-API-Key`), retry, rate-limit already handled by `request`. Mirror `createComment` (client.js:175). Plane wants `description_html` (HTML, like comments). |
-| GitHub API | `client.createIssue(owner, repo, {title, body})` → `POST /repos/{o}/{r}/issues` via existing `request()` (client.js:106) | Auth (`token`), error mapping already handled. Mirror `addComment` (client.js:293). GitHub wants markdown `body`. Defer to a later phase per backlog ("Empezar por un solo provider" = Plane first). |
-| cmux | Read-only for the spike: does cmux expose per-workspace process/cwd so a `claude` absent from state.json can be detected? Via `host._legacy.listWorkspaces` (already used) + possibly OS-level `pgrep`/`lsof`. | **HARD GATE.** The verdict governs whether the dashboard keybinding "discover + list ad-hoc sessions" is viable. CLI `kodo adopt` does NOT depend on this (it takes `--workspace`/`--cwd` explicitly). |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `adopt.js ↔ registry.js` | `getProvider(config.provider)` (direct import, like manager.js:174) | No change to registry. |
-| `adopt.js ↔ provider.createTask` | `typeof`-gated direct call | Optional-method boundary; contract stays FROZEN at 9. |
-| `adopt.js ↔ state.js` | `addSession(task.id, session)` (existing writer) | NO new writer. Seeds row; reconcile owns transitions. |
-| `cli/adopt.js ↔ adopt.js` | in-process call, maps discriminant → exit code | Deterministic, 0-token. |
-| `dashboard/adopt.js ↔ cli` | `execFile('kodo', ['adopt', ...])` never-throws (mirror focus.js) | No endpoint. Gated by spike. |
-| orchestrator skill ↔ cli | shells `kodo adopt --title <smart> ...` | LLM derives title only; base unchanged. |
-
----
-
-## Suggested Build Order (honors the spike HARD GATE + fontanería-first layering)
-
-The ordering enforces two things: (a) the deterministic base ships before any consumer, and (b) the dashboard keybinding is GATED behind the cmux-detection spike — exactly mirroring how Phase 49's spike gated the Phase 50 progress display in v0.12.
-
+### `brew services start kodo`
 ```
-Phase 52  ── createTask (Plane only) + contract matrix
-            │  • client.createWorkItem (POST) — mirror createComment
-            │  • provider.createTask (typeof-detected, OUTSIDE the 9) — mirror getTaskState
-            │  • ONE capability-gated it() in contract.test.js — mirror B8
-            │  • FROZEN-at-9 invariant verified (registry loop untouched)
-            ▼
-Phase 53  ── The fontanería: src/adopt.js (adoptSession + buildSessionFromAdoption)
-            │  • never-throws discriminated return
-            │  • findSession double-adopt guard
-            │  • addSession seed write (state:'running', process_alive:true) — NO new writer
-            │  • unit tests with DI providers + DI state writer
-            ▼
-Phase 54  ── CLI consumer: kodo adopt (deterministic, ships sí o sí)
-            │  • program.command('adopt') — mirror launch <ref> registration
-            │  • --workspace/--cwd/--title(default basename)/--project/--description
-            │  • discriminant → deterministic exit codes (mirror gsd verify)
-            │  • NO dependency on the spike — explicit workspace/cwd
-            ▼
-Phase 55  ── ★ SPIKE (HARD GATE): cmux per-workspace process/cwd detection
-            │  • Can we recover an ad-hoc session's --session-id / cwd / workspace_ref?
-            │  • Verdict VIABLE/NON-VIABLE governs Phase 56 (mirror Phase 49→50)
-            ▼ (only if VIABLE)
-Phase 56  ── Dashboard keybinding consumer (GATED)
-            │  • src/cli/dashboard/adopt.js — shells kodo adopt (mirror focus.js)
-            │  • discover/list ad-hoc sessions absent from state.json
-            │  • cero endpoints nuevos preserved
-            ▼ (parallelizable with 56, independent of the gate)
-Phase 57  ── Orchestrator consumer: assisted adoption
-            │  • skill prose: derive smart title from cwd/commits/transcript
-            │  • shells the SAME kodo adopt — consumer not owner
-            ▼
-(separate)  Inherited v0.12 debt: XSS WR-01 (http(s) allowlist in src/server.js HTML rail)
-            + deferred HUMAN-UAT of the 50.1 progress display. Schedulable anywhere;
-            independent of the adopt flow.
+launchd loads plist (RunAtLoad, KeepAlive) → exec [node, kodo, daemon, run] (FOREGROUND)
+   daemon run: startServer+startPolling, writePidFile('kodo'), block-forever
+   stdout/stderr → ~/.kodo/logs/  (launchd redirect)
+   crash → launchd KeepAlive restarts
 ```
 
-**Why this order:**
-- **createTask before the fontanería:** the fontanería calls `provider.createTask`; building it first lets `adopt.js` be tested against a real (typeof-detected) method and locks the FROZEN-at-9 invariant early.
-- **fontanería before all consumers:** the explicit "consumers reuse the base, never own it" constraint. CLI/dashboard/orchestrator all depend on `adoptSession` existing.
-- **CLI before the spike:** `kodo adopt` ships unconditionally (backlog: "ships sí o sí"), takes explicit `--workspace`/`--cwd`, and is the thing the dashboard and orchestrator shell. It must exist before its shell-out consumers.
-- **Spike as a HARD GATE before the dashboard keybinding:** identical to Phase 49 gating Phase 50. If cmux can't expose per-workspace process/cwd, the "auto-discover ad-hoc sessions" dashboard feature is non-viable, but the CLI and orchestrator paths (which take explicit input) still ship.
-- **Orchestrator last (or parallel with dashboard):** it only adds smart-title derivation atop the already-shipped `kodo adopt`; it has no hard dependency on the spike.
+### Secret write (CFGF-03)
+```
+dashboard masked input → onSaveApiKey(name,value) DI → config.js writeEnvVar → ~/.kodo/.env (0o600)
+   value NEVER → config.json / snapshot / /status / logs   (PERSIST-04, grep-guarded)
+   effect on next daemon (re)start: loadEnvFile → process.env → getProviderApiKey
+```
 
 ---
+
+## Anti-Patterns to Avoid
+
+| Anti-pattern | Why bad | Instead |
+|--------------|---------|---------|
+| Spawn server & polling as **separate** PID-tracked children | Becomes a generic process manager (OUT of scope); double-fork breaks launchd/`brew services` supervision; two liveness checks + startup races | One composed daemon process, one PID file |
+| `daemon run` self-detaches | launchd/brew need a foreground process to supervise; a self-detaching service exits immediately and launchd flaps | Only `up` detaches; `daemon run` stays foreground |
+| `up` installs SIGINT/SIGTERM that signals the daemon | Would kill the daemon on dashboard quit — violates LOCKED persistent model | `up` owns only the dashboard; `detached:true` isolates the daemon's process group |
+| Reuse `startServer`'s `process.exit(1)` (server.js:407) under the daemon | Kills the whole daemon on a recoverable config gap; unfriendly under launchd | `managed` mode: throw/return a typed error, let `up`/launchd decide |
+| Two writers for the unified PID file | server.js writes `server.pid` (plain int, server.js:581) *and* daemon writes `kodo.pid` → drift | Under daemon, server does NOT write a PID; daemon owns `kodo.pid` (JSON shape) |
+| Overload `kodo install` (= Claude hooks) or `kodo start` (= fg server) | Breaks documented meaning; `start` is LOCKED-intact | `up` and `daemon run` are **new** commands |
+| Masked value read back into the render tree / config snapshot | Leaks secret to `/status`/logs (PERSIST-04 breach) | Value flows only to `writeEnvVar`; display is a "set/not set" probe |
+| Write `.env` non-atomically or world-readable | Torn write corrupts creds; 0o644 leaks secrets | `writeFileAtomic` + `chmod 0o600` (PID-file precedent) |
+
+---
+
+## Integration Points (explicit new-vs-modified)
+
+**NEW modules**
+- `src/daemon/lifecycle.js` — `startDaemon`/`stopDaemon`/`statusDaemon` (generic; templated on polling.js).
+- `src/daemon/run.js` — composed foreground entrypoint (`runDaemon`).
+- `src/cli/up.js` — `runUp()` orchestration (setup → ensure-daemon → wait-health → runDashboard → exit).
+- Homebrew tap: `Formula/kodo.rb` (`depends_on "node"` ≥20, `service do { run [bin, "daemon", "run"]; keep_alive true; log_path/error_log_path → ~/.kodo/logs }`).
+- Dashboard setup surface: CFGF-03 fields + masked input (extends Phase 63 in-house text-input to render `•`).
+
+**MODIFIED files**
+- `src/cli.js` — register `up`, `daemon run` (internal/hidden), unify `stop`/`status` onto the daemon (keep legacy `start` foreground server intact; decide whether `polling`/`server.pid` paths stay or deprecate — flag for roadmapper).
+- `src/server.js` — `startServer({managed})`: skip `process.exit` (server.js:405-408) and skip `writeFileSync(PID_PATH,...)` (server.js:581) when managed; return a closable handle; keep standalone `start`/`stopServer` behavior for legacy.
+- `src/config.js` — add `writeEnvVar`/`writeEnvFile` (atomic+0o600), export `ENV_PATH`, make `loadEnvFile` idempotently re-callable.
+- `src/cli/polling-daemon.js` — `getPidPath(name='polling')`; payload gains `kind`; keep `getPidPath()` back-compat.
+- `src/cli/dashboard/index.js` + `App.js` — add `onSaveApiKey` DI prop (mirror `onSaveConfig` :275-282) + setup-mode entry; wire first-run.
+
+**Data-flow changes**
+- New `~/.kodo/kodo.pid` (JSON) for the daemon; `server.pid`/`polling.pid` remain for legacy commands.
+- New secret write path (dashboard → `writeEnvVar` → `.env`), read path unchanged.
+- `up` adds a `/health` readiness poll between spawn and attach.
+
+---
+
+## Recommended build order (risk-graded — Pilar 1 before Pilar 2)
+
+**Pilar 1 — lifecycle + entrypoint + brew (shippable core)**
+1. **Foundation (LOW):** generalize PID primitives (`name` param) + extract `src/daemon/lifecycle.js` from polling.js. Pure, unit-testable, zero behavior change to polling. *Dependency: none.*
+2. **Foreground daemon (MEDIUM — highest integration risk):** `src/daemon/run.js` + `kodo daemon run` + refactor `startServer` to `managed` mode (no `process.exit`, no self-PID). Do this **early** so everything else builds on a stable server. Verify standalone `kodo start` unchanged. *Depends on 1.*
+3. **`kodo up` + unified `stop`/`status` (MEDIUM):** detach-spawn, idempotent attach, `/health` wait, `runDashboard` viewer, clean detach-on-quit. *Depends on 2.*
+4. **Homebrew + `brew services` + Windows fallback (LOW-MEDIUM):** formula + launchd plist via `service do run [bin,"daemon","run"]`; Windows `up` → foreground. *Depends on 2/3 being stable.*
+
+**Pilar 2 — onboarding dashboard-first (depends on all of Pilar 1)**
+5. **Secrets writer + masked input + boundary guard (LOW-MEDIUM):** `writeEnvVar` single writer, masked text-input, PERSIST-04 source-hygiene test. *Depends on Phase 63 text-input.*
+6. **CFGF-03 editor + first-run setup mode (MEDIUM):** provider/base_url/workspace + masked key in dashboard; wire first-run detection into `up`. *Depends on 3 (`up`) + 5.*
+
+Rationale: 1 is pure foundation; 2 carries the only real integration risk (server.js refactor) so it goes early; 3→4 are orchestration/packaging on top; Pilar 2 needs `up` to exist (first-run wiring) so it strictly follows Pilar 1 — matching the requested "Pilar 1 lifecycle+brew before Pilar 2 onboarding."
+
+---
+
+## Open questions for the roadmapper
+
+- **`kodo stop`/`status` unification vs legacy `polling`/`server.pid`.** Does v0.15 deprecate the standalone `polling start` daemon and `stopServer`, or keep them alongside the unified daemon? (LOCKED: `kodo start` foreground server stays.) Recommend: keep legacy commands, add the unified daemon as the primary path; revisit deprecation later.
+- **Does the daemon always run polling, or only when provider=github?** Plane uses webhook (server ingress); github uses polling. Recommend conditional `startPolling` gated on `providerUsesPolling(config)`. Confirm plane users don't want polling too.
+- **Homebrew tap location** — separate `homebrew-kodo` tap repo vs core. `brew services` needs the `service do` block in the formula; confirm tap ownership.
+- **First-run "configured?" signal** — reuse `ensureConfig`'s `!existsSync(CONFIG_PATH)` (cli.js:538) *plus* a "provider API key set?" probe (`getProviderApiKey`) so setup mode also triggers when config exists but the key is missing.
 
 ## Sources
 
-- `src/interface.js` — TASK_PROVIDER_METHODS FROZEN at 9; TaskItem typedef (read 2026-06-15, HIGH)
-- `src/providers/registry.js` — 9-method validation loop; capability not in loop (HIGH)
-- `src/providers/plane/provider.js:235-263` — getTaskState optional-method precedent (HIGH)
-- `src/providers/plane/client.js:175` — createComment POST plumbing to mirror (HIGH)
-- `src/providers/github/client.js:293` — addComment POST plumbing to mirror (HIGH)
-- `src/providers/plane/normalize.js` — normalizeWorkItem reuse for created payload (HIGH)
-- `src/session/manager.js:32,272` — buildSessionFromTask + addSession launch path to invert (HIGH)
-- `src/session/state.js:250,341` — addSession (existing writer) + findSession (double-adopt guard) (HIGH)
-- `src/session/reconcile.js:117,280,338` — single-writer-of-alive semantics; process_alive/pgrep (HIGH)
-- `src/cli/dashboard/focus.js` — never-throws shell-out consumer pattern to mirror (HIGH)
-- `test/providers/contract.test.js:498` — capability-gated B8 getTaskState test to mirror (HIGH)
-- `.planning/PROJECT.md` + `.planning/ROADMAP.md` (Phase 999.1) — milestone constraints & 4 pieces (HIGH)
-
----
-*Architecture research for: kodo bidireccional — reverse session→task flow*
-*Researched: 2026-06-15*
+- Codebase (HIGH confidence, direct read): `src/cli/polling.js` (daemon pattern), `src/cli/polling-daemon.js` (PID primitives), `src/server.js` (startServer/stopServer), `src/config.js` (single writers, `.env` read), `src/cli/dashboard/index.js` (viewer + DI wiring), `src/gsd/lock.js` (`isPidAlive`), `src/cli.js` (command wiring, orchestrate signal ordering), `bin/kodo`, `package.json`, `.planning/PROJECT.md` (v0.15 goal, LOCKED constraints, PERSIST-04 boundary), `.planning/ROADMAP.md`.
+- Homebrew `service do` DSL / launchd `RunAtLoad`+`KeepAlive` for `brew services` (MEDIUM — standard Homebrew formula convention; verify exact DSL keys against current Homebrew docs at roadmap time).
