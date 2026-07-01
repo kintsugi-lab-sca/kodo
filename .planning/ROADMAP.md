@@ -15,8 +15,18 @@
 - ✅ **v0.12 Atajos al gestor y progreso vivo** — Phases 48-51 + 50.1 (shipped 2026-06-15)
 - ✅ **v0.13 kodo bidireccional** — Phases 52-62 (shipped 2026-06-25)
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
+- 🚧 **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (ACTIVE, iniciado 2026-07-01)
 
 ## Phases
+
+### v0.15 «kodo up» — ACTIVE (Phases 65-68)
+
+**Milestone Goal:** kodo se pone a andar con un solo comando (`kodo up`): arranca el daemon **desacoplado** (server + polling compuestos en un proceso) en background y engancha el dashboard como **visor**; distribuible por Homebrew (`brew install` + `brew services`), y configurable de principio a fin desde el dashboard (incluida la API key enmascarada, con el boundary PERSIST-04). Dos pilares con dependencia estricta: **Pilar 1** (UP + DIST — ciclo de vida + distribución, shippable solo) **antes de** **Pilar 2** (SETUP — onboarding dashboard-first, requiere Pilar 1).
+
+- [ ] **Phase 65: Daemon Lifecycle Foundation** - `src/daemon/` (lifecycle + `kodo daemon run` foreground) + refactor `startServer({managed})` sin `process.exit`/PID propio; `kodo start` legacy intacto — UP-04, UP-06
+- [ ] **Phase 66: `kodo up` + Stop/Status unificados + Homebrew** - `kodo up` (daemon desacoplado + attach dashboard, idempotente) + `stop`/`status` unificados + `brew install`/`brew services` (plist invoca `kodo daemon run`) + Windows fallback — UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03
+- [ ] **Phase 67: Secrets Writer + Masked Input** - `writeEnvVar` (atómico + chmod 0600 pre-rename + merge) + campo enmascarado (extiende el text-input de Phase 63) + grep de higiene + indicador "configurado" (presencia sin revelar) — SETUP-03, SETUP-04
+- [ ] **Phase 68: Dashboard Setup Mode + CFGF-03 + First-Run** - primer arranque sin config → dashboard en modo setup (sin `exit(1)`) + edición provider/base_url/workspace_slug → `config.json` + `kodo config` rewired al mismo writer — SETUP-01, SETUP-02, SETUP-05
 
 <details>
 <summary>✅ v0.14 Configuración editable desde el dashboard (Phases 63-64) — SHIPPED 2026-06-30</summary>
@@ -87,6 +97,67 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
 Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
+
+## Phase Details (v0.15 activo)
+
+### Phase 65: Daemon Lifecycle Foundation
+**Goal**: El daemon puede correr como un proceso foreground supervisable — la base estable sobre la que se construye `kodo up`. Se refactoriza `startServer` a modo managed (sin `process.exit`, sin PID propio, con handler `'error'` para EADDRINUSE) y se centraliza el ciclo de vida en `src/daemon/`, todo sin alterar el `kodo start` legacy. Es la integración de mayor riesgo del milestone y por eso va primera (Pilar 1a).
+**Depends on**: Nothing (primera fase del milestone; construye sobre el codebase v0.14)
+**Requirements**: UP-04, UP-06
+**Success Criteria** (what must be TRUE):
+  1. `kodo daemon run` arranca server + polling compuestos en UN proceso foreground que **bloquea** (sin auto-desvincularse) y se apaga limpio ante SIGTERM. (UP-04)
+  2. `kodo start` (server foreground legacy) se comporta exactamente igual que antes — cero regresión observable tras el refactor managed. (UP-06)
+  3. Bajo managed mode, una colisión de puerto (EADDRINUSE) o una config incompleta se reporta como error limpio **sin** `process.exit`/crash-loop (habilita el setup mode de Phase 68 y evita el chicken-and-egg del first-run). (UP-04)
+  4. El daemon escribe un único PID file `~/.kodo/kodo.pid`, distinto del `server.pid` legacy (prerequisito de la idempotencia de `kodo up`). (UP-04)
+**Plans**: TBD
+**Research/Spike note**: patrones bien documentados (los primitivos de `src/cli/polling.js`/`polling-daemon.js` son la fuente) — omitir research-phase, ejecutar directamente. Es la refactorización de mayor riesgo del milestone: verificar que `kodo start` legacy sigue intacto antes de construir cualquier capa encima. Evita Pitfalls 1, 3, 4, 5, 18.
+
+### Phase 66: `kodo up` + Stop/Status unificados + Homebrew
+**Goal**: Un solo comando `kodo up` arranca el daemon desacoplado en background y engancha el dashboard como visor; `stop`/`status` gestionan el daemon completo; distribuible por Homebrew con `brew services`. Cierra la promesa central de Pilar 1 (shippable standalone).
+**Depends on**: Phase 65 (requiere el foreground entrypoint `kodo daemon run` + `lifecycle.js` estables)
+**Requirements**: UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03
+**Success Criteria** (what must be TRUE):
+  1. `kodo up` arranca el daemon (server + polling) en background y abre el dashboard como **visor**; al cerrar el dashboard (`q` / Ctrl-C) el daemon **sigue corriendo** en background reaccionando a triggers (modelo persistente LOCKED). (UP-01, UP-02)
+  2. `kodo up` es idempotente: si el daemon ya corre, adjunta el dashboard al daemon existente **sin doble-spawn ni colisión de puerto**. (UP-03)
+  3. `kodo stop` tumba el daemon completo (server + polling) limpiamente y `kodo status` reporta running/stopped de forma determinista con salida `--json` scriptable. (UP-05)
+  4. `brew install kodo` (fórmula vía tap, `depends_on node` ≥20, sin bundlear runtime) instala kodo, y `brew services start kodo` lo registra como servicio del sistema invocando `kodo daemon run` (foreground) — **NUNCA `kodo up`** — arrancando al login y reiniciándose si crashea. (DIST-01, DIST-02)
+  5. En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado **sin crashear** (misma guardia que el daemon de polling). (DIST-03)
+**Plans**: TBD
+**Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — el ciclo real de `brew services` en macOS (`brew install` → `brew services start` → `brew services list` → relogin → `brew services stop`) **no es unit-testable** (Pitfalls 6 y 9: launchd foreground trap + throttle). Requiere un spike de install real (validar el `opt_bin` absoluto en Apple Silicon `/opt/homebrew` vs Intel `/usr/local`) antes de mergear la fase. Evita Pitfalls 2, 5, 6, 7, 8, 9, 10, 17, 19.
+
+### Phase 67: Secrets Writer + Masked Input
+**Goal**: El operador puede introducir la API key del provider en un campo enmascarado que se persiste a `~/.kodo/.env` (0600) y que **NUNCA** se renderiza de vuelta ni cruza a `config.json` / `/status` / logs. Se separa de la UI de setup para poder testear el writer y el boundary en aislamiento antes de que el valor del key toque ningún path de render (Pilar 2a).
+**Depends on**: Phase 66 (build order LOCKED: Pilar 1 debe ser shippable antes de Pilar 2). Reusa el text-input editable en ink de Phase 63 (ya enviado) como base del campo enmascarado.
+**Requirements**: SETUP-03, SETUP-04
+**Success Criteria** (what must be TRUE):
+  1. El operador escribe la API key en un campo **enmascarado** (`•` por carácter) y se persiste a `~/.kodo/.env` con permisos `0600` vía un único writer `writeEnvVar` (atómico, `chmod 0600` **pre-rename**, parse-merge-write que no clobbea `GITHUB_TOKEN` ni otras keys). (SETUP-03)
+  2. El valor de la key NUNCA se renderiza de vuelta ni aparece en `config.json`, `/status` ni en los logs — verificado por un **grep test de higiene de fuente** (el valor no llega a `saveConfig` / `console.*` / `logger.*` / argv de `execFile`). (SETUP-03, boundary PERSIST-04)
+  3. El dashboard indica si la key **ya está configurada** (prueba de presencia en `.env`, sin revelar el valor: `[configurado]`) y avisa de reiniciar el daemon tras cambiar la key (sin hot-reload). (SETUP-04)
+**Plans**: TBD
+**UI hint**: yes
+**Research/UAT note**: patrones claros de codebase (`writeEnvVar` es espejo directo del chmod-pre-rename de `polling-daemon.js`; el masked input es una extensión render-only del text-input de Phase 63) — omitir research-phase. UAT crítico: el **grep de higiene** post-implementación (el valor del key no aparece en ningún path de render/log/argv, los 5 vectores de fuga del Pitfall 11). Evita Pitfalls 11, 13, 14, 16.
+
+### Phase 68: Dashboard Setup Mode + CFGF-03 + First-Run
+**Goal**: El primer arranque sin configuración entra al dashboard en **modo setup** (en lugar de salir con `exit 1`), donde el operador edita provider/base_url/workspace_slug (+ la key enmascarada de Phase 67) y arranca kodo de principio a fin; `kodo config` comparte la misma fontanería de escritura. Cierra el objetivo de onboarding dashboard-first (Pilar 2b).
+**Depends on**: Phase 65 (managed mode sin `process.exit` para que el first-run sirva el setup mode), Phase 66 (`kodo up` debe existir para cablear la detección de first-run) y Phase 67 (masked input + `writeEnvVar`).
+**Requirements**: SETUP-01, SETUP-02, SETUP-05
+**Success Criteria** (what must be TRUE):
+  1. En el primer arranque sin configuración (no existe `config.json` **o** falta la API key), `kodo up` sirve el dashboard en **modo setup** — pantalla guiada — **sin ningún `exit(1)`**. (SETUP-01)
+  2. El operador edita el `provider` activo, `base_url` y `workspace_slug` desde el dashboard y se persisten a `~/.kodo/config.json` (cierra CFGF-03 en su parte no-secreta). (SETUP-02)
+  3. El wizard `kodo config` (readline, headless) escribe a través de la **MISMA fontanería** que el dashboard (`saveConfig` / `saveProjects` / `writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen. (SETUP-05)
+  4. Tras completar el setup, la transición setup→running muestra un aviso de reinicio **honesto** (sin hot-reload, coherente con v0.14). (SETUP-02; apoya SETUP-04)
+**Plans**: TBD
+**UI hint**: yes
+**Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — UAT en **máquina limpia** (sin `config.json` ni `.env`): verificar que `kodo up` sirve el setup mode sin ningún `exit(1)` y que la transición setup→running es honesta (leer el valor recién escrito directamente del archivo, no vía `loadEnvFile` no-override — Pitfall 15). Es la fase de mayor complejidad de UX. Evita Pitfalls 12, 15, 16.
+
+## Progreso (v0.15)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 65. Daemon Lifecycle Foundation | 0/? | Not started | - |
+| 66. `kodo up` + Stop/Status + Homebrew | 0/? | Not started | - |
+| 67. Secrets Writer + Masked Input | 0/? | Not started | - |
+| 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
 ## Backlog
 

@@ -54,17 +54,17 @@ Exclusiones explícitas de v0.15 con su razón.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| UP-01 | TBD | Pending |
-| UP-02 | TBD | Pending |
-| UP-03 | TBD | Pending |
-| UP-04 | TBD | Pending |
-| UP-05 | TBD | Pending |
-| UP-06 | TBD | Pending |
-| DIST-01 | TBD | Pending |
-| DIST-02 | TBD | Pending |
-| DIST-03 | TBD | Pending |
-| SETUP-01 | TBD | Pending |
-| SETUP-02 | TBD | Pending |
-| SETUP-03 | TBD | Pending |
-| SETUP-04 | TBD | Pending |
-| SETUP-05 | TBD | Pending |
+| UP-01 | Phase 66 | Pending |
+| UP-02 | Phase 66 | Pending |
+| UP-03 | Phase 66 | Pending |
+| UP-04 | Phase 65 | Pending |
+| UP-05 | Phase 66 | Pending |
+| UP-06 | Phase 65 | Pending |
+| DIST-01 | Phase 66 | Pending |
+| DIST-02 | Phase 66 | Pending |
+| DIST-03 | Phase 66 | Pending |
+| SETUP-01 | Phase 68 | Pending |
+| SETUP-02 | Phase 68 | Pending |
+| SETUP-03 | Phase 67 | Pending |
+| SETUP-04 | Phase 67 | Pending |
+| SETUP-05 | Phase 68 | Pending |

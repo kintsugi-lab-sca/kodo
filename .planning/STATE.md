@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: kodo up — arranque unificado + onboarding dashboard-first
 status: planning
-last_updated: "2026-07-01T10:24:47.577Z"
-last_activity: 2026-07-01
+last_updated: "2026-07-02T01:15:00.000Z"
+last_activity: 2026-07-02
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,126 +16,119 @@ progress:
 # Project State
 
 **Project:** kodo
-**Active milestone:** **v0.14 Configuración editable desde el dashboard** (iniciado 2026-06-29, roadmap creado). El dashboard TUI gana la capacidad de **configurar kodo** sin re-correr el wizard lineal: editor de proyectos (listar del provider + mapear ruta/módulos → `~/.kodo/projects.json`) y editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors → `~/.kodo/config.json`). 2 phases (63-64), 19/19 requirements mapeados, 100% cobertura. Escritura local, cero endpoints nuevos, aviso de reinicio, API keys intactas.
+**Active milestone:** **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** (iniciado 2026-07-01, roadmap creado 2026-07-02). kodo se pone a andar con un solo comando (`kodo up`): arranca el daemon **desacoplado** (server + polling compuestos en un proceso) en background y engancha el dashboard como **visor**; distribuible por Homebrew (`brew install` + `brew services`), y configurable de principio a fin desde el dashboard (incluida la API key enmascarada, con el boundary PERSIST-04). 4 phases (65-68), 14/14 requirements mapeados, 100% cobertura, 0 duplicados. Dos pilares con dependencia estricta: **Pilar 1** (UP + DIST, shippable solo) **antes de** **Pilar 2** (SETUP, requiere Pilar 1).
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-29 — Current Milestone: v0.14 Configuración editable desde el dashboard).
+See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «kodo up»).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila (abrir la tarea + progreso vivo); v0.13 cerró el puente inverso `sesión → tarea`. **v0.14 promueve el dashboard a superficie de configuración** de kodo.
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 64 — Editor de proyectos en el dashboard
+**Current focus:** Phase 65 — Daemon Lifecycle Foundation (la integración de mayor riesgo del milestone; va primera)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap creado, listo para planificar)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-01 — Milestone v0.15 started
+Status: Roadmap creado, awaiting phase planning
+Last activity: 2026-07-02 — Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements)
 
-## Roadmap v0.14 (active)
+## Roadmap v0.15 (active)
 
-Build order (risk-graded): **fundación + ajustes comunes (carril 100% local, menor riesgo) → editor de proyectos (mayor riesgo, `listProjects()` en vivo)**. La base de bajo nivel — overlay de configuración + text-input editable en ink + fontanería de escritura local no-corruptiva (reuso de `saveConfig`/`saveProjects` de `src/config.js`) — se construye y se prueba end-to-end con el editor de ajustes comunes (todo local), luego el editor de proyectos la reusa. Numeración **continua** desde Phase 62 (v0.13) → primera fase **Phase 63** (NO reset). El sub-trabajo text-input/overlay de Phase 63 es candidato a `/gsd-ui-phase`.
+Build order (risk-graded, LOCKED): **Pilar 1 (UP + DIST) ANTES de Pilar 2 (SETUP)**. Dentro de Pilar 1: **fundación del daemon (65, mayor riesgo de integración) → `kodo up` + brew (66, cierra Pilar 1 shippable)**. Dentro de Pilar 2: **secrets writer + masked input (67, boundary en aislamiento) → setup mode + first-run (68, cierra el milestone)**. Numeración **continua** desde Phase 64 (v0.14) → primera fase **Phase 65** (NO reset). **Cero nuevas dependencias npm** (todo se construye sobre primitivos ya enviados de `polling.js`/`polling-daemon.js` + el text-input de Phase 63).
 
 | Phase | Goal | Requirements | Riesgo |
 |-------|------|--------------|--------|
-| 63. Editor config — fundación + ajustes comunes | Overlay + text-input editable en ink + escritura local no-corruptiva (reuso `saveConfig`), probado con el editor de ajustes comunes (claude model/max_parallel, states, server thresholds, cmux colors → `config.json`) | UX-01..04, CFG-01..05, PERSIST-01..05 (14) | medio (text-input es patrón de UX NUEVO; los overlays actuales son read-only) |
-| 64. Editor de proyectos | Lista `listProjects()` en vivo + mapear/editar/quitar ruta local (+ módulos) → `projects.json`, reusando la fundación de 63; degrada con gracia si el provider cae | PROJ-01..05 (5) | mayor (depende de conexión al provider en vivo) |
+| 65. Daemon Lifecycle Foundation | `src/daemon/` (lifecycle + `kodo daemon run` foreground) + refactor `startServer({managed})` sin `process.exit`/PID propio + handler EADDRINUSE; `kodo start` legacy intacto; `~/.kodo/kodo.pid` unificado | UP-04, UP-06 (2) | **mayor** (refactor `startServer` managed — la integración más riesgosa; va primera) |
+| 66. `kodo up` + Stop/Status + Homebrew | `kodo up` (daemon desacoplado + attach dashboard, idempotente) + `stop`/`status` unificados (`--json`) + `brew install`/`brew services` (plist → `kodo daemon run`) + Windows fallback | UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03 (7) | **medio-alto** (GATE MANUAL: ciclo real `brew services` en macOS no unit-testable) |
+| 67. Secrets Writer + Masked Input | `writeEnvVar` (atómico + chmod 0600 pre-rename + merge) + campo enmascarado (extiende text-input de Phase 63) + grep de higiene + indicador "configurado" (presencia sin revelar) | SETUP-03, SETUP-04 (2) | **medio** (boundary de seguridad PERSIST-04 — testeado en aislamiento antes de tocar render) |
+| 68. Setup Mode + CFGF-03 + First-Run | Primer arranque sin config → dashboard en modo setup (sin `exit(1)`) + edición provider/base_url/workspace_slug → `config.json` + `kodo config` rewired al mismo writer; aviso de reinicio | SETUP-01, SETUP-02, SETUP-05 (3) | **alto UX** (GATE MANUAL: UAT en máquina limpia sin config.json ni .env) |
 
-- **Fundación antes que el segundo consumidor (63 antes de 64):** la base de bajo nivel (overlay + text-input + escritura local) vive en Phase 63 y se prueba con el editor de ajustes comunes (carril 100% local, sin provider). El editor de proyectos (64) la reusa para mapear rutas. Dentro de Phase 63, plan-phase debe secuenciar el text-input/overlay PRIMERO (es la pieza de UX nueva y candidata a `/gsd-ui-phase`).
-- **2ª ruptura consciente de "TUI read-only":** el dismiss de sesiones dead (v0.10) fue la 1ª; este editor es la 2ª. La config NO vive en el server (vive en `~/.kodo/config.json` + `projects.json`), así que el dashboard la escribe **localmente** (filesystem / shell-out a las funciones puras de `src/config.js`) — preserva "cero endpoints nuevos desde v0.10". Precedente directo: la tecla `a` de v0.13 ya escribe shelleando `kodo adopt` vía `execFile`.
-- **El editor de proyectos requiere conexión** (`listProjects()` en vivo, uno de los 9 métodos FROZEN); por eso es el carril de mayor riesgo y DEBE degradar con gracia (PROJ-05) — TUI never-throws sigue en pie.
+- **Pilar 1 shippable sin Pilar 2:** Phases 65+66 entregan `kodo up`/stop/status/brew funcionales. Si el tiempo aprieta, Pilar 2 (67+68) puede diferirse a v0.15.1.
+- **Phase 65 primero** porque el refactor `startServer(managed)` (quitar `process.exit(1)` + PID propio + handler `'error'`) es la integración de mayor riesgo — hacerla primera protege todo lo que viene después Y habilita el setup mode de Phase 68 (sin ese refactor, el daemon muere con `exit(1)` antes de servir el dashboard).
+- **Phase 66 cierra Pilar 1** con el gate de brew: el plist DEBE invocar `kodo daemon run` (foreground), **NUNCA `kodo up`** (self-detach) — si no, launchd entra en crash-loop cada 10s (Pitfall 6). No unit-testable → spike de install real obligatorio.
+- **Phase 67 antes de 68** para testear el writer de `.env` y el boundary PERSIST-04 en aislamiento (grep de higiene) antes de que el valor del key toque el árbol de render.
+- **Phase 68 depende de 65+66+67** — el first-run modifica el comportamiento de `kodo up` y requiere el managed mode de 65, el `kodo up` de 66 y el masked input/`writeEnvVar` de 67.
 
 ## Most recent shipped milestone
 
-**v0.13 kodo bidireccional** — shipped 2026-06-25 (11 phases 52-62, 17 plans, UAT 4/4). Flujo inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se promueve a tarea persistente del gestor. Arquitectura "una fontanería 0-token (`createTask` + `adoptSession`), tres consumidores" (CLI `kodo adopt`, tecla `a` del dashboard, orquestador asistido por LLM). El cierre (Phase 62, ORCH-02) movió la derivación inteligente de título/descripción al dashboard, superando el bloqueo de UAT de ORCH-01.
+**v0.14 Configuración editable desde el dashboard** — shipped 2026-06-30 (2 phases 63-64, 7 plans, UAT 4/4). El dashboard TUI pasó de observar+gestionar a también **configurar kodo**: editor de ajustes comunes (Phase 63: model/max_parallel, states, server thresholds, cmux colors → `config.json`) y editor de proyectos (Phase 64: `listProjects()` en vivo + mapear/editar/quitar ruta + módulos → `projects.json`, degradación never-throws). Base reusable: text-input editable in-house en ink + validadores puros + escritura local atómica (`writeFileAtomic`). Cero endpoints nuevos, API keys intactas en `~/.kodo/.env`.
 
-- Roadmap archive: `milestones/v0.13-ROADMAP.md`
-- Requirements archive: `milestones/v0.13-REQUIREMENTS.md`
-- Audit: `milestones/v0.13-MILESTONE-AUDIT.md`
+- Roadmap archive: `milestones/v0.14-ROADMAP.md`
+- Requirements archive: `milestones/v0.14-REQUIREMENTS.md`
 
 ## Deferred Items
 
-Reset al baseline de v0.14. La deuda de v0.12/v0.13 quedó saldada al cierre de v0.13: DEBT-01 (XSS WR-01, mitigado + test de regresión), DEBT-02 (HUMAN-UAT 50.1, ✅ PASSED 2026-06-23), y la deuda Nyquist de v0.11 (Phases 44/45/46) saldada en Phase 51 de v0.12. No hay items diferidos abiertos heredados que bloqueen v0.14.
+Reset al baseline de v0.15. v0.14 cerró con UAT 4/4 y sin deuda viva heredada que bloquee v0.15. No hay items diferidos abiertos.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| — | (ninguno abierto al iniciar v0.14) | — | — |
+| — | (ninguno abierto al iniciar v0.15) | — | — |
 
 ## Accumulated Context
 
-### Decisions (Roadmap v0.14)
+### Decisions (Roadmap v0.15)
 
-- **Numeración continua (NO reset):** v0.14 continúa desde Phase 62 (v0.13) → primera fase es **Phase 63**.
-- **Fundación + ajustes comunes plegados en UNA fase (63), no en dos:** granularidad `coarse` (2-4 phases). Una fase de fundación pura (solo plumbing, sin nada editable observable) sería un anti-patrón de capa horizontal con criterios que leen como tareas; en su lugar, la base (overlay + text-input + escritura local) se construye Y se prueba end-to-end editando los ajustes comunes (carril 100% local, menor riesgo). El sub-trabajo text-input/overlay queda señalado como candidato a `/gsd-ui-phase` dentro de la fase.
-- **Editor de proyectos como segunda fase (64), de mayor riesgo:** depende de `listProjects()` en vivo (conexión al provider) — superficie de riesgo distinta del editor 100% local de ajustes. Merece su propia fase para aislar la degradación-con-gracia (PROJ-05) y la validación de rutas en filesystem. Reusa la fundación de 63 (overlay + text-input + escritura no-corruptiva), nunca la reimplementa.
-- **Escritura LOCAL, cero endpoints nuevos (invariante LOCKED preservado):** el dashboard persiste reusando `saveConfig`/`saveProjects` de `src/config.js` (filesystem / shell-out), nunca un `POST /config` en `src/server.js`. 2ª ruptura consciente de "TUI read-only" tras el dismiss de v0.10; precedente: la tecla `a` de v0.13 ya escribe shelleando `kodo adopt` vía `execFile`.
-- **API keys intactas (invariante de seguridad LOCKED):** el editor NUNCA muestra ni edita secrets; siguen viviendo exclusivamente en `~/.kodo/.env`. PERSIST-04 lo enfuerza por construcción (no hay campo editable de keys).
-- **Escritura no-corruptiva (PERSIST-05):** si la escritura falla, el `config.json`/`projects.json` previo se preserva intacto — nunca un archivo a medias. Apoyado en la atomicidad ya usada por la fontanería de v0.13 (`adoptSession` escribió atómico).
-- **Text-input en ink es patrón de UX NUEVO:** los overlays actuales (`c`/`l`/`p`) son read-only y la única mutación previa (dismiss) es un double-confirm sin texto. Capturar rutas/valores requiere un componente de text-input controlado (vía `useInput` o dep tipo `ink-text-input`) — decisión de diseño a resolver en `/gsd-discuss-phase 63` (componente controlado propio vs dependencia).
+- **Numeración continua (NO reset):** v0.15 continúa desde Phase 64 (v0.14) → primera fase es **Phase 65**.
+- **4 phases (no 2-3) pese a granularidad `coarse`:** la granularidad `coarse` sugiere 2-4; se elige el borde superior (4) porque cada fase es una frontera de riesgo LOCKED distinta, no un relleno. Phase 65 aísla el refactor managed de mayor riesgo; Phase 66 aísla el gate manual de brew; Phase 67 aísla el boundary de seguridad PERSIST-04 para testearlo antes de que el key toque el render; Phase 68 aísla el UAT de máquina limpia. Ninguna es una fase-mantenimiento fina.
+- **Pilar 1 ANTES de Pilar 2 (LOCKED):** UP + DIST (65+66) deben ser shippable standalone antes de tocar SETUP (67+68). El first-run de Pilar 2 depende de que `kodo up` exista (Phase 66) Y del refactor managed de `startServer` (Phase 65).
+- **`startServer(managed)` primero (Phase 65) por ser la integración de mayor riesgo:** quitar `process.exit(1)` (server.js:405-408) + PID propio (server.js:581) + añadir handler `'error'` para EADDRINUSE. Se valida `kodo start` legacy intacto antes de construir encima. Habilita además el chicken-and-egg del first-run (sin `exit(1)`, el daemon sirve el setup mode).
+- **El plist de brew invoca `kodo daemon run` (foreground), NUNCA `kodo up` (LOCKED):** si launchd corre `kodo up` (self-detach) + KeepAlive, el padre sale inmediatamente → crash-loop cada 10s (Pitfall 6). Modo dual del daemon: self-detach para `kodo up` bare, foreground-supervised para launchd/brew.
+- **Boundary PERSIST-04 (LOCKED):** el valor de la API key vive exclusivamente en `~/.kodo/.env` (0600), nunca se renderiza de vuelta ni cruza a `config.json`/`/status`/logs/argv. Un único sink `writeEnvVar` (en-proceso, chmod pre-rename, merge sin clobber) + grep test de higiene de los 5 vectores de fuga (Pitfall 11). El dashboard solo muestra **presencia** (`[configurado]`), nunca el valor.
+- **Cero endpoints nuevos + cero deps npm nuevas (invariantes LOCKED preservados):** el daemon **compone** `startServer`/`startPolling` existentes; el masked input **extiende** (render-only) el text-input de Phase 63; la detección de puerto usa `node:net` (built-in). No pm2/forever/detect-port/ink-text-input.
 
 ### Roadmap Evolution
 
-- **v0.14 roadmap creado (2026-06-29):** 2 phases (63-64), numeración continua desde v0.13 (NO reset). Build order fundación+ajustes comunes (local, menor riesgo) → editor de proyectos (mayor riesgo, `listProjects()` en vivo). 19/19 requirements mapeados, 100% cobertura, 0 duplicados. Granularidad `coarse`.
-- **v0.13 roadmap creado (2026-06-15):** 7 phases base (52-58) → expandido a 11 (52-62) durante ejecución. Arquitectura "una fontanería, tres consumidores".
-- **v0.12 roadmap creado (2026-06-11):** 4 phases (48-51). Build order OPEN CORE → SPIKE → DISPLAY CONDICIONAL → NYQUIST.
+- **v0.15 roadmap creado (2026-07-02):** 4 phases (65-68), numeración continua desde v0.14 (NO reset). Estructura tomada del research SUMMARY (65 foundation → 66 up+brew → 67 secrets → 68 setup) con orden risk-graded LOCKED. 14/14 requirements mapeados, 100% cobertura, 0 duplicados. Granularidad `coarse` (borde superior justificado por 4 fronteras de riesgo distintas). GATES MANUALES señalados en 66 (spike brew macOS) y 68 (UAT máquina limpia).
+- **v0.14 roadmap creado (2026-06-29):** 2 phases (63-64), numeración continua desde v0.13. Fundación+ajustes comunes (local) → editor de proyectos (`listProjects()` en vivo).
+- **v0.13 roadmap creado (2026-06-15):** 7 phases base (52-58) → expandido a 11 (52-62). Arquitectura "una fontanería, tres consumidores".
 
 ### Open Blockers
 
-Ninguno. v0.13 cerró sin deuda viva heredada que bloquee v0.14.
+Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
-### Open Questions
+### Open Questions (research SUMMARY — se resuelven al planificar cada fase, no bloquean el roadmap)
 
-Decisiones discuss-phase (no bloquean el roadmap; se resuelven al planificar cada fase):
+- **Phase 65:** ¿El daemon siempre corre polling, o `startPolling` condicional en `providerUsesPolling(config)` (Plane webhook vs GitHub polling)? Confirmar antes de planificar.
+- **Phase 66:** Ubicación del tap Homebrew (`kintsugi-lab/homebrew-kodo` vs `alexnunez/homebrew-tap`). Validar durante el spike que el `opt_bin` absoluto es correcto en Apple Silicon (`/opt/homebrew`) vs Intel (`/usr/local`). ¿`kodo stop`/`status` deprecan `polling start` standalone? (Mantener legacy, revisar deprecación en fase futura.)
+- **Phase 68 (punto de diseño abierto):** transición setup→running (Pitfall 15) — restart nudge honesto + leer el valor recién escrito directamente del archivo (no vía `loadEnvFile` no-override). Diseño fino durante discuss/plan de la fase.
 
-- **Phase 63 (decisión de diseño central):** componente de text-input — ¿controlado propio (gestionado vía `useInput`, sin dep nueva, máximo control) o dependencia `ink-text-input` (más rápido, 5ª dep prod)? Forma del overlay de configuración (un único overlay con secciones navegables vs sub-overlays por grupo). Reglas exactas de validación por campo (`max_parallel`/thresholds enteros positivos; set conocido de `default_model`; formato de `cmux.colors`). Cómo se materializa el "aviso de reinicio" (footer transitorio vs línea persistente). Mecanismo de escritura: filesystem directo vía `saveConfig` (in-process) vs shell-out a `kodo config` (espejo del precedente `kodo adopt`).
-- **Phase 64:** UX del flujo lista→selección→edición de ruta (overlay anidado vs reuso del text-input de 63). Si `listProjects()` se cachea o se refetcha en cada apertura. Modos de fallo concretos del provider (timeout, sin auth, sin conexión) y su copy de degradación. Validación de existencia de ruta (`existsSync` síncrono vs check más rico). Forma exacta del soporte de módulos (espejo del wizard).
+### Critical Invariants to Preserve (cross-milestone, must survive this milestone)
 
-### Critical Invariants to Preserve (cross-milestone, must survive next milestone)
-
-- **TaskProvider contract: 9 obligatorios + getTaskState/createTask opcionales** (canonical en `src/interface.js`): `TASK_PROVIDER_METHODS` FROZEN en 9. v0.14 reusa `listProjects()` (uno de los 9) en vivo para el editor de proyectos — NO añade métodos.
-- **Cero endpoints nuevos desde v0.10:** **v0.14 lo preserva — la escritura de config es LOCAL (filesystem / shell-out a `src/config.js`), nunca `POST /config` en `src/server.js`.**
-- **TUI never-throws** (el editor degrada con gracia, el panel ink permanece montado ante config ilegible / provider caído / escritura fallida — UX-04, PROJ-05) · **Selección por identidad `task_id`** (preservada al entrar/salir del editor — UX-03) · **API keys solo en `~/.kodo/.env`** (nunca editadas ni mostradas — PERSIST-04, invariante de seguridad) · **Escritura no-corruptiva** (el archivo previo se preserva si falla — PERSIST-05).
-- **Color isolation** (`picocolors` solo desde `src/cli/format.js`; el dashboard usa color solo de `<Text>` de ink) · **`--json` byte-determinismo** (DX-06) · **Tokens: vigilante/server 0 tokens; solo el orquestador usa LLM** (el editor es determinista, no usa LLM) · **`execFile` fire-and-forget sin shell** (si se opta por shell-out a `kodo config`, argv literal nunca shell) · **`reconcileTick` único escritor de `alive`** · **Worktree always-on (Phase 18)** · **LOG-12 guard** · **Todo lo cmux-específico entra por `HostProvider`**. v0.14 no rompe estos carriles.
+- **Modelo daemon PERSISTENTE (LOCKED):** el daemon sobrevive al cierre del dashboard (`q`/Ctrl-C); solo `kodo stop` lo tumba. El dashboard es un **visor**, no el dueño del proceso. NO semántica compose-style (Ctrl-C mata daemon).
+- **`kodo start` legacy intacto:** `up` es comando NUEVO, no reemplaza a `kodo start` (server foreground) ni a `polling start`. El refactor managed no puede regresionar el legacy.
+- **El plist launchd invoca `kodo daemon run` (foreground), NUNCA `kodo up`** — evita el crash-loop de launchd (Pitfall 6).
+- **Boundary PERSIST-04:** API key solo en `~/.kodo/.env` (0600); nunca renderizada/logueada/en `/status`/en argv. Solo se muestra presencia.
+- **Cero endpoints nuevos en `src/server.js` (desde v0.10):** el daemon compone `startServer`/`startPolling`; no gestor de procesos/secretos genérico.
+- **Cero nuevas dependencias npm:** primitivos built-in (`node:net`, `node:child_process`) + reuso de código enviado.
+- **TaskProvider contract FROZEN en 9** (`TASK_PROVIDER_METHODS`) + getTaskState/createTask opcionales · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`; ink usa color de `<Text>`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**. v0.15 no rompe estos carriles.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/64-editor-de-proyectos-en-el-dashboard/64-CONTEXT.md
+**Resume file:** —
 
-- **Last session:** 2026-06-29T16:22:31.317Z
-- **Stopped at:** Phase 64 context gathered
-- **Next action:** `/gsd-plan-phase 63` (o `/gsd-discuss-phase 63` primero para resolver la decisión de diseño del text-input: componente controlado propio vs dep `ink-text-input`). La parte text-input/overlay de Phase 63 es candidata a `/gsd-ui-phase`.
+- **Last session:** 2026-07-02T01:15:00.000Z
+- **Stopped at:** Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements mapeados, traceability completa)
+- **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone: v0.14 Configuración editable desde el dashboard)
-  - `.planning/ROADMAP.md` (v0.14 activo Phases 63-64; v0.10-v0.13 colapsados/archivados)
-  - `.planning/REQUIREMENTS.md` (v0.14, traceability 19/19 → Phases 63-64)
-  - `.planning/MILESTONES.md` (entrada v0.13 completa)
+  - `.planning/PROJECT.md` (Current Milestone: v0.15 «kodo up»)
+  - `.planning/ROADMAP.md` (v0.15 activo Phases 65-68; v0.10-v0.14 colapsados/archivados)
+  - `.planning/REQUIREMENTS.md` (v0.15, traceability 14/14 → Phases 65-68)
+  - `.planning/research/SUMMARY.md` (síntesis de research — estructura de 4 fases + pitfalls + research/UAT flags)
+  - `.planning/MILESTONES.md` (entrada v0.14 completa)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- `/gsd-plan-phase 65` para arrancar la planificación de la fundación del daemon.
 
 ## Performance Metrics
 
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
-| Phase 63 P01 | 4 min | 2 tasks | 4 files |
-| Phase 63 P02 | 15 | 3 tasks | 4 files |
-| Phase 63 P03 | 6 | 1 tasks | 1 files |
-| Phase 64 P01 | 12min | 2 tasks | 4 files |
-| Phase 64 P02 | 12min | 3 tasks | 4 files |
-| Phase 64 P03 | 5min | 3 tasks | 3 files |
-| Phase 64 P04 | 8min | 1 tasks | 1 files |
+| — | — | — | (sin planes ejecutados aún en v0.15) |
 
 ## Decisions
 
-- [Phase 63]: Validadores de config: set estricto {opus,sonnet,haiku} y 16 colores cmux nombrados (v1, sin hex)
-- [Phase 63]: Config escrita de forma atómica temp+rename (writeFileAtomic, path por parámetro DI); fsync omitido en v1
-- [Phase ?]: [Phase 63]: Text-input del editor de config in-house (buffer+cursor, <Text inverse>); error de validación en estado dedicado (configEditError, no focusError)
-- [Phase ?]: Editor de config escribe config.json por import directo de saveConfig en el proceso ink (D-09), sin shell-out ni endpoint
-- [Phase 64]: Validador de ruta en módulo adyacente src/path-validate.js (no en config-validate.js) para preservar su invariante 0-I/O (D-04)
-- [Phase ?]: Phase 64-02: projectsReqRef dedicado (no reusa overlayReqRef) para aislar el carril async de proyectos
-- [Phase ?]: Phase 64-02: estados dedicados projectsError/projectsEditError (no focusError) para no perder teclas r/Esc/edición (Pitfall 2)
-- [Phase ?]: Módulos: el 2º hop async reusa el MISMO projectsReqRef que el carril base (Pitfall 3)
-- [Phase ?]: Modo dedicado projects-modules-edit para que Enter llame setModulePath en vez de setProjectPath
-- [Phase ?]: [Phase 64-04]: index.js cablea los 4 *Fn del editor de proyectos (listProjectsFn never-throws construcción+red, listModulesFn condicional plane/github, load/saveProjectsFn import directo de config.js) — espejo de onAdopt/onSaveConfig, sin endpoint nuevo (PERSIST-02/D-08)
+- [Roadmap v0.15]: 4 phases (65-68) pese a granularidad `coarse` — cada fase es una frontera de riesgo LOCKED distinta (refactor managed / gate brew / boundary PERSIST-04 / UAT máquina limpia), no relleno.
+- [Roadmap v0.15]: SETUP-04 (presencia "configurado" + aviso de reinicio) mapeado a Phase 67 junto a SETUP-03 — todo lo relativo a la KEY (write, mask, presencia, boundary) vive en una fase coherente; Phase 68 reusa el mecanismo de aviso para cambios de provider.
+- [Roadmap v0.15]: GATES MANUALES señalados — Phase 66 (spike real `brew services` en macOS, no unit-testable) y Phase 68 (UAT en máquina limpia sin config.json ni .env).
