@@ -109,7 +109,12 @@ Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
   2. `kodo start` (server foreground legacy) se comporta exactamente igual que antes — cero regresión observable tras el refactor managed. (UP-06)
   3. Bajo managed mode, una colisión de puerto (EADDRINUSE) o una config incompleta se reporta como error limpio **sin** `process.exit`/crash-loop (habilita el setup mode de Phase 68 y evita el chicken-and-egg del first-run). (UP-04)
   4. El daemon escribe un único PID file `~/.kodo/kodo.pid`, distinto del `server.pid` legacy (prerequisito de la idempotencia de `kodo up`). (UP-04)
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 65-01-PLAN.md — Primitivas puras: módulo PID name-parametrizado (`kodo.pid`) + `providerUsesPolling` (Wave 1)
+- [ ] 65-02-PLAN.md — Refactor `startServer({managed})` (4 puntos gateados) + golden de no-regresión de `kodo start` (Wave 1)
+- [ ] 65-03-PLAN.md — `src/daemon/lifecycle.js` + `run.js` (compose server+polling, un PID, teardown single-owner) (Wave 2)
+- [ ] 65-04-PLAN.md — `kodo daemon run` (hidden) + test de integración child-spawn foreground/SIGTERM (Wave 3)
 **Research/Spike note**: patrones bien documentados (los primitivos de `src/cli/polling.js`/`polling-daemon.js` son la fuente) — omitir research-phase, ejecutar directamente. Es la refactorización de mayor riesgo del milestone: verificar que `kodo start` legacy sigue intacto antes de construir cualquier capa encima. Evita Pitfalls 1, 3, 4, 5, 18.
 
 ### Phase 66: `kodo up` + Stop/Status unificados + Homebrew
