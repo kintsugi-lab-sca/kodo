@@ -43,21 +43,33 @@ import { join, dirname } from 'node:path';
 /**
  * Computa el path canonical del PID file de forma lazy.
  *
- * El path resultante es semánticamente idéntico a `join(KODO_DIR, 'polling.pid')`
- * — donde `KODO_DIR = join(homedir(), '.kodo')` per `src/config.js:6`.
+ * D-04: `name` es un parámetro TRAILING opcional (default `'polling'`) que
+ * generaliza la primitiva de forma aditiva — cada caller existente que invoca
+ * `getPidPath()` sin args sigue resolviendo a `~/.kodo/polling.pid` byte-idéntico.
+ * El daemon kodo (Plan 03) pasa `'kodo'` → `~/.kodo/kodo.pid`, distinto del legacy
+ * `server.pid` (self-PID del server) y del standalone `polling.pid`.
  *
+ * El path resultante es `join(homedir(), '.kodo', `${name}.pid`)`
+ * — donde `join(homedir(), '.kodo')` === `KODO_DIR` per `src/config.js:6`.
+ *
+ * @param {string} [name='polling'] — basename del PID file sin extensión.
  * @returns {string}
  */
-export function getPidPath() {
-  return join(homedir(), '.kodo', 'polling.pid');
+export function getPidPath(name = 'polling') {
+  return join(homedir(), '.kodo', `${name}.pid`);
 }
 
 /**
- * @typedef {{ pid: number, started_at: string, repos: string[] }} PidFilePayload
+ * @typedef {{ pid: number, started_at: string, repos?: string[], kind?: string }} PidFilePayload
  *
- * D-15 LOCKED: el shape canonical del PID file. `repos` es siempre array de
- * strings human-readable "owner/repo" (NO objects {owner, repo}) para soportar
- * `kodo polling status --json` byte-deterministic sin transformaciones.
+ * D-15 LOCKED: el shape canonical del PID file. `repos` (cuando presente) es
+ * siempre array de strings human-readable "owner/repo" (NO objects {owner, repo})
+ * para soportar `kodo polling status --json` byte-deterministic sin transformaciones.
+ *
+ * D-04: el daemon kodo (Plan 03) escribe un payload `{pid, started_at, kind:'daemon'}`
+ * SIN `repos` — ambos campos son opcionales en el typedef porque el shape-check
+ * defensivo de readPidFile solo exige `pid:number` + `started_at:string`, así que el
+ * payload daemon reutiliza la misma primitiva sin flexibilizar la guarda de seguridad.
  */
 
 /**
@@ -70,11 +82,17 @@ export function getPidPath() {
  *      los permisos restrictivos inmediatamente (Security V14).
  *   4. renameSync(tmp, pidPath) — POSIX-atomic en el mismo filesystem.
  *
+ * D-04: `name` es un parámetro TRAILING opcional (default `'polling'`). `payload`
+ * queda PRIMERO precisamente para preservar el único caller existente en
+ * `src/cli/polling.js:374` y el test single-arg en `test/cli/polling-daemon.test.js`
+ * — ambos pasan un objeto como único positional y reciben `name='polling'`.
+ *
  * @param {PidFilePayload} payload
+ * @param {string} [name='polling'] — basename del PID file (delega a getPidPath).
  * @returns {void}
  */
-export function writePidFile(payload) {
-  const pidPath = getPidPath();
+export function writePidFile(payload, name = 'polling') {
+  const pidPath = getPidPath(name);
   mkdirSync(dirname(pidPath), { recursive: true });
   const tmp = pidPath + '.tmp';
   writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n');
@@ -90,10 +108,16 @@ export function writePidFile(payload) {
  *   - Si `pid` no es number → null.
  *   - Si `started_at` no es string → null.
  *
+ * D-04: `name` es un parámetro opcional (default `'polling'`). El shape-check se
+ * mantiene VERBATIM (pid:number + started_at:string) — un payload daemon
+ * `{pid, started_at, kind:'daemon'}` (sin `repos`) ya lo pasa, que es exactamente
+ * por qué el daemon kodo reutiliza este módulo sin relajar la guarda.
+ *
+ * @param {string} [name='polling'] — basename del PID file (delega a getPidPath).
  * @returns {PidFilePayload | null}
  */
-export function readPidFile() {
-  const pidPath = getPidPath();
+export function readPidFile(name = 'polling') {
+  const pidPath = getPidPath(name);
   if (!existsSync(pidPath)) return null;
   try {
     const parsed = JSON.parse(readFileSync(pidPath, 'utf-8'));
@@ -108,11 +132,15 @@ export function readPidFile() {
  * Borra el PID file de forma idempotente. NO throw si el archivo no existe
  * (e.g. SIGINT recibido dos veces, o stop tras crash que ya limpió).
  *
+ * D-04: `name` es un parámetro opcional (default `'polling'`) — el cleanup del
+ * daemon kodo pasa `'kodo'`; los callers existentes sin args borran polling.pid.
+ *
+ * @param {string} [name='polling'] — basename del PID file (delega a getPidPath).
  * @returns {void}
  */
-export function removePidFile() {
+export function removePidFile(name = 'polling') {
   try {
-    unlinkSync(getPidPath());
+    unlinkSync(getPidPath(name));
   } catch {
     // may not exist — idempotente per D-09 stop cleanup contract
   }
