@@ -2,17 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
-current_phase_name: roadmap creado, listo para planificar
-status: planning
+current_phase: 65
+current_phase_name: Daemon Lifecycle Foundation
+status: executing
 stopped_at: Phase 65 context gathered
-last_updated: "2026-07-01T23:24:54.928Z"
-last_activity: 2026-07-02
-last_activity_desc: Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements)
+last_updated: "2026-07-01T23:55:33.463Z"
+last_activity: 2026-07-01
+last_activity_desc: Phase 65 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -27,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 65 — Daemon Lifecycle Foundation (la integración de mayor riesgo del milestone; va primera)
+**Current focus:** Phase 65 — Daemon Lifecycle Foundation
 
 ## Current Position
 
-Phase: Not started (roadmap creado, listo para planificar)
-Plan: —
-Status: Roadmap creado, awaiting phase planning
-Last activity: 2026-07-02 — Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements)
+Phase: 65 (Daemon Lifecycle Foundation) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-01 — Phase 65 execution started
 
 ## Roadmap v0.15 (active)
 
@@ -110,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/65-daemon-lifecycle-foundation/65-CONTEXT.md
 
-- **Last session:** 2026-07-01T23:24:54.921Z
+- **Last session:** 2026-07-01T23:54:43.065Z
 - **Stopped at:** Phase 65 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
@@ -129,9 +130,12 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (sin planes ejecutados aún en v0.15) |
+| Phase 65 P01 | 3 min | 2 tasks | 4 files |
 
 ## Decisions
 
 - [Roadmap v0.15]: 4 phases (65-68) pese a granularidad `coarse` — cada fase es una frontera de riesgo LOCKED distinta (refactor managed / gate brew / boundary PERSIST-04 / UAT máquina limpia), no relleno.
 - [Roadmap v0.15]: SETUP-04 (presencia "configurado" + aviso de reinicio) mapeado a Phase 67 junto a SETUP-03 — todo lo relativo a la KEY (write, mask, presencia, boundary) vive en una fase coherente; Phase 68 reusa el mecanismo de aviso para cambios de provider.
 - [Roadmap v0.15]: GATES MANUALES señalados — Phase 66 (spike real `brew services` en macOS, no unit-testable) y Phase 68 (UAT en máquina limpia sin config.json ni .env).
+- [Phase 65]: D-04: PID primitives take optional trailing name param (default 'polling') — kodo daemon uses 'kodo'->~/.kodo/kodo.pid, existing callers byte-identical
+- [Phase 65]: D-06: providerUsesPolling allowlists github->true, plane/malformed->false (fail-safe, server keeps serving)

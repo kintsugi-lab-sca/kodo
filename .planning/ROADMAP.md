@@ -112,11 +112,11 @@ Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
   3. Bajo managed mode, una colisión de puerto (EADDRINUSE) o una config incompleta se reporta como error limpio **sin** `process.exit`/crash-loop (habilita el setup mode de Phase 68 y evita el chicken-and-egg del first-run). (UP-04)
   4. El daemon escribe un único PID file `~/.kodo/kodo.pid`, distinto del `server.pid` legacy (prerequisito de la idempotencia de `kodo up`). (UP-04)
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 65-01-PLAN.md — Primitivas puras: módulo PID name-parametrizado (`kodo.pid`) + `providerUsesPolling` (Wave 1)
+- [x] 65-01-PLAN.md — Primitivas puras: módulo PID name-parametrizado (`kodo.pid`) + `providerUsesPolling` (Wave 1)
 - [ ] 65-02-PLAN.md — Refactor `startServer({managed})` (4 puntos gateados) + golden de no-regresión de `kodo start` (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -180,7 +180,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 65. Daemon Lifecycle Foundation | 0/? | Not started | - |
+| 65. Daemon Lifecycle Foundation | 1/4 | In Progress|  |
 | 66. `kodo up` + Stop/Status + Homebrew | 0/? | Not started | - |
 | 67. Secrets Writer + Masked Input | 0/? | Not started | - |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |

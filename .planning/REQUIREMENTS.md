@@ -12,7 +12,7 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 - [ ] **UP-01**: El operador ejecuta `kodo up` y arranca el daemon (server + polling compuestos en un solo proceso) en segundo plano y se abre el dashboard como visor.
 - [ ] **UP-02**: El daemon es persistente: al cerrar el dashboard (`q` / Ctrl-C) el daemon sigue corriendo en segundo plano (reaccionando a triggers).
 - [ ] **UP-03**: `kodo up` es idempotente: si el daemon ya está corriendo, adjunta el dashboard al daemon existente sin hacer doble spawn ni colisionar de puerto.
-- [ ] **UP-04**: El daemon expone un modo foreground supervisable (`kodo daemon run`) que bloquea sin auto-desvincularse, además del modo self-detach que usa `kodo up` sin flags.
+- [x] **UP-04**: El daemon expone un modo foreground supervisable (`kodo daemon run`) que bloquea sin auto-desvincularse, además del modo self-detach que usa `kodo up` sin flags.
 - [ ] **UP-05**: `kodo stop` detiene el daemon completo (server + polling) de forma limpia y `kodo status` reporta su estado (running/stopped) de forma determinista, con salida `--json` scriptable.
 - [ ] **UP-06**: `kodo start` (server en foreground, comportamiento legacy) sigue funcionando sin cambios tras introducir `kodo up`.
 
@@ -57,7 +57,7 @@ Exclusiones explícitas de v0.15 con su razón.
 | UP-01 | Phase 66 | Pending |
 | UP-02 | Phase 66 | Pending |
 | UP-03 | Phase 66 | Pending |
-| UP-04 | Phase 65 | Pending |
+| UP-04 | Phase 65 | Complete |
 | UP-05 | Phase 66 | Pending |
 | UP-06 | Phase 65 | Pending |
 | DIST-01 | Phase 66 | Pending |
