@@ -1,10 +1,13 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.15
-milestone_name: kodo up — arranque unificado + onboarding dashboard-first
+milestone_name: «kodo up» — ACTIVE
+current_phase_name: roadmap creado, listo para planificar
 status: planning
-last_updated: "2026-07-02T01:15:00.000Z"
+stopped_at: Phase 65 context gathered
+last_updated: "2026-07-01T23:24:54.928Z"
 last_activity: 2026-07-02
+last_activity_desc: Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -105,10 +108,10 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 ## Session Continuity
 
-**Resume file:** —
+**Resume file:** .planning/phases/65-daemon-lifecycle-foundation/65-CONTEXT.md
 
-- **Last session:** 2026-07-02T01:15:00.000Z
-- **Stopped at:** Roadmap v0.15 creado (4 phases 65-68, 14/14 requirements mapeados, traceability completa)
+- **Last session:** 2026-07-01T23:24:54.921Z
+- **Stopped at:** Phase 65 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.15 «kodo up»)
