@@ -18,8 +18,8 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 
 ### DIST — Distribución e instalación (Pilar 1)
 
-- [ ] **DIST-01**: El operador instala kodo con `brew install kodo` (fórmula Homebrew vía tap, `depends_on "node"` ≥20, sin bundlear el runtime).
-- [ ] **DIST-02**: El operador registra kodo como servicio del sistema con `brew services start kodo`: arranca al login y se reinicia si crashea, invocando el modo foreground del daemon (`kodo daemon run`) — nunca `kodo up`.
+- [x] **DIST-01**: El operador instala kodo con `brew install kodo` (fórmula Homebrew vía tap, `depends_on "node"` ≥20, sin bundlear el runtime).
+- [x] **DIST-02**: El operador registra kodo como servicio del sistema con `brew services start kodo`: arranca al login y se reinicia si crashea, invocando el modo foreground del daemon (`kodo daemon run`) — nunca `kodo up`.
 - [x] **DIST-03**: En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado sin crashear (misma guardia que el daemon de polling).
 
 ### SETUP — Onboarding dashboard-first (Pilar 2 — requiere Pilar 1)
@@ -60,8 +60,8 @@ Exclusiones explícitas de v0.15 con su razón.
 | UP-04 | Phase 65 | Complete |
 | UP-05 | Phase 66 | Complete |
 | UP-06 | Phase 65 | Complete |
-| DIST-01 | Phase 66 | Pending |
-| DIST-02 | Phase 66 | Pending |
+| DIST-01 | Phase 66 | Complete |
+| DIST-02 | Phase 66 | Complete |
 | DIST-03 | Phase 66 | Complete |
 | SETUP-01 | Phase 68 | Pending |
 | SETUP-02 | Phase 68 | Pending |

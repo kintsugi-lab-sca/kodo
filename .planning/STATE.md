@@ -6,14 +6,14 @@ current_phase: 66
 current_phase_name: kodo up + Stop/Status unificados + Homebrew
 status: executing
 stopped_at: Phase 66 context gathered
-last_updated: "2026-07-02T06:33:08.388Z"
+last_updated: "2026-07-02T06:45:19.521Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 66 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 ## Current Position
 
 Phase: 66 (kodo up + Stop/Status unificados + Homebrew) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-02 — Phase 66 execution started
 
@@ -111,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/66-kodo-up-stop-status-unificados-homebrew/66-CONTEXT.md
 
-- **Last session:** 2026-07-02T06:32:53.701Z
+- **Last session:** 2026-07-02T06:44:43.563Z
 - **Stopped at:** Phase 66 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
@@ -136,6 +136,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase 65 P04 | ~2min | 2 tasks | 2 files |
 | Phase 66 P01 | 8min | 3 tasks | 4 files |
 | Phase 66 P02 | 4min | 2 tasks | 3 files |
+| Phase 66 P03 | 7min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -150,3 +151,6 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase ?]: 66-01: runUp compone las primitivas de Phase 65 detrás de seams DI, sin reimplementar spawn/PID; cero signal handlers hacia el daemon (UP-02 LOCKED).
 - [Phase ?]: 66-02: kodo stop es daemon-first con fallback legacy server.pid (D-04) para no regresionar kodo start
 - [Phase ?]: 66-02: kodo status reporta el estado del daemon (running/idle), no listSessions (D-04 LOCKED); --json byte-determinista con keys fijas {status, pid}
+- [Phase ?]: kodo up NO llama ensureConfig ni process.exit (D-01); el daemon persiste en su propio process group
+- [Phase ?]: kodo stop/status daemon-first (D-04); status reporta running/stopped en vez de listSessions
+- [Phase ?]: Formula Homebrew: run [opt_bin/kodo,daemon,run] (Pitfall 6); sin variables de entorno en el plist (T-66-08)
