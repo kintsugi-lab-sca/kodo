@@ -4,7 +4,7 @@
 # Fórmula Homebrew de kodo — Phase 66 (DIST-01, DIST-02, D-05 LOCKED).
 #
 # Fuente in-tree del formula: espejo EXACTO de la ruta `Formula/kodo.rb` del tap
-# `kintsugi-lab/homebrew-kodo` (owner confirmado por el operador en el spike, D-05).
+# `kintsugi-lab-sca/homebrew-kodo` (owner confirmado por el operador en el spike, D-05).
 # Se mantiene aquí para ser lintable/revisable en el árbol de kodo; el ciclo real de
 # `brew install` + `brew services` (no unit-testable) se valida en el checkpoint del
 # Plan 66-04.
@@ -15,11 +15,11 @@
 # hidden en cli.js), NUNCA el comando interactivo top-level (que se auto-desvincula).
 class Kodo < Formula
   desc "Automated Claude Code sessions from task-management systems"
-  homepage "https://github.com/kintsugi-lab/kodo"
+  homepage "https://github.com/kintsugi-lab-sca/kodo"
   # TODO(spike 66-04): al cortar la release, fijar el tag real del milestone v0.15,
-  # bumpear package.json a la misma versión (hoy 0.1.0) y computar el sha256 del
-  # tarball. El tag/sha256 NO se pueden conocer hasta que exista la release.
-  url "https://github.com/kintsugi-lab/kodo/archive/refs/tags/v0.15.0.tar.gz"
+  # bumpear package.json a la misma versión y computar el sha256 del tarball.
+  # El sha256 NO se puede conocer hasta que exista la release. (package.json ya en 0.15.0.)
+  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.15.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000" # TODO(spike 66-04): sha256 real del tarball de la release
   license "MIT"
 
