@@ -6,14 +6,14 @@ current_phase: 66
 current_phase_name: kodo up + Stop/Status unificados + Homebrew
 status: executing
 stopped_at: Phase 66 code complete (66-01/02/03 green, 1698 pass) — PAUSED at 66-04 brew-services manual checkpoint
-last_updated: "2026-07-02T07:51:47.232Z"
+last_updated: "2026-07-02T08:33:28.587Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 66 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 8
-  completed_plans: 8
+  completed_plans: 9
   percent: 50
 ---
 
@@ -111,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/66-kodo-up-stop-status-unificados-homebrew/66-04-PLAN.md
 
-- **Last session:** 2026-07-02T07:51:36.683Z
+- **Last session:** 2026-07-02T08:33:28.511Z
 - **Stopped at:** Phase 66 code complete (66-01/02/03 green, 1698 pass) — PAUSED at 66-04 brew-services manual checkpoint
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
