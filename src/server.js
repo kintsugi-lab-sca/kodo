@@ -30,14 +30,46 @@ function getLogBuffer() {
   return logBuffer.slice().reverse();
 }
 
+/**
+ * Envuelve un writer de console (origLog/origError/origWarn) haciéndolo EPIPE-safe.
+ *
+ * Orden y garantías (gap-closure Phase 66, flood infinito bajo `brew services`):
+ *   1. pushLog SIEMPRE primero — el buffer in-memory de /logs no depende de que el
+ *      write a stdout/stderr tenga éxito, así que /logs sigue mostrando la línea aun
+ *      con el pipe roto.
+ *   2. La llamada al writer original va en try/catch que TRAGA el error (EPIPE bajo
+ *      launchd cuando el pipe de stdout/stderr se rompe). Crítico: en el fallo NO se
+ *      intenta loguear nada — reescribir en el pipe roto es justo lo que recursa y
+ *      auto-sostiene el bucle "Broken pipe, errno 32".
+ *
+ * En un TTY (foreground `kodo start`, tests) el writer nunca lanza → comportamiento
+ * byte-idéntico al patch previo (UP-06). Exportado para poder testear el swallow con
+ * un writer stub que tira EPIPE, sin abrir un pipe real.
+ *
+ * @param {'info'|'error'|'warn'} level
+ * @param {(...args: any[]) => void} origWriter
+ * @returns {(...args: any[]) => void}
+ */
+function makeSafeConsoleWriter(level, origWriter) {
+  return (...args) => {
+    pushLog(level, args);
+    try {
+      origWriter(...args);
+    } catch {
+      // Swallow (EPIPE u otro write error). NO re-loguear: eso reescribiría en el
+      // mismo pipe roto y produciría el bucle de flood que este fix elimina.
+    }
+  };
+}
+
 // Patch console to capture logs (only if not already patched)
 if (!console.log.__kodo_patched) {
   const origLog = console.log.bind(console);
   const origError = console.error.bind(console);
   const origWarn = console.warn.bind(console);
-  console.log = (...args) => { pushLog('info', args); origLog(...args); };
-  console.error = (...args) => { pushLog('error', args); origError(...args); };
-  console.warn = (...args) => { pushLog('warn', args); origWarn(...args); };
+  console.log = makeSafeConsoleWriter('info', origLog);
+  console.error = makeSafeConsoleWriter('error', origError);
+  console.warn = makeSafeConsoleWriter('warn', origWarn);
   console.log.__kodo_patched = true;
 }
 
@@ -712,4 +744,4 @@ export function stopServer() {
   }
 }
 
-export { PID_PATH };
+export { PID_PATH, makeSafeConsoleWriter, getLogBuffer };

@@ -45,10 +45,31 @@ import { providerUsesPolling } from './provider-uses-polling.js';
  *   _removePidFile?: (name?: string) => void,
  *   _createLogger?: (opts: any) => any,
  *   _process?: { on: (sig: string, fn: (...a: any[]) => void) => void, exit: (code?: number) => void },
+ *   _stdout?: { on: (ev: string, fn: (...a: any[]) => void) => any },
+ *   _stderr?: { on: (ev: string, fn: (...a: any[]) => void) => any },
  *   _block?: () => Promise<any>,
  *   _log?: (msg: string) => void,
  * }} RunDaemonDeps
  */
+
+/**
+ * Instala un guard 'error' EPIPE-safe en un stream (stdout/stderr), idempotente.
+ *
+ * Gap-closure Phase 66: bajo launchd / `brew services`, stdout/stderr están conectados
+ * a un PIPE; cuando el pipe se rompe Node EMITE un 'error' en el stream. Sin handler,
+ * ese error es unhandled → crash/loop. Aquí lo TRAGAMOS en silencio (nunca reescribir
+ * en el fallo, eso recursa). Idempotente vía tag para no acumular listeners cuando
+ * runDaemon corre muchas veces en el mismo proceso (p. ej. la suite de tests con el
+ * process real) y evitar el MaxListenersExceededWarning.
+ *
+ * @param {{ on: (ev: string, fn: (...a: any[]) => void) => any } & Record<string, any>} stream
+ */
+function installStreamEpipeGuard(stream) {
+  if (!stream || stream.__kodo_epipe_guard) return;
+  try { stream.__kodo_epipe_guard = true; } catch { /* stream inmutable: seguimos igual */ }
+  // Swallow silencioso: NO loguear ni reescribir — el pipe roto es la causa del flood.
+  stream.on('error', () => { /* EPIPE u otro write error: tragado a propósito */ });
+}
 
 /**
  * Arranca el daemon kodo compuesto (server + polling condicional) en foreground y
@@ -64,8 +85,18 @@ export async function runDaemon(deps = {}) {
   const writePidFileFn = deps._writePidFile || writePidFile;
   const removePidFileFn = deps._removePidFile || removePidFile;
   const proc = deps._process || process;
+  const stdout = deps._stdout || process.stdout;
+  const stderr = deps._stderr || process.stderr;
   const blockFn = deps._block || (() => new Promise(() => {}));
   const log = deps._log || ((msg) => process.stderr.write(msg + '\n'));
+
+  // PRIMERO de todo (antes de componer server/polling): guards EPIPE en stdout/stderr.
+  // Bajo launchd / `brew services` el pipe puede romperse y emitir 'error'; sin handler
+  // Node lo trata como unhandled y el patch de console reescribe en el pipe roto → flood
+  // infinito ("Broken pipe, errno 32"). Scoped al entrypoint del daemon (run.js), NO al
+  // module load global, para no tocar la semántica del legacy `kodo start` (UP-06).
+  installStreamEpipeGuard(stdout);
+  installStreamEpipeGuard(stderr);
 
   // Vars mutables EXTERNAS: los handlers de señal se registran antes del await sobre
   // startServer, así que capturan estas refs y ven el server/polling en cuanto se
