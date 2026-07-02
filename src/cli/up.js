@@ -180,6 +180,7 @@ export async function runUp(deps = {}) {
   const waitForHealthFn = deps._waitForHealth || waitForHealth;
   const runDashboardFn = deps._runDashboard
     || (await import('./dashboard/index.js')).runDashboard;
+  const needsSetupFn = deps._needsSetup || (await import('../config.js')).needsSetup;
 
   // (0) Config/baseUrl. port desde config.server?.port ?? 9090 (optional chaining por
   // un config v1 migrado sin `server`); baseUrl reusa el default config-driven del
@@ -187,6 +188,16 @@ export async function runUp(deps = {}) {
   const cfg = loadConfigFn();
   const port = cfg?.server?.port ?? 9090;
   const baseUrl = resolveBaseUrlFn({ loadConfig: loadConfigFn });
+
+  // (1.5) first-run pre-spawn (D-02): config incompleta → abre el dashboard en modo
+  // setup SIN arrancar el daemon. Arrancarlo aquí sería contraproducente: en first-run
+  // el daemon muere con teardown(1) por KODO_SETUP_REQUIRED (run.js:152-166), dejando el
+  // visor enganchado a un server muerto. El helper compartido `needsSetup` (D-01) decide;
+  // se evalúa ANTES del ensure-daemon. Never-throws / sin process.exit como el resto.
+  if (needsSetupFn()) {
+    await runDashboardFn({ url: baseUrl, setup: true });
+    return;
+  }
 
   // (2) ensure-daemon (idempotencia D-02): PID-alive PRIMARIO + probePort SECUNDARIO.
   const status = statusDaemonFn('kodo');
