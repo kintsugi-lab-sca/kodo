@@ -230,6 +230,53 @@ export function isApiKeyConfigured(providerName) {
 }
 
 /**
+ * Detección de first-run del onboarding dashboard-first (SETUP-01, D-01/D-02/D-03).
+ *
+ * Devuelve `true` si la config está INCOMPLETA y el operador debe pasar por el modo
+ * setup del dashboard. Es UN helper compartido (D-01): lo consumen `runUp` (pre-spawn,
+ * D-02) y App/index (render local). NO se duplica la lógica.
+ *
+ * Contrato en 3 señales, en orden:
+ *   (1) LOAD-BEARING (Pitfall 12): `existsSync(CONFIG_PATH)` DIRECTO como PRIMERA señal.
+ *       NUNCA los valores de `loadConfig()`: con el archivo ausente `loadConfig` devuelve
+ *       `{ ...DEFAULT_CONFIG }` (un Plane válido) indistinguible de config real → falso
+ *       negativo en máquina limpia. Por eso si no existe el archivo → first-run, sin leer nada.
+ *   (2) Presencia de la API key del provider activo vía `isApiKeyConfigured` (NUNCA el VALOR,
+ *       PERSIST-04/Pitfall 11). D-09: `isApiKeyConfigured` lee el `process.env` FRESCO
+ *       (poblado por `loadEnvFile` al import + actualizado in-proceso por `onSaveApiKey`→
+ *       `writeEnvVar`, index.js). `needsSetup` NO re-invoca `loadEnvFile` para reconfirmar
+ *       una key recién escrita (el parser es load no-override → enmascararía el valor nuevo).
+ *   (3) Campos estructurales SOLO si el config existe (D-03 extendido): para `plane`,
+ *       `base_url` + `workspace_slug`. GitHub queda FUERA del guiado (D-06) → sin gate estructural.
+ *
+ * D-12: NO incluye el webhook secret (`KODO_WEBHOOK_SECRET_PLANE`) — es un secreto distinto,
+ * fuera del guiado. Helper puro, sin side-effects, never-throws por construcción.
+ *
+ * Los seams `_configExists`/`_isApiKeyConfigured` son DI opcional para testabilidad SIN
+ * tocar el `~/.kodo/` real (dogfooding); producción usa los defaults canónicos.
+ *
+ * @param {string} [providerName] - provider a evaluar. Default `config.provider`.
+ * @param {() => typeof DEFAULT_CONFIG} [_loadConfig] - loader inyectable (tests).
+ * @param {() => boolean} [_configExists] - existencia de config.json inyectable (tests).
+ * @param {(name?: string) => boolean} [_isApiKeyConfigured] - presence-check inyectable (tests).
+ * @returns {boolean} true si la config está incompleta (first-run / modo setup).
+ */
+export function needsSetup(
+  providerName,
+  _loadConfig = loadConfig,
+  _configExists = () => existsSync(CONFIG_PATH),
+  _isApiKeyConfigured = isApiKeyConfigured,
+) {
+  if (!_configExists()) return true;                       // (1) Pitfall 12: no config.json → first-run
+  const config = _loadConfig();
+  const name = providerName || config.provider;
+  if (!_isApiKeyConfigured(name)) return true;             // (2) falta API key → setup (solo presencia)
+  const p = config.providers?.[name];                      // (3) estructurales SOLO si config existe (D-03)
+  if (name === 'plane' && (!p?.base_url || !p?.workspace_slug)) return true;
+  return false;
+}
+
+/**
  * Returns true iff the user has opted into provider sub-issue reporting via
  * `~/.kodo/config.json` `workflow.report_to_provider: true`.
  *
