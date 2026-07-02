@@ -5,8 +5,8 @@ milestone_name: «kodo up» — ACTIVE
 current_phase: 68
 current_phase_name: Dashboard Setup Mode + CFGF-03 + First-Run
 status: verifying
-stopped_at: Completed 67-03-PLAN.md (Phase 67 complete)
-last_updated: "2026-07-02T11:19:52.624Z"
+stopped_at: Phase 68 context gathered
+last_updated: "2026-07-02T11:35:26.211Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 67 complete, transitioned to Phase 68
 progress:
@@ -109,10 +109,10 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/68-dashboard-setup-mode-cfgf-03-first-run/68-CONTEXT.md
 
-- **Last session:** 2026-07-02T10:44:01.477Z
-- **Stopped at:** Completed 67-03-PLAN.md (Phase 67 complete)
+- **Last session:** 2026-07-02T11:35:26.205Z
+- **Stopped at:** Phase 68 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.15 «kodo up»)
