@@ -192,7 +192,20 @@ Plans:
   3. El wizard `kodo config` (readline, headless) escribe a través de la **MISMA fontanería** que el dashboard (`saveConfig` / `saveProjects` / `writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen. (SETUP-05)
   4. Tras completar el setup, la transición setup→running muestra un aviso de reinicio **honesto** (sin hot-reload, coherente con v0.14). (SETUP-02; apoya SETUP-04)
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+**Wave 1**
+
+- [ ] 68-01-PLAN.md — Detección first-run: helper puro `needsSetup()` (existsSync-first, held-out Pitfall 12) + rama pre-spawn de `runUp` (D-02, no spawn en first-run) [SETUP-01]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 68-02-PLAN.md — Modo `setup` en el dashboard: 16 constantes `SETUP_*` + state-machine lineal 4 pasos (provider/base_url/workspace_slug/apikey enmascarada) + `renderSetupOverlay` + wiring + degradación non-TTY (D-04/D-05/D-08/D-13) [SETUP-01, SETUP-02]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 68-03-PLAN.md — Rewire mínimo de `kodo config` (únicos escritores, sin captura del valor) + higiene single-writer + re-verificación 5 sinks + **GATE MANUAL** UAT máquina limpia (D-10/D-11/D-12) [SETUP-05]
+
 **UI hint**: yes
 **Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — UAT en **máquina limpia** (sin `config.json` ni `.env`): verificar que `kodo up` sirve el setup mode sin ningún `exit(1)` y que la transición setup→running es honesta (leer el valor recién escrito directamente del archivo, no vía `loadEnvFile` no-override — Pitfall 15). Es la fase de mayor complejidad de UX. Evita Pitfalls 12, 15, 16.
 
@@ -203,7 +216,7 @@ Plans:
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
 | 67. Secrets Writer + Masked Input | 3/3 | Complete    | 2026-07-02 |
-| 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
+| 68. Setup Mode + CFGF-03 + First-Run | 0/3 | Not started | - |
 
 ## Backlog
 
