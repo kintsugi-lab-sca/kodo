@@ -112,3 +112,109 @@ export async function waitForHealth(baseUrl, { timeoutMs = 10000, intervalMs = 2
   } while (true);
   return false;
 }
+
+/**
+ * Orquestador de `kodo up` (UP-01/02/03, DIST-03).
+ *
+ * Compone (NO reimplementa) las piezas de Phase 65 detrás de seams DI. Flujo LOCKED
+ * (D-01/D-02/D-06):
+ *   (1) Guard Windows PRIMERO (D-06/DIST-03): win32 → foreground (runDaemon), sin
+ *       detach, sin attach separado, sin crashear. NO llama startDaemon en win32.
+ *   (2) ensure-daemon (idempotencia D-02): statusDaemon (PID-alive PRIMARIO) +
+ *       probePort (SECUNDARIO). Solo si NO corre Y el puerto está libre → startDaemon
+ *       detached. Si ya corre o el puerto está ocupado → ATTACH directo (cero spawn,
+ *       evita EADDRINUSE / Pitfall 3). startDaemon ok:false → aviso a stderr + return
+ *       (never-throws, sin process.exit).
+ *   (3) health-wait: waitForHealth bounded/never-throws. false → aviso + CONTINÚA
+ *       (fail-open).
+ *   (4) attach: runDashboard({url}) — visor HTTP puro; owns nothing.
+ *   (5) return. CRÍTICO (UP-02/D-01): runUp NO registra NINGÚN process.on(SIGINT|
+ *       SIGTERM) hacia el daemon. El aislamiento del process group lo da detached:true
+ *       en startDaemon (lifecycle.js:125); registrar handlers aquí mataría el daemon al
+ *       cerrar el dashboard y violaría el modelo persistente LOCKED.
+ *
+ * @param {{
+ *   _platform?: string,
+ *   _statusDaemon?: (name: string, deps?: any) => { status: string, pid: number | null },
+ *   _startDaemon?: (name: string, argv: string[], deps?: any) => Promise<any>,
+ *   _probePort?: (port: number, host?: string, timeoutMs?: number, deps?: any) => Promise<boolean>,
+ *   _waitForHealth?: (baseUrl: string, opts?: any, deps?: any) => Promise<boolean>,
+ *   _runDashboard?: (deps?: any) => Promise<any>,
+ *   _runDaemon?: (deps?: any) => Promise<any>,
+ *   _loadConfig?: () => any,
+ *   _resolveBaseUrl?: (args: any) => string,
+ *   _process?: { on: (sig: string, fn: (...a: any[]) => void) => any },
+ *   _stderr?: { write: (s: string) => any },
+ * }} [deps]
+ * @returns {Promise<void | any>}
+ */
+export async function runUp(deps = {}) {
+  const platform = deps._platform || process.platform;
+  const stderr = deps._stderr || process.stderr;
+
+  // (1) Guard Windows PRIMERO (D-06/DIST-03): foreground, sin detach ni attach.
+  // Se resuelve antes de tocar config/red para no depender de nada en win32.
+  if (platform === 'win32') {
+    let runDaemonFn = deps._runDaemon;
+    if (!runDaemonFn) runDaemonFn = (await import('../daemon/run.js')).runDaemon;
+    stderr.write(
+      'kodo up: Windows no soporta el daemon detached; corriendo en foreground ' +
+      '(Ctrl-C para salir).\n',
+    );
+    return runDaemonFn();
+  }
+
+  // Resolución de seams (lazy imports en los defaults → arranque del CLI ligero,
+  // no carga ink/lifecycle salvo que se ejecute realmente).
+  let loadConfigFn = deps._loadConfig;
+  if (!loadConfigFn) loadConfigFn = (await import('../config.js')).loadConfig;
+
+  let resolveBaseUrlFn = deps._resolveBaseUrl;
+  if (!resolveBaseUrlFn) resolveBaseUrlFn = (await import('./dashboard/index.js')).resolveBaseUrl;
+
+  const statusDaemonFn = deps._statusDaemon
+    || (await import('../daemon/lifecycle.js')).statusDaemon;
+  const startDaemonFn = deps._startDaemon
+    || (await import('../daemon/lifecycle.js')).startDaemon;
+  const probePortFn = deps._probePort || probePortInUse;
+  const waitForHealthFn = deps._waitForHealth || waitForHealth;
+  const runDashboardFn = deps._runDashboard
+    || (await import('./dashboard/index.js')).runDashboard;
+
+  // (0) Config/baseUrl. port desde config.server?.port ?? 9090 (optional chaining por
+  // un config v1 migrado sin `server`); baseUrl reusa el default config-driven del
+  // dashboard (resolveBaseUrl → DEFAULT_CONFIG.server.port=9090).
+  const cfg = loadConfigFn();
+  const port = cfg?.server?.port ?? 9090;
+  const baseUrl = resolveBaseUrlFn({ loadConfig: loadConfigFn });
+
+  // (2) ensure-daemon (idempotencia D-02): PID-alive PRIMARIO + probePort SECUNDARIO.
+  const status = statusDaemonFn('kodo');
+  const portBusy = await probePortFn(port);
+  if (status.status !== 'running' && !portBusy) {
+    // Daemon frío: arranca detached (['daemon','run'] → runDaemon foreground en el hijo).
+    const res = await startDaemonFn('kodo', ['daemon', 'run']);
+    if (res && res.ok === false) {
+      // never-throws / sin process.exit: avisa y retorna.
+      stderr.write(`kodo up: ${res.message ?? 'no se pudo arrancar el daemon'}\n`);
+      return;
+    }
+  }
+  // Si el daemon YA corre (status running) o el puerto está ocupado → ATTACH directo
+  // (cero spawn, evita EADDRINUSE / Pitfall 3).
+
+  // (3) health-wait: bounded/never-throws; false → fail-open (abre el dashboard igual).
+  const healthy = await waitForHealthFn(baseUrl);
+  if (!healthy) {
+    stderr.write(
+      'kodo up: el daemon no respondió a /health a tiempo; abriendo el dashboard igual.\n',
+    );
+  }
+
+  // (4) attach: visor HTTP puro; owns nothing.
+  await runDashboardFn({ url: baseUrl });
+
+  // (5) return. UP-02/D-01: NO se registra ningún signal handler hacia el daemon —
+  // detached:true (lifecycle.js:125) ya aísla su process group; cerrar el visor NO
+  // debe tumbar el daemon (modelo persistente LOCKED).
+}
