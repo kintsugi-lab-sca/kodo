@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { isReportToProviderEnabled, migrateConfig, DEFAULT_CONFIG } from '../src/config.js';
+import { isReportToProviderEnabled, migrateConfig, needsSetup, DEFAULT_CONFIG } from '../src/config.js';
 
 describe('REPORT-02 — isReportToProviderEnabled', () => {
   // Factory: returns a fake loadConfig that overrides DEFAULT_CONFIG.
@@ -102,6 +102,90 @@ describe('REPORT-02 — source hygiene (D-05): .report_to_provider only inside s
       [],
       `Direct access to .report_to_provider found in: ${violations.join(', ')}.\nUse isReportToProviderEnabled() from src/config.js. Direct access to .report_to_provider is allowed only inside the helper.`,
     );
+  });
+});
+
+describe('SETUP-01 — needsSetup (detección de first-run)', () => {
+  // Todos los casos inyectan seams DI (_loadConfig, _configExists, _isApiKeyConfigured)
+  // → CERO contacto con el `~/.kodo/` real del operador (dogfooding: config.json/.env
+  // reales con secretos vivos). Molde DI de `isReportToProviderEnabled`.
+  const planeComplete = () => ({
+    provider: 'plane',
+    providers: { plane: { base_url: 'https://x', api_key_env: 'PLANE_API_KEY', workspace_slug: 'k-lab' } },
+  });
+
+  it('SETUP-01: config.json ausente → true (existsSync-first, sin leer valores)', () => {
+    // _loadConfig incompleto por si acaso; el existsSync=false debe cortar antes.
+    const result = needsSetup('plane', () => ({ provider: 'plane', providers: {} }), () => false, () => false);
+    assert.equal(result, true);
+  });
+
+  it('SETUP-01: config existe pero falta la API key del provider activo → true', () => {
+    const result = needsSetup('plane', planeComplete, () => true, () => false);
+    assert.equal(result, true);
+  });
+
+  it('SETUP-01: config existe + key presente pero Plane sin base_url → true (estructural D-03)', () => {
+    const cfg = () => ({ provider: 'plane', providers: { plane: { workspace_slug: 'k-lab' } } });
+    const result = needsSetup('plane', cfg, () => true, () => true);
+    assert.equal(result, true);
+  });
+
+  it('SETUP-01: config existe + key presente pero Plane sin workspace_slug → true (estructural D-03)', () => {
+    const cfg = () => ({ provider: 'plane', providers: { plane: { base_url: 'https://x' } } });
+    const result = needsSetup('plane', cfg, () => true, () => true);
+    assert.equal(result, true);
+  });
+
+  it('SETUP-01: config completo + key presente + estructurales válidos → false', () => {
+    const result = needsSetup('plane', planeComplete, () => true, () => true);
+    assert.equal(result, false);
+  });
+
+  it('SETUP-01: resuelve el provider activo desde config.provider cuando providerName se omite', () => {
+    // Sin providerName → usa config.provider ('plane') para el gate estructural.
+    const cfg = () => ({ provider: 'plane', providers: { plane: { base_url: 'https://x', workspace_slug: 'k-lab' } } });
+    assert.equal(needsSetup(undefined, cfg, () => true, () => true), false);
+  });
+
+  it('SETUP-01 (D-06): provider github con key presente → false (el gate estructural es Plane-only)', () => {
+    // github queda fuera del guiado; needsSetup no aplica base_url/workspace_slug a github.
+    const cfg = () => ({ provider: 'github', providers: { github: { api_key_env: 'GITHUB_TOKEN' } } });
+    assert.equal(needsSetup('github', cfg, () => true, () => true), false);
+  });
+
+  it('SETUP-01 HELD-OUT (Pitfall 12): config.json ausente → true AUNQUE loadConfig devuelva DEFAULT_CONFIG válido y la key parezca presente', () => {
+    // Prueba anti-falso-negativo: DEFAULT_CONFIG trae un Plane completo (base_url +
+    // workspace_slug) y isApiKeyConfigured diría true. Si needsSetup se apoyara en
+    // loadConfig() devolvería false (falso negativo en máquina limpia). El existsSync=false
+    // DEBE ganar → true.
+    const result = needsSetup('plane', () => ({ ...DEFAULT_CONFIG }), () => false, () => true);
+    assert.equal(result, true, 'existsSync-first: config.json ausente es first-run pese a DEFAULT_CONFIG válido');
+  });
+});
+
+describe('SETUP-01 — needsSetup source hygiene (D-12: sin webhook secret; PERSIST-04: sin valor de key)', () => {
+  it('SETUP-01 (D-12): el cuerpo de needsSetup NO menciona ninguna env var de webhook secret', () => {
+    const source = readFileSync(join('src', 'config.js'), 'utf-8');
+    const start = source.indexOf('export function needsSetup');
+    assert.ok(start !== -1, 'needsSetup debe existir en src/config.js');
+    // Aísla el cuerpo hasta el siguiente `export function`/`export {` para no capturar otros helpers.
+    const rest = source.slice(start + 'export function needsSetup'.length);
+    const nextExport = rest.search(/\nexport (function|\{)/);
+    const body = nextExport === -1 ? rest : rest.slice(0, nextExport);
+    assert.ok(!/WEBHOOK/i.test(body), 'D-12: needsSetup no debe referenciar el webhook secret (KODO_WEBHOOK_SECRET_PLANE)');
+  });
+
+  it('SETUP-01 (existsSync-first): existsSync(CONFIG_PATH) aparece antes de cualquier lectura de campos estructurales', () => {
+    const source = readFileSync(join('src', 'config.js'), 'utf-8');
+    const start = source.indexOf('export function needsSetup');
+    const rest = source.slice(start);
+    const nextExport = rest.slice(1).search(/\nexport (function|\{)/);
+    const body = nextExport === -1 ? rest : rest.slice(0, nextExport + 1);
+    const existsIdx = body.indexOf('existsSync(CONFIG_PATH)');
+    const structuralIdx = body.indexOf('base_url');
+    assert.ok(existsIdx !== -1, 'needsSetup debe referenciar existsSync(CONFIG_PATH)');
+    assert.ok(structuralIdx === -1 || existsIdx < structuralIdx, 'existsSync(CONFIG_PATH) debe preceder al gate estructural');
   });
 });
 
