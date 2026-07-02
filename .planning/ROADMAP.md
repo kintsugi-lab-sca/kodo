@@ -192,11 +192,11 @@ Plans:
   3. El wizard `kodo config` (readline, headless) escribe a través de la **MISMA fontanería** que el dashboard (`saveConfig` / `saveProjects` / `writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen. (SETUP-05)
   4. Tras completar el setup, la transición setup→running muestra un aviso de reinicio **honesto** (sin hot-reload, coherente con v0.14). (SETUP-02; apoya SETUP-04)
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 68-01-PLAN.md — Detección first-run: helper puro `needsSetup()` (existsSync-first, held-out Pitfall 12) + rama pre-spawn de `runUp` (D-02, no spawn en first-run) [SETUP-01]
+- [x] 68-01-PLAN.md — Detección first-run: helper puro `needsSetup()` (existsSync-first, held-out Pitfall 12) + rama pre-spawn de `runUp` (D-02, no spawn en first-run) [SETUP-01]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -216,7 +216,7 @@ Plans:
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
 | 67. Secrets Writer + Masked Input | 3/3 | Complete    | 2026-07-02 |
-| 68. Setup Mode + CFGF-03 + First-Run | 0/3 | Not started | - |
+| 68. Setup Mode + CFGF-03 + First-Run | 1/3 | In Progress|  |
 
 ## Backlog
 

@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
 current_phase: 68
-current_phase_name: Dashboard Setup Mode + CFGF-03 + First-Run
+current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 status: executing
 stopped_at: Phase 68 context gathered
-last_updated: "2026-07-02T12:24:38.612Z"
+last_updated: "2026-07-02T12:36:15.112Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 67 complete, transitioned to Phase 68
+last_activity_desc: Phase 68 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 14
+  total_plans: 15
+  completed_plans: 15
   percent: 50
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 67 — secrets-writer-masked-input
+**Current focus:** Phase 68 — dashboard-setup-mode-cfgf-03-first-run
 
 ## Current Position
 
-Phase: 68 — Dashboard Setup Mode + CFGF-03 + First-Run
-Plan: Not started
+Phase: 68 (dashboard-setup-mode-cfgf-03-first-run) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-02 — Phase 67 complete, transitioned to Phase 68
+Last activity: 2026-07-02 — Phase 68 execution started
 
 ## Roadmap v0.15 (active)
 
@@ -111,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/68-dashboard-setup-mode-cfgf-03-first-run/68-CONTEXT.md
 
-- **Last session:** 2026-07-02T11:35:26.205Z
+- **Last session:** 2026-07-02T12:36:09.809Z
 - **Stopped at:** Phase 68 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
@@ -141,6 +141,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase 67 P01 | ~7min | 4 tasks | 2 files |
 | Phase 67 P02 | 8min | 7 tasks | 4 files |
 | Phase 67 P03 | 12min | 5 tasks | 2 files |
+| Phase 68 P01 | 20 | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -162,3 +163,4 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase 67]: 67-01: writeEnvVar NO reusa writeFileAtomic (sin chmod → fuga 0644); implementa su propia secuencia espejo de writePidFile con chmod 0600 pre-rename (Pitfall 13 LOAD-BEARING)
 - [Phase 67]: 67-01: validación estricta (rechaza #, =, todo whitespace incl. \n/\r, y vacío) en vez de escapar (Pitfall 14); envPath por DI para aislar tests del .env real (Pitfall 21811); contrato dual throw-en-input/never-throws-en-I/O
 - [Phase ?]: 67-03: grep de higiene source-level prueba que el VALOR del secreto no alcanza los 5 sinks; detector no-trivial (fixtures +/-) distingue VALOR de NOMBRE de la key
+- [Phase ?]: 68-01: needsSetup() usa existsSync(CONFIG_PATH) como primera señal (Pitfall 12), nunca valores de loadConfig; runUp corre needsSetup pre-spawn y en first-run no arranca el daemon (D-02)
