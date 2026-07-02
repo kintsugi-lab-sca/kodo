@@ -5,8 +5,8 @@ import {
   readFileSync, statSync, existsSync, readdirSync, mkdtempSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { writeEnvVar, validateEnvKey, validateEnvValue } from '../src/config.js';
+import { tmpdir, homedir } from 'node:os';
+import { writeEnvVar, validateEnvKey, validateEnvValue, ENV_PATH } from '../src/config.js';
 
 // DI puro (obs. 21811/22683): writeEnvVar recibe `envPath` por parámetro, así el
 // test lo ejercita contra un tmpdir SIN depender de KODO_DIR/HOME (cacheados al
@@ -291,5 +291,52 @@ describe('SETUP-03 — writeEnvVar: idempotencia', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 4 — Integración / invariantes: DI (Pitfall 21811) + boundary (Pitfall 11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('SETUP-03 — invariante DI (Pitfall 21811: KODO_DIR cacheado al import)', () => {
+  it('el default ENV_PATH apunta a ~/.kodo/.env (contrato de producción)', () => {
+    assert.equal(ENV_PATH, join(homedir(), '.kodo', '.env'));
+  });
+
+  it('con envPath inyectado, NO se toca el ~/.kodo/.env real (aislamiento)', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('KODO_TEST_SENTINEL', 'sentinel', p);
+      // El write cayó en el tmpdir, no en el ENV_PATH cacheado.
+      assert.equal(readFileSync(p, 'utf-8'), 'KODO_TEST_SENTINEL=sentinel\n');
+      assert.equal(existsSync(join(dir, '.env')), true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SETUP-04 — boundary de fuga (Pitfall 11): writeEnvVar es in-proceso', () => {
+  // Blindaje source-level (molde del anti-inline de config.test.js): el writer del
+  // secreto NUNCA puede shell-out. El vector de mayor riesgo (P11) es el argv de un
+  // subprocess: `execFile('kodo', ['config','--api-key', SECRET])`. La escritura es
+  // SIEMPRE en-proceso (writeFileSync/renameSync), jamás vía child_process.
+  const source = readFileSync(new URL('../src/config.js', import.meta.url), 'utf-8');
+  const body = source.slice(
+    source.indexOf('export function writeEnvVar'),
+    source.indexOf('export {', source.indexOf('export function writeEnvVar')),
+  );
+
+  it('config.js no importa child_process (ningún vector de shell-out del secreto)', () => {
+    assert.doesNotMatch(source, /child_process/);
+  });
+
+  it('el cuerpo de writeEnvVar no usa execFile/spawn/exec (escritura in-proceso)', () => {
+    assert.doesNotMatch(body, /\b(execFile|spawn|execSync|exec)\s*\(/);
+  });
+
+  it('el cuerpo de writeEnvVar no loguea el valor (console.*)', () => {
+    assert.doesNotMatch(body, /console\./);
   });
 });
