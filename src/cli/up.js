@@ -18,6 +18,7 @@
 // código ya enviado), never-throws / fail-open, DI vía seams `_dep`, guard Windows.
 
 import net from 'node:net';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 /**
  * Sonda de puerto-en-uso vía node:net (UP-03). NEVER-THROWS / never-hang.
@@ -74,4 +75,40 @@ export function probePortInUse(port, host = '127.0.0.1', timeoutMs = 500, deps =
       done(err && err.code === 'ECONNREFUSED' ? false : true);
     });
   });
+}
+
+/**
+ * Readiness gate never-throws sobre `GET {baseUrl}/health` (UP-01).
+ *
+ * Espeja el never-throws de `fetchStatus` (client.js:49-60): sondea en bucle hasta
+ * que /health responde 200 (→ true) o se agota `timeoutMs` (→ false). Un daemon que
+ * no responde a tiempo es un `false`, NO una excepción (fail-open: runUp abrirá el
+ * dashboard igual con un aviso). ECONNREFUSED durante el boot se traga y reintenta.
+ *
+ * Bounded por deadline (`_now() >= start + timeoutMs`) → nunca cuelga aunque /health
+ * falle siempre. Clock/sleep inyectables para tests sin esperas reales.
+ *
+ * @param {string} baseUrl — base del server kodo (p.ej. 'http://localhost:9090').
+ * @param {{ timeoutMs?: number, intervalMs?: number }} [opts]
+ * @param {{ _fetch?: typeof globalThis.fetch, _now?: () => number, _sleep?: (ms: number) => Promise<any> }} [deps]
+ * @returns {Promise<boolean>} true=respondió 200 a tiempo, false=timeout/no-200.
+ */
+export async function waitForHealth(baseUrl, { timeoutMs = 10000, intervalMs = 200 } = {}, deps = {}) {
+  const fetchFn = deps._fetch || globalThis.fetch;
+  const now = deps._now || Date.now;
+  const sleepFn = deps._sleep || sleep;
+
+  const deadline = now() + timeoutMs;
+  // do-while: SIEMPRE hace ≥1 intento antes de rendirse por deadline.
+  do {
+    try {
+      const res = await fetchFn(`${baseUrl}/health`);
+      if (res.ok) return true;
+    } catch {
+      // ECONNREFUSED / abort durante el boot → traga y reintenta (never-throws).
+    }
+    if (now() >= deadline) break;
+    await sleepFn(intervalMs);
+  } while (true);
+  return false;
 }
