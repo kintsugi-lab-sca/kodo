@@ -28,7 +28,7 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 - [x] **SETUP-02**: El operador edita el `provider` activo, `base_url` y `workspace_slug` desde el dashboard y se persisten a `~/.kodo/config.json` (cierra CFGF-03 en su parte no-secreta).
 - [x] **SETUP-03**: El operador introduce la API key del provider en un campo enmascarado del dashboard; se persiste a `~/.kodo/.env` (permisos `0600`) y NUNCA se renderiza de vuelta ni aparece en `config.json`, `/status` ni en los logs.
 - [x] **SETUP-04**: El dashboard indica si la key ya está configurada (presencia, sin revelar el valor) y, tras cambiar provider/key, avisa de reiniciar el daemon para aplicar (sin hot-reload).
-- [ ] **SETUP-05**: El wizard `kodo config` escribe a través de la misma fontanería que el dashboard (`saveConfig`/`saveProjects`/`writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen.
+- [x] **SETUP-05**: El wizard `kodo config` escribe a través de la misma fontanería que el dashboard (`saveConfig`/`saveProjects`/`writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen.
 
 ## Future Requirements
 
@@ -67,4 +67,4 @@ Exclusiones explícitas de v0.15 con su razón.
 | SETUP-02 | Phase 68 | Complete |
 | SETUP-03 | Phase 67 | Complete |
 | SETUP-04 | Phase 67 | Complete |
-| SETUP-05 | Phase 68 | Pending |
+| SETUP-05 | Phase 68 | Complete |
