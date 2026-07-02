@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
 current_phase: 66
-current_phase_name: `kodo up` + Stop/Status unificados + Homebrew
+current_phase_name: kodo up + Stop/Status unificados + Homebrew
 status: executing
 stopped_at: Phase 66 context gathered
-last_updated: "2026-07-02T06:11:34.057Z"
+last_updated: "2026-07-02T06:24:48.856Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 65 complete, transitioned to Phase 66
+last_activity_desc: Phase 66 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 8
+  completed_plans: 5
   percent: 25
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 65 — Daemon Lifecycle Foundation
+**Current focus:** Phase 66 — kodo up + Stop/Status unificados + Homebrew
 
 ## Current Position
 
-Phase: 66 — `kodo up` + Stop/Status unificados + Homebrew
-Plan: Not started
+Phase: 66 (kodo up + Stop/Status unificados + Homebrew) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-02 — Phase 65 complete, transitioned to Phase 66
+Last activity: 2026-07-02 — Phase 66 execution started
 
 ## Roadmap v0.15 (active)
 
@@ -111,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/66-kodo-up-stop-status-unificados-homebrew/66-CONTEXT.md
 
-- **Last session:** 2026-07-02T05:39:32.504Z
+- **Last session:** 2026-07-02T06:23:58.168Z
 - **Stopped at:** Phase 66 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
@@ -134,6 +134,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase 65 P02 | 12 min | 2 tasks | 3 files |
 | Phase 65 P03 | 5min | 2 tasks | 4 files |
 | Phase 65 P04 | ~2min | 2 tasks | 2 files |
+| Phase 66 P01 | 8min | 3 tasks | 4 files |
 
 ## Decisions
 
@@ -145,3 +146,4 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase 65]: Plan 65-02: startServer({managed}) throws KODO_SETUP_REQUIRED (no process.exit) + typed EADDRINUSE via server.on('error'); four points gated behind if(opts.managed), legacy byte-identical (UP-06 golden)
 - [Phase 65]: Plan 65-02: managed returns { server, stopReconcile } + DI seam _loadConfig/_provider (mirror config.js:233) so managed path is unit-testable offline
 - [Phase ?]: 65-04: kodo daemon run wired as a hidden commander subcommand (internal foreground entrypoint for Phase 66 kodo up/launchd); action awaits runDaemon with no process.exit (D-05 single-owner)
+- [Phase ?]: 66-01: runUp compone las primitivas de Phase 65 detrás de seams DI, sin reimplementar spawn/PID; cero signal handlers hacia el daemon (UP-02 LOCKED).

@@ -9,9 +9,9 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 
 ### UP — Arranque unificado y ciclo de vida del daemon (Pilar 1)
 
-- [ ] **UP-01**: El operador ejecuta `kodo up` y arranca el daemon (server + polling compuestos en un solo proceso) en segundo plano y se abre el dashboard como visor.
-- [ ] **UP-02**: El daemon es persistente: al cerrar el dashboard (`q` / Ctrl-C) el daemon sigue corriendo en segundo plano (reaccionando a triggers).
-- [ ] **UP-03**: `kodo up` es idempotente: si el daemon ya está corriendo, adjunta el dashboard al daemon existente sin hacer doble spawn ni colisionar de puerto.
+- [x] **UP-01**: El operador ejecuta `kodo up` y arranca el daemon (server + polling compuestos en un solo proceso) en segundo plano y se abre el dashboard como visor.
+- [x] **UP-02**: El daemon es persistente: al cerrar el dashboard (`q` / Ctrl-C) el daemon sigue corriendo en segundo plano (reaccionando a triggers).
+- [x] **UP-03**: `kodo up` es idempotente: si el daemon ya está corriendo, adjunta el dashboard al daemon existente sin hacer doble spawn ni colisionar de puerto.
 - [x] **UP-04**: El daemon expone un modo foreground supervisable (`kodo daemon run`) que bloquea sin auto-desvincularse, además del modo self-detach que usa `kodo up` sin flags.
 - [ ] **UP-05**: `kodo stop` detiene el daemon completo (server + polling) de forma limpia y `kodo status` reporta su estado (running/stopped) de forma determinista, con salida `--json` scriptable.
 - [x] **UP-06**: `kodo start` (server en foreground, comportamiento legacy) sigue funcionando sin cambios tras introducir `kodo up`.
@@ -20,7 +20,7 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 
 - [ ] **DIST-01**: El operador instala kodo con `brew install kodo` (fórmula Homebrew vía tap, `depends_on "node"` ≥20, sin bundlear el runtime).
 - [ ] **DIST-02**: El operador registra kodo como servicio del sistema con `brew services start kodo`: arranca al login y se reinicia si crashea, invocando el modo foreground del daemon (`kodo daemon run`) — nunca `kodo up`.
-- [ ] **DIST-03**: En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado sin crashear (misma guardia que el daemon de polling).
+- [x] **DIST-03**: En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado sin crashear (misma guardia que el daemon de polling).
 
 ### SETUP — Onboarding dashboard-first (Pilar 2 — requiere Pilar 1)
 
@@ -54,15 +54,15 @@ Exclusiones explícitas de v0.15 con su razón.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| UP-01 | Phase 66 | Pending |
-| UP-02 | Phase 66 | Pending |
-| UP-03 | Phase 66 | Pending |
+| UP-01 | Phase 66 | Complete |
+| UP-02 | Phase 66 | Complete |
+| UP-03 | Phase 66 | Complete |
 | UP-04 | Phase 65 | Complete |
 | UP-05 | Phase 66 | Pending |
 | UP-06 | Phase 65 | Complete |
 | DIST-01 | Phase 66 | Pending |
 | DIST-02 | Phase 66 | Pending |
-| DIST-03 | Phase 66 | Pending |
+| DIST-03 | Phase 66 | Complete |
 | SETUP-01 | Phase 68 | Pending |
 | SETUP-02 | Phase 68 | Pending |
 | SETUP-03 | Phase 67 | Pending |

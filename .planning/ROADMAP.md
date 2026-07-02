@@ -142,12 +142,12 @@ Plans:
   4. `brew install kodo` (fórmula vía tap, `depends_on node` ≥20, sin bundlear runtime) instala kodo, y `brew services start kodo` lo registra como servicio del sistema invocando `kodo daemon run` (foreground) — **NUNCA `kodo up`** — arrancando al login y reiniciándose si crashea. (DIST-01, DIST-02)
   5. En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado **sin crashear** (misma guardia que el daemon de polling). (DIST-03)
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 66-01-PLAN.md — `kodo up` orquestador + helpers (probePortInUse, waitForHealth, runUp) + guard win32 [UP-01/02/03, DIST-03]
+- [x] 66-01-PLAN.md — `kodo up` orquestador + helpers (probePortInUse, waitForHealth, runUp) + guard win32 [UP-01/02/03, DIST-03]
 - [ ] 66-02-PLAN.md — `stop`/`status` unificados daemon-first + `--json` byte-determinista [UP-05]
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -196,7 +196,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
-| 66. `kodo up` + Stop/Status + Homebrew | 0/? | Not started | - |
+| 66. `kodo up` + Stop/Status + Homebrew | 1/4 | In Progress|  |
 | 67. Secrets Writer + Masked Input | 0/? | Not started | - |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
