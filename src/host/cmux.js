@@ -23,7 +23,18 @@ const TIMEOUT_MS = 5000;
  */
 function makeRun(execSync, binary) {
   return async (args) =>
-    execSync(binary, args, { encoding: 'utf-8', timeout: TIMEOUT_MS });
+    execSync(binary, args, {
+      encoding: 'utf-8',
+      timeout: TIMEOUT_MS,
+      // stderr CAPTURADO (pipe), NUNCA heredado (66-06). Node documenta que
+      // execFileSync HEREDA stderr al padre por defecto: bajo brew services/launchd
+      // (headless, sin sesión GUI de cmux) el binario cmux imprime "Failed to write
+      // to socket (Broken pipe, errno 32)" a SU stderr cada tick del reconcile loop,
+      // y al heredarse se filtraba directo al kodo.log del daemon. Con este stdio el
+      // stderr del child queda en err.stderr (que el fail-open never-throws TRAGA en
+      // silencio, sin re-loguearlo) y jamás toca el stdout/stderr del daemon.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 }
 
 /**
