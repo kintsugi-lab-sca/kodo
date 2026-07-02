@@ -209,6 +209,27 @@ export function getPlaneApiKey() {
 }
 
 /**
+ * Prueba de PRESENCIA de la API key del provider — SETUP-04/D-09. Devuelve `true` si
+ * la env var del provider (`config.providers[provider].api_key_env`) existe con valor
+ * NO-vacío en `process.env` (el cache que `loadEnvFile` pobló al import + cualquier
+ * actualización in-proceso tras `writeEnvVar`).
+ *
+ * D-09 (discreción del planner): consulta el `process.env` cacheado en vez de re-leer
+ * el `.env`. Es coherente con el resto de lecturas del runtime (`getProviderApiKey`) y
+ * refleja al instante un save del masked input que actualiza `process.env[key]` — el
+ * indicador `[configurado]` se recalcula en el próximo render sin tocar disco.
+ *
+ * NUNCA devuelve ni expone el VALOR (PERSIST-04/Pitfall 11): solo el booleano de presencia.
+ *
+ * @param {string} [providerName] - provider a comprobar. Default `config.provider`.
+ * @returns {boolean} true si la key existe y no está vacía.
+ */
+export function isApiKeyConfigured(providerName) {
+  const key = getProviderApiKey(providerName);
+  return typeof key === 'string' && key.length > 0;
+}
+
+/**
  * Returns true iff the user has opted into provider sub-issue reporting via
  * `~/.kodo/config.json` `workflow.report_to_provider: true`.
  *
