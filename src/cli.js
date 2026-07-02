@@ -499,6 +499,24 @@ polling
     }
   });
 
+// --- kodo daemon <subcommand> --- (Plan 65-04 / D-02 / UP-04)
+// Grupo INTERNO: `kodo up` (detached, Phase 66) y launchd/`brew services` (directo,
+// Phase 66) invocan `daemon run`; NO es para uso directo del operador → `run` va
+// hidden en commander (13.1.0 soporta el options-object form { hidden: true }).
+const daemon = program.command('daemon').description('Internal daemon lifecycle');
+
+daemon
+  .command('run', { hidden: true })
+  .description('Run the composed daemon (server + polling) in the foreground')
+  .action(async () => {
+    // Lazy import (mirror del grupo polling): el parent CLI no paga el coste del
+    // stack daemon para comandos no relacionados. La action SÓLO awaita runDaemon —
+    // NO llama process.exit: runDaemon bloquea para siempre y es el ÚNICO dueño del
+    // exit (D-05); un process.exit aquí derrotaría el foreground funnel supervisable.
+    const { runDaemon } = await import('./daemon/run.js');
+    await runDaemon();
+  });
+
 program.parse();
 
 // --- Helpers ---
