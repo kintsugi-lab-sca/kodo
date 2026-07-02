@@ -11,6 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { runUp, waitForHealth } from '../../src/cli/up.js';
 
 /** Deps base: daemon frío (idle + puerto libre), todo espiable. */
@@ -27,6 +28,8 @@ function makeDeps(overrides = {}) {
     _platform: 'darwin',
     _loadConfig: () => ({ server: { port: 9090 } }),
     _resolveBaseUrl: () => 'http://localhost:9090',
+    // Default: config completa (no first-run) → preserva el flujo daemon de los tests previos.
+    _needsSetup: () => false,
     _statusDaemon: () => ({ status: 'idle', pid: null }),
     _probePort: async () => false,
     _startDaemon: async (name, argv) => { calls.startDaemon.push([name, argv]); return { ok: true, started: true, pid: 1 }; },
@@ -96,6 +99,48 @@ describe('runUp', () => {
     await runUp(deps);
     assert.ok(calls.stderr.some((s) => /health/i.test(s)));
     assert.equal(calls.runDashboard.length, 1, 'fail-open: abre el dashboard igual');
+  });
+
+  it('D-02 first-run (needsSetup true): runDashboard con {setup:true}, CERO startDaemon (no spawn)', async () => {
+    const { deps, calls } = makeDeps({ _needsSetup: () => true });
+    await runUp(deps);
+    assert.equal(calls.startDaemon.length, 0, 'no spawnea el daemon en first-run (moriría con teardown(1) por KODO_SETUP_REQUIRED)');
+    assert.equal(calls.runDashboard.length, 1, 'abre el dashboard igual (modo setup)');
+    assert.equal(calls.runDashboard[0].setup, true, 'propaga el flag setup:true al dashboard');
+    assert.equal(calls.runDashboard[0].url, 'http://localhost:9090', 'con la baseUrl resuelta');
+  });
+
+  it('D-02 first-run: NO health-wait (no hay daemon que sondear) y retorna sin lanzar/exit', async () => {
+    const { deps, calls } = makeDeps({ _needsSetup: () => true });
+    await runUp(deps); // never-throws
+    assert.equal(calls.waitForHealth, 0, 'sin spawn no hay readiness gate');
+  });
+
+  it('D-02: needsSetup false → flujo daemon intacto (ensure-daemon → attach sin flag setup)', async () => {
+    const { deps, calls } = makeDeps({ _needsSetup: () => false });
+    await runUp(deps);
+    assert.equal(calls.startDaemon.length, 1, 'rama normal ensure-daemon');
+    assert.equal(calls.runDashboard.length, 1);
+    assert.equal(calls.runDashboard[0].setup, undefined, 'la rama normal NO marca setup');
+  });
+
+  it('win32 conserva precedencia sobre la rama setup (guard primero, aún con needsSetup true)', async () => {
+    const { deps, calls } = makeDeps({ _platform: 'win32', _needsSetup: () => true });
+    await runUp(deps);
+    assert.equal(calls.runDaemon, 1, 'win32 → foreground pese a needsSetup true');
+    assert.equal(calls.runDashboard.length, 0, 'sin attach separado en win32');
+    assert.equal(calls.startDaemon.length, 0);
+  });
+
+  it('SC#1 source: src/cli/up.js no contiene process.exit ejecutable (never-throws; menciones solo en comentarios)', () => {
+    const source = readFileSync(new URL('../../src/cli/up.js', import.meta.url), 'utf-8');
+    // Descarta comentarios de bloque + línea + JSDoc (patrón canónico, stop.test.js/config.test.js).
+    const stripped = source
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.ok(!/process\.exit/.test(stripped), 'runUp (incl. rama setup) never-throws: sin process.exit en código');
   });
 });
 
