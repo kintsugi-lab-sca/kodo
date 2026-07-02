@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
-current_phase: 66
-current_phase_name: kodo up + Stop/Status unificados + Homebrew
+current_phase: 67
+current_phase_name: Secrets Writer + Masked Input
 status: executing
 stopped_at: Phase 66 code complete (66-01/02/03 green, 1698 pass) — PAUSED at 66-04 brew-services manual checkpoint
-last_updated: "2026-07-02T09:07:33.181Z"
+last_updated: "2026-07-02T09:30:34.722Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 66 execution started
+last_activity_desc: Phase 66 complete, transitioned to Phase 67
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 8
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 66 (kodo up + Stop/Status unificados + Homebrew) — EXECUTING
-Plan: 4 of 4
+Phase: 67 — Secrets Writer + Masked Input
+Plan: Not started
 Status: Ready to execute
-Last activity: 2026-07-02 — Phase 66 execution started
+Last activity: 2026-07-02 — Phase 66 complete, transitioned to Phase 67
 
 ## Roadmap v0.15 (active)
 

@@ -24,7 +24,7 @@
 **Milestone Goal:** kodo se pone a andar con un solo comando (`kodo up`): arranca el daemon **desacoplado** (server + polling compuestos en un proceso) en background y engancha el dashboard como **visor**; distribuible por Homebrew (`brew install` + `brew services`), y configurable de principio a fin desde el dashboard (incluida la API key enmascarada, con el boundary PERSIST-04). Dos pilares con dependencia estricta: **Pilar 1** (UP + DIST — ciclo de vida + distribución, shippable solo) **antes de** **Pilar 2** (SETUP — onboarding dashboard-first, requiere Pilar 1).
 
 - [x] **Phase 65: Daemon Lifecycle Foundation** - `src/daemon/` (lifecycle + `kodo daemon run` foreground) + refactor `startServer({managed})` sin `process.exit`/PID propio; `kodo start` legacy intacto — UP-04, UP-06 (completed 2026-07-02)
-- [ ] **Phase 66: `kodo up` + Stop/Status unificados + Homebrew** - `kodo up` (daemon desacoplado + attach dashboard, idempotente) + `stop`/`status` unificados + `brew install`/`brew services` (plist invoca `kodo daemon run`) + Windows fallback — UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03
+- [x] **Phase 66: `kodo up` + Stop/Status unificados + Homebrew** - `kodo up` (daemon desacoplado + attach dashboard, idempotente) + `stop`/`status` unificados + `brew install`/`brew services` (plist invoca `kodo daemon run`) + Windows fallback — UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03 (completed 2026-07-02)
 - [ ] **Phase 67: Secrets Writer + Masked Input** - `writeEnvVar` (atómico + chmod 0600 pre-rename + merge) + campo enmascarado (extiende el text-input de Phase 63) + grep de higiene + indicador "configurado" (presencia sin revelar) — SETUP-03, SETUP-04
 - [ ] **Phase 68: Dashboard Setup Mode + CFGF-03 + First-Run** - primer arranque sin config → dashboard en modo setup (sin `exit(1)`) + edición provider/base_url/workspace_slug → `config.json` + `kodo config` rewired al mismo writer — SETUP-01, SETUP-02, SETUP-05
 
@@ -156,7 +156,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 66-04-PLAN.md — GATE MANUAL: spike real `brew services` + `kodo up` E2E (checkpoint:human-verify) [DIST-01/02, UP-01/02]
+- [x] 66-04-PLAN.md — GATE MANUAL: spike real `brew services` + `kodo up` E2E (checkpoint:human-verify) [DIST-01/02, UP-01/02]
 
 **Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — el ciclo real de `brew services` en macOS (`brew install` → `brew services start` → `brew services list` → relogin → `brew services stop`) **no es unit-testable** (Pitfalls 6 y 9: launchd foreground trap + throttle). Requiere un spike de install real (validar el `opt_bin` absoluto en Apple Silicon `/opt/homebrew` vs Intel `/usr/local`) antes de mergear la fase. Evita Pitfalls 2, 5, 6, 7, 8, 9, 10, 17, 19.
 
@@ -196,7 +196,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
-| 66. `kodo up` + Stop/Status + Homebrew | 4/4 | Complete   | 2026-07-02 |
+| 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
 | 67. Secrets Writer + Masked Input | 0/? | Not started | - |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
