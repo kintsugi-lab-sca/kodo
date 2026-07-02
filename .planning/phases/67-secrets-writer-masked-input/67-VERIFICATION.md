@@ -1,11 +1,12 @@
 ---
 phase: 67-secrets-writer-masked-input
 verified: 2026-07-02T10:50:32Z
-status: human_needed
+status: passed
 score: 3/3 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Ejecutar los 8 pasos de .planning/phases/67-secrets-writer-masked-input/67-UAT-CHECKLIST.md contra un daemon `kodo up` vivo, con una API key ficticia reconocible (p.ej. `secret_key_123`)."
     expected: "ps aux | grep kodo sin el valor en argv; grep -r <valor> ~/.kodo/logs vacío; curl /status sin el valor; ls -l ~/.kodo/.env = -rw-------; sin .env.tmp residual; otras env vars preservadas."
     why_human: "Requiere un daemon real corriendo (ps/logs/curl contra proceso vivo) y toca el ~/.kodo/.env real del operador — no automatizable con node --test ni ejecutable de forma segura por el propio verificador (el daemon de dogfooding guarda secretos reales)."
