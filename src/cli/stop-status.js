@@ -80,3 +80,55 @@ export async function runStopUnified(opts = {}, deps = {}) {
   }
   return 0;
 }
+
+/**
+ * Handler unificado de `kodo status` — DAEMON-FIRST determinista (UP-05, D-04).
+ *
+ * Reporta el estado del DAEMON 'kodo' (no la vista legacy listSessions — ver cabecera
+ * del módulo, D-04 LOCKED). Molde EXACTO tomado de runPollingStatusCli
+ * (polling.js:544-553):
+ *
+ *   - `--json` (opts.json === true): UNA línea JSON byte-DETERMINISTA con las MISMAS
+ *     2 keys SIEMPRE presentes, mismo orden: `{status, pid}`. idle → pid null
+ *     (`{"status":"idle","pid":null}`). NO usa createFormatter en esta rama (DX-06 /
+ *     Pitfall #10 — bytes idénticos TTY vs no-TTY, base del determinismo scriptable).
+ *     El vocabulario `status` conserva 'running'|'idle' del daemon para paridad con
+ *     `kodo polling status --json`.
+ *
+ *   - TTY (default, json:false): legible y coloreado via createFormatter (color
+ *     isolation LOCKED — el color SOLO sale de format.js). running → `ok('running')` +
+ *     pid; idle → `dim('stopped')` (el texto humano usa 'stopped' para satisfacer el
+ *     criterio running/stopped; el JSON conserva 'idle').
+ *
+ * Exit code SIEMPRE 0 (D-13 heredado): una consulta de status nunca falla; los scripts
+ * distinguen el estado por el JSON, no por el exit code.
+ *
+ * @param {{ json?: boolean }} [opts]
+ * @param {{
+ *   _statusDaemon?: (name: string, deps?: any) => { status: string, pid: number | null },
+ *   _write?: (s: string) => any,
+ *   _stdout?: { isTTY?: boolean },
+ * }} [deps]
+ * @returns {Promise<number>} exit code (SIEMPRE 0).
+ */
+export async function runStatusUnified(opts = {}, deps = {}) {
+  const statusDaemonFn = deps._statusDaemon || statusDaemon;
+  const write = deps._write || ((s) => process.stdout.write(s));
+
+  const st = statusDaemonFn('kodo');
+
+  if (opts.json === true) {
+    // DX-06 / Pitfall #10: keys FIJAS {status, pid}, mismo orden, sin createFormatter →
+    // bytes idénticos TTY/no-TTY. idle ya trae pid null desde statusDaemon.
+    write(JSON.stringify({ status: st.status, pid: st.pid }) + '\n');
+  } else {
+    // Rama TTY: color isolation LOCKED (createFormatter TTY-aware sobre _stdout).
+    const fmt = createFormatter(deps._stdout || process.stdout);
+    if (st.status === 'running') {
+      write(`${fmt.ok('running')} pid: ${st.pid}\n`);
+    } else {
+      write(`${fmt.dim('stopped')}\n`);
+    }
+  }
+  return 0; // D-13: status nunca falla.
+}
