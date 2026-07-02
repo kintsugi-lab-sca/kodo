@@ -83,7 +83,7 @@ export function resolveBaseUrl({ url, loadConfig, defaultConfig = DEFAULT_CONFIG
  * @returns {Promise<void>}
  */
 export async function runDashboard(deps = {}) {
-  const { stdout = process.stdout, stdin = process.stdin, url, exec } = deps;
+  const { stdout = process.stdout, stdin = process.stdin, url, exec, setup = false } = deps;
 
   // Guard non-TTY PRIMERO (D-03), ANTES de cualquier render(): un crash de
   // raw-mode es un fallo de proceso, no de UI. A stderr (no stdout), exit 1.
@@ -107,7 +107,10 @@ export async function runDashboard(deps = {}) {
   // Plan 01) e `isApiKeyConfigured` (prueba de presencia, D-09) al MISMO lazy import. El renglón de
   // API key del overlay escribe ~/.kodo/.env EN-PROCESO importando writeEnvVar DIRECTO (jamás
   // shell-out `kodo config --api-key SECRET` — Pitfall 11, el vector de fuga de mayor riesgo).
-  const { loadConfig, saveConfig, writeEnvVar, isApiKeyConfigured } = await import('../../config.js');
+  // Phase 68 (SETUP-01/D-01): se añade `needsSetup` al MISMO lazy import compartido. El flag `setup`
+  // (propagado por runUp, plan 68-01) es la señal primaria del render guiado; `needsSetupFn` es la
+  // comprobación coherente-con-D-01 que App puede consultar (helper puro compartido, config.js).
+  const { loadConfig, saveConfig, writeEnvVar, isApiKeyConfigured, needsSetup } = await import('../../config.js');
   const baseUrl = resolveBaseUrl({ url, loadConfig });
 
   // Lazy import de ink/react/App: mantiene el arranque del CLI ligero y aísla
@@ -300,6 +303,11 @@ export async function runDashboard(deps = {}) {
       }
     },
     isApiKeyConfiguredFn: (providerName) => isApiKeyConfigured(providerName),
+    // Phase 68 D-01/D-04 (SETUP-01/02): first-run guiado. `setup` (de runUp→runDashboard) arranca App
+    // en mode:'setup'; `needsSetupFn` es la comprobación coherente-con-D-01. Reusa los wrappers ya
+    // cableados arriba (onSaveConfig/onSaveApiKey) — el modo setup NO introduce escritores nuevos.
+    setup,
+    needsSetupFn: (providerName) => needsSetup(providerName),
     // Phase 64 D-08/PERSIST-02 (PROJ-01/04/05): cableado DI del editor de proyectos, espejo de
     // loadConfigFn/onSaveConfig/onAdopt. listProjectsFn (wrapper never-throws que cubre construcción+red,
     // discriminado para distinguir 0-proyectos de error — PROJ-05) y listModulesFn (condicional plane/github)
