@@ -19,8 +19,8 @@ class Kodo < Formula
   # TODO(spike 66-04): al cortar la release, fijar el tag real del milestone v0.15,
   # bumpear package.json a la misma versión y computar el sha256 del tarball.
   # El sha256 NO se puede conocer hasta que exista la release. (package.json ya en 0.15.0.)
-  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.15.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000" # TODO(spike 66-04): sha256 real del tarball de la release
+  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.15.1.tar.gz"
+  sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5" # TODO(spike 66-04): sha256 real del tarball de la release
   license "MIT"
 
   # depends_on node (satisface engines ">=20" de package.json). NO se bundlea el
