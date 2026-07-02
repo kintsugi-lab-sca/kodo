@@ -355,15 +355,37 @@ function readBody(req) {
 }
 
 /**
- * Start the webhook server
- * @param {{ port?: number, insecure?: boolean }} [opts]
+ * Start the webhook server.
+ *
+ * Two modes gated by `opts.managed` (default falsy = legacy `kodo start`, byte-identical):
+ * - Legacy (`managed` falsy): returns the raw `http.Server`; writes `server.pid`;
+ *   `process.exit(1)` on misconfig; installs its own SIGTERM/SIGINT cleanup.
+ * - Managed (`managed:true`, D-03): returns `{ server, stopReconcile }`; THROWS
+ *   `{ code:'KODO_SETUP_REQUIRED' }` on missing secret (no `process.exit` — run.js
+ *   handles it); rejects `{ code:'EADDRINUSE' }` on port collision via
+ *   `server.on('error')`; writes NO PID; installs NO signal handlers (run.js owns
+ *   the exit — D-05, single-owner teardown).
+ *
+ * `_loadConfig` / `_provider` are an optional DI seam (mirror
+ * isReportToProviderEnabled(_loadConfig) config.js:233) so the managed path is
+ * unit-testable offline (no real `provider.init()` network hit).
+ *
+ * @param {{ port?: number, insecure?: boolean, managed?: boolean,
+ *   _loadConfig?: () => any, _provider?: any }} [opts]
+ * @returns {Promise<import('node:http').Server | { server: import('node:http').Server, stopReconcile: () => void }>}
  */
 export async function startServer(opts = {}) {
-  const config = loadConfig();
+  const loadConfigFn = opts._loadConfig || loadConfig;
+  const config = loadConfigFn();
   const port = opts.port || config.server.port;
 
-  await initRegistry();
-  const provider = getProvider(config.provider);
+  let provider;
+  if (opts._provider) {
+    provider = opts._provider;
+  } else {
+    await initRegistry();
+    provider = getProvider(config.provider);
+  }
   await provider.init();
 
   // Phase 40 (Plan 02, PSTATE-04): ONE provider_state resolver for the whole server
@@ -403,6 +425,12 @@ export async function startServer(opts = {}) {
   }
 
   if (!webhookSecret && !opts.insecure && !process.env.KODO_DEV) {
+    // Point 1 (D-03): managed does NOT exit the process — it throws a discriminated
+    // error that run.js catches (Phase 65: log+clean exit; Phase 68: setup mode).
+    // The throw carries only a code + generic message — never the secret value (T-65-06).
+    if (opts.managed) {
+      throw Object.assign(new Error('missing webhook secret'), { code: 'KODO_SETUP_REQUIRED' });
+    }
     console.error(`[kodo] Missing webhook secret. Set ${secretEnv} or use --insecure / KODO_DEV=1`);
     process.exit(1);
   }
@@ -573,18 +601,50 @@ export async function startServer(opts = {}) {
     res.end(JSON.stringify({ error: 'Not found' }));
   });
 
-  server.listen(port, () => {
-    console.log(`[kodo] Server listening on :${port}`);
-    console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
-    console.log(`[kodo] Status URL: http://localhost:${port}/status`);
+  if (opts.managed) {
+    // Points 2 + 3 (D-03): register 'error' BEFORE listen so EADDRINUSE surfaces as
+    // a typed reject (today there is NO handler \u2192 EADDRINUSE is an uncaught exception,
+    // Pitfall 3/4). Wrap listen in a Promise that resolves on 'listening', rejects on
+    // 'error'. And SKIP writeFileSync(PID_PATH) \u2014 the daemon owns kodo.pid (D-04).
+    await new Promise((resolveListen, rejectListen) => {
+      const onError = (err) => {
+        server.removeListener('error', onError);
+        if (err && err.code === 'EADDRINUSE') {
+          rejectListen(Object.assign(new Error(`port ${port} already in use`), { code: 'EADDRINUSE' }));
+        } else {
+          rejectListen(err);
+        }
+      };
+      server.on('error', onError);
+      server.listen(port, () => {
+        server.removeListener('error', onError);
+        console.log(`[kodo] Server listening on :${port}`);
+        console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
+        console.log(`[kodo] Status URL: http://localhost:${port}/status`);
 
-    writeFileSync(PID_PATH, String(process.pid));
+        // Point 3: managed skips its own server.pid (daemon owns kodo.pid).
 
-    if (process.env.CMUX_WORKSPACE_ID) {
-      cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
-      cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
-    }
-  });
+        if (process.env.CMUX_WORKSPACE_ID) {
+          cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
+          cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
+        }
+        resolveListen(undefined);
+      });
+    });
+  } else {
+    server.listen(port, () => {
+      console.log(`[kodo] Server listening on :${port}`);
+      console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
+      console.log(`[kodo] Status URL: http://localhost:${port}/status`);
+
+      writeFileSync(PID_PATH, String(process.pid));
+
+      if (process.env.CMUX_WORKSPACE_ID) {
+        cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
+        cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
+      }
+    });
+  }
 
   // Phase 38 (Plan 04, D-07): loop de reconciliación host↔state. Vive en el
   // proceso server — el ÚNICO escritor de state.json (el dashboard es cliente
@@ -608,6 +668,13 @@ export async function startServer(opts = {}) {
     saveState,
     logger: reconcileLogger,
   });
+
+  // Point 4 (D-05): managed installs NO self SIGTERM/SIGINT handlers and does NOT
+  // own the exit. run.js is the single owner — it composes { server, stopReconcile }
+  // into its own teardown. Two owners = double teardown / race (Pitfall 4).
+  if (opts.managed) {
+    return { server, stopReconcile };
+  }
 
   const cleanup = () => {
     try { stopReconcile(); } catch {}

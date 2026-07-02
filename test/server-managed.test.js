@@ -101,7 +101,10 @@ describe('startServer({ managed }) — UP-04', () => {
   it('(2) port already bound → rejects EADDRINUSE via server.on(error)', async () => {
     const port = await getFreePort();
     const blocker = createServer();
-    await new Promise((r) => blocker.listen(port, '127.0.0.1', () => r(undefined)));
+    // Bind on all interfaces (no host) to match server.listen(port) in server.js so
+    // the collision is deterministic (a 127.0.0.1-only blocker would not clash with
+    // the server's 0.0.0.0 bind on macOS).
+    await new Promise((r) => blocker.listen(port, () => r(undefined)));
     try {
       await assert.rejects(
         () => mod.startServer({
