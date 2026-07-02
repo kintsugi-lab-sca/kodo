@@ -28,19 +28,32 @@
 ## Execution Plan
 
 ### Step 1: Planning (`/gsd-plan-phase 67`)
-**Status:** In progress (2026-07-02 11:43 UTC+2)
+**Status:** ✅ COMPLETE (2026-07-02 11:45 UTC+2)
 
-Will create detailed plans:
-- Wave 1: `writeEnvVar` module (atomic + merge logic)
-- Wave 2: Masked input component (Ink + TUI)
-- Wave 3: Hygiene grep + tests + "configurado" indicator
+**Deliverables:**
+- ✅ `67-CONTEXT.md` — research-based decision log (8 decisions, 4 pitfalls, reference architecture)
+- ✅ `67-01-PLAN.md` — Wave 1: `writeEnvVar` module (atomic + chmod 0600 + merge)
+- ✅ `67-02-PLAN.md` — Wave 2: masked input component (dashboard TUI + `onSaveApiKey` callback)
+- ✅ `67-03-PLAN.md` — Wave 3: hygiene grep (5-sink static test + runtime UAT)
 
-### Step 2: Implementation (pending)
-Execute 3-4 sub-plans with atomic commits per wave
+**Status:** Planning phase complete. Ready for implementation.
+
+### Step 2: Implementation
+**Status:** Pending
+
+Execute 3 waves with atomic commits:
+1. Wave 1 (67-01): `writeEnvVar` module + tests
+2. Wave 2 (67-02): masked input + `[configurado]` indicator + degradation
+3. Wave 3 (67-03): hygiene grep suite + UAT checklist
 
 ### Step 3: Verification (pending)
-- UAT: grep hygiene check (5 vector sweep)
-- Phase 68 readiness: setup mode integration test
+- Grep test suite passes (5 sinks clean)
+- File perms = 0600
+- Runtime UAT: `ps`, logs, `/status` checks
+
+## Next Action
+
+Execute `/gsd-execute-phase 67` to begin Wave 1 implementation, or manually start with the tasks in `67-01-PLAN.md`.
 
 ## Blocked By
 - None — ready to proceed
