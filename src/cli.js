@@ -62,6 +62,27 @@ program
     await interactiveConfig();
   });
 
+// --- kodo up --- (Phase 66 / UP-01 / D-01 LOCKED)
+// Comando NUEVO (no toca `kodo start`, D-03): arranca el daemon detached en
+// background (server + polling vía `daemon run` hidden) y engancha el dashboard
+// como VISOR. Al cerrar el dashboard el daemon PERSISTE (modelo LOCKED): runUp NO
+// registra handlers que señalen al daemon — su aislamiento de process group lo da
+// `detached:true` en startDaemon (lifecycle.js). Mismo estilo lazy-import que el
+// bloque `dashboard` (aísla ink/lifecycle a este subcomando).
+program
+  .command('up')
+  .description('Arranca el daemon en background y engancha el dashboard como visor')
+  .option('--url <baseUrl>', 'Base URL del server kodo (default: http://localhost:<config.server.port>)')
+  .action(async (opts) => {
+    // SIN ensureConfig(): el wizard/first-run es Phase 68 (D-01) — `up` no debe
+    // forzar setup aquí. runUp es never-throws/fail-open y resuelve baseUrl
+    // config-driven internamente; --url se reenvía para cuando up.js lo consuma.
+    // NO se llama process.exit tras runUp: el daemon queda vivo en su propio
+    // process group (D-01) y runUp retorna al cerrar el visor.
+    const { runUp } = await import('./cli/up.js');
+    await runUp({ url: opts.url });
+  });
+
 // --- kodo start ---
 program
   .command('start')
@@ -74,13 +95,18 @@ program
     await startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined, insecure: opts.insecure });
   });
 
-// --- kodo stop ---
+// --- kodo stop --- (Phase 66 / UP-05 / D-04 LOCKED)
+// DAEMON-FIRST: tumba el daemon 'kodo' (kodo.pid) vía runStopUnified
+// (SIGTERM→5s→SIGKILL). Preserva el comportamiento observable legacy: si NO hay
+// daemon pero existe server.pid, runStopUnified cae al fallback que tumba el
+// server legacy (back-compat de `kodo start`). `polling stop` standalone intacto.
 program
   .command('stop')
-  .description('Stop the webhook server')
-  .action(async () => {
-    const { stopServer } = await import('./server.js');
-    stopServer();
+  .description('Stop the kodo daemon (fallback: legacy webhook server)')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    const { runStopUnified } = await import('./cli/stop-status.js');
+    process.exit(await runStopUnified({ json: opts.json || false }));
   });
 
 // --- kodo check ---
@@ -300,28 +326,20 @@ program
     }
   });
 
-// --- kodo status ---
+// --- kodo status --- (Phase 66 / UP-05 / D-04 LOCKED)
+// DAEMON-FIRST: reporta el estado del daemon 'kodo' (running/stopped) vía
+// runStatusUnified, con `--json` byte-determinista ({status,pid}).
+// CAMBIO DE COMPORTAMIENTO CONSCIENTE (D-04 LOCKED): `kodo status` pasa a ser un
+// booleano de vida del SERVICIO — ya NO lista las sesiones activas (listSessions).
+// El detalle de sesiones vive ahora en el dashboard (`kodo dashboard`) y en
+// `GET /status`. `kodo polling status` standalone queda intacto.
 program
   .command('status')
-  .description('Show active sessions')
-  .action(async () => {
-    await ensureConfig();
-    const { listSessions } = await import('./session/state.js');
-    const sessions = listSessions();
-
-    if (sessions.length === 0) {
-      console.log('No active sessions.');
-      return;
-    }
-
-    console.log(`Active sessions (${sessions.length}):\n`);
-    for (const s of sessions) {
-      const elapsed = timeSince(s.started_at);
-      console.log(`  ${s.task_ref}  ${s.summary}`);
-      console.log(`    Status: ${s.status}  |  Workspace: ${s.workspace_ref}  |  ${elapsed}`);
-      console.log(`    Path: ${s.project_path}`);
-      console.log();
-    }
+  .description('Show kodo daemon status (running|stopped); --json byte-deterministic')
+  .option('--json', 'Emit structured result as JSON (scriptable)')
+  .action(async (opts) => {
+    const { runStatusUnified } = await import('./cli/stop-status.js');
+    process.exit(await runStatusUnified({ json: opts.json || false }));
   });
 
 // --- kodo logs ---
@@ -534,15 +552,6 @@ function setNestedValue(obj, path, value) {
     current = current[keys[i]];
   }
   current[keys[keys.length - 1]] = value;
-}
-
-/** @param {string} isoDate */
-function timeSince(isoDate) {
-  const ms = Date.now() - new Date(isoDate).getTime();
-  const min = Math.floor(ms / 60_000);
-  if (min < 60) return `${min}m ago`;
-  const hrs = Math.floor(min / 60);
-  return `${hrs}h ${min % 60}m ago`;
 }
 
 /**
