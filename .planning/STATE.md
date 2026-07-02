@@ -4,9 +4,9 @@ milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
 current_phase: 66
 current_phase_name: `kodo up` + Stop/Status unificados + Homebrew
-status: verifying
+status: executing
 stopped_at: Phase 66 context gathered
-last_updated: "2026-07-02T05:39:32.512Z"
+last_updated: "2026-07-02T06:11:34.057Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 65 complete, transitioned to Phase 66
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 Phase: 66 — `kodo up` + Stop/Status unificados + Homebrew
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-02 — Phase 65 complete, transitioned to Phase 66
 
 ## Roadmap v0.15 (active)

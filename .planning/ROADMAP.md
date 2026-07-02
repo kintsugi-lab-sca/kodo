@@ -145,9 +145,17 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 66-01-PLAN.md — `kodo up` orquestador + helpers (probePortInUse, waitForHealth, runUp) + guard win32 [UP-01/02/03, DIST-03]
 - [ ] 66-02-PLAN.md — `stop`/`status` unificados daemon-first + `--json` byte-determinista [UP-05]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 66-03-PLAN.md — wiring cli.js (`up`/`stop`/`status`) + fórmula Homebrew (`service do` → `daemon run`) [UP-01/05, DIST-01/02]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 66-04-PLAN.md — GATE MANUAL: spike real `brew services` + `kodo up` E2E (checkpoint:human-verify) [DIST-01/02, UP-01/02]
 
 **Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — el ciclo real de `brew services` en macOS (`brew install` → `brew services start` → `brew services list` → relogin → `brew services stop`) **no es unit-testable** (Pitfalls 6 y 9: launchd foreground trap + throttle). Requiere un spike de install real (validar el `opt_bin` absoluto en Apple Silicon `/opt/homebrew` vs Intel `/usr/local`) antes de mergear la fase. Evita Pitfalls 2, 5, 6, 7, 8, 9, 10, 17, 19.
