@@ -25,7 +25,7 @@
 
 - [x] **Phase 65: Daemon Lifecycle Foundation** - `src/daemon/` (lifecycle + `kodo daemon run` foreground) + refactor `startServer({managed})` sin `process.exit`/PID propio; `kodo start` legacy intacto — UP-04, UP-06 (completed 2026-07-02)
 - [x] **Phase 66: `kodo up` + Stop/Status unificados + Homebrew** - `kodo up` (daemon desacoplado + attach dashboard, idempotente) + `stop`/`status` unificados + `brew install`/`brew services` (plist invoca `kodo daemon run`) + Windows fallback — UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03 (completed 2026-07-02)
-- [ ] **Phase 67: Secrets Writer + Masked Input** - `writeEnvVar` (atómico + chmod 0600 pre-rename + merge) + campo enmascarado (extiende el text-input de Phase 63) + grep de higiene + indicador "configurado" (presencia sin revelar) — SETUP-03, SETUP-04
+- [x] **Phase 67: Secrets Writer + Masked Input** - `writeEnvVar` (atómico + chmod 0600 pre-rename + merge) + campo enmascarado (extiende el text-input de Phase 63) + grep de higiene + indicador "configurado" (presencia sin revelar) — SETUP-03, SETUP-04 (completed 2026-07-02)
 - [ ] **Phase 68: Dashboard Setup Mode + CFGF-03 + First-Run** - primer arranque sin config → dashboard en modo setup (sin `exit(1)`) + edición provider/base_url/workspace_slug → `config.json` + `kodo config` rewired al mismo writer — SETUP-01, SETUP-02, SETUP-05
 
 <details>
@@ -202,7 +202,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
-| 67. Secrets Writer + Masked Input | 3/3 | Complete   | 2026-07-02 |
+| 67. Secrets Writer + Masked Input | 3/3 | Complete    | 2026-07-02 |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
 ## Backlog

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
-current_phase: 67
-current_phase_name: secrets-writer-masked-input
+current_phase: 68
+current_phase_name: Dashboard Setup Mode + CFGF-03 + First-Run
 status: verifying
 stopped_at: Completed 67-03-PLAN.md (Phase 67 complete)
-last_updated: "2026-07-02T10:44:01.483Z"
+last_updated: "2026-07-02T11:19:52.624Z"
 last_activity: 2026-07-02
-last_activity_desc: Plan 67-01 complete (writeEnvVar module)
+last_activity_desc: Phase 67 complete, transitioned to Phase 68
 progress:
   total_phases: 4
   completed_phases: 2
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 67 (secrets-writer-masked-input) — EXECUTING
-Plan: 3 of 3 (67-01 complete)
+Phase: 68 — Dashboard Setup Mode + CFGF-03 + First-Run
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-02 — Plan 67-01 complete (writeEnvVar module)
+Last activity: 2026-07-02 — Phase 67 complete, transitioned to Phase 68
 
 ## Roadmap v0.15 (active)
 
