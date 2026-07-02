@@ -407,7 +407,9 @@ if (!result || result.ok !== false) {
 
 ## Open Questions
 
-1. **[ALTA PRIORIDAD] El webhook secret mata el daemon tras el setup — ¿cómo se cierra "de principio a fin"?**
+> **Estado 2026-07-02 — RESUELTAS:** Q1 y Q2 fueron decididas por el operador durante planning y quedan LOCKED en `68-CONTEXT.md` (**D-12** cierra Q1: webhook secret FUERA del guiado, UAT limpia con `KODO_DEV=1`; **D-13** cierra Q2: "sin exit(1)" aplica a terminal real, non-TTY degrada a `kodo config`). Q3 resuelta: se generó `68-UI-SPEC.md` (aprobado 6/6 dimensiones). Las resoluciones están propagadas a los `68-*-PLAN.md`.
+
+1. **[ALTA PRIORIDAD — ✅ RESUELTA por D-12] El webhook secret mata el daemon tras el setup — ¿cómo se cierra "de principio a fin"?**
    - What we know: `KODO_SETUP_REQUIRED` se lanza por webhook secret ausente (server.js:459-464), NO por la API key. El setup guiado no lo captura. En máquina limpia, el 2º `kodo up` spawnea un daemon que muere con `teardown(1)`.
    - What's unclear: si el GATE MANUAL de UAT espera la tabla viva tras el setup, o solo verifica "setup mode sin exit(1)" + "transición honesta". El goal dice "arranca kodo de principio a fin".
    - Recommendation: Resolver en discuss/plan ANTES de ejecutar. Opción por defecto: la UAT de máquina limpia usa `KODO_DEV=1` (o `--insecure`) para el webhook, y se documenta que el webhook secret real es configuración por fuera del guiado (coherente con D-06 que ya deja GitHub fuera). Alternativa mayor: extender el criterio/guiado al webhook secret (aumenta scope; probablemente NO para esta fase). NO planificar la ruta feliz asumiendo que el daemon arranca solo.
