@@ -103,7 +103,11 @@ export async function runDashboard(deps = {}) {
   // contraste deliberado con la tecla `a` de Phase 62, que SÍ shelleó `kodo adopt` por su lógica
   // 0-token compleja; aquí `saveConfig` es función pura trivial (ya atómica tras Plan 01), así que
   // importarla es más simple y determinista, y preserva el invariante "cero endpoints desde v0.10".
-  const { loadConfig, saveConfig } = await import('../../config.js');
+  // Phase 67 (SETUP-03/04): se añaden `writeEnvVar` (escritor de secretos, chmod 0600 pre-rename,
+  // Plan 01) e `isApiKeyConfigured` (prueba de presencia, D-09) al MISMO lazy import. El renglón de
+  // API key del overlay escribe ~/.kodo/.env EN-PROCESO importando writeEnvVar DIRECTO (jamás
+  // shell-out `kodo config --api-key SECRET` — Pitfall 11, el vector de fuga de mayor riesgo).
+  const { loadConfig, saveConfig, writeEnvVar, isApiKeyConfigured } = await import('../../config.js');
   const baseUrl = resolveBaseUrl({ url, loadConfig });
 
   // Lazy import de ink/react/App: mantiene el arranque del CLI ligero y aísla
@@ -280,6 +284,22 @@ export async function runDashboard(deps = {}) {
         return { ok: false, error: String(e?.message ?? e) };
       }
     },
+    // Phase 67 D-05/D-09 (Plan 02, SETUP-03/04): cableado DI del renglón de API key. onSaveApiKey es el
+    // wrapper never-throws de writeEnvVar (atómico + chmod 0600 pre-rename, Plan 01): escritura
+    // EN-PROCESO al ~/.kodo/.env, jamás shell-out (Pitfall 11). Tras un write con éxito actualiza
+    // `process.env[key]` (cache) para que el indicador [configurado] se refleje al instante sin
+    // reiniciar. writeEnvVar valida (Pitfall 14) y LANZA en input inválido → el catch lo colapsa a
+    // {ok:false}. isApiKeyConfiguredFn expone SOLO la presencia (nunca el valor — Pitfall 11).
+    onSaveApiKey: async (key, value) => {
+      try {
+        const ok = writeEnvVar(key, value);
+        if (ok) process.env[key] = value; // cache in-proceso → indicador [configurado] al instante
+        return { ok };
+      } catch (e) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    },
+    isApiKeyConfiguredFn: (providerName) => isApiKeyConfigured(providerName),
     // Phase 64 D-08/PERSIST-02 (PROJ-01/04/05): cableado DI del editor de proyectos, espejo de
     // loadConfigFn/onSaveConfig/onAdopt. listProjectsFn (wrapper never-throws que cubre construcción+red,
     // discriminado para distinguir 0-proyectos de error — PROJ-05) y listModulesFn (condicional plane/github)
