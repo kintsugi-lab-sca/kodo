@@ -340,3 +340,75 @@ describe('SETUP-04 — boundary de fuga (Pitfall 11): writeEnvVar es in-proceso'
     assert.doesNotMatch(body, /console\./);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSIST-04 (re-verificación tras el modo setup de 68-02) — el valor del secreto
+// no alcanza NINGUNO de los 5 sinks (argv / console / logger / config.json /
+// overlay-snapshot). El grep held-out de Phase 67 (arriba, sobre writeEnvVar)
+// sigue siendo la red de seguridad del ESCRITOR; este bloque la EXTIENDE a las
+// rutas de RENDER y de MANEJO que 68-02 añadió (paso apikey del wizard del
+// dashboard) sin debilitar ningún assert previo.
+//
+// Molde source-level idéntico (readFileSync → recorte por índice → doesNotMatch).
+// Disciplina (Pitfall 11): los sinks se describen por concepto; jamás se incrusta
+// el nombre literal de la env var del secreto ni su valor en las cadenas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('PERSIST-04 — el modo setup (68-02) no amplía la superficie de fuga (5 sinks)', () => {
+  const tableSrc = readFileSync(new URL('../src/cli/dashboard/SessionTable.js', import.meta.url), 'utf-8');
+  const appSrc = readFileSync(new URL('../src/cli/dashboard/App.js', import.meta.url), 'utf-8');
+
+  // Cuerpo de renderSetupOverlay: sink de "overlay-snapshot" (lo que ink pinta a lastFrame).
+  const renderBody = tableSrc.slice(
+    tableSrc.indexOf('function renderSetupOverlay'),
+    tableSrc.indexOf('function renderProjectsLoading'),
+  );
+
+  // Handler del paso apikey del wizard (desde el ancla del comentario "Paso 4/4"
+  // hasta el cierre del save → estado terminal). onSaveConfig del setup vive ANTES
+  // (pasos base_url/workspace_slug), fuera de este recorte por diseño.
+  const apiHandlerStart = appSrc.indexOf('Paso 4/4');
+  const completeIdx = appSrc.indexOf("setSetupStep('complete')", apiHandlerStart);
+  const apiHandler = appSrc.slice(apiHandlerStart, appSrc.indexOf('return;', completeIdx));
+
+  it('sink overlay: el paso apikey enmascara SIEMPRE (•.repeat), el buffer raw jamás se pinta', () => {
+    // El valor real vive en el buffer en memoria; el render deriva la máscara.
+    assert.match(
+      renderBody,
+      /setupStep === 'apikey'\s*\?\s*'•'\.repeat\(buffer\.length\)/,
+      'renderSetupOverlay debe enmascarar el paso apikey con •.repeat(buffer.length)',
+    );
+  });
+
+  it('sink console/logger: renderSetupOverlay no loguea (el render no es un sink de salida)', () => {
+    assert.doesNotMatch(renderBody, /console\./, 'renderSetupOverlay no debe usar console.*');
+  });
+
+  it('sink memoria (Pitfall 6): el handler del paso apikey limpia el buffer del secreto al guardar', () => {
+    assert.match(apiHandler, /onSaveApiKey\s*\(/, 'el save del paso apikey debe enrutar a onSaveApiKey (→ writeEnvVar / .env)');
+    assert.match(apiHandler, /setBuffer\(''\)/, 'el paso apikey debe limpiar el buffer del secreto tras guardar');
+  });
+
+  it('sink config.json: el paso apikey NO enruta el valor al escritor estructural (onSaveConfig)', () => {
+    // El secreto va a .env vía onSaveApiKey; jamás a config.json vía onSaveConfig.
+    assert.doesNotMatch(
+      apiHandler,
+      /onSaveConfig\s*\(/,
+      'el valor de la key no debe pasar por onSaveConfig (config.json) — solo por onSaveApiKey (.env)',
+    );
+  });
+
+  it('sink console/logger: el handler del paso apikey no loguea el valor (console.*)', () => {
+    assert.doesNotMatch(apiHandler, /console\./, 'el handler del paso apikey no debe loguear el valor con console.*');
+  });
+
+  it('D-09: App.js no re-invoca loadEnvFile (única mención = comentario que lo prohíbe)', () => {
+    // Sin comentarios de línea/bloque no debe quedar NINGUNA invocación de loadEnvFile.
+    const appCode = appSrc
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+    assert.doesNotMatch(appCode, /loadEnvFile\s*\(/, 'App.js no debe llamar loadEnvFile (D-09: sin re-lectura mentirosa del .env)');
+  });
+});
