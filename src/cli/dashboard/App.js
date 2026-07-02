@@ -259,6 +259,32 @@ export const API_KEY_SAVE_FAILED = '[!] no se pudo guardar la API key — el .en
 export const API_KEY_INVALID = 'API key inválida (no puede estar vacía ni contener espacios, # o =)';
 export const API_KEY_NO_RAWMODE = 'Usa `kodo config` para editar la API key';
 
+// Phase 68 Plan 02 (SETUP-01/02, D-04/D-05/D-06/D-08/D-12/D-13): copy literal-estable del MODO SETUP
+// (onboarding first-run, pantalla guiada lineal de 4 pasos). EXPORTADAS para que tests y
+// SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/
+// API_KEY_*/PROJECTS_*). Español. NUNCA incluyen el valor del secreto ni el nombre de la env var en
+// ninguna cadena user-facing (Pitfall 11). El literal de SETUP_COMPLETE_RESTART preserva D-08 (SC#4).
+export const SETUP_OVERLAY_TITLE = 'configuración inicial de kodo';
+export const SETUP_INTRO = 'Bienvenido a kodo. Configura tu provider para empezar.';
+export const SETUP_STEP_PROVIDER = 'paso 1/4 · provider';
+export const SETUP_STEP_BASE_URL = 'paso 2/4 · base_url';
+export const SETUP_STEP_WORKSPACE = 'paso 3/4 · workspace_slug';
+export const SETUP_STEP_APIKEY = 'paso 4/4 · API key';
+export const SETUP_PROVIDER_LABEL = 'provider activo';
+export const SETUP_PROVIDER_HINT = '↑/↓ para elegir · Enter para confirmar';
+export const SETUP_GITHUB_REDIRECT = 'GitHub se configura con `kodo config` — el asistente guiado cubre solo Plane';
+export const SETUP_BASE_URL_LABEL = 'base_url';
+export const SETUP_WORKSPACE_LABEL = 'workspace_slug';
+export const SETUP_COMPLETE_RESTART = 'config guardada — reinicia kodo (`kodo up`) para aplicar';
+export const SETUP_WEBHOOK_NOTE = 'nota: el webhook secret del provider se configura por fuera del asistente';
+export const SETUP_NO_RAWMODE = 'Terminal no interactiva — usa `kodo config` para completar la configuración inicial';
+export const SETUP_INVALID = 'valor inválido (no puede estar vacío ni contener espacios, # o =)';
+export const SETUP_SAVE_FAILED = '[!] no se pudo guardar — el archivo previo quedó intacto';
+
+// Phase 68 Plan 02 (D-05/D-06): los dos providers ofrecidos por el guiado. `plane` continúa el
+// wizard estructural; `github` se remite a `kodo config` (D-06) — cero gate estructural en el guiado.
+export const SETUP_PROVIDERS = ['plane', 'github'];
+
 // Phase 64 Plan 02 (D-01/D-02/D-07): copy literal-estable del editor de PROYECTOS. EXPORTADAS para
 // que los tests las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/OVERLAY_*).
 // SessionTable.js (Task 3) también las importa → mata el drift code/render.
@@ -426,6 +452,11 @@ export default function App({
   onSaveConfig = async () => ({ ok: true }),
   onSaveApiKey = async () => ({ ok: true }),
   isApiKeyConfiguredFn = () => false,
+  // Phase 68 Plan 02 (SETUP-01/D-01/D-04): first-run guiado. `setup` (propagado por runUp→runDashboard,
+  // plan 68-01) arranca el dashboard en mode:'setup' en vez de la tabla. `needsSetupFn` es la
+  // comprobación coherente-con-D-01 (helper compartido needsSetup); el flag `setup` es la señal primaria.
+  setup = false,
+  needsSetupFn = () => false,
   listProjectsFn = async () => ({ ok: true, projects: [] }),
   loadProjectsFn = () => ({}),
   saveProjectsFn = () => {},
@@ -506,8 +537,16 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit'} */ ('list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup'} */ (setup ? 'setup' : 'list'));
   const [query, setQuery] = useState('');
+
+  // Phase 68 Plan 02 (SETUP-01/02, D-04/D-05): sub-máquina del modo setup (wizard lineal de 4 pasos).
+  //   - setupStep: paso activo del guiado. 'complete' es el estado terminal (aviso de reinicio honesto,
+  //     D-08) tras guardar la API key — reusa el text-input (buffer/cursor/maskValue) de config-edit y
+  //     el configSnapshot congelado para los saves estructurales (structuredClone + setByPath).
+  //   - providerCursor: cursor del selector de provider (índice sobre SETUP_PROVIDERS, clamp sin wrap).
+  const [setupStep, setSetupStep] = useState(/** @type {'provider' | 'base_url' | 'workspace_slug' | 'apikey' | 'complete'} */ ('provider'));
+  const [providerCursor, setProviderCursor] = useState(0);
 
   // Phase 63 Plan 02 (UX-01/02, D-01/D-03/D-04/D-05): estado del editor de config.
   //   - configSnapshot: clon CONGELADO del config al abrir (`e` → structuredClone(loadConfigFn()),
@@ -521,6 +560,16 @@ export default function App({
   const [buffer, setBuffer] = useState('');
   const [cursor, setCursor] = useState(0);
   const [configEditError, setConfigEditError] = useState(/** @type {string | null} */ (null));
+
+  // Phase 68 Plan 02 (SETUP-01/D-01): al arrancar en modo setup, congela un snapshot propio del config
+  // (structuredClone — Pitfall 1: loadConfig sin fichero devuelve un spread superficial de DEFAULT_CONFIG,
+  // mutar campos anidados aliasearía el módulo). Los saves estructurales del wizard mutan SOLO este clon.
+  useEffect(() => {
+    if (setup && configSnapshot == null) {
+      setConfigSnapshot(structuredClone(loadConfigFn()));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setup]);
 
   // Phase 67 Plan 02 (SETUP-03, D-05/D-06/Pitfall 11): flag de RENDER del text-input enmascarado.
   // `maskValue === true` SOLO mientras se edita el renglón de API key en config-edit → SessionTable
@@ -721,6 +770,171 @@ export default function App({
       // modo lista porque el dismiss es modal del propio error, no del modo de la lista.
       if (focusError != null) {
         setFocusError(null);
+        return;
+      }
+      // Phase 68 Plan 02 (SETUP-01/02, D-04/D-05/D-06/D-08): SUB-MÁQUINA del modo setup (wizard lineal
+      // de 4 pasos, first-run). Va ANTES del resto de mode-gates — el setup es un modo terminal sin
+      // tabla debajo. never-throws: Esc cierra a list SIN escribir; en apikey limpia buffer+máscara
+      // (el secreto no persiste en memoria, Pitfall 6). Los saves estructurales usan structuredClone
+      // (configSnapshot)+setByPath+onSaveConfig (molde config-edit); el apikey reusa LITERAL el flujo
+      // de Phase 67 (onSaveApiKey → writeEnvVar in-proceso). El text-input usa substring puro (anti-ReDoS).
+      if (mode === 'setup') {
+        // Fail-open defensivo: el efecto de montaje ya congeló configSnapshot, pero si por timing aún
+        // es null se clona uno fresco (never-throws — un save sobre un clon nuevo es idéntico).
+        const snap = configSnapshot ?? structuredClone(loadConfigFn());
+        if (key.escape) {
+          // Cancela el guiado sin escribir. En apikey limpia el secreto de memoria (Pitfall 6).
+          if (setupStep === 'apikey') {
+            setBuffer('');
+            setMaskValue(false);
+          }
+          setConfigEditError(null);
+          setMode('list');
+          return;
+        }
+        // Paso 1/4 — selector de provider (D-05/D-06): ↑/↓ clamp sin wrap, Enter confirma.
+        if (setupStep === 'provider') {
+          if (key.upArrow) {
+            setProviderCursor((i) => Math.max(0, i - 1));
+            return;
+          }
+          if (key.downArrow) {
+            setProviderCursor((i) => Math.min(SETUP_PROVIDERS.length - 1, i + 1));
+            return;
+          }
+          if (key.return) {
+            const chosen = SETUP_PROVIDERS[providerCursor];
+            if (chosen === 'github') {
+              // D-06: github se remite a `kodo config`; NO continúa el guiado ni escribe estructurales.
+              // El aviso va en focusError/footerColor (transitorio, ya de vuelta en el paso provider).
+              setFocusError(SETUP_GITHUB_REDIRECT);
+              setFooterColor('yellow');
+              return;
+            }
+            // plane: guarda provider y avanza a base_url (deep-clone ANTES de mutar — Pitfall 1).
+            const next = structuredClone(snap);
+            setByPath(next, 'provider', 'plane');
+            try {
+              const result = await onSaveConfig(next);
+              if (!result || result.ok !== false) {
+                setConfigSnapshot(next);
+                setConfigEditError(null);
+                setBuffer('');
+                setCursor(0);
+                setSetupStep('base_url');
+              } else {
+                setConfigEditError(SETUP_SAVE_FAILED);
+              }
+            } catch {
+              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
+            }
+            return;
+          }
+          return; // traga el resto mientras elige el provider
+        }
+        // Pasos 2/4 y 3/4 — base_url / workspace_slug (text-input controlado, molde config-edit).
+        if (setupStep === 'base_url' || setupStep === 'workspace_slug') {
+          if (key.leftArrow) {
+            setCursor((c) => Math.max(0, c - 1));
+            return;
+          }
+          if (key.rightArrow) {
+            setCursor((c) => Math.min(buffer.length, c + 1));
+            return;
+          }
+          if (key.backspace || key.delete) {
+            if (cursor > 0) {
+              setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
+              setCursor((c) => c - 1);
+            }
+            return;
+          }
+          if (key.return) {
+            // Validación no-vacío + sin espacios/#/= (substring puro — jamás compila regex del input).
+            if (buffer.length === 0 || buffer.includes(' ') || buffer.includes('#') || buffer.includes('=')) {
+              setConfigEditError(SETUP_INVALID);
+              return;
+            }
+            const path = setupStep === 'base_url' ? 'providers.plane.base_url' : 'providers.plane.workspace_slug';
+            const nextStep = setupStep === 'base_url' ? 'workspace_slug' : 'apikey';
+            const next = structuredClone(snap);
+            setByPath(next, path, buffer);
+            try {
+              const result = await onSaveConfig(next);
+              if (!result || result.ok !== false) {
+                setConfigSnapshot(next);
+                setConfigEditError(null);
+                setBuffer('');
+                setCursor(0);
+                if (nextStep === 'apikey') setMaskValue(true); // el paso 4/4 enmascara la entrada (D-11)
+                setSetupStep(nextStep);
+              } else {
+                setConfigEditError(SETUP_SAVE_FAILED);
+              }
+            } catch {
+              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
+            }
+            return;
+          }
+          if (input && !key.ctrl && !key.meta) {
+            setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
+            setCursor((c) => c + input.length);
+            return;
+          }
+          return; // traga el resto (teclas de control no mapeadas)
+        }
+        // Paso 4/4 — API key (campo enmascarado — reuso LITERAL de Phase 67, D-11/Pitfall 11). El
+        // buffer guarda el VALOR REAL en memoria; solo la pintura se enmascara (renderSetupOverlay).
+        if (setupStep === 'apikey') {
+          if (key.leftArrow) {
+            setCursor((c) => Math.max(0, c - 1));
+            return;
+          }
+          if (key.rightArrow) {
+            setCursor((c) => Math.min(buffer.length, c + 1));
+            return;
+          }
+          if (key.backspace || key.delete) {
+            if (cursor > 0) {
+              setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
+              setCursor((c) => c - 1);
+            }
+            return;
+          }
+          if (key.return) {
+            if (buffer.length === 0) {
+              setConfigEditError(API_KEY_INVALID);
+              return;
+            }
+            const apiKeyEnv = snap?.providers?.plane?.api_key_env;
+            try {
+              const result = await onSaveApiKey(apiKeyEnv, buffer);
+              if (!result || result.ok !== false) {
+                // Éxito (D-08/Pitfall 6): limpia buffer+máscara (el secreto no persiste en memoria) y
+                // pasa al estado terminal 'complete' → aviso de reinicio honesto (SETUP_COMPLETE_RESTART
+                // + SETUP_WEBHOOK_NOTE). D-09: NO se re-invoca loadEnvFile para reconfirmar la key recién
+                // escrita — la confirmación se apoya en el process.env in-proceso (onSaveApiKey, index.js).
+                setBuffer('');
+                setMaskValue(false);
+                setConfigEditError(null);
+                setSetupStep('complete');
+              } else {
+                setConfigEditError(SETUP_SAVE_FAILED);
+              }
+            } catch {
+              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
+            }
+            return;
+          }
+          if (input && !key.ctrl && !key.meta) {
+            setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
+            setCursor((c) => c + input.length);
+            return;
+          }
+          return; // traga el resto (teclas de control no mapeadas)
+        }
+        // Paso terminal 'complete' (D-08): cualquier tecla cierra el guiado a list (Esc ya cubierto).
+        setMode('list');
         return;
       }
       // Phase 39 (TUI-15/TUI-16 — D-05/D-06): SUB-MODO overlay. Va ANTES del mode-gate de filtro:
@@ -1707,6 +1921,8 @@ export default function App({
         mask: maskValue, // Phase 67 Plan 02 D-05: enmascara el text-input del renglón de API key (`•`)
         apiKeyConfigured: configSnapshot ? isApiKeyConfiguredFn(configSnapshot.provider) : false, // D-09: presencia
         rawModeSupported: isRawModeSupported, // Phase 67 Plan 02 D-07/Pitfall 16: degrada el renglón API key en non-TTY
+        setupStep, // Phase 68 Plan 02 D-04: paso activo del wizard de setup (provider/base_url/workspace_slug/apikey/complete)
+        providerCursor, // Phase 68 Plan 02 D-05: cursor del selector de provider en el paso 1/4
         projectsSnapshot, // Phase 64 Plan 02 D-01: snapshot congelado del editor de proyectos (null si cerrado)
         projectsError, // Phase 64 Plan 02 D-07: mensaje del fallo de fetch (dirige projects-error)
         projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)

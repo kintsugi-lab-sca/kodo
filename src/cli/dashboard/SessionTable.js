@@ -46,6 +46,20 @@ import {
   API_KEY_CONFIGURED,
   API_KEY_UNSET,
   API_KEY_NO_RAWMODE,
+  SETUP_OVERLAY_TITLE,
+  SETUP_INTRO,
+  SETUP_STEP_PROVIDER,
+  SETUP_STEP_BASE_URL,
+  SETUP_STEP_WORKSPACE,
+  SETUP_STEP_APIKEY,
+  SETUP_PROVIDER_LABEL,
+  SETUP_PROVIDER_HINT,
+  SETUP_BASE_URL_LABEL,
+  SETUP_WORKSPACE_LABEL,
+  SETUP_COMPLETE_RESTART,
+  SETUP_WEBHOOK_NOTE,
+  SETUP_NO_RAWMODE,
+  SETUP_PROVIDERS,
   PROJECTS_OVERLAY_TITLE,
   PROJECTS_LOADING,
   PROJECTS_UNMAPPED,
@@ -381,6 +395,121 @@ function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, config
 }
 
 /**
+ * Render del MODO SETUP (Phase 68 Plan 02, SETUP-01/02, D-04/D-05/D-06/D-08/D-13). Molde EXACTO de
+ * renderConfigOverlay: gutter `Box width:2` (`› `/`  `), label `Box width:24`, título cyan/bold,
+ * cabecera de paso dim, cursor `inverse`, y para el paso apikey la máscara `'•'.repeat(buffer.length)`
+ * (el VALOR jamás se renderiza raw — Pitfall 11/T-68-04). Degradación non-TTY: si !rawModeSupported
+ * pinta SOLO SETUP_NO_RAWMODE (dim, never-throws, D-13). NO introduce colores/anchos nuevos.
+ *
+ * @param {'provider'|'base_url'|'workspace_slug'|'apikey'|'complete'} setupStep - paso activo del wizard.
+ * @param {number} providerCursor - cursor del selector de provider (índice sobre SETUP_PROVIDERS).
+ * @param {string} buffer - text-input controlado de los pasos base_url/workspace_slug/apikey.
+ * @param {number} cursor - posición del cursor dentro del buffer.
+ * @param {string|null} configEditError - error de validación/escritura (rojo, estado dedicado).
+ * @param {string|null} focusError - aviso transitorio (p.ej. SETUP_GITHUB_REDIRECT — yellow).
+ * @param {string} footerColor - color del aviso transitorio.
+ * @param {boolean} rawModeSupported - si false, degrada a SETUP_NO_RAWMODE (D-13, never-throws).
+ * @returns {import('react').ReactElement}
+ */
+function renderSetupOverlay(setupStep, providerCursor, buffer, cursor, configEditError, focusError, footerColor, rawModeSupported = true) {
+  const header = h(
+    Box,
+    { flexDirection: 'column', marginBottom: 1 },
+    h(Text, { color: 'cyan', bold: true }, SETUP_OVERLAY_TITLE),
+  );
+
+  // Degradación non-TTY (D-13/Pitfall 16): never-throws, remite a `kodo config`. Precede a todo.
+  if (!rawModeSupported) {
+    return h(
+      Box,
+      { flexDirection: 'column' },
+      header,
+      h(Text, { dimColor: true }, SETUP_NO_RAWMODE),
+    );
+  }
+
+  // Paso terminal 'complete' (D-08/D-12): aviso de reinicio honesto + nota del webhook secret.
+  if (setupStep === 'complete') {
+    return h(
+      Box,
+      { flexDirection: 'column' },
+      header,
+      h(Text, { color: 'yellow' }, SETUP_COMPLETE_RESTART),
+      h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, SETUP_WEBHOOK_NOTE)),
+    );
+  }
+
+  // Cabecera de paso (dim) + intro (solo en el paso provider, first-run).
+  const stepHeader =
+    setupStep === 'provider' ? SETUP_STEP_PROVIDER
+      : setupStep === 'base_url' ? SETUP_STEP_BASE_URL
+        : setupStep === 'workspace_slug' ? SETUP_STEP_WORKSPACE
+          : SETUP_STEP_APIKEY;
+
+  /** @type {import('react').ReactElement} */
+  let body;
+  if (setupStep === 'provider') {
+    // Selector de provider (D-05): lista con gutter `› ` + bold en la opción seleccionada (clamp sin wrap).
+    const rows = SETUP_PROVIDERS.map((name, i) => {
+      const selected = i === providerCursor;
+      return h(
+        Box,
+        { key: name, flexDirection: 'row' },
+        h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+        h(Text, { bold: selected }, name),
+      );
+    });
+    body = h(
+      Box,
+      { flexDirection: 'column' },
+      h(Text, null, SETUP_INTRO),
+      h(Box, { marginTop: 1 }, h(Text, { bold: true }, SETUP_PROVIDER_LABEL)),
+      ...rows,
+      h(Text, { dimColor: true }, SETUP_PROVIDER_HINT),
+    );
+  } else {
+    // Pasos base_url/workspace_slug/apikey: fila label (width 24) + text-input con cursor `inverse`.
+    // El paso apikey SIEMPRE enmascara el valor (`•`.repeat) — el secreto jamás se renderiza raw.
+    const label =
+      setupStep === 'base_url' ? SETUP_BASE_URL_LABEL
+        : setupStep === 'workspace_slug' ? SETUP_WORKSPACE_LABEL
+          : API_KEY_LABEL;
+    const display = setupStep === 'apikey' ? '•'.repeat(buffer.length) : buffer;
+    const left = display.slice(0, cursor);
+    const under = display[cursor] ?? ' ';
+    const right = display.slice(cursor + 1);
+    body = h(
+      Box,
+      { flexDirection: 'row' },
+      h(Box, { width: 2 }, h(Text, { bold: true }, '› ')),
+      h(Box, { width: 24 }, h(Text, { bold: true }, `${label}:`)),
+      h(Text, null, left, h(Text, { inverse: true }, under), right),
+    );
+  }
+
+  // Footer: error de validación/escritura (rojo, configEditError dedicado) gana; si no, el aviso
+  // transitorio (focusError/footerColor — p.ej. SETUP_GITHUB_REDIRECT yellow, D-06).
+  let statusLine = null;
+  if (configEditError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: 'red' }, configEditError));
+  } else if (focusError != null) {
+    statusLine = h(Box, { marginTop: 1 }, h(Text, { color: footerColor }, focusError));
+  }
+  const hint = h(
+    Box,
+    { marginTop: 1 },
+    h(
+      Text,
+      { dimColor: true },
+      setupStep === 'provider'
+        ? '↑↓ elegir · Enter confirmar · Esc salir'
+        : '←→ move · ⌫ borrar · Enter confirmar · Esc salir',
+    ),
+  );
+  return h(Box, { flexDirection: 'column' }, header, h(Box, { flexDirection: 'column' }, h(Text, { dimColor: true }, stepHeader), body), statusLine, hint);
+}
+
+/**
  * Render del estado transitorio `projects-loading` (Phase 64 Plan 02, D-01): cabecera + el texto de
  * carga mientras listProjectsFn está en vuelo. El poll /status sigue por debajo (snapshot congelado).
  *
@@ -672,6 +801,8 @@ export default function SessionTable({
   mask = false,
   apiKeyConfigured = false,
   rawModeSupported = true,
+  setupStep = 'provider',
+  providerCursor = 0,
   projectsSnapshot = null,
   projectsError = null,
   projectsEditError = null,
@@ -691,6 +822,12 @@ export default function SessionTable({
   // text-input), espejo del overlay de lectura. Ocupa el área de la tabla mientras está abierto.
   if ((mode === 'config' || mode === 'config-edit') && configSnapshot) {
     return renderConfigOverlay(configSnapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor, mask, apiKeyConfigured, rawModeSupported);
+  }
+  // Phase 68 Plan 02 (SETUP-01/02, D-04/D-13): early-return del MODO SETUP (wizard lineal de first-run),
+  // espejo del overlay de config. Ocupa el área de la tabla mientras el guiado está abierto. La
+  // degradación non-TTY vive DENTRO de renderSetupOverlay (D-13 — el guard de index.js queda intacto).
+  if (mode === 'setup') {
+    return renderSetupOverlay(setupStep, providerCursor, buffer, cursor, configEditError, focusError, footerColor, rawModeSupported);
   }
   // Phase 64 Plan 02 (D-01/D-02/D-07): early-returns del editor de PROYECTOS (carril async), espejo
   // del overlay de config. Ocupan el área de la tabla mientras el editor está abierto. El orden cubre
