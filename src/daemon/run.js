@@ -129,14 +129,38 @@ export async function runDaemon(deps = {}) {
 
   const config = loadConfigFn();
 
+  // PID = liveness del PROCESO, no "server ready" (gap-closure 66-07). Se escribe
+  // AQUÍ — antes del `await startServer` — porque el daemon YA está vivo en cuanto
+  // arranca este proceso; server-ready es otra cosa (lo cubre `waitForHealth` de
+  // `kodo up` contra /health). Escribirlo después del await metía la latencia de red
+  // de provider.init dentro del bounded-wait de startDaemon (lifecycle.js, ~2000ms):
+  // en cold-spawn el kodo.pid no llegaba a tiempo y `kodo up` reportaba "failed to
+  // write PID file within 2000ms" aunque el daemon SÍ arrancaba. Con el pid temprano
+  // el pid-wait resuelve en <100ms sea cual sea la latencia de provider.init.
+  // UN solo PID file para el UN proceso compuesto (Plan 01 signature: payload primero,
+  // name trailing). kind:'daemon' distingue de los payloads polling con repos.
+  writePidFileFn(
+    { pid: proc.pid ?? process.pid, started_at: new Date().toISOString(), kind: 'daemon' },
+    'kodo',
+  );
+
   // Compose managed start. Pitfall 4: un throw (misconfig / provider.init) es una
   // superficie limpia logueada + teardown, NO un uncaught crash. run.js es el único
-  // dueño del exit también en el fail path (teardown(1)).
+  // dueño del exit también en el fail path (teardown(1)). Como el pid ya está escrito,
+  // teardown() lo borra (removePidFile) → un boot fallido NUNCA deja un kodo.pid stale
+  // apuntando a un proceso que sale (gap-closure 66-07).
   try {
     ({ server, stopReconcile } = await startServerFn({ managed: true }));
   } catch (e) {
-    const msg = e && /** @type {Error} */ (e).message ? /** @type {Error} */ (e).message : String(e);
-    log(`[kodo] daemon start failed: ${msg}`);
+    const err = /** @type {NodeJS.ErrnoException & { message?: string }} */ (e);
+    if (err && err.code === 'KODO_SETUP_REQUIRED') {
+      // No-config: mensaje DISTINTO y accionable (no lo conflacionamos con un error
+      // de boot real). El setup-mode real se difiere a Phase 68.
+      log('[kodo] daemon: falta configuración — corre `kodo config` para configurar el proveedor.');
+    } else {
+      const msg = err && err.message ? err.message : String(e);
+      log(`[kodo] daemon start failed: ${msg}`);
+    }
     teardown(1);
     return { ok: false };
   }
@@ -166,12 +190,8 @@ export async function runDaemon(deps = {}) {
     });
   }
 
-  // UN solo PID file para el UN proceso compuesto (Plan 01 signature: payload primero,
-  // name trailing). kind:'daemon' distingue de los payloads polling con repos.
-  writePidFileFn(
-    { pid: proc.pid ?? process.pid, started_at: new Date().toISOString(), kind: 'daemon' },
-    'kodo',
-  );
+  // (El kodo.pid ya se escribió arriba, antes del await de startServer — gap-closure
+  // 66-07. Aquí el server/polling ya están compuestos y listos.)
 
   // Bloquea para siempre — el proceso ES el daemon (foreground supervisable, UP-04:
   // sin spawn/unref; server + timer viven aquí). El teardown drena vía las señales.
