@@ -112,7 +112,7 @@ Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
   3. Bajo managed mode, una colisión de puerto (EADDRINUSE) o una config incompleta se reporta como error limpio **sin** `process.exit`/crash-loop (habilita el setup mode de Phase 68 y evita el chicken-and-egg del first-run). (UP-04)
   4. El daemon escribe un único PID file `~/.kodo/kodo.pid`, distinto del `server.pid` legacy (prerequisito de la idempotencia de `kodo up`). (UP-04)
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 Plans:
 **Wave 1**
 
@@ -125,7 +125,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 65-04-PLAN.md — `kodo daemon run` (hidden) + test de integración child-spawn foreground/SIGTERM (Wave 3)
+- [x] 65-04-PLAN.md — `kodo daemon run` (hidden) + test de integración child-spawn foreground/SIGTERM (Wave 3)
 
 **Research/Spike note**: patrones bien documentados (los primitivos de `src/cli/polling.js`/`polling-daemon.js` son la fuente) — omitir research-phase, ejecutar directamente. Es la refactorización de mayor riesgo del milestone: verificar que `kodo start` legacy sigue intacto antes de construir cualquier capa encima. Evita Pitfalls 1, 3, 4, 5, 18.
 
@@ -180,7 +180,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 65. Daemon Lifecycle Foundation | 3/4 | In Progress|  |
+| 65. Daemon Lifecycle Foundation | 4/4 | Complete   | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 0/? | Not started | - |
 | 67. Secrets Writer + Masked Input | 0/? | Not started | - |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
