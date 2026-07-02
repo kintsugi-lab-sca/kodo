@@ -130,7 +130,7 @@ describe('runDaemon: single-owner teardown (D-05)', () => {
 });
 
 describe('runDaemon: startServer throw (Pitfall 4)', () => {
-  it('managed misconfig throw → logged + cleanup, sin polling, no crash', async () => {
+  it('managed boot error throw → logged + cleanup, sin polling, no crash', async () => {
     let logged = '';
     let pollingCalls = 0;
     let removed = null;
@@ -138,7 +138,7 @@ describe('runDaemon: startServer throw (Pitfall 4)', () => {
     await runDaemon({
       _loadConfig: () => GITHUB_CONFIG,
       _providerUsesPolling: providerUsesPolling,
-      _startServer: () => { throw Object.assign(new Error('setup required'), { code: 'KODO_SETUP_REQUIRED' }); },
+      _startServer: () => { throw new Error('boot exploded'); },
       _startPolling: () => { pollingCalls += 1; return { stop() {} }; },
       _writePidFile: () => {},
       _removePidFile: (name) => { removed = name; },
@@ -147,9 +147,82 @@ describe('runDaemon: startServer throw (Pitfall 4)', () => {
       _log: (msg) => { logged += msg; },
     });
     assert.equal(pollingCalls, 0, 'un throw en startServer NO debe arrancar polling');
-    assert.match(logged, /daemon start failed/i, 'el fallo se loguea (clean surface)');
+    assert.match(logged, /daemon start failed/i, 'el fallo genérico se loguea (clean surface)');
     assert.equal(removed, 'kodo', 'cleanup borra kodo.pid incluso en el fail path');
     assert.ok(proc.exitCalls.length >= 1, 'run.js es el único dueño del exit (también en fail)');
     assert.notEqual(proc.exitCalls[0], undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap-closure 66-07: cold-spawn PID timeout.
+//
+// Bug: `kodo up` (cold start) reportaba "daemon 'kodo' failed to write PID file
+// within 2000ms" aunque el daemon SÍ arrancaba. Causa: writePidFile se llamaba
+// DESPUÉS de `await startServer({managed})`, que hace provider.init() (llamada de
+// red). Cuando el boot tarda >2000ms el kodo.pid no está escrito antes de que el
+// bounded-wait de startDaemon (lifecycle.js) se rinda. El PID file representa
+// "el proceso daemon está vivo" → debe escribirse en cuanto el proceso arranca,
+// ANTES del await de red; server-ready lo cubre waitForHealth contra /health.
+// ---------------------------------------------------------------------------
+describe('runDaemon: 66-07 PID escrito ANTES del await de startServer', () => {
+  it('writePidFile se llama ANTES de que startServer resuelva (call order)', async () => {
+    const order = [];
+    const pidBeforeServer = { seen: false };
+    await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: async () => {
+        // Cuando startServer arranca (simula provider.init de red), el kodo.pid
+        // YA debe estar escrito — ese es el invariante de liveness.
+        pidBeforeServer.seen = order.includes('pid');
+        order.push('startServer');
+        return { server: { close() {} }, stopReconcile: () => {} };
+      },
+      _writePidFile: () => { order.push('pid'); },
+      _removePidFile: () => {},
+      _process: makeFakeProc(),
+      _block: async () => {},
+      _log: () => {},
+    });
+    assert.equal(pidBeforeServer.seen, true, 'el kodo.pid ya estaba escrito cuando startServer arrancó');
+    assert.deepEqual(order, ['pid', 'startServer'], 'orden: writePidFile → startServer');
+  });
+
+  it('fail-path: pid escrito temprano se BORRA si startServer lanza (sin stale pid)', async () => {
+    const order = [];
+    const proc = makeFakeProc();
+    const res = await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => { order.push('startServer-throw'); throw new Error('boom'); },
+      _writePidFile: () => { order.push('write'); },
+      _removePidFile: () => { order.push('remove'); },
+      _process: proc,
+      _block: async () => {},
+      _log: () => {},
+    });
+    assert.deepEqual(order, ['write', 'startServer-throw', 'remove'],
+      'pid se escribe temprano, startServer lanza, y el fail-path borra el pid (no stale)');
+    assert.equal(res && res.ok, false, 'fail-path devuelve {ok:false}');
+    assert.deepEqual(proc.exitCalls, [1], 'exit(1) en el fail path');
+  });
+
+  it('KODO_SETUP_REQUIRED → mensaje DISTINTO de config (no el genérico)', async () => {
+    let logged = '';
+    const proc = makeFakeProc();
+    await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => { throw Object.assign(new Error('setup required'), { code: 'KODO_SETUP_REQUIRED' }); },
+      _writePidFile: () => {},
+      _removePidFile: () => {},
+      _process: proc,
+      _block: async () => {},
+      _log: (msg) => { logged += msg; },
+    });
+    assert.match(logged, /configuraci[oó]n/i, 'menciona configuración (mensaje accionable no-config)');
+    assert.match(logged, /kodo config/i, 'apunta al comando de setup');
+    assert.doesNotMatch(logged, /daemon start failed/i, 'NO usa el mensaje genérico de error de boot');
   });
 });

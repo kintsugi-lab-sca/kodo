@@ -11,7 +11,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runUp } from '../../src/cli/up.js';
+import { runUp, waitForHealth } from '../../src/cli/up.js';
 
 /** Deps base: daemon frío (idle + puerto libre), todo espiable. */
 function makeDeps(overrides = {}) {
@@ -96,5 +96,47 @@ describe('runUp', () => {
     await runUp(deps);
     assert.ok(calls.stderr.some((s) => /health/i.test(s)));
     assert.equal(calls.runDashboard.length, 1, 'fail-open: abre el dashboard igual');
+  });
+});
+
+// Gap-closure 66-07: con el kodo.pid escrito temprano, `kodo up` pasa el pid-wait
+// en <100ms y confía en waitForHealth para el readiness. El health-wait DEBE
+// tolerar un provider.init de red (boot lento) sin rendirse — pero seguir acotado
+// (never-hang). Verificamos el presupuesto por defecto y que un boot lento-pero-
+// eventualmente-200 resuelve true.
+describe('waitForHealth: 66-07 timeout acomoda provider.init de red', () => {
+  it('timeout por defecto ≥ 10s (presupuesto de provider.init, bounded)', async () => {
+    // Reloj virtual: nunca responde 200 → debe rendirse SOLO tras ≥10s (no antes),
+    // y ser finito (never-hang).
+    let clock = 0;
+    const nowFn = () => clock;
+    const sleepFn = async (ms) => { clock += ms; };
+    const healthy = await waitForHealth('http://x', {}, {
+      _fetch: async () => ({ ok: false }),
+      _now: nowFn,
+      _sleep: sleepFn,
+    });
+    assert.equal(healthy, false, 'se rinde (bounded, never-hang)');
+    assert.ok(clock >= 10000, `el deadline por defecto acomoda ≥10s de boot (fue ${clock}ms)`);
+  });
+
+  it('boot lento pero eventualmente-200 dentro del presupuesto → true', async () => {
+    let clock = 0;
+    const nowFn = () => clock;
+    const sleepFn = async (ms) => { clock += ms; };
+    let attempts = 0;
+    // Simula provider.init lento: los primeros intentos fallan (ECONNREFUSED/no-200),
+    // luego responde 200 a los ~5s (dentro del presupuesto por defecto).
+    const healthy = await waitForHealth('http://x', {}, {
+      _fetch: async () => {
+        attempts += 1;
+        if (clock < 5000) throw new Error('ECONNREFUSED');
+        return { ok: true };
+      },
+      _now: nowFn,
+      _sleep: sleepFn,
+    });
+    assert.equal(healthy, true, 'un boot de red lento-pero-exitoso resuelve true');
+    assert.ok(attempts > 1, 'reintentó durante el boot');
   });
 });
