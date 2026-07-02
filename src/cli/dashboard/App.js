@@ -240,6 +240,25 @@ export const CONFIG_OVERLAY_TITLE = 'configuración de kodo';
 export const CONFIG_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
 export const CONFIG_SAVE_FAILED = '[!] no se pudo guardar la config — el archivo previo quedó intacto';
 
+// Phase 67 Plan 02 (SETUP-03/04 — masked API-key field, D-05/D-06/D-07/D-09). Copy literal-estable
+// EXPORTADA para que tests y SessionTable.js la importen y asseren equality sin duplicar strings
+// (mismo patrón CONFIG_*/PROJECTS_*). La API key vive en un renglón DEDICADO del overlay de config
+// (append tras los 11 campos de getEditableFields — los secretos NUNCA entran a config.json ni a
+// getEditableFields; PERSIST-04 intacto). El renglón enruta el save a `onSaveApiKey` → `writeEnvVar`.
+//   - API_KEY_LABEL: etiqueta del renglón (NUNCA el nombre de la env var ni el valor — Pitfall 11).
+//   - API_KEY_CONFIGURED / API_KEY_UNSET: indicador de PRESENCIA (D-09) — jamás el valor.
+//   - API_KEY_SAVED_RESTART (ámbar): aviso transitorio tras guardar — sin hot-reload, hay que reiniciar.
+//   - API_KEY_SAVE_FAILED (rojo): writeEnvVar devolvió false (fallo I/O) — el .env previo quedó intacto.
+//   - API_KEY_INVALID (rojo): la key/valor no pasó validateEnvKey/validateEnvValue (Pitfall 14).
+//   - API_KEY_NO_RAWMODE (dim): degradación non-TTY (Pitfall 16) — never-throws, no cuelga el first-run.
+export const API_KEY_LABEL = 'API key del provider';
+export const API_KEY_CONFIGURED = '[configurado]';
+export const API_KEY_UNSET = '[sin configurar]';
+export const API_KEY_SAVED_RESTART = 'API key guardada — reinicia el server/daemon para aplicar';
+export const API_KEY_SAVE_FAILED = '[!] no se pudo guardar la API key — el .env previo quedó intacto';
+export const API_KEY_INVALID = 'API key inválida (no puede estar vacía ni contener espacios, # o =)';
+export const API_KEY_NO_RAWMODE = 'Usa `kodo config` para editar la API key';
+
 // Phase 64 Plan 02 (D-01/D-02/D-07): copy literal-estable del editor de PROYECTOS. EXPORTADAS para
 // que los tests las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/OVERLAY_*).
 // SessionTable.js (Task 3) también las importa → mata el drift code/render.
@@ -350,6 +369,17 @@ export const OVERLAY_VIEWPORT = 18;
  *   `runDashboard` con un wrapper de `saveConfig` (escritura atómica temp+rename, PERSIST-05). El
  *   Enter de config-edit lo `await`a tras validar; `{ok:false}` → footer CONFIG_SAVE_FAILED (el
  *   archivo previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
+ * @param {(key: string, value: string) => Promise<{ ok: boolean, error?: any }>} [props.onSaveApiKey]
+ *   Phase 67 D-05 (Plan 02, SETUP-03): escribe la API key del provider a `~/.kodo/.env`, never-throws.
+ *   Inyectado por `runDashboard` con un wrapper de `writeEnvVar` (atómico + chmod 0600 pre-rename,
+ *   Plan 01) que además actualiza `process.env[key]` (cache) para que el indicador `[configurado]` se
+ *   refleje al instante. Escritura EN-PROCESO SIEMPRE, jamás shell-out (`execFile kodo …` — Pitfall 11).
+ *   El Enter del renglón de API key en config-edit lo `await`a; `{ok:false}` → footer API_KEY_SAVE_FAILED
+ *   (el .env previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
+ * @param {(providerName?: string) => boolean} [props.isApiKeyConfiguredFn]
+ *   Phase 67 D-09 (Plan 02, SETUP-04): prueba de PRESENCIA de la API key (jamás el valor — Pitfall 11).
+ *   Inyectado con `isApiKeyConfigured` de src/config.js; el overlay lo consulta al render para pintar
+ *   `[configurado]` / `[sin configurar]`. Default `() => false` (tests del módulo sin DI).
  * @param {() => Promise<{ ok: true, projects: Array<{ id: string, identifier: string, name: string }> } | { ok: false, error: string }>} [props.listProjectsFn]
  *   Phase 64 D-01/D-08 (Plan 02, PROJ-01/05): fetch async de la lista de proyectos del provider.
  *   Inyectado por `runDashboard` (Plan 04) con un wrapper NEVER-THROWS que devuelve un DISCRIMINADO
@@ -394,6 +424,8 @@ export default function App({
   projects = {},
   loadConfigFn = () => DEFAULT_EDITOR_CONFIG,
   onSaveConfig = async () => ({ ok: true }),
+  onSaveApiKey = async () => ({ ok: true }),
+  isApiKeyConfiguredFn = () => false,
   listProjectsFn = async () => ({ ok: true, projects: [] }),
   loadProjectsFn = () => ({}),
   saveProjectsFn = () => {},
@@ -489,6 +521,13 @@ export default function App({
   const [buffer, setBuffer] = useState('');
   const [cursor, setCursor] = useState(0);
   const [configEditError, setConfigEditError] = useState(/** @type {string | null} */ (null));
+
+  // Phase 67 Plan 02 (SETUP-03, D-05/D-06/Pitfall 11): flag de RENDER del text-input enmascarado.
+  // `maskValue === true` SOLO mientras se edita el renglón de API key en config-edit → SessionTable
+  // deriva `•` por carácter (el buffer sigue guardando el VALOR REAL en memoria; solo la pintura se
+  // enmascara). Se pone a `true` al entrar al renglón de API key y a `false` al salir (save/cancel) o
+  // al entrar a cualquier campo normal — así ningún campo no-secreto se enmascara por estado colgado.
+  const [maskValue, setMaskValue] = useState(false);
 
   // Phase 64 Plan 02 (D-01/D-02/D-07): estado del editor de PROYECTOS (carril async).
   //   - projectsSnapshot: { remote, map } CONGELADO al abrir (la lista remota fusionada con el mapa
@@ -1607,6 +1646,9 @@ export default function App({
         buffer, // Phase 63 Plan 02 D-01: text-input controlado de mode:'config-edit'
         cursor, // Phase 63 Plan 02 D-01: posición del cursor en el buffer
         configEditError, // Phase 63 Plan 02 Pitfall 2: error de validación/escritura (estado dedicado)
+        mask: maskValue, // Phase 67 Plan 02 D-05: enmascara el text-input del renglón de API key (`•`)
+        apiKeyConfigured: configSnapshot ? isApiKeyConfiguredFn(configSnapshot.provider) : false, // D-09: presencia
+        rawModeSupported: isRawModeSupported, // Phase 67 Plan 02 D-07/Pitfall 16: degrada el renglón API key en non-TTY
         projectsSnapshot, // Phase 64 Plan 02 D-01: snapshot congelado del editor de proyectos (null si cerrado)
         projectsError, // Phase 64 Plan 02 D-07: mensaje del fallo de fetch (dirige projects-error)
         projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)
