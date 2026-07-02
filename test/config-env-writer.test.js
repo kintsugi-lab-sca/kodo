@@ -114,3 +114,182 @@ describe('SETUP-03 — writeEnvVar rechaza input inválido (throw TypeError)', (
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 3 — writeEnvVar behavior: merge, permisos, atomicidad, idempotencia
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('SETUP-03 — writeEnvVar: write / upsert / merge', () => {
+  it('(SC1) crea .env nuevo con la key si no existía', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      assert.equal(writeEnvVar('PLANE_API_KEY', 'key123', p), true);
+      assert.equal(readFileSync(p, 'utf-8'), 'PLANE_API_KEY=key123\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('upsert: reemplaza el valor de una key existente in-place', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('PLANE_API_KEY', 'old', p);
+      writeEnvVar('PLANE_API_KEY', 'new', p);
+      assert.equal(readFileSync(p, 'utf-8'), 'PLANE_API_KEY=new\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('(SC2) preserva OTRAS keys al hacer upsert (merge safety — no clobber)', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      // Simula un .env real con múltiples secretos (dogfooding: 2 keys presentes).
+      writeFileSync(p, 'PLANE_API_KEY=plane_v1\nPLANE_WEBHOOK_SECRET=whsec_abc\n');
+      writeEnvVar('GITHUB_TOKEN', 'ghp_new', p);
+      const content = readFileSync(p, 'utf-8');
+      assert.equal(content, 'PLANE_API_KEY=plane_v1\nPLANE_WEBHOOK_SECRET=whsec_abc\nGITHUB_TOKEN=ghp_new\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('upsert de una key en medio preserva las de alrededor verbatim', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeFileSync(p, 'A=1\nPLANE_API_KEY=old\nB=2\n');
+      writeEnvVar('PLANE_API_KEY', 'fresh', p);
+      assert.equal(readFileSync(p, 'utf-8'), 'A=1\nPLANE_API_KEY=fresh\nB=2\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserva comentarios y líneas en blanco verbatim (parser naive)', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeFileSync(p, '# secrets file\n\nPLANE_API_KEY=old\n# tail comment\n');
+      writeEnvVar('PLANE_API_KEY', 'new', p);
+      assert.equal(
+        readFileSync(p, 'utf-8'),
+        '# secrets file\n\nPLANE_API_KEY=new\n# tail comment\n',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('append cuando la key no existe pero sí hay otras', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeFileSync(p, 'PLANE_API_KEY=plane\n');
+      writeEnvVar('GITHUB_TOKEN', 'ghp', p);
+      assert.equal(readFileSync(p, 'utf-8'), 'PLANE_API_KEY=plane\nGITHUB_TOKEN=ghp\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SETUP-03 — writeEnvVar: permisos 0600 (Pitfall 13, LOAD-BEARING)', () => {
+  it('(SC4) el .env final es 0600 (-rw-------) inmediatamente tras el write', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('PLANE_API_KEY', 'secret', p);
+      const mode = statSync(p).mode & 0o777;
+      assert.equal(mode, 0o600, `esperado 0600, obtenido 0${mode.toString(8)}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('0600 se mantiene tras un upsert (segundo write)', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('PLANE_API_KEY', 'v1', p);
+      writeEnvVar('PLANE_API_KEY', 'v2', p);
+      assert.equal(statSync(p).mode & 0o777, 0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SETUP-03 — writeEnvVar: atomicidad (Pitfall 13 rename)', () => {
+  it('(SC3) no deja .env.tmp residual tras un write exitoso', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('PLANE_API_KEY', 'k', p);
+      assert.equal(existsSync(p + '.tmp'), false);
+      // El .env es el único fichero generado en el dir.
+      assert.deepEqual(readdirSync(dir), ['.env']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('crea el dir padre con recursive si no existe (never-throws path feliz)', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, 'nested', 'deep', '.env');
+      assert.equal(writeEnvVar('PLANE_API_KEY', 'k', p), true);
+      assert.equal(readFileSync(p, 'utf-8'), 'PLANE_API_KEY=k\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never-throws: devuelve false ante fallo de I/O (destino es un directorio)', () => {
+    const dir = makeWorkdir();
+    try {
+      // El destino ES un directorio existente y NO vacío → renameSync(tmp, envPath)
+      // lanza (ENOTEMPTY/EISDIR); writeEnvVar lo captura y devuelve false SIN throw.
+      const envAsDir = mkdtempSync(join(dir, 'as-dir-'));
+      writeFileSync(join(envAsDir, 'child'), 'x'); // lo hace no-vacío
+      let result;
+      assert.doesNotThrow(() => { result = writeEnvVar('PLANE_API_KEY', 'v', envAsDir); });
+      assert.equal(result, false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('SETUP-03 — writeEnvVar: idempotencia', () => {
+  it('escribir la misma key+valor dos veces produce contenido idéntico', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('PLANE_API_KEY', 'same', p);
+      const first = readFileSync(p, 'utf-8');
+      writeEnvVar('PLANE_API_KEY', 'same', p);
+      const second = readFileSync(p, 'utf-8');
+      assert.equal(second, first);
+      assert.equal(second, 'PLANE_API_KEY=same\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('no acumula líneas en blanco a través de escrituras sucesivas', () => {
+    const dir = makeWorkdir();
+    try {
+      const p = join(dir, '.env');
+      writeEnvVar('A', 'a', p);
+      writeEnvVar('B', 'b', p);
+      writeEnvVar('A', 'a2', p);
+      assert.equal(readFileSync(p, 'utf-8'), 'A=a2\nB=b\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
