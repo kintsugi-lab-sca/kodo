@@ -19,7 +19,7 @@ Requisitos del milestone v0.15. Cada uno mapea a una fase del roadmap. Dos pilar
 ### DIST — Distribución e instalación (Pilar 1)
 
 - [x] **DIST-01**: El operador instala kodo con `brew install kodo` (fórmula Homebrew vía tap, `depends_on "node"` ≥20, sin bundlear el runtime).
-- [x] **DIST-02**: El operador registra kodo como servicio del sistema con `brew services start kodo`: arranca al login y se reinicia si crashea, invocando el modo foreground del daemon (`kodo daemon run`) — nunca `kodo up`.
+- [x] **DIST-02**: El operador registra kodo como servicio del sistema con `brew services start kodo`: arranca al login y se reinicia si crashea, invocando el modo foreground del daemon (`kodo daemon run`) — nunca `kodo up`. **Alcance (aclarado en el spike, decisión B):** bajo `brew services`/launchd el daemon corre en **modo server-only** (webhook + polling); las features acopladas a cmux (liveness/adopción de sesiones) quedan inertes porque cmux no es alcanzable en el contexto headless de launchd. El **modo pleno cmux-aware es `kodo up`** lanzado desde una terminal DENTRO de una sesión cmux. El daemon degrada limpio (never-throws, sin ruido de cmux en el log — gaps 66-05/66-06).
 - [x] **DIST-03**: En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado sin crashear (misma guardia que el daemon de polling).
 
 ### SETUP — Onboarding dashboard-first (Pilar 2 — requiere Pilar 1)

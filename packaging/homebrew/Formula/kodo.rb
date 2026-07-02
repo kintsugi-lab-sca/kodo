@@ -19,7 +19,7 @@ class Kodo < Formula
   # TODO(spike 66-04): al cortar la release, fijar el tag real del milestone v0.15,
   # bumpear package.json a la misma versión y computar el sha256 del tarball.
   # El sha256 NO se puede conocer hasta que exista la release. (package.json ya en 0.15.0.)
-  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.15.1.tar.gz"
+  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.15.2.tar.gz"
   sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5" # TODO(spike 66-04): sha256 real del tarball de la release
   license "MIT"
 
@@ -53,6 +53,21 @@ class Kodo < Formula
     # secretos viven en ~/.kodo/.env (0600), cargados en runtime por config.js. El
     # plist es world-readable en ~/Library/LaunchAgents → nunca meter secretos ahí
     # (boundary PERSIST-04 / T-66-08).
+  end
+
+  def caveats
+    <<~EOS
+      Bajo `brew services`, kodo corre en modo SERVER-ONLY (webhook + polling): reacciona
+      a triggers de tu gestor de tareas en segundo plano. Las funciones acopladas a cmux
+      (liveness y adopción de sesiones) NO operan bajo launchd, porque cmux no es alcanzable
+      en el contexto headless del servicio.
+
+      Para el modo completo (cmux-aware), lanza desde una terminal DENTRO de una sesión cmux:
+        kodo up
+
+      Los secretos se leen de ~/.kodo/.env (nunca del plist). Config: `kodo config` o `kodo up`
+      (setup en el dashboard, próximamente).
+    EOS
   end
 
   test do

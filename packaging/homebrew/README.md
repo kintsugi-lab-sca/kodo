@@ -46,8 +46,18 @@ Cada vez que quieras que un cambio llegue a los usuarios de `brew`, haz el ritua
 - [ ] `package.json` version == tag (sin la `v`).
 - [ ] Repo fuente **público** y tag pusheado (tarball 200 anónimo).
 - [ ] Fórmula del tap con `url` del tag nuevo + `sha256` real (no `0000…`).
+- [ ] **`sha256` calculado SIEMPRE** con `curl -sL …/archive/refs/tags/<tag>.tar.gz | shasum -a 256` en el momento del release — **nunca reusar** un valor previo (un sha equivocado da `SHA-256 mismatch` en instalación limpia; el tarball de GitHub archive es estable, así que el valor recién calculado es el bueno).
 - [ ] `service do` invoca `kodo daemon run` — **NUNCA `kodo up`** (launchd foreground trap).
 - [ ] Sin `environment_variables` en el plist (secretos solo en `~/.kodo/.env`).
+
+## Modo de ejecución (decisión de alcance del spike, Phase 66)
+
+kodo tiene dos formas de arrancar, con alcance distinto:
+
+- **`brew services start kodo`** (launchd, login) → **modo SERVER-ONLY**: webhook + polling reaccionando a triggers en segundo plano. Las funciones acopladas a **cmux** (liveness/adopción de sesiones) quedan **inertes** — cmux no es alcanzable en el contexto headless de launchd. El daemon degrada limpio (never-throws; el ruido de cmux ya no contamina el log — gaps 66-05/66-06).
+- **`kodo up`** desde una terminal DENTRO de una sesión cmux → **modo pleno cmux-aware**: daemon en background + dashboard como visor, con liveness/adopción operativas.
+
+Regla: si dependes de las features de cmux, usa `kodo up`; `brew services` es para el rol server/webhook desatendido.
 
 ## Notas de entorno (macOS)
 
