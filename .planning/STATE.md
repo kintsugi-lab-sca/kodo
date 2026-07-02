@@ -5,8 +5,8 @@ milestone_name: «kodo up» — ACTIVE
 current_phase: 66
 current_phase_name: `kodo up` + Stop/Status unificados + Homebrew
 status: verifying
-stopped_at: Phase 65 context gathered
-last_updated: "2026-07-02T00:33:13.626Z"
+stopped_at: Phase 66 context gathered
+last_updated: "2026-07-02T05:39:32.512Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 65 complete, transitioned to Phase 66
 progress:
@@ -109,10 +109,10 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/65-daemon-lifecycle-foundation/65-CONTEXT.md
+**Resume file:** .planning/phases/66-kodo-up-stop-status-unificados-homebrew/66-CONTEXT.md
 
-- **Last session:** 2026-07-02T00:26:00.495Z
-- **Stopped at:** Phase 65 context gathered
+- **Last session:** 2026-07-02T05:39:32.504Z
+- **Stopped at:** Phase 66 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.15 «kodo up»)
