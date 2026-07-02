@@ -1,6 +1,6 @@
 // @ts-check
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 const KODO_DIR = join(homedir(), '.kodo');
@@ -260,4 +260,127 @@ export function getDefaultGithubProviderConfig() {
   };
 }
 
-export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, DEFAULT_CONFIG, writeFileAtomic };
+/**
+ * Valida una CLAVE de variable de entorno destinada a `~/.kodo/.env`.
+ *
+ * El parser de `loadEnvFile` (config.js:12-28) es naive: `trim`, `split` en el
+ * PRIMER `=`, y salta líneas vacías o que empiezan por `#`. Por eso se RECHAZAN
+ * (Pitfall 14 — validar+rechazar, NUNCA escapar) las claves que romperían el
+ * round-trip parse→write→parse o el merge:
+ *   - vacías,
+ *   - con `#` (el parser saltaría la línea entera),
+ *   - con `=` (el parser partiría la clave por el primer `=`),
+ *   - con CUALQUIER whitespace, incluido `\n`/`\r` (inyectaría o clobbearía otras
+ *     líneas del `.env` — el vector de mayor riesgo para el merge) y espacios
+ *     (el `trim` del parser desalinearía la clave). Superset de "leading spaces".
+ *
+ * Las API keys reales de los providers (Plane `plane_api_...`, GitHub `ghp_...`)
+ * no usan ninguno de estos caracteres, así que la restricción es zero-cost.
+ *
+ * @param {string} key
+ * @returns {boolean} true si la clave es segura para el formato naive del `.env`.
+ */
+export function validateEnvKey(key) {
+  return typeof key === 'string' && key.length > 0 && !/[#=\s]/.test(key);
+}
+
+/**
+ * Valida un VALOR de variable de entorno destinado a `~/.kodo/.env`.
+ *
+ * Mismas reglas que {@link validateEnvKey} (Pitfall 14 — validar+rechazar): se
+ * rechazan valores vacíos o con `#`, `=`, o whitespace. El `\n`/`\r` es el más
+ * crítico: un valor multilínea inyectaría líneas nuevas en el `.env` y podría
+ * clobbear `GITHUB_TOKEN`/`PLANE_WEBHOOK_SECRET` (rompe el boundary PERSIST-04).
+ *
+ * @param {string} value
+ * @returns {boolean} true si el valor es seguro para el formato naive del `.env`.
+ */
+export function validateEnvValue(value) {
+  return typeof value === 'string' && value.length > 0 && !/[#=\s]/.test(value);
+}
+
+/**
+ * Escritor ÚNICO de secretos (API keys) a `~/.kodo/.env` — Boundary PERSIST-04.
+ *
+ * Es el 3er escritor de la fontanería de `config.js` junto a `saveConfig`/
+ * `saveProjects` (SETUP-05), pero NO reusa `writeFileAtomic` (Pitfall 13 —
+ * LOAD-BEARING): ese helper hace `writeFileSync(tmp)`+`renameSync` SIN `chmod`,
+ * dejando el `.env` a umask (0644 world-readable) y un `.env.tmp` 0644 con el
+ * secreto en claro. En su lugar, `writeEnvVar` es espejo directo de `writePidFile`
+ * (polling-daemon.js:94-101): `writeFileSync(tmp)` → **`chmodSync(tmp, 0o600)`
+ * PRE-rename** → `renameSync(tmp, envPath)`. El fichero final es 0600 el instante
+ * en que aparece; el `.tmp` además se crea ya con `mode:0o600` (defense-in-depth).
+ *
+ * Escritura **parse-merge-write** (D-03), nunca full-rewrite de una sola key:
+ * lee el `.env` con el MISMO parser naive que `loadEnvFile`, hace **upsert** de la
+ * key objetivo (reemplaza in-place si existe, append si no) y **preserva verbatim**
+ * el resto de líneas (otras keys, comentarios, líneas en blanco). Si no existe el
+ * `.env`, lo crea solo con esa key. Idempotente: escribir la misma key dos veces
+ * produce el mismo contenido.
+ *
+ * `envPath` se recibe como PARÁMETRO (DI puro, default `ENV_PATH`) para que los
+ * tests lo ejerciten contra un tmpdir SIN depender de `KODO_DIR`/`HOME` (que este
+ * módulo cachea al import — fuga de aislamiento conocida, obs. 21811/22683) y sin
+ * tocar el `~/.kodo/.env` real del dev.
+ *
+ * Contrato de fallo dual:
+ *   - Input inválido (Pitfall 14) → **throw `TypeError`** (bug del caller; el
+ *     masked input de Phase 67-02 pre-valida con `validateEnvKey`/`validateEnvValue`).
+ *   - Fallo de I/O (mkdir/write/rename) → **never-throws**, devuelve `false`.
+ *   - Éxito → devuelve `true`.
+ *
+ * @param {string} key - nombre de la env var (p.ej. `PLANE_API_KEY`). Ver {@link validateEnvKey}.
+ * @param {string} value - valor del secreto. Ver {@link validateEnvValue}.
+ * @param {string} [envPath=ENV_PATH] - destino final; DI para tests.
+ * @returns {boolean} true si el write se completó; false ante fallo de I/O.
+ * @throws {TypeError} si `key` o `value` no pasan validación.
+ */
+export function writeEnvVar(key, value, envPath = ENV_PATH) {
+  if (!validateEnvKey(key)) {
+    throw new TypeError(
+      `writeEnvVar: clave inválida (vacía, o contiene '#', '=' o whitespace): ${JSON.stringify(key)}`,
+    );
+  }
+  if (!validateEnvValue(value)) {
+    throw new TypeError(
+      "writeEnvVar: valor inválido (vacío, o contiene '#', '=' o whitespace)",
+    );
+  }
+
+  try {
+    // Parse-merge: lee el .env existente con el MISMO parser naive que loadEnvFile.
+    const raw = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
+    const lines = raw.length ? raw.split('\n') : [];
+    // Descarta el ÚNICO '' final que produce split() sobre un trailing '\n', para
+    // no acumular líneas en blanco a través de escrituras sucesivas (idempotencia).
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+
+    let replaced = false;
+    const out = lines.map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return line; // preserva verbatim
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) return line; // línea sin '=' → preserva verbatim
+      if (trimmed.slice(0, eq).trim() === key) {
+        replaced = true;
+        return `${key}=${value}`; // upsert in-place (forma canónica)
+      }
+      return line; // OTRA key → preserva verbatim (nunca se clobbea)
+    });
+    if (!replaced) out.push(`${key}=${value}`); // append si no existía
+
+    const content = out.join('\n') + '\n';
+
+    // Atomic + chmod 0600 PRE-rename (espejo de writePidFile, Pitfall 13).
+    mkdirSync(dirname(envPath), { recursive: true, mode: 0o700 });
+    const tmp = envPath + '.tmp';
+    writeFileSync(tmp, content, { mode: 0o600 }); // mode sujeto a umask
+    chmodSync(tmp, 0o600); // garantía exacta 0600 (no sujeto a umask), PRE-rename
+    renameSync(tmp, envPath); // swap atómico intra-fs
+    return true;
+  } catch {
+    return false; // never-throws ante fallo de I/O
+  }
+}
+
+export { KODO_DIR, CONFIG_PATH, PROJECTS_PATH, ENV_PATH, DEFAULT_CONFIG, writeFileAtomic };
