@@ -171,11 +171,11 @@ Plans:
   2. El valor de la key NUNCA se renderiza de vuelta ni aparece en `config.json`, `/status` ni en los logs — verificado por un **grep test de higiene de fuente** (el valor no llega a `saveConfig` / `console.*` / `logger.*` / argv de `execFile`). (SETUP-03, boundary PERSIST-04)
   3. El dashboard indica si la key **ya está configurada** (prueba de presencia en `.env`, sin revelar el valor: `[configurado]`) y avisa de reiniciar el daemon tras cambiar la key (sin hot-reload). (SETUP-04)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 - [x] 67-01-PLAN.md
 - [x] 67-02-PLAN.md
-- [ ] 67-03-PLAN.md
+- [x] 67-03-PLAN.md
 
 **UI hint**: yes
 **Research/UAT note**: patrones claros de codebase (`writeEnvVar` es espejo directo del chmod-pre-rename de `polling-daemon.js`; el masked input es una extensión render-only del text-input de Phase 63) — omitir research-phase. UAT crítico: el **grep de higiene** post-implementación (el valor del key no aparece en ningún path de render/log/argv, los 5 vectores de fuga del Pitfall 11). Evita Pitfalls 11, 13, 14, 16.
@@ -202,7 +202,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
-| 67. Secrets Writer + Masked Input | 2/3 | In Progress|  |
+| 67. Secrets Writer + Masked Input | 3/3 | Complete   | 2026-07-02 |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
 ## Backlog
