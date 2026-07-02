@@ -953,17 +953,32 @@ export default function App({
           return;
         }
         if (key.downArrow) {
-          setFieldCursor((i) => Math.min(fields.length - 1, i + 1));
+          // Phase 67 Plan 02: el clamp sube a `fields.length` (NO length-1) para alcanzar el renglón
+          // APPEND de la API key (índice = fields.length, fuera de getEditableFields — PERSIST-04).
+          setFieldCursor((i) => Math.min(fields.length, i + 1));
           return;
         }
         if (key.return) {
-          // Precarga el valor ACTUAL del campo (D-05). String(...) porque positiveInt es number en el
-          // snapshot — el buffer es siempre texto. cursor al final para edición tipo "append natural".
+          // Phase 67 Plan 02 (SETUP-03, D-05/D-06/Pitfall 6/11): el renglón de API key (índice
+          // fields.length) entra a config-edit ENMASCARADO con el buffer VACÍO — jamás se precarga el
+          // secreto (ni se lee ni se pinta el valor actual). maskValue=true activa la pintura `•`.
+          if (fieldCursor === fields.length) {
+            setBuffer(''); // NUNCA precargar el secreto (Pitfall 6/11)
+            setCursor(0);
+            setMaskValue(true);
+            setConfigEditError(null);
+            setMode('config-edit');
+            return;
+          }
+          // Campo normal: precarga el valor ACTUAL (D-05). String(...) porque positiveInt es number en
+          // el snapshot — el buffer es siempre texto. cursor al final ("append natural"). maskValue a
+          // false por si venía colgado de una edición previa de la API key.
           const field = fields[fieldCursor];
           if (!field) return;
           const current = String(getByPath(configSnapshot, field.path) ?? '');
           setBuffer(current);
           setCursor(current.length);
+          setMaskValue(false);
           setConfigEditError(null);
           setMode('config-edit');
           return;
@@ -978,7 +993,16 @@ export default function App({
       if (mode === 'config-edit') {
         const fields = getEditableFields(configSnapshot);
         const field = fields[fieldCursor];
+        // Phase 67 Plan 02: el renglón de API key es el APPEND en el índice fields.length (field
+        // undefined ahí — se enruta antes del guard `!field`).
+        const isApiKeyRow = fieldCursor === fields.length;
         if (key.escape) {
+          // Phase 67 Plan 02 (Pitfall 6): al cancelar la edición de la API key, limpia el buffer y el
+          // flag de máscara — el secreto tecleado no debe quedar en memoria ni reaparecer en scrollback.
+          if (isApiKeyRow) {
+            setBuffer('');
+            setMaskValue(false);
+          }
           setMode('config'); // cancela sin guardar (D-05)
           return;
         }
@@ -998,6 +1022,40 @@ export default function App({
           return;
         }
         if (key.return) {
+          // Phase 67 Plan 02 (SETUP-03, D-05/Pitfall 11): guardar la API key. Escritura EN-PROCESO vía
+          // el callback DI `onSaveApiKey` → `writeEnvVar` (jamás shell-out). NO se duplica la validación
+          // aquí: `writeEnvVar` valida (Pitfall 14) y el wrapper never-throws colapsa cualquier fallo a
+          // {ok:false} — solo se hace un guard trivial de buffer vacío para no lanzar un save inútil.
+          if (isApiKeyRow) {
+            if (buffer.length === 0) {
+              setConfigEditError(API_KEY_INVALID);
+              return;
+            }
+            const provider = configSnapshot?.provider;
+            const apiKeyEnv = configSnapshot?.providers?.[provider]?.api_key_env;
+            try {
+              const result = await onSaveApiKey(apiKeyEnv, buffer);
+              if (!result || result.ok !== false) {
+                // Éxito (D-06/Pitfall 6): limpia el buffer + la máscara (el secreto no persiste en
+                // memoria), aviso de reinicio transitorio (sin hot-reload) y de vuelta a config. El
+                // indicador [configurado] se recalcula solo (isApiKeyConfiguredFn lee process.env, que
+                // el wrapper actualizó).
+                setBuffer('');
+                setMaskValue(false);
+                setConfigEditError(null);
+                setFocusError(API_KEY_SAVED_RESTART);
+                setFooterColor('yellow');
+                setMode('config');
+              } else {
+                // writeEnvVar devolvió false (fallo I/O) o input inválido → el .env previo quedó intacto.
+                // En configEditError (NO focusError) para que siga visible mientras se reintenta (Pitfall 2).
+                setConfigEditError(API_KEY_SAVE_FAILED);
+              }
+            } catch {
+              setConfigEditError(API_KEY_SAVE_FAILED); // never-throws de respaldo (defensa en profundidad)
+            }
+            return;
+          }
           if (!field) {
             setMode('config');
             return;
