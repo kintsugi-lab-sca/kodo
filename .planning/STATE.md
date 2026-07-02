@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
 current_phase: 67
-current_phase_name: Secrets Writer + Masked Input
+current_phase_name: secrets-writer-masked-input
 status: executing
-stopped_at: Phase 67 context gathered
-last_updated: "2026-07-02T09:46:13.530Z"
+stopped_at: Completed 67-01-PLAN.md (writeEnvVar module)
+last_updated: "2026-07-02T10:15:00.000Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 66 complete, transitioned to Phase 67
+last_activity_desc: Phase 67 Plan 01 complete (writeEnvVar + validation + tests)
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 10
+  total_plans: 12
   completed_plans: 11
   percent: 50
 ---
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 66 — kodo up + Stop/Status unificados + Homebrew
+**Current focus:** Phase 67 — secrets-writer-masked-input
 
 ## Current Position
 
-Phase: 67 — Secrets Writer + Masked Input
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-02 — Phase 66 complete, transitioned to Phase 67
+Phase: 67 (secrets-writer-masked-input) — EXECUTING
+Plan: 2 of 3 (67-01 complete)
+Status: Executing Phase 67
+Last activity: 2026-07-02 — Plan 67-01 complete (writeEnvVar module)
 
 ## Roadmap v0.15 (active)
 
@@ -138,6 +138,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase 66 P02 | 4min | 2 tasks | 3 files |
 | Phase 66 P03 | 7min | 2 tasks | 2 files |
 | Phase 66 P05 | 15m | 2 tasks | 3 files |
+| Phase 67 P01 | ~7min | 4 tasks | 2 files |
 
 ## Decisions
 
@@ -156,3 +157,5 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase ?]: kodo stop/status daemon-first (D-04); status reporta running/stopped en vez de listSessions
 - [Phase ?]: Formula Homebrew: run [opt_bin/kodo,daemon,run] (Pitfall 6); sin variables de entorno en el plist (T-66-08)
 - [Phase ?]: 66-07: kodo.pid = liveness del proceso, escrito antes del await de startServer; fail-path lo borra; mensaje distinto KODO_SETUP_REQUIRED
+- [Phase 67]: 67-01: writeEnvVar NO reusa writeFileAtomic (sin chmod → fuga 0644); implementa su propia secuencia espejo de writePidFile con chmod 0600 pre-rename (Pitfall 13 LOAD-BEARING)
+- [Phase 67]: 67-01: validación estricta (rechaza #, =, todo whitespace incl. \n/\r, y vacío) en vez de escapar (Pitfall 14); envPath por DI para aislar tests del .env real (Pitfall 21811); contrato dual throw-en-input/never-throws-en-I/O

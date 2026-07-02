@@ -197,7 +197,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
 | 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
-| 67. Secrets Writer + Masked Input | 0/? | Not started | - |
+| 67. Secrets Writer + Masked Input | 1/3 | In progress | - |
 | 68. Setup Mode + CFGF-03 + First-Run | 0/? | Not started | - |
 
 ## Backlog
