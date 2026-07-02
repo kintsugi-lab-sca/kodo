@@ -6,14 +6,14 @@ current_phase: 68
 current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 status: executing
 stopped_at: Phase 68 context gathered
-last_updated: "2026-07-02T12:36:15.112Z"
+last_updated: "2026-07-02T12:51:27.626Z"
 last_activity: 2026-07-02
 last_activity_desc: Phase 68 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 15
-  completed_plans: 15
+  completed_plans: 16
   percent: 50
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 ## Current Position
 
 Phase: 68 (dashboard-setup-mode-cfgf-03-first-run) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-02 — Phase 68 execution started
 
@@ -111,7 +111,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/68-dashboard-setup-mode-cfgf-03-first-run/68-CONTEXT.md
 
-- **Last session:** 2026-07-02T12:36:09.809Z
+- **Last session:** 2026-07-02T12:50:27.235Z
 - **Stopped at:** Phase 68 context gathered
 - **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
 - **Files of record:**
@@ -142,6 +142,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 | Phase 67 P02 | 8min | 7 tasks | 4 files |
 | Phase 67 P03 | 12min | 5 tasks | 2 files |
 | Phase 68 P01 | 20 | 2 tasks | 4 files |
+| Phase 68 P02 | 7min | 3 tasks | 4 files |
 
 ## Decisions
 
@@ -164,3 +165,5 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase 67]: 67-01: validación estricta (rechaza #, =, todo whitespace incl. \n/\r, y vacío) en vez de escapar (Pitfall 14); envPath por DI para aislar tests del .env real (Pitfall 21811); contrato dual throw-en-input/never-throws-en-I/O
 - [Phase ?]: 67-03: grep de higiene source-level prueba que el VALOR del secreto no alcanza los 5 sinks; detector no-trivial (fixtures +/-) distingue VALOR de NOMBRE de la key
 - [Phase ?]: 68-01: needsSetup() usa existsSync(CONFIG_PATH) como primera señal (Pitfall 12), nunca valores de loadConfig; runUp corre needsSetup pre-spawn y en first-run no arranca el daemon (D-02)
+- [Phase 68]: El paso terminal 'complete' del modo setup es un sub-estado (no focusError) → aviso de reinicio honesto SETUP_COMPLETE_RESTART+SETUP_WEBHOOK_NOTE estable (D-08)
+- [Phase 68]: SETUP_PROVIDERS exportado de App.js como fuente única del selector ['plane','github'] → mata el drift handler/render
