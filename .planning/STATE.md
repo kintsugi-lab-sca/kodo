@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
-current_phase: 65
-current_phase_name: Daemon Lifecycle Foundation
+current_phase: 66
+current_phase_name: `kodo up` + Stop/Status unificados + Homebrew
 status: verifying
 stopped_at: Phase 65 context gathered
-last_updated: "2026-07-02T00:26:34.052Z"
-last_activity: 2026-07-01
-last_activity_desc: Phase 65 execution started
+last_updated: "2026-07-02T00:33:13.626Z"
+last_activity: 2026-07-02
+last_activity_desc: Phase 65 complete, transitioned to Phase 66
 progress:
   total_phases: 4
   completed_phases: 1
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 65 (Daemon Lifecycle Foundation) — EXECUTING
-Plan: 4 of 4
+Phase: 66 — `kodo up` + Stop/Status unificados + Homebrew
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-01 — Phase 65 execution started
+Last activity: 2026-07-02 — Phase 65 complete, transitioned to Phase 66
 
 ## Roadmap v0.15 (active)
 
