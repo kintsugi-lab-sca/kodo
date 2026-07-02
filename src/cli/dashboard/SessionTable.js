@@ -42,6 +42,10 @@ import {
   ADOPT_DERIVED_CONFIRM,
   ADOPT_DERIVED_CONFIRM_FALLBACK,
   CONFIG_OVERLAY_TITLE,
+  API_KEY_LABEL,
+  API_KEY_CONFIGURED,
+  API_KEY_UNSET,
+  API_KEY_NO_RAWMODE,
   PROJECTS_OVERLAY_TITLE,
   PROJECTS_LOADING,
   PROJECTS_UNMAPPED,
@@ -284,9 +288,12 @@ function renderAdoptPicker(adoptable, cursor) {
  * @param {string|null} configEditError - error de validación/escritura (rojo) o null.
  * @param {string|null} focusError - aviso transitorio post-guardado (PERSIST-03) o null.
  * @param {string} footerColor - color del aviso transitorio (yellow tras guardar).
+ * @param {boolean} mask - Phase 67 D-05: enmascara el text-input del renglón de API key (`•` por char).
+ * @param {boolean} apiKeyConfigured - Phase 67 D-09: presencia de la API key (indicador, NUNCA el valor).
+ * @param {boolean} rawModeSupported - Phase 67 D-07/Pitfall 16: si false, el renglón de API key degrada.
  * @returns {import('react').ReactElement}
  */
-function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor) {
+function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor, mask = false, apiKeyConfigured = false, rawModeSupported = true) {
   const fields = getEditableFields(snapshot);
   const header = h(
     Box,
@@ -316,7 +323,40 @@ function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, config
       valueEl,
     );
   });
-  const body = h(Box, { flexDirection: 'column' }, ...rows);
+
+  // Phase 67 Plan 02 (SETUP-03/04, D-05/D-06/D-07/D-09): renglón DEDICADO de la API key, APPEND tras
+  // los 11 campos de getEditableFields (índice = fields.length). Deliberadamente FUERA de
+  // getEditableFields → el secreto NUNCA entra a config.json ni a la lista editable (PERSIST-04). Tres
+  // pinturas del valor, en precedencia:
+  //   (1) non-TTY (rawModeSupported === false, Pitfall 16): mensaje de degradación (dim), never-edita.
+  //   (2) editando (isEditing): text-input con el VALOR DERIVADO a `•` cuando mask (el buffer real vive
+  //       en App; aquí solo se pinta la máscara — el valor jamás se renderiza raw, Pitfall 11). El
+  //       cursor `inverse` opera sobre la máscara (1 code-unit/char → posición 1:1 con el buffer ASCII).
+  //   (3) read-only: indicador de PRESENCIA [configurado]/[sin configurar] (D-09) — jamás el valor.
+  const apiSelected = fieldCursor === fields.length;
+  const apiEditing = apiSelected && mode === 'config-edit';
+  let apiValueEl;
+  if (!rawModeSupported) {
+    apiValueEl = h(Text, { dimColor: true }, API_KEY_NO_RAWMODE);
+  } else if (apiEditing) {
+    const display = mask ? '•'.repeat(buffer.length) : buffer;
+    const left = display.slice(0, cursor);
+    const under = display[cursor] ?? ' ';
+    const right = display.slice(cursor + 1);
+    apiValueEl = h(Text, null, left, h(Text, { inverse: true }, under), right);
+  } else {
+    apiValueEl = apiKeyConfigured
+      ? h(Text, { bold: apiSelected }, API_KEY_CONFIGURED)
+      : h(Text, { dimColor: true }, API_KEY_UNSET);
+  }
+  const apiKeyRow = h(
+    Box,
+    { key: '__api_key__', flexDirection: 'row' },
+    h(Box, { width: 2 }, h(Text, { bold: apiSelected }, apiSelected ? '› ' : '  ')),
+    h(Box, { width: 24 }, h(Text, { bold: apiSelected }, `${API_KEY_LABEL}:`)),
+    apiValueEl,
+  );
+  const body = h(Box, { flexDirection: 'column' }, ...rows, apiKeyRow);
 
   // Footer: error de validación/escritura (rojo, configEditError dedicado) gana; si no, el aviso
   // transitorio de reinicio (focusError/footerColor) tras un guardado con éxito (PERSIST-03/D-10).
@@ -629,6 +669,9 @@ export default function SessionTable({
   buffer = '',
   cursor = 0,
   configEditError = null,
+  mask = false,
+  apiKeyConfigured = false,
+  rawModeSupported = true,
   projectsSnapshot = null,
   projectsError = null,
   projectsEditError = null,
@@ -647,7 +690,7 @@ export default function SessionTable({
   // Phase 63 Plan 02 (UX-01/D-01/D-03): early-return del editor de config (lista navegable +
   // text-input), espejo del overlay de lectura. Ocupa el área de la tabla mientras está abierto.
   if ((mode === 'config' || mode === 'config-edit') && configSnapshot) {
-    return renderConfigOverlay(configSnapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor);
+    return renderConfigOverlay(configSnapshot, fieldCursor, mode, buffer, cursor, configEditError, focusError, footerColor, mask, apiKeyConfigured, rawModeSupported);
   }
   // Phase 64 Plan 02 (D-01/D-02/D-07): early-returns del editor de PROYECTOS (carril async), espejo
   // del overlay de config. Ocupan el área de la tabla mientras el editor está abierto. El orden cubre
