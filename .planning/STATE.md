@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
 current_phase: 68
-current_phase_name: dashboard-setup-mode-cfgf-03-first-run
-status: executing
+status: completed
 stopped_at: Phase 68 completa — GATE MANUAL UAT aprobado (2026-07-03)
-last_updated: "2026-07-03T00:00:00.000Z"
+last_updated: "2026-07-03T09:04:35.917Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 68 cerrada — GATE MANUAL clean-machine first-run UAT aprobado (6/6)
+last_activity_desc: Phase 68 complete
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 15
   completed_plans: 17
   percent: 75
+current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 ---
 
 # Project State
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 68 (dashboard-setup-mode-cfgf-03-first-run) — COMPLETE (3/3 planes)
-Plan: 3 of 3 — cerrado (SETUP-05 + GATE MANUAL aprobado)
+Phase: 68
+Plan: Not started
 Status: Phase 68 complete — GATE MANUAL UAT aprobado 2026-07-03. v0.15 lista para `/gsd-complete-milestone`.
-Last activity: 2026-07-03 — GATE MANUAL clean-machine first-run UAT aprobado (6/6 pasos)
+Last activity: 2026-07-03 — Phase 68 complete
 
 ## Roadmap v0.15 (active)
 
