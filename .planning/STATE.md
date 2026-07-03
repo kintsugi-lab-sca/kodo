@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.15
 milestone_name: «kodo up» — ACTIVE
-current_phase: 68
-status: completed
+current_phase: 15
+status: Awaiting next milestone
 stopped_at: Phase 68 completa — GATE MANUAL UAT aprobado (2026-07-03)
-last_updated: "2026-07-03T09:04:35.917Z"
+last_updated: "2026-07-03T10:07:16.284Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 68 complete
+last_activity_desc: Milestone v0.15 completed and archived
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 15
+  completed_phases: 4
+  total_plans: 14
   completed_plans: 17
-  percent: 75
+  percent: 100
 current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 ---
 
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 68
-Plan: Not started
-Status: Phase 68 complete — GATE MANUAL UAT aprobado 2026-07-03. v0.15 lista para `/gsd-complete-milestone`.
-Last activity: 2026-07-03 — Phase 68 complete
+Phase: Milestone v0.15 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-03 — Milestone v0.15 completed and archived
 
 ## Roadmap v0.15 (active)
 
@@ -123,7 +123,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 ## Operator Next Steps
 
-- `/gsd-complete-milestone` — Phase 68 cerrada (GATE MANUAL aprobado 2026-07-03), las 4 phases de v0.15 completas. Archivar el milestone v0.15.
+- Start the next milestone with /gsd-new-milestone
 
 ## Performance Metrics
 

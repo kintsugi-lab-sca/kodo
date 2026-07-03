@@ -1,5 +1,24 @@
 # Milestones
 
+## v0.15 «kodo up» — arranque unificado + onboarding dashboard-first (Shipped: 2026-07-03)
+
+**Phases completed:** 4 phases, 14 plans, 39 tasks
+
+**Key accomplishments:**
+
+- startServer gains an opt-in `managed` mode gating four load-bearing points (throw KODO_SETUP_REQUIRED instead of process.exit, typed EADDRINUSE via server.on('error'), no self server.pid, no self SIGTERM/SIGINT), returns { server, stopReconcile }, and adds a _loadConfig/_provider DI seam — while `kodo start` legacy stays byte-identical (UP-06 golden green before and after).
+- `runUp` compone las primitivas de Phase 65 en el flujo LOCKED ensure-daemon (detached, idempotente) → waitForHealth (never-throws) → attach dashboard como visor → return dejando el daemon vivo, más la sonda `probePortInUse` (node:net) y el guard win32 foreground; todo DI-testeado sin procesos ni red reales.
+- Módulo `src/cli/stop-status.js` con `runStopUnified` (stop daemon-first + fallback legacy server.pid) y `runStatusUnified` (status daemon-first con `--json` byte-determinista de keys fijas), todo DI-testeado.
+- `kodo up` registrado en cli.js (lazy runUp) y `kodo stop`/`kodo status` re-cableados daemon-first con `--json`, más la fórmula Homebrew `packaging/homebrew/Formula/kodo.rb` con `service do → daemon run` (nunca self-detach) — Pilar 1 shippable a falta del spike de instalación real.
+- Resultado: APROBADO por el operador
+- `writeEnvVar` — escritor único de secretos a `~/.kodo/.env`: parse-merge-write que no clobbea otras keys + chmod 0600 pre-rename atómico + validación estricta, con DI de path para aislamiento total del `.env` real.
+- Campo enmascarado de API key en el overlay de config: renglón dedicado (fuera de `getEditableFields` → el secreto nunca cruza a `config.json`) que pinta `•` por carácter manteniendo el valor real solo en memoria, con save por DI `onSaveApiKey` → `writeEnvVar` en-proceso (jamás shell-out), indicador `[configurado]` de presencia y degradación non-TTY.
+- Grep de higiene source-level que prueba que el VALOR de la API key nunca alcanza los 5 sinks de fuga (argv/console/logger/config.json/overlay snapshot) — con un detector auto-verificado no-trivial que distingue el VALOR resuelto del NOMBRE legítimo de la key — más tests de permisos 0600 y de seguridad atómica bajo 100 escrituras, y una checklist de UAT runtime de 8 pasos.
+- Helper puro `needsSetup()` con existsSync-first (anti-falso-negativo Pitfall 12) reusado por la rama pre-spawn de `runUp` que, en config incompleta, abre el dashboard en modo setup sin arrancar el daemon (D-02).
+- SETUP-05 cerrado por source-hygiene: `test/cli/config-writers.test.js` fija que el wizard `kodo config` (interactiveConfig) persiste SOLO vía `saveConfig`/`saveProjects`, comprueba la PRESENCIA de la key (`getProviderApiKey`) sin capturar su valor ni escribirla (`writeEnvVar` ausente del wizard, D-11) y no shell-out del secreto; el held-out de PERSIST-04 de Phase 67 se extiende a las rutas del modo setup de 68-02 (máscara `'•'`, buffer limpiado, sin sinks config.json/console/loadEnvFile). El rewire de interactiveConfig fue un no-op documentado (ya cumplía). GATE MANUAL LOCKED (UAT máquina limpia) PENDIENTE de aprobación humana.
+
+---
+
 ## v0.14 Configuración editable desde el dashboard (Shipped: 2026-06-30)
 
 **Phases completed:** 2 phases, 7 plans, 9 tasks

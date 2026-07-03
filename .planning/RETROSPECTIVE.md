@@ -457,6 +457,39 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 
 ---
 
+## Milestone: v0.15 — «kodo up» — arranque unificado + onboarding dashboard-first
+
+**Shipped:** 2026-07-03
+**Phases:** 4 (65-68) | **Plans:** 14 | **Tasks:** 39
+
+### What Was Built
+- `kodo up`: arranque en un comando — daemon compuesto (server+polling) desacoplado en background + dashboard como visor, idempotente (PID-alive + port-probe) y persistente (`detached`+`unref`). `kodo daemon run` foreground supervisable + `kodo stop`/`status --json`; `kodo start` legacy intacto (Pilar 1, UP-01..06).
+- Distribución Homebrew: `brew install kodo` + `brew services start kodo` → `kodo daemon run` server-only bajo launchd, degradación limpia never-throws; Windows → foreground (DIST-01..03).
+- Onboarding dashboard-first: first-run sin config → dashboard en modo setup sin `exit 1` → editar provider/base_url/slug + API key enmascarada → `config.json` + `.env` 0600, boundary PERSIST-04 intacto; `kodo config` headless converge en los 3 escritores únicos (SETUP-01..05).
+
+### What Worked
+- **Build order LOCKED por pilares** (Pilar 1 shippable antes de Pilar 2): el ciclo de vida del daemon estabilizó antes de montar el onboarding encima, sin re-trabajo.
+- **Composición sobre reinvención**: la fase 68 (~90% composición) reusó `needsSetup`/`writeEnvVar`/`saveConfig`/modo overlay de fases previas; el integration-checker confirmó 9/9 seams WIRED sin reimplementaciones.
+- **Verificar los hallazgos del research contra el código antes de planificar en `--auto`**: destapó que el daemon muere por el webhook secret (no la API key), contradiciendo una premisa LOCKED — corregido con decisión de producto antes de un plan roto.
+
+### What Was Inefficient
+- **Drift de tracking al cierre**: un `67-PLAN-SKETCH.md` (borrador con "PLAN" en el nombre) fue contado como un 4º plan por el fallback laxo `/PLAN/i` de `plan-scan.cjs`, marcando la fase 67 como no-verificada (falso negativo) y bloqueando el gate de readiness. Resuelto renombrando el sketch, pero costó una investigación de causa raíz en el cierre.
+- **UAT-CHECKLIST sin frontmatter**: el `67-UAT-CHECKLIST.md` sin `status:` disparó un falso "UAT gap" en `audit-open` aunque su ejecución (8/8) estaba registrada en `67-UAT.md`.
+
+### Patterns Established
+- **Boundary del secreto con escritor único**: el valor de la API key vive solo en `~/.kodo/.env` (0600) + `process.env`; un único `writeEnvVar` in-proceso (nunca shell-out), verificado por grep de higiene source-level (5 sinks) + UAT runtime (argv/logs/`/status`/perms).
+- **`needsSetup()` existsSync-first** como guard anti-falso-negativo (Pitfall 12) reusable para detección de first-run.
+- **Daemon desacoplado**: `detached`+`unref` para persistencia, con seams DI-testeables sin procesos/red reales.
+
+### Key Lessons
+- **Los artefactos de borrador del planning deben quedar fuera de los globs de conteo**: un nombre con "PLAN" cae en fallbacks laxos y ensucia el tracking del milestone. Convención: nombrar sketches sin "PLAN" (`-SKETCH.md`).
+- **En `--auto`, verificar los hallazgos críticos del research contra el código real antes de dejar correr al planner** evita planificar sobre premisas falsas (webhook secret vs API key).
+- **Los UAT humanos runtime de un boundary de seguridad no son auto-aprobables** aunque `--auto` esté activo; el GATE MANUAL de máquina limpia se respetó.
+
+### Cost Observations
+- Model mix: opus (orquestación + planning + cierre) + sonnet (integration-checker). Sesiones: 1 principal multi-turno (con compactación de contexto).
+- Notable: el cierre del milestone consumió esfuerzo desproporcionado en reconciliar drift de tracking (sketch + UAT frontmatter) frente al trabajo de código, que ya estaba verde (suite 1788/0/1).
+
 ## Cross-Milestone Trends
 
 ### Process Evolution

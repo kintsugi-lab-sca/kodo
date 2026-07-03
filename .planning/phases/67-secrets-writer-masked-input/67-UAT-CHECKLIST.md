@@ -1,3 +1,13 @@
+---
+phase: 67-secrets-writer-masked-input
+type: uat-checklist
+status: complete
+result: all_pass
+executed: 2026-07-02
+reconfirmed: 2026-07-03
+source: 67-UAT.md
+---
+
 # Phase 67 — Checklist de UAT runtime (verificación manual del boundary del secreto)
 
 **Fase:** 67-secrets-writer-masked-input
@@ -26,39 +36,39 @@
 
 ## Los 8 pasos
 
-- [ ] **1. Arrancar el daemon.**
+- [x] **1. Arrancar el daemon.**
   `kodo up`
   Esperado: el daemon + dashboard arrancan sin error.
 
-- [ ] **2. Editar la API key vía el campo enmascarado del dashboard.**
+- [x] **2. Editar la API key vía el campo enmascarado del dashboard.**
   En el dashboard: `e` (abrir editor de config) → `↓` hasta el renglón **"API key del provider"**
   → `Enter` → teclear `secret_key_123` → `Enter`.
   Esperado: mientras tecleas se pinta `•` por carácter (nunca el valor raw); tras guardar aparece
   el indicador `[configurado]` y el aviso de reiniciar el daemon para aplicar.
 
-- [ ] **3. `ps` — el valor NO aparece en el argv de ningún proceso.**
+- [x] **3. `ps` — el valor NO aparece en el argv de ningún proceso.**
   `ps aux | grep kodo | grep -v grep`
   Esperado: **cero** ocurrencias de `secret_key_123` en la línea de comando. (P11: el secreto se
   escribe en-proceso, jamás vía shell-out `kodo config --api-key ...`.)
 
-- [ ] **4. Logs — el valor NO aparece en `~/.kodo/logs`.**
+- [x] **4. Logs — el valor NO aparece en `~/.kodo/logs`.**
   `grep -r 'secret_key_123' ~/.kodo/logs`
   Esperado: **resultado vacío** (exit code 1). El valor nunca se loguea (console/logger/NDJSON).
 
-- [ ] **5. `/status` — el valor NO está en la respuesta del endpoint.**
+- [x] **5. `/status` — el valor NO está en la respuesta del endpoint.**
   `curl -s http://localhost:9090/status | grep 'secret_key_123'`
   Esperado: **resultado vacío**. El secreto nunca cruza a `/status` (solo `config.json`/estado no-secreto).
 
-- [ ] **6. Permisos del `.env` — exactamente `-rw-------` (0600).**
+- [x] **6. Permisos del `.env` — exactamente `-rw-------` (0600).**
   `ls -l ~/.kodo/.env`
   Esperado: `-rw-------` (owner rw, sin grupo/otros). (Pitfall 13: chmod 0600 pre-rename.)
   Comprobación equivalente: `stat -f '%Sp %Lp' ~/.kodo/.env` → `-rw------- 600`.
 
-- [ ] **7. Sin `.env.tmp` residual.**
+- [x] **7. Sin `.env.tmp` residual.**
   `ls -l ~/.kodo/.env.tmp`
   Esperado: `No such file or directory`. El write atómico (tmp + chmod + rename) no deja artefactos.
 
-- [ ] **8. Otras env vars preservadas (parse-merge-write, sin clobber).**
+- [x] **8. Otras env vars preservadas (parse-merge-write, sin clobber).**
   `cut -d= -f1 ~/.kodo/.env`
   Esperado: siguen presentes las demás keys que había antes (p. ej. `PLANE_WEBHOOK_SECRET`), no
   solo la recién escrita. (Pitfall 14: upsert que preserva el resto de líneas verbatim.)
