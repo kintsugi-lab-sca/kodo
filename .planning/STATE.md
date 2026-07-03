@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.15
-milestone_name: «kodo up» — ACTIVE
+milestone_name: «kodo up» (shipped 2026-07-03)
 current_phase: 15
 status: Awaiting next milestone
 stopped_at: Phase 68 completa — GATE MANUAL UAT aprobado (2026-07-03)
@@ -20,15 +20,15 @@ current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 # Project State
 
 **Project:** kodo
-**Active milestone:** **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** (iniciado 2026-07-01, roadmap creado 2026-07-02). kodo se pone a andar con un solo comando (`kodo up`): arranca el daemon **desacoplado** (server + polling compuestos en un proceso) en background y engancha el dashboard como **visor**; distribuible por Homebrew (`brew install` + `brew services`), y configurable de principio a fin desde el dashboard (incluida la API key enmascarada, con el boundary PERSIST-04). 4 phases (65-68), 14/14 requirements mapeados, 100% cobertura, 0 duplicados. Dos pilares con dependencia estricta: **Pilar 1** (UP + DIST, shippable solo) **antes de** **Pilar 2** (SETUP, requiere Pilar 1).
+**Estado:** Sin milestone activo — **v0.15 «kodo up» shipped 2026-07-03** (audit PASSED 14/14; ver `## Most recent shipped milestone` abajo). Planificando el siguiente milestone con `/gsd-new-milestone`.
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «kodo up»).
+See: `.planning/PROJECT.md` (updated 2026-07-03 — v0.15 «kodo up» shipped; awaiting next milestone).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9 añadió observabilidad en terminal (`kodo dashboard`); v0.10 la promovió a gestión (dismiss); v0.11 abrió la ventana al plan; v0.12 profundizó desde la fila; v0.13 cerró el puente inverso `sesión → tarea`; v0.14 promovió el dashboard a superficie de configuración. **v0.15 unifica el arranque (`kodo up`), lo distribuye por Homebrew y cierra el onboarding dashboard-first.**
 
-**Current focus:** Phase 68 — dashboard-setup-mode-cfgf-03-first-run
+**Current focus:** Planificando el siguiente milestone (`/gsd-new-milestone`).
 
 ## Current Position
 
@@ -37,7 +37,7 @@ Plan: —
 Status: Awaiting next milestone
 Last activity: 2026-07-03 — Milestone v0.15 completed and archived
 
-## Roadmap v0.15 (active)
+## Roadmap v0.15 (shipped 2026-07-03)
 
 Build order (risk-graded, LOCKED): **Pilar 1 (UP + DIST) ANTES de Pilar 2 (SETUP)**. Dentro de Pilar 1: **fundación del daemon (65, mayor riesgo de integración) → `kodo up` + brew (66, cierra Pilar 1 shippable)**. Dentro de Pilar 2: **secrets writer + masked input (67, boundary en aislamiento) → setup mode + first-run (68, cierra el milestone)**. Numeración **continua** desde Phase 64 (v0.14) → primera fase **Phase 65** (NO reset). **Cero nuevas dependencias npm** (todo se construye sobre primitivos ya enviados de `polling.js`/`polling-daemon.js` + el text-input de Phase 63).
 
@@ -56,10 +56,11 @@ Build order (risk-graded, LOCKED): **Pilar 1 (UP + DIST) ANTES de Pilar 2 (SETUP
 
 ## Most recent shipped milestone
 
-**v0.14 Configuración editable desde el dashboard** — shipped 2026-06-30 (2 phases 63-64, 7 plans, UAT 4/4). El dashboard TUI pasó de observar+gestionar a también **configurar kodo**: editor de ajustes comunes (Phase 63: model/max_parallel, states, server thresholds, cmux colors → `config.json`) y editor de proyectos (Phase 64: `listProjects()` en vivo + mapear/editar/quitar ruta + módulos → `projects.json`, degradación never-throws). Base reusable: text-input editable in-house en ink + validadores puros + escritura local atómica (`writeFileAtomic`). Cero endpoints nuevos, API keys intactas en `~/.kodo/.env`.
+**v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — shipped 2026-07-03 (4 phases 65-68, 14 plans, 39 tasks; audit PASSED 14/14 reqs · 9/9 seams · 3/3 flujos E2E; suite 1788 pass + 1 skip). `kodo up` arranca el daemon compuesto (server+polling) desacoplado + dashboard como visor (idempotente/persistente); `kodo stop`/`status --json` + `kodo daemon run` foreground; `kodo start` legacy intacto. Distribución Homebrew (`brew install` + `brew services start kodo` → `kodo daemon run` server-only bajo launchd). Onboarding dashboard-first: first-run sin config → modo setup sin `exit 1` → provider/base_url/slug + API key enmascarada → `config.json` + `.env` 0600, boundary PERSIST-04 intacto; `kodo config` headless converge en la misma fontanería. Tech debt diferido: toggle reveal/paste del campo enmascarado (Pitfall 11).
 
-- Roadmap archive: `milestones/v0.14-ROADMAP.md`
-- Requirements archive: `milestones/v0.14-REQUIREMENTS.md`
+- Roadmap archive: `milestones/v0.15-ROADMAP.md`
+- Requirements archive: `milestones/v0.15-REQUIREMENTS.md`
+- Audit: `milestones/v0.15-MILESTONE-AUDIT.md`
 
 ## Deferred Items
 
