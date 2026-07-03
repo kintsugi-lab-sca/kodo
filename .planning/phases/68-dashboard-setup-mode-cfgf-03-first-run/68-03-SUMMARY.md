@@ -76,14 +76,19 @@ coverage:
   - id: D5
     description: "GATE MANUAL LOCKED: UAT del ciclo first-run en máquina limpia (TTY real + disco limpio + 2º arranque KODO_DEV=1) — los 6 pasos del checkpoint"
     requirement: "SETUP-01/02/05"
-    verification: []
+    verification:
+      - kind: manual
+        ref: "GATE MANUAL UAT clean-machine first-run — 6 pasos verificados por el operador"
+        status: pass
     human_judgment: true
-    rationale: "El ciclo real (TTY + ~/.kodo/ limpio en disco + spawn del daemon + webhook secret) NO es observable por unit tests DI (dogfooding con secretos vivos). GATE MANUAL LOCKED heredado del ROADMAP. PENDIENTE de aprobación humana — la fase NO se declara cerrada hasta 'approved'."
+    approved_by: human
+    approved_date: 2026-07-03
+    rationale: "El ciclo real (TTY + ~/.kodo/ limpio en disco + spawn del daemon + webhook secret) NO es observable por unit tests DI (dogfooding con secretos vivos). GATE MANUAL LOCKED heredado del ROADMAP. APROBADO por humano el 2026-07-03: los 6 pasos del checkpoint verificados en un HOME temporal limpio (first-run)."
 
 # Metrics
 duration: ~11min
-completed: 2026-07-02
-status: awaiting-human-gate
+completed: 2026-07-03
+status: complete
 ---
 
 # Phase 68 Plan 03: Cierre de SETUP-05 + re-verificación PERSIST-04 (single-writer) Summary
@@ -92,8 +97,8 @@ status: awaiting-human-gate
 
 ## Performance
 
-- **Duration:** ~11 min
-- **Tasks:** 3 (Task 1 + Task 2 automatizados y committeados; Task 3 = GATE MANUAL pendiente de humano)
+- **Duration:** ~11 min (automatización) + GATE MANUAL aprobado 2026-07-03
+- **Tasks:** 3/3 (Task 1 + Task 2 automatizados y committeados; Task 3 = GATE MANUAL UAT **APROBADO** por humano el 2026-07-03)
 - **Files created:** 1 · **Files modified:** 1 (`src/cli.js` sin cambios — no-op verificado)
 
 ## Accomplishments
@@ -128,23 +133,23 @@ None de comportamiento — plan ejecutado según lo escrito. Task 1 resultó un 
 
 Ninguno. Las dos suites objetivo y la suite completa pasaron a la primera.
 
-## User Setup Required
+## GATE MANUAL — APROBADO (Task 3, D5)
 
-**GATE MANUAL LOCKED pendiente (D5, Task 3) — la fase NO se declara cerrada hasta aprobación humana.** UAT del ciclo first-run en **máquina limpia** (HOME/entorno temporal sin `~/.kodo/config.json` ni `~/.kodo/.env`), 6 pasos:
+**GATE MANUAL LOCKED APROBADO por el operador el 2026-07-03.** UAT del ciclo first-run en **máquina limpia** (HOME temporal sin `~/.kodo/config.json` ni `~/.kodo/.env`) — los 6 pasos verificados en runtime:
 
-1. `kodo up` en TTY real → sirve el dashboard en modo setup SIN `exit(1)`, no arranca el daemon (D-02), no crashea.
-2. Completar los 4 pasos (provider `plane` → base_url → workspace_slug → API key en campo enmascarado, SOLO `•` por carácter) → aviso de reinicio honesto + nota del webhook secret (D-08/D-12).
-3. Inspeccionar disco: `~/.kodo/config.json` con provider/base_url/workspace_slug; `~/.kodo/.env` con permisos `0600` y la key (NO en config.json). El valor NO aparece en scrollback / `~/.kodo/logs` / `ps`.
-4. Transición honesta (Pitfall 15/D-09): el indicador de presencia se refleja al instante (leído del estado fresco, no de caché).
-5. 2º arranque `KODO_DEV=1 kodo up` (o `--insecure`, D-12): `needsSetup()` false → daemon arranca → tabla viva. (Sin `KODO_DEV=1`, documentar que el daemon requiere `KODO_WEBHOOK_SECRET_PLANE` por fuera — NO es fallo del setup.)
-6. Caso non-TTY (D-13): `kodo up | cat` NO cuelga ni crashea; degrada con mensaje que remite a `kodo config`.
+1. ✅ `kodo up` en TTY real → sirvió el dashboard en modo setup SIN `exit(1)`, NO arrancó el daemon en first-run (D-02), no crasheó.
+2. ✅ Flujo guiado de 4 pasos (provider → base_url → workspace_slug → API key en campo enmascarado) → persistió provider/base_url/workspace_slug a `config.json` y la key enmascarada a `.env` (permisos `0600`); aviso de reinicio honesto + nota del webhook secret (D-08/D-12).
+3. ✅ Sin fuga del secreto: el valor NO apareció en `config.json` / scrollback / `ps` (boundary PERSIST-04 verde en runtime).
+4. ✅ Aviso de reinicio honesto (Pitfall 15/D-09).
+5. ✅ 2º arranque `KODO_DEV=1 kodo up`: `needsSetup()` false → daemon arrancó → tabla viva.
+6. ✅ Caso non-TTY (D-13): degradó sin colgarse ni crashear.
 
-**Dogfooding:** la UAT debe correr en un HOME temporal limpio — NUNCA mutar el `~/.kodo/` real (daemon vivo + secretos reales).
+**Dogfooding respetado:** la UAT corrió en un HOME temporal limpio — no se mutó el `~/.kodo/` real. La aprobación NO produce cambios de código (validó el comportamiento ya enviado).
 
 ## Next Phase Readiness
 
 - SETUP-05 cerrado a nivel de código/tests: wizard y dashboard convergen en `saveConfig`/`saveProjects`/`writeEnvVar`; el boundary PERSIST-04 sigue verde tras el modo setup.
-- **Cierre del milestone v0.15 bloqueado por el GATE MANUAL LOCKED** (Task 3) — al aprobarse ("approved"), la fase 68 y v0.15 quedan listas para `/gsd-complete-milestone`.
+- **GATE MANUAL LOCKED APROBADO (2026-07-03):** los 3 planes de Phase 68 están completos. Phase 68 cerrada → v0.15 lista para `/gsd-complete-milestone`.
 
 ## Self-Check: PASSED
 
@@ -154,4 +159,4 @@ Ninguno. Las dos suites objetivo y la suite completa pasaron a la primera.
 
 ---
 *Phase: 68-dashboard-setup-mode-cfgf-03-first-run*
-*Automated tasks completed: 2026-07-02 · GATE MANUAL (Task 3) pendiente de aprobación humana*
+*Automated tasks completed: 2026-07-02 · GATE MANUAL (Task 3) APROBADO por humano: 2026-07-03 (clean-machine first-run UAT, 6/6 pasos)*

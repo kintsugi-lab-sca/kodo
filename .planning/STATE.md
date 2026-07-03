@@ -5,10 +5,10 @@ milestone_name: «kodo up» — ACTIVE
 current_phase: 68
 current_phase_name: dashboard-setup-mode-cfgf-03-first-run
 status: executing
-stopped_at: Phase 68 context gathered
-last_updated: "2026-07-02T13:01:02.713Z"
-last_activity: 2026-07-02
-last_activity_desc: Phase 68 execution started
+stopped_at: Phase 68 completa — GATE MANUAL UAT aprobado (2026-07-03)
+last_updated: "2026-07-03T00:00:00.000Z"
+last_activity: 2026-07-03
+last_activity_desc: Phase 68 cerrada — GATE MANUAL clean-machine first-run UAT aprobado (6/6)
 progress:
   total_phases: 4
   completed_phases: 3
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-01 — Current Milestone: v0.15 «k
 
 ## Current Position
 
-Phase: 68 (dashboard-setup-mode-cfgf-03-first-run) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-07-02 — Phase 68 execution started
+Phase: 68 (dashboard-setup-mode-cfgf-03-first-run) — COMPLETE (3/3 planes)
+Plan: 3 of 3 — cerrado (SETUP-05 + GATE MANUAL aprobado)
+Status: Phase 68 complete — GATE MANUAL UAT aprobado 2026-07-03. v0.15 lista para `/gsd-complete-milestone`.
+Last activity: 2026-07-03 — GATE MANUAL clean-machine first-run UAT aprobado (6/6 pasos)
 
 ## Roadmap v0.15 (active)
 
@@ -111,9 +111,9 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 **Resume file:** .planning/phases/68-dashboard-setup-mode-cfgf-03-first-run/68-CONTEXT.md
 
-- **Last session:** 2026-07-02T13:00:49.068Z
-- **Stopped at:** Phase 68 context gathered
-- **Next action:** `/gsd-plan-phase 65` (o `/gsd-discuss-phase 65` primero para resolver si el daemon siempre corre polling o `startPolling` condicional). Phase 65 es la de mayor riesgo (refactor `startServer` managed) — validar `kodo start` legacy intacto.
+- **Last session:** 2026-07-03T00:00:00.000Z
+- **Stopped at:** Phase 68 completa — GATE MANUAL UAT aprobado (2026-07-03)
+- **Next action:** `/gsd-complete-milestone` — las 4 phases de v0.15 (65-68) están completas y el GATE MANUAL LOCKED de Phase 68 fue aprobado. Archivar v0.15 y preparar el siguiente milestone.
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.15 «kodo up»)
   - `.planning/ROADMAP.md` (v0.15 activo Phases 65-68; v0.10-v0.14 colapsados/archivados)
@@ -123,7 +123,7 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 
 ## Operator Next Steps
 
-- `/gsd-plan-phase 65` para arrancar la planificación de la fundación del daemon.
+- `/gsd-complete-milestone` — Phase 68 cerrada (GATE MANUAL aprobado 2026-07-03), las 4 phases de v0.15 completas. Archivar el milestone v0.15.
 
 ## Performance Metrics
 
@@ -168,3 +168,4 @@ Ninguno. v0.14 cerró con UAT 4/4 sin deuda viva heredada que bloquee v0.15.
 - [Phase ?]: 68-01: needsSetup() usa existsSync(CONFIG_PATH) como primera señal (Pitfall 12), nunca valores de loadConfig; runUp corre needsSetup pre-spawn y en first-run no arranca el daemon (D-02)
 - [Phase 68]: El paso terminal 'complete' del modo setup es un sub-estado (no focusError) → aviso de reinicio honesto SETUP_COMPLETE_RESTART+SETUP_WEBHOOK_NOTE estable (D-08)
 - [Phase 68]: SETUP_PROVIDERS exportado de App.js como fuente única del selector ['plane','github'] → mata el drift handler/render
+- [Phase 68]: GATE MANUAL LOCKED (68-03, D5) APROBADO por humano el 2026-07-03 — UAT clean-machine first-run 6/6: `kodo up` sirvió el modo setup sin `exit(1)` ni daemon en first-run; el flujo guiado persistió config/proyecto a config.json y la key enmascarada a .env (0600); sin fuga del secreto a config.json/scrollback/ps; aviso de reinicio honesto; 2º arranque `KODO_DEV=1 kodo up` levantó el daemon + tabla viva; non-TTY degradó sin colgarse. La aprobación NO produjo cambios de código. Phase 68 y v0.15 cerradas → listas para `/gsd-complete-milestone`.
