@@ -8,9 +8,22 @@ kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code
 
 Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. El mismo sistema dispara dos modos GSD: full (`kodo:gsd`, multi-fase con verify) y quick (`kodo:gsd-quick`, one-shot), sin acoplar el código GSD al proveedor.
 
-## Current Milestone: (ninguno — v0.15 shipped 2026-07-03)
+## Current Milestone: v0.16 Hardening
 
-v0.15 «kodo up» completado y archivado (audit PASSED 14/14; ver `## Current State` abajo y `milestones/v0.15-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`). El proyecto espera el siguiente milestone — arrancar con `/gsd-new-milestone`.
+**Goal:** Remediar los hallazgos de la auditoría adversarial (2026-07-03, re-verificados 2026-07-05: los 9 ALTA se sostienen) agrupados por causa raíz — cerrar la superficie de red, hacer segura la concurrencia multiproceso sobre `state.json`/PID, garantizar la entrega de dispatches con backstop mecánico del ciclo de vida, y saldar la higiene y la deriva documental.
+
+**Target features (4 olas → fases GSD):**
+- **Ola 1 — Red y auth** (A1, M1, M2, B6, B10): bind configurable con default seguro `127.0.0.1` (`server.bind`), bearer token en el carril no-webhook (`/status`, `/logs`, `/comments/:id`, `DELETE /sessions/:id`; `/webhook` conserva HMAC, `/health` abierto), límite de body 1 MB pre-auth → 413, errores 500 genéricos al cliente, validación de `sessionId` (`/^[A-Za-z0-9_-]+$/`).
+- **Ola 2 — Concurrencia y ciclo de vida de procesos** (A2–A6, M16, M17, M20): `withStateLock(fn)` advisory (lockfile `O_EXCL` + retry) envolviendo los ~6 escritores de `state.json` (+ corregir el comentario falso "ÚNICO escritor" de `server.js:682`), `acquireGsdLock` atómico (`flag:'wx'`, steal vía tmp+rename), puente `state→status` en reconcile (zombi libera slot de `max_parallel`), PID ownership (teardown solo borra su propio PID, escribir post-bind, verificar `started_at` antes de SIGKILL), lock en `polling start`, migración v1→v2 atómica, dedup no-GSD cross-proceso. M13 (ubicación real de worktrees) se resuelve empíricamente aquí.
+- **Ola 3 — Fiabilidad de entrega + backstop** (A7, M10, M11, T5): el cursor de polling solo avanza con dispatch confirmado (`await` + timeout; webhook sigue fire-and-forget), centinela de primer tick, idempotencia real en adopt (buscar por `task_url` antes de `createTask`), y backstop mecánico de "In Review" en `SessionEnd` (si la sesión terminó limpia y la tarea sigue "In Progress", el hook transiciona y comenta "cierre automático").
+- **Ola 4 — Higiene, DX y verdad documental** (A8, A9, M3, M5, M12, M14, M18, M19 + BAJAS): marcador `KODO_ORCHESTRATOR=1` + pathspec completo en el auto-commit del stop hook, **borrar** `kodo up --url` y `startHealthLoop` (decisión 2026-07-05: eliminar, no cablear), efectos de cierre movidos a `SessionEnd`, strip de `\x1b` (M4), batch de endurecimiento de config (M3, M5, M14, B5, B7), batch de BAJAS mecánicas (B1–B4, B8, B9, B12, M12), pasada de README (incl. documentar `--dangerously-skip-permissions`).
+
+**Key context:**
+- **Decisiones del mantenedor (2026-07-05):** (1) el webhook de Plane SÍ llega desde otro nodo → default `127.0.0.1` + doc de bind a IP tailscale/ACL; (2) backstop mecánico de In Review ACEPTADO — la instrucción al LLM pasa a ser optimización, no única vía (cambio de contrato de producto); (3) health loop y `up --url` se borran.
+- **Fuera de alcance explícito:** M21 (medir antes de arreglar), rediseño "un solo escritor de estado" (el lockfile cubre el riesgo a 1/20 del coste), M7–M9 (solo si sobra hueco).
+- Orden: Ola 1 primero (más barata, cierra la única exposición externa) → 2 y 3 (arreglan el producto para el usuario legítimo) → 4 paralelizable.
+- Numeración de fases **continúa** desde Phase 68 → la siguiente es **Phase 69**.
+- Input: `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md` + `.compound/AUDITORIA-ADVERSARIAL-2026-07-03.md`.
 
 ## Current State
 
@@ -58,7 +71,7 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 </details>
 
-## Current Milestone: v0.14 Configuración editable desde el dashboard
+## Milestone v0.14 Configuración editable desde el dashboard (shipped 2026-06-30, histórico)
 
 **Goal:** Editar la configuración de kodo desde el dashboard TUI — principalmente añadir/editar la ruta de un proyecto sin re-correr el wizard lineal (donde los proyectos están al final tras pasos obligatorios), más un puñado de ajustes comunes de uso diario. El dashboard pasa de observar+gestionar sesiones a también **configurar kodo**, sin tocar el contrato HTTP del server.
 
@@ -161,7 +174,12 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Active
 
-Ninguno — v0.15 shipped (2026-07-03). Planificando el siguiente milestone con `/gsd-new-milestone`.
+Milestone v0.16 Hardening (remediación de la auditoría adversarial 2026-07-03):
+
+- [ ] Ola 1 — Superficie de red cerrada: bind default `127.0.0.1` configurable, bearer token en carril no-webhook, límite de body 1 MB, 500 genéricos, `sessionId` validado
+- [ ] Ola 2 — Concurrencia segura: `withStateLock` sobre `state.json`, `acquireGsdLock` atómico, puente `state→status` (zombis liberan `max_parallel`), PID ownership, migración atómica, dedup cross-proceso
+- [ ] Ola 3 — Entrega garantizada: cursor de polling solo avanza con dispatch confirmado, centinela de primer tick, adopt idempotente, backstop mecánico de "In Review" en `SessionEnd`
+- [ ] Ola 4 — Higiene y verdad documental: `KODO_ORCHESTRATOR=1` + pathspec en auto-commit, borrar `up --url` y health loop, batch config/BAJAS, pasada de README
 
 **Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · derivación de título vía API directa de Anthropic (latencia ~1-3s vs ~10-20s del CLI `claude -p`, a cambio de gestionar API key) · toggle de reveal/paste del campo de API key enmascarado (v0.15 Phase 67 Pitfall 11 — el masking oculta typos al teclear)
 
@@ -300,7 +318,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-03 after v0.15 "kodo up" milestone — 4 phases (65-68), 14 plans, 39 tasks, ~113 commits desde v0.14, suite 1788 pass + 1 skip. **Arranque unificado** (`kodo up`: daemon compuesto server+polling desacoplado en background + dashboard como visor, idempotente/persistente; `kodo stop`/`status --json` + `kodo daemon run` foreground supervisable; `kodo start` legacy intacto), **distribución Homebrew** (`brew install` + `brew services start kodo` → `kodo daemon run` server-only bajo launchd, degradación limpia; Windows → foreground) y **onboarding dashboard-first** (first-run sin config → dashboard en modo setup sin `exit 1` y sin spawnear daemon → provider/base_url/workspace_slug + API key enmascarada → `config.json` + `.env` 0600, boundary PERSIST-04 intacto; `kodo config` headless converge en `saveConfig`/`saveProjects`/`writeEnvVar`). Audit PASSED — 14/14 requirements, 9/9 seams cross-phase, 3/3 flujos E2E; UAT runtime del secreto 8/8. Tech debt diferido: toggle de reveal/paste del campo enmascarado (Pitfall 11). Archivos: `milestones/v0.15-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`. Next: `/gsd-new-milestone`.*
+*Last updated: 2026-07-05 — **Milestone v0.16 "Hardening" iniciado.** Remediación de la auditoría adversarial (`.compound/AUDITORIA-ADVERSARIAL-2026-07-03.md`, 9 ALTA re-verificados 2026-07-05) agrupada por causa raíz en 4 olas: red/auth (bind 127.0.0.1 + bearer token), concurrencia/PID (`withStateLock`, lock atómico, puente state→status), fiabilidad de entrega (cursor confirmado + backstop mecánico de In Review — decisión de producto ACEPTADA), e higiene/documentación (borrar `up --url` + health loop — decisión: eliminar, no cablear). Fuera: M21, rediseño single-writer, M7–M9. Numeración continúa desde Phase 68 → primera fase **Phase 69**. Origen: auditoría adversarial 2026-07-03 + propuesta 2026-07-05 (KODO-8).*
+
+---
+*Previous: 2026-07-03 after v0.15 "kodo up" milestone — 4 phases (65-68), 14 plans, 39 tasks, ~113 commits desde v0.14, suite 1788 pass + 1 skip. **Arranque unificado** (`kodo up`: daemon compuesto server+polling desacoplado en background + dashboard como visor, idempotente/persistente; `kodo stop`/`status --json` + `kodo daemon run` foreground supervisable; `kodo start` legacy intacto), **distribución Homebrew** (`brew install` + `brew services start kodo` → `kodo daemon run` server-only bajo launchd, degradación limpia; Windows → foreground) y **onboarding dashboard-first** (first-run sin config → dashboard en modo setup sin `exit 1` y sin spawnear daemon → provider/base_url/workspace_slug + API key enmascarada → `config.json` + `.env` 0600, boundary PERSIST-04 intacto; `kodo config` headless converge en `saveConfig`/`saveProjects`/`writeEnvVar`). Audit PASSED — 14/14 requirements, 9/9 seams cross-phase, 3/3 flujos E2E; UAT runtime del secreto 8/8. Tech debt diferido: toggle de reveal/paste del campo enmascarado (Pitfall 11). Archivos: `milestones/v0.15-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`. Next: `/gsd-new-milestone`.*
 
 ---
 *Previous: 2026-07-01 — **Milestone v0.15 "kodo up" iniciado.** Arranque unificado en un comando (`kodo up`: daemon desacoplado + attach dashboard) distribuible por Homebrew, y onboarding dashboard-first cerrando CFGF-03 (provider/base_url/workspace + API key enmascarada). Sigue de v0.14 (shipped 2026-06-30). Modelo daemon persistente (LOCKED); `kodo start` actual intacto, `up` es nuevo; `kodo config` se mantiene como consumidor headless. Numeración de fases continúa desde la 62 → primera fase **Phase 65**. Origen: pedido del operador tras cerrar v0.14.*
