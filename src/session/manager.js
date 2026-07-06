@@ -291,7 +291,17 @@ export async function launchWorkItem(identifier, opts = {}) {
   // lock GSD; el SessionRecord queda en estado 'running' hasta el siguiente
   // ciclo de housekeeping (mismo comportamiento que tenemos hoy con session
   // records huérfanos por crashes — no es nueva superficie).
-  addSession(task.id, session);
+  // WR-01: surface the state-persist fail-safe BEFORE cmux.send. If addSession
+  // dropped the write on a lock-timeout, spawning the Claude session would leave
+  // an orphaned running agent with no state entry (undercounting max_parallel,
+  // enabling duplicate launches). Abort instead — the dispatcher's catch releases
+  // the GSD lock. Happy path is unchanged.
+  const added = addSession(task.id, session);
+  if (added && added.ok === false) {
+    throw new Error(
+      `state persist failed for ${task.ref} (${added.reason}) — aborting before spawn`,
+    );
+  }
 
   // Send Claude command to workspace
   await host._legacy.send({ workspace: workspaceRef, text: claudeCmd });
@@ -397,9 +407,10 @@ function truncate(str, max) {
  *   falsy-taskId warn payload. Defaults a 'unknown' string literal cuando no se
  *   provee. Callers en producción (verify.js + stop.js) ya tienen `session.session_id`
  *   en scope y lo pasan como 5º arg.
- * @returns {{ok: true, from: string, to: string} | {ok: false, reason: 'missing-task-id'}}
+ * @returns {{ok: true, from: string, to: string} | {ok: false, reason: 'missing-task-id' | 'lock-timeout'}}
  *   Discriminated union (D-05). Success path expone `from`/`to` para observabilidad
- *   downstream; falsy path expone `reason: 'missing-task-id'` (kebab-case literal).
+ *   downstream; falsy path expone `reason: 'missing-task-id'` (kebab-case literal)
+ *   o `reason: 'lock-timeout'` (WR-01: el updateSession subyacente no persistió).
  *   Phase 38: `to` puede ser `'idle'` cuando el caller pasó `'done'` (post-shim).
  */
 export function markSessionStatus(taskId, nextStatus, reason, logger, sessionId) {
@@ -445,7 +456,21 @@ export function markSessionStatus(taskId, nextStatus, reason, logger, sessionId)
   // reporta 'unknown' (pitfall #3 de PATTERNS.md — out of scope para Phase 30).
   const current = listSessions().find((s) => s.task_id === taskId || s.task_ref === taskId);
   const fromStatus = current?.status || 'unknown';
-  updateSession(taskId, { status: nextStatus });
+  // WR-01: updateSession returns the lock fail-safe. If the write was dropped on
+  // a lock-timeout, do NOT emit the state-transition log or report success — the
+  // status never persisted, so callers must not believe the transition happened.
+  const upd = updateSession(taskId, { status: nextStatus });
+  if (upd && upd.ok === false) {
+    if (logger) {
+      logger.warn('markSessionStatus.persist_failed', {
+        session_id: sessionId || 'unknown',
+        task_id: taskId,
+        status: nextStatus,
+        reason: upd.reason,
+      });
+    }
+    return { ok: false, reason: 'lock-timeout' };
+  }
   if (logger) {
     const log = logger.child({ component: 'session', task_id: taskId });
     stateTransition(log, { from: fromStatus, to: nextStatus, reason });

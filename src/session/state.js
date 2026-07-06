@@ -326,23 +326,36 @@ export function withStateLock(mutator) {
  * @param {string} taskId
  * @param {Session} session
  * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
 export function addSession(taskId, session, logger = noopLogger) {
-  withStateLock((state) => {
+  // WR-01: gate the success telemetry on the lock result. On lock-timeout the
+  // session is NOT persisted — do not claim `state.session.added` (a false
+  // success let callers spawn an untracked Claude session), warn + propagate the
+  // fail-safe so callers (launchWorkItem) can abort before side effects.
+  const r = withStateLock((state) => {
     state.sessions[taskId] = session;
   });
+  if (!r.ok) {
+    logger.warn('state.session.add_failed', { task_id: taskId, reason: r.reason });
+    return r;
+  }
   logger.info('state.session.added', {
     task_id: taskId,
     status: session.status,
   });
+  return r;
 }
 
 /**
  * @param {string} taskId
  * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
 export function removeSession(taskId, logger = noopLogger) {
-  withStateLock((state) => {
+  // WR-01: on lock-timeout nothing was persisted — do not emit the
+  // `state.session.removed` success event; warn + propagate the fail-safe.
+  const r = withStateLock((state) => {
     const removed = state.sessions[taskId];
     if (removed) {
       if (!Array.isArray(state.history)) state.history = [];
@@ -354,7 +367,12 @@ export function removeSession(taskId, logger = noopLogger) {
     }
     delete state.sessions[taskId];
   });
+  if (!r.ok) {
+    logger.warn('state.session.remove_failed', { task_id: taskId, reason: r.reason });
+    return r;
+  }
   logger.info('state.session.removed', { task_id: taskId });
+  return r;
 }
 
 /** @returns {Array<Session & { ended_at: string }>} */
@@ -367,21 +385,30 @@ export function listHistory() {
  * @param {string} taskId
  * @param {Partial<Session>} updates
  * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
 export function updateSession(taskId, updates, logger = noopLogger) {
   let updated = false;
-  withStateLock((state) => {
+  // WR-01: on lock-timeout the update was dropped — do not emit
+  // `state.session.updated`; warn + propagate so markSessionStatus does not
+  // report a status transition that never persisted.
+  const r = withStateLock((state) => {
     if (state.sessions[taskId]) {
       Object.assign(state.sessions[taskId], updates);
       updated = true;
     }
   });
+  if (!r.ok) {
+    logger.warn('state.session.update_failed', { task_id: taskId, reason: r.reason });
+    return r;
+  }
   if (updated) {
     logger.info('state.session.updated', {
       task_id: taskId,
       keys: Object.keys(updates),
     });
   }
+  return r;
 }
 
 /** @param {string} taskId */
