@@ -152,7 +152,7 @@ Plans:
   4. `teardown` solo borra `kodo.pid` si `payload.pid === process.pid` (el PID se escribe **post-bind**), y antes de un SIGKILL se compara `started_at` del payload con el arranque real (`ps -o lstart=`), abortando si no cuadra — kodo nunca mata un proceso ajeno. (CONC-04, CONC-05)
   5. La migración v1→v2 escribe vía `writeFileAtomic`, el dedup de sesiones no-GSD es cross-proceso (lock por `task_id`), y la ubicación real de los worktrees queda verificada empíricamente con una sesión GSD viva y documentada (cierra M13). (CONC-07, CONC-08, CONC-09)
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -162,7 +162,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 70-02-PLAN.md — `withStateLock` sobre los escritores de `state.json` + reconcile snapshot-fuera/aplica-dentro + corregir comentario falso `server.js` — CONC-01 (Wave 2, depends 70-01)
+- [x] 70-02-PLAN.md — `withStateLock` sobre los escritores de `state.json` + reconcile snapshot-fuera/aplica-dentro + corregir comentario falso `server.js` — CONC-01 (Wave 2, depends 70-01)
 - [ ] 70-04-PLAN.md — Consumidores de la primitiva: lock `O_EXCL` en `polling start` + dedup no-GSD por `task_id` + verificación empírica de worktrees (checkpoint diferible) — CONC-06, CONC-08, CONC-09 (Wave 2, depends 70-01, 70-03)
 
 ### Phase 71: Fiabilidad de entrega y backstop
@@ -199,7 +199,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
-| 70. Concurrencia y ciclo de vida de procesos | 2/4 | In Progress|  |
+| 70. Concurrencia y ciclo de vida de procesos | 3/4 | In Progress|  |
 | 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 
