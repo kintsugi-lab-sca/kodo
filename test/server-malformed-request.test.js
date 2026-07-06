@@ -1,6 +1,6 @@
 // @ts-check
 //
-// test/server-malformed-request.test.js — Phase 69 code review fixes (CR-01).
+// test/server-malformed-request.test.js — Phase 69 code review fixes (CR-01, WR-01).
 //
 // CR-01: a malformed request target (absolute-form with a bad authority, e.g.
 // `GET http://[ HTTP/1.1`) made the unguarded `new URL(req.url, …)` throw
@@ -8,6 +8,11 @@
 // long-lived daemon died, PRE-auth. The fix answers a neutral 400 and the server
 // must stay alive for the next request. fetch/undici refuse to emit an invalid
 // request target, so the malformed request goes out over a raw TCP socket.
+//
+// WR-01: the /comments/ and DELETE /sessions/ branches decoded the path segment
+// with an unguarded decodeURIComponent — malformed percent-encoding (%zz) threw
+// URIError with the same crash consequence, post-auth. Fixed with a guarded
+// decode → neutral 400.
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -96,5 +101,28 @@ describe('server malformed request target (CR-01)', () => {
     assert.equal(health.status, 200, 'server must survive the malformed request');
     const body = await health.json();
     assert.equal(body.status, 'ok');
+  });
+
+  it('WR-01: malformed %-encoding on /comments/ → 400, daemon survives', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/comments/%zz`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'bad request' });
+
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(health.status, 200, 'server must survive the malformed decode');
+  });
+
+  it('WR-01: malformed %-encoding on DELETE /sessions/ → 400, daemon survives', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/sessions/%zz`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'bad request' });
+
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(health.status, 200, 'server must survive the malformed decode');
   });
 });

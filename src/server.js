@@ -660,7 +660,17 @@ export async function startServer(opts = {}) {
     }
 
     if (req.method === 'GET' && pathname.startsWith('/comments/')) {
-      const taskId = decodeURIComponent(pathname.slice('/comments/'.length));
+      // WR-01: decodeURIComponent throws URIError on malformed percent-encoding
+      // (e.g. /comments/%zz). Guarded decode → neutral 400 instead of an escaped
+      // throw (the CR-01 outer boundary is the backstop; 400 is the right semantics).
+      let taskId;
+      try {
+        taskId = decodeURIComponent(pathname.slice('/comments/'.length));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad request' }));
+        return;
+      }
       try {
         const session = listSessions().find((s) => s.task_id === taskId)
           || listHistory().find((s) => s.task_id === taskId);
@@ -698,7 +708,15 @@ export async function startServer(opts = {}) {
       // the actions[] body. decodeURIComponent is RETAINED (T-39-01 path-traversal
       // control, symmetric to the client's encodeURIComponent). dismiss is
       // never-throws by construction — no try/catch needed here.
-      const taskId = decodeURIComponent(pathname.slice('/sessions/'.length));
+      // WR-01: same guarded decode as /comments/ — malformed %-encoding ⇒ 400.
+      let taskId;
+      try {
+        taskId = decodeURIComponent(pathname.slice('/sessions/'.length));
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad request' }));
+        return;
+      }
       // WR-02: rechazar antes de llegar al handler si el segmento está vacío
       // (p.ej. DELETE /sessions/ desde curl o cliente externo).
       if (!taskId) {
