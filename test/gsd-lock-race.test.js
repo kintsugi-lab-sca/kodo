@@ -10,7 +10,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,6 +63,60 @@ function raceGsdChildren(count) {
   return done.then(() => outputs.map((o) => o.trim()));
 }
 
+/**
+ * Seed a provably-STALE lock (dead holder PID) at `<repoDir>/.planning/.kodo.lock`,
+ * then race N children racing acquireGsdLock. Every contender hits EEXIST and
+ * observes the SAME dead-PID stale lock simultaneously → all take the steal path.
+ * With `--hold`, the ONE steal-winner stays alive so losers see it live and reject.
+ * @param {number} count
+ * @returns {Promise<string[]>}
+ */
+function raceGsdStealDeadHolder(count) {
+  mkdirSync(repoDir, { recursive: true });
+  // Pre-seed a stale lock owned by a dead PID (99999999 — implausibly high,
+  // matching the dead-PID convention in test/gsd-lock.test.js). acquireGsdLock
+  // resolves the repo via realpathSync, so seed at the realpath'd location.
+  const planning = join(realpathSync(repoDir), '.planning');
+  mkdirSync(planning, { recursive: true });
+  writeFileSync(
+    join(planning, '.kodo.lock'),
+    JSON.stringify(
+      {
+        session_id: 'crashed',
+        task_id: 'crashed',
+        task_ref: 'KL-crashed',
+        pid: 99999999,
+        acquired_at: new Date().toISOString(),
+        ttl_hours: 4,
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+
+  const goFile = join(sandbox, 'go');
+  const children = [];
+  const outputs = new Array(count).fill('');
+
+  for (let i = 0; i < count; i++) {
+    const child = spawn(
+      process.execPath,
+      [CHILD, '--kind', 'gsd', '--repo', repoDir, '--barrier', goFile, '--hold', '500'],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    child.stdout.on('data', (d) => {
+      outputs[i] += d.toString();
+    });
+    children.push(child);
+  }
+
+  const done = Promise.all(
+    children.map((c) => new Promise((resolve) => c.on('close', resolve))),
+  );
+  writeFileSync(goFile, '1');
+  return done.then(() => outputs.map((o) => o.trim()));
+}
+
 describe('gsd lock race — real processes (Criterion 1)', () => {
   it('2 concurrent processes → exactly one acquired', async () => {
     const verdicts = await raceGsdChildren(2);
@@ -81,6 +135,28 @@ describe('gsd lock race — real processes (Criterion 1)', () => {
       acquired,
       1,
       `exactly one process must acquire; got: ${verdicts.join(',')}`,
+    );
+  });
+});
+
+describe('gsd lock steal race — concurrent dead-holder steal (CR-01)', () => {
+  it('2 processes observing the SAME dead-PID stale lock → exactly one steals', async () => {
+    const verdicts = await raceGsdStealDeadHolder(2);
+    const acquired = verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(
+      acquired,
+      1,
+      `exactly one process must steal a shared dead-PID lock; got: ${verdicts.join(',')}`,
+    );
+  });
+
+  it('5 processes observing the SAME dead-PID stale lock → exactly one steals', async () => {
+    const verdicts = await raceGsdStealDeadHolder(5);
+    const acquired = verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(
+      acquired,
+      1,
+      `exactly one process must steal a shared dead-PID lock; got: ${verdicts.join(',')}`,
     );
   });
 });

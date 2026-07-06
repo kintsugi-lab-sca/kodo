@@ -52,6 +52,9 @@ import { randomUUID } from 'node:crypto';
 
 const LOCK_FILE = '.planning/.kodo.lock';
 const DEFAULT_TTL_HOURS = 4;
+// Bounded re-contention budget for the compare-and-swap steal (CR-01). Each
+// iteration is a full CAS attempt; a pathological churn can never spin forever.
+const MAX_STEAL_ATTEMPTS = 8;
 
 /**
  * Check whether `pid` is alive on the current host.
@@ -224,37 +227,127 @@ function serializeLockContent(sessionInfo) {
 }
 
 /**
- * Overwrite an existing (stale/corrupt) lock with new ownership.
+ * Read + parse the lock at a raw filesystem path. Returns `null` if the file is
+ * absent or contains invalid JSON.
  *
- * Logs the steal reason to stderr at debug volume (existing TTL warnings
- * are emitted by the caller before this helper runs).
+ * @param {string} path
+ * @returns {LockContent | null}
+ */
+function readLockContent(path) {
+  try {
+    return /** @type {LockContent} */ (JSON.parse(readFileSync(path, 'utf-8')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is `lock` stealable (holder PID dead, or TTL exceeded)? Mirrors the gating in
+ * `acquireGsdLock` (Cases 2-3) and `doctor.decideLock`.
+ *
+ * @param {LockContent} lock
+ * @returns {boolean}
+ */
+function isStaleLock(lock) {
+  if (!isPidAlive(lock.pid)) return true;
+  const acquiredAt = new Date(lock.acquired_at).getTime();
+  const ttlHours = lock.ttl_hours || DEFAULT_TTL_HOURS;
+  return Number.isFinite(acquiredAt) && Date.now() - acquiredAt > ttlHours * 3600_000;
+}
+
+/**
+ * Replace an existing (stale/corrupt) lock with new ownership using a
+ * compare-and-swap so that at most ONE of N concurrent stealers wins (CR-01).
+ *
+ * The previous implementation did an unconditional `renameSync` over the lock
+ * (last-writer-wins), so two processes observing the same stale lock could both
+ * "steal" and both return `{ acquired: true }` — two GSD agents on one repo. The
+ * CAS closes that race:
+ *
+ *  1. Move the CURRENT lock aside to a unique path. `renameSync` of a given
+ *     inode succeeds only ONCE, so exactly one concurrent stealer wins the move;
+ *     the losers get `ENOENT` and re-evaluate against the fresh state.
+ *  2. ABA guard: confirm the bytes we moved aside are still the stale lock we
+ *     meant to replace. A fresh live winner could have been created between the
+ *     caller's read and our rename — if so, restore it and reject rather than
+ *     double-acquire.
+ *  3. Create the fresh lock via O_EXCL (`{flag:'wx'}`). If another process
+ *     created one in the (briefly empty) window, we lose with `EEXIST` and
+ *     reject in favour of the new holder.
  *
  * @param {string} lockPath
  * @param {SessionInfo} sessionInfo
  * @param {string} reason
- * @returns {{ acquired: true }}
+ * @returns {AcquireResult}
  */
 function stealLock(lockPath, sessionInfo, reason) {
   console.error(`[kodo:lock] Lock stolen: ${reason}`);
-  // Atomic replace (D-08): write the new ownership to a unique tmp path then
-  // `renameSync` over the existing lock. A direct `writeFileSync` would now
-  // EEXIST (writeLockFile uses `{flag:'wx'}`), and a plain overwrite could let
-  // a concurrent reader observe a half-written lock. tmp+rename gives an atomic
-  // swap — the reader sees either the old lock or the new one, never a partial.
   mkdirSync(dirname(lockPath), { recursive: true });
-  const tmp = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
-  try {
-    writeFileSync(tmp, serializeLockContent(sessionInfo));
-    renameSync(tmp, lockPath);
-  } catch (err) {
+
+  for (let attempt = 0; attempt < MAX_STEAL_ATTEMPTS; attempt++) {
+    const aside = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
+
+    // Step 1: CAS move-aside. Only one stealer can rename a given inode.
     try {
-      unlinkSync(tmp);
-    } catch {
-      /* best-effort tmp cleanup */
+      renameSync(lockPath, aside);
+    } catch (e) {
+      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'ENOENT') throw e;
+      // Lost the move — someone else took the stale lock. If a live holder now
+      // owns it within TTL, reject; otherwise re-contend.
+      const holder = readLockContent(lockPath);
+      if (holder && !isStaleLock(holder)) return { acquired: false, holder };
+      continue;
     }
-    throw err;
+
+    // Step 2: ABA guard. If we moved aside a now-fresh live lock, restore it.
+    const movedAside = readLockContent(aside);
+    if (movedAside && !isStaleLock(movedAside)) {
+      try {
+        renameSync(aside, lockPath);
+      } catch {
+        try {
+          unlinkSync(aside);
+        } catch {
+          /* best-effort */
+        }
+      }
+      return { acquired: false, holder: movedAside };
+    }
+
+    // Step 3: O_EXCL-create the fresh lock; drop the moved-aside copy.
+    try {
+      writeFileSync(lockPath, serializeLockContent(sessionInfo), { flag: 'wx' });
+      try {
+        unlinkSync(aside);
+      } catch {
+        /* best-effort */
+      }
+      return { acquired: true };
+    } catch (e) {
+      try {
+        unlinkSync(aside);
+      } catch {
+        /* best-effort */
+      }
+      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+      const holder = readLockContent(lockPath);
+      if (holder && !isStaleLock(holder)) return { acquired: false, holder };
+      // else re-contend
+    }
   }
-  return { acquired: true };
+
+  // Bounded churn exhausted (pathological). One final atomic create; if even
+  // that loses, reject against the current holder.
+  try {
+    writeLockFile(lockPath, sessionInfo);
+    return { acquired: true };
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+    const holder =
+      readLockContent(lockPath) ??
+      /** @type {LockContent} */ (JSON.parse(readFileSync(lockPath, 'utf-8')));
+    return { acquired: false, holder };
+  }
 }
 
 export { LOCK_FILE, DEFAULT_TTL_HOURS };

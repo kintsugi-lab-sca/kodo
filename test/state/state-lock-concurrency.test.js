@@ -74,3 +74,25 @@ describe('state-lock concurrency — N real processes (Criterion 1 analog)', () 
     );
   });
 });
+
+describe('state-lock steal race — concurrent dead-holder steal (CR-01)', () => {
+  it('5 children observing the SAME dead-PID stale lock → exactly one steals', async () => {
+    const lockPath = join(sandbox, 'state.json.lock');
+    // Pre-seed a stale lock owned by a dead PID (99999999). Every retries:0
+    // contender hits EEXIST, observes the same dead-PID lock, and takes the
+    // CAS steal path — exactly one must win the move-aside and acquire; the
+    // rest fall through to `blocked`. Before CR-01 the unconditional rename
+    // let multiple children "steal" and all return a token.
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 99999999, acquired_at: Date.now(), token: 'crashed' }),
+    );
+    const verdicts = await raceStateChildren(5, lockPath);
+    const acquired = verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(
+      acquired,
+      1,
+      `exactly one child must steal a shared dead-PID lock; got verdicts: ${verdicts.join(',')}`,
+    );
+  });
+});

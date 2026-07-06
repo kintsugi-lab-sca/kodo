@@ -91,12 +91,72 @@ export function acquireLock(lockPath, opts = {}) {
         const stale =
           !isPidAlive(held.pid) || Date.now() - held.acquired_at > ttlMs;
         if (stale) {
-          // Atomic replace (D-08): tmp+rename so a concurrent reader never sees
-          // a half-written lock.
-          const tmp = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
-          writeFileSync(tmp, content);
-          renameSync(tmp, lockPath);
-          return { token };
+          // Compare-and-swap steal (CR-01, D-08): the previous tmp+rename over
+          // `lockPath` replaced unconditionally (last-writer-wins), so two
+          // processes observing the SAME stale lock could both steal and both
+          // return a token — degrading state.json coordination back to
+          // unsynchronized. Instead, move the CURRENT lock aside: `renameSync`
+          // of a given inode succeeds only ONCE, so exactly one concurrent
+          // stealer wins the move; the losers get ENOENT and fall through to
+          // backoff+retry rather than overwriting a fresh winner.
+          const aside = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
+          let won = false;
+          try {
+            renameSync(lockPath, aside);
+            won = true;
+          } catch (re) {
+            if (/** @type {NodeJS.ErrnoException} */ (re).code !== 'ENOENT') throw re;
+            // Lost the move — someone else took the stale lock; re-contend.
+          }
+          if (won) {
+            // ABA guard: if we moved aside a now-fresh live lock (a winner
+            // created between our read and our rename), restore it and retry
+            // instead of stealing a live owner.
+            let asideContent = null;
+            try {
+              asideContent = /** @type {LockContent} */ (
+                JSON.parse(readFileSync(aside, 'utf-8'))
+              );
+            } catch {
+              /* corrupt/partial → treat as stale */
+            }
+            const asideStale =
+              !asideContent ||
+              !isPidAlive(asideContent.pid) ||
+              Date.now() - asideContent.acquired_at > ttlMs;
+            if (asideStale) {
+              try {
+                // O_EXCL-create ours; if another process filled the empty
+                // window first we lose with EEXIST and re-contend.
+                writeFileSync(lockPath, content, { flag: 'wx' });
+                try {
+                  unlinkSync(aside);
+                } catch {
+                  /* best-effort */
+                }
+                return { token };
+              } catch (ce) {
+                try {
+                  unlinkSync(aside);
+                } catch {
+                  /* best-effort */
+                }
+                if (/** @type {NodeJS.ErrnoException} */ (ce).code !== 'EEXIST') throw ce;
+                // Lost the create race — fall through to backoff+retry.
+              }
+            } else {
+              // Restore the fresh live lock we moved aside, then retry.
+              try {
+                renameSync(aside, lockPath);
+              } catch {
+                try {
+                  unlinkSync(aside);
+                } catch {
+                  /* best-effort */
+                }
+              }
+            }
+          }
         }
       } catch {
         // Unparseable/partial lock — retry (do not steal in this turn).
