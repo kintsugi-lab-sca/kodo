@@ -15,7 +15,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { startDaemon, stopDaemon, statusDaemon } from '../../src/daemon/lifecycle.js';
+import { startDaemon, stopDaemon, statusDaemon, processStartMatches } from '../../src/daemon/lifecycle.js';
 
 /** Fake child con unref() rastreable (mirror de child de spawn detached). */
 function makeFakeChild() {
@@ -129,9 +129,11 @@ describe('lifecycle: stopDaemon(name, deps)', () => {
     const signals = [];
     let removed = null;
     const res = await stopDaemon('kodo', {
-      _readPidFile: () => ({ pid: 123, started_at: 'x' }),
+      _readPidFile: () => ({ pid: 123, started_at: '2026-07-06T12:00:00.000Z' }),
       _isPidAlive: () => true, // nunca muere → fuerza SIGKILL
       _kill: (pid, sig) => { signals.push([pid, sig]); },
+      // D-11: arranque real coincide con started_at → SIGKILL procede (es nuestro proceso).
+      _exec: () => '2026-07-06T12:00:00.000Z',
       _removePidFile: (name) => { removed = name; },
       _now: makeClock(),
       _sleep: async () => {},
@@ -183,6 +185,104 @@ describe('lifecycle: stopDaemon(name, deps)', () => {
     assert.equal(killed, 0);
     assert.equal(res.ok, true);
     assert.equal(res.notRunning, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 70 Task 2 — D-11 / CONC-05: anti-reciclado de PID antes del SIGKILL.
+//
+// Antes del SIGKILL fallback, stopDaemon compara el arranque REAL del proceso
+// (`ps -o lstart=`, LC_ALL=C) con el `started_at` del PID payload. Coincide →
+// SIGKILL (es nuestro proceso). Mismatch (pid reciclado) → SKIP + warn. ps
+// ausente/NaN → SKIP + warn (degradación segura, D-11: no matar por defecto).
+//
+// Todos los casos fuerzan `_isPidAlive: () => true` para alcanzar la rama SIGKILL,
+// e inyectan `_exec` para conducir el arranque real sin tocar `ps` real.
+// ---------------------------------------------------------------------------
+describe('lifecycle: anti-PID-reuse antes del SIGKILL (D-11 / CONC-05)', () => {
+  it('arranque coincide (dentro de tolerancia) → SIGKILL procede', async () => {
+    const signals = [];
+    const warns = [];
+    await stopDaemon('kodo', {
+      _readPidFile: () => ({ pid: 555, started_at: '2026-07-06T12:00:00.000Z' }),
+      _isPidAlive: () => true,
+      // real 3s después del started_at → dentro de la tolerancia (~8s) → match.
+      _exec: () => '2026-07-06T12:00:03.000Z',
+      _kill: (pid, sig) => { signals.push([pid, sig]); },
+      _warn: (event) => { warns.push(event); },
+      _removePidFile: () => {},
+      _now: makeClock(),
+      _sleep: async () => {},
+    });
+    assert.deepEqual(signals, [[555, 'SIGTERM'], [555, 'SIGKILL']], 'match → SIGKILL procede');
+    assert.equal(warns.length, 0, 'sin warn cuando el arranque coincide');
+  });
+
+  it('mismatch (arranque horas fuera → pid reciclado) → SIGKILL ABORTADO + warn', async () => {
+    const signals = [];
+    const warns = [];
+    await stopDaemon('kodo', {
+      _readPidFile: () => ({ pid: 555, started_at: '2026-07-06T12:00:00.000Z' }),
+      _isPidAlive: () => true,
+      // real 3h después → fuera de tolerancia → pid reciclado por otro proceso.
+      _exec: () => '2026-07-06T15:00:00.000Z',
+      _kill: (pid, sig) => { signals.push([pid, sig]); },
+      _warn: (event, meta) => { warns.push([event, meta]); },
+      _removePidFile: () => {},
+      _now: makeClock(),
+      _sleep: async () => {},
+    });
+    assert.deepEqual(signals, [[555, 'SIGTERM']], 'mismatch → NO SIGKILL (no matar a un inocente)');
+    assert.equal(warns[0][0], 'daemon.sigkill.aborted');
+    assert.equal(warns[0][1].reason, 'pid-reuse-suspected');
+  });
+
+  it('ps ausente (_exec throw) → SIGKILL SKIPPED (degradación segura) + warn', async () => {
+    const signals = [];
+    const warns = [];
+    await stopDaemon('kodo', {
+      _readPidFile: () => ({ pid: 555, started_at: '2026-07-06T12:00:00.000Z' }),
+      _isPidAlive: () => true,
+      _exec: () => { throw new Error('ps: command not found'); },
+      _kill: (pid, sig) => { signals.push([pid, sig]); },
+      _warn: (event) => { warns.push(event); },
+      _removePidFile: () => {},
+      _now: makeClock(),
+      _sleep: async () => {},
+    });
+    assert.deepEqual(signals, [[555, 'SIGTERM']], 'no verificable → NO SIGKILL por defecto (D-11)');
+    assert.deepEqual(warns, ['daemon.sigkill.unverifiable']);
+  });
+});
+
+describe('processStartMatches (D-11 helper)', () => {
+  it('fuerza LC_ALL=C en el env de ps', () => {
+    let seenEnv = null;
+    processStartMatches(1, '2026-07-06T12:00:00.000Z', {
+      _exec: (_cmd, _args, opts) => { seenEnv = opts.env; return '2026-07-06T12:00:00.000Z'; },
+    });
+    assert.equal(seenEnv.LC_ALL, 'C', 'LC_ALL=C estabiliza el formato locale-dependiente (Pitfall 4)');
+  });
+
+  it('degrada seguro (verifiable:false) si ps lanza', () => {
+    const r = processStartMatches(1, '2026-07-06T12:00:00.000Z', {
+      _exec: () => { throw new Error('boom'); },
+    });
+    assert.deepEqual(r, { verifiable: false });
+  });
+
+  it('degrada seguro (verifiable:false) si el output no parsea (NaN)', () => {
+    const r = processStartMatches(1, '2026-07-06T12:00:00.000Z', {
+      _exec: () => 'not a date',
+    });
+    assert.deepEqual(r, { verifiable: false });
+  });
+
+  it('degrada seguro (verifiable:false) si started_at no parsea (NaN)', () => {
+    const r = processStartMatches(1, 'x', {
+      _exec: () => '2026-07-06T12:00:00.000Z',
+    });
+    assert.deepEqual(r, { verifiable: false });
   });
 });
 

@@ -29,7 +29,7 @@
 // ABSOLUTO + argv en forma array (sin shell, sin PATH lookup) — heredado verbatim de
 // polling.js:283-303.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -64,8 +64,53 @@ function resolveKodoBin() {
  *   _execPath?: string,
  *   _logFd?: any,
  *   _waitMs?: number,
+ *   _exec?: (...args: any[]) => any,
+ *   _warn?: (event: string, meta?: Record<string, any>) => void,
  * }} LifecycleDeps
  */
+
+/**
+ * ¿El arranque REAL del proceso `pid` (vía `ps -o lstart=`) coincide con el
+ * `started_at` que el PID file dice haber escrito? — anti-reciclado de PID (D-11).
+ *
+ * Defensa contra el reciclado de PID entre el SIGTERM y el SIGKILL fallback de
+ * `stopDaemon`: si el kernel reasignó ese `pid` a un proceso ajeno tras la muerte
+ * del daemon, matarlo sería matar a un inocente. Comparamos el arranque real del
+ * proceso con el `started_at` que el payload afirma; si no cuadran (± tolerancia),
+ * el pid fue reciclado.
+ *
+ * Pitfall 4 (locale): `ps -o lstart=` imprime la fecha en el formato del locale
+ * activo (p.ej. es_ES). Forzamos `LC_ALL=C` para estabilizar el parseo entre
+ * entornos. `lstart` tiene resolución de 1s y `started_at` se escribe ~ms tras el
+ * exec del proceso → una tolerancia de ~8s absorbe ese skew.
+ *
+ * Degradación segura (D-11): si `ps` está ausente, sale ≠0, o el output no parsea
+ * (NaN), devolvemos `{ verifiable:false }` — el caller NO mata por defecto. never-throws.
+ *
+ * @param {number} pid
+ * @param {string} payloadStartedAtISO - el `started_at` del PID payload.
+ * @param {{ toleranceMs?: number, _exec?: (...a: any[]) => any }} [opts]
+ * @returns {{ verifiable: boolean, match?: boolean }}
+ */
+export function processStartMatches(pid, payloadStartedAtISO, { toleranceMs = 8000, _exec } = {}) {
+  const exec = _exec || execFileSync;
+  let real;
+  try {
+    // LC_ALL=C estabiliza el formato locale-dependiente (Pitfall 4).
+    const out = String(
+      exec('ps', ['-o', 'lstart=', '-p', String(pid)], {
+        encoding: 'utf8',
+        env: { ...process.env, LC_ALL: 'C' },
+      }),
+    ).trim();
+    real = Date.parse(out); // ej. "Mon Jul  6 12:59:44 2026" (con LC_ALL=C)
+  } catch {
+    return { verifiable: false }; // ps ausente/exit≠0 → degradar seguro (no matar)
+  }
+  const claimed = Date.parse(payloadStartedAtISO);
+  if (!Number.isFinite(real) || !Number.isFinite(claimed)) return { verifiable: false };
+  return { verifiable: true, match: Math.abs(real - claimed) <= toleranceMs };
+}
 
 /**
  * Arranca un daemon detached name-parametrizado.
@@ -167,6 +212,11 @@ export async function stopDaemon(name, deps = {}) {
   const removePid = deps._removePidFile || removePidFile;
   const now = deps._now || Date.now;
   const sleepFn = deps._sleep || sleep;
+  const warn = deps._warn || ((event, meta) => {
+    // Degradación VISIBLE (D-11): el warn debe verse para explicar por qué a veces
+    // `kodo stop` deja un proceso que ya recibió SIGTERM. NDJSON a stderr, never-throws.
+    try { process.stderr.write(JSON.stringify({ level: 'warn', event, ...(meta || {}) }) + '\n'); } catch {}
+  });
 
   const payload = readPid(name);
   if (!payload) {
@@ -181,7 +231,18 @@ export async function stopDaemon(name, deps = {}) {
       await sleepFn(100);
     }
     if (isAlive(payload.pid)) {
-      try { kill(payload.pid, 'SIGKILL'); } catch { /* race: murió entre checks */ }
+      // Anti-reciclado de PID antes del SIGKILL (D-11): verifica que el arranque
+      // real del proceso coincide con el started_at del payload. Si el pid fue
+      // reciclado (mismatch) o no es verificable (ps ausente/NaN) → NO matar
+      // (degradación segura, warn visible). Solo mata con arranque CONFIRMADO nuestro.
+      const chk = processStartMatches(payload.pid, payload.started_at, { _exec: deps._exec });
+      if (chk.verifiable && !chk.match) {
+        warn('daemon.sigkill.aborted', { pid: payload.pid, reason: 'pid-reuse-suspected' });
+      } else if (!chk.verifiable) {
+        warn('daemon.sigkill.unverifiable', { pid: payload.pid });
+      } else {
+        try { kill(payload.pid, 'SIGKILL'); } catch { /* race: murió entre checks */ }
+      }
     }
     removePid(name);
     return { ok: true, stopped: true, pid: payload.pid };
