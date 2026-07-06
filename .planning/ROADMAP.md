@@ -115,55 +115,72 @@ Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 ## Phase Details (v0.16 activo)
 
 ### Phase 69: Red y autenticación
+
 **Goal**: Cerrar la superficie de red — el server deja de escuchar en toda interfaz por defecto y el carril no-webhook exige autenticación, sin filtrar datos ni errores a un atacante externo. Es la ola más barata y cierra la única exposición a atacantes externos (causa raíz T3), por eso va primera.
 **Depends on**: Nothing (primera fase del milestone; construye sobre el codebase v0.15 shipped)
 **Requirements**: NET-01, NET-02, NET-03, NET-04, NET-05, NET-06
 **Success Criteria** (what must be TRUE):
+
   1. Desde otro nodo de la LAN, `GET /status` y `DELETE /sessions/:id` devuelven **401** sin `Authorization: Bearer <token>`; con el token de config responden normal, y el dashboard Ink lo lee de config y lo envía en cada petición. (NET-02)
   2. El server bindea a `127.0.0.1` por defecto (inaccesible desde otra interfaz); poner `config.server.bind` a una IP tailscale lo expone **explícitamente**, y por ese carril el webhook de Plane sigue entrando con su HMAC intacto (topología multi-nodo documentada). (NET-01, NET-06)
   3. Un POST con body de 2 MB se corta con **413** antes de autenticar; `/webhook` conserva HMAC y `/health` sigue abierto sin token. (NET-03, NET-02)
   4. Un error 500 devuelve un mensaje **neutro** al cliente (el `err.message` solo va al log), y un `sessionId` con caracteres fuera de `/^[A-Za-z0-9_-]+$/` se rechaza antes de tocar el filesystem. (NET-04, NET-05)
+
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 69-01-PLAN.md — Auth primitives module (`src/server/auth.js`: parseBearer/timingSafeTokenEqual/isOpenRoute/getOrCreateApiToken/MAX_BODY_BYTES) + `config.server.bind` default (Wave 1)
-- [ ] 69-02-PLAN.md — Server wiring: default-deny bearer middleware + bind host + 1 MB→413 pre-auth + neutral 500 + web-dashboard `?token=` (Wave 2, depends on 69-01)
 - [ ] 69-03-PLAN.md — Ink dashboard bearer attachment + 401 visible state (`UNAUTHORIZED_MESSAGE`) (Wave 1)
 - [ ] 69-04-PLAN.md — `sessionId` allowlist guard (reader.js hard / logger.js soft) + README «Topología multi-nodo» (Wave 1)
 
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 69-02-PLAN.md — Server wiring: default-deny bearer middleware + bind host + 1 MB→413 pre-auth + neutral 500 + web-dashboard `?token=` (Wave 2, depends on 69-01)
+
 ### Phase 70: Concurrencia y ciclo de vida de procesos
+
 **Goal**: Hacer segura la concurrencia multiproceso sobre `state.json` y el ciclo de vida de PID/procesos — locks reales donde hoy hay escrituras a ciegas, ownership del PID antes de matar nada, y liberación del slot de `max_parallel` cuando una sesión muere (causas raíz T1 y T2). Es la ola más delicada: tocar locks exige tests de proceso real.
 **Depends on**: Phase 69 (secuencia risk-graded; Ola 1 cierra la exposición externa antes de tocar los locks delicados — sin acoplamiento de código directo)
 **Requirements**: CONC-01, CONC-02, CONC-03, CONC-04, CONC-05, CONC-06, CONC-07, CONC-08, CONC-09
 **Success Criteria** (what must be TRUE):
+
   1. Un test que lanza **2 procesos concurrentes** contra el mismo repo verifica un solo `{acquired:true}`: `acquireGsdLock` es atómico (`flag:'wx'`, `EEXIST`→tomado) con `stealLock` vía tmp+rename, y dos `polling start` concurrentes no arrancan dos daemons (lock `O_EXCL`). (CONC-02, CONC-06)
   2. Los ~6 escritores de `state.json` pasan por `withStateLock(fn)` (re-lee→muta→guarda bajo lockfile `O_EXCL` con retry) — sin escrituras perdidas bajo concurrencia — y el comentario falso "ÚNICO escritor" de `server.js:682` queda corregido en el mismo commit. (CONC-01)
   3. Matar una sesión con `kill -9` → en el siguiente tick reconcile libera su slot: `state:'dead'` deriva `status:'idle'` (o el gate de `max_parallel` filtra por `alive`), y kodo vuelve a admitir sesiones en vez de quedar parado hasta 30 días. (CONC-03)
   4. `teardown` solo borra `kodo.pid` si `payload.pid === process.pid` (el PID se escribe **post-bind**), y antes de un SIGKILL se compara `started_at` del payload con el arranque real (`ps -o lstart=`), abortando si no cuadra — kodo nunca mata un proceso ajeno. (CONC-04, CONC-05)
   5. La migración v1→v2 escribe vía `writeFileAtomic`, el dedup de sesiones no-GSD es cross-proceso (lock por `task_id`), y la ubicación real de los worktrees queda verificada empíricamente con una sesión GSD viva y documentada (cierra M13). (CONC-07, CONC-08, CONC-09)
+
 **Plans**: TBD
 
 ### Phase 71: Fiabilidad de entrega y backstop
+
 **Goal**: Garantizar la entrega de dispatches y el cierre del ciclo de vida: el cursor de polling deja de saltarse issues cuyo dispatch no confirmó, y "In Review" gana un backstop mecánico que ya no depende de que el LLM lo haga (causas raíz T4/T5 — fire-and-forget donde hay obligación de entrega, y ciclo de vida delegado al LLM sin fallback).
 **Depends on**: Phase 70 (secuencia; Ola 3 reordena `SessionEnd` — mejor sobre los locks/reconcile de Ola 2 ya asentados)
 **Requirements**: DELIV-01, DELIV-02, DELIV-03, DELIV-04
 **Success Criteria** (what must be TRUE):
+
   1. Simular un `launchWorkItem` que **rechaza** → el `updated_at` de ese issue NO se incorpora a `maxUpdatedAt` y el issue se reintenta en el siguiente tick (`await` + timeout); el webhook sigue fire-and-forget (Plane re-entrega). (DELIV-01)
   2. El primer tick de polling distingue "cache ausente" de "primer tick observado" vía centinela — no re-dispara todo lo visto ni se salta issues nuevos. (DELIV-02)
   3. `adopt` sobre una tarea ya adoptada (mismo `task_url`) **no crea un duplicado** — busca por `task_url` antes de `createTask`. (DELIV-03)
   4. Matar una sesión sin que el LLM transicione la tarea → al `SessionEnd`, si la tarea sigue "In Progress" y la sesión terminó limpia, el hook la pasa a **"In Review"** y comenta "cierre automático"; la instrucción al LLM pasa a ser optimización, no única vía. (DELIV-04)
+
 **Plans**: TBD
 
 ### Phase 72: Higiene, DX y verdad documental
+
 **Goal**: Saldar la higiene mecánica y la deriva documental: quitar features muertas, blindar el auto-commit del stop hook contra commits fantasma, mover los efectos de cierre al hook correcto, endurecer la config, aplicar el batch de BAJAS y reconciliar el README con la realidad del código. Es la ola paralelizable y de menor riesgo.
 **Depends on**: Phase 71 (Ola 4 es paralelizable con cualquiera, pero se coloca al final: HYG-04 mueve efectos a `SessionEnd`, el mismo hook que DELIV-04 de Ola 3 reordena — secuenciar evita conflictos de merge)
 **Requirements**: HYG-01, HYG-02, HYG-03, HYG-04, HYG-05, HYG-06, HYG-07, HYG-08
 **Success Criteria** (what must be TRUE):
+
   1. El stop hook solo auto-commitea si `KODO_ORCHESTRATOR=1` está presente (inyectada al lanzar el workspace orquestador) y con pathspec completo (`git commit -- .claude/skills/kodo-orchestrate/`) — se acaban los commits fantasma por turno sobre lo que el dev tuviera staged. (HYG-01)
   2. `kodo up --url` y `startHealthLoop` **ya no existen** (borrados, no cableados) y el README no los promete; el coloreado de workspace, notify y nudge se disparan en `SessionEnd`, no en `Stop`. (HYG-02, HYG-03, HYG-04)
   3. El batch de endurecimiento de config está aplicado (rechazo de `__proto__|constructor|prototype`, chmod 0600 si hay `*_secret`, `split` con `join` del resto, B5, B7) y el dashboard hace strip de `\x1b` en el contenido externo (comentarios). (HYG-05, HYG-07)
   4. El batch de BAJAS mecánicas (B1, B2, B3, B4, B8, B9, B12 + M12 `[-–—]` en roadmap) queda aplicado en diffs de 1–5 líneas. (HYG-06)
   5. El README refleja la realidad: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados y `--dangerously-skip-permissions` documentado en sesiones GSD. (HYG-08)
+
 **Plans**: TBD
 
 ## Progreso (v0.16)
