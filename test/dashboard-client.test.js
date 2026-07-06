@@ -25,6 +25,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { fetchStatus, fetchComments, fetchLogs, dismissSession } from '../src/cli/dashboard/client.js';
+// Phase 69 Plan 03 (NET-02, D-07): makeAuthedFetch es el wrapper puro que adjunta el bearer a
+// TODA request del dashboard. index.js es import-safe headless (el guard non-TTY vive DENTRO de
+// runDashboard, no en top-level) → se importa directo para asserar el contrato del merge de header.
+import { makeAuthedFetch } from '../src/cli/dashboard/index.js';
 
 // Runtime fetch-leak guard: cualquier test que olvide inyectar `fetchFn` toca este thrower.
 // El restore en `after()` evita contaminar el resto de la suite.
@@ -110,6 +114,72 @@ describe('fetchStatus: discriminante {ok} never-throws (D-07, TUI-05/TUI-06)', (
     const result = await fetchStatus(BASE_URL, fetchFn);
     assert.equal(result.ok, false);
     assert.equal(result.error, 'bad shape');
+  });
+
+  // Phase 69 Plan 03 (NET-02, D-08): el 401 del carril autenticado es DISCRIMINABLE — App.js
+  // debe distinguir "no autorizado" (token ausente/revocado → banner accionable) de un 5xx/red
+  // genérico (degradación transitoria). Espejo del `code` de fetchComments (campo ADITIVO).
+  it('401: → { ok:false, code:"unauthorized" } (discriminable del 500 genérico)', async () => {
+    const fetchFn = makeFetch({ status: 401, ok: false });
+    const result = await fetchStatus(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'unauthorized');
+    assert.match(result.error, /401/);
+  });
+
+  it('500: NO lleva code:"unauthorized" (el 401 es específico, no cualquier fallo HTTP)', async () => {
+    const fetchFn = makeFetch({ status: 500, ok: false });
+    const result = await fetchStatus(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, undefined);
+    assert.match(result.error, /500/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 69 Plan 03 (NET-02, D-07): makeAuthedFetch — wrapper puro que adjunta el
+//   bearer a TODA request del dashboard. UNA lectura de token, UN fetch autenticado,
+//   CERO cambios de firma en client.js (App ya rutea su fetchFn a los cuatro clientes).
+//   El merge PRESERVA los headers del caller, el method (DELETE del dismiss) y el
+//   AbortSignal (la cancelación del poll debe seguir funcionando).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('makeAuthedFetch: bearer merge preservando method + signal (NET-02, D-07)', () => {
+  it('adjunta Authorization: Bearer <token>, preservando method, headers y AbortSignal', async () => {
+    let capturedUrl = '';
+    /** @type {any} */
+    let capturedOpts = null;
+    const base = async (/** @type {string} */ url, /** @type {any} */ opts) => {
+      capturedUrl = url;
+      capturedOpts = opts;
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    const controller = new AbortController();
+    // @ts-ignore — base tiene la shape mínima que consume el wrapper.
+    const authed = makeAuthedFetch('tok-123', base);
+    await authed('http://localhost:9090/sessions/T-1', {
+      method: 'DELETE',
+      headers: { 'X-Foo': 'bar' },
+      signal: controller.signal,
+    });
+    assert.equal(capturedUrl, 'http://localhost:9090/sessions/T-1');
+    assert.equal(capturedOpts.headers.Authorization, 'Bearer tok-123');
+    assert.equal(capturedOpts.headers['X-Foo'], 'bar', 'preserva los headers del caller');
+    assert.equal(capturedOpts.method, 'DELETE', 'preserva el method (DELETE del dismiss)');
+    assert.equal(capturedOpts.signal, controller.signal, 'forwardea el AbortSignal del poll');
+  });
+
+  it('sin opts (defaults): adjunta SOLO el Authorization header', async () => {
+    /** @type {any} */
+    let capturedOpts = null;
+    const base = async (/** @type {string} */ _url, /** @type {any} */ opts) => {
+      capturedOpts = opts;
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    // @ts-ignore — shape mínima.
+    const authed = makeAuthedFetch('tok', base);
+    await authed('http://localhost:9090/status');
+    assert.equal(capturedOpts.headers.Authorization, 'Bearer tok');
   });
 });
 
