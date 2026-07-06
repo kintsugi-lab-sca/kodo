@@ -9,9 +9,11 @@
 // ROMAN-151/152) y sella a `closed` las dead viejas (D-07 step 4).
 //
 // PURA + never-throws (D-07): no abre sockets, no escribe disco, no lanza. El
-// caller (el server kodo — único escritor de state.json) consulta el host,
-// invoca reconcileTick, y persiste el `state` resultante si cambió. El logger
-// se inyecta vía opts (LOG-12: este módulo NO importa logger.js).
+// caller (el server kodo) consulta el host, invoca reconcileTick, y persiste el
+// `state` resultante si cambió — su save participa del state lock compartido
+// (Phase 70 Plan 02, withStateLock) junto con los otros escritores de state.json
+// (hooks/CLI/dispatcher), NO es el único escritor. El logger se inyecta vía opts
+// (LOG-12: este módulo NO importa logger.js).
 //
 // Modelo de estado (D-11): cada session tiene dimensiones independientes
 // `state` / `process_alive` / `tab_alive` / `needs_input` / `last_seen_alive`.
@@ -400,8 +402,9 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
 
 /**
  * Arranca el loop periódico de reconciliación (D-07). Vive en el proceso server
- * (único escritor de state.json — NO en el dashboard cliente). Retorna un
- * teardown que detiene el loop.
+ * (NO en el dashboard cliente, que es read-only). Su save se serializa con los
+ * demás escritores de state.json vía el state lock compartido (Plan 02). Retorna
+ * un teardown que detiene el loop.
  *
  * @param {object} deps
  * @param {{ listWorkspaces: () => Promise<LiveRef[]> }} deps.host
