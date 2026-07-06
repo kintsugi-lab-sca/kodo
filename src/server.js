@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
-import { listSessions, listHistory, removeSession, loadState, saveState } from './session/state.js';
+import { listSessions, listHistory, removeSession, loadState, saveState, runUnderStateLock } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createDismissHandler } from './server/dismiss.js';
@@ -862,6 +862,11 @@ export async function startServer(opts = {}) {
     host: getHost('cmux'),
     loadState,
     saveState,
+    // Phase 70 Plan 02: el save del tick participa del MISMO state lock que los
+    // mutators (withStateLock) — así reconcile y los hooks/CLI/dispatcher no se
+    // pisan. El lock envuelve SOLO la derivación+save (sub-ms); la snapshot del
+    // host (listWorkspaces/pgrep) queda fuera (Pitfall 1).
+    withStateLock: runUnderStateLock,
     logger: reconcileLogger,
   });
 

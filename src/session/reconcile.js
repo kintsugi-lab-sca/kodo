@@ -294,10 +294,21 @@ export function isSessionProcessAlive(sessionId, pgrep) {
  * persiste si cambió. never-throws (D-07). Separado de startReconcileLoop para
  * testear el tick sin timers. El caller del server lo usa vía el loop.
  *
+ * Phase 70 Plan 02 (CONC-01, Pitfall 1): el save participa del MISMO state lock
+ * que los mutators (withStateLock), PERO sin sostener el lock a través de la I/O
+ * async del host. La snapshot del host (`listWorkspaces` + `pgrep`) se toma
+ * FUERA del lock; la derivación pura + el save condicional se aplican DENTRO,
+ * re-leyendo el state fresco para no pisar una escritura concurrente de un hook.
+ * `reconcileTick` sigue siendo el ÚNICO escritor de `alive`.
+ *
  * @param {object} deps
  * @param {{ listWorkspaces: () => Promise<LiveRef[]> }} deps.host - WorkspaceHost (Plan 01).
  * @param {() => State} deps.loadState - lector de state (de state.js).
  * @param {(state: State) => void} deps.saveState - escritor de state (de state.js).
+ * @param {<T>(fn: () => T) => { ok: boolean, value?: T }} [deps.withStateLock] - lock-runner
+ *   (state.js runUnderStateLock) que serializa el save con los mutators. Default:
+ *   passthrough sin lock (los tests que inyectan loadState/saveState in-memory no
+ *   tocan el FS; producción inyecta el lock real vía server.js).
  * @param {Map<string, DebounceEntry>} deps.debounceStore
  * @param {number} deps.tick
  * @param {() => number} deps.now - clock inyectable.
@@ -305,7 +316,7 @@ export function isSessionProcessAlive(sessionId, pgrep) {
  * @param {(sessionId: string) => string} [deps.pgrep] - inyectable (tests) para isSessionProcessAlive.
  * @returns {Promise<{ rescued: number, sealed: number, transitioned: number, total: number }>}
  */
-export async function runReconcileTick({ host, loadState, saveState, debounceStore, tick, now, logger, pgrep }) {
+export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep }) {
   const started = now();
   /** @type {LiveRef[]|null} */
   let liveRefs = null;
@@ -324,31 +335,66 @@ export async function runReconcileTick({ host, loadState, saveState, debounceSto
     liveRefs = null; // → reconcileTick skipea el tick (F5)
   }
 
-  let state = loadState();
-
-  // Phase 38 Plan 04 (gap fix): derivar process_alive del proceso real ANTES de
-  // reconciliar. reconcileTick es puro y solo LEE process_alive; sin este refresh
-  // el campo se queda stale (siempre true) y la transición running→idle nunca
-  // dispara — justo el caso ROMAN-151/152. Comparamos contra el valor previo y
-  // solo clonamos el state si algo cambió (preserva la optimización de no-write).
+  // Pitfall 1 (NON-NEGOTIABLE): derivar process_alive vía pgrep es I/O del host
+  // (execFileSync, hasta 3s por sesión). Se hace FUERA del lock — sostenerlo a
+  // través de N pgrep serializaría el poll y podría exceder el TTL del lock,
+  // provocando un steal. Snapshot keyed por session_id para re-aplicarlo al state
+  // fresco leído DENTRO del lock.
+  /** @type {Map<string, boolean>} */
+  const aliveBySessionId = new Map();
   if (liveRefs !== null) {
-    let changed = false;
-    const sessions = {};
-    for (const [taskId, s] of Object.entries(state.sessions)) {
-      const aliveNow = s.session_id ? isSessionProcessAlive(s.session_id, pgrep) : !!s.process_alive;
-      if (aliveNow !== s.process_alive) {
-        sessions[taskId] = { ...s, process_alive: aliveNow };
-        changed = true;
-      } else {
-        sessions[taskId] = s;
+    for (const s of Object.values(loadState().sessions)) {
+      if (s.session_id && !aliveBySessionId.has(s.session_id)) {
+        aliveBySessionId.set(s.session_id, isSessionProcessAlive(s.session_id, pgrep));
       }
     }
-    if (changed) state = { ...state, sessions };
   }
 
-  const { state: newState, events } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
+  // Aplica la derivación pura + save condicional DENTRO del state lock, re-leyendo
+  // el state FRESCO (anti-clobber D-02). SIN `await` dentro del callback — el
+  // pgrep ya corrió arriba (Pitfall 1). Default passthrough para los tests que
+  // inyectan loadState/saveState in-memory (no tocan el FS).
+  const runLocked = withStateLock ?? /** @type {<T>(fn: () => T) => { ok: boolean, value: T }} */ ((fn) => ({ ok: true, value: fn() }));
+  /** @type {{ rescued: number, sealed: number, transitioned: number, total: number }} */
+  let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0 };
+
+  runLocked(() => {
+    // Re-lectura FRESCA bajo el lock: si un hook escribió entre la snapshot del
+    // host y ahora, lo vemos y NO lo pisamos.
+    let state = loadState();
+
+    // Phase 38 Plan 04 (gap fix): aplicar el process_alive derivado (snapshot de
+    // arriba) al state fresco. reconcileTick es puro y solo LEE process_alive; sin
+    // este refresh el campo se queda stale (siempre true) y la transición
+    // running→idle nunca dispara — justo ROMAN-151/152. Una sesión añadida por un
+    // writer concurrente que no estaba en la snapshot cae a su process_alive
+    // almacenado (el siguiente tick la refresca). Solo clonamos si algo cambió
+    // (preserva la optimización de no-write).
+    if (liveRefs !== null) {
+      let changed = false;
+      /** @type {Record<string, Session>} */
+      const sessions = {};
+      for (const [taskId, s] of Object.entries(state.sessions)) {
+        const aliveNow = s.session_id && aliveBySessionId.has(s.session_id)
+          ? /** @type {boolean} */ (aliveBySessionId.get(s.session_id))
+          : !!s.process_alive;
+        if (aliveNow !== s.process_alive) {
+          sessions[taskId] = { ...s, process_alive: aliveNow };
+          changed = true;
+        } else {
+          sessions[taskId] = s;
+        }
+      }
+      if (changed) state = { ...state, sessions };
+    }
+
+    const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
+    events = ev;
+    // Save condicional DENTRO del lock: solo si algo cambió (no-write optimization).
+    if (newState !== state) saveState(newState);
+  });
+
   logger?.info?.('host.reconcile.tick', events);
-  if (newState !== state) saveState(newState);
   return events;
 }
 
@@ -361,6 +407,8 @@ export async function runReconcileTick({ host, loadState, saveState, debounceSto
  * @param {{ listWorkspaces: () => Promise<LiveRef[]> }} deps.host
  * @param {() => State} deps.loadState
  * @param {(state: State) => void} deps.saveState
+ * @param {<T>(fn: () => T) => { ok: boolean, value?: T }} [deps.withStateLock] - lock-runner
+ *   (state.js runUnderStateLock) para serializar el save con los mutators (Plan 02).
  * @param {{ info?: Function, warn?: Function }} [deps.logger]
  * @param {number} [deps.intervalMs] - cadencia (default RECONCILE_INTERVAL_MS).
  * @param {(cb: () => void, ms: number) => any} [deps.setInterval] - inyectable (tests).
@@ -386,6 +434,7 @@ export function startReconcileLoop(deps) {
         host: deps.host,
         loadState: deps.loadState,
         saveState: deps.saveState,
+        withStateLock: deps.withStateLock,
         debounceStore,
         tick,
         now,

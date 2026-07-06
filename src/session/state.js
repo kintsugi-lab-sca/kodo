@@ -268,6 +268,25 @@ export function saveState(state) {
 }
 
 /**
+ * Run `fn` while holding the global state.json advisory lock (STATE_LOCK_PATH).
+ *
+ * The raw lock-runner: it does NOT load or save — `fn` decides what to read and
+ * whether to write. `withStateLock` (below) layers the fresh-load + save on top;
+ * `runReconcileTick` (reconcile.js) injects THIS so its conditional save
+ * participates in the SAME lock as the mutators (D-04 coordination) while
+ * keeping its own no-write optimization (it skips saveState when nothing
+ * changed). On lock-timeout returns the primitive's `{ok:false}` + warn — no
+ * throw, no partial write (D-03).
+ *
+ * @template T
+ * @param {() => T} fn
+ * @returns {{ ok: true, value: T } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function runUnderStateLock(fn) {
+  return withFileLock(STATE_LOCK_PATH, fn);
+}
+
+/**
  * Run `mutator(state)` under the global state.json advisory lock (D-02).
  *
  * The anti-clobber key: `loadState()` is called FRESH *inside* the acquired
@@ -283,7 +302,7 @@ export function saveState(state) {
  * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
 export function withStateLock(mutator) {
-  return withFileLock(STATE_LOCK_PATH, () => {
+  return runUnderStateLock(() => {
     const state = loadState();
     const next = mutator(state);
     saveState(next ?? state);
