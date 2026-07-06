@@ -168,6 +168,15 @@ La exposición **no** relaja la autenticación:
 - **`/webhook`** conserva su verificación **HMAC** con el webhook secret de Plane.
 - **`/health`** permanece abierto (probe de salud sin auth).
 
+> **Nota de seguridad — token en la URL.** Las rutas HTML del dashboard aceptan el
+> bearer token como query param (`/?token=...`) porque una navegación de navegador
+> no puede enviar la cabecera `Authorization`. Ese token queda registrado en el
+> **historial del navegador** (y es visible en la barra de direcciones o en
+> capturas de pantalla). El token es de larga vida: si sospechas que se ha
+> filtrado, rótalo manualmente — edita (o borra, para que se regenere solo al
+> arrancar) la línea `KODO_API_TOKEN` de `~/.kodo/.env` y reinicia el servicio
+> (`kodo stop && kodo start`).
+
 ## Uso
 
 ### Automático (webhook)
