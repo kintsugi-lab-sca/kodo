@@ -839,11 +839,15 @@ export async function startServer(opts = {}) {
   }
 
   // Phase 38 (Plan 04, D-07): loop de reconciliación host↔state. Vive en el
-  // proceso server — el ÚNICO escritor de state.json (el dashboard es cliente
-  // HTTP read-only de /status; cablearlo allí crearía dos escritores). Cada tick
-  // consulta el WorkspaceHost, aplica transiciones con debouncing 2-tick, rescata
-  // sesiones desde history cuya tab sigue viva (cierra ROMAN-151/152) y sella las
-  // dead viejas a closed. never-throws; .unref() para no bloquear el cierre.
+  // proceso server. Phase 70 (Plan 02, D-04): state.json tiene MÚLTIPLES
+  // escritores (hooks, CLI, dispatcher y este loop de reconcile), NO uno solo —
+  // todos serializados por `withStateLock` (el lock O_EXCL sobre state.json.lock)
+  // que re-lee el estado fresco bajo el lock antes de mutar+guardar, así ninguna
+  // escritura cross-proceso pisa a otra. El dashboard sigue siendo un cliente
+  // HTTP read-only de /status: NO escribe state.json. Este tick consulta el
+  // WorkspaceHost, aplica transiciones con debouncing 2-tick, rescata sesiones
+  // desde history cuya tab sigue viva (cierra ROMAN-151/152) y sella las dead
+  // viejas a closed. never-throws; .unref() para no bloquear el cierre.
   const { getHost } = await import('./host/interface.js');
   const { startReconcileLoop } = await import('./session/reconcile.js');
   const { createLogger } = await import('./logger.js');

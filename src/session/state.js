@@ -6,8 +6,19 @@ import { KODO_DIR } from '../config.js';
 // LOG-12: import only the zero-import noop logger, NEVER logger.js. The noop
 // is explicitly whitelisted in test/check-isolation.test.js.
 import { noopLogger } from '../logger-noop.js';
+// Phase 70 Plan 02 (D-01/D-02): the advisory-lock primitive from Plan 01. All
+// state.json mutators funnel through withStateLock (below) so cross-process
+// writers stop clobbering each other. REUSED by import — never reimplemented.
+import { withFileLock } from './state-lock.js';
 
 const STATE_PATH = join(KODO_DIR, 'state.json');
+
+/**
+ * One global advisory lock for the single state.json file (RESEARCH Open
+ * Question 3 — one lock per file, not per session). `withStateLock` serializes
+ * every load→mutate→save cycle through it.
+ */
+const STATE_LOCK_PATH = STATE_PATH + '.lock';
 
 /**
  * @typedef {{
@@ -257,14 +268,37 @@ export function saveState(state) {
 }
 
 /**
+ * Run `mutator(state)` under the global state.json advisory lock (D-02).
+ *
+ * The anti-clobber key: `loadState()` is called FRESH *inside* the acquired
+ * lock (never before it), so a mutation computed by a concurrent writer that
+ * won the lock first is already on disk when we re-read — our mutate+save then
+ * builds on top of it instead of overwriting it (last-write-wins). The mutator
+ * either mutates `state` in place (returns undefined) or returns a replacement
+ * State; the resulting state is persisted via the existing tmp+rename
+ * `saveState`. On lock-timeout the primitive returns its fail-safe `{ok:false}`
+ * and emits a warn — no throw, no partial write (D-03).
+ *
+ * @param {(state: State) => (State | void)} mutator
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function withStateLock(mutator) {
+  return withFileLock(STATE_LOCK_PATH, () => {
+    const state = loadState();
+    const next = mutator(state);
+    saveState(next ?? state);
+  });
+}
+
+/**
  * @param {string} taskId
  * @param {Session} session
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  */
 export function addSession(taskId, session, logger = noopLogger) {
-  const state = loadState();
-  state.sessions[taskId] = session;
-  saveState(state);
+  withStateLock((state) => {
+    state.sessions[taskId] = session;
+  });
   logger.info('state.session.added', {
     task_id: taskId,
     status: session.status,
@@ -276,18 +310,18 @@ export function addSession(taskId, session, logger = noopLogger) {
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  */
 export function removeSession(taskId, logger = noopLogger) {
-  const state = loadState();
-  const removed = state.sessions[taskId];
-  if (removed) {
-    if (!Array.isArray(state.history)) state.history = [];
-    state.history.unshift({
-      ...removed,
-      ended_at: new Date().toISOString(),
-    });
-    state.history = state.history.slice(0, 50);
-  }
-  delete state.sessions[taskId];
-  saveState(state);
+  withStateLock((state) => {
+    const removed = state.sessions[taskId];
+    if (removed) {
+      if (!Array.isArray(state.history)) state.history = [];
+      state.history.unshift({
+        ...removed,
+        ended_at: new Date().toISOString(),
+      });
+      state.history = state.history.slice(0, 50);
+    }
+    delete state.sessions[taskId];
+  });
   logger.info('state.session.removed', { task_id: taskId });
 }
 
@@ -303,10 +337,14 @@ export function listHistory() {
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  */
 export function updateSession(taskId, updates, logger = noopLogger) {
-  const state = loadState();
-  if (state.sessions[taskId]) {
-    Object.assign(state.sessions[taskId], updates);
-    saveState(state);
+  let updated = false;
+  withStateLock((state) => {
+    if (state.sessions[taskId]) {
+      Object.assign(state.sessions[taskId], updates);
+      updated = true;
+    }
+  });
+  if (updated) {
     logger.info('state.session.updated', {
       task_id: taskId,
       keys: Object.keys(updates),
