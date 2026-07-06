@@ -10,8 +10,8 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 
 ### Red y autenticación (Ola 1 — causa raíz T3)
 
-- [ ] **NET-01**: El server bindea a `127.0.0.1` por defecto; `config.server.bind` permite exponerlo explícitamente (A1)
-- [ ] **NET-02**: El carril no-webhook (`GET /status`, `/logs`, `/comments/:id`, `DELETE /sessions/:id`) exige `Authorization: Bearer <token>` — 401 sin token; el dashboard lee el token de config y lo envía; `/webhook` conserva HMAC y `/health` queda abierto (M2)
+- [x] **NET-01**: El server bindea a `127.0.0.1` por defecto; `config.server.bind` permite exponerlo explícitamente (A1)
+- [x] **NET-02**: El carril no-webhook (`GET /status`, `/logs`, `/comments/:id`, `DELETE /sessions/:id`) exige `Authorization: Bearer <token>` — 401 sin token; el dashboard lee el token de config y lo envía; `/webhook` conserva HMAC y `/health` queda abierto (M2)
 - [ ] **NET-03**: `readBody` corta a 1 MB pre-auth → 413 (M1)
 - [ ] **NET-04**: Los errores 500 devuelven mensaje neutro al cliente; `err.message` solo al log (B10)
 - [ ] **NET-05**: `sessionId` validado con `/^[A-Za-z0-9_-]+$/` antes de tocar filesystem (B6)
@@ -76,8 +76,8 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| NET-01 | Phase 69 | Pending |
-| NET-02 | Phase 69 | Pending |
+| NET-01 | Phase 69 | Complete |
+| NET-02 | Phase 69 | Complete |
 | NET-03 | Phase 69 | Pending |
 | NET-04 | Phase 69 | Pending |
 | NET-05 | Phase 69 | Pending |
@@ -105,11 +105,13 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | HYG-08 | Phase 72 | Pending |
 
 **Coverage:**
+
 - v0.16 requirements: 27 total
 - Mapped to phases: 27 ✓ (Phase 69: 6 · Phase 70: 9 · Phase 71: 4 · Phase 72: 8)
 - Unmapped: 0
 
 **Phase map:**
+
 - **Phase 69 Red y autenticación (Ola 1):** NET-01..06
 - **Phase 70 Concurrencia y ciclo de vida de procesos (Ola 2):** CONC-01..09
 - **Phase 71 Fiabilidad de entrega y backstop (Ola 3):** DELIV-01..04

@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
 current_phase: 69
-status: in_progress
-stopped_at: Phase 69 UI-SPEC approved
-last_updated: "2026-07-06T07:59:29.111Z"
+current_phase_name: Red y autenticación
+status: executing
+stopped_at: Completed 69-01-PLAN.md
+last_updated: "2026-07-06T08:24:40.352Z"
 last_activity: 2026-07-06
-last_activity_desc: Roadmap v0.16 creado (4 phases, 27/27 cobertura)
+last_activity_desc: Phase 69 execution started
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -27,14 +28,14 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first. **v0.16 endurece: cierra la superficie de red, hace segura la concurrencia multiproceso, garantiza la entrega de dispatches con backstop mecánico, y salda la higiene y la deriva documental** (remediación de la auditoría adversarial 2026-07-03, 9 ALTA re-verificados 2026-07-05).
 
-**Current focus:** Phase 69 — Red y autenticación (Ola 1). Roadmap listo; siguiente paso `/gsd-plan-phase 69`.
+**Current focus:** Phase 69 — Red y autenticación
 
 ## Current Position
 
-Phase: 69 — Red y autenticación (Not started)
-Plan: —
-Status: Roadmap creado, listo para planificar Phase 69
-Last activity: 2026-07-06 — Roadmap v0.16 creado (4 phases, 27/27 cobertura)
+Phase: 69 (Red y autenticación) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-06 — Phase 69 execution started
 
 ## Roadmap v0.16 (activo)
 
@@ -106,10 +107,10 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/69-red-y-autenticaci-n/69-UI-SPEC.md
+**Resume file:** None
 
-- **Last session:** 2026-07-06T07:59:29.105Z
-- **Stopped at:** Phase 69 UI-SPEC approved
+- **Last session:** 2026-07-06T08:24:40.347Z
+- **Stopped at:** Completed 69-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
@@ -128,6 +129,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (sin planes ejecutados aún en v0.16) |
+| Phase 69 P01 | 3min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -135,3 +137,5 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Roadmap v0.16]: Sin research — `.planning/research/` es STALE de v0.15; fuente de verdad `REQUIREMENTS.md` + `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md`.
 - [Roadmap v0.16]: Numeración continua desde Phase 68 → primera fase Phase 69 (NO reset).
 - [Roadmap v0.16]: Decisiones de producto del mantenedor (2026-07-05) ya horneadas en requirements — default bind `127.0.0.1` (NET-01), backstop mecánico de In Review aceptado (DELIV-04), `up --url`/`startHealthLoop` borrados no cableados (HYG-02/03).
+- [Phase ?]: [69-01] Auth primitives en src/server/auth.js (parseBearer, timingSafeTokenEqual length-guarded, isOpenRoute default-deny, getOrCreateApiToken CSPRNG 64-hex 0600, MAX_BODY_BYTES) — cero deps npm nuevas.
+- [Phase ?]: [69-01] config.server.bind default 127.0.0.1 aditivo; configs v0.15 migradas sin la key siguen cargando (Plan 02 resuelve con ?? '127.0.0.1').
