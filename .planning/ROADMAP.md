@@ -123,7 +123,13 @@ Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
   2. El server bindea a `127.0.0.1` por defecto (inaccesible desde otra interfaz); poner `config.server.bind` a una IP tailscale lo expone **explícitamente**, y por ese carril el webhook de Plane sigue entrando con su HMAC intacto (topología multi-nodo documentada). (NET-01, NET-06)
   3. Un POST con body de 2 MB se corta con **413** antes de autenticar; `/webhook` conserva HMAC y `/health` sigue abierto sin token. (NET-03, NET-02)
   4. Un error 500 devuelve un mensaje **neutro** al cliente (el `err.message` solo va al log), y un `sessionId` con caracteres fuera de `/^[A-Za-z0-9_-]+$/` se rechaza antes de tocar el filesystem. (NET-04, NET-05)
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 69-01-PLAN.md — Auth primitives module (`src/server/auth.js`: parseBearer/timingSafeTokenEqual/isOpenRoute/getOrCreateApiToken/MAX_BODY_BYTES) + `config.server.bind` default (Wave 1)
+- [ ] 69-02-PLAN.md — Server wiring: default-deny bearer middleware + bind host + 1 MB→413 pre-auth + neutral 500 + web-dashboard `?token=` (Wave 2, depends on 69-01)
+- [ ] 69-03-PLAN.md — Ink dashboard bearer attachment + 401 visible state (`UNAUTHORIZED_MESSAGE`) (Wave 1)
+- [ ] 69-04-PLAN.md — `sessionId` allowlist guard (reader.js hard / logger.js soft) + README «Topología multi-nodo» (Wave 1)
 
 ### Phase 70: Concurrencia y ciclo de vida de procesos
 **Goal**: Hacer segura la concurrencia multiproceso sobre `state.json` y el ciclo de vida de PID/procesos — locks reales donde hoy hay escrituras a ciegas, ownership del PID antes de matar nada, y liberación del slot de `max_parallel` cuando una sesión muere (causas raíz T1 y T2). Es la ola más delicada: tocar locks exige tests de proceso real.
@@ -164,7 +170,7 @@ Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 69. Red y autenticación | 0/? | Not started | - |
+| 69. Red y autenticación | 0/4 | Not started | - |
 | 70. Concurrencia y ciclo de vida de procesos | 0/? | Not started | - |
 | 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
