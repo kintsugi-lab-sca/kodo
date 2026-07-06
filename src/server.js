@@ -8,7 +8,7 @@ import { listSessions, listHistory, removeSession, loadState, saveState } from '
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createDismissHandler } from './server/dismiss.js';
-import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken } from './server/auth.js';
+import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken, MAX_BODY_BYTES } from './server/auth.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -374,16 +374,60 @@ setInterval(refreshLogs, 5000);
 }
 
 /**
- * Read raw body from incoming HTTP request
+ * Read raw body from incoming HTTP request, bounded at MAX_BODY_BYTES (NET-03).
+ *
+ * A body over the cap is rejected with an Error carrying `code:'PAYLOAD_TOO_LARGE'`
+ * and the socket is destroyed to stop buffering — an unauthenticated attacker must
+ * not be able to force megabytes of RAM behind auth/HMAC (T-69-03, D-06). The cap is
+ * enforced twice: an early `content-length` short-circuit, and a running byte tally
+ * on the `data` stream (a lying/absent content-length still can't overflow). Bodies
+ * within the cap resolve `Buffer.concat(chunks).toString()` BYTE-IDENTICAL to before
+ * — critical for the webhook HMAC, which signs the raw bytes (Pitfall 4).
+ *
  * @param {import('http').IncomingMessage} req
  * @returns {Promise<string>}
  */
 function readBody(req) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const rejectTooLarge = () => {
+      if (settled) return;
+      settled = true;
+      // NOTE: we do NOT req.destroy() here — tearing down the socket before the
+      // caller can write the 413 would surface to the client as a connection reset
+      // (ECONNRESET) instead of a clean 413. We stop accumulating chunks (memory is
+      // bounded — the DoS goal) and let the caller emit the 413 with Connection:close.
+      reject(Object.assign(new Error('payload too large'), { code: 'PAYLOAD_TOO_LARGE' }));
+    };
+
+    // Early reject: an honest content-length already over the cap never buffers.
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      rejectTooLarge();
+      return;
+    }
+
     const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    req.on('error', reject);
+    let total = 0;
+    req.on('data', (chunk) => {
+      if (settled) return; // already over cap — drop further bytes, don't grow memory
+      total += chunk.length;
+      if (total > MAX_BODY_BYTES) {
+        rejectTooLarge();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks).toString());
+    });
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -411,6 +455,10 @@ export async function startServer(opts = {}) {
   const loadConfigFn = opts._loadConfig || loadConfig;
   const config = loadConfigFn();
   const port = opts.port || config.server.port;
+  // NET-01 (T-69-01): bind to loopback by default. The `??` fallback keeps migrated
+  // v0.15 configs (which lack `bind`) safe — exposing on a LAN interface is an
+  // explicit opt-in via config.server.bind.
+  const host = config.server.bind ?? '127.0.0.1';
 
   let provider;
   if (opts._provider) {
@@ -610,8 +658,12 @@ export async function startServer(opts = {}) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ comments, supported }));
       } catch (err) {
+        // NET-04 (D-09): the thrown message may carry internal detail (DB errors,
+        // stack fragments). Log it (ring buffer + stderr) but return a fixed neutral
+        // body — never echo err.message to an external client (T-69-05).
+        console.error(`[kodo] /comments error: ${err.message}`);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        res.end(JSON.stringify({ error: 'internal error' }));
       }
       return;
     }
@@ -652,6 +704,16 @@ export async function startServer(opts = {}) {
         res.writeHead(result.status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result.body));
       } catch (err) {
+        // NET-03 (D-06): an oversized body is rejected by readBody BEFORE
+        // handleWebhookRequest runs, so this 413 is emitted PRE-HMAC — an
+        // unauthenticated attacker cannot force >1 MB of buffering behind auth.
+        if (err && err.code === 'PAYLOAD_TOO_LARGE') {
+          // Connection: close — the client may still be uploading; closing after the
+          // response guarantees it reads the 413 instead of racing an ECONNRESET.
+          res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' });
+          res.end(JSON.stringify({ error: 'payload too large' }));
+          return;
+        }
         console.error(`[kodo] Bad request: ${err.message}`);
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Bad request' }));
@@ -678,7 +740,7 @@ export async function startServer(opts = {}) {
         }
       };
       server.on('error', onError);
-      server.listen(port, () => {
+      server.listen(port, host, () => {
         server.removeListener('error', onError);
         console.log(`[kodo] Server listening on :${port}`);
         console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
@@ -694,7 +756,7 @@ export async function startServer(opts = {}) {
       });
     });
   } else {
-    server.listen(port, () => {
+    server.listen(port, host, () => {
       console.log(`[kodo] Server listening on :${port}`);
       console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
       console.log(`[kodo] Status URL: http://localhost:${port}/status`);

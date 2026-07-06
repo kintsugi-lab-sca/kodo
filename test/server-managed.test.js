@@ -101,10 +101,11 @@ describe('startServer({ managed }) — UP-04', () => {
   it('(2) port already bound → rejects EADDRINUSE via server.on(error)', async () => {
     const port = await getFreePort();
     const blocker = createServer();
-    // Bind on all interfaces (no host) to match server.listen(port) in server.js so
-    // the collision is deterministic (a 127.0.0.1-only blocker would not clash with
-    // the server's 0.0.0.0 bind on macOS).
-    await new Promise((r) => blocker.listen(port, () => r(undefined)));
+    // Bind on 127.0.0.1 to match server.listen(port, host) in server.js — since
+    // Phase 69 (NET-01) the server binds to config.server.bind ?? '127.0.0.1' (the
+    // fakeConfig omits bind → loopback). A loopback blocker collides deterministically
+    // with the server's loopback bind (a 0.0.0.0 blocker would not clash on macOS).
+    await new Promise((r) => blocker.listen(port, '127.0.0.1', () => r(undefined)));
     try {
       await assert.rejects(
         () => mod.startServer({
