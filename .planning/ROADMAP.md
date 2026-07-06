@@ -16,8 +16,16 @@
 - ✅ **v0.13 kodo bidireccional** — Phases 52-62 (shipped 2026-06-25)
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
+- 🚧 **v0.16 Hardening** — Phases 69-72 (in progress)
 
 ## Phases
+
+**v0.16 Hardening — remediación de la auditoría adversarial (4 olas por causa raíz, orden risk-graded):**
+
+- [ ] **Phase 69: Red y autenticación** - Bind seguro por defecto (`127.0.0.1`) + bearer en el carril no-webhook + límite de body pre-auth + errores 500 neutros + `sessionId` validado (Ola 1 — cierra la única exposición externa)
+- [ ] **Phase 70: Concurrencia y ciclo de vida de procesos** - `withStateLock` sobre los ~6 escritores + `acquireGsdLock` atómico + PID ownership + un zombi libera su slot de `max_parallel` (Ola 2 — la más delicada)
+- [ ] **Phase 71: Fiabilidad de entrega y backstop** - Cursor de polling solo avanza con dispatch confirmado + centinela de primer tick + `adopt` idempotente + backstop mecánico de "In Review" en `SessionEnd` (Ola 3)
+- [ ] **Phase 72: Higiene, DX y verdad documental** - Marcador `KODO_ORCHESTRATOR=1` + borrar `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + batch de config/BAJAS + pasada de README (Ola 4 — paralelizable)
 
 <details>
 <summary>✅ v0.15 «kodo up» — arranque unificado + onboarding dashboard-first (Phases 65-68) — SHIPPED 2026-07-03</summary>
@@ -102,126 +110,64 @@ Milestones anteriores (v0.2–v0.9): ver `milestones/v<X.Y>-ROADMAP.md`.
 
 Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
 Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
+Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 
-## Phase Details (v0.15 activo)
+## Phase Details (v0.16 activo)
 
-### Phase 65: Daemon Lifecycle Foundation
-
-**Goal**: El daemon puede correr como un proceso foreground supervisable — la base estable sobre la que se construye `kodo up`. Se refactoriza `startServer` a modo managed (sin `process.exit`, sin PID propio, con handler `'error'` para EADDRINUSE) y se centraliza el ciclo de vida en `src/daemon/`, todo sin alterar el `kodo start` legacy. Es la integración de mayor riesgo del milestone y por eso va primera (Pilar 1a).
-**Depends on**: Nothing (primera fase del milestone; construye sobre el codebase v0.14)
-**Requirements**: UP-04, UP-06
+### Phase 69: Red y autenticación
+**Goal**: Cerrar la superficie de red — el server deja de escuchar en toda interfaz por defecto y el carril no-webhook exige autenticación, sin filtrar datos ni errores a un atacante externo. Es la ola más barata y cierra la única exposición a atacantes externos (causa raíz T3), por eso va primera.
+**Depends on**: Nothing (primera fase del milestone; construye sobre el codebase v0.15 shipped)
+**Requirements**: NET-01, NET-02, NET-03, NET-04, NET-05, NET-06
 **Success Criteria** (what must be TRUE):
+  1. Desde otro nodo de la LAN, `GET /status` y `DELETE /sessions/:id` devuelven **401** sin `Authorization: Bearer <token>`; con el token de config responden normal, y el dashboard Ink lo lee de config y lo envía en cada petición. (NET-02)
+  2. El server bindea a `127.0.0.1` por defecto (inaccesible desde otra interfaz); poner `config.server.bind` a una IP tailscale lo expone **explícitamente**, y por ese carril el webhook de Plane sigue entrando con su HMAC intacto (topología multi-nodo documentada). (NET-01, NET-06)
+  3. Un POST con body de 2 MB se corta con **413** antes de autenticar; `/webhook` conserva HMAC y `/health` sigue abierto sin token. (NET-03, NET-02)
+  4. Un error 500 devuelve un mensaje **neutro** al cliente (el `err.message` solo va al log), y un `sessionId` con caracteres fuera de `/^[A-Za-z0-9_-]+$/` se rechaza antes de tocar el filesystem. (NET-04, NET-05)
+**Plans**: TBD
 
-  1. `kodo daemon run` arranca server + polling compuestos en UN proceso foreground que **bloquea** (sin auto-desvincularse) y se apaga limpio ante SIGTERM. (UP-04)
-  2. `kodo start` (server foreground legacy) se comporta exactamente igual que antes — cero regresión observable tras el refactor managed. (UP-06)
-  3. Bajo managed mode, una colisión de puerto (EADDRINUSE) o una config incompleta se reporta como error limpio **sin** `process.exit`/crash-loop (habilita el setup mode de Phase 68 y evita el chicken-and-egg del first-run). (UP-04)
-  4. El daemon escribe un único PID file `~/.kodo/kodo.pid`, distinto del `server.pid` legacy (prerequisito de la idempotencia de `kodo up`). (UP-04)
-
-**Plans**: 4/4 plans complete
-Plans:
-**Wave 1**
-
-- [x] 65-01-PLAN.md — Primitivas puras: módulo PID name-parametrizado (`kodo.pid`) + `providerUsesPolling` (Wave 1)
-- [x] 65-02-PLAN.md — Refactor `startServer({managed})` (4 puntos gateados) + golden de no-regresión de `kodo start` (Wave 1)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 65-03-PLAN.md — `src/daemon/lifecycle.js` + `run.js` (compose server+polling, un PID, teardown single-owner) (Wave 2)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 65-04-PLAN.md — `kodo daemon run` (hidden) + test de integración child-spawn foreground/SIGTERM (Wave 3)
-
-**Research/Spike note**: patrones bien documentados (los primitivos de `src/cli/polling.js`/`polling-daemon.js` son la fuente) — omitir research-phase, ejecutar directamente. Es la refactorización de mayor riesgo del milestone: verificar que `kodo start` legacy sigue intacto antes de construir cualquier capa encima. Evita Pitfalls 1, 3, 4, 5, 18.
-
-### Phase 66: `kodo up` + Stop/Status unificados + Homebrew
-
-**Goal**: Un solo comando `kodo up` arranca el daemon desacoplado en background y engancha el dashboard como visor; `stop`/`status` gestionan el daemon completo; distribuible por Homebrew con `brew services`. Cierra la promesa central de Pilar 1 (shippable standalone).
-**Depends on**: Phase 65 (requiere el foreground entrypoint `kodo daemon run` + `lifecycle.js` estables)
-**Requirements**: UP-01, UP-02, UP-03, UP-05, DIST-01, DIST-02, DIST-03
+### Phase 70: Concurrencia y ciclo de vida de procesos
+**Goal**: Hacer segura la concurrencia multiproceso sobre `state.json` y el ciclo de vida de PID/procesos — locks reales donde hoy hay escrituras a ciegas, ownership del PID antes de matar nada, y liberación del slot de `max_parallel` cuando una sesión muere (causas raíz T1 y T2). Es la ola más delicada: tocar locks exige tests de proceso real.
+**Depends on**: Phase 69 (secuencia risk-graded; Ola 1 cierra la exposición externa antes de tocar los locks delicados — sin acoplamiento de código directo)
+**Requirements**: CONC-01, CONC-02, CONC-03, CONC-04, CONC-05, CONC-06, CONC-07, CONC-08, CONC-09
 **Success Criteria** (what must be TRUE):
+  1. Un test que lanza **2 procesos concurrentes** contra el mismo repo verifica un solo `{acquired:true}`: `acquireGsdLock` es atómico (`flag:'wx'`, `EEXIST`→tomado) con `stealLock` vía tmp+rename, y dos `polling start` concurrentes no arrancan dos daemons (lock `O_EXCL`). (CONC-02, CONC-06)
+  2. Los ~6 escritores de `state.json` pasan por `withStateLock(fn)` (re-lee→muta→guarda bajo lockfile `O_EXCL` con retry) — sin escrituras perdidas bajo concurrencia — y el comentario falso "ÚNICO escritor" de `server.js:682` queda corregido en el mismo commit. (CONC-01)
+  3. Matar una sesión con `kill -9` → en el siguiente tick reconcile libera su slot: `state:'dead'` deriva `status:'idle'` (o el gate de `max_parallel` filtra por `alive`), y kodo vuelve a admitir sesiones en vez de quedar parado hasta 30 días. (CONC-03)
+  4. `teardown` solo borra `kodo.pid` si `payload.pid === process.pid` (el PID se escribe **post-bind**), y antes de un SIGKILL se compara `started_at` del payload con el arranque real (`ps -o lstart=`), abortando si no cuadra — kodo nunca mata un proceso ajeno. (CONC-04, CONC-05)
+  5. La migración v1→v2 escribe vía `writeFileAtomic`, el dedup de sesiones no-GSD es cross-proceso (lock por `task_id`), y la ubicación real de los worktrees queda verificada empíricamente con una sesión GSD viva y documentada (cierra M13). (CONC-07, CONC-08, CONC-09)
+**Plans**: TBD
 
-  1. `kodo up` arranca el daemon (server + polling) en background y abre el dashboard como **visor**; al cerrar el dashboard (`q` / Ctrl-C) el daemon **sigue corriendo** en background reaccionando a triggers (modelo persistente LOCKED). (UP-01, UP-02)
-  2. `kodo up` es idempotente: si el daemon ya corre, adjunta el dashboard al daemon existente **sin doble-spawn ni colisión de puerto**. (UP-03)
-  3. `kodo stop` tumba el daemon completo (server + polling) limpiamente y `kodo status` reporta running/stopped de forma determinista con salida `--json` scriptable. (UP-05)
-  4. `brew install kodo` (fórmula vía tap, `depends_on node` ≥20, sin bundlear runtime) instala kodo, y `brew services start kodo` lo registra como servicio del sistema invocando `kodo daemon run` (foreground) — **NUNCA `kodo up`** — arrancando al login y reiniciándose si crashea. (DIST-01, DIST-02)
-  5. En una plataforma sin el patrón detach/launchd (Windows), `kodo up` degrada a modo foreground documentado **sin crashear** (misma guardia que el daemon de polling). (DIST-03)
-
-**Plans**: 4/4 plans complete
-
-Plans:
-**Wave 1**
-
-- [x] 66-01-PLAN.md — `kodo up` orquestador + helpers (probePortInUse, waitForHealth, runUp) + guard win32 [UP-01/02/03, DIST-03]
-- [x] 66-02-PLAN.md — `stop`/`status` unificados daemon-first + `--json` byte-determinista [UP-05]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 66-03-PLAN.md — wiring cli.js (`up`/`stop`/`status`) + fórmula Homebrew (`service do` → `daemon run`) [UP-01/05, DIST-01/02]
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 66-04-PLAN.md — GATE MANUAL: spike real `brew services` + `kodo up` E2E (checkpoint:human-verify) [DIST-01/02, UP-01/02]
-
-**Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — el ciclo real de `brew services` en macOS (`brew install` → `brew services start` → `brew services list` → relogin → `brew services stop`) **no es unit-testable** (Pitfalls 6 y 9: launchd foreground trap + throttle). Requiere un spike de install real (validar el `opt_bin` absoluto en Apple Silicon `/opt/homebrew` vs Intel `/usr/local`) antes de mergear la fase. Evita Pitfalls 2, 5, 6, 7, 8, 9, 10, 17, 19.
-
-### Phase 67: Secrets Writer + Masked Input
-
-**Goal**: El operador puede introducir la API key del provider en un campo enmascarado que se persiste a `~/.kodo/.env` (0600) y que **NUNCA** se renderiza de vuelta ni cruza a `config.json` / `/status` / logs. Se separa de la UI de setup para poder testear el writer y el boundary en aislamiento antes de que el valor del key toque ningún path de render (Pilar 2a).
-**Depends on**: Phase 66 (build order LOCKED: Pilar 1 debe ser shippable antes de Pilar 2). Reusa el text-input editable en ink de Phase 63 (ya enviado) como base del campo enmascarado.
-**Requirements**: SETUP-03, SETUP-04
+### Phase 71: Fiabilidad de entrega y backstop
+**Goal**: Garantizar la entrega de dispatches y el cierre del ciclo de vida: el cursor de polling deja de saltarse issues cuyo dispatch no confirmó, y "In Review" gana un backstop mecánico que ya no depende de que el LLM lo haga (causas raíz T4/T5 — fire-and-forget donde hay obligación de entrega, y ciclo de vida delegado al LLM sin fallback).
+**Depends on**: Phase 70 (secuencia; Ola 3 reordena `SessionEnd` — mejor sobre los locks/reconcile de Ola 2 ya asentados)
+**Requirements**: DELIV-01, DELIV-02, DELIV-03, DELIV-04
 **Success Criteria** (what must be TRUE):
+  1. Simular un `launchWorkItem` que **rechaza** → el `updated_at` de ese issue NO se incorpora a `maxUpdatedAt` y el issue se reintenta en el siguiente tick (`await` + timeout); el webhook sigue fire-and-forget (Plane re-entrega). (DELIV-01)
+  2. El primer tick de polling distingue "cache ausente" de "primer tick observado" vía centinela — no re-dispara todo lo visto ni se salta issues nuevos. (DELIV-02)
+  3. `adopt` sobre una tarea ya adoptada (mismo `task_url`) **no crea un duplicado** — busca por `task_url` antes de `createTask`. (DELIV-03)
+  4. Matar una sesión sin que el LLM transicione la tarea → al `SessionEnd`, si la tarea sigue "In Progress" y la sesión terminó limpia, el hook la pasa a **"In Review"** y comenta "cierre automático"; la instrucción al LLM pasa a ser optimización, no única vía. (DELIV-04)
+**Plans**: TBD
 
-  1. El operador escribe la API key en un campo **enmascarado** (`•` por carácter) y se persiste a `~/.kodo/.env` con permisos `0600` vía un único writer `writeEnvVar` (atómico, `chmod 0600` **pre-rename**, parse-merge-write que no clobbea `GITHUB_TOKEN` ni otras keys). (SETUP-03)
-  2. El valor de la key NUNCA se renderiza de vuelta ni aparece en `config.json`, `/status` ni en los logs — verificado por un **grep test de higiene de fuente** (el valor no llega a `saveConfig` / `console.*` / `logger.*` / argv de `execFile`). (SETUP-03, boundary PERSIST-04)
-  3. El dashboard indica si la key **ya está configurada** (prueba de presencia en `.env`, sin revelar el valor: `[configurado]`) y avisa de reiniciar el daemon tras cambiar la key (sin hot-reload). (SETUP-04)
-
-**Plans**: 3/3 plans complete
-
-- [x] 67-01-PLAN.md
-- [x] 67-02-PLAN.md
-- [x] 67-03-PLAN.md
-
-**UI hint**: yes
-**Research/UAT note**: patrones claros de codebase (`writeEnvVar` es espejo directo del chmod-pre-rename de `polling-daemon.js`; el masked input es una extensión render-only del text-input de Phase 63) — omitir research-phase. UAT crítico: el **grep de higiene** post-implementación (el valor del key no aparece en ningún path de render/log/argv, los 5 vectores de fuga del Pitfall 11). Evita Pitfalls 11, 13, 14, 16.
-
-### Phase 68: Dashboard Setup Mode + CFGF-03 + First-Run
-
-**Goal**: El primer arranque sin configuración entra al dashboard en **modo setup** (en lugar de salir con `exit 1`), donde el operador edita provider/base_url/workspace_slug (+ la key enmascarada de Phase 67) y arranca kodo de principio a fin; `kodo config` comparte la misma fontanería de escritura. Cierra el objetivo de onboarding dashboard-first (Pilar 2b).
-**Depends on**: Phase 65 (managed mode sin `process.exit` para que el first-run sirva el setup mode), Phase 66 (`kodo up` debe existir para cablear la detección de first-run) y Phase 67 (masked input + `writeEnvVar`).
-**Requirements**: SETUP-01, SETUP-02, SETUP-05
+### Phase 72: Higiene, DX y verdad documental
+**Goal**: Saldar la higiene mecánica y la deriva documental: quitar features muertas, blindar el auto-commit del stop hook contra commits fantasma, mover los efectos de cierre al hook correcto, endurecer la config, aplicar el batch de BAJAS y reconciliar el README con la realidad del código. Es la ola paralelizable y de menor riesgo.
+**Depends on**: Phase 71 (Ola 4 es paralelizable con cualquiera, pero se coloca al final: HYG-04 mueve efectos a `SessionEnd`, el mismo hook que DELIV-04 de Ola 3 reordena — secuenciar evita conflictos de merge)
+**Requirements**: HYG-01, HYG-02, HYG-03, HYG-04, HYG-05, HYG-06, HYG-07, HYG-08
 **Success Criteria** (what must be TRUE):
+  1. El stop hook solo auto-commitea si `KODO_ORCHESTRATOR=1` está presente (inyectada al lanzar el workspace orquestador) y con pathspec completo (`git commit -- .claude/skills/kodo-orchestrate/`) — se acaban los commits fantasma por turno sobre lo que el dev tuviera staged. (HYG-01)
+  2. `kodo up --url` y `startHealthLoop` **ya no existen** (borrados, no cableados) y el README no los promete; el coloreado de workspace, notify y nudge se disparan en `SessionEnd`, no en `Stop`. (HYG-02, HYG-03, HYG-04)
+  3. El batch de endurecimiento de config está aplicado (rechazo de `__proto__|constructor|prototype`, chmod 0600 si hay `*_secret`, `split` con `join` del resto, B5, B7) y el dashboard hace strip de `\x1b` en el contenido externo (comentarios). (HYG-05, HYG-07)
+  4. El batch de BAJAS mecánicas (B1, B2, B3, B4, B8, B9, B12 + M12 `[-–—]` en roadmap) queda aplicado en diffs de 1–5 líneas. (HYG-06)
+  5. El README refleja la realidad: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados y `--dangerously-skip-permissions` documentado en sesiones GSD. (HYG-08)
+**Plans**: TBD
 
-  1. En el primer arranque sin configuración (no existe `config.json` **o** falta la API key), `kodo up` sirve el dashboard en **modo setup** — pantalla guiada — **sin ningún `exit(1)`**. (SETUP-01)
-  2. El operador edita el `provider` activo, `base_url` y `workspace_slug` desde el dashboard y se persisten a `~/.kodo/config.json` (cierra CFGF-03 en su parte no-secreta). (SETUP-02)
-  3. El wizard `kodo config` (readline, headless) escribe a través de la **MISMA fontanería** que el dashboard (`saveConfig` / `saveProjects` / `writeEnvVar` como únicos escritores) — el camino headless y el TUI no divergen. (SETUP-05)
-  4. Tras completar el setup, la transición setup→running muestra un aviso de reinicio **honesto** (sin hot-reload, coherente con v0.14). (SETUP-02; apoya SETUP-04)
-
-**Plans**: 3/3 plans complete
-Plans:
-**Wave 1**
-
-- [x] 68-01-PLAN.md — Detección first-run: helper puro `needsSetup()` (existsSync-first, held-out Pitfall 12) + rama pre-spawn de `runUp` (D-02, no spawn en first-run) [SETUP-01]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 68-02-PLAN.md — Modo `setup` en el dashboard: 16 constantes `SETUP_*` + state-machine lineal 4 pasos (provider/base_url/workspace_slug/apikey enmascarada) + `renderSetupOverlay` + wiring + degradación non-TTY (D-04/D-05/D-08/D-13) [SETUP-01, SETUP-02]
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 68-03-PLAN.md — Rewire mínimo de `kodo config` (únicos escritores, sin captura del valor) + higiene single-writer + re-verificación 5 sinks + **GATE MANUAL** UAT máquina limpia (D-10/D-11/D-12) [SETUP-05]
-
-**UI hint**: yes
-**Spike/UAT note**: **GATE MANUAL OBLIGATORIO** — UAT en **máquina limpia** (sin `config.json` ni `.env`): verificar que `kodo up` sirve el setup mode sin ningún `exit(1)` y que la transición setup→running es honesta (leer el valor recién escrito directamente del archivo, no vía `loadEnvFile` no-override — Pitfall 15). Es la fase de mayor complejidad de UX. Evita Pitfalls 12, 15, 16.
-
-## Progreso (v0.15)
+## Progreso (v0.16)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 65. Daemon Lifecycle Foundation | 4/4 | Complete    | 2026-07-02 |
-| 66. `kodo up` + Stop/Status + Homebrew | 7/4 | Complete    | 2026-07-02 |
-| 67. Secrets Writer + Masked Input | 3/3 | Complete    | 2026-07-02 |
-| 68. Setup Mode + CFGF-03 + First-Run | 3/3 | Complete    | 2026-07-02 |
+| 69. Red y autenticación | 0/? | Not started | - |
+| 70. Concurrencia y ciclo de vida de procesos | 0/? | Not started | - |
+| 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
+| 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 
 ## Backlog
 
@@ -229,4 +175,6 @@ Plans:
 
 _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional** (shipped 2026-06-25) bajo la arquitectura "una fontanería, tres consumidores"._
 
-**Deferred candidates (futuros milestones):** hot-reload de config en server/daemon (CFGF-01) · `kodo config` CLI no-lineal compartiendo fontanería con el editor del dashboard (CFGF-02) · edición TUI de campos estructurales del provider `base_url`/`workspace_slug`/`api_key_env`/provider activo (CFGF-03) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time.
+**Deferido a v2 (trackeado en REQUIREMENTS.md v0.16):** `Retry-After` en 429 del cliente Plane (PLANE-F1/M7) · filtro server-side por label kodo en polling (PLANE-F2/M8) · paginación del listado de work items (PLANE-F3/M9) · reconcile asíncrono fuera del event loop (PERF-F1/M21 — **medir antes de arreglar**).
+
+**Deferred candidates (futuros milestones):** hot-reload de config en server/daemon (CFGF-01) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time.

@@ -72,17 +72,49 @@ Diferidos. Trackeados pero fuera del roadmap actual.
 
 ## Traceability
 
-Which phases cover which requirements. Updated during roadmap creation.
+Which phases cover which requirements. Updated during roadmap creation (2026-07-06).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pendiente de roadmap) | — | — |
+| NET-01 | Phase 69 | Pending |
+| NET-02 | Phase 69 | Pending |
+| NET-03 | Phase 69 | Pending |
+| NET-04 | Phase 69 | Pending |
+| NET-05 | Phase 69 | Pending |
+| NET-06 | Phase 69 | Pending |
+| CONC-01 | Phase 70 | Pending |
+| CONC-02 | Phase 70 | Pending |
+| CONC-03 | Phase 70 | Pending |
+| CONC-04 | Phase 70 | Pending |
+| CONC-05 | Phase 70 | Pending |
+| CONC-06 | Phase 70 | Pending |
+| CONC-07 | Phase 70 | Pending |
+| CONC-08 | Phase 70 | Pending |
+| CONC-09 | Phase 70 | Pending |
+| DELIV-01 | Phase 71 | Pending |
+| DELIV-02 | Phase 71 | Pending |
+| DELIV-03 | Phase 71 | Pending |
+| DELIV-04 | Phase 71 | Pending |
+| HYG-01 | Phase 72 | Pending |
+| HYG-02 | Phase 72 | Pending |
+| HYG-03 | Phase 72 | Pending |
+| HYG-04 | Phase 72 | Pending |
+| HYG-05 | Phase 72 | Pending |
+| HYG-06 | Phase 72 | Pending |
+| HYG-07 | Phase 72 | Pending |
+| HYG-08 | Phase 72 | Pending |
 
 **Coverage:**
 - v0.16 requirements: 27 total
-- Mapped to phases: 0
-- Unmapped: 27 ⚠️ (roadmap pendiente)
+- Mapped to phases: 27 ✓ (Phase 69: 6 · Phase 70: 9 · Phase 71: 4 · Phase 72: 8)
+- Unmapped: 0
+
+**Phase map:**
+- **Phase 69 Red y autenticación (Ola 1):** NET-01..06
+- **Phase 70 Concurrencia y ciclo de vida de procesos (Ola 2):** CONC-01..09
+- **Phase 71 Fiabilidad de entrega y backstop (Ola 3):** DELIV-01..04
+- **Phase 72 Higiene, DX y verdad documental (Ola 4):** HYG-01..08
 
 ---
 *Requirements defined: 2026-07-05*
-*Last updated: 2026-07-05 after initial definition (milestone v0.16)*
+*Last updated: 2026-07-06 — traceability mapeada a Phases 69-72 (roadmap v0.16 creado, 27/27 cobertura)*
