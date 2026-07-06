@@ -168,14 +168,35 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
  *   `phase_id` and `brief` are persisted on the Session record for the hook
  *   SessionStart to consume via findSession().
  */
+/**
+ * ¿Cuenta esta sesión contra el gate de `max_parallel`? (CONC-03 / D-05).
+ *
+ * Solo las sesiones `status === 'running'` Y `alive !== false` ocupan un slot. Un
+ * zombi que `reconcileTick` marcó `alive:false` (porque su TAB de cmux murió — la
+ * TAB, no el proceso: D-06b) deja de contar, liberando la fuga de capacidad más
+ * dañina de la auditoría (A4: un slot retenido hasta 30 días).
+ *
+ * `!== false` (no `=== true`) es DELIBERADO: las sesiones legacy sin el campo
+ * `alive` (pre-v0.9) siguen contando — cero regresión. El gate solo LEE `alive`;
+ * el ÚNICO escritor de ese campo sigue siendo `reconcileTick` (invariante v0.9/v0.10).
+ *
+ * @param {{ status?: string, alive?: boolean }} session
+ * @returns {boolean}
+ */
+export function isSchedulable(session) {
+  return session.status === 'running' && session.alive !== false;
+}
+
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
 
   await initRegistry();
   const provider = getProvider(config.provider);
 
-  // Check max parallel sessions
-  const active = listSessions().filter((s) => s.status === 'running');
+  // Check max parallel sessions (CONC-03 / D-05): cuenta solo sesiones vivas
+  // (ver isSchedulable). El gate solo LEE `alive`; reconcile sigue siendo el ÚNICO
+  // escritor de ese campo (invariante v0.9/v0.10).
+  const active = listSessions().filter(isSchedulable);
   if (active.length >= config.claude.max_parallel) {
     throw new Error(
       `Max parallel sessions (${config.claude.max_parallel}) reached. ` +
