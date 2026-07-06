@@ -6,14 +6,14 @@ current_phase: 69
 current_phase_name: Red y autenticación
 status: executing
 stopped_at: Completed 69-01-PLAN.md
-last_updated: "2026-07-06T08:33:41.562Z"
+last_updated: "2026-07-06T08:41:09.809Z"
 last_activity: 2026-07-06
 last_activity_desc: Phase 69 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 69 (Red y autenticación) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-06 — Phase 69 execution started
 
@@ -109,7 +109,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** None
 
-- **Last session:** 2026-07-06T08:33:24.505Z
+- **Last session:** 2026-07-06T08:40:49.321Z
 - **Stopped at:** Completed 69-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -131,6 +131,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | — | — | — | (sin planes ejecutados aún en v0.16) |
 | Phase 69 P01 | 3min | 2 tasks | 4 files |
 | Phase 69 P03 | 5min | 2 tasks | 6 files |
+| Phase 69 P04 | 18min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -140,3 +141,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Roadmap v0.16]: Decisiones de producto del mantenedor (2026-07-05) ya horneadas en requirements — default bind `127.0.0.1` (NET-01), backstop mecánico de In Review aceptado (DELIV-04), `up --url`/`startHealthLoop` borrados no cableados (HYG-02/03).
 - [Phase ?]: [69-01] Auth primitives en src/server/auth.js (parseBearer, timingSafeTokenEqual length-guarded, isOpenRoute default-deny, getOrCreateApiToken CSPRNG 64-hex 0600, MAX_BODY_BYTES) — cero deps npm nuevas.
 - [Phase ?]: [69-01] config.server.bind default 127.0.0.1 aditivo; configs v0.15 migradas sin la key siguen cargando (Plan 02 resuelve con ?? '127.0.0.1').
+- [Phase ?]: [69-04] sessionId path-traversal guard: HARD reject (exit 2) at kodo logs CLI edge, SOFT non-throwing guard in logger.js (disk sink off) para preservar el reconcile loop — allowlist /^[A-Za-z0-9_-]+/ (NET-05, D-10)

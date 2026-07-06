@@ -14,8 +14,8 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [x] **NET-02**: El carril no-webhook (`GET /status`, `/logs`, `/comments/:id`, `DELETE /sessions/:id`) exige `Authorization: Bearer <token>` — 401 sin token; el dashboard lee el token de config y lo envía; `/webhook` conserva HMAC y `/health` queda abierto (M2)
 - [ ] **NET-03**: `readBody` corta a 1 MB pre-auth → 413 (M1)
 - [ ] **NET-04**: Los errores 500 devuelven mensaje neutro al cliente; `err.message` solo al log (B10)
-- [ ] **NET-05**: `sessionId` validado con `/^[A-Za-z0-9_-]+$/` antes de tocar filesystem (B6)
-- [ ] **NET-06**: La topología multi-nodo está documentada — bind a IP tailscale + ACL para recibir el webhook de Plane desde otro nodo (decisión 2026-07-05)
+- [x] **NET-05**: `sessionId` validado con `/^[A-Za-z0-9_-]+$/` antes de tocar filesystem (B6)
+- [x] **NET-06**: La topología multi-nodo está documentada — bind a IP tailscale + ACL para recibir el webhook de Plane desde otro nodo (decisión 2026-07-05)
 
 ### Concurrencia y ciclo de vida de procesos (Ola 2 — causas raíz T1, T2)
 
@@ -80,8 +80,8 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | NET-02 | Phase 69 | Complete |
 | NET-03 | Phase 69 | Pending |
 | NET-04 | Phase 69 | Pending |
-| NET-05 | Phase 69 | Pending |
-| NET-06 | Phase 69 | Pending |
+| NET-05 | Phase 69 | Complete |
+| NET-06 | Phase 69 | Complete |
 | CONC-01 | Phase 70 | Pending |
 | CONC-02 | Phase 70 | Pending |
 | CONC-03 | Phase 70 | Pending |
