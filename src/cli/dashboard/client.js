@@ -31,9 +31,11 @@
 // debe distinguir 404 ("task not found") de 5xx/red ("error fetching comments") (D-07 crítico).
 
 /**
- * Resultado discriminado de `fetchStatus` (D-07).
+ * Resultado discriminado de `fetchStatus` (D-07). Phase 69 (NET-02, D-08): el fallo puede llevar
+ * un `code:'unauthorized'` ADITIVO cuando el server responde 401 (carril autenticado) — App.js lo
+ * usa para pintar el banner accionable en vez de una degradación genérica.
  *
- * @typedef {{ ok: true, data: any } | { ok: false, error: string }} FetchStatusResult
+ * @typedef {{ ok: true, data: any } | { ok: false, error: string, code?: 'unauthorized' }} FetchStatusResult
  */
 
 /**
@@ -49,7 +51,14 @@
 export async function fetchStatus(baseUrl, fetchFn = globalThis.fetch, signal) {
   try {
     const res = await fetchFn(`${baseUrl}/status`, { signal });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      // Phase 69 Plan 03 (NET-02, D-08): el 401 del carril autenticado es DISCRIMINABLE — se
+      // añade el campo ADITIVO `code:'unauthorized'` (espejo del `code` de fetchComments, sin
+      // cambio de firma). App.js lo lee para pintar el banner "no autorizado" accionable en vez
+      // de colapsarlo a una degradación genérica. Cualquier otro no-ok (5xx/4xx) queda como antes.
+      if (res.status === 401) return { ok: false, error: `HTTP ${res.status}`, code: 'unauthorized' };
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
     const data = await res.json(); // puede lanzar (JSON corrupto) → cae al catch (Pitfall 12)
     if (!Array.isArray(data.sessions)) return { ok: false, error: 'bad shape' };
     return { ok: true, data };

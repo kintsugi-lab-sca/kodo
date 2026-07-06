@@ -73,6 +73,27 @@ export function resolveBaseUrl({ url, loadConfig, defaultConfig = DEFAULT_CONFIG
 }
 
 /**
+ * Phase 69 Plan 03 (NET-02, D-07): envuelve un `fetch` para que TODA request lleve el bearer que
+ * el server ahora exige en el carril no-webhook. Helper PURO y testeable (sin ink/TTY): fusiona
+ * `Authorization: Bearer <token>` sobre los headers del caller, preservando el resto de `opts`
+ * (method DELETE del dismiss, AbortSignal de la cancelación del poll). Se lee el token UNA vez y se
+ * pasa el fetch envuelto como el `fetchFn` prop de App; como App ya rutea ese prop a
+ * fetchStatus/fetchComments/fetchLogs/dismissSession, esta única inyección autentica las cuatro
+ * requests SIN tocar ninguna firma de client.js (D-07).
+ *
+ * PERSIST-04 / T-69-08: el token viaja SOLO en el header saliente — jamás a un `<Text>`/render/log.
+ *
+ * @param {string} token - bearer leído de `process.env.KODO_API_TOKEN` (~/.kodo/.env).
+ * @param {typeof globalThis.fetch} [base] - fetch base (inyectable para tests). Default `globalThis.fetch`.
+ * @returns {typeof globalThis.fetch}
+ */
+export function makeAuthedFetch(token, base = globalThis.fetch) {
+  // @ts-ignore — la shape (url, opts) es la que consume client.js; el merge preserva method/signal.
+  return (url, opts = {}) =>
+    base(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+}
+
+/**
  * Lanza el dashboard TUI de kodo.
  *
  * @param {object} [deps] - Dependencias inyectables (DI para testabilidad).
@@ -242,6 +263,12 @@ export async function runDashboard(deps = {}) {
 
   const app = render(createElement(App, {
     baseUrl,
+    // Phase 69 Plan 03 (NET-02, D-07): fetchFn AUTENTICADO. El token se lee UNA vez de
+    // process.env.KODO_API_TOKEN (populado por loadEnvFile al importar config.js) y se envuelve en
+    // makeAuthedFetch → App rutea este único fetchFn a fetchStatus/fetchComments/fetchLogs/
+    // dismissSession, autenticando las CUATRO requests sin cambiar ninguna firma de client.js. El
+    // token viaja SOLO en el header Authorization (PERSIST-04/T-69-08 — nunca a render/log).
+    fetchFn: makeAuthedFetch(process.env.KODO_API_TOKEN ?? ''),
     // Phase 37 D-01: fire-and-forget al socket cmux. runFocus es never-throws (Plan 01),
     // App.js maneja el discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el
     // lifecycle de runDashboard — ink sigue montado durante toda la invocación (~50ms).
