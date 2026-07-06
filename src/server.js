@@ -8,6 +8,7 @@ import { listSessions, listHistory, removeSession, loadState, saveState } from '
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createDismissHandler } from './server/dismiss.js';
+import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken } from './server/auth.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -467,14 +468,43 @@ export async function startServer(opts = {}) {
     process.exit(1);
   }
 
+  // NET-02 (D-02/D-04): obtain the bearer secret — auto-generate + 0600-persist on
+  // first boot. getOrCreateApiToken throws { code:'KODO_TOKEN_WRITE_FAILED' } if the
+  // persist fails; let it propagate (never start with auth silently disabled). The
+  // value never leaves this closure — only a compare against the request token.
+  const TOKEN = getOrCreateApiToken();
+
   const server = createServer(async (req, res) => {
-    if (req.method === 'GET' && req.url === '/health') {
+    // NET-02 (Pitfall 2): parse the URL ONCE. A `?token=` on the HTML routes makes
+    // req.url become '/?token=...', which no exact `req.url === '/x'` comparison would
+    // match — so every route decision below keys off `pathname`, never raw req.url.
+    const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+
+    // NET-02 default-deny guard (D-04, fail-closed): every route except the OPEN
+    // allowlist (GET /health, POST /webhook) requires a valid bearer BEFORE any route
+    // branch runs. The two HTML routes read the candidate from ?token= (a browser
+    // navigation cannot send an Authorization header, D-05); every other route reads
+    // it from the Authorization header. A future route with no explicit branch stays
+    // protected. Neutral 401 body — never leak err detail or the HTML shell.
+    if (!isOpenRoute(req.method, pathname)) {
+      const isHtmlRoute = req.method === 'GET' && (pathname === '/' || pathname === '/dashboard');
+      const candidate = isHtmlRoute
+        ? searchParams.get('token')
+        : parseBearer(req.headers['authorization']);
+      if (!timingSafeTokenEqual(candidate, TOKEN)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+    }
+
+    if (req.method === 'GET' && pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/status') {
+    if (req.method === 'GET' && pathname === '/status') {
       const sessions = listSessions();
       let pending = [];
       if (Date.now() - pendingCache.ts < PENDING_CACHE_TTL_MS) {
@@ -552,14 +582,14 @@ export async function startServer(opts = {}) {
       return;
     }
 
-    if (req.method === 'GET' && req.url === '/logs') {
+    if (req.method === 'GET' && pathname === '/logs') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ logs: getLogBuffer() }));
       return;
     }
 
-    if (req.method === 'GET' && req.url?.startsWith('/comments/')) {
-      const taskId = decodeURIComponent(req.url.slice('/comments/'.length));
+    if (req.method === 'GET' && pathname.startsWith('/comments/')) {
+      const taskId = decodeURIComponent(pathname.slice('/comments/'.length));
       try {
         const session = listSessions().find((s) => s.task_id === taskId)
           || listHistory().find((s) => s.task_id === taskId);
@@ -586,14 +616,14 @@ export async function startServer(opts = {}) {
       return;
     }
 
-    if (req.method === 'DELETE' && req.url?.startsWith('/sessions/')) {
+    if (req.method === 'DELETE' && pathname.startsWith('/sessions/')) {
       // Phase 42 (DISMISS-01): thin adapter over the pure dismiss handler. The
       // handler does the 409 alive guard (authoritative TOCTOU re-check, D-07/D-08),
       // delegates sanitization to doctor.execute({taskId, fix:true}), and synthesizes
       // the actions[] body. decodeURIComponent is RETAINED (T-39-01 path-traversal
       // control, symmetric to the client's encodeURIComponent). dismiss is
       // never-throws by construction — no try/catch needed here.
-      const taskId = decodeURIComponent(req.url.slice('/sessions/'.length));
+      const taskId = decodeURIComponent(pathname.slice('/sessions/'.length));
       // WR-02: rechazar antes de llegar al handler si el segmento está vacío
       // (p.ej. DELETE /sessions/ desde curl o cliente externo).
       if (!taskId) {
@@ -607,13 +637,13 @@ export async function startServer(opts = {}) {
       return;
     }
 
-    if (req.method === 'GET' && (req.url === '/' || req.url === '/dashboard')) {
+    if (req.method === 'GET' && (pathname === '/' || pathname === '/dashboard')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(dashboardHtml());
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/webhook') {
+    if (req.method === 'POST' && pathname === '/webhook') {
       try {
         const rawBody = await readBody(req);
         console.log(`[kodo] Webhook received: ${rawBody.slice(0, 200)}`);
