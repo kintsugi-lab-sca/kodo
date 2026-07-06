@@ -533,11 +533,23 @@ export async function startServer(opts = {}) {
   // value never leaves this closure — only a compare against the request token.
   const TOKEN = getOrCreateApiToken();
 
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req, res) => {
     // NET-02 (Pitfall 2): parse the URL ONCE. A `?token=` on the HTML routes makes
     // req.url become '/?token=...', which no exact `req.url === '/x'` comparison would
     // match — so every route decision below keys off `pathname`, never raw req.url.
-    const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+    // CR-01: parse defensively — Node's HTTP parser accepts request targets that
+    // WHATWG-URL rejects (e.g. absolute-form `GET http://[ HTTP/1.1`), so an
+    // unguarded `new URL()` threw synchronously inside the async handler →
+    // unhandled rejection → daemon crash, PRE-auth. Malformed target ⇒ neutral 400.
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(req.url, 'http://localhost');
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'bad request' }));
+      return;
+    }
+    const { pathname, searchParams } = parsedUrl;
 
     // NET-02 default-deny guard (D-04, fail-closed): every route except the OPEN
     // allowlist (GET /health, POST /webhook) requires a valid bearer BEFORE any route
@@ -733,6 +745,24 @@ export async function startServer(opts = {}) {
 
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found' }));
+  };
+
+  // CR-01: top-level error boundary. Any synchronous throw or rejected await that
+  // escapes a route branch becomes a neutral 500 instead of an unhandled rejection
+  // that kills the long-lived daemon (Node default --unhandled-rejections=throw).
+  // NET-04 hygiene: err.message goes to the log only, never to the response body.
+  const server = createServer(async (req, res) => {
+    try {
+      await handleRequest(req, res);
+    } catch (err) {
+      console.error(`[kodo] unhandled handler error: ${err?.message}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'internal error' }));
+      } else {
+        res.end();
+      }
+    }
   });
 
   if (opts.managed) {
