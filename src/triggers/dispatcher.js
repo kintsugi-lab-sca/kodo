@@ -448,7 +448,14 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   let dispatchLockToken = null;
   if (!gsdMode) {
     dispatchLockPath = join(dispatchLockDir, `dispatch-${task.id}.lock`);
-    const held = acquireLockFn(dispatchLockPath, { retries: 0 });
+    // WR-02: the dedup lock is held across `await launchWorkItemFn` (provider +
+    // cmux round-trips) which can exceed the primitive's 10s default TTL. With a
+    // 10s TTL a duplicate arriving mid-launch would see the lock as TTL-stale,
+    // steal it, and DOUBLE-LAUNCH the same task_id. Give it a TTL that
+    // comfortably exceeds the worst-case launch so an in-flight launch is never
+    // TTL-stolen, while a genuinely-crashed holder is still eventually reclaimed.
+    // Keep `retries:0` so a real concurrent duplicate returns already_active now.
+    const held = acquireLockFn(dispatchLockPath, { retries: 0, ttlMs: 120_000 });
     if (!held) {
       console.log(`[kodo:dispatch] Ignored — ${task.ref} already dispatching (cross-process)`);
       return { action: 'already_active' };
