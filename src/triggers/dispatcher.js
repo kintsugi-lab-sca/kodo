@@ -1,12 +1,14 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { getProvider } from '../providers/registry.js';
-import { loadConfig, loadProjects } from '../config.js';
+import { loadConfig, loadProjects, KODO_DIR } from '../config.js';
 import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js';
 import { listSessions, removeSession, computeWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
+import { acquireLock, releaseLock } from '../session/state-lock.js';
 import * as cmux from '../cmux/client.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
@@ -27,6 +29,9 @@ const inFlight = new Set();
  *   resolveProjectPathFn?: (task: import('../interface.js').TaskItem, projects: Record<string, any>) => string,
  *   resolvePhaseFn?: (params: { projectPath: string, task: object }) => import('../gsd/resolver.js').ResolveResult,
  *   existsSyncFn?: (path: string) => boolean,
+ *   acquireLockFn?: (lockPath: string, opts?: object) => ({ token: string } | null),
+ *   releaseLockFn?: (lockPath: string, token: string) => void,
+ *   dispatchLockDir?: string,
  * }} DispatchDeps
  */
 
@@ -53,6 +58,13 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   // Phase 18 D-05: parametrizable for test hygiene (precedente: la mayoría
   // de IO en dispatch ya está parametrizado vía DispatchDeps).
   const existsSyncFn = deps.existsSyncFn || existsSync;
+  // Phase 70 (CONC-08/D-13): per-task_id cross-process dedup lock on the NON-GSD
+  // lane. Reuses the Plan-01 primitive (state-lock.js) — NOT a new lock impl.
+  // Mirrors the GSD lane's acquireGsdLockFn/releaseGsdLockFn DI. The lock dir
+  // defaults to `~/.kodo/locks` (KODO_DIR) and is injectable for HOME-isolated tests.
+  const acquireLockFn = deps.acquireLockFn || acquireLock;
+  const releaseLockFn = deps.releaseLockFn || releaseLock;
+  const dispatchLockDir = deps.dispatchLockDir || join(KODO_DIR, 'locks');
 
   // 1. Resolve task via provider
   const provider = getProviderFn(event.provider);
@@ -420,6 +432,30 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   }
 
   // 5. Launch
+  //
+  // Phase 70 (CONC-08/D-13): per-task_id cross-process dedup lock on the NON-GSD
+  // lane. The in-process `inFlight` guard (step 3) only dedups within ONE process;
+  // two processes (rapid webhook + poll) can both pass it and launch the same
+  // non-GSD task twice. We mirror that guard cross-process with a per-task_id
+  // file lock via the Plan-01 primitive: acquire BEFORE the launch, release in
+  // the existing finally. `retries:0` makes a concurrent loser return null
+  // IMMEDIATELY (never wait for the winner to finish, which would then launch a
+  // duplicate) — the exact cross-process analog of the in-process early return.
+  //
+  // GSD lane is UNAFFECTED (WT-03 invariant): GSD tasks are already serialized by
+  // acquireGsdLockFn on projectPath (step 3b); this lock is ONLY for `!gsdMode`.
+  let dispatchLockPath = null;
+  let dispatchLockToken = null;
+  if (!gsdMode) {
+    dispatchLockPath = join(dispatchLockDir, `dispatch-${task.id}.lock`);
+    const held = acquireLockFn(dispatchLockPath, { retries: 0 });
+    if (!held) {
+      console.log(`[kodo:dispatch] Ignored — ${task.ref} already dispatching (cross-process)`);
+      return { action: 'already_active' };
+    }
+    dispatchLockToken = held.token;
+  }
+
   inFlight.add(task.id);
   try {
     const launchOpts = {
@@ -456,5 +492,11 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     throw err;
   } finally {
     inFlight.delete(task.id);
+    // Phase 70 (D-13): release the per-task_id dedup lock (idempotent, never throws).
+    if (dispatchLockToken) {
+      try { releaseLockFn(dispatchLockPath, dispatchLockToken); } catch {
+        // silent — release is ownership-checked + never-throws in the primitive
+      }
+    }
   }
 }

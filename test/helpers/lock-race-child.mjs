@@ -140,6 +140,72 @@ async function main() {
     process.exit(0);
   }
 
+  // Dispatch-dedup mode (Plan 04, CONC-08/D-13): each child calls dispatchTrigger
+  // for the SAME non-GSD task_id against an isolated HOME (KODO_DIR → sandbox), so
+  // the per-task_id lock at `~/.kodo/locks/dispatch-<task_id>.lock` is shared. The
+  // stubbed launchWorkItemFn appends ONE line per real launch to `launches.log` and
+  // then HOLDS the lock (sleep --hold ms) so a concurrent loser's retries:0 attempt
+  // lands during the hold → `already_active`. Verdicts: `launched` (one winner) vs
+  // `already_active`. Parent asserts exactly one launch line — never which wins.
+  if (args.kind === 'dispatch') {
+    // dispatchTrigger logs progress to stdout via console.log; silence it so the
+    // ONLY thing on this child's stdout is its verdict (the parent parses stdout).
+    console.log = () => {};
+    let verdict = 'error';
+    try {
+      const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
+      const { appendFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const launchLog = join(args.sandbox, 'launches.log');
+      const holdMs = Number(args.hold || 500);
+      const taskId = args.task;
+      const fakeProvider = {
+        getTask: async () => ({
+          id: taskId,
+          ref: 'KL-' + taskId,
+          title: 'race task',
+          description: '',
+          labels: ['kodo'], // non-GSD: kodo label, no gsd flag
+          projectId: 'p',
+          projectName: 'P',
+          groups: [],
+          url: '',
+          priority: 'medium',
+        }),
+      };
+      const res = await dispatchTrigger(
+        { taskRef: 'KL-' + taskId, action: 'state_change', provider: 'test', raw: {} },
+        {},
+        {
+          getProviderFn: () => fakeProvider,
+          launchWorkItemFn: async () => {
+            // Record the real launch (cross-process marker), then hold the lock so
+            // the concurrent sibling's single acquire attempt lands during the hold.
+            appendFileSync(launchLog, `${process.pid}\n`);
+            const sab = new Int32Array(new SharedArrayBuffer(4));
+            Atomics.wait(sab, 0, 0, holdMs);
+            return {
+              workspace_ref: 'w', session_id: 's', task_id: taskId, task_ref: 'KL',
+              provider: 'test', project_id: 'p', summary: 'race', status: 'running',
+              started_at: new Date().toISOString(), project_path: '/tmp/x',
+            };
+          },
+          listSessionsFn: () => [],
+          listWorkspacesFn: async () => '',
+          removeSessionFn: () => {},
+          // Return null → no projectPath → skip worktree collision check; keeps the
+          // path minimal (the dedup lock is what we exercise here).
+          resolveProjectPathFn: () => null,
+        },
+      );
+      verdict = res.action;
+    } catch (e) {
+      verdict = 'error:' + (e && e.message ? e.message : String(e));
+    }
+    process.stdout.write(verdict);
+    process.exit(0);
+  }
+
   let acquired = false;
   try {
     if (args.kind === 'state') {
