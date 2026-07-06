@@ -126,7 +126,7 @@ Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
   3. Un POST con body de 2 MB se corta con **413** antes de autenticar; `/webhook` conserva HMAC y `/health` sigue abierto sin token. (NET-03, NET-02)
   4. Un error 500 devuelve un mensaje **neutro** al cliente (el `err.message` solo va al log), y un `sessionId` con caracteres fuera de `/^[A-Za-z0-9_-]+$/` se rechaza antes de tocar el filesystem. (NET-04, NET-05)
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -137,7 +137,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 69-02-PLAN.md — Server wiring: default-deny bearer middleware + bind host + 1 MB→413 pre-auth + neutral 500 + web-dashboard `?token=` (Wave 2, depends on 69-01)
+- [x] 69-02-PLAN.md — Server wiring: default-deny bearer middleware + bind host + 1 MB→413 pre-auth + neutral 500 + web-dashboard `?token=` (Wave 2, depends on 69-01)
 
 ### Phase 70: Concurrencia y ciclo de vida de procesos
 
@@ -187,7 +187,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 69. Red y autenticación | 3/4 | In Progress|  |
+| 69. Red y autenticación | 4/4 | Complete   | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 0/? | Not started | - |
 | 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |

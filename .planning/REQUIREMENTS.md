@@ -12,8 +12,8 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 
 - [x] **NET-01**: El server bindea a `127.0.0.1` por defecto; `config.server.bind` permite exponerlo explícitamente (A1)
 - [x] **NET-02**: El carril no-webhook (`GET /status`, `/logs`, `/comments/:id`, `DELETE /sessions/:id`) exige `Authorization: Bearer <token>` — 401 sin token; el dashboard lee el token de config y lo envía; `/webhook` conserva HMAC y `/health` queda abierto (M2)
-- [ ] **NET-03**: `readBody` corta a 1 MB pre-auth → 413 (M1)
-- [ ] **NET-04**: Los errores 500 devuelven mensaje neutro al cliente; `err.message` solo al log (B10)
+- [x] **NET-03**: `readBody` corta a 1 MB pre-auth → 413 (M1)
+- [x] **NET-04**: Los errores 500 devuelven mensaje neutro al cliente; `err.message` solo al log (B10)
 - [x] **NET-05**: `sessionId` validado con `/^[A-Za-z0-9_-]+$/` antes de tocar filesystem (B6)
 - [x] **NET-06**: La topología multi-nodo está documentada — bind a IP tailscale + ACL para recibir el webhook de Plane desde otro nodo (decisión 2026-07-05)
 
@@ -78,8 +78,8 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 |-------------|-------|--------|
 | NET-01 | Phase 69 | Complete |
 | NET-02 | Phase 69 | Complete |
-| NET-03 | Phase 69 | Pending |
-| NET-04 | Phase 69 | Pending |
+| NET-03 | Phase 69 | Complete |
+| NET-04 | Phase 69 | Complete |
 | NET-05 | Phase 69 | Complete |
 | NET-06 | Phase 69 | Complete |
 | CONC-01 | Phase 70 | Pending |
