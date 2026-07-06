@@ -140,6 +140,34 @@ API_KEY_RATE_LIMIT=300/minute
 Formato: `<número>/<unidad>`. Más detalles en
 [docs de Plane](https://developers.plane.so/self-hosting/govern/environment-variables).
 
+## Topología multi-nodo
+
+Por defecto el servidor escucha en **`127.0.0.1`** (loopback), así que **no es
+accesible desde otras interfaces ni desde otros nodos** de tu red. Es la postura
+segura: la superficie de red queda cerrada salvo que la abras deliberadamente.
+
+El webhook de Plane se entrega **desde un host externo** (tu instancia de Plane),
+por lo que para recibirlo en otra máquina tienes que exponer el bind de forma
+consciente ajustando `config.server.bind` a la IP de tailscale (o la interfaz
+que uses):
+
+```bash
+# Expón el servidor en la IP de tailscale (config.server.bind)
+kodo config --set server.bind=100.x.y.z
+```
+
+Exponer el bind es un **opt-in explícito** y debe ir acompañado de una **ACL /
+firewall** que restrinja quién puede alcanzar el puerto `:9090` (por ejemplo, las
+ACL de tailscale o reglas de `pf`/`ufw`). No dejes el bind abierto a `0.0.0.0`
+sin control de acceso delante.
+
+La exposición **no** relaja la autenticación:
+
+- El **carril no-webhook** (dashboard / API de estado) sigue exigiendo el
+  **bearer token** aunque el servidor esté expuesto — sin token responde `401`.
+- **`/webhook`** conserva su verificación **HMAC** con el webhook secret de Plane.
+- **`/health`** permanece abierto (probe de salud sin auth).
+
 ## Uso
 
 ### Automático (webhook)
