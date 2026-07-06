@@ -128,9 +128,20 @@ function cell({ width, text, color, dim, bold, truncate }) {
  * @param {number|null} props.lastGoodCount
  * @param {number|null} props.lastGoodAt
  * @param {number|null} props.lastAttemptAt
+ * @param {boolean} [props.unauthorized] - Phase 69 D-08: estado 401. Cuando true, el banner
+ *   "no autorizado" (yellow) se pinta PRIMERO, con precedencia sobre live/stale/waiting.
+ * @param {string} [props.unauthorizedMessage] - Phase 69 D-08: literal-estable UNAUTHORIZED_MESSAGE.
  * @returns {import('react').ReactElement}
  */
-function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt }) {
+function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt, unauthorized, unauthorizedMessage }) {
+  // Phase 69 Plan 03 (NET-02, D-08): el banner 401 gana a TODAS las ramas de degradación genérica
+  // (live/stale/waiting). Un `code:'unauthorized'` es una condición específica y accionable (token
+  // ausente/revocado), no un drop transitorio — se pinta PRIMERO, en amarillo (UI-SPEC §Color: acotado
+  // a {yellow, red}), y NUNCA deja el frame vacío (never blank screen). Color SOLO vía nombre ink en
+  // <Text> (color-isolation D-12; cero picocolors/ANSI).
+  if (unauthorized) {
+    return h(Text, { color: 'yellow' }, unauthorizedMessage);
+  }
   if (connected) {
     return h(Text, { color: 'green' }, '● live');
   }
@@ -777,6 +788,8 @@ export default function SessionTable({
   lastGoodCount,
   lastGoodAt,
   lastAttemptAt,
+  unauthorized = false,
+  unauthorizedMessage = '',
   hasQuery = false,
   anyGsd = true,
   anyProgress = false,
@@ -850,7 +863,7 @@ export default function SessionTable({
   if ((mode === 'projects-modules' || mode === 'projects-modules-edit') && projectsSnapshot?.modules) {
     return renderModulesOverlay(projectsSnapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor);
   }
-  const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt });
+  const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt, unauthorized, unauthorizedMessage });
   const label = countsLabel(counts);
 
   // Header: indicador live (D-10) + contadores (D-11, omitidos si todos en cero / lista vacía).

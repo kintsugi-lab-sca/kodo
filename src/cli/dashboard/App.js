@@ -207,6 +207,14 @@ export const ADOPT_ERR_ENOENT = '[!] kodo not found — press any key';
 /** @param {number|string} code */
 export const adoptErrFailed = (code) => `[!] adopt failed (code ${code}) — press any key`;
 
+// Phase 69 Plan 03 (NET-02, D-08): mensaje literal-estable del estado 401 "no autorizado".
+// EXPORTADO para que tests y SessionTable.js lo importen y asseren equality sin duplicar strings
+// (mismo patrón que FOCUS_ERR_* / OVERLAY_* / DISMISS_*). Registro en minúscula alineado con
+// `⚠ server caído` (UI-SPEC §Copywriting), glifo ⚠ + color yellow (UI-SPEC §Color: acotado a
+// {yellow (recomendado), red}, jamás cyan/green). El 401 es una degradación VISIBLE y accionable
+// (revisa el token en ~/.kodo/.env) — nunca una pantalla vacía silenciosa (D-08).
+export const UNAUTHORIZED_MESSAGE = '⚠ no autorizado — revisa KODO_API_TOKEN';
+
 // Phase 62 D-08/D-09 (ORCH-02): copy literal-estable del flujo derive-then-confirm de la tecla `a`.
 // EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo patrón
 // que ADOPT_* de Phase 56). La LITERAL copy es el contrato (UI-SPEC §Copywriting, español); los
@@ -486,6 +494,10 @@ export default function App({
   const [lastGoodCount, setLastGoodCount] = useState(/** @type {number | null} */ (null));
   const [lastGoodAt, setLastGoodAt] = useState(/** @type {number | null} */ (null));
   const [connected, setConnected] = useState(false);
+  // Phase 69 Plan 03 (NET-02, D-08): estado 401 "no autorizado". `true` cuando el último poll trajo
+  // code:'unauthorized' (token ausente/revocado); se limpia con cualquier poll OK. Alimenta el banner
+  // amarillo accionable del LiveIndicator, con precedencia sobre la degradación genérica (never blank).
+  const [unauthorized, setUnauthorized] = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [lastError, setLastError] = useState(/** @type {string | null} */ (null));
   const [lastAttemptAt, setLastAttemptAt] = useState(/** @type {number | null} */ (null));
@@ -634,19 +646,24 @@ export default function App({
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
   // (keep-last-good, D-06/Pitfall 5). Siempre actualiza lastAttemptAt (edad por poll, D-08).
   const onResult = useCallback(
-    (/** @type {{ ok: boolean, data?: any, error?: string }} */ result) => {
+    (/** @type {{ ok: boolean, data?: any, error?: string, code?: string }} */ result) => {
       const t = now();
       if (result.ok) {
         setLastGoodCount(result.data.count ?? result.data.sessions.length);
         setLastGoodAt(t);
         setConnected(true);
         setLastError(null);
+        // Phase 69 (NET-02, D-08): un poll OK limpia el estado 401 (token repuesto/válido).
+        setUnauthorized(false);
         // Phase 36: guarda el array de sesiones para la tabla. En !ok NO se toca (keep-last-good).
         setSessions(result.data.sessions ?? []);
       } else {
         setConnected(false);
         setLastError(result.error ?? null);
-        // keep-last-good: NO se tocan lastGoodCount/lastGoodAt.
+        // Phase 69 (NET-02, D-08): el 401 es una condición específica y accionable — se marca para
+        // que el LiveIndicator pinte el banner "no autorizado" con precedencia. keep-last-good queda
+        // intacto (lastGoodCount/lastGoodAt no se tocan). Cualquier otro fallo limpia el flag.
+        setUnauthorized(result.code === 'unauthorized');
       }
       setLastAttemptAt(t);
     },
@@ -1897,6 +1914,8 @@ export default function App({
         lastGoodCount,
         lastGoodAt,
         lastAttemptAt,
+        unauthorized, // Phase 69 Plan 03 NET-02 D-08: estado 401 → banner "no autorizado" con precedencia
+        unauthorizedMessage: UNAUTHORIZED_MESSAGE, // Phase 69 Plan 03 NET-02 D-08: literal amarillo accionable
         mode,
         query,
         hasQuery,
