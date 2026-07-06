@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 69
-current_phase_name: Red y autenticación
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 status: verifying
 stopped_at: Completed 69-01-PLAN.md
-last_updated: "2026-07-06T09:09:58.900Z"
+last_updated: "2026-07-06T09:39:45.548Z"
 last_activity: 2026-07-06
-last_activity_desc: Phase 69 execution started
+last_activity_desc: Phase 69 complete, transitioned to Phase 999.1
 progress:
   total_phases: 1
   completed_phases: 1
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 ## Current Position
 
-Phase: 69 (Red y autenticación) — EXECUTING
-Plan: 4 of 4
+Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-06 — Phase 69 execution started
+Last activity: 2026-07-06 — Phase 69 complete, transitioned to Phase 999.1
 
 ## Roadmap v0.16 (activo)
 
