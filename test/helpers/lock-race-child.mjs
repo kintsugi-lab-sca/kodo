@@ -6,6 +6,8 @@
 //   - test/state/state-lock-concurrency.test.js    (--kind state)
 //   - test/gsd-lock-race.test.js                   (--kind gsd)
 //   - test/state/state-writers-concurrency.test.js (--kind writer)
+//   - test/daemon/polling-start-race.test.js       (--kind polling)
+//   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
 // or `blocked` to stdout and exit 0. Never throw — on any error print
@@ -21,10 +23,11 @@
 // throws. It ignores --lock/--repo and reads --idx.
 //
 // argv:
-//   --kind   state|gsd|writer   (required)
+//   --kind   state|gsd|writer|polling|dispatch   (required)
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd: the fake repo dir)
 //   --idx    <n>                (writer: this writer's session index)
+//   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox root)
 //   --barrier <goFile>          (optional: wait until this file exists)
 //   --hold   <ms>               (optional: after a successful acquire, stay
 //                                alive holding the lock for <ms> before exit —
@@ -88,6 +91,52 @@ async function main() {
       written = false;
     }
     process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Polling-start mode (Plan 04, CONC-06/D-12): each child calls startDaemon
+  // against an isolated HOME (the parent spawns it with HOME=sandbox so
+  // ~/.kodo resolves inside the sandbox — the start-lock AND the PID file both
+  // live there). The injected `_spawn` records ONE line per real spawn decision
+  // to `spawns.log` and writes a live PID file (its own pid), so the winner's
+  // bounded-wait resolves and a later loser's pre-flight sees the daemon alive.
+  // Verdicts: `started` (the one winner), `already_starting` (blocked on the
+  // start-lock) or `already_running` (acquired after the winner released).
+  // The parent asserts on the AGGREGATE: exactly one spawn line, exactly one
+  // `started` — never on which child wins.
+  if (args.kind === 'polling') {
+    let verdict = 'blocked';
+    try {
+      const { startDaemon } = await import('../../src/daemon/lifecycle.js');
+      const { writePidFile } = await import('../../src/cli/polling-daemon.js');
+      const { appendFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const spawnsLog = join(args.sandbox, 'spawns.log');
+      const res = await startDaemon('kodo', ['daemon', 'run'], {
+        _spawn: () => {
+          // Real spawn decision → cross-process marker (append is atomic for small writes).
+          appendFileSync(spawnsLog, `${process.pid}\n`);
+          // Emulate the daemon writing a LIVE PID immediately. We use the shared
+          // parent (the test runner, process.ppid) because it stays alive for the
+          // whole race window — the child itself exits right after printing its
+          // verdict, which would make its own pid go stale and let a later loser
+          // re-spawn. With a live PID the loser's pre-flight sees `already_running`.
+          writePidFile(
+            { pid: process.ppid, started_at: new Date().toISOString(), kind: 'daemon' },
+            'kodo',
+          );
+          return { unref() {} };
+        },
+        _waitMs: 2000,
+      });
+      if (res.alreadyStarting) verdict = 'already_starting';
+      else if (res.alreadyRunning) verdict = 'already_running';
+      else if (res.started) verdict = 'started';
+      else verdict = 'timed_out';
+    } catch {
+      verdict = 'error';
+    }
+    process.stdout.write(verdict);
     process.exit(0);
   }
 
