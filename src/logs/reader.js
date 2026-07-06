@@ -24,6 +24,11 @@ import { KODO_DIR } from '../config.js';
 import { LEVELS, formatLine } from '../logger.js';
 import { _resolveUseColor } from '../cli/format.js';
 
+// NET-05 / D-10 (audit finding B6): allowlist positivo para el `sessionId` que
+// se convierte en nombre de fichero. Rechazo DURO en este edge (input CLI no
+// confiable `kodo logs <session-id>`) ANTES de construir cualquier path.
+const SESSION_ID_RE = /^[A-Za-z0-9_-]+$/;
+
 /**
  * @typedef {{
  *   sessionId?: string,
@@ -60,6 +65,14 @@ export async function runLogs(opts) {
     process.stderr.write(
       'Usage: kodo logs <session-id> | kodo logs --session-of <task-id>\n',
     );
+    process.exit(2);
+  }
+
+  // NET-05 / D-10: rechazo duro del sessionId hostil ANTES de tocar el
+  // filesystem. Cualquier separador de path o traversal (`../`, `a/b`) queda
+  // fuera del allowlist y aborta con exit 2 (mismo código que el usage guard).
+  if (!SESSION_ID_RE.test(sessionId)) {
+    process.stderr.write('Invalid session id\n');
     process.exit(2);
   }
 

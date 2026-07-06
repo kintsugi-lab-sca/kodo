@@ -28,6 +28,13 @@ export const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 }
 /** @type {readonly ['debug','info','warn','error']} */
 export const LEVEL_NAMES = Object.freeze(['debug', 'info', 'warn', 'error']);
 
+// NET-05 / D-10 (Pitfall 3): allowlist positivo para el `sessionId` que se
+// convierte en nombre de fichero. Aquí la defensa es SUAVE (no-throw):
+// createLogger corre con el id sintético 'reconcile' y con UUIDs reales — un
+// throw estricto podría matar el loop de reconcile. 'reconcile' y los UUIDs
+// pasan el allowlist; sólo un id genuinamente hostil degrada (disk sink off).
+const SESSION_ID_RE = /^[A-Za-z0-9_-]+$/;
+
 /**
  * Widths fijas del shape columnar Phase 15 D-05 (TTY-only).
  *   - timestamp: 8 (HH:MM:SS).
@@ -245,6 +252,16 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
     throw new Error(`[kodo:logger] invalid minLevel: ${minLevel}`);
   }
 
+  // NET-05 / D-10 (Pitfall 3): defensa-en-profundidad SIN throw. Si el id no
+  // pasa el allowlist, deshabilitamos el disk sink para este logger — así un id
+  // hostil nunca resuelve a un path de traversal — pero devolvemos un logger
+  // funcional (stderr mirror sigue), sin matar al llamante (p.ej. reconcile).
+  const diskSinkEnabled = SESSION_ID_RE.test(sessionId);
+  if (!diskSinkEnabled) {
+    // Aviso redactado: NO logueamos el id crudo (podría contener el payload).
+    console.warn('[kodo:logger] sessionId con formato inválido — disk sink deshabilitado para este logger');
+  }
+
   const logDir = join(KODO_DIR, 'logs');
   mkdirSync(logDir, { recursive: true });
   const filePath = join(logDir, `${sessionId}.ndjson`);
@@ -295,6 +312,8 @@ export function createLogger({ sessionId, minLevel = 'info' }) {
 
   /** @param {object} record */
   function writeNdjson(record) {
+    // NET-05: disk sink deshabilitado para ids hostiles — nunca tocamos el path.
+    if (!diskSinkEnabled) return;
     try {
       appendFileSync(filePath, JSON.stringify(record) + '\n');
     } catch (err) {
