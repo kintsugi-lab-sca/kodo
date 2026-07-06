@@ -16,6 +16,12 @@
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd: the fake repo dir)
 //   --barrier <goFile>          (optional: wait until this file exists)
+//   --hold   <ms>               (optional: after a successful acquire, stay
+//                                alive holding the lock for <ms> before exit —
+//                                models a holder's critical section so a
+//                                slightly-later sibling sees a LIVE owner and
+//                                is blocked, instead of stealing a dead-PID
+//                                lock the winner abandoned by exiting)
 
 import { existsSync } from 'node:fs';
 
@@ -65,6 +71,13 @@ async function main() {
     }
   } catch {
     acquired = false;
+  }
+
+  // Hold the lock (stay alive) for the winner so concurrent siblings observe a
+  // LIVE owner and are blocked, rather than stealing a lock abandoned by exit.
+  if (acquired && args.hold) {
+    const sab = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(sab, 0, 0, Number(args.hold));
   }
 
   process.stdout.write(acquired ? 'acquired' : 'blocked');
