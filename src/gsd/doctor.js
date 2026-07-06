@@ -148,6 +148,23 @@ function defaultListWorktreeDirs() {
     }
   }
   for (const projectPath of projects) {
+    // ─── CONC-09 / M13 DISCREPANCY (Phase 70, D-15) — DOCUMENTED, DEFERRED ───
+    // This scan targets `<projectPath>/.bg-shell/<sessionId>` (computeWorktreePath).
+    // However, Phase 50.1 empirically confirmed (via `git worktree list`) that the
+    // live Claude Code session materializes its worktree at
+    // `<projectPath>/.claude/worktrees/<sessionId>` (computeRealWorktreePath,
+    // state.js) — which is why the dashboard (App.js) and verify.js read STATE.md
+    // from `.claude/worktrees`, NOT `.bg-shell`. If that holds for the current
+    // Claude Code version, this doctor scan looks at a dead directory and would
+    // never detect the REAL orphan worktrees.
+    //
+    // Per D-15 the path is NOT changed here by inference: switching this scan to
+    // `.claude/worktrees` changes `kodo gsd doctor --fix` removal behavior (it
+    // deletes directories) and requires a fresh live-GSD-session confirmation
+    // before flipping. Full analysis + the human verification steps live in
+    // `.planning/phases/70-.../70-WORKTREE-VERIFICATION.md`. The empirical
+    // sign-off is DEFERRED (same precedent as the Phase 50.1 progress display).
+    // ─────────────────────────────────────────────────────────────────────────
     const bgShell = join(projectPath, '.bg-shell');
     let names;
     try {

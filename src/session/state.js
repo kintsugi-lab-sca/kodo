@@ -158,6 +158,19 @@ export function migrateStateV2toV3(rawState) {
  * Phase 19 consumirá este helper para `git worktree remove <worktreePath>`
  * en el stop hook (WT-04). Mantener la firma estable.
  *
+ * ─── CONC-09 / M13 DISCREPANCY (Phase 70, D-15) — DOCUMENTED, DEFERRED ───
+ * The `.bg-shell/<sid>` convention here is the LEGACY assumption. Phase 50.1
+ * empirically confirmed (via `git worktree list`) that the live Claude Code
+ * session actually creates its worktree at `.claude/worktrees/<sid>` — see the
+ * sibling `computeRealWorktreePath` below, which the dashboard and verify.js
+ * already use. Two consumers still assume `.bg-shell`: the dispatcher's
+ * pre-launch collision-check and `gsd/doctor.js`'s orphan scan. Per D-15 the
+ * path is NOT changed by inference; the discrepancy, every consumer, and the
+ * live-session verification steps are documented in
+ * `.planning/phases/70-.../70-WORKTREE-VERIFICATION.md`, with the empirical
+ * human sign-off DEFERRED (same precedent as the Phase 50.1 progress display).
+ * ────────────────────────────────────────────────────────────────────────────
+ *
  * @param {string} projectPath - Repo principal (no symlinked-resolved aquí; ver D-04).
  * @param {string} sessionId - UUID de la sesión (mismo que `Session.session_id`).
  * @returns {string} Path absoluto sin trailing slash.
