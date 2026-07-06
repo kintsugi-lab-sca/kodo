@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 70
-current_phase_name: Concurrencia y ciclo de vida de procesos
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 status: verifying
 stopped_at: Completed 70-03-PLAN.md
-last_updated: "2026-07-06T12:40:35.175Z"
+last_updated: "2026-07-06T13:19:03.272Z"
 last_activity: 2026-07-06
-last_activity_desc: Phase 70 execution started
+last_activity_desc: Phase 70 complete, transitioned to Phase 999.1
 progress:
   total_phases: 2
   completed_phases: 2
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 ## Current Position
 
-Phase: 70 (Concurrencia y ciclo de vida de procesos) — EXECUTING
-Plan: 4 of 4
+Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-06 — Phase 70 execution started
+Last activity: 2026-07-06 — Phase 70 complete, transitioned to Phase 999.1
 
 ## Roadmap v0.16 (activo)
 

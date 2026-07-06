@@ -23,7 +23,7 @@
 **v0.16 Hardening — remediación de la auditoría adversarial (4 olas por causa raíz, orden risk-graded):**
 
 - [x] **Phase 69: Red y autenticación** - Bind seguro por defecto (`127.0.0.1`) + bearer en el carril no-webhook + límite de body pre-auth + errores 500 neutros + `sessionId` validado (Ola 1 — cierra la única exposición externa) (completed 2026-07-06)
-- [ ] **Phase 70: Concurrencia y ciclo de vida de procesos** - `withStateLock` sobre los ~6 escritores + `acquireGsdLock` atómico + PID ownership + un zombi libera su slot de `max_parallel` (Ola 2 — la más delicada)
+- [x] **Phase 70: Concurrencia y ciclo de vida de procesos** - `withStateLock` sobre los ~6 escritores + `acquireGsdLock` atómico + PID ownership + un zombi libera su slot de `max_parallel` (Ola 2 — la más delicada) (completed 2026-07-06)
 - [ ] **Phase 71: Fiabilidad de entrega y backstop** - Cursor de polling solo avanza con dispatch confirmado + centinela de primer tick + `adopt` idempotente + backstop mecánico de "In Review" en `SessionEnd` (Ola 3)
 - [ ] **Phase 72: Higiene, DX y verdad documental** - Marcador `KODO_ORCHESTRATOR=1` + borrar `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + batch de config/BAJAS + pasada de README (Ola 4 — paralelizable)
 
@@ -199,7 +199,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
-| 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete   | 2026-07-06 |
+| 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
 | 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 
