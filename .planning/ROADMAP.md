@@ -152,13 +152,13 @@ Plans:
   4. `teardown` solo borra `kodo.pid` si `payload.pid === process.pid` (el PID se escribe **post-bind**), y antes de un SIGKILL se compara `started_at` del payload con el arranque real (`ps -o lstart=`), abortando si no cuadra — kodo nunca mata un proceso ajeno. (CONC-04, CONC-05)
   5. La migración v1→v2 escribe vía `writeFileAtomic`, el dedup de sesiones no-GSD es cross-proceso (lock por `task_id`), y la ubicación real de los worktrees queda verificada empíricamente con una sesión GSD viva y documentada (cierra M13). (CONC-07, CONC-08, CONC-09)
 
-**Plans**: 1/4 plans executed
+**Plans**: 2/4 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 70-01-PLAN.md — Primitiva advisory-lock `state-lock.js` (D-01) + `acquireGsdLock` atómico (`flag:'wx'`, `stealLock` tmp+rename) + test de carrera 2 procesos (Criterio 1) — CONC-01, CONC-02 (Wave 1)
-- [ ] 70-03-PLAN.md — Guardas de ciclo de vida: zombi libera slot (`alive`), teardown solo borra su PID (post-bind conservado), anti-PID-reuse `ps -o lstart=` pre-SIGKILL, migración config atómica — CONC-03, CONC-04, CONC-05, CONC-07 (Wave 1)
+- [x] 70-03-PLAN.md — Guardas de ciclo de vida: zombi libera slot (`alive`), teardown solo borra su PID (post-bind conservado), anti-PID-reuse `ps -o lstart=` pre-SIGKILL, migración config atómica — CONC-03, CONC-04, CONC-05, CONC-07 (Wave 1)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -199,7 +199,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
-| 70. Concurrencia y ciclo de vida de procesos | 1/4 | In Progress|  |
+| 70. Concurrencia y ciclo de vida de procesos | 2/4 | In Progress|  |
 | 71. Fiabilidad de entrega y backstop | 0/? | Not started | - |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 

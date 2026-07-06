@@ -21,11 +21,11 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 
 - [x] **CONC-01**: Los ~6 escritores de `state.json` pasan por `withStateLock(fn)` (lockfile `O_EXCL` + retry, re-lee→muta→guarda); el comentario falso "ÚNICO escritor" de `server.js:682` se corrige en el mismo commit (A2)
 - [x] **CONC-02**: `acquireGsdLock` es atómico (`flag:'wx'`, `EEXIST` → tomado); `stealLock` vía tmp+rename (A3)
-- [ ] **CONC-03**: Una sesión zombi libera su slot de `max_parallel` — reconcile `state:'dead'` deriva `status:'idle'` o el gate filtra por `alive` (A4)
-- [ ] **CONC-04**: `teardown` solo borra `kodo.pid` si `payload.pid === process.pid`; el PID se escribe post-bind (A5)
-- [ ] **CONC-05**: Antes de SIGKILL se compara `started_at` del payload con el arranque real del proceso (`ps -o lstart=`); si no cuadra, se aborta (A6)
+- [x] **CONC-03**: Una sesión zombi libera su slot de `max_parallel` — reconcile `state:'dead'` deriva `status:'idle'` o el gate filtra por `alive` (A4)
+- [x] **CONC-04**: `teardown` solo borra `kodo.pid` si `payload.pid === process.pid`; el PID se escribe post-bind (A5)
+- [x] **CONC-05**: Antes de SIGKILL se compara `started_at` del payload con el arranque real del proceso (`ps -o lstart=`); si no cuadra, se aborta (A6)
 - [ ] **CONC-06**: Dos `polling start` concurrentes no arrancan dos daemons — lock `O_EXCL` (M20)
-- [ ] **CONC-07**: `migrateConfigIfNeeded` escribe vía `writeFileAtomic` (M16)
+- [x] **CONC-07**: `migrateConfigIfNeeded` escribe vía `writeFileAtomic` (M16)
 - [ ] **CONC-08**: El dedup de sesiones no-GSD es cross-proceso — lock por `task_id` (M17)
 - [ ] **CONC-09**: La ubicación real de los worktrees está verificada empíricamente (sesión GSD real) y documentada — cierra M13
 
@@ -84,11 +84,11 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | NET-06 | Phase 69 | Complete |
 | CONC-01 | Phase 70 | Complete |
 | CONC-02 | Phase 70 | Complete |
-| CONC-03 | Phase 70 | Pending |
-| CONC-04 | Phase 70 | Pending |
-| CONC-05 | Phase 70 | Pending |
+| CONC-03 | Phase 70 | Complete |
+| CONC-04 | Phase 70 | Complete |
+| CONC-05 | Phase 70 | Complete |
 | CONC-06 | Phase 70 | Pending |
-| CONC-07 | Phase 70 | Pending |
+| CONC-07 | Phase 70 | Complete |
 | CONC-08 | Phase 70 | Pending |
 | CONC-09 | Phase 70 | Pending |
 | DELIV-01 | Phase 71 | Pending |

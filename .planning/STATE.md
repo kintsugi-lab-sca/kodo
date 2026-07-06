@@ -5,15 +5,15 @@ milestone_name: activo)
 current_phase: 70
 current_phase_name: Concurrencia y ciclo de vida de procesos
 status: executing
-stopped_at: Phase 70 context gathered
-last_updated: "2026-07-06T11:48:10.979Z"
+stopped_at: Completed 70-03-PLAN.md
+last_updated: "2026-07-06T12:01:22.959Z"
 last_activity: 2026-07-06
 last_activity_desc: Phase 70 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 50
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 70 (Concurrencia y ciclo de vida de procesos) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-06 — Phase 70 execution started
 
@@ -107,10 +107,10 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/70-concurrencia-y-ciclo-de-vida-de-procesos/70-CONTEXT.md
+**Resume file:** None
 
-- **Last session:** 2026-07-06T11:47:48.190Z
-- **Stopped at:** Phase 70 context gathered
+- **Last session:** 2026-07-06T12:01:22.954Z
+- **Stopped at:** Completed 70-03-PLAN.md
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
@@ -134,6 +134,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 69 P04 | 18min | 2 tasks | 4 files |
 | Phase 69 P02 | 24 | 3 tasks | 6 files |
 | Phase 70 P01 | 6 | 3 tasks | 6 files |
+| Phase 70 P03 | 9 | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -148,3 +149,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: 69-02: ?token= query param is HTML-route only; the API rail is bearer-header only (D-05)
 - [Phase ?]: 70-01: Advisory-lock primitive state-lock.js (O_EXCL/wx + steal tmp+rename + Atomics.wait backoff); acquireGsdLock now atomic. Zero new deps.
 - [Phase ?]: 70-01: state-lock steals only on parseable-but-stale (dead pid / TTL); corrupt/partial read retries to keep the O_EXCL create race single-winner.
+- [Phase ?]: Phase 70-03: SIGKILL anti-PID-reuse tolerance = 8000ms; pre-bind PID write preserved (D-10 REVISED); gate reads alive via exported isSchedulable.
