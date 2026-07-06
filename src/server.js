@@ -75,6 +75,13 @@ if (!console.log.__kodo_patched) {
 }
 
 function dashboardHtml(token) {
+  // WR-02: the token is interpolated into an inline <script>. The auto-generated
+  // token is 64-char lowercase hex (safe), but an operator-set KODO_API_TOKEN from
+  // ~/.kodo/.env may carry quotes or `</script>`. JSON.stringify escapes quotes and
+  // backslashes; replacing `<` with the < escape neutralizes a `</script>`
+  // breakout from inside the string literal (defense-in-depth; no behavior change
+  // for hex tokens).
+  const tokenJs = JSON.stringify(String(token)).replace(/</g, '\\u003c');
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -168,7 +175,7 @@ function dashboardHtml(token) {
 // header to every same-origin API call so the four dashboard fetches cross the bearer
 // guard. PERSIST-04: the token lives only here (and in the request headers) — it is
 // never rendered as visible page text.
-const TOKEN = "${token}";
+const TOKEN = ${tokenJs};
 function authedFetch(url, opts) {
   const o = opts || {};
   return fetch(url, { ...o, headers: { ...(o.headers || {}), Authorization: 'Bearer ' + TOKEN } });
