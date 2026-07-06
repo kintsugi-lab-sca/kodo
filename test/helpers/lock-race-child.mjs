@@ -1,9 +1,11 @@
 // test/helpers/lock-race-child.mjs
 //
 // Child harness for the real-process lock race tests (Phase 70 Plan 01,
-// Criterion 1). Invoked by:
-//   - test/state/state-lock-concurrency.test.js  (--kind state)
-//   - test/gsd-lock-race.test.js                 (--kind gsd)
+// Criterion 1) and the state-writers concurrency test (Phase 70 Plan 02).
+// Invoked by:
+//   - test/state/state-lock-concurrency.test.js    (--kind state)
+//   - test/gsd-lock-race.test.js                   (--kind gsd)
+//   - test/state/state-writers-concurrency.test.js (--kind writer)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
 // or `blocked` to stdout and exit 0. Never throw — on any error print
@@ -11,10 +13,18 @@
 // the go-file exists before attempting, so the parent can release all children
 // simultaneously and maximise real contention.
 //
+// `--kind writer` (Plan 02): each child dynamic-imports ../../src/session/state.js
+// AFTER its HOME is set (the parent spawns it with an isolated HOME env so
+// KODO_DIR resolves to the sandbox) and calls addSession('task-<idx>', {...}) for
+// its assigned index. All writers race one isolated state.json; the parent then
+// asserts zero lost writes. Writer mode prints `written` (or `failed`) and never
+// throws. It ignores --lock/--repo and reads --idx.
+//
 // argv:
-//   --kind   state|gsd          (required)
+//   --kind   state|gsd|writer   (required)
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd: the fake repo dir)
+//   --idx    <n>                (writer: this writer's session index)
 //   --barrier <goFile>          (optional: wait until this file exists)
 //   --hold   <ms>               (optional: after a successful acquire, stay
 //                                alive holding the lock for <ms> before exit —
@@ -53,6 +63,33 @@ function waitForBarrier(goFile, timeoutMs = 5000) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   waitForBarrier(args.barrier);
+
+  // Writer mode (Plan 02): dynamic-import state.js AFTER HOME is set by the
+  // parent (env), then addSession for this writer's index. Never throws.
+  if (args.kind === 'writer') {
+    let written = false;
+    try {
+      const { addSession } = await import('../../src/session/state.js');
+      const idx = args.idx;
+      addSession('task-' + idx, {
+        workspace_ref: 'workspace:' + idx,
+        session_id: 's' + idx,
+        task_id: 'task-' + idx,
+        task_ref: 'KL-' + idx,
+        provider: 'test',
+        project_id: 'p1',
+        summary: 'writer ' + idx,
+        status: 'running',
+        started_at: new Date().toISOString(),
+        project_path: '/tmp/w' + idx,
+      });
+      written = true;
+    } catch {
+      written = false;
+    }
+    process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
 
   let acquired = false;
   try {
