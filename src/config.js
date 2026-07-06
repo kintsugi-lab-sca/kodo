@@ -61,6 +61,7 @@ const DEFAULT_CONFIG = {
   },
   server: {
     port: 9090,
+    bind: '127.0.0.1',
     idle_threshold_min: 5,
     stuck_threshold_min: 30,
   },

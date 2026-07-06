@@ -222,3 +222,31 @@ describe('OPEN-04 — migrateConfig web_url (D-06 resolve-on-read)', () => {
     );
   });
 });
+
+describe('NET-01 — server.bind safe default', () => {
+  it('DEFAULT_CONFIG.server.bind defaults to 127.0.0.1 (safe-by-default for NEW configs)', () => {
+    assert.equal(DEFAULT_CONFIG.server.bind, '127.0.0.1');
+  });
+
+  it('the existing server keys (port/idle/stuck) are unchanged alongside bind', () => {
+    assert.equal(DEFAULT_CONFIG.server.port, 9090);
+    assert.equal(DEFAULT_CONFIG.server.idle_threshold_min, 5);
+    assert.equal(DEFAULT_CONFIG.server.stuck_threshold_min, 30);
+  });
+
+  it('a migrated v0.15 config lacking server.bind still loads without throwing (additive, zero-breaking)', () => {
+    // Migrated configs predate bind; Plan 02 resolves it defensively as
+    // `config.server.bind ?? '127.0.0.1'`. The migration path must not throw
+    // nor inject bind — the key stays absent on old configs.
+    const legacy = { providers: { plane: {} }, server: { port: 9090 } };
+    let result;
+    assert.doesNotThrow(() => {
+      result = migrateConfig(legacy);
+    });
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(result.server, 'bind'),
+      false,
+      'migration is additive-at-DEFAULT-only: bind is NOT injected into existing configs',
+    );
+  });
+});
