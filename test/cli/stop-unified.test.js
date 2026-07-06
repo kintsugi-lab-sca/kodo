@@ -75,6 +75,20 @@ describe('runStopUnified', () => {
     assert.equal(calls.stopServer, 1, 'sin daemon debe caer exactamente 1× al server.pid legacy');
   });
 
+  it('stopDaemon {stillAlive:true} → NO invoca stopServer; avisa por stderr; retorna 1 (WR-03)', async () => {
+    const { deps, calls } = makeDeps({
+      _stopDaemon: async () => ({ ok: false, stillAlive: true, pid: 777 }),
+    });
+    const code = await runStopUnified({}, deps);
+    assert.equal(code, 1, 'no lo paramos → exit non-zero');
+    assert.equal(calls.stopServer, 0, 'daemon vivo NO debe caer al fallback legacy');
+    assert.equal(calls.out.length, 0, 'no debe imprimir "stopped" en stdout');
+    assert.ok(
+      calls.err.some((s) => /not stopped/.test(s) && /pid: 777/.test(s)),
+      'debe avisar por stderr que el daemon puede seguir vivo',
+    );
+  });
+
   it('never-throws: un stopServer que lanza NO propaga como crash (retorna 0)', async () => {
     const { deps, calls } = makeDeps({
       _stopDaemon: async () => ({ ok: true, notRunning: true }),

@@ -272,13 +272,23 @@ export async function stopDaemon(name, deps = {}) {
       // reciclado (mismatch) o no es verificable (ps ausente/NaN) → NO matar
       // (degradación segura, warn visible). Solo mata con arranque CONFIRMADO nuestro.
       const chk = processStartMatches(payload.pid, payload.started_at, { _exec: deps._exec });
-      if (chk.verifiable && !chk.match) {
-        warn('daemon.sigkill.aborted', { pid: payload.pid, reason: 'pid-reuse-suspected' });
-      } else if (!chk.verifiable) {
-        warn('daemon.sigkill.unverifiable', { pid: payload.pid });
-      } else {
+      if (chk.verifiable && chk.match) {
         try { kill(payload.pid, 'SIGKILL'); } catch { /* race: murió entre checks */ }
+        removePid(name);
+        return { ok: true, stopped: true, pid: payload.pid };
       }
+      // WR-03: SIGKILL saltado — el proceso puede seguir siendo NUESTRO daemon vivo
+      // (mismatch = pid dudosamente reciclado; !verifiable = ps ausente/NaN). NO
+      // borrar el PID file NI reportar stopped:true: hacerlo huérfana un daemon vivo
+      // y deja que un `kodo up`/`statusDaemon` posterior vea 'idle' y arranque un
+      // SEGUNDO daemon (rompe single-owner). Dejar el PID file intacto y reportar
+      // un outcome distinto (stillAlive) para no mentir sobre haberlo parado.
+      if (chk.verifiable) {
+        warn('daemon.sigkill.aborted', { pid: payload.pid, reason: 'pid-reuse-suspected' });
+      } else {
+        warn('daemon.sigkill.unverifiable', { pid: payload.pid });
+      }
+      return { ok: false, stillAlive: true, pid: payload.pid };
     }
     removePid(name);
     return { ok: true, stopped: true, pid: payload.pid };

@@ -68,6 +68,19 @@ export async function runStopUnified(opts = {}, deps = {}) {
     return 0;
   }
 
+  // WR-03: el daemon sigue vivo pero su arranque no fue verificable (pid dudoso
+  // o `ps` ausente) → stopDaemon NO lo mató y dejó su PID file INTACTO. Reportar
+  // honestamente por stderr y NO caer al fallback legacy (que mentiría con éxito
+  // dejando un daemon huérfano vivo). Exit non-zero: no lo paramos.
+  if (res && res.stillAlive) {
+    const pidSuffix = res.pid != null ? ` pid: ${res.pid}` : '';
+    err(
+      `${fmt.warn('not stopped')}${pidSuffix} — daemon may still be running ` +
+        `(start unverifiable); PID file left intact\n`,
+    );
+    return 1;
+  }
+
   // res.notRunning → NO hay daemon 'kodo'. FALLBACK legacy a server.pid (back-compat
   // de `kodo start`). Único punto de fallback del milestone; envuelto never-throws.
   try {
