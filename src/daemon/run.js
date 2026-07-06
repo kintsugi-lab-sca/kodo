@@ -31,7 +31,7 @@
 import { loadConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 import { startServer } from '../server.js';
-import { writePidFile, removePidFile } from '../cli/polling-daemon.js';
+import { writePidFile, removePidFile, readPidFile } from '../cli/polling-daemon.js';
 import { providerUsesPolling } from './provider-uses-polling.js';
 
 /**
@@ -43,6 +43,7 @@ import { providerUsesPolling } from './provider-uses-polling.js';
  *   _provider?: any,
  *   _writePidFile?: (payload: any, name?: string) => void,
  *   _removePidFile?: (name?: string) => void,
+ *   _readPidFile?: (name?: string) => any,
  *   _createLogger?: (opts: any) => any,
  *   _process?: { on: (sig: string, fn: (...a: any[]) => void) => void, exit: (code?: number) => void },
  *   _stdout?: { on: (ev: string, fn: (...a: any[]) => void) => any },
@@ -84,11 +85,18 @@ export async function runDaemon(deps = {}) {
   const providerUsesPollingFn = deps._providerUsesPolling || providerUsesPolling;
   const writePidFileFn = deps._writePidFile || writePidFile;
   const removePidFileFn = deps._removePidFile || removePidFile;
+  const readPidFileFn = deps._readPidFile || readPidFile;
   const proc = deps._process || process;
   const stdout = deps._stdout || process.stdout;
   const stderr = deps._stderr || process.stderr;
   const blockFn = deps._block || (() => new Promise(() => {}));
   const log = deps._log || ((msg) => process.stderr.write(msg + '\n'));
+
+  // PID de ESTE proceso — es el mismo valor que se escribe en el payload abajo
+  // (`proc.pid ?? process.pid`). El teardown solo borra ~/.kodo/kodo.pid si el
+  // payload en disco tiene ESTE pid (D-09 ownership): un proceso NO dueño del PID
+  // file (p.ej. un arranque nuevo pisando a un daemon vivo distinto) NO lo toca.
+  const selfPid = proc.pid ?? process.pid;
 
   // PRIMERO de todo (antes de componer server/polling): guards EPIPE en stdout/stderr.
   // Bajo launchd / `brew services` el pipe puede romperse y emitir 'error'; sin handler
@@ -118,7 +126,15 @@ export async function runDaemon(deps = {}) {
     try { polling?.stop(); } catch { /* idempotente */ }
     try { stopReconcile?.(); } catch { /* idempotente */ }
     try { server?.close(); } catch { /* idempotente */ }
-    try { removePidFileFn('kodo'); } catch { /* idempotente */ }
+    // D-09 ownership: borra kodo.pid SOLO si el payload en disco es NUESTRO
+    // (payload.pid === selfPid). Así un proceso que no es el dueño del PID file
+    // (audit A5: un arranque nuevo pisando a un daemon vivo distinto) nunca borra
+    // el PID de otro daemon. En el daemon normal el payload.pid ES selfPid (lo
+    // escribió él mismo), así que el happy-path no cambia. never-throws.
+    try {
+      const payload = readPidFileFn('kodo');
+      if (payload && payload.pid === selfPid) removePidFileFn('kodo');
+    } catch { /* idempotente */ }
     proc.exit(code);
   };
   const cleanup = () => teardown(0);
@@ -139,6 +155,15 @@ export async function runDaemon(deps = {}) {
   // el pid-wait resuelve en <100ms sea cual sea la latencia de provider.init.
   // UN solo PID file para el UN proceso compuesto (Plan 01 signature: payload primero,
   // name trailing). kind:'daemon' distingue de los payloads polling con repos.
+  //
+  // D-10 REVISED (Phase 70 / Pitfall 3) — NO MOVER A POST-BIND: la escritura pre-bind
+  // es DELIBERADA (gap-closure 66-07). Moverla post-bind REGRESARÍA ese fix ya lanzado
+  // (cold-spawn `kodo up` PID-wait timeout). El invariante "no dejar un kodo.pid
+  // MINTIENDO si el bind falla" (audit A5) NO lo garantiza el orden de la escritura,
+  // sino el `teardown(1)` del fail-path de abajo: si `startServer` lanza, teardown
+  // borra el PID (ownership D-09) → un boot fallido nunca deja un kodo.pid stale. El
+  // endurecimiento real de A5 vive en la guarda de ownership del teardown (D-09) y en
+  // la verificación de started_at antes del SIGKILL (D-11, lifecycle.js), NO en post-bind.
   writePidFileFn(
     { pid: proc.pid ?? process.pid, started_at: new Date().toISOString(), kind: 'daemon' },
     'kodo',

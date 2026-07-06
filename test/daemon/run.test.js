@@ -105,6 +105,8 @@ describe('runDaemon: single-owner teardown (D-05)', () => {
       _provider: { id: 'github' },
       _startPolling: () => ({ stop() { pollingStopped += 1; } }),
       _writePidFile: () => {},
+      // D-09: teardown lee el payload y borra solo si es NUESTRO (pid === process.pid).
+      _readPidFile: () => ({ pid: process.pid, started_at: 'x', kind: 'daemon' }),
       _removePidFile: (name) => { removed = name; },
       _process: proc,
       _block: async () => {},
@@ -141,6 +143,7 @@ describe('runDaemon: startServer throw (Pitfall 4)', () => {
       _startServer: () => { throw new Error('boot exploded'); },
       _startPolling: () => { pollingCalls += 1; return { stop() {} }; },
       _writePidFile: () => {},
+      _readPidFile: () => ({ pid: process.pid, started_at: 'x', kind: 'daemon' }),
       _removePidFile: (name) => { removed = name; },
       _process: proc,
       _block: async () => {},
@@ -197,6 +200,7 @@ describe('runDaemon: 66-07 PID escrito ANTES del await de startServer', () => {
       _providerUsesPolling: providerUsesPolling,
       _startServer: () => { order.push('startServer-throw'); throw new Error('boom'); },
       _writePidFile: () => { order.push('write'); },
+      _readPidFile: () => ({ pid: process.pid, started_at: 'x', kind: 'daemon' }),
       _removePidFile: () => { order.push('remove'); },
       _process: proc,
       _block: async () => {},
@@ -224,5 +228,78 @@ describe('runDaemon: 66-07 PID escrito ANTES del await de startServer', () => {
     assert.match(logged, /configuraci[oó]n/i, 'menciona configuración (mensaje accionable no-config)');
     assert.match(logged, /kodo config/i, 'apunta al comando de setup');
     assert.doesNotMatch(logged, /daemon start failed/i, 'NO usa el mensaje genérico de error de boot');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 70 Task 1 — D-09 / CONC-04: teardown solo borra su PROPIO kodo.pid.
+//
+// El teardown lee el payload del PID file y borra ~/.kodo/kodo.pid SOLO cuando
+// `payload.pid === process.pid` (el proceso es el dueño). Un proceso que NO es el
+// dueño (payload con un pid ajeno = un daemon vivo distinto) NO toca el PID file
+// — evita que un arranque nuevo borre el PID de otro daemon (audit A5).
+//
+// D-10 REVISED se preserva: el bind-failure test prueba que el `teardown(1)` del
+// fail-path borra el PID cuando es NUESTRO (write pre-bind + fail-path cleanup =
+// no lying PID), sin haber movido la escritura a post-bind.
+// ---------------------------------------------------------------------------
+describe('runDaemon: teardown ownership del PID (D-09 / CONC-04)', () => {
+  it('payload con pid AJENO → NO borra kodo.pid en teardown (no-op, no throw)', async () => {
+    let removeCalls = 0;
+    const proc = makeFakeProc();
+    await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => ({ server: { close() {} }, stopReconcile: () => {} }),
+      _writePidFile: () => {},
+      // payload de OTRO proceso (pid ajeno) — el daemon NO es el dueño.
+      _readPidFile: () => ({ pid: process.pid + 100000, started_at: 'x', kind: 'daemon' }),
+      _removePidFile: () => { removeCalls += 1; },
+      _process: proc,
+      _block: async () => {},
+      _log: () => {},
+    });
+    // Dispara el teardown vía señal.
+    proc.handlers.SIGTERM();
+    assert.equal(removeCalls, 0, 'un proceso NO dueño no borra el PID file de otro daemon');
+    assert.deepEqual(proc.exitCalls, [0], 'teardown igual sale exit(0) (no throw)');
+  });
+
+  it('payload con NUESTRO pid → SÍ borra kodo.pid en teardown', async () => {
+    let removed = null;
+    const proc = makeFakeProc();
+    await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => ({ server: { close() {} }, stopReconcile: () => {} }),
+      _writePidFile: () => {},
+      _readPidFile: () => ({ pid: process.pid, started_at: 'x', kind: 'daemon' }),
+      _removePidFile: (name) => { removed = name; },
+      _process: proc,
+      _block: async () => {},
+      _log: () => {},
+    });
+    proc.handlers.SIGTERM();
+    assert.equal(removed, 'kodo', 'el dueño (payload.pid === process.pid) SÍ borra su kodo.pid');
+  });
+
+  it('bind-fail: teardown(1) borra el PID NUESTRO (write pre-bind + fail-path cleanup, D-10 REVISED)', async () => {
+    const order = [];
+    const proc = makeFakeProc();
+    const res = await runDaemon({
+      _loadConfig: () => PLANE_CONFIG,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => { order.push('startServer-throw'); throw new Error('bind EADDRINUSE'); },
+      _writePidFile: () => { order.push('write'); },
+      _readPidFile: () => ({ pid: process.pid, started_at: 'x', kind: 'daemon' }),
+      _removePidFile: () => { order.push('remove'); },
+      _process: proc,
+      _block: async () => {},
+      _log: () => {},
+    });
+    assert.deepEqual(order, ['write', 'startServer-throw', 'remove'],
+      'write pre-bind → bind lanza → fail-path teardown borra el PID (no post-bind, no lying PID)');
+    assert.equal(res && res.ok, false);
+    assert.deepEqual(proc.exitCalls, [1], 'exit(1) en el fail path');
   });
 });
