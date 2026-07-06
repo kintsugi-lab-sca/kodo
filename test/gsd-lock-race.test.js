@@ -47,7 +47,7 @@ function raceGsdChildren(count) {
   for (let i = 0; i < count; i++) {
     const child = spawn(
       process.execPath,
-      [CHILD, '--kind', 'gsd', '--repo', repoDir, '--barrier', goFile],
+      [CHILD, '--kind', 'gsd', '--repo', repoDir, '--barrier', goFile, '--hold', '500'],
       { stdio: ['ignore', 'pipe', 'inherit'] },
     );
     child.stdout.on('data', (d) => {

@@ -6,8 +6,10 @@ import {
   existsSync,
   mkdirSync,
   realpathSync,
+  renameSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Per-repo GSD lock module.
@@ -103,10 +105,17 @@ export function readLock(projectPath) {
 export function acquireGsdLock(projectPath, sessionInfo) {
   const lockPath = lockPathFor(projectPath);
 
-  // Case 1: lock file absent — create + acquire.
-  if (!existsSync(lockPath)) {
+  // Case 1: atomic create + acquire (CONC-02, D-07). `writeLockFile` now uses
+  // `{flag:'wx'}` (O_EXCL), so two processes that both see the lock absent can
+  // no longer both create it — exactly one wins the create, the loser gets
+  // EEXIST and falls through to the read-existing path below (Cases 2-5), where
+  // the winner's live PID + fresh TTL yields a clean `{ acquired:false }`.
+  try {
     writeLockFile(lockPath, sessionInfo);
     return { acquired: true };
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+    // EEXIST → the lock already exists; fall through to the read-existing logic.
   }
 
   // Read existing lock — corrupt files are treated as stale (Case 5).
@@ -189,6 +198,19 @@ function lockPathFor(projectPath) {
  * @returns {void}
  */
 function writeLockFile(lockPath, sessionInfo) {
+  mkdirSync(dirname(lockPath), { recursive: true });
+  // O_EXCL create (CONC-02, D-07): fails with EEXIST if the lock already
+  // exists, closing the TOCTOU that let two processes both "create" and win.
+  writeFileSync(lockPath, serializeLockContent(sessionInfo), { flag: 'wx' });
+}
+
+/**
+ * Build the serialized lock-file body for `sessionInfo`.
+ *
+ * @param {SessionInfo} sessionInfo
+ * @returns {string}
+ */
+function serializeLockContent(sessionInfo) {
   /** @type {LockContent} */
   const content = {
     session_id: sessionInfo.session_id,
@@ -198,8 +220,7 @@ function writeLockFile(lockPath, sessionInfo) {
     acquired_at: new Date().toISOString(),
     ttl_hours: DEFAULT_TTL_HOURS,
   };
-  mkdirSync(dirname(lockPath), { recursive: true });
-  writeFileSync(lockPath, JSON.stringify(content, null, 2) + '\n');
+  return JSON.stringify(content, null, 2) + '\n';
 }
 
 /**
@@ -215,7 +236,24 @@ function writeLockFile(lockPath, sessionInfo) {
  */
 function stealLock(lockPath, sessionInfo, reason) {
   console.error(`[kodo:lock] Lock stolen: ${reason}`);
-  writeLockFile(lockPath, sessionInfo);
+  // Atomic replace (D-08): write the new ownership to a unique tmp path then
+  // `renameSync` over the existing lock. A direct `writeFileSync` would now
+  // EEXIST (writeLockFile uses `{flag:'wx'}`), and a plain overwrite could let
+  // a concurrent reader observe a half-written lock. tmp+rename gives an atomic
+  // swap — the reader sees either the old lock or the new one, never a partial.
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const tmp = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
+  try {
+    writeFileSync(tmp, serializeLockContent(sessionInfo));
+    renameSync(tmp, lockPath);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best-effort tmp cleanup */
+    }
+    throw err;
+  }
   return { acquired: true };
 }
 
