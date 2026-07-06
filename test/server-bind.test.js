@@ -85,4 +85,17 @@ describe('server bind host (NET-01, T-69-01)', () => {
     const handle = await start({ bind: '0.0.0.0' });
     assert.equal(handle.server.address().address, '0.0.0.0');
   });
+
+  // WR-04 (code review fix): `listen(port, '')` binds ALL interfaces (0.0.0.0) —
+  // an empty-string bind (easy config typo) must resolve to loopback, not slip
+  // through the `??` fallback and silently defeat NET-01.
+  it('binds to 127.0.0.1 when config.server.bind is an empty string', async () => {
+    const handle = await start({ bind: '' });
+    assert.equal(handle.server.address().address, '127.0.0.1');
+  });
+
+  it('binds to 127.0.0.1 when config.server.bind is whitespace-only', async () => {
+    const handle = await start({ bind: '   ' });
+    assert.equal(handle.server.address().address, '127.0.0.1');
+  });
 });

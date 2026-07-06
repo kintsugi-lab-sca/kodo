@@ -473,10 +473,13 @@ export async function startServer(opts = {}) {
   const loadConfigFn = opts._loadConfig || loadConfig;
   const config = loadConfigFn();
   const port = opts.port || config.server.port;
-  // NET-01 (T-69-01): bind to loopback by default. The `??` fallback keeps migrated
-  // v0.15 configs (which lack `bind`) safe — exposing on a LAN interface is an
-  // explicit opt-in via config.server.bind.
-  const host = config.server.bind ?? '127.0.0.1';
+  // NET-01 (T-69-01): bind to loopback by default. A missing bind keeps migrated
+  // v0.15 configs safe — exposing on a LAN interface is an explicit opt-in via
+  // config.server.bind. WR-04: an empty/whitespace string is treated as ABSENT,
+  // not passed through — `server.listen(port, '')` silently binds 0.0.0.0 (all
+  // interfaces), the exact LAN exposure NET-01 exists to prevent.
+  const rawBind = config.server.bind;
+  const host = (typeof rawBind === 'string' && rawBind.trim()) ? rawBind.trim() : '127.0.0.1';
 
   let provider;
   if (opts._provider) {
