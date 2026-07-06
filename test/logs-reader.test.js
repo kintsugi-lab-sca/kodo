@@ -17,7 +17,7 @@
 
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeTmpHome } from './helpers/logger-fixtures.js';
 import { captureStdout, captureStderr } from './helpers/logger-sink.js';
@@ -27,6 +27,36 @@ const fixture = makeTmpHome({ sessionId: '_bootstrap', label: 'reader' });
 after(() => fixture.cleanup());
 
 const { runLogs } = await import('../src/logs/reader.js');
+const { createLogger } = await import('../src/logger.js');
+
+/**
+ * Exit-capture harness: ejecuta runLogs interceptando process.exit (lo convierte
+ * en throw para cortar el flujo como el exit real) y process.stderr.write.
+ * Devuelve el código de salida observado y el stderr capturado.
+ * @param {import('../src/logs/reader.js').RunLogsOpts} opts
+ * @returns {Promise<{ exitCode: number|undefined, stderr: string }>}
+ */
+async function runLogsCapturingExit(opts) {
+  const origExit = process.exit;
+  const origWrite = process.stderr.write.bind(process.stderr);
+  /** @type {number|undefined} */
+  let exitCode;
+  /** @type {string[]} */
+  const chunks = [];
+  // @ts-expect-error — stub firma reducida suficiente para el test.
+  process.stderr.write = (chunk) => { chunks.push(String(chunk)); return true; };
+  // @ts-expect-error — stub que corta el flujo como el exit real.
+  process.exit = (code) => { exitCode = code; throw new Error('__exit__'); };
+  try {
+    await runLogs(opts);
+  } catch (err) {
+    if (!(err instanceof Error) || err.message !== '__exit__') throw err;
+  } finally {
+    process.exit = origExit;
+    process.stderr.write = origWrite;
+  }
+  return { exitCode, stderr: chunks.join('') };
+}
 
 /**
  * Semilla de un archivo `~/.kodo/logs/<sessionId>.ndjson` con las líneas dadas.
@@ -234,8 +264,73 @@ describe('D-06: malformed line does not crash reader', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Phase 69 NET-05 / D-10 — sessionId path-traversal guard (audit finding B6).
+//   - reader.js (CLI edge): hard reject → stderr 'Invalid session id' + exit 2
+//     BEFORE any path join / file read.
+//   - logger.js: soft defense-in-depth (Pitfall 3) — never a process-killing
+//     throw; a hostile id degrades (disk sink disabled), 'reconcile'/UUID ok.
+// ---------------------------------------------------------------------------
+
+describe('NET-05: runLogs rejects a traversal sessionId before touching the filesystem', () => {
+  for (const hostile of ['../../etc/passwd', 'a/b', '../evil', 'foo/../bar', '']) {
+    it(`rejects ${JSON.stringify(hostile)} with 'Invalid session id' + exit 2`, async () => {
+      const { exitCode, stderr } = await runLogsCapturingExit({ sessionId: hostile });
+      // Empty string hits the earlier usage guard (exit 2) — both paths exit 2.
+      assert.equal(exitCode, 2, `expected exit 2 for ${JSON.stringify(hostile)}, got ${exitCode}`);
+      if (hostile !== '') {
+        assert.ok(
+          stderr.includes('Invalid session id'),
+          `expected 'Invalid session id' on stderr for ${JSON.stringify(hostile)}, got: ${JSON.stringify(stderr)}`,
+        );
+      }
+    });
+  }
+
+  it('a valid id still dumps its seeded log (no regression)', async () => {
+    const sessionId = 'sess-reader-valid-guard';
+    seedLog(sessionId, [
+      { timestamp: '2026-07-06T10:00:00.000Z', level: 'info', msg: 'kept', session_id: sessionId },
+    ]);
+    const { captured } = await captureStdout(() => runLogs({ sessionId }));
+    assert.ok(captured.join('').includes('kept'));
+  });
+});
+
+describe('NET-05: createLogger soft-guards the sessionId without throwing (Pitfall 3)', () => {
+  it("createLogger('reconcile') returns a working logger", () => {
+    const logger = createLogger({ sessionId: 'reconcile' });
+    assert.equal(typeof logger.info, 'function');
+    assert.doesNotThrow(() => logger.info('reconcile tick'));
+  });
+
+  it('createLogger with a UUID sessionId returns a working logger', () => {
+    const logger = createLogger({ sessionId: '2f9c1d3e-0a4b-4c6d-8e1f-abcdef012345' });
+    assert.equal(typeof logger.info, 'function');
+    assert.doesNotThrow(() => logger.info('uuid tick'));
+  });
+
+  it('a filesystem-hostile sessionId does NOT throw and never writes to a traversal path', () => {
+    // '../evil' would resolve to KODO_DIR/evil.ndjson (outside the logs dir).
+    const traversalTarget = join(fixture.homeDir, '.kodo', 'evil.ndjson');
+    let logger;
+    assert.doesNotThrow(() => { logger = createLogger({ sessionId: '../evil' }); });
+    assert.doesNotThrow(() => logger.error('should not land outside logs dir'));
+    assert.equal(
+      existsSync(traversalTarget),
+      false,
+      'hostile sessionId must not create a file outside the logs dir',
+    );
+  });
+
+  it('preserves the empty-sessionId throw contract', () => {
+    assert.throws(
+      () => createLogger({ sessionId: '' }),
+      /sessionId is required/,
+    );
+  });
+});
+
 // captureStderr is imported to keep the symbol wired for future error-path
-// tests added by Plan 07-03 (e.g. session-id that does not exist as a file
-// triggers a stderr warning + process.exit(1)). Referenced here so unused-import
-// linters do not strip it during ecosystem churn.
+// tests. Referenced here so unused-import linters do not strip it.
 void captureStderr;
