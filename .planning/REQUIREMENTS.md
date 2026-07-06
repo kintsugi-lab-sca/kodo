@@ -24,10 +24,10 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [x] **CONC-03**: Una sesión zombi libera su slot de `max_parallel` — reconcile `state:'dead'` deriva `status:'idle'` o el gate filtra por `alive` (A4)
 - [x] **CONC-04**: `teardown` solo borra `kodo.pid` si `payload.pid === process.pid`; el PID se escribe post-bind (A5)
 - [x] **CONC-05**: Antes de SIGKILL se compara `started_at` del payload con el arranque real del proceso (`ps -o lstart=`); si no cuadra, se aborta (A6)
-- [ ] **CONC-06**: Dos `polling start` concurrentes no arrancan dos daemons — lock `O_EXCL` (M20)
+- [x] **CONC-06**: Dos `polling start` concurrentes no arrancan dos daemons — lock `O_EXCL` (M20)
 - [x] **CONC-07**: `migrateConfigIfNeeded` escribe vía `writeFileAtomic` (M16)
-- [ ] **CONC-08**: El dedup de sesiones no-GSD es cross-proceso — lock por `task_id` (M17)
-- [ ] **CONC-09**: La ubicación real de los worktrees está verificada empíricamente (sesión GSD real) y documentada — cierra M13
+- [x] **CONC-08**: El dedup de sesiones no-GSD es cross-proceso — lock por `task_id` (M17)
+- [x] **CONC-09**: La ubicación real de los worktrees está verificada empíricamente (sesión GSD real) y documentada — cierra M13
 
 ### Fiabilidad de entrega y backstop (Ola 3 — causas raíz T4, T5)
 
@@ -87,10 +87,10 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | CONC-03 | Phase 70 | Complete |
 | CONC-04 | Phase 70 | Complete |
 | CONC-05 | Phase 70 | Complete |
-| CONC-06 | Phase 70 | Pending |
+| CONC-06 | Phase 70 | Complete |
 | CONC-07 | Phase 70 | Complete |
-| CONC-08 | Phase 70 | Pending |
-| CONC-09 | Phase 70 | Pending |
+| CONC-08 | Phase 70 | Complete |
+| CONC-09 | Phase 70 | Complete |
 | DELIV-01 | Phase 71 | Pending |
 | DELIV-02 | Phase 71 | Pending |
 | DELIV-03 | Phase 71 | Pending |
