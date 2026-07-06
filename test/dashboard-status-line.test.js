@@ -24,7 +24,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { render } from 'ink-testing-library';
 import { createElement } from 'react';
-import App from '../src/cli/dashboard/App.js';
+import App, { UNAUTHORIZED_MESSAGE } from '../src/cli/dashboard/App.js';
 
 /**
  * Fake clock con un `schedule` determinista para el RE-ARME del tick del loop de polling que
@@ -206,5 +206,53 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
     // keep-last-good + stale: conserva el contador y muestra el estado degradado.
     assert.match(frame, /2 sessions/, `keep-last-good tras JSON corrupto: conserva 2 sessions\n${frame}`);
     assert.match(frame, /server caído|retrying/, `JSON corrupto = poll fallido → estado stale\n${frame}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 69 Plan 03 (NET-02, D-08): estado 401 "no autorizado". Un poll con
+//   code:'unauthorized' (401 del carril autenticado) DEBE renderizar el literal
+//   exportado UNAUTHORIZED_MESSAGE en amarillo, con precedencia sobre la
+//   degradación genérica (waiting/server caído) y NUNCA un frame vacío (D-08).
+//   Un poll OK posterior limpia el estado y vuelve a "● live".
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('NET-02 (D-08): estado 401 "no autorizado" — banner accionable, nunca frame vacío', () => {
+  it('401 renderiza UNAUTHORIZED_MESSAGE con precedencia; un poll OK vuelve a ● live', async () => {
+    const clock = makeFakeClock();
+    let phase = 'unauth';
+    // Primer(es) tick(s): 401 (ok:false, status:401 → fetchStatus yields code:'unauthorized').
+    // Tras cambiar phase: 200 válido → el estado 401 se limpia.
+    const fetchFn = async () => {
+      if (phase === 'unauth') return { ok: false, status: 401, json: async () => ({}) };
+      return okResponse({ sessions: [{}, {}], count: 2 });
+    };
+
+    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    // Nunca un blank screen en un 401 (D-08): el árbol renderiza y contiene el mensaje.
+    assert.ok(frame && frame.length > 0, `el frame nunca queda vacío en un 401 (D-08)\n${frame}`);
+    assert.match(
+      frame,
+      /no autorizado — revisa KODO_API_TOKEN/,
+      `un 401 debe renderizar UNAUTHORIZED_MESSAGE\n${frame}`,
+    );
+    // Precedencia sobre la degradación genérica: NO cae a "waiting for server" pese a no tener
+    // dato bueno previo (el 401 es una condición específica y accionable, no un drop transitorio).
+    assert.doesNotMatch(frame, /waiting for server/, `el 401 gana a "waiting for server"\n${frame}`);
+    // El literal renderizado ES la constante exportada (mata el drift code/render).
+    assert.ok(frame.includes(UNAUTHORIZED_MESSAGE), `el frame contiene la constante exportada\n${frame}`);
+
+    // Un poll OK limpia el estado 401 y vuelve a "● live".
+    phase = 'ok';
+    clock.advance(5000);
+    await clock.flushTick();
+    await drain();
+
+    const frame2 = lastFrame();
+    assert.match(frame2, /● live/, `un poll OK vuelve a ● live\n${frame2}`);
+    assert.doesNotMatch(frame2, /no autorizado/, `el estado 401 se limpia tras un poll OK\n${frame2}`);
   });
 });
