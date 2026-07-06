@@ -171,4 +171,33 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: 'unauthorized' });
   });
+
+  // --- Task 3 (D-05): the served HTML carries the token to all four fetches ---
+
+  it('GET /?token=<correct> → HTML embeds the token once and routes its fetches through an auth wrapper', async () => {
+    const res = await fetch(`${base}/?token=${TOKEN}`);
+    const html = await res.text();
+    assert.match(html, /function authedFetch\(/, 'inline auth-adding fetch wrapper present');
+    assert.equal((html.match(/const TOKEN = /g) || []).length, 1, 'token bound exactly once');
+    // The four route fetches go through authedFetch; the raw unauthenticated forms are gone.
+    assert.match(html, /authedFetch\('\/status'\)/, '/status routed through authedFetch');
+    assert.match(html, /authedFetch\('\/logs'\)/, '/logs routed through authedFetch');
+    assert.match(html, /authedFetch\('\/comments\/'/, '/comments routed through authedFetch');
+    assert.match(html, /authedFetch\('\/sessions\/'/, 'DELETE /sessions routed through authedFetch');
+    assert.doesNotMatch(html, /[^d]fetch\('\/status'\)/, 'no raw unauthenticated /status fetch');
+    assert.doesNotMatch(html, /[^d]fetch\('\/logs'\)/, 'no raw unauthenticated /logs fetch');
+  });
+
+  it('an authenticated fetch to /status with the served token succeeds (bearer accepted)', async () => {
+    const res = await fetch(`${base}/status`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(res.status, 200);
+    assert.ok(Array.isArray((await res.json()).sessions));
+  });
+
+  it('the served HTML does not print the token as visible page text (only in the inline binding)', async () => {
+    const res = await fetch(`${base}/?token=${TOKEN}`);
+    const html = await res.text();
+    const withoutBinding = html.replace(`const TOKEN = "${TOKEN}"`, 'const TOKEN = "<redacted>"');
+    assert.doesNotMatch(withoutBinding, new RegExp(TOKEN), 'token only lives in the inline binding');
+  });
 });

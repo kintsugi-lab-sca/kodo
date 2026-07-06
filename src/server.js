@@ -74,7 +74,7 @@ if (!console.log.__kodo_patched) {
   console.log.__kodo_patched = true;
 }
 
-function dashboardHtml() {
+function dashboardHtml(token) {
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -163,6 +163,17 @@ function dashboardHtml() {
 <div class="update-time" id="updated"></div>
 
 <script>
+// NET-02 / D-05: the bearer token bound ONCE, injected from the served route (which
+// only runs after the ?token= guard validated it). authedFetch adds the Authorization
+// header to every same-origin API call so the four dashboard fetches cross the bearer
+// guard. PERSIST-04: the token lives only here (and in the request headers) — it is
+// never rendered as visible page text.
+const TOKEN = "${token}";
+function authedFetch(url, opts) {
+  const o = opts || {};
+  return fetch(url, { ...o, headers: { ...(o.headers || {}), Authorization: 'Bearer ' + TOKEN } });
+}
+
 function ago(iso) {
   const ms = Date.now() - new Date(iso).getTime();
   const m = Math.floor(ms / 60000);
@@ -219,7 +230,7 @@ function refAnchor(url, ref) {
 
 async function deleteSession(taskId, ref) {
   if (!confirm('¿Eliminar sesión ' + ref + ' del state?')) return;
-  await fetch('/sessions/' + encodeURIComponent(taskId), { method: 'DELETE' });
+  await authedFetch('/sessions/' + encodeURIComponent(taskId), { method: 'DELETE' });
   refresh();
 }
 
@@ -229,7 +240,7 @@ async function toggleComments(taskId, btnEl) {
   if (box) { box.remove(); btnEl.textContent = 'Comentarios'; return; }
   btnEl.textContent = 'Cargando...';
   try {
-    const res = await fetch('/comments/' + encodeURIComponent(taskId));
+    const res = await authedFetch('/comments/' + encodeURIComponent(taskId));
     const data = await res.json();
     const comments = data.comments || [];
     box = document.createElement('div');
@@ -284,7 +295,7 @@ function renderLogs(logs) {
 
 async function refreshLogs() {
   try {
-    const res = await fetch('/logs');
+    const res = await authedFetch('/logs');
     const data = await res.json();
     document.getElementById('logs').innerHTML = renderLogs(data.logs || []);
   } catch {}
@@ -343,7 +354,7 @@ function renderHistory(items) {
 
 async function refresh() {
   try {
-    const res = await fetch('/status');
+    const res = await authedFetch('/status');
     const data = await res.json();
 
     const m = data.metrics || {};
@@ -390,27 +401,23 @@ setInterval(refreshLogs, 5000);
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const chunks = [];
+    let total = 0;
+
     const rejectTooLarge = () => {
       if (settled) return;
       settled = true;
-      // NOTE: we do NOT req.destroy() here — tearing down the socket before the
-      // caller can write the 413 would surface to the client as a connection reset
-      // (ECONNRESET) instead of a clean 413. We stop accumulating chunks (memory is
-      // bounded — the DoS goal) and let the caller emit the 413 with Connection:close.
+      // Drain-and-discard the rest of the upload (memory stays bounded — we stop
+      // accumulating, the DoS goal) rather than req.destroy(). Destroying the socket
+      // mid-upload would surface to the client as a connection reset instead of the
+      // clean 413 the caller is about to write; resuming lets the client finish its
+      // send and read the 413 (Pitfall: undici reports 'fetch failed' on a reset).
+      req.resume();
       reject(Object.assign(new Error('payload too large'), { code: 'PAYLOAD_TOO_LARGE' }));
     };
 
-    // Early reject: an honest content-length already over the cap never buffers.
-    const declared = Number(req.headers['content-length']);
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-      rejectTooLarge();
-      return;
-    }
-
-    const chunks = [];
-    let total = 0;
     req.on('data', (chunk) => {
-      if (settled) return; // already over cap — drop further bytes, don't grow memory
+      if (settled) return; // already over cap — discard further bytes, don't grow memory
       total += chunk.length;
       if (total > MAX_BODY_BYTES) {
         rejectTooLarge();
@@ -428,6 +435,10 @@ function readBody(req) {
       settled = true;
       reject(err);
     });
+
+    // Early reject on an honest oversized content-length (never reads the body).
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) rejectTooLarge();
   });
 }
 
@@ -691,7 +702,7 @@ export async function startServer(opts = {}) {
 
     if (req.method === 'GET' && (pathname === '/' || pathname === '/dashboard')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(dashboardHtml());
+      res.end(dashboardHtml(TOKEN));
       return;
     }
 
@@ -708,9 +719,8 @@ export async function startServer(opts = {}) {
         // handleWebhookRequest runs, so this 413 is emitted PRE-HMAC — an
         // unauthenticated attacker cannot force >1 MB of buffering behind auth.
         if (err && err.code === 'PAYLOAD_TOO_LARGE') {
-          // Connection: close — the client may still be uploading; closing after the
-          // response guarantees it reads the 413 instead of racing an ECONNRESET.
-          res.writeHead(413, { 'Content-Type': 'application/json', Connection: 'close' });
+          // readBody drains the remaining upload so the client cleanly reads this 413.
+          res.writeHead(413, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'payload too large' }));
           return;
         }
