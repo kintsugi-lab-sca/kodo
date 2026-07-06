@@ -19,8 +19,8 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 
 ### Concurrencia y ciclo de vida de procesos (Ola 2 — causas raíz T1, T2)
 
-- [ ] **CONC-01**: Los ~6 escritores de `state.json` pasan por `withStateLock(fn)` (lockfile `O_EXCL` + retry, re-lee→muta→guarda); el comentario falso "ÚNICO escritor" de `server.js:682` se corrige en el mismo commit (A2)
-- [ ] **CONC-02**: `acquireGsdLock` es atómico (`flag:'wx'`, `EEXIST` → tomado); `stealLock` vía tmp+rename (A3)
+- [x] **CONC-01**: Los ~6 escritores de `state.json` pasan por `withStateLock(fn)` (lockfile `O_EXCL` + retry, re-lee→muta→guarda); el comentario falso "ÚNICO escritor" de `server.js:682` se corrige en el mismo commit (A2)
+- [x] **CONC-02**: `acquireGsdLock` es atómico (`flag:'wx'`, `EEXIST` → tomado); `stealLock` vía tmp+rename (A3)
 - [ ] **CONC-03**: Una sesión zombi libera su slot de `max_parallel` — reconcile `state:'dead'` deriva `status:'idle'` o el gate filtra por `alive` (A4)
 - [ ] **CONC-04**: `teardown` solo borra `kodo.pid` si `payload.pid === process.pid`; el PID se escribe post-bind (A5)
 - [ ] **CONC-05**: Antes de SIGKILL se compara `started_at` del payload con el arranque real del proceso (`ps -o lstart=`); si no cuadra, se aborta (A6)
@@ -82,8 +82,8 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | NET-04 | Phase 69 | Complete |
 | NET-05 | Phase 69 | Complete |
 | NET-06 | Phase 69 | Complete |
-| CONC-01 | Phase 70 | Pending |
-| CONC-02 | Phase 70 | Pending |
+| CONC-01 | Phase 70 | Complete |
+| CONC-02 | Phase 70 | Complete |
 | CONC-03 | Phase 70 | Pending |
 | CONC-04 | Phase 70 | Pending |
 | CONC-05 | Phase 70 | Pending |

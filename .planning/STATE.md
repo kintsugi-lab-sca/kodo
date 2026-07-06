@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
+current_phase: 70
+current_phase_name: Concurrencia y ciclo de vida de procesos
 status: executing
 stopped_at: Phase 70 context gathered
-last_updated: "2026-07-06T11:34:20.521Z"
+last_updated: "2026-07-06T11:48:10.979Z"
 last_activity: 2026-07-06
-last_activity_desc: Phase 69 complete, transitioned to Phase 999.1
+last_activity_desc: Phase 70 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 8
+  completed_plans: 5
   percent: 50
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first. **v0.16 endurece: cierra la superficie de red, hace segura la concurrencia multiproceso, garantiza la entrega de dispatches con backstop mecánico, y salda la higiene y la deriva documental** (remediación de la auditoría adversarial 2026-07-03, 9 ALTA re-verificados 2026-07-05).
 
-**Current focus:** Phase 69 — Red y autenticación
+**Current focus:** Phase 70 — Concurrencia y ciclo de vida de procesos
 
 ## Current Position
 
-Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
-Plan: Not started
+Phase: 70 (Concurrencia y ciclo de vida de procesos) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-06 — Phase 69 complete, transitioned to Phase 999.1
+Last activity: 2026-07-06 — Phase 70 execution started
 
 ## Roadmap v0.16 (activo)
 
@@ -109,7 +109,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/70-concurrencia-y-ciclo-de-vida-de-procesos/70-CONTEXT.md
 
-- **Last session:** 2026-07-06T10:53:35.333Z
+- **Last session:** 2026-07-06T11:47:48.190Z
 - **Stopped at:** Phase 70 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -133,6 +133,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 69 P03 | 5min | 2 tasks | 6 files |
 | Phase 69 P04 | 18min | 2 tasks | 4 files |
 | Phase 69 P02 | 24 | 3 tasks | 6 files |
+| Phase 70 P01 | 6 | 3 tasks | 6 files |
 
 ## Decisions
 
@@ -145,3 +146,5 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: [69-04] sessionId path-traversal guard: HARD reject (exit 2) at kodo logs CLI edge, SOFT non-throwing guard in logger.js (disk sink off) para preservar el reconcile loop — allowlist /^[A-Za-z0-9_-]+/ (NET-05, D-10)
 - [Phase ?]: 69-02: drain-and-discard oversized bodies (not req.destroy) so clients read a clean 413
 - [Phase ?]: 69-02: ?token= query param is HTML-route only; the API rail is bearer-header only (D-05)
+- [Phase ?]: 70-01: Advisory-lock primitive state-lock.js (O_EXCL/wx + steal tmp+rename + Atomics.wait backoff); acquireGsdLock now atomic. Zero new deps.
+- [Phase ?]: 70-01: state-lock steals only on parseable-but-stale (dead pid / TTL); corrupt/partial read retries to keep the O_EXCL create race single-winner.
