@@ -44,6 +44,8 @@ async function readStdin() {
  *   removeSessionFn?: typeof removeSession,
  *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
+ *   provider?: any,
+ *   config?: any,
  * }} [deps]
  * @returns {Promise<void>}
  */
@@ -73,7 +75,7 @@ export async function runSessionEndHook(input, deps = {}) {
 
     const { id, session } = result;
 
-    // Logger compartido entre el typed event y el cleanup.
+    // Logger compartido entre el backstop, el typed event y el cleanup.
     const log = deps.loggerFactory
       ? deps.loggerFactory({ session_id: session.session_id, task_id: session.task_id })
       : await (async () => {
@@ -83,6 +85,39 @@ export async function runSessionEndHook(input, deps = {}) {
             minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
           }).child({ component: 'hook', task_id: session.task_id });
         })();
+
+    // ── Review backstop (DELIV-04, D-10..D-14) ─────────────────────────────
+    // Bloque AUTÓNOMO: tras los guards de idempotencia (:61-72) y ANTES del
+    // session.end event / lock release / performTerminalCleanup. No se entrelaza
+    // con esos pasos para dejar sitio al movimiento de HYG-04 en Fase 72 (Pitfall
+    // #7). Envuelto en su propio try/catch además del outer never-throws: un fallo
+    // del backstop NUNCA impide el cleanup terminal (fail-open, D-13).
+    try {
+      let config = deps.config;
+      let provider = deps.provider;
+      if (config === undefined || provider === undefined) {
+        // Defaults perezosos a los resolvers reales (mismo patrón DI que
+        // verify.js). Vía `await import(...)` para no acoplar estáticamente el
+        // cleanup mecánico al registry/config; un fallo degrada a no-op.
+        try {
+          const { loadConfig } = await import('../config.js');
+          const realConfig = loadConfig();
+          if (config === undefined) config = realConfig;
+          if (provider === undefined) {
+            const { initRegistry, getProvider } = await import('../providers/registry.js');
+            await initRegistry();
+            const providerName = session.provider || realConfig.provider;
+            provider = getProvider(providerName);
+          }
+        } catch {
+          if (config === undefined) config = {};
+          if (provider === undefined) provider = null;
+        }
+      }
+      await runReviewBackstop({ session, input, provider, config, log });
+    } catch (err) {
+      console.error(`[kodo:session-end] Review backstop error: ${/** @type {Error} */ (err).message}`);
+    }
 
     // Typed session.end event (terminal) — MOVIDO desde stop.js. Refleja el cierre
     // REAL (una vez), no el fin-de-turno. Emitido ANTES de removeSession para que el
@@ -121,6 +156,103 @@ export async function runSessionEndHook(input, deps = {}) {
     });
   } catch (err) {
     console.error(`[kodo] SessionEnd hook error: ${/** @type {Error} */ (err).message}`);
+  }
+}
+
+/**
+ * Backstop mecánico de «In Review» (DELIV-04, D-10..D-14). Si al cierre real de
+ * la sesión la tarea sigue viva en `in_progress` (verificado con `getTaskState`,
+ * NO con `session.status` local) y la sesión terminó limpia, transiciona la tarea
+ * al estado review y comenta «cierre automático», emitiendo un evento NDJSON
+ * tipado. La transición del LLM pasa a ser optimización, no única vía (cierra la
+ * causa raíz T5). Capability-gated por `typeof` (GitHub degrada a no-op),
+ * idempotente frente al LLM (no-op si la tarea ya avanzó) y fail-open por paso.
+ *
+ * @param {{
+ *   session: any,
+ *   input: {reason?: string},
+ *   provider: any,
+ *   config: any,
+ *   log: any,
+ * }} args
+ * @returns {Promise<void>}
+ */
+export async function runReviewBackstop({ session, input, provider, config, log }) {
+  // 1. Capability gate (D-13): guard null-first para que el `typeof` no lance;
+  //    un provider sin los 3 métodos (GitHub) degrada a no-op silencioso.
+  if (
+    !provider ||
+    typeof provider.getTaskState !== 'function' ||
+    typeof provider.updateTaskState !== 'function' ||
+    typeof provider.addComment !== 'function'
+  ) {
+    return;
+  }
+
+  // 2. Reconstruir un TaskItem MÍNIMO desde la SessionRecord (Pitfall #6, 0-red):
+  //    basta {id, projectId, url, ref} para getTaskState/updateTaskState/addComment
+  //    de Plane. Sin task_id/project_id no hay nada que transicionar.
+  if (!session.task_id || !session.project_id) return;
+  const task = {
+    id: session.task_id,
+    projectId: session.project_id,
+    url: session.task_url,
+    ref: session.task_ref,
+  };
+
+  // 3. «Sesión limpia» (D-12, fail-open): SessionEnd solo dispara en cierres
+  //    NO-crash. `input.reason` ∈ {clear, logout, prompt_input_exit,
+  //    bypass_permissions_disabled, other} — ninguno representa un crash (un
+  //    crash no dispara un SessionEnd limpio). Se transiciona salvo que un futuro
+  //    reason señale un fallo explícito. El `reason` se trata como enum CERRADO:
+  //    nunca se interpola en comandos ni rutas (V5 ASVS, T-71-12).
+  void input;
+
+  // 4. Gate de estado (D-11): idempotente frente al LLM. Solo transicionar si la
+  //    tarea sigue VIVA en 'in_progress'; ya en review/done → no-op. Fail-open:
+  //    si getTaskState falla, no arriesgamos una transición a ciegas.
+  let state;
+  try {
+    state = await provider.getTaskState(task);
+  } catch (err) {
+    log.warn('session.backstop.getstate_failed', { error: /** @type {Error} */ (err).message });
+    return;
+  }
+  if (state !== 'in_progress') return;
+
+  // 5. Resolver reviewState con el patrón de verify.js:258-262 (Pitfall #1): bajo
+  //    config.providers[provider].states.review, NO top-level; default 'In review'.
+  const providerName = session.provider || (config && config.provider);
+  const providerCfg = (config && config.providers && config.providers[providerName]) || {};
+  const reviewState = (providerCfg.states && providerCfg.states.review) || 'In review';
+
+  // 6. Transición fail-open: un fallo de red loguea y sale sin comentar.
+  try {
+    await provider.updateTaskState(task, reviewState);
+  } catch (err) {
+    log.warn('session.backstop.transition_failed', { error: /** @type {Error} */ (err).message });
+    return;
+  }
+
+  // 7. Comentario fail-open: un fallo NO impide el evento (usar addComment —
+  //    contrato del provider — NO createComment, que es del cliente).
+  try {
+    await provider.addComment(task, 'cierre automático');
+  } catch (err) {
+    log.warn('session.backstop.comment_failed', { error: /** @type {Error} */ (err).message });
+  }
+
+  // 8. Evento NDJSON tipado (helper Task 1): SOLO {session_id, task_id, from, to}.
+  try {
+    const { sessionBackstopReview } = await import('../logger-events.js');
+    sessionBackstopReview(log, {
+      session_id: session.session_id,
+      task_id: session.task_id,
+      from: 'in_progress',
+      to: reviewState,
+    });
+  } catch {
+    // silent — never crash Claude Code (logger fail-open)
   }
 }
 

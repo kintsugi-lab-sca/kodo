@@ -30,6 +30,7 @@ function makeSession(overrides = {}) {
     session_id: 's-end-1',
     task_id: 'kodo-end-1',
     task_ref: 'KL-end-1',
+    task_url: 'https://plane.example/KL-end-1',
     provider: 'plane',
     project_id: 'p-1',
     project_path: '/tmp/repo-end',
@@ -110,6 +111,173 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
   });
 });
 
+/**
+ * Provider mock con spies + contadores para el backstop (DELIV-04).
+ * `state` es lo que devuelve getTaskState; los flags *Throws simulan fallos de red.
+ * `omit` permite quitar métodos para simular capability-gating (GitHub degrada).
+ */
+function makeProvider(opts = {}) {
+  const calls = { getTaskState: [], updateTaskState: [], addComment: [] };
+  const provider = {
+    getTaskState: async (task) => {
+      calls.getTaskState.push(task);
+      if (opts.getStateThrows) throw new Error('getTaskState network down');
+      return opts.state ?? 'in_progress';
+    },
+    updateTaskState: async (task, stateName) => {
+      calls.updateTaskState.push({ task, stateName });
+      if (opts.updateThrows) throw new Error('updateTaskState network down');
+    },
+    addComment: async (task, text) => {
+      calls.addComment.push({ task, text });
+      if (opts.commentThrows) throw new Error('addComment network down');
+    },
+  };
+  for (const m of opts.omit || []) delete provider[m];
+  return { provider, calls };
+}
+
+function makeConfig(reviewState = 'In review') {
+  return { provider: 'plane', providers: { plane: { states: { review: reviewState } } } };
+}
+
+describe('runSessionEndHook — review backstop (DELIV-04)', () => {
+  it('tarea in_progress + reason limpio → transiciona a review + comenta + emite session.backstop.review; cleanup sigue', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: makeConfig(),
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 1, 'updateTaskState llamado una vez');
+    assert.equal(calls.updateTaskState[0].stateName, 'In review', 'con el reviewState resuelto');
+    assert.equal(calls.updateTaskState[0].task.id, session.task_id, 'TaskItem mínimo reconstruido con task_id');
+    assert.equal(calls.updateTaskState[0].task.projectId, session.project_id, 'TaskItem con projectId');
+    assert.equal(calls.addComment.length, 1, 'addComment llamado una vez');
+    assert.equal(calls.addComment[0].text, 'cierre automático', 'comentario «cierre automático»');
+    const ev = events.find((e) => e.fields?.event === 'session.backstop.review');
+    assert.ok(ev, 'emite session.backstop.review');
+    assert.equal(ev.fields.from, 'in_progress');
+    assert.equal(ev.fields.to, 'In review');
+    assert.equal(ev.fields.session_id, session.session_id);
+    assert.deepEqual(removed, [session.task_id], 'performTerminalCleanup/removeSession corre igual');
+  });
+
+  it('tarea ya en in_review → no-op idempotente (D-11): cero updateTaskState/addComment', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_review' });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: makeConfig(),
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 0, 'no transiciona lo ya movido por el LLM');
+    assert.equal(calls.addComment.length, 0, 'no comenta');
+    assert.equal(events.filter((e) => e.fields?.event === 'session.backstop.review').length, 0, 'no emite el evento');
+    assert.deepEqual(removed, [session.task_id], 'cleanup sigue');
+  });
+
+  it('provider sin getTaskState/updateTaskState (GitHub) → no-op por capability-gate; el hook completa el cleanup', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { provider, calls } = makeProvider({ omit: ['getTaskState', 'updateTaskState'] });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: makeConfig(),
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 0, 'no llama transición');
+    assert.equal(calls.addComment.length, 0, 'no comenta');
+    assert.deepEqual(removed, [session.task_id], 'el hook completa el cleanup');
+  });
+
+  it('updateTaskState que lanza (fallo de red) → el hook NO crashea, warn emitido, cleanup corre (fail-open)', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress', updateThrows: true });
+    const removed = [];
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: (id) => removed.push(id),
+          loggerFactory: () => logger,
+          provider,
+          config: makeConfig(),
+        },
+      ),
+      'el backstop nunca crashea el hook (fail-open por paso)',
+    );
+    assert.equal(calls.updateTaskState.length, 1, 'intentó la transición');
+    assert.equal(calls.addComment.length, 0, 'un fallo de transición sale antes de comentar');
+    assert.ok(events.some((e) => e.level === 'warn'), 'emite un warn del fallo');
+    assert.equal(events.filter((e) => e.fields?.event === 'session.backstop.review').length, 0, 'no emite el evento tras fallo de transición');
+    assert.deepEqual(removed, [session.task_id], 'performTerminalCleanup corre igualmente');
+  });
+
+  it('getTaskState que lanza → fail-open: no transiciona, warn, cleanup corre', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ getStateThrows: true });
+    const removed = [];
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: (id) => removed.push(id),
+          loggerFactory: () => logger,
+          provider,
+          config: makeConfig(),
+        },
+      ),
+    );
+    assert.equal(calls.updateTaskState.length, 0, 'sin estado no arriesga la transición');
+    assert.ok(events.some((e) => e.level === 'warn'), 'emite un warn del fallo de getTaskState');
+    assert.deepEqual(removed, [session.task_id], 'cleanup corre');
+  });
+
+  it('reviewState resuelto desde config.providers[provider].states.review custom (Pitfall #1)', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        provider,
+        config: makeConfig('QA Column'),
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 1);
+    assert.equal(calls.updateTaskState[0].stateName, 'QA Column', 'usa el reviewState custom, no el default ni top-level');
+  });
+});
+
 describe('sessionBackstopReview — evento NDJSON del backstop (DELIV-04, T-25-02)', () => {
   it('emite SOLO {event, session_id, task_id, from, to} y descarta campos extra', () => {
     const { logger, events } = makeLogger();
@@ -152,7 +320,15 @@ describe('session-end.js source hygiene', () => {
       'utf-8',
     );
     assert.ok(!src.includes('PlaneClient'), 'no debe importar PlaneClient');
-    assert.ok(!src.includes('initRegistry'), 'no debe inicializar el registry');
+    // El cleanup mecánico sigue estáticamente DESACOPLADO del registry/config: no
+    // hay `import { ... } from '.../registry.js'` ni de config en el bloque de
+    // imports estáticos de cabecera. El backstop de review (DELIV-04) resuelve el
+    // provider vía `await import(...)` perezoso (default de la DI), preservando el
+    // never-throws — por eso el string aparece SOLO en un import dinámico.
+    assert.ok(
+      !/^\s*import\s+\{[^}]*\}\s+from\s+['"][^'"]*registry\.js['"]/m.test(src),
+      'no debe importar estáticamente el registry (solo await import perezoso en el backstop)',
+    );
     assert.ok(src.includes('performTerminalCleanup'), 'usa el helper compartido performTerminalCleanup');
   });
 });
