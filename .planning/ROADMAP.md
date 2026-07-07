@@ -178,11 +178,13 @@ Plans:
   3. `adopt` sobre una tarea ya adoptada (mismo `task_url`) **no crea un duplicado** — busca por `task_url` antes de `createTask`. (DELIV-03)
   4. Matar una sesión sin que el LLM transicione la tarea → al `SessionEnd`, si la tarea sigue "In Progress" y la sesión terminó limpia, el hook la pasa a **"In Review"** y comenta "cierre automático"; la instrucción al LLM pasa a ser optimización, no única vía. (DELIV-04)
 
-**Plans**: 3/3 plans complete
+**Plans**: 5 plans (3 originales complete + 2 gap-closure; verificación 2026-07-07 encontró que DELIV-03/DELIV-04 fallaban end-to-end)
 
 - [x] 71-01-PLAN.md — Dispatch confirmado (`await`+timeout) + watermark acotado + centinela `observed` en `polling.js` — DELIV-01, DELIV-02 (Wave 1)
 - [x] 71-02-PLAN.md — Idempotencia de `adopt` por `task_url` (recuperación explícita + barrido local) en `adopt.js` — DELIV-03 (Wave 1)
 - [x] 71-03-PLAN.md — Backstop mecánico de "In Review" en `SessionEnd` (capability-gated, fail-open) + evento NDJSON tipado — DELIV-04 (Wave 1)
+- [ ] 71-04-PLAN.md — [gap] Cablear recuperación de `adopt` en el CLI: flags `--task-url`/`--task-id` en `kodo adopt` + reenvío en `runAdoptCli` — DELIV-03 end-to-end (Wave 1)
+- [ ] 71-05-PLAN.md — [gap] Gate de estado no-terminal en `runReviewBackstop` (nunca cerrar issues de GitHub) + corrección de la premisa falsa D-13 en docs — DELIV-04 end-to-end (Wave 1)
 
 ### Phase 72: Higiene, DX y verdad documental
 
@@ -237,3 +239,33 @@ _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional*
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 73 to break down)
+
+### Phase 74: Plan vivo por-tarea (handoff continuo) — candidata v0.17 (feature)
+
+**Goal**: Convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget (solo se escribe al arranque) en **estado vivo** de la tarea: el hook de cierre appendea un handoff (`Hecho / Pendiente / NEXT:`) al terminar cada sesión, `state.json` guarda el puntero + el `NEXT:` de una línea para pintar la lista sin abrir N ficheros, y el TUI/dashboard ofrece la ventana a ese estado en cada momento. Cierra la continuidad **entre sesiones de la misma tarea** (hoy inexistente) y alimenta el nudge del orchestrator con un `NEXT:` concreto en vez del genérico «Revisa el estado actual…».
+
+**Tipo**: Feature (NO hardening). Candidata al primer milestone de features post-v0.16 (v0.17). **No planificar hasta que v0.16 cierre.**
+**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04
+**Depends on**: Phase 70 (el hook de cierre es un escritor más de `state.json` → `withStateLock`) · interopera con Phase 73 (LIVE-04 reusa el mecanismo de nudge)
+**Success Criteria** (what must be TRUE):
+
+  1. Cerrar una sesión de una tarea → `~/.kodo/plans/<uuid>.md` gana un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`; una segunda sesión de la misma tarea acumula otro bloque sin pisar el anterior. (LIVE-01)
+  2. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`. (LIVE-02)
+  3. El TUI lista el `NEXT:` por tarea y abre el markdown completo del plan desde la vista; el contenido se renderiza, no se edita a mano. (LIVE-03)
+  4. Con un `NEXT:` presente, el nudge del orchestrator lo usa como contexto en vez del genérico. (LIVE-04)
+
+**Plans**: TBD (no planificar aún)
+
+### Phase 75: Inbox de capturas global — candidata v0.17 (feature)
+
+**Goal**: Dar a kodo un **buffer de captura rápida** para ideas tangenciales que surgen mid-session (un tip de config, una idea de comando, un cambio de sentido) y que NO dan para una tarea de Plane. Global y propio de kodo (`~/.kodo/inbox.md`, append-only, con tag de proyecto), capturable desde shell (`kodo capture`) y desde dentro de la sesión (skill `/kodo-capture`). Lo que hace que funcione y no se pudra es el **destino**: `kodo inbox` enruta cada captura → tarea Plane / fase roadmap / config / descartada, delegando el «a dónde va» en `gsd-capture`.
+
+**Tipo**: Feature (NO hardening). Candidata a v0.17. **No planificar hasta que v0.16 cierre.** Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
+**Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04
+**Depends on**: ninguna dura (aislada). Reutiliza el enrutado de `gsd-capture`/`gsd-inbox`.
+**Success Criteria** (what must be TRUE):
+
+  1. `kodo capture "idea"` desde cualquier proyecto appendea a `~/.kodo/inbox.md` una línea con `texto · tag-proyecto · fecha · origen`; escritura atómica/con lock ante capturas concurrentes. (CAPT-01)
+  2. `/kodo-capture` captura mid-session desde Claude Code con el mismo formato, derivando proyecto/tarea del contexto de sesión. (CAPT-02)
+  3. `kodo inbox` lista las capturas abiertas y marca cada una como `enrutada`/`descartada` al procesarla (no borra: traza de qué se convirtió en qué). (CAPT-03)
+  4. El enrutado a tarea/fase/config lo hace `gsd-capture`, no una reimplementación en kodo. (CAPT-04)
