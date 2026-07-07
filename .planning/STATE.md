@@ -5,8 +5,8 @@ milestone_name: activo)
 current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
 status: verifying
-stopped_at: Phase 71 context gathered
-last_updated: "2026-07-07T08:09:00.247Z"
+stopped_at: Phase 71 gaps found — DELIV-03 (adopt task_url unreachable via CLI) + DELIV-04 (GitHub backstop closes issues); DELIV-01/02 pass
+last_updated: "2026-07-07T08:36:23.338Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
@@ -108,10 +108,10 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-CONTEXT.md
+**Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-VERIFICATION.md
 
-- **Last session:** 2026-07-07T08:08:31.717Z
-- **Stopped at:** Phase 71 context gathered
+- **Last session:** 2026-07-07T08:36:23.331Z
+- **Stopped at:** Phase 71 gaps found — DELIV-03 (adopt task_url unreachable via CLI) + DELIV-04 (GitHub backstop closes issues); DELIV-01/02 pass
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
