@@ -26,6 +26,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runAdoptCli, resolveProjectPath } from '../src/cli/adopt.js';
+import { adoptSession } from '../src/adopt.js';
 
 describe('resolveProjectPath — project_path = ancestro más cercano del cwd (UAT 2026-06-19)', () => {
   const roman = {
@@ -522,6 +523,81 @@ describe('runAdoptCli — reenvío de flags de recuperación --task-url/--task-i
     assert.equal(code, 0);
     assert.ok(!('task_url' in received), 'task_url ausente cuando no se pasa --task-url');
     assert.ok(!('task_id' in received), 'task_id ausente cuando no se pasa --task-id');
+  });
+});
+
+describe('runAdoptCli — recuperación END-TO-END vía el handler: UN SOLO createTask (DELIV-03)', () => {
+  it('E2E: run inicial → PERSIST_FAILED (createTask 1x); re-run con --task-url/--task-id → reused:true SIN segundo createTask', async () => {
+    // TaskItem fijo que el createTask espía devuelve. Su url/id son EXACTAMENTE lo que el
+    // operador reintroduce en el re-run de recuperación (los dos campos que PERSIST_FAILED expone).
+    const fakeTaskItem = {
+      id: 'T-7',
+      ref: 'ROMAN-7',
+      url: 'https://plane.example/T-7',
+      projectId: 'P',
+      title: 'proj',
+    };
+    let calls = 0;
+    const provider = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+
+    // addSession conmutable: lanza en el run inicial (ventana PERSIST_FAILED),
+    // no-op en el re-run de recuperación.
+    let addThrows = true;
+    const stateDeps = {
+      findSession: () => null, // nunca hay fila → el guard sessionId no corta
+      listSessions: () => [], // barrido local (c2.a) sin match
+      listHistory: () => [],
+      addSession: () => {
+        if (addThrows) throw new Error('disk full');
+      },
+    };
+
+    // adoptSession REAL con state inyectado, disparado DESDE runAdoptCli (no directo):
+    // es la brecha exacta que marcó la verificación (mecanismo correcto pero inalcanzable).
+    const deps = {
+      getProviderFn: () => provider,
+      loadProjectsFn: () => ({ P: '/tmp/proj' }),
+      loadConfigFn: () => ({ provider: 'plane' }),
+      adoptSessionFn: (args) => adoptSession(args, stateDeps),
+      errFn: () => {},
+      writeFn: () => {},
+    };
+
+    // RUN INICIAL (sin flags de recuperación): addSession lanza → rama (d) createTask
+    // (contador → 1) → PERSIST_FAILED. exit 1, calls === 1.
+    const code1 = await runAdoptCli(
+      { workspaceRef: 'W', cwd: '/tmp/proj', sessionId: 'S', projectId: 'P' },
+      deps,
+    );
+    assert.equal(code1, 1, 'run inicial devuelve exit 1 (PERSIST_FAILED)');
+    assert.equal(calls, 1, 'el run inicial llama createTask exactamente una vez');
+
+    // RE-RUN (recuperación): mismos identificadores, ahora con --task-url/--task-id y
+    // addSession que YA NO lanza. --json para capturar el discriminante.
+    addThrows = false;
+    const out = makeStdoutStub();
+    const code2 = await runAdoptCli(
+      {
+        workspaceRef: 'W',
+        cwd: '/tmp/proj',
+        sessionId: 'S',
+        projectId: 'P',
+        taskUrl: 'https://plane.example/T-7',
+        taskId: 'T-7',
+        json: true,
+      },
+      { ...deps, writeFn: out.write },
+    );
+    assert.equal(code2, 0, 're-run reconcilia con éxito (exit 0)');
+    assert.equal(calls, 1, 'NINGÚN segundo createTask: contador sigue en 1 (sin duplicado en Plane)');
+    const parsed = JSON.parse(out.get());
+    assert.equal(parsed.ok, true, 'el re-run devuelve ok:true');
+    assert.equal(parsed.reused, true, 'el re-run marca reused:true (reconciliación, no creación)');
   });
 });
 
