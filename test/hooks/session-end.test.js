@@ -192,7 +192,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     assert.deepEqual(removed, [session.task_id], 'cleanup sigue');
   });
 
-  it('provider sin getTaskState/updateTaskState (GitHub) → no-op por capability-gate; el hook completa el cleanup', async () => {
+  it('provider sin getTaskState/updateTaskState (sin capacidades) → no-op por capability-gate; el hook completa el cleanup', async () => {
     const session = makeSession();
     const { logger } = makeLogger();
     const { provider, calls } = makeProvider({ omit: ['getTaskState', 'updateTaskState'] });
@@ -275,6 +275,119 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     );
     assert.equal(calls.updateTaskState.length, 1);
     assert.equal(calls.updateTaskState[0].stateName, 'QA Column', 'usa el reviewState custom, no el default ni top-level');
+  });
+
+  // --- Gate de estado no-terminal (GAP 2 / DELIV-04, 71-05) ------------------
+  // El backstop NUNCA transiciona a un estado terminal/de cierre: para GitHub
+  // (`states.review:'closed'`) queda no-op — NUNCA cierra el issue; para Plane
+  // (`'In review'`, no-terminal) transiciona como hoy.
+
+  it('GitHub REAL (3 capacidades) + states.review:"closed" → no-op por gate de estado terminal (NUNCA cierra el issue)', async () => {
+    const session = makeSession({ provider: 'github' });
+    const { logger, events } = makeLogger();
+    // Provider mock con las 3 capacidades REALES (getTaskState/updateTaskState/addComment),
+    // como el provider de GitHub — el capability-gate PASA; el no-op viene del gate de estado.
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: { provider: 'github', providers: { github: { states: { review: 'closed' } } } },
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 0, 'NUNCA cierra el issue de GitHub (updateTaskState no llamado)');
+    assert.equal(calls.addComment.length, 0, 'no comenta');
+    assert.equal(
+      events.filter((e) => e.fields?.event === 'session.backstop.review').length,
+      0,
+      'no emite el evento de transición',
+    );
+    assert.ok(
+      events.some((e) => e.msg === 'session.backstop.skipped_terminal'),
+      'emite el log de skip por estado terminal',
+    );
+    const skip = events.find((e) => e.msg === 'session.backstop.skipped_terminal');
+    assert.deepEqual(
+      Object.keys(skip.fields).sort(),
+      ['session_id', 'state', 'task_id'],
+      'el log de skip contiene SOLO {session_id, task_id, state} (sin contenido de usuario)',
+    );
+    assert.equal(skip.fields.state, 'closed', 'el state loggeado es el reviewState terminal resuelto');
+    assert.deepEqual(removed, [session.task_id], 'performTerminalCleanup/removeSession corre igual');
+  });
+
+  it('Plane (states.review:"In review", no-terminal) → transiciona + comenta + evento (comportamiento de hoy preservado)', async () => {
+    const session = makeSession({ provider: 'plane' });
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: { provider: 'plane', providers: { plane: { states: { review: 'In review', done: 'Done' } } } },
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 1, 'transiciona (estado no-terminal)');
+    assert.equal(calls.updateTaskState[0].stateName, 'In review', 'con el reviewState resuelto');
+    assert.equal(calls.addComment.length, 1, 'comenta «cierre automático»');
+    assert.equal(calls.addComment[0].text, 'cierre automático');
+    assert.ok(
+      events.find((e) => e.fields?.event === 'session.backstop.review'),
+      'emite el evento NDJSON del backstop',
+    );
+  });
+
+  it('states.done captura un review terminal por vía agnóstica (review==="Done"===done) → no-op sin depender del literal "closed"', async () => {
+    const session = makeSession({ provider: 'x' });
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        provider,
+        config: { provider: 'x', providers: { x: { states: { review: 'Done', done: 'Done' } } } },
+      },
+    );
+    assert.equal(calls.updateTaskState.length, 0, 'no transiciona: el gate lo captura por igualdad con states.done');
+    assert.equal(calls.addComment.length, 0, 'no comenta');
+    assert.ok(
+      events.some((e) => e.msg === 'session.backstop.skipped_terminal'),
+      'emite el log de skip por estado terminal',
+    );
+    assert.deepEqual(removed, [session.task_id], 'cleanup corre');
+  });
+
+  it('gate never-throws sobre config basura (states.done no-string) → no crashea; estado no-terminal transiciona', async () => {
+    const session = makeSession({ provider: 'plane' });
+    const { logger } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress' });
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: () => {},
+          loggerFactory: () => logger,
+          provider,
+          // states.done no-string y review no-terminal: el gate debe tolerarlo sin lanzar.
+          config: { provider: 'plane', providers: { plane: { states: { review: 'In review', done: 123 } } } },
+        },
+      ),
+      'el gate nunca crashea el hook con config basura (never-throws)',
+    );
+    assert.equal(calls.updateTaskState.length, 1, '«In review» sigue siendo no-terminal → transiciona');
   });
 });
 
