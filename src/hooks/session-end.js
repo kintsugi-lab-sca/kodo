@@ -160,12 +160,50 @@ export async function runSessionEndHook(input, deps = {}) {
 }
 
 /**
+ * Predicado puro y never-throws (GAP 2 / DELIV-04, 71-05): decide si `reviewState`
+ * es un estado que CIERRA/TERMINA la tarea. El backstop NUNCA transiciona a un
+ * estado terminal (para no cerrar un issue que solo estaba en curso).
+ *
+ * Provider-agnostic con fallback pragmático documentado:
+ *  - Es terminal si coincide (case-insensitive) con `providerCfg.states.done` — la
+ *    vía provider-agnostic: el estado «done» declarado por el provider en config.
+ *  - Es terminal, ADEMÁS, si el estado normalizado es el token nativo de cierre
+ *    `'closed'`. Justificación: GitHub tiene un modelo binario open/closed sin
+ *    columna de review no-terminal; su `states.review` por defecto ES `'closed'`
+ *    (config.js:333) y su config NO declara `states.done`, así que la comparación
+ *    con `states.done` no lo captura — el token `'closed'` es el mínimo pragmático
+ *    necesario (el operador aceptó un check pragmático a falta de vía agnóstica barata).
+ *
+ * Never-throws (T-71-16): guarda `reviewState`/`states`/`done` ausentes o no-string
+ * antes de normalizar; nunca lanza sobre config basura.
+ *
+ * @param {unknown} reviewState
+ * @param {any} providerCfg
+ * @returns {boolean}
+ */
+export function isTerminalReviewState(reviewState, providerCfg) {
+  if (typeof reviewState !== 'string') return false;
+  const normalized = reviewState.trim().toLowerCase();
+  if (!normalized) return false;
+  // Token nativo de cierre (GitHub binario open/closed).
+  if (normalized === 'closed') return true;
+  // Vía provider-agnostic: igualdad con el estado «done» declarado en config.
+  const doneState = providerCfg && providerCfg.states && providerCfg.states.done;
+  if (typeof doneState === 'string' && normalized === doneState.trim().toLowerCase()) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Backstop mecánico de «In Review» (DELIV-04, D-10..D-14). Si al cierre real de
  * la sesión la tarea sigue viva en `in_progress` (verificado con `getTaskState`,
  * NO con `session.status` local) y la sesión terminó limpia, transiciona la tarea
  * al estado review y comenta «cierre automático», emitiendo un evento NDJSON
  * tipado. La transición del LLM pasa a ser optimización, no única vía (cierra la
- * causa raíz T5). Capability-gated por `typeof` (GitHub degrada a no-op),
+ * causa raíz T5). Capability-gated por `typeof`, gated por estado no-terminal
+ * (GitHub SÍ implementa las 3 capacidades — su `states.review:'closed'` es
+ * terminal, así que el backstop es no-op y NUNCA cierra el issue),
  * idempotente frente al LLM (no-op si la tarea ya avanzó) y fail-open por paso.
  *
  * @param {{
@@ -179,7 +217,8 @@ export async function runSessionEndHook(input, deps = {}) {
  */
 export async function runReviewBackstop({ session, input, provider, config, log }) {
   // 1. Capability gate (D-13): guard null-first para que el `typeof` no lance;
-  //    un provider sin los 3 métodos (GitHub) degrada a no-op silencioso.
+  //    un provider sin los 3 métodos degrada a no-op silencioso. (GitHub SÍ los
+  //    implementa: su no-op proviene del gate de estado no-terminal en el paso 5b.)
   if (
     !provider ||
     typeof provider.getTaskState !== 'function' ||
@@ -225,6 +264,20 @@ export async function runReviewBackstop({ session, input, provider, config, log 
   const providerName = session.provider || (config && config.provider);
   const providerCfg = (config && config.providers && config.providers[providerName]) || {};
   const reviewState = (providerCfg.states && providerCfg.states.review) || 'In review';
+
+  // 5b. Gate de estado NO-TERMINAL (GAP 2 / DELIV-04, 71-05, D-11 reforzado): el
+  //     backstop NUNCA transiciona a un estado que cierra/termina la tarea. Para
+  //     GitHub (`states.review:'closed'`, terminal) queda no-op — NUNCA cierra el
+  //     issue; para Plane (`'In review'`, no-terminal) procede. Log de skip con
+  //     SOLO {session_id, task_id, state} (sin contenido de usuario, T-71-18).
+  if (isTerminalReviewState(reviewState, providerCfg)) {
+    log.info('session.backstop.skipped_terminal', {
+      session_id: session.session_id,
+      task_id: session.task_id,
+      state: reviewState,
+    });
+    return;
+  }
 
   // 6. Transición fail-open: un fallo de red loguea y sale sin comentar.
   try {
