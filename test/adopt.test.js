@@ -198,6 +198,68 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // DELIV-03 (Task 1): recuperación idempotente por task_url. Cierra la ventana
+  // PERSIST_FAILED (createTask OK pero addSession lanzó → tarea en el provider sin
+  // fila local): un re-run que pasa el task_url devuelto reconcilia la fila
+  // reintentando SOLO addSession, con UN SOLO createTask en total (T-71-05).
+  // ---------------------------------------------------------------------
+  it('re-run tras PERSIST_FAILED pasando task_url reconcilia con UN SOLO createTask (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const throwingAddSession = () => {
+      throw new Error('disk full');
+    };
+    // Adopt inicial: createTask crea la tarea, addSession lanza → PERSIST_FAILED{task_url}.
+    const r1 = await adoptSession(baseArgs({ provider: counting }), { addSession: throwingAddSession });
+    assert.equal(r1.ok, false);
+    assert.equal(r1.code, 'PERSIST_FAILED');
+    assert.equal(r1.detail.task_url, fakeTaskItem.url);
+    assert.equal(calls, 1, 'el adopt inicial llama createTask una vez');
+
+    // Re-run de recuperación: el caller pasa el task_url/task_id del PERSIST_FAILED;
+    // addSession ya no lanza. Debe reconciliar SIN un segundo createTask.
+    const r2 = await adoptSession(
+      baseArgs({ provider: counting, task_url: r1.detail.task_url, task_id: r1.detail.task_id }),
+      { addSession: () => {} },
+    );
+    assert.equal(r2.ok, true, 'la reconciliación es un éxito reutilizado');
+    assert.equal(r2.reused, true, 'el retorno marca reused:true');
+    assert.equal(r2.task.url, fakeTaskItem.url);
+    assert.equal(calls, 1, 'createTask EXACTAMENTE una vez en total (initial + re-run)');
+  });
+
+  it('re-run de recuperación cuyo addSession vuelve a lanzar → PERSIST_FAILED, sin segundo createTask (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const throwingAddSession = () => {
+      throw new Error('disk full');
+    };
+    const r1 = await adoptSession(baseArgs({ provider: counting }), { addSession: throwingAddSession });
+    assert.equal(r1.code, 'PERSIST_FAILED');
+    assert.equal(calls, 1);
+
+    const r2 = await adoptSession(
+      baseArgs({ provider: counting, task_url: r1.detail.task_url, task_id: r1.detail.task_id }),
+      { addSession: throwingAddSession },
+    );
+    assert.equal(r2.ok, false);
+    assert.equal(r2.code, 'PERSIST_FAILED', 're-run recuperable sigue devolviendo PERSIST_FAILED');
+    assert.equal(r2.detail.task_url, fakeTaskItem.url);
+    assert.equal(r2.detail.hint, 'recoverable via idempotent re-run');
+    assert.equal(calls, 1, 'la recuperación NO invoca createTask');
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-03: CREATE_FAILED — provider.createTask throws LOUD, converted to code.
   // ---------------------------------------------------------------------
   it('CREATE_FAILED when provider.createTask throws (detail.message present)', async () => {
