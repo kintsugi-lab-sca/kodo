@@ -178,13 +178,13 @@ Plans:
   3. `adopt` sobre una tarea ya adoptada (mismo `task_url`) **no crea un duplicado** — busca por `task_url` antes de `createTask`. (DELIV-03)
   4. Matar una sesión sin que el LLM transicione la tarea → al `SessionEnd`, si la tarea sigue "In Progress" y la sesión terminó limpia, el hook la pasa a **"In Review"** y comenta "cierre automático"; la instrucción al LLM pasa a ser optimización, no única vía. (DELIV-04)
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 - [x] 71-01-PLAN.md — Dispatch confirmado (`await`+timeout) + watermark acotado + centinela `observed` en `polling.js` — DELIV-01, DELIV-02 (Wave 1)
 - [x] 71-02-PLAN.md — Idempotencia de `adopt` por `task_url` (recuperación explícita + barrido local) en `adopt.js` — DELIV-03 (Wave 1)
 - [x] 71-03-PLAN.md — Backstop mecánico de "In Review" en `SessionEnd` (capability-gated, fail-open) + evento NDJSON tipado — DELIV-04 (Wave 1)
 - [x] 71-04-PLAN.md — [gap] Cablear recuperación de `adopt` en el CLI: flags `--task-url`/`--task-id` en `kodo adopt` + reenvío en `runAdoptCli` — DELIV-03 end-to-end (Wave 1)
-- [ ] 71-05-PLAN.md — [gap] Gate de estado no-terminal en `runReviewBackstop` (nunca cerrar issues de GitHub) + corrección de la premisa falsa D-13 en docs — DELIV-04 end-to-end (Wave 1)
+- [x] 71-05-PLAN.md — [gap] Gate de estado no-terminal en `runReviewBackstop` (nunca cerrar issues de GitHub) + corrección de la premisa falsa D-13 en docs — DELIV-04 end-to-end (Wave 1)
 
 ### Phase 72: Higiene, DX y verdad documental
 
@@ -207,7 +207,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
-| 71. Fiabilidad de entrega y backstop | 4/5 | In Progress|  |
+| 71. Fiabilidad de entrega y backstop | 5/5 | Complete   | 2026-07-07 |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 
 ## Backlog
