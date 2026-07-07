@@ -117,8 +117,12 @@ const DEFAULT_STATE_PATH = join(KODO_DIR, 'polling-state.json');
  * Fail-open (POLL-02 T-25-01 mitigation): on missing file, JSON parse error,
  * or invalid shape (array, null, primitive), return `{}`. NEVER throws.
  *
+ * DELIV-02/D-04: cada entrada puede incluir `observed?: boolean` (centinela de
+ * primer tick, mutación de shape retrocompatible — una entrada legacy sin el
+ * campo se trata como no observada, ver `shouldDispatch`).
+ *
  * @param {string} [path]
- * @returns {Record<string, { last_updated_at?: string, etag?: string }>}
+ * @returns {Record<string, { last_updated_at?: string, etag?: string, observed?: boolean }>}
  */
 function loadStateCache(path = DEFAULT_STATE_PATH) {
   if (!existsSync(path)) return {};
@@ -143,7 +147,7 @@ function loadStateCache(path = DEFAULT_STATE_PATH) {
  * on Win32). If Windows support is added later, switch to `fs.renameSync`
  * with `MOVEFILE_REPLACE_EXISTING` equivalent.
  *
- * @param {Record<string, { last_updated_at?: string, etag?: string }>} cache
+ * @param {Record<string, { last_updated_at?: string, etag?: string, observed?: boolean }>} cache
  * @param {string} [path]
  */
 function saveStateCache(cache, path = DEFAULT_STATE_PATH) {
@@ -156,9 +160,17 @@ function saveStateCache(cache, path = DEFAULT_STATE_PATH) {
 /**
  * Decide whether an issue/task should fire dispatch given the previous cursor.
  *
- * Pitfall #7 / T-25-04: first tick (`!prev.last_updated_at`) → `false`. Cursor
- * is populated from `max(updated_at)` but NO dispatch fires. Subsequent ticks
- * fire dispatch only when `task.updated_at > prev.last_updated_at`.
+ * Pitfall #7 / T-25-04 (DELIV-02/D-04): el skip de primer tick lo decide ahora
+ * el centinela explícito `prev.observed !== true`, NO la ausencia de cursor
+ * (`!prev.last_updated_at`). Esto separa dos estados que antes se confundían
+ * (bug M10): «cache ausente» (nunca observado → skip+poblar+marcar) vs
+ * «observado con cursor legítimamente vacío/perdido» (dispatch normal). En el
+ * primer tick el cursor se puebla desde `max(updated_at)` pero NO dispara; los
+ * siguientes ticks disparan solo cuando `task.updated_at > prev.last_updated_at`.
+ *
+ * Retrocompat: una entrada legacy `{ last_updated_at }` sin `observed` cae en
+ * `prev.observed !== true` → se trata como primer tick (skip+poblar+marcar);
+ * comportamiento seguro, cubierto por el anti-storm.
  *
  * D-05 Phase 28: el parámetro se renombra `issue → task` porque el call site
  * vive en `processRepo` y puede ser raw GitHub issue (path client) o TaskItem
@@ -166,12 +178,12 @@ function saveStateCache(cache, path = DEFAULT_STATE_PATH) {
  * post-Phase-28 (D-02 GitHub, D-03 Plane), así que el cuerpo es idéntico.
  *
  * @param {{ updated_at: string }} task
- * @param {{ last_updated_at?: string }} prev
+ * @param {{ last_updated_at?: string, observed?: boolean }} prev
  * @returns {boolean}
  */
 function shouldDispatch(task, prev) {
-  if (!prev.last_updated_at) return false; // first-tick skip (T-25-04)
-  return task.updated_at > prev.last_updated_at;
+  if (prev.observed !== true) return false; // first-tick skip por centinela (T-25-04 / D-04)
+  return task.updated_at > (prev.last_updated_at || '');
 }
 
 /**
@@ -232,7 +244,7 @@ function sleep(clock, ms) {
  * @param {{
  *   owner: string,
  *   repo: string,
- *   cache: Record<string, { last_updated_at?: string, etag?: string }>,
+ *   cache: Record<string, { last_updated_at?: string, etag?: string, observed?: boolean }>,
  *   client?: import('../providers/github/client.js').GitHubClient,
  *   provider?: import('../interface.js').TaskProvider,
  *   dispatchFn: (event: import('../interface.js').TriggerEvent, opts?: object) => Promise<any>,
@@ -450,8 +462,15 @@ async function processRepo({
 
       // Persist cursor + etag per-repo (Open Q #4 RESOLVED — once per repo
       // bounds loss if crash mid-tick).
+      //
+      // DELIV-02/D-04/D-05: marcar el centinela `observed:true` SIEMPRE en el
+      // path 200 (con o sin items), para distinguir «cache ausente» de
+      // «observado con cursor vacío» y evitar un re-storm diferido cuando un
+      // repo sin issues en el primer tick reciba issues más tarde. La rama 304
+      // (arriba) NO escribe cache — el centinela es aditivo (D-06).
       cache[key] = {
         last_updated_at: newCursor || prev.last_updated_at,
+        observed: true,
         ...(result.etag ? { etag: result.etag } : {}),
       };
       saveStateCache(cache, statePath);
