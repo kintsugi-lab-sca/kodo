@@ -4,9 +4,9 @@ milestone: v0.16
 milestone_name: activo)
 current_phase: 999.1
 current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
-status: verifying
+status: executing
 stopped_at: Phase 71 context gathered
-last_updated: "2026-07-07T06:56:23.952Z"
+last_updated: "2026-07-07T07:28:43.923Z"
 last_activity: 2026-07-06
 last_activity_desc: Phase 70 complete, transitioned to Phase 999.1
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-06 — Phase 70 complete, transitioned to Phase 999.1
 
 ## Roadmap v0.16 (activo)
