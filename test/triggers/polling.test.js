@@ -418,7 +418,7 @@ describe('startPolling — POLL-02 state cache', () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -496,7 +496,7 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const dispatchCalls = /** @type {any[]} */ ([]);
@@ -537,7 +537,7 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const dispatchCalls = /** @type {any[]} */ ([]);
@@ -675,7 +675,7 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const dispatchCalls = /** @type {any[]} */ ([]);
@@ -716,7 +716,7 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -994,7 +994,7 @@ describe('startPolling — POLL-FIX-01 provider-only path', () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z' },
+        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -1047,7 +1047,7 @@ describe('startPolling — POLL-FIX-01 provider-only path', () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/hello': { last_updated_at: '2026-05-15T12:00:00Z' },
+        'octocat/hello': { last_updated_at: '2026-05-15T12:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -1096,7 +1096,7 @@ describe('startPolling — POLL-FIX-01 provider-only path', () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z' },
+        'octocat/hello': { last_updated_at: '2026-05-15T08:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -1186,7 +1186,7 @@ describe('TEST-02 NDJSON shape + invariants', () => {
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const { clock } = createTestClock();
@@ -1687,6 +1687,194 @@ describe('startPolling — DELIV-01 watermark acotado bajo min(fallidos)', () =>
     await drainMicrotasks();
     const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
     assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T11:00:00Z');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 71 Plan 01 — DELIV-02 centinela `observed` (separa cache-ausente de
+// observado-con-cursor-vacío; persiste con o sin items; 304 no escribe).
+// ────────────────────────────────────────────────────────────────────────────
+describe('startPolling — DELIV-02 centinela observed', () => {
+  it('primer tick (cache ausente) → NO dispara, persiste observed:true y puebla cursor', async () => {
+    // Cache ausente: prev.observed !== true → skip de primer tick (T-25-04). El
+    // centinela se persiste para distinguir «cache ausente» de «observado con
+    // cursor vacío» en los siguientes ticks.
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({ number: 1, updated_at: '2026-05-14T09:00:00Z' }),
+          makeIssue({ number: 2, updated_at: '2026-05-14T11:00:00Z' }),
+        ],
+        etag: 'W/"first"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 0, 'primer tick NO dispara');
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].observed, true, 'centinela observed persistido');
+    assert.equal(
+      cache['octocat/r1'].last_updated_at,
+      '2026-05-14T11:00:00Z',
+      'cursor poblado a max(updated_at)',
+    );
+  });
+
+  it('primer tick SIN items → igualmente persiste observed:true (evita re-storm futuro)', async () => {
+    // Un repo sin issues en el primer tick debe marcarse observado; de lo
+    // contrario sería tratado como primer tick indefinidamente y dispararía un
+    // storm cuando por fin aparezcan issues (D-05).
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [],
+        etag: undefined,
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(
+      cache['octocat/r1'].observed,
+      true,
+      'observed persistido incluso sin items',
+    );
+  });
+
+  it('2º tick (ya observado, con cursor) → dispatch normal por updated_at > cursor', async () => {
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
+      }),
+    );
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [makeIssue({ number: 42, updated_at: '2026-05-14T10:00:00Z' })],
+        etag: undefined,
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 1, 'ya observado → dispatch normal');
+    assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#42');
+  });
+
+  it('rama 304 → cursor preservado, cache NO escrito (no marca observed) (D-06)', async () => {
+    // Pre-poblar SIN observed y con etag; la respuesta 304 preserva el cursor
+    // sin escribir cache → la entrada legacy sigue sin observed (prueba de que
+    // el centinela es aditivo y la rama 304 no lo toca).
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', etag: 'W/"prev"' },
+      }),
+    );
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 304,
+        items: [],
+        etag: 'W/"prev"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T05:00:00Z', 'cursor preservado');
+    assert.equal(cache['octocat/r1'].etag, 'W/"prev"', 'etag preservado');
+    assert.equal(
+      cache['octocat/r1'].observed,
+      undefined,
+      'la rama 304 NO escribe el centinela (cache no reescrito)',
+    );
+  });
+
+  it('entrada legacy { last_updated_at } sin observed → tratada como primer tick (skip+poblar+marcar)', async () => {
+    // Retrocompat: una entrada del esquema viejo (sin observed) cae en
+    // prev.observed !== true → primer-tick-skip. NO dispara, puebla el cursor y
+    // marca observed:true. El siguiente tick ya despacha normal.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+      }),
+    );
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [makeIssue({ number: 7, updated_at: '2026-05-14T10:00:00Z' })],
+        etag: undefined,
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push(event);
+        return { action: 'launched' };
+      },
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    assert.equal(dispatchCalls.length, 0, 'legacy sin observed → primer-tick-skip, NO dispara');
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].observed, true, 'legacy re-marcada como observed');
+    assert.equal(
+      cache['octocat/r1'].last_updated_at,
+      '2026-05-14T10:00:00Z',
+      'cursor poblado desde la entrada legacy',
+    );
   });
 });
 
