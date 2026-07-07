@@ -573,21 +573,20 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     assert.equal(dispatchCalls[0].taskRef, 'octocat/r1#7');
   });
 
-  it('dispatchTrigger is fire-and-forget (no await)', async () => {
-    // Slow dispatchFn — if the loop awaited, the tick would block and never
-    // reach the saveStateCache call. We assert the cache IS written before
-    // the dispatch promise resolves.
+  it('DELIV-01: dispatch que TIMEOUT (nunca resuelve) → clasificado fallido, el tick no se cuelga', async () => {
+    // Contrato post-DELIV-01: el dispatch YA NO es fire-and-forget; se awaitea
+    // con un timeout acotado (Promise.race con clock.setTimeout). Un dispatch
+    // que nunca resuelve vence por timeout → NO confirmado → NO avanza el
+    // cursor sobre ese issue; el tick termina (no se cuelga el loop recursivo,
+    // Pitfall #4). Se usa `observed:true` para saltar el skip de primer tick.
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
-    let dispatchResolve;
-    const dispatchPromise = new Promise((r) => {
-      dispatchResolve = r;
-    });
-    const { clock } = createTestClock();
+    const { clock, advance } = createTestClock();
+    // dispatchFn devuelve una promesa que NUNCA resuelve.
     const client = makeFakeClient({
       listIssues: async () => ({
         status: 200,
@@ -598,28 +597,38 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     });
     handle = startPolling({
       client,
-      dispatchTriggerFn: () => dispatchPromise,
+      dispatchTriggerFn: () => new Promise(() => {}), // nunca resuelve
+      dispatchTimeoutMs: 5000,
       repos: [{ owner: 'octocat', repo: 'r1' }],
       intervalSec: 60,
       clock,
       statePath,
     });
     await drainMicrotasks();
-    // Cache was written even though dispatch is still pending — proves not awaited.
-    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
-    assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T10:00:00Z');
-    // Cleanup: resolve the hanging promise.
-    dispatchResolve({ action: 'launched' });
+    // El tick está bloqueado en el await del dispatch; disparar el timeout.
+    await advance(5000);
     await drainMicrotasks();
+    // El cursor NO avanzó sobre el issue cuyo dispatch venció (queda en prev).
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(
+      cache['octocat/r1'].last_updated_at,
+      '2026-05-14T05:00:00Z',
+      'timeout → cursor NO avanza sobre el issue fallido',
+    );
+    // El tick terminó y reprogramó el siguiente (no colgó).
+    await advance(60_000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 2, 'segundo tick disparado tras el timeout');
   });
 
-  it('dispatch rejection does not crash loop', async () => {
-    // dispatchFn rejects; next tick must still fire. captured events must
-    // include the polling.dispatch.failed logger emission.
+  it('DELIV-01: dispatch que RECHAZA no crashea el loop y emite polling.error dispatch-unconfirmed', async () => {
+    // dispatchFn rechaza; el tick clasifica el issue como no confirmado
+    // (polling.error error:'dispatch-unconfirmed'), NO avanza el cursor sobre
+    // él, y el siguiente tick vuelve a dispararlo.
     writeFileSync(
       statePath,
       JSON.stringify({
-        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z' },
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
       }),
     );
     const { clock, advance } = createTestClock();
@@ -637,6 +646,7 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
       dispatchTriggerFn: async () => {
         throw new Error('dispatch boom');
       },
+      dispatchTimeoutMs: 5000,
       logger,
       repos: [{ owner: 'octocat', repo: 'r1' }],
       intervalSec: 60,
@@ -644,14 +654,21 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
       statePath,
     });
     await drainMicrotasks();
-    // Give the .catch handler one more turn to run.
     await drainMicrotasks();
-    const failed = events.filter((e) => e.msg === 'polling.dispatch.failed');
-    assert.ok(failed.length >= 1, `expected polling.dispatch.failed; got: ${JSON.stringify(events)}`);
-    // Next tick fires.
+    const failed = events.filter(
+      (e) => e.msg === 'polling.error' && e.error === 'dispatch-unconfirmed',
+    );
+    assert.ok(
+      failed.length >= 1,
+      `expected polling.error dispatch-unconfirmed; got: ${JSON.stringify(events)}`,
+    );
+    // El cursor NO avanzó sobre el issue rechazado.
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T05:00:00Z');
+    // El siguiente tick vuelve a dispararlo (re-intento).
     await advance(60_000);
     await drainMicrotasks();
-    assert.equal(client.calls.listIssues.length, 2, 'second tick fired despite dispatch failure');
+    assert.equal(client.calls.listIssues.length, 2, 'segundo tick disparado pese al rechazo');
   });
 
   it('PR filter (Pitfall #2 / T-25-05): issues with pull_request !== null are skipped', async () => {
@@ -1509,6 +1526,167 @@ describe('startPolling — DAEMON-02 KODO_TEST_FORCE_THROW seam (Phase 28)', () 
     await drainMicrotasks();
     // Sin la env var, el guard NO se activa: flow normal.
     assert.equal(client.calls.listIssues.length, 1, 'flow normal — listIssues invocado');
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 71 Plan 01 — DELIV-01 watermark acotado (Pitfall #2, LA trampa central).
+// ────────────────────────────────────────────────────────────────────────────
+describe('startPolling — DELIV-01 watermark acotado bajo min(fallidos)', () => {
+  it('[A falla @00, B ok @05] → cursor por debajo de A; 2º tick RE-dispara A (client path)', async () => {
+    // Pitfall #2: el cursor es un watermark escalar. Si A (updated_at menor)
+    // falla y B (updated_at mayor) confirma, avanzar el cursor a B enterraría a
+    // A bajo el filtro `since`/`>` y A no se reintentaría jamás. La regla de
+    // watermark acotado retrocede el cursor por debajo de min(fallidos).
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T09:00:00Z', observed: true },
+      }),
+    );
+    const { clock, advance } = createTestClock();
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    let tickNo = 0;
+    const client = makeFakeClient({
+      listIssues: async () => {
+        tickNo++;
+        return {
+          status: 200,
+          items: [
+            // A: updated_at MENOR, su dispatch FALLA.
+            makeIssue({ number: 1, updated_at: '2026-05-14T10:00:00Z' }),
+            // B: updated_at MAYOR, su dispatch CONFIRMA.
+            makeIssue({ number: 2, updated_at: '2026-05-14T10:05:00Z' }),
+          ],
+          etag: undefined,
+          rate_limit_remaining: 5000,
+        };
+      },
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push({ tick: tickNo, ref: event.taskRef });
+        // A (#1) rechaza SIEMPRE; B (#2) confirma.
+        if (event.taskRef === 'octocat/r1#1') throw new Error('A boom');
+        return { action: 'launched' };
+      },
+      dispatchTimeoutMs: 5000,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await drainMicrotasks();
+    // El cursor quedó ESTRICTAMENTE por debajo de A (10:00) para que A re-dispare.
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.ok(
+      cache['octocat/r1'].last_updated_at < '2026-05-14T10:00:00Z',
+      `cursor debe quedar < A(10:00); got ${cache['octocat/r1'].last_updated_at}`,
+    );
+    // 2º tick: A (#1) se vuelve a intentar.
+    await advance(60_000);
+    await drainMicrotasks();
+    await drainMicrotasks();
+    const secondTickA = dispatchCalls.filter((c) => c.tick === 2 && c.ref === 'octocat/r1#1');
+    assert.ok(secondTickA.length >= 1, 'A (#1) re-disparado en el 2º tick');
+  });
+
+  it('[A falla @00, B ok @05] → cursor acotado; 2º tick RE-dispara A (provider path)', async () => {
+    // Mismo invariante en el path provider-agnostic (sin `since`): el único
+    // filtro es el comparador local estricto `>`, así que la regla de watermark
+    // acotado es aún más crítica aquí.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T09:00:00Z', observed: true },
+      }),
+    );
+    const { clock, advance } = createTestClock();
+    const dispatchCalls = /** @type {any[]} */ ([]);
+    let tickNo = 0;
+    const mkTask = (num, updated) => ({
+      id: `I_${num}`,
+      ref: `octocat/r1#${num}`,
+      title: 't',
+      description: '',
+      labels: ['kodo'],
+      projectId: 'octocat/r1',
+      projectName: 'octocat/r1',
+      groups: [],
+      url: `https://github.com/octocat/r1/issues/${num}`,
+      priority: null,
+      state: 'open',
+      updated_at: updated,
+      created_at: '2026-05-14T08:00:00Z',
+    });
+    const provider = makeFakeProvider({
+      listPendingTasks: async () => {
+        tickNo++;
+        return [mkTask(1, '2026-05-14T10:00:00Z'), mkTask(2, '2026-05-14T10:05:00Z')];
+      },
+    });
+    handle = startPolling({
+      provider,
+      dispatchTriggerFn: async (event) => {
+        dispatchCalls.push({ tick: tickNo, ref: event.taskRef });
+        if (event.taskRef === 'octocat/r1#1') throw new Error('A boom');
+        return { action: 'launched' };
+      },
+      dispatchTimeoutMs: 5000,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await drainMicrotasks();
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.ok(
+      cache['octocat/r1'].last_updated_at < '2026-05-14T10:00:00Z',
+      `provider path: cursor debe quedar < A(10:00); got ${cache['octocat/r1'].last_updated_at}`,
+    );
+    await advance(60_000);
+    await drainMicrotasks();
+    await drainMicrotasks();
+    const secondTickA = dispatchCalls.filter((c) => c.tick === 2 && c.ref === 'octocat/r1#1');
+    assert.ok(secondTickA.length >= 1, 'provider path: A (#1) re-disparado en el 2º tick');
+  });
+
+  it('todos los dispatch confirman → el cursor avanza a max(updated_at)', async () => {
+    // Sin fallidos, el watermark acotado no retrocede: avanza normal.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
+      }),
+    );
+    const { clock } = createTestClock();
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [
+          makeIssue({ number: 1, updated_at: '2026-05-14T10:00:00Z' }),
+          makeIssue({ number: 2, updated_at: '2026-05-14T11:00:00Z' }),
+        ],
+        etag: undefined,
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+      dispatchTimeoutMs: 5000,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await drainMicrotasks();
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(cache['octocat/r1'].last_updated_at, '2026-05-14T11:00:00Z');
   });
 });
 
