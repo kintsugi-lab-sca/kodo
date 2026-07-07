@@ -67,6 +67,8 @@ export function resolveProjectPath(cwd, entry) {
  *   title?: string,
  *   description?: string,
  *   module?: string,
+ *   taskUrl?: string,
+ *   taskId?: string,
  *   json?: boolean,
  * }} RunAdoptCliOpts
  *
@@ -173,6 +175,13 @@ export async function runAdoptCli(opts, deps = {}) {
     title: opts.title,
     description: opts.description,
     ...(module !== undefined ? { module } : {}),
+    // RECUPERACIÓN (DELIV-03 / D-08). --task-url/--task-id son IDENTIDAD: se reenvían
+    // TAL CUAL como campos del objeto JS a adoptSession (nunca a un shell, nunca por
+    // sanitizeAdoptionData). Un task_url no vacío activa el gate (c2) de reconciliación
+    // (src/adopt.js:271) → reintenta SOLO addSession, sin un segundo createTask. Idioma
+    // spread-when-present: ausentes cuando el operador no los pasa (jamás como undefined).
+    ...(opts.taskUrl ? { task_url: opts.taskUrl } : {}),
+    ...(opts.taskId ? { task_id: opts.taskId } : {}),
   });
 
   // PASO 4 — render. --json hace bypass total de renderHuman (byte-determinismo,

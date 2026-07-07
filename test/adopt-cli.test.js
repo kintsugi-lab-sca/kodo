@@ -491,6 +491,40 @@ describe('runAdoptCli — liveness workspace rename (Phase 59 gap-fix)', () => {
   });
 });
 
+describe('runAdoptCli — reenvío de flags de recuperación --task-url/--task-id (DELIV-03, D-08)', () => {
+  it('R1: con --task-url/--task-id, el objeto pasado a adoptSessionFn incluye task_url/task_id', async () => {
+    let received;
+    const code = await runAdoptCli(
+      { ...OPTS, taskUrl: 'https://plane.example/T-7', taskId: 'T-7' },
+      baseDeps({
+        adoptSessionFn: async (args) => {
+          received = args;
+          return okResult();
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.equal(received.task_url, 'https://plane.example/T-7', 'reenvía taskUrl → task_url');
+    assert.equal(received.task_id, 'T-7', 'reenvía taskId → task_id');
+  });
+
+  it('R2: SIN los flags, el objeto NO contiene las claves task_url/task_id (spread-when-present, nunca undefined)', async () => {
+    let received;
+    const code = await runAdoptCli(
+      OPTS,
+      baseDeps({
+        adoptSessionFn: async (args) => {
+          received = args;
+          return okResult();
+        },
+      }),
+    );
+    assert.equal(code, 0);
+    assert.ok(!('task_url' in received), 'task_url ausente cuando no se pasa --task-url');
+    assert.ok(!('task_id' in received), 'task_id ausente cuando no se pasa --task-id');
+  });
+});
+
 describe('src/cli.js — adopt command registration (static)', () => {
   const cli = readFileSync('src/cli.js', 'utf-8');
 

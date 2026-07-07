@@ -282,6 +282,8 @@ program
   .option('--title <t>', 'Task title (default: basename(cwd), applied by the core)')
   .option('--description <d>', 'Task description (optional)')
   .option('--module <name>', 'Plane module to place the task in (default: auto-derived from --cwd)')
+  .option('--task-url <url>', 'Recovery: task_url from a prior PERSIST_FAILED, to reconcile without a second createTask')
+  .option('--task-id <id>', 'Recovery: task_id from a prior PERSIST_FAILED')
   .option('--json', 'Emit the discriminant as JSON (scriptable, byte-deterministic)')
   .action(async (opts) => {
     try {
@@ -295,6 +297,8 @@ program
         title: opts.title,
         description: opts.description,
         module: opts.module,
+        taskUrl: opts.taskUrl,
+        taskId: opts.taskId,
         json: opts.json || false,
       });
       process.exit(code);
