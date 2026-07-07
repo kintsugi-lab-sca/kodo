@@ -6,7 +6,7 @@ current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
 status: executing
 stopped_at: Phase 71 context gathered
-last_updated: "2026-07-07T07:45:14.217Z"
+last_updated: "2026-07-07T07:57:43.319Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-07 — Phase 71 execution started
 
@@ -110,7 +110,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-CONTEXT.md
 
-- **Last session:** 2026-07-07T07:45:08.378Z
+- **Last session:** 2026-07-07T07:57:11.265Z
 - **Stopped at:** Phase 71 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -139,6 +139,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 70 P02 | 15 | 3 tasks | 6 files |
 | Phase 70 P04 | 16 | 4 tasks | 8 files |
 | Phase 71 P01 | 8min | 2 tasks | 2 files |
+| Phase 71 P02 | 9min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -155,3 +156,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: 70-01: state-lock steals only on parseable-but-stale (dead pid / TTL); corrupt/partial read retries to keep the O_EXCL create race single-winner.
 - [Phase ?]: Phase 70-03: SIGKILL anti-PID-reuse tolerance = 8000ms; pre-bind PID write preserved (D-10 REVISED); gate reads alive via exported isSchedulable.
 - [Phase ?]: 71-01: carril polling con dispatch confirmado (await+timeout), watermark escalar acotado bajo min(fallidos) y centinela observed que separa cache-ausente de cursor-vacío (DELIV-01/DELIV-02)
+- [Phase ?]: DELIV-03: adoptSession idempotente por task_url — barrido local (sessions+history) antes de la reconciliación; la reconciliación devuelve {ok:true, reused:true}

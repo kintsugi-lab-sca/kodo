@@ -145,6 +145,11 @@ None - no external service configuration required.
 - DELIV-03 completo. Queda `71-03-PLAN.md` (DELIV-04, backstop «In Review» en `SessionEnd`) para cerrar la Fase 71.
 - El backstop DELIV-04 reconstruirá el `task` desde la SessionRecord (`{id, projectId, url, ref}`) — el mismo patrón de reconstrucción usado aquí en `reconciledTask`, ya validado.
 
+## Self-Check: PASSED
+
+- Files verified: `71-02-SUMMARY.md` present.
+- Commits verified: ccaa273, d46164b, 51f3195, f9e7f34, 471f014 all present.
+
 ---
 *Phase: 71-fiabilidad-de-entrega-y-backstop*
 *Completed: 2026-07-07*
