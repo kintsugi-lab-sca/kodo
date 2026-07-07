@@ -20,7 +20,7 @@
 - **D-10:** El backstop vive en `runSessionEndHook` (`src/hooks/session-end.js`). Antes del cleanup terminal (o coordinado): si la tarea sigue «In Progress» y la sesión terminó limpia → `updateTaskState(task, reviewState)` + `createComment("cierre automático")`. Reusa la fontanería de `src/gsd/verify.js:257-265` (resolver `config.providers[provider].states.review`, default `'In review'`, **Pitfall #1: bajo `providers`, NO top-level**).
 - **D-11 [gating de estado]:** el backstop solo actúa si `getTaskState()` reporta trigger/«In Progress». Si el LLM ya transicionó, **no-op**.
 - **D-12 [«sesión limpia»]:** decidido por `reason`/`end_reason` de SessionEnd. **Recomendado:** fail-open a transicionar salvo fallo explícito. Enumerar los `reason` conocidos y fijar el criterio.
-- **D-13 [capability-gating + never-throws]:** todo el backstop es capability-gated por `typeof provider.getTaskState/updateTaskState/createComment === 'function'` y **fail-open por paso** (un fallo de red no crashea el hook ni bloquea cleanup). Emitir evento NDJSON tipado.
+- **D-13 [capability-gating + never-throws]:** todo el backstop es capability-gated por `typeof provider.getTaskState/updateTaskState/createComment === 'function'` y **fail-open por paso** (un fallo de red no crashea el hook ni bloquea cleanup). Emitir evento NDJSON tipado. *(Corregido en 71-05: GitHub SÍ implementa las 3 capacidades — el capability-gate PASA; su no-op deriva del **gate de estado no-terminal** porque su `states.review` es `'closed'`, terminal.)*
 - **D-14 [alcance]:** aplica a sesiones trackeadas con tarea de provider (`findSession` con `task_id`/`task_url`). Ad-hoc no adoptadas / orquestador son no-op por el guard `!result` (`:61-64`).
 
 ### Claude's Discretion
@@ -194,12 +194,13 @@ try {
 ### Pattern 2: Capability-gating por `typeof` (métodos fuera de FROZEN-9)
 **What:** `createTask`, `getTaskState`, `createComment` NO están en `TASK_PROVIDER_METHODS`. Detectar en el call site.
 **When to use:** DELIV-04 (gate del backstop) y como precedente para DELIV-03.
+> **Corregido en 71-05:** GitHub SÍ implementa las 3 capacidades, así que este capability-gate PASA para GitHub. El no-op de GitHub NO deriva de este gate sino del **gate de estado no-terminal** (su `states.review` es `'closed'`, terminal → el backstop no transiciona).
 ```javascript
 // Source: src/adopt.js:207 + interface.js:52 [VERIFIED: lectura de código 2026-07-07]
 if (!provider || typeof provider.updateTaskState !== 'function'
     || typeof provider.getTaskState !== 'function'
     || typeof provider.createComment !== 'function') {
-  return; // degrade silenciosamente (GitHub no transiciona como Plane)
+  return; // degrade silenciosamente (provider SIN las 3 capacidades)
 }
 ```
 
@@ -399,7 +400,7 @@ async function runReviewBackstop({ session, input, provider, config, log }) {
   if (!provider
       || typeof provider.getTaskState !== 'function'
       || typeof provider.updateTaskState !== 'function'
-      || typeof provider.addComment !== 'function') return; // D-13 gate (GitHub degrada)
+      || typeof provider.addComment !== 'function') return; // D-13 gate (provider SIN las 3 capacidades; GitHub SÍ las tiene → su no-op viene del gate de estado no-terminal, ver 71-05)
   // D-12: "sesión limpia" = fail-open. SessionEnd solo dispara en cierres no-crash;
   // reason ∈ {clear, logout, prompt_input_exit, bypass_permissions_disabled, other}.
   // No hay reason que signifique crash (un crash no dispara SessionEnd limpio).
@@ -462,10 +463,10 @@ async function runReviewBackstop({ session, input, provider, config, log }) {
 |------------|------------|-----------|---------|----------|
 | Node.js (ESM, `node:test`) | Toda la fase | ✓ | runtime del repo | — |
 | `node --test` runner | Suite de tests | ✓ | script `npm test` (`package.json`) | — |
-| Provider Plane (métodos `getTaskState`/`updateTaskState`/`addComment`/`createTask`) | DELIV-03, DELIV-04 (en runtime real) | ✓ (en tests: mock) | `src/providers/plane/provider.js` | GitHub degrada por capability-gating (DELIV-04 no-op) |
+| Provider Plane (métodos `getTaskState`/`updateTaskState`/`addComment`/`createTask`) | DELIV-03, DELIV-04 (en runtime real) | ✓ (en tests: mock) | `src/providers/plane/provider.js` | GitHub queda no-op por el **gate de estado no-terminal** (DELIV-04), NO por capability-gating |
 
 **Missing dependencies with no fallback:** Ninguna.
-**Missing dependencies with fallback:** GitHub provider no implementa transición de estado como Plane → el backstop de DELIV-04 hace no-op por `typeof` gate (comportamiento correcto por diseño, D-13).
+**Missing dependencies with fallback:** GitHub SÍ implementa las 3 capacidades (`getTaskState`/`updateTaskState`/`addComment`) → el capability-gate PASA. El backstop de DELIV-04 hace no-op para GitHub por el **gate de estado no-terminal** (su `states.review` es `'closed'`, terminal, y el backstop nunca cierra el issue), corregido en 71-05 (comportamiento correcto por diseño).
 
 ## Validation Architecture
 
@@ -494,7 +495,8 @@ async function runReviewBackstop({ session, input, provider, config, log }) {
 | DELIV-03 | los 5 discriminated returns siguen intactos + never-throws | unit | idem | ✅ |
 | DELIV-04 | sesión con tarea `in_progress` + provider mock + reason limpio → `updateTaskState(review)` + `addComment('cierre automático')` + evento NDJSON | unit | `node --test test/hooks/session-end.test.js` | ✅ (5 it() — añadir) |
 | DELIV-04 | tarea ya en `in_review`/`done` (LLM ya transicionó) → no-op (idempotencia D-11) | unit | idem | ✅ |
-| DELIV-04 | provider sin `getTaskState`/`updateTaskState` (GitHub) → no-op por capability-gate | unit | idem | ✅ |
+| DELIV-04 | provider **sin las 3 capacidades** → no-op por capability-gate (caso genérico, NO «GitHub») | unit | idem | ✅ |
+| DELIV-04 | **GitHub REAL** (3 capacidades) + `states.review:'closed'` → no-op por **gate de estado no-terminal** (NUNCA cierra el issue) | unit | idem | ✅ (71-05) |
 | DELIV-04 | fallo de red en `updateTaskState` → hook NO crashea, cleanup terminal SÍ corre (fail-open) | unit | idem | ✅ |
 
 ### Sampling Rate
