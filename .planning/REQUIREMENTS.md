@@ -31,8 +31,8 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 
 ### Fiabilidad de entrega y backstop (Ola 3 — causas raíz T4, T5)
 
-- [ ] **DELIV-01**: El cursor de polling solo incorpora el `updated_at` de un issue a `maxUpdatedAt` si su dispatch resolvió (`await` + timeout); un dispatch fallido se reintenta en el siguiente tick; el webhook sigue fire-and-forget (A7)
-- [ ] **DELIV-02**: El primer tick distingue "cache ausente" de "primer tick observado" — centinela (M10)
+- [x] **DELIV-01**: El cursor de polling solo incorpora el `updated_at` de un issue a `maxUpdatedAt` si su dispatch resolvió (`await` + timeout); un dispatch fallido se reintenta en el siguiente tick; el webhook sigue fire-and-forget (A7)
+- [x] **DELIV-02**: El primer tick distingue "cache ausente" de "primer tick observado" — centinela (M10)
 - [ ] **DELIV-03**: `adopt` es idempotente — busca por `task_url` antes de `createTask` (M11)
 - [ ] **DELIV-04**: Si al `SessionEnd` la tarea sigue "In Progress" y la sesión terminó limpia, el hook transiciona a "In Review" y comenta "cierre automático" — backstop mecánico; la instrucción al LLM pasa a ser optimización, no única vía (T5; decisión de producto 2026-07-05)
 
@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | CONC-07 | Phase 70 | Complete |
 | CONC-08 | Phase 70 | Complete |
 | CONC-09 | Phase 70 | Complete |
-| DELIV-01 | Phase 71 | Pending |
-| DELIV-02 | Phase 71 | Pending |
+| DELIV-01 | Phase 71 | Complete |
+| DELIV-02 | Phase 71 | Complete |
 | DELIV-03 | Phase 71 | Pending |
 | DELIV-04 | Phase 71 | Pending |
 | HYG-01 | Phase 72 | Pending |

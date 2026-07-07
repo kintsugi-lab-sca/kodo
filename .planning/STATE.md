@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
+current_phase: 71
+current_phase_name: Fiabilidad de entrega y backstop
 status: executing
 stopped_at: Phase 71 context gathered
-last_updated: "2026-07-07T07:28:43.923Z"
-last_activity: 2026-07-06
-last_activity_desc: Phase 70 complete, transitioned to Phase 999.1
+last_updated: "2026-07-07T07:45:14.217Z"
+last_activity: 2026-07-07
+last_activity_desc: Phase 71 execution started
 progress:
   total_phases: 1
   completed_phases: 0
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first. **v0.16 endurece: cierra la superficie de red, hace segura la concurrencia multiproceso, garantiza la entrega de dispatches con backstop mecánico, y salda la higiene y la deriva documental** (remediación de la auditoría adversarial 2026-07-03, 9 ALTA re-verificados 2026-07-05).
 
-**Current focus:** Phase 70 — Concurrencia y ciclo de vida de procesos
+**Current focus:** Phase 71 — Fiabilidad de entrega y backstop
 
 ## Current Position
 
-Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
-Plan: Not started
+Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-06 — Phase 70 complete, transitioned to Phase 999.1
+Last activity: 2026-07-07 — Phase 71 execution started
 
 ## Roadmap v0.16 (activo)
 
@@ -110,7 +110,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-CONTEXT.md
 
-- **Last session:** 2026-07-07T06:56:23.944Z
+- **Last session:** 2026-07-07T07:45:08.378Z
 - **Stopped at:** Phase 71 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -138,6 +138,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 70 P03 | 9 | 3 tasks | 8 files |
 | Phase 70 P02 | 15 | 3 tasks | 6 files |
 | Phase 70 P04 | 16 | 4 tasks | 8 files |
+| Phase 71 P01 | 8min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -153,3 +154,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: 70-01: Advisory-lock primitive state-lock.js (O_EXCL/wx + steal tmp+rename + Atomics.wait backoff); acquireGsdLock now atomic. Zero new deps.
 - [Phase ?]: 70-01: state-lock steals only on parseable-but-stale (dead pid / TTL); corrupt/partial read retries to keep the O_EXCL create race single-winner.
 - [Phase ?]: Phase 70-03: SIGKILL anti-PID-reuse tolerance = 8000ms; pre-bind PID write preserved (D-10 REVISED); gate reads alive via exported isSchedulable.
+- [Phase ?]: 71-01: carril polling con dispatch confirmado (await+timeout), watermark escalar acotado bajo min(fallidos) y centinela observed que separa cache-ausente de cursor-vacío (DELIV-01/DELIV-02)
