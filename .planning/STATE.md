@@ -82,6 +82,7 @@ Reset al baseline de v0.16. v0.15 cerró con audit PASSED (GATE MANUAL aprobado)
 
 ### Roadmap Evolution
 
+- **Phase 73 añadida (2026-07-07):** «Debounce e idempotencia del nudge del orchestrator» (ORCH-01..05). Hallazgo de dogfooding: `launchOrchestrator` re-inyecta el nudge «Revisa el estado actual…» en bucle sin guard, y `needsOrchestrator` se mantiene true mientras haya tareas pendientes → spam de nudges que quema tokens. Gemelo de Phase 70 (Ola 2) pero para el trigger del orchestrator. Depende de Phase 72 (Ola 4 borra `startHealthLoop`/`up --url`, uno de los disparadores). Zombi ITROMAN-1 purgado en la misma sesión (alivio inmediato; el fix estructural es esta fase).
 - **v0.16 roadmap creado (2026-07-06):** 4 phases (69-72), numeración continua desde v0.15 (NO reset). Estructura 1:1 con las 4 olas de la propuesta, orden risk-graded LOCKED. 27/27 requirements mapeados (Phase 69: 6 · 70: 9 · 71: 4 · 72: 8), 100% cobertura, 0 orphans, 0 duplicados. Sin research (skip del operador). Granularidad `coarse`, borde superior justificado por causa raíz. `.planning/ROADMAP.md` reemplazado (v0.15 colapsado a `<details>`, ya archivado en `milestones/v0.15-ROADMAP.md`).
 - **v0.15 roadmap creado (2026-07-02):** 4 phases (65-68), numeración continua desde v0.14. Pilar 1 (UP+DIST) antes de Pilar 2 (SETUP), orden risk-graded LOCKED.
 

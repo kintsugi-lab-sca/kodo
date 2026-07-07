@@ -26,6 +26,7 @@
 - [x] **Phase 70: Concurrencia y ciclo de vida de procesos** - `withStateLock` sobre los ~6 escritores + `acquireGsdLock` atómico + PID ownership + un zombi libera su slot de `max_parallel` (Ola 2 — la más delicada) (completed 2026-07-06)
 - [ ] **Phase 71: Fiabilidad de entrega y backstop** - Cursor de polling solo avanza con dispatch confirmado + centinela de primer tick + `adopt` idempotente + backstop mecánico de "In Review" en `SessionEnd` (Ola 3)
 - [ ] **Phase 72: Higiene, DX y verdad documental** - Marcador `KODO_ORCHESTRATOR=1` + borrar `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + batch de config/BAJAS + pasada de README (Ola 4 — paralelizable)
+- [ ] **Phase 73: Debounce e idempotencia del nudge del orchestrator** - `launchOrchestrator` no re-inyecta el mismo nudge en bucle (guard por ventana temporal + estado waiting-for-input + razones sin cambio) + fix del `\n` literal doble (hallazgo dogfooding 2026-07-07; gemelo de Ola 2 para el trigger del orchestrator)
 
 <details>
 <summary>✅ v0.15 «kodo up» — arranque unificado + onboarding dashboard-first (Phases 65-68) — SHIPPED 2026-07-03</summary>
@@ -212,3 +213,23 @@ _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional*
 **Deferido a v2 (trackeado en REQUIREMENTS.md v0.16):** `Retry-After` en 429 del cliente Plane (PLANE-F1/M7) · filtro server-side por label kodo en polling (PLANE-F2/M8) · paginación del listado de work items (PLANE-F3/M9) · reconcile asíncrono fuera del event loop (PERF-F1/M21 — **medir antes de arreglar**).
 
 **Deferred candidates (futuros milestones):** hot-reload de config en server/daemon (CFGF-01) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time.
+
+### Phase 73: Debounce e idempotencia del nudge del orchestrator
+
+**Goal**: Eliminar el bucle de re-inyección del nudge «Revisa el estado actual de las sesiones y tareas pendientes» al orchestrator. El gemelo de la Ola 2 (Phase 70: un zombi libera su slot de `max_parallel`) pero para el *trigger* del orchestrator: hoy `launchOrchestrator()` (`src/orchestrator/launch.js:141-149`), en su rama «workspace ya existe», re-envía el nudge idéntico en CADA llamada sin ningún guard; y `needsOrchestrator` (`src/check.js runCheck`) se mantiene `true` de forma legítima y persistente mientras haya tareas pendientes con slots libres, así que cualquier disparador repetido de `kodo check`/`kodo orchestrate` produce spam idéntico que quema tokens (observado en dogfooding 2026-07-07: decenas de nudges consecutivos, `Agent … 137.9k tokens` por pasada). Purgar el zombi NO lo arregla —la condición vuelve con la primera tarea pendiente—: el único fix estructural es el debounce/idempotencia en el punto de emisión.
+
+**Requirements**: ORCH-01, ORCH-02, ORCH-03, ORCH-04, ORCH-05
+**Depends on:** Phase 72 (secuencia lógica: Ola 4 borra `startHealthLoop`/`up --url`, uno de los disparadores repetidos; sin acoplamiento de código duro — puede ir antes si se prioriza)
+**Plans:** 0 plans
+
+**Success Criteria** (what must be TRUE):
+
+  1. Con el orchestrator ya vivo, N llamadas consecutivas a `launchOrchestrator()` (rama «existing») dentro de una ventana corta producen **como máximo un** `cmux.send` de nudge — no N. Un test lo prueba con un `cmux.send` espiado y un reloj inyectable. (ORCH-01)
+  2. El refresh-nudge se **suprime** cuando el orchestrator está *waiting-for-input* / mid-turn (no se le interrumpe con un nudge redundante mientras ya está atendiendo o esperando al humano). (ORCH-02)
+  3. El refresh-nudge se **suprime** cuando las razones de `needsOrchestrator` no han cambiado desde el último nudge (mismo conjunto de reasons → no re-nudgear); un cambio real (nueva tarea, sesión que muere) **sí** vuelve a nudgear. Persistencia del último estado nudgeado (p. ej. `last_nudge_at` + hash de reasons por workspace) sin nuevos endpoints. (ORCH-03)
+  4. El nudge que se envía usa un salto de línea **correcto y único** para submit — se reconcilia el `\n` literal doble entre `launch.js:146` (`text: '…\\n'`) y `cmux/client.js:46` (que vuelve a añadir `'\\n'`). (ORCH-04)
+  5. Sub-hallazgo cerrado o documentado: la **discrepancia** entre el conteo de `pending` de `check.js` (`3 pending, 5 slots`) y la vista del orchestrator en vivo («Cola vacía: nada en Backlog/Todo») — investigar si es filtrado de label/estado divergente entre `runCheck` y la skill, y corregir o documentar. (ORCH-05)
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 73 to break down)

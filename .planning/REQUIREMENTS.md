@@ -47,6 +47,14 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [ ] **HYG-07**: El dashboard hace strip de `\x1b` en contenido externo (comentarios) — M4, rebajada de prioridad tras Ola 1
 - [ ] **HYG-08**: Pasada de README: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados, y documentar `--dangerously-skip-permissions` en sesiones GSD
 
+### Robustez del trigger del orchestrator (Phase 73 — hallazgo dogfooding 2026-07-07)
+
+- [ ] **ORCH-01**: `launchOrchestrator()` en su rama «workspace ya existe» (`src/orchestrator/launch.js:141-149`) no re-envía el nudge más de una vez por ventana de debounce — N llamadas consecutivas dentro de la ventana → ≤1 `cmux.send` (probado con `cmux.send` espiado + reloj inyectable)
+- [ ] **ORCH-02**: El refresh-nudge se suprime cuando el orchestrator está *waiting-for-input* / mid-turn (no interrumpir con nudges redundantes)
+- [ ] **ORCH-03**: El refresh-nudge se suprime cuando las razones de `needsOrchestrator` (`src/check.js runCheck`) no cambiaron desde el último nudge; un cambio real (nueva tarea / sesión que muere) sí vuelve a nudgear. Persistencia de `last_nudge_at` + hash de reasons por workspace, sin endpoints nuevos
+- [ ] **ORCH-04**: Se reconcilia el `\n` literal doble entre `launch.js:146` (`text: '…\\n'`) y `cmux/client.js:46` (que vuelve a añadir `'\\n'`) — el nudge submitea con un único salto correcto
+- [ ] **ORCH-05**: La discrepancia entre el conteo `pending` de `check.js` (`3 pending, 5 slots`) y la vista del orchestrator en vivo («Cola vacía») queda investigada y corregida o documentada (filtrado de label/estado divergente entre `runCheck` y la skill)
+
 ## v2 Requirements
 
 Diferidos. Trackeados pero fuera del roadmap actual.
