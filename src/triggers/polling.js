@@ -240,6 +240,7 @@ function sleep(clock, ms) {
  *   logger?: import('../logger.js').Logger,
  *   isFirstTick: boolean,
  *   statePath: string,
+ *   dispatchTimeoutMs: number,
  * }} params
  * @returns {Promise<{dispatched: number, rate_limit_remaining: number|null}>}
  */
@@ -254,6 +255,7 @@ async function processRepo({
   logger,
   isFirstTick,
   statePath,
+  dispatchTimeoutMs,
 }) {
   // Phase 28 D-13 test seam (Plan 28-03 Task 3): integration test del daemon
   // crash usa esta env var para forzar un crash POST-spawn del hijo,
@@ -281,6 +283,38 @@ async function processRepo({
   const key = `${owner}/${repo}`;
   const prev = cache[key] || {};
   let attempt = 0;
+
+  /**
+   * Confirma un dispatch con await + timeout mockeable (DELIV-01, D-01/D-03).
+   *
+   * Race entre `dispatchFn` y un timeout basado en `clock.setTimeout` (NO
+   * `globalThis.setTimeout`) para que el clock virtual de los tests lo controle.
+   * "Confirmado" = la promesa RESUELVE (cualquier `action`) antes del timeout.
+   * "No confirmado" = rechaza O vence el timeout. NUNCA relanza (never-throws /
+   * warn-and-continue) — el vencimiento cuenta como reintento, no como error
+   * fatal del tick (Pitfall #4: un dispatch colgado congelaría el loop
+   * recursivo). El webhook (`src/triggers/webhook.js`) SÍ sigue fire-and-forget.
+   *
+   * @param {import('../interface.js').TriggerEvent} event
+   * @param {Clock} clk
+   * @param {number} timeoutMs
+   * @returns {Promise<{ ok: boolean }>}
+   */
+  async function confirmDispatch(event, clk, timeoutMs) {
+    /** @type {any} */
+    let timer;
+    const timeout = new Promise((_resolve, reject) => {
+      timer = clk.setTimeout(() => reject(new Error('dispatch-timeout')), timeoutMs);
+    });
+    try {
+      await Promise.race([dispatchFn(event, {}), timeout]);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    } finally {
+      clk.clearTimeout(timer);
+    }
+  }
 
   while (attempt <= RETRY_MAX_ATTEMPTS) {
     try {
@@ -330,6 +364,11 @@ async function processRepo({
       // 200 path: iterate items, filter PRs (Pitfall #2 / T-25-05), decide dispatch.
       let dispatched = 0;
       let maxUpdatedAt = prev.last_updated_at || '';
+      // DELIV-01/D-02: updated_at de los issues cuyo dispatch NO se confirmó
+      // (rechazo o timeout). Se usan para acotar el watermark por debajo del
+      // mínimo (Pitfall #2 — el cursor escalar no debe enterrar a un fallido).
+      /** @type {string[]} */
+      const failedUpdatedAts = [];
       for (const issue of result.items) {
         // Pitfall #2 (Phase 24 D-25): GitHub `/issues` endpoint intermixes PRs.
         // The provider path already filters; client path needs explicit guard.
@@ -337,59 +376,82 @@ async function processRepo({
         // on a contributor-controlled branch.
         if (issue.pull_request) continue;
 
-        if (issue.updated_at && issue.updated_at > maxUpdatedAt) {
-          maxUpdatedAt = issue.updated_at;
+        // DELIV-01/D-01: el updated_at solo avanza el watermark si el issue NO
+        // requiere dispatch (ya visto / primer tick) o si su dispatch CONFIRMÓ.
+        if (!shouldDispatch(issue, prev)) {
+          if (issue.updated_at && issue.updated_at > maxUpdatedAt) {
+            maxUpdatedAt = issue.updated_at;
+          }
+          continue;
         }
 
-        if (shouldDispatch(issue, prev)) {
-          const task = client
-            ? normalizeIssue(issue, { projectId: key })
-            : issue; // provider path already normalized
-          const pattern = classifyPattern(issue, prev);
+        const task = client
+          ? normalizeIssue(issue, { projectId: key })
+          : issue; // provider path already normalized
+        const pattern = classifyPattern(issue, prev);
 
-          // T-25-02 guardrail: ONLY pass {owner, repo, ref, pattern}. The helper
-          // itself whitelists, but defense-in-depth — NEVER leak user content
-          // (descripción, título, payload raw) through this call site.
+        // T-25-02 guardrail: ONLY pass {owner, repo, ref, pattern}. The helper
+        // itself whitelists, but defense-in-depth — NEVER leak user content
+        // (descripción, título, payload raw) through this call site.
+        if (logger) {
+          pollingDispatch(logger, {
+            owner,
+            repo,
+            ref: task.ref,
+            pattern,
+          });
+        }
+
+        // DELIV-01/D-01/D-03: dispatch confirmado con await+timeout. Ya NO es
+        // fire-and-forget (el webhook.js SÍ lo sigue siendo). Si confirma, el
+        // updated_at es candidato al watermark; si rechaza/vence, NO avanza el
+        // cursor sobre este issue y se acumula en `failedUpdatedAts`.
+        const res = await confirmDispatch(
+          {
+            taskRef: task.ref,
+            action: 'polling',
+            provider: 'github',
+            raw: issue,
+          },
+          clock,
+          dispatchTimeoutMs,
+        );
+        if (res.ok) {
+          if (issue.updated_at && issue.updated_at > maxUpdatedAt) {
+            maxUpdatedAt = issue.updated_at;
+          }
+          dispatched++;
+        } else {
+          if (issue.updated_at) failedUpdatedAts.push(issue.updated_at);
           if (logger) {
-            pollingDispatch(logger, {
+            pollingError(logger, {
               owner,
               repo,
-              ref: task.ref,
-              pattern,
+              status: 0,
+              attempt: 0,
+              error: 'dispatch-unconfirmed',
             });
           }
-
-          // Fire-and-forget — espejo `webhook.js:46-48`. NEVER `await`. Any
-          // rejection is logged but not propagated; loop continues.
-          dispatchFn(
-            {
-              taskRef: task.ref,
-              action: 'polling',
-              provider: 'github',
-              raw: issue,
-            },
-            {},
-          ).catch((err) => {
-            if (logger) {
-              logger.error('polling.dispatch.failed', {
-                owner,
-                repo,
-                ref: task.ref,
-                error: err && err.message ? err.message : String(err),
-              });
-            } else {
-              console.error(`[kodo:polling] dispatch failed: ${err && err.message ? err.message : err}`);
-            }
-          });
-
-          dispatched++;
         }
+      }
+
+      // DELIV-01/D-02 (Pitfall #2/#3): acotar el watermark ESTRICTAMENTE por
+      // debajo del updated_at mínimo de los fallidos (comparación lexicográfica
+      // de ISO 8601, igual que shouldDispatch — NO parsear a Date). Si el máximo
+      // exitoso cruza o iguala ese mínimo, retroceder a prev.last_updated_at
+      // para garantizar que el issue fallido re-dispare el próximo tick (el gate
+      // local estricto `>` es la verdad). Aplica a AMBOS paths; en el path
+      // provider es más crítico porque el único filtro es el `>` local.
+      let newCursor = maxUpdatedAt;
+      if (failedUpdatedAts.length > 0) {
+        const minFailed = failedUpdatedAts.reduce((a, b) => (a < b ? a : b));
+        newCursor = maxUpdatedAt < minFailed ? maxUpdatedAt : prev.last_updated_at || '';
       }
 
       // Persist cursor + etag per-repo (Open Q #4 RESOLVED — once per repo
       // bounds loss if crash mid-tick).
       cache[key] = {
-        last_updated_at: maxUpdatedAt || prev.last_updated_at,
+        last_updated_at: newCursor || prev.last_updated_at,
         ...(result.etag ? { etag: result.etag } : {}),
       };
       saveStateCache(cache, statePath);
@@ -457,6 +519,7 @@ async function processRepo({
  *   logger?: import('../logger.js').Logger,
  *   statePath?: string,
  *   dispatchTriggerFn?: (event: import('../interface.js').TriggerEvent, opts?: object) => Promise<any>,
+ *   dispatchTimeoutMs?: number,
  * }} StartPollingOpts
  */
 
@@ -484,6 +547,9 @@ export function startPolling(opts) {
   const intervalMs = (opts.intervalSec ?? 60) * 1000;
   const dispatchFn = opts.dispatchTriggerFn || dispatchTrigger;
   const statePath = opts.statePath || DEFAULT_STATE_PATH;
+  // DELIV-01/D-03: timeout de confirmación de dispatch. Default sensato 30s;
+  // inyectable para que los tests usen un valor pequeño con el clock virtual.
+  const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? 30000;
 
   let stopped = false;
   /** @type {any} */
@@ -526,6 +592,7 @@ export function startPolling(opts) {
         logger: opts.logger,
         isFirstTick,
         statePath,
+        dispatchTimeoutMs,
       });
       totalDispatched += repoSummary.dispatched;
       if (repoSummary.rate_limit_remaining != null) {
