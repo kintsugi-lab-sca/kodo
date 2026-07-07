@@ -4,9 +4,9 @@ milestone: v0.16
 milestone_name: activo)
 current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
-status: verifying
+status: executing
 stopped_at: Phase 71 gaps found — DELIV-03 (adopt task_url unreachable via CLI) + DELIV-04 (GitHub backstop closes issues); DELIV-01/02 pass
-last_updated: "2026-07-07T08:36:23.338Z"
+last_updated: "2026-07-07T09:08:24.890Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-07 — Phase 71 execution started
 
 ## Roadmap v0.16 (activo)
@@ -82,6 +82,7 @@ Reset al baseline de v0.16. v0.15 cerró con audit PASSED (GATE MANUAL aprobado)
 
 ### Roadmap Evolution
 
+- **Phases 74-75 añadidas al backlog (2026-07-07):** dos **features** (NO hardening) capturadas tras debate de diseño. **Phase 74 «Plan vivo por-tarea»** (LIVE-01..04): hacer vivo `~/.kodo/plans/<uuid>.md` — el hook de cierre appendea handoff `Hecho/Pendiente/NEXT:`, `state.json` guarda puntero + `NEXT:` de una línea, ventana en TUI, y el `NEXT:` alimenta el nudge del orchestrator. **Phase 75 «Inbox de capturas global»** (CAPT-01..04): buffer append-only `~/.kodo/inbox.md` para ideas tangenciales mid-session (`kodo capture` + skill `/kodo-capture`), con triage `kodo inbox` que enruta a Plane/roadmap/config/descartada delegando en `gsd-capture`. Decisiones cerradas en debate: dos artefactos separados (plan vivo por-tarea muere con la tarea; inbox global sobrevive con tag de proyecto), inbox propio de kodo (no reusar `gsd-capture` como punto de captura), destino obligatorio. **Candidatas a v0.17 — fuera del cómputo v0.16, no planificar hasta cerrar el hardening.** En Backlog de `ROADMAP.md`; requisitos en `REQUIREMENTS.md`.
 - **Phase 73 añadida (2026-07-07):** «Debounce e idempotencia del nudge del orchestrator» (ORCH-01..05). Hallazgo de dogfooding: `launchOrchestrator` re-inyecta el nudge «Revisa el estado actual…» en bucle sin guard, y `needsOrchestrator` se mantiene true mientras haya tareas pendientes → spam de nudges que quema tokens. Gemelo de Phase 70 (Ola 2) pero para el trigger del orchestrator. Depende de Phase 72 (Ola 4 borra `startHealthLoop`/`up --url`, uno de los disparadores). Zombi ITROMAN-1 purgado en la misma sesión (alivio inmediato; el fix estructural es esta fase).
 - **v0.16 roadmap creado (2026-07-06):** 4 phases (69-72), numeración continua desde v0.15 (NO reset). Estructura 1:1 con las 4 olas de la propuesta, orden risk-graded LOCKED. 27/27 requirements mapeados (Phase 69: 6 · 70: 9 · 71: 4 · 72: 8), 100% cobertura, 0 orphans, 0 duplicados. Sin research (skip del operador). Granularidad `coarse`, borde superior justificado por causa raíz. `.planning/ROADMAP.md` reemplazado (v0.15 colapsado a `<details>`, ya archivado en `milestones/v0.15-ROADMAP.md`).
 - **v0.15 roadmap creado (2026-07-02):** 4 phases (65-68), numeración continua desde v0.14. Pilar 1 (UP+DIST) antes de Pilar 2 (SETUP), orden risk-graded LOCKED.
