@@ -11,6 +11,8 @@
 //   worktree.cleanup.ok, worktree.cleanup.dirty, worktree.cleanup.error,
 //   skill.sync.auto, skill.sync.auto.error,
 //   polling.tick, polling.dispatch, polling.error, polling.tick.summary
+// + Phase 71 (backstop mecánico de In Review en SessionEnd, DELIV-04):
+//   session.backstop.review
 //
 // Los helpers delegan en logger.info/warn/error — el sink NDJSON y el redactor
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
@@ -54,6 +56,7 @@ import { join } from 'node:path';
  *   DOCTOR_FIX_LOG: 'doctor.fix.log',
  *   DOCTOR_FIX_ERROR: 'doctor.fix.error',
  *   SESSION_DISMISSED: 'session.dismissed',
+ *   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -86,6 +89,7 @@ export const EVENTS = Object.freeze({
   DOCTOR_FIX_LOG:          'doctor.fix.log',
   DOCTOR_FIX_ERROR:        'doctor.fix.error',
   SESSION_DISMISSED:       'session.dismissed',
+  SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
 });
 
 /**
@@ -790,5 +794,40 @@ export function doctorFixError(logger, fields) {
     category: fields.category,
     reason: fields.reason,
     target: fields.target,
+  });
+}
+
+// ─── Phase 71: backstop mecánico de In Review en SessionEnd (DELIV-04) ─────
+//
+// Emitido (info) por `runReviewBackstop` (src/hooks/session-end.js) cuando el
+// hook SessionEnd transiciona una tarea que seguía «In Progress» al estado
+// review de forma automática («cierre automático»), cubriendo el caso en que
+// el LLM no completó la transición antes del cierre real de la sesión (causa
+// raíz T5). La transición del LLM pasa a ser optimización, no única vía.
+//
+// Invariante de seguridad T-25-02 (Information disclosure): el helper SOLO
+// emite los 4 campos de identificación/transición `{session_id, task_id, from,
+// to}`. Whitelist EXPLÍCITO field-by-field — NUNCA spread `...fields` — para
+// que ningún campo de contenido de usuario (título/descripción/raw) que el
+// caller pudiera pasar por error alcance el sink NDJSON append-only. Invariante
+// LOG-12: cero imports nuevos.
+
+/**
+ * Emite `session.backstop.review` (info) tras un cierre automático del backstop.
+ * `from`/`to` son NOMBRES de estado: `from` es siempre `'in_progress'` (el estado
+ * vivo que gatilló el backstop) y `to` es el reviewState resuelto (p. ej.
+ * `'In review'`). El helper es pure transform (delega en `logger.info`, LOG-12):
+ * no hace I/O y descarta cualquier campo extra del caller (guardrail T-25-02).
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, task_id: string | null, from: string, to: string }} fields
+ */
+export function sessionBackstopReview(logger, fields) {
+  logger.info(EVENTS.SESSION_BACKSTOP_REVIEW, {
+    event: EVENTS.SESSION_BACKSTOP_REVIEW,
+    session_id: fields.session_id,
+    task_id: fields.task_id,
+    from: fields.from,
+    to: fields.to,
   });
 }

@@ -11,6 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { runSessionEndHook } from '../../src/hooks/session-end.js';
+import { sessionBackstopReview, EVENTS } from '../../src/logger-events.js';
 
 function makeLogger() {
   const events = [];
@@ -106,6 +107,38 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       ),
       'el hook nunca debe rechazar (never-throws / fail-open)',
     );
+  });
+});
+
+describe('sessionBackstopReview — evento NDJSON del backstop (DELIV-04, T-25-02)', () => {
+  it('emite SOLO {event, session_id, task_id, from, to} y descarta campos extra', () => {
+    const { logger, events } = makeLogger();
+    sessionBackstopReview(logger, {
+      session_id: 's-1',
+      task_id: 'kodo-1',
+      from: 'in_progress',
+      to: 'In review',
+      // Campos de contenido que NUNCA deben filtrarse al sink NDJSON (guardrail T-25-02).
+      title: 'SECRETO — no debe filtrarse',
+      description: 'tampoco esto',
+    });
+    assert.equal(events.length, 1, 'emite exactamente un record');
+    const rec = events[0];
+    assert.equal(rec.level, 'info', 'nivel info');
+    assert.equal(rec.msg, EVENTS.SESSION_BACKSTOP_REVIEW, 'msg = clave del evento');
+    assert.deepEqual(
+      rec.fields,
+      {
+        event: 'session.backstop.review',
+        session_id: 's-1',
+        task_id: 'kodo-1',
+        from: 'in_progress',
+        to: 'In review',
+      },
+      'record contiene exactamente los 4 campos + event, nada más',
+    );
+    assert.ok(!('title' in rec.fields), 'no filtra title');
+    assert.ok(!('description' in rec.fields), 'no filtra description');
   });
 });
 
