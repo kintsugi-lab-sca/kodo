@@ -269,6 +269,21 @@ export async function adoptSession(
   // no cambiar el contrato de entrada (D-08). Nota: el barrido local (Task 2) se inserta
   // al inicio de este bloque para que una tarea YA persistida gane con ALREADY_ADOPTED.
   if (typeof task_url === 'string' && task_url.length > 0) {
+    // (c2.a) Barrido local (D-08): si una fila viva (sessions o history) YA lleva este
+    // task_url, la tarea está adoptada y persistida → ALREADY_ADOPTED (reusa el mismo
+    // discriminado que el eje sessionId), sin createTask ni reconciliación. Cubre la
+    // re-adopción de una tarea ya adoptada cuya fila SÍ se persistió. Va ANTES de la
+    // reconciliación para que una fila existente gane con ALREADY_ADOPTED en vez de ser
+    // sobrescrita por un reused:true (la reconciliación solo aplica a la ventana
+    // PERSIST_FAILED, donde la fila NO existe). listSessions/listHistory nunca lanzan
+    // (loadState es resiliente), coherente con findSession de arriba (never-throws).
+    const localMatch = [...listSessionsFn(), ...listHistoryFn()].find(
+      (s) => s && s.task_url && s.task_url === task_url,
+    );
+    if (localMatch) {
+      return { ok: false, code: 'ALREADY_ADOPTED', detail: { task_id: localMatch.task_id } };
+    }
+
     // (c2.b) No hay fila local con este task_url → ventana PERSIST_FAILED → reconciliar
     // reconstruyendo un TaskItem mínimo desde los datos de identidad (title desde el
     // sanitize backstop para que la fila lleve un summary usable) y reintentar addSession.
