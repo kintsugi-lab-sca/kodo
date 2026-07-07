@@ -5,12 +5,12 @@ milestone_name: activo)
 current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
 status: executing
-stopped_at: Phase 71 gaps found — DELIV-03 (adopt task_url unreachable via CLI) + DELIV-04 (GitHub backstop closes issues); DELIV-01/02 pass
-last_updated: "2026-07-07T09:08:24.890Z"
+stopped_at: Completed 71-04-PLAN.md
+last_updated: "2026-07-07T09:15:26.354Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
-  total_phases: 1
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
-Plan: 3 of 3
+Plan: 2 of 5
 Status: Ready to execute
 Last activity: 2026-07-07 — Phase 71 execution started
 
@@ -109,10 +109,10 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-VERIFICATION.md
+**Resume file:** None
 
-- **Last session:** 2026-07-07T08:36:23.331Z
-- **Stopped at:** Phase 71 gaps found — DELIV-03 (adopt task_url unreachable via CLI) + DELIV-04 (GitHub backstop closes issues); DELIV-01/02 pass
+- **Last session:** 2026-07-07T09:15:26.347Z
+- **Stopped at:** Completed 71-04-PLAN.md
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
@@ -142,6 +142,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 71 P01 | 8min | 2 tasks | 2 files |
 | Phase 71 P02 | 9min | 2 tasks | 2 files |
 | Phase 71 P03 | 25min | 2 tasks | 4 files |
+| Phase 71 P04 | 3min | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -160,3 +161,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: 71-01: carril polling con dispatch confirmado (await+timeout), watermark escalar acotado bajo min(fallidos) y centinela observed que separa cache-ausente de cursor-vacío (DELIV-01/DELIV-02)
 - [Phase ?]: DELIV-03: adoptSession idempotente por task_url — barrido local (sessions+history) antes de la reconciliación; la reconciliación devuelve {ok:true, reused:true}
 - [Phase 71]: Backstop de In Review en SessionEnd (DELIV-04): transiciona a review + comenta «cierre automático» solo si getTaskState==='in_progress'; capability-gated por typeof (GitHub degrada), idempotente frente al LLM, fail-open por paso
+- [Phase ?]: 71-04: cablear recuperación idempotente de adopt en el CLI vía flags --task-url/--task-id (DELIV-03)

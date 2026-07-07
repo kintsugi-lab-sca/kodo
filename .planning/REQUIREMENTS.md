@@ -55,6 +55,24 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [ ] **ORCH-04**: Se reconcilia el `\n` literal doble entre `launch.js:146` (`text: '…\\n'`) y `cmux/client.js:46` (que vuelve a añadir `'\\n'`) — el nudge submitea con un único salto correcto
 - [ ] **ORCH-05**: La discrepancia entre el conteo `pending` de `check.js` (`3 pending, 5 slots`) y la vista del orchestrator en vivo («Cola vacía») queda investigada y corregida o documentada (filtrado de label/estado divergente entre `runCheck` y la skill)
 
+### Plan vivo por-tarea — handoff continuo (Phase 74 — candidata v0.17, features)
+
+_Feature, NO hardening. El artefacto ya existe (`~/.kodo/plans/<uuid>.md`) pero es fire-and-forget: se escribe solo al arranque. Hacerlo vivo cierra la continuidad entre sesiones de una misma tarea._
+
+- [ ] **LIVE-01**: Al cerrar sesión, el hook appendea a `~/.kodo/plans/<uuid>.md` un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:` (una sola línea el `NEXT`). El fichero deja de escribirse únicamente al arranque; se acumula por sesión con traza.
+- [ ] **LIVE-02**: `state.json` guarda por tarea el puntero al plan + el `NEXT:` de una línea (resumen renderizable sin abrir el fichero). La escritura va bajo `withStateLock` (coordina con Phase 70; el hook de cierre es un escritor más).
+- [ ] **LIVE-03**: El TUI/dashboard muestra el `NEXT:` en la lista de tareas y ofrece enlace/panel que abre el markdown completo del plan de esa tarea. Read-model: se renderiza, no se edita a mano.
+- [ ] **LIVE-04**: Cuando existe un `NEXT:` de handoff, el nudge del orchestrator lo usa como contexto en lugar del genérico «Revisa el estado actual…» (interoperación con ORCH-01..03 / Phase 73).
+
+### Inbox de capturas global (Phase 75 — candidata v0.17, features)
+
+_Feature, NO hardening. Buffer de captura rápida de ideas tangenciales mid-session (tip de config, idea de comando, cambio de sentido) que NO dan para una tarea de Plane. Global, propio de kodo, con destino obligatorio (un buffer sin drenaje es un cementerio)._
+
+- [ ] **CAPT-01**: `kodo capture "<texto>"` (CLI) appendea una línea a `~/.kodo/inbox.md` (global, append-only) con `texto · tag-proyecto · fecha · origen (tarea/sesión)`. La escritura es atómica/con lock (varias sesiones capturan en paralelo).
+- [ ] **CAPT-02**: Skill `/kodo-capture` para captura mid-session desde dentro de Claude Code — mismo formato y misma escritura, derivando proyecto/tarea del contexto de la sesión activa.
+- [ ] **CAPT-03**: `kodo inbox` lista las capturas abiertas y enruta cada una → tarea Plane / fase roadmap / config aplicada / descartada. Las capturas se marcan con estado (`abierta`/`enrutada`/`descartada`), no se borran — queda traza de qué se convirtió en qué.
+- [ ] **CAPT-04**: El enrutado a destino delega en `gsd-capture` (no reimplementa el «a dónde va»); kodo aporta solo el punto de entrada (sesión orquestada) y el triage.
+
 ## v2 Requirements
 
 Diferidos. Trackeados pero fuera del roadmap actual.
@@ -124,6 +142,11 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 - **Phase 70 Concurrencia y ciclo de vida de procesos (Ola 2):** CONC-01..09
 - **Phase 71 Fiabilidad de entrega y backstop (Ola 3):** DELIV-01..04
 - **Phase 72 Higiene, DX y verdad documental (Ola 4):** HYG-01..08
+
+**Candidatas v0.17 (features, fuera del cómputo v0.16 — no planificar hasta cerrar v0.16):**
+
+- **Phase 74 Plan vivo por-tarea (handoff continuo):** LIVE-01..04
+- **Phase 75 Inbox de capturas global:** CAPT-01..04
 
 ---
 *Requirements defined: 2026-07-05*
