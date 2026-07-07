@@ -20,7 +20,7 @@
 // cmux. The three future consumers (CLI Phase 54, dashboard key Phase 56,
 // orchestrator Phase 57) reuse this base without owning it.
 
-import { findSession, addSession } from './session/state.js';
+import { findSession, addSession, listSessions, listHistory } from './session/state.js';
 import { basename, join } from 'node:path';
 import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
@@ -165,6 +165,7 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
  * cmux branch. Returns the 5-state never-throws discriminant:
  *
  *   { ok:true, task, session }
+ *   { ok:true, task, session, reused:true }   ← reconciliación idempotente por task_url (DELIV-03)
  *   { ok:false, code:'UNSUPPORTED',      detail:{ providerName } }
  *   { ok:false, code:'INVALID_INPUT',    detail:{ missing } }
  *   { ok:false, code:'ALREADY_ADOPTED',  detail:{ task_id } }
@@ -187,18 +188,29 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
  *   title?: string,
  *   description?: string,
  *   module?: string,
+ *   task_url?: string,
+ *   task_id?: string,
+ *   task_ref?: string,
  * }} args
- * @param {{ addSession?: Function, findSession?: Function }} [deps]
+ *        `task_url`/`task_id`/`task_ref` son OPCIONALES «recovery re-run» (DELIV-03):
+ *        el caller de un re-run tras un `PERSIST_FAILED` previo pasa el `task_url`
+ *        (y el `task_id`) que recibió en el detalle para reconciliar la fila local
+ *        SIN volver a llamar a `createTask`. Se usan como identidad (igualdad de
+ *        strings), nunca se enrutan por `sanitizeAdoptionData`.
+ * @param {{ addSession?: Function, findSession?: Function, listSessions?: Function, listHistory?: Function }} [deps]
  *        DI — defaults to the real state.js imports; tests inject a throwing
- *        addSession (PERSIST_FAILED) without making the real state.json unwritable.
+ *        addSession (PERSIST_FAILED) without making the real state.json unwritable,
+ *        y `listSessions`/`listHistory` para proveer filas al barrido local (DELIV-03).
  * @returns {Promise<object>}
  */
 export async function adoptSession(
-  { provider, providerName, workspaceRef, cwd, sessionId, projectId, projectPath, title, description, module },
+  { provider, providerName, workspaceRef, cwd, sessionId, projectId, projectPath, title, description, module, task_url, task_id, task_ref },
   deps = {},
 ) {
   const addSessionFn = deps.addSession || addSession;
   const findSessionFn = deps.findSession || findSession;
+  const listSessionsFn = deps.listSessions || listSessions;
+  const listHistoryFn = deps.listHistory || listHistory;
 
   // (a) Capability gate (BIDIR-03 / WR-03). typeof-detected — createTask lives
   // OUTSIDE the FROZEN-9 contract. Guard a null/undefined provider FIRST so the
@@ -245,6 +257,38 @@ export async function adoptSession(
   const existing = findSessionFn({ sessionId });
   if (existing) {
     return { ok: false, code: 'ALREADY_ADOPTED', detail: { task_id: existing.session.task_id } };
+  }
+
+  // (c2) Idempotencia por task_url (DELIV-03 / D-07, D-08). Eje DISTINTO del guard
+  // sessionId de arriba: cierra la ventana PERSIST_FAILED (createTask tuvo éxito pero
+  // addSession lanzó → la tarea existe en el provider pero NO localmente). Un re-run
+  // que pasa el task_url devuelto reconcilia la fila reintentando SOLO addSession, SIN
+  // un segundo createTask → nunca duplica la tarea en Plane (T-71-05). El task_url es
+  // identidad: se compara por igualdad de strings, jamás se enruta por sanitize.
+  // El capability gate createTask (:207) se conserva aunque esta rama no lo use, para
+  // no cambiar el contrato de entrada (D-08). Nota: el barrido local (Task 2) se inserta
+  // al inicio de este bloque para que una tarea YA persistida gane con ALREADY_ADOPTED.
+  if (typeof task_url === 'string' && task_url.length > 0) {
+    // (c2.b) No hay fila local con este task_url → ventana PERSIST_FAILED → reconciliar
+    // reconstruyendo un TaskItem mínimo desde los datos de identidad (title desde el
+    // sanitize backstop para que la fila lleve un summary usable) y reintentar addSession.
+    const reconciledTask = { id: task_id, ref: task_ref, url: task_url, projectId, title: clean.title };
+    const session = buildSessionFromAdoption({ task: reconciledTask, providerName, workspaceRef, cwd, sessionId, projectPath });
+    try {
+      addSessionFn(reconciledTask.id, session);
+    } catch (err) {
+      return {
+        ok: false,
+        code: 'PERSIST_FAILED',
+        detail: {
+          task_id: reconciledTask.id,
+          task_url,
+          hint: 'recoverable via idempotent re-run',
+          message: err?.message ?? String(err),
+        },
+      };
+    }
+    return { ok: true, task: reconciledTask, session, reused: true };
   }
 
   // (d) createTask — the first and only network POST. The 201 round-trips to a
