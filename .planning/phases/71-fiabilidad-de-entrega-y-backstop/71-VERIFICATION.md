@@ -155,6 +155,22 @@ Ninguno bloqueante nuevo introducido por esta fase (sin `TBD`/`FIXME`/`XXX`/plac
 
 Ambos gaps fueron identificados de forma independiente por `71-REVIEW.md` (code review adversarial) y se confirman aquí contra el código real — no son hipótesis, son rutas de fallo trazadas hasta el punto de entrada real.
 
+## Direcciones de Fix (decisión del operador, 2026-07-07)
+
+**Estas direcciones son LOCKED para la replanificación `--gaps`. El planner de cierre de gaps DEBE seguirlas.**
+
+**Gap 1 / DELIV-03 → Cablear la recuperación en el CLI (fix real end-to-end).**
+- Añadir flags opcionales `--task-url` (y `--task-id`/`--task-ref` según haga falta para reconstruir el `reconciledTask`) al comando `kodo adopt` en `src/cli.js`.
+- Reenviarlos desde `runAdoptCli` (`src/cli/adopt.js:165-176`) hacia `adoptSessionFn`, de modo que un re-run tras un `PERSIST_FAILED` (`kodo adopt … --task-url <url> --task-id <id>`) dispare el bloque `(c2)` de reconciliación en `src/adopt.js:271` y NO un segundo `createTask`. El hint «recoverable via idempotent re-run» pasa a ser verdadero.
+- El guard `sessionId` existente y los 5 discriminantes NO se tocan. Test end-to-end: invocar el CLI (no `adoptSession` directo) con los flags de recuperación y verificar UN SOLO `createTask`.
+- Opcional (no requerido por la decisión, pero permitido si es barato): propagar los flags también desde la tecla `a` del dashboard (`src/cli/dashboard/adopt.js`).
+
+**Gap 2 / DELIV-04 → No cerrar nunca: gate de estado no-terminal.**
+- El backstop solo debe transicionar cuando el `reviewState` resuelto NO sea un estado terminal/de cierre. Para GitHub (`states.review: 'closed'`, modelo binario open/closed) el backstop queda **no-op**; para Plane (`'In review'`, no-terminal) procede como hoy.
+- Implementar un guard explícito en `runReviewBackstop` (`src/hooks/session-end.js`) que detecte si `reviewState` cierra/termina la tarea (p. ej. coincide con el estado `done`/`closed` del provider) y, en ese caso, salte sin llamar `updateTaskState`/`addComment` (emitiendo, si acaso, un evento/log de "backstop omitido por estado terminal"). Evitar acoplar a un literal `'closed'` si hay una vía provider-agnostic; si no la hay de forma barata, un check pragmático sobre el vocabulario de cierre del provider es aceptable.
+- Corregir la documentación que afirma falsamente que «GitHub degrada a no-op por capability-gating» (D-13 en `71-CONTEXT.md` y la sección equivalente de `71-RESEARCH.md`): la razón real del no-op para GitHub pasa a ser el gate de estado no-terminal, no la ausencia de capacidades.
+- NO se adopta la alternativa del gate `verdict.action==='pass'` (se descartó a favor del gate no-terminal).
+
 ---
 
 _Verificado: 2026-07-07T08:40:00Z_
