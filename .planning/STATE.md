@@ -4,9 +4,9 @@ milestone: v0.16
 milestone_name: activo)
 current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
-status: executing
+status: verifying
 stopped_at: Phase 71 context gathered
-last_updated: "2026-07-07T07:57:43.319Z"
+last_updated: "2026-07-07T08:09:00.247Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-07 — Phase 71 execution started
 
 ## Roadmap v0.16 (activo)
@@ -110,7 +110,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-CONTEXT.md
 
-- **Last session:** 2026-07-07T07:57:11.265Z
+- **Last session:** 2026-07-07T08:08:31.717Z
 - **Stopped at:** Phase 71 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -140,6 +140,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 70 P04 | 16 | 4 tasks | 8 files |
 | Phase 71 P01 | 8min | 2 tasks | 2 files |
 | Phase 71 P02 | 9min | 2 tasks | 2 files |
+| Phase 71 P03 | 25min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -157,3 +158,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase ?]: Phase 70-03: SIGKILL anti-PID-reuse tolerance = 8000ms; pre-bind PID write preserved (D-10 REVISED); gate reads alive via exported isSchedulable.
 - [Phase ?]: 71-01: carril polling con dispatch confirmado (await+timeout), watermark escalar acotado bajo min(fallidos) y centinela observed que separa cache-ausente de cursor-vacío (DELIV-01/DELIV-02)
 - [Phase ?]: DELIV-03: adoptSession idempotente por task_url — barrido local (sessions+history) antes de la reconciliación; la reconciliación devuelve {ok:true, reused:true}
+- [Phase 71]: Backstop de In Review en SessionEnd (DELIV-04): transiciona a review + comenta «cierre automático» solo si getTaskState==='in_progress'; capability-gated por typeof (GitHub degrada), idempotente frente al LLM, fail-open por paso
