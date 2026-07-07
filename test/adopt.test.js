@@ -260,6 +260,126 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
   });
 
   // ---------------------------------------------------------------------
+  // DELIV-03 (Task 2): barrido local por task_url. Cuando una fila viva (sessions o
+  // history) YA tiene el task_url candidato, la tarea está adoptada y persistida →
+  // ALREADY_ADOPTED sin createTask (re-adopción de una tarea ya adoptada; distinto de
+  // la ventana PERSIST_FAILED, donde la fila NO existe y se reconcilia).
+  // ---------------------------------------------------------------------
+  it('barrido local: fila viva en sessions con el mismo task_url → ALREADY_ADOPTED sin createTask (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const liveRow = { task_id: 'KL-99', task_url: 'https://x/KL-99', session_id: 'otra' };
+    const r = await adoptSession(
+      baseArgs({ provider: counting, task_url: 'https://x/KL-99' }),
+      { listSessions: () => [liveRow], listHistory: () => [] },
+    );
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 'ALREADY_ADOPTED');
+    assert.equal(r.detail.task_id, 'KL-99');
+    assert.equal(calls, 0, 'no createTask cuando la fila ya vive localmente');
+  });
+
+  it('barrido local: encuentra la fila en history (no solo sessions) → ALREADY_ADOPTED (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const histRow = { task_id: 'KL-77', task_url: 'https://x/KL-77', ended_at: '2026-07-07T00:00:00Z' };
+    const r = await adoptSession(
+      baseArgs({ provider: counting, task_url: 'https://x/KL-77' }),
+      { listSessions: () => [], listHistory: () => [histRow] },
+    );
+    assert.equal(r.code, 'ALREADY_ADOPTED');
+    assert.equal(r.detail.task_id, 'KL-77');
+    assert.equal(calls, 0);
+  });
+
+  it('sin match local ni task_url explícito → flujo normal createTask una vez (rama c intacta) (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(baseArgs({ provider: counting }), {
+      listSessions: () => [],
+      listHistory: () => [],
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.reused, undefined, 'un adopt normal NO marca reused');
+    assert.equal(calls, 1, 'sin task_url ni match el flujo normal crea la tarea una vez');
+  });
+
+  it('task_url presente pero SIN match local → reconcilia (recovery), no ALREADY_ADOPTED (DELIV-03)', async () => {
+    let calls = 0;
+    const counting = {
+      createTask: async () => {
+        calls += 1;
+        return fakeTaskItem;
+      },
+    };
+    const r = await adoptSession(
+      baseArgs({ provider: counting, task_url: 'https://x/KL-99', task_id: 'KL-99' }),
+      { listSessions: () => [], listHistory: () => [], addSession: () => {} },
+    );
+    assert.equal(r.ok, true);
+    assert.equal(r.reused, true, 'sin fila local el task_url reconcilia (ventana PERSIST_FAILED)');
+    assert.equal(calls, 0, 'la reconciliación no llama createTask');
+  });
+
+  // ---------------------------------------------------------------------
+  // DELIV-03 (Task 2): regresión explícita de los 5 discriminados preexistentes +
+  // el nuevo {ok:true, reused:true}. El eje sessionId y el never-throws quedan intactos.
+  // ---------------------------------------------------------------------
+  it('regresión: los 5 discriminados preexistentes conservan code + detail shape (DELIV-03)', async () => {
+    // UNSUPPORTED{providerName}
+    const u = await adoptSession(baseArgs({ provider: {} }));
+    assert.equal(u.ok, false);
+    assert.equal(u.code, 'UNSUPPORTED');
+    assert.equal(u.detail.providerName, 'plane');
+
+    // INVALID_INPUT{missing}
+    const iaArgs = baseArgs();
+    delete iaArgs.projectId;
+    const ia = await adoptSession(iaArgs);
+    assert.equal(ia.code, 'INVALID_INPUT');
+    assert.ok(Array.isArray(ia.detail.missing) && ia.detail.missing.includes('projectId'));
+
+    // CREATE_FAILED{message}
+    const cf = await adoptSession(
+      baseArgs({ provider: { createTask: async () => { throw new Error('plane 422'); } } }),
+    );
+    assert.equal(cf.code, 'CREATE_FAILED');
+    assert.equal(typeof cf.detail.message, 'string');
+    assert.ok(cf.detail.message.length > 0);
+
+    // PERSIST_FAILED{task_id, task_url, hint, message}
+    const pf = await adoptSession(baseArgs(), { addSession: () => { throw new Error('disk'); } });
+    assert.equal(pf.code, 'PERSIST_FAILED');
+    assert.equal(pf.detail.task_id, fakeTaskItem.id);
+    assert.equal(pf.detail.task_url, fakeTaskItem.url);
+    assert.equal(pf.detail.hint, 'recoverable via idempotent re-run');
+    assert.equal(typeof pf.detail.message, 'string');
+
+    // ALREADY_ADOPTED{task_id} por sessionId (eje existente intacto)
+    const a1 = await adoptSession(baseArgs({ sessionId: 'reg-s' }));
+    assert.equal(a1.ok, true);
+    const a2 = await adoptSession(baseArgs({ sessionId: 'reg-s' }));
+    assert.equal(a2.ok, false);
+    assert.equal(a2.code, 'ALREADY_ADOPTED');
+    assert.equal(a2.detail.task_id, fakeTaskItem.id);
+  });
+
+  // ---------------------------------------------------------------------
   // BIDIR-03: CREATE_FAILED — provider.createTask throws LOUD, converted to code.
   // ---------------------------------------------------------------------
   it('CREATE_FAILED when provider.createTask throws (detail.message present)', async () => {
