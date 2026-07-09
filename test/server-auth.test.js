@@ -122,6 +122,15 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     assert.deepEqual(await res.json(), { error: 'unauthorized' });
   });
 
+  it('POST /orchestrator without a bearer → 401 (resolving the orchestrator can NOT be queried anonymously)', async () => {
+    // Propiedad de seguridad de la tecla `O`: el endpoint resolve-only que resuelve el
+    // `workspace:N` del orquestador NO está en isOpenRoute → el bearer se exige ANTES de tocar
+    // cmux (un cliente anónimo jamás enumera los workspaces del host vía este endpoint).
+    const res = await fetch(`${base}/orchestrator`, { method: 'POST' });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { error: 'unauthorized' });
+  });
+
   it('GET /health → 200 with NO Authorization header (open route)', async () => {
     const res = await fetch(`${base}/health`);
     assert.equal(res.status, 200);

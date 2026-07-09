@@ -146,7 +146,7 @@ const STATUS_FIXTURE = {
  *  - '/comments/<id>'   → routes.comments (recibe el id decodificado).
  *  - '/logs'            → routes.logs.
  */
-function makeRouter({ status = STATUS_FIXTURE, comments, logs } = {}) {
+function makeRouter({ status = STATUS_FIXTURE, comments, logs, orchestrator } = {}) {
   return async (url) => {
     const u = String(url);
     if (u.endsWith('/status')) return okResponse(status);
@@ -158,6 +158,10 @@ function makeRouter({ status = STATUS_FIXTURE, comments, logs } = {}) {
     if (u.endsWith('/logs')) {
       if (typeof logs === 'function') return logs();
       return okResponse({ logs: logs ?? [] });
+    }
+    if (u.endsWith('/orchestrator')) {
+      if (typeof orchestrator === 'function') return orchestrator();
+      return okResponse(orchestrator ?? { ok: true, workspace_ref: 'workspace:7', existing: true });
     }
     return okResponse(status);
   };
@@ -352,6 +356,70 @@ describe('overlay de log GENERAL (L) — buffer completo SIN grep por sesión (d
       stdin.write('L');
       await drain();
       assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('tecla O — enfocar/lanzar el orquestador (resuelve ref vía /orchestrator + onFocus)', () => {
+  it('O resuelve el workspace_ref del orquestador y lo enfoca (footer verde)', async () => {
+    const clock = makeFakeClock();
+    /** @type {string[]} */
+    const focusCalls = [];
+    const fetchFn = makeRouter({
+      orchestrator: () => okResponse({ ok: true, workspace_ref: 'workspace:7', existing: true }),
+    });
+    const props = {
+      ...injectProps(clock, fetchFn),
+      onFocus: async (/** @type {string} */ ref) => { focusCalls.push(ref); return { ok: true }; },
+    };
+    const { lastFrame, stdin, unmount } = render(createElement(App, props));
+    try {
+      await drain();
+      stdin.write('O');
+      await drain();
+      assert.deepEqual(focusCalls, ['workspace:7'], `onFocus debe recibir el ref del orquestador\n${lastFrame()}`);
+      assert.match(lastFrame(), /opening orchestrator/, `éxito → footer ORCH_OK\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('O con orquestador no corriendo (workspace_ref:null) muestra hint "kodo orchestrate" y NO enfoca', async () => {
+    // Contrato resolve-only: el server NO lanza. workspace_ref:null ⇒ orquestador ausente →
+    // hint accionable (rojo), onFocus JAMÁS se llama (no hay ref que enfocar).
+    const clock = makeFakeClock();
+    /** @type {string[]} */
+    const focusCalls = [];
+    const fetchFn = makeRouter({
+      orchestrator: () => okResponse({ ok: true, workspace_ref: null, existing: false }),
+    });
+    const props = {
+      ...injectProps(clock, fetchFn),
+      onFocus: async (/** @type {string} */ ref) => { focusCalls.push(ref); return { ok: true }; },
+    };
+    const { lastFrame, stdin, unmount } = render(createElement(App, props));
+    try {
+      await drain();
+      stdin.write('O');
+      await drain();
+      assert.deepEqual(focusCalls, [], `sin ref → onFocus no debe llamarse\n${lastFrame()}`);
+      assert.match(lastFrame(), /orchestrator not running/, `ausente → hint ORCH_NOT_RUNNING\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('O con error del server muestra ORCH_ERR', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({ orchestrator: () => serverErrorResponse() });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('O');
+      await drain();
+      assert.match(lastFrame(), /orchestrator failed/, `error → footer ORCH_ERR\n${lastFrame()}`);
     } finally {
       unmount();
     }

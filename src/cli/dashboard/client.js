@@ -211,3 +211,43 @@ export async function dismissSession(baseUrl, taskId, fetchFn = globalThis.fetch
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * POST {baseUrl}/orchestrator — RESUELVE (resolve-only, NO lanza) el workspace cmux del
+ * orquestador y devuelve su `workspace:N` para que la TUI lo enfoque (tecla `O`).
+ * NEVER-THROWS: colapsa cualquier fallo de red/HTTP/JSON al discriminante `{ ok:false, error }`.
+ * El bearer lo añade el `fetchFn` autenticado (makeAuthedFetch) — mismo patrón que dismissSession.
+ *
+ * Contrato resolve-only (D-decisión operador): el daemon NO puede lanzar el orquestador de
+ * forma fiable (sin TTY / cmux inaccesible en su entorno). Por eso `workspace_ref` es
+ * `string | null`: cuando el orquestador NO está corriendo, el server devuelve
+ * `{ ok:true, workspace_ref:null, existing:false }` (200, no es un error) y App.js pinta el
+ * hint "run kodo orchestrate" en vez de intentar enfocar un ref inexistente.
+ *
+ * @param {string} baseUrl
+ * @param {typeof globalThis.fetch} [fetchFn]
+ * @returns {Promise<{ ok: true, workspace_ref: string | null, existing: boolean } | { ok: false, error: string }>}
+ */
+export async function openOrchestrator(baseUrl, fetchFn = globalThis.fetch) {
+  try {
+    const res = await fetchFn(`${baseUrl}/orchestrator`, { method: 'POST' });
+    if (!res.ok) {
+      let error = `HTTP ${res.status}`;
+      try {
+        const b = await res.json();
+        if (b && b.error) error = b.error;
+      } catch {
+        /* body no-JSON → conserva `HTTP <status>` */
+      }
+      return { ok: false, error };
+    }
+    const data = await res.json(); // puede lanzar (JSON corrupto) → cae al catch
+    // resolve-only: workspace_ref puede ser null (orquestador no corriendo) — es un 200 válido,
+    // NO 'bad shape'. Solo se rechaza si el campo ni siquiera está presente en la respuesta.
+    if (!data || typeof data.ok !== 'boolean') return { ok: false, error: 'bad shape' };
+    const ref = typeof data.workspace_ref === 'string' && data.workspace_ref ? data.workspace_ref : null;
+    return { ok: true, workspace_ref: ref, existing: !!data.existing };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

@@ -1,5 +1,5 @@
 // @ts-check
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -13,7 +13,62 @@ import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = join(__dirname, 'prompt.md');
-const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
+export const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
+
+// Ref persistido del orquestador. El daemon (POST /orchestrator) lo LEE de aquí en vez de
+// consultar cmux en vivo: `cmux workspace list` es window-scoped (limitación P-4) y el daemon
+// detached vive en otro window, así que una consulta en vivo jamás vería el ref del orquestador.
+// launchOrchestrator (que SÍ corre en el window correcto, con TTY) lo escribe al lanzar/refrescar.
+export const ORCHESTRATOR_REF_PATH = join(homedir(), '.kodo', 'orchestrator.json');
+
+/**
+ * Persiste el `workspace:N` del orquestador a ~/.kodo/orchestrator.json. never-throws
+ * (fail-open): si el write falla, la tecla `O` degrada al hint "kodo orchestrate", pero el
+ * launch NUNCA se rompe por no poder persistir el ref.
+ *
+ * @param {string} ref - `workspace:N` recién resuelto o creado.
+ */
+export function persistOrchestratorRef(ref) {
+  try {
+    writeFileSync(ORCHESTRATOR_REF_PATH, JSON.stringify({ ref }) + '\n');
+  } catch {
+    /* fail-open — persistir el ref es best-effort, no bloquea el launch */
+  }
+}
+
+/**
+ * Lee el `workspace:N` persistido del orquestador. never-throws → `null` si el fichero no
+ * existe, es ilegible o su shape es inválida. El endpoint /orchestrator lo usa para resolver
+ * el ref SIN cmux (daemon-safe, window-independiente).
+ *
+ * Staleness: si el workspace persistido murió (orquestador cerrado), el ref queda stale; el
+ * focus downstream (cmux select-workspace) falla con el error de focus normal — aceptable
+ * para una tecla de conveniencia (mismo trade-off que el ref reciclado de reconcile).
+ *
+ * @returns {string|null}
+ */
+export function readOrchestratorRef() {
+  try {
+    const data = JSON.parse(readFileSync(ORCHESTRATOR_REF_PATH, 'utf-8'));
+    return typeof data?.ref === 'string' && data.ref ? data.ref : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resuelve el `workspace:N` del orquestador desde el texto crudo de `cmux.listWorkspaces()`.
+ * Puro / never-throws: devuelve el ref si `kodo-orchestrator` está en la lista, o `null`.
+ * Fuente única de verdad del match (reusado por launchOrchestrator y el endpoint /orchestrator).
+ *
+ * @param {string} workspaceListText - salida cruda de `cmux.listWorkspaces()`.
+ * @returns {string|null} `workspace:N` o null si no existe / input no-string.
+ */
+export function findOrchestratorRef(workspaceListText) {
+  if (typeof workspaceListText !== 'string') return null;
+  const match = workspaceListText.match(/(workspace:\d+)\s+kodo-orchestrator/);
+  return match ? match[1] : null;
+}
 // Phase 21 D-08 + Pattern C: KODO_ROOT override aditivo para test isolation
 // (mismo patrón que src/hooks/stop.js:20; permite spawnSync con env.KODO_ROOT=tmpRepo).
 const KODO_ROOT_FOR_SKILL = process.env.KODO_ROOT || process.cwd();
@@ -138,15 +193,14 @@ export async function launchOrchestrator(opts = {}) {
     workspaceList = '';
   }
 
-  if (workspaceList.includes(ORCHESTRATOR_WORKSPACE_NAME)) {
+  const existingRef = findOrchestratorRef(workspaceList);
+  if (existingRef) {
     console.log('[kodo] Orchestrator workspace already exists');
+    persistOrchestratorRef(existingRef); // refresca el ref persistido (daemon/tecla O)
     // Send a nudge to refresh
-    const match = workspaceList.match(/(workspace:\d+)\s+kodo-orchestrator/);
-    if (match) {
-      await cmux.send({ workspace: match[1], text: 'Revisa el estado actual de las sesiones y tareas pendientes.\\n' });
-      console.log('[kodo] Sent refresh nudge to existing orchestrator');
-      return { workspace: match[1], existing: true };
-    }
+    await cmux.send({ workspace: existingRef, text: 'Revisa el estado actual de las sesiones y tareas pendientes.\\n' });
+    console.log('[kodo] Sent refresh nudge to existing orchestrator');
+    return { workspace: existingRef, existing: true };
   }
 
   // Build context summary
@@ -211,6 +265,7 @@ export async function launchOrchestrator(opts = {}) {
   });
 
   console.log(`[kodo] Orchestrator launched → ${workspaceRef}`);
+  persistOrchestratorRef(workspaceRef); // persiste el ref para el daemon/tecla O (window-independiente)
 
   // ─── ADVISORY-03 (Plan 31-03) Opción A — Lifecycle Simulator Hook ──────
   // `opts.spawnFn` es un DI hook opcional. Default `undefined` → if-guard

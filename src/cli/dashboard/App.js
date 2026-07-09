@@ -53,7 +53,7 @@
 
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { fetchStatus, fetchComments, fetchLogs, dismissSession } from './client.js';
+import { fetchStatus, fetchComments, fetchLogs, dismissSession, openOrchestrator } from './client.js';
 import { usePoll } from './usePoll.js';
 import {
   sortSessions,
@@ -180,6 +180,17 @@ export const OPEN_ERR_ENOENT = '[!] open not found in PATH — press any key';
 export const OPEN_ERR_BAD_PROTOCOL = '[!] refused non-http(s) URL — press any key';
 /** @param {number|string} code */
 export const openErrFailed = (code) => `[!] open failed (code ${code}) — press any key`;
+
+// Tecla `O`: ENFOCAR el orquestador (workspace cmux `kodo-orchestrator`). Copy literal-estable,
+// mismo patrón que OPEN_* / FOCUS_*. Contrato resolve-only: el server NO lanza el orquestador
+// (el daemon no tiene TTY / cmux fiable), solo resuelve su ref. Por eso hay tres desenlaces:
+//   ORCH_OK       (verde) — ref resuelto → enfocado.
+//   ORCH_NOT_RUNNING (rojo) — el orquestador no corre → hint accionable `kodo orchestrate`.
+//   ORCH_ERR      (rojo, `[!]`) — la red/HTTP falló (reason honesto en el footer).
+export const ORCH_OK = 'opening orchestrator…';
+export const ORCH_NOT_RUNNING = 'orchestrator not running — run: kodo orchestrate';
+/** @param {string} reason */
+export const ORCH_ERR = (reason) => `[!] orchestrator failed (${reason}) — press any key`;
 
 // Phase 56 D-03/D-05/D-07 (DETECT-02): copy literal-estable del flujo adopt (tecla `a`).
 // EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
@@ -1839,6 +1850,37 @@ export default function App({
         }
         return;
       }
+      if (input === 'O') {
+        // ENFOCAR el orquestador — NO requiere fila seleccionada (no es una sesión de tarea,
+        // vive en el workspace cmux `kodo-orchestrator`). Contrato resolve-only, never-throws:
+        //   1. openOrchestrator → el server RESUELVE el `workspace:N` (NO lanza: el daemon no
+        //      tiene TTY/cmux fiable). workspace_ref === null ⇒ el orquestador no corre.
+        //   2. onFocus(ref) → cmux select-workspace (mismo mecanismo que Enter).
+        // Feedback transitorio en el footer (clear-on-any-input, sin timer), espejo de `o`/Enter.
+        const res = await openOrchestrator(baseUrl, fetchFn);
+        if (!res.ok) {
+          setFocusError(ORCH_ERR(res.error));
+          setFooterColor('red');
+          return;
+        }
+        if (!res.workspace_ref) {
+          // Resuelto OK pero el orquestador no está corriendo: hint accionable, no es un error.
+          setFocusError(ORCH_NOT_RUNNING);
+          setFooterColor('red');
+          return;
+        }
+        const fr = await onFocus?.(res.workspace_ref);
+        if (fr && !fr.ok) {
+          if (fr.code === 'ENOENT') setFocusError(FOCUS_ERR_ENOENT);
+          else setFocusError(focusErrFailed(fr.detail ?? 'unknown'));
+          setFooterColor('red');
+        } else {
+          // Éxito (o contexto degradado sin onFocus): footer verde.
+          setFocusError(ORCH_OK);
+          setFooterColor('green');
+        }
+        return;
+      }
       if (input === 'a') {
         // Phase 56 D-01/D-02/D-03 (DETECT-02): handler de adopt. Descubre surfaces ad-hoc ON-DEMAND
         // (NO poll loop) vía onAdoptDiscover (typeof-gated upstream en index.js, fail-open a []),
@@ -1977,6 +2019,6 @@ export default function App({
         projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · m projects · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · O orch · a adopt · e config · m projects · q quit'),
   );
 }

@@ -740,6 +740,32 @@ export async function startServer(opts = {}) {
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/orchestrator') {
+      // Resuelve el `workspace:N` del orquestador (workspace cmux `kodo-orchestrator`) para
+      // que la TUI lo enfoque (tecla `O`). Bearer-gated (default-deny: NO en isOpenRoute).
+      // RESOLVE-ONLY (D-decisión operador): NO lanza el orquestador. Lanzarlo requiere una
+      // TTY (launchOrchestrator vía `kodo orchestrate`/`check`); el daemon detached no puede
+      // crear workspaces cmux de forma fiable. Si el orquestador no está corriendo →
+      // `workspace_ref: null` y la TUI muestra el hint "run kodo orchestrate".
+      //
+      // Resuelve LEYENDO el ref persistido en ~/.kodo/orchestrator.json (readOrchestratorRef),
+      // NO consultando cmux en vivo: `cmux workspace list` es window-scoped (limitación P-4) y
+      // el daemon detached vive en otro window, así que jamás vería el ref. launchOrchestrator
+      // (que corre con TTY en el window correcto) escribe ese fichero al lanzar/refrescar.
+      // never-throws → 500 neutral; el detalle solo al log (NET-04, simétrico a /comments).
+      try {
+        const { readOrchestratorRef } = await import('./orchestrator/launch.js');
+        const ref = readOrchestratorRef();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, workspace_ref: ref, existing: ref != null }));
+      } catch (err) {
+        console.error(`[kodo] /orchestrator error: ${err.message}`);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'internal error' }));
+      }
+      return;
+    }
+
     if (req.method === 'GET' && (pathname === '/' || pathname === '/dashboard')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(dashboardHtml(TOKEN));

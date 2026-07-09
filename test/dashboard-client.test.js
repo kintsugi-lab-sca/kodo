@@ -24,7 +24,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fetchStatus, fetchComments, fetchLogs, dismissSession } from '../src/cli/dashboard/client.js';
+import { fetchStatus, fetchComments, fetchLogs, dismissSession, openOrchestrator } from '../src/cli/dashboard/client.js';
 // Phase 69 Plan 03 (NET-02, D-07): makeAuthedFetch es el wrapper puro que adjunta el bearer a
 // TODA request del dashboard. index.js es import-safe headless (el guard non-TTY vive DENTRO de
 // runDashboard, no en top-level) → se importa directo para asserar el contrato del merge de header.
@@ -419,5 +419,74 @@ describe('dismissSession: DELETE never-throws (D-10, DISMISS-03)', () => {
     await dismissSession(BASE_URL, 'a/b c#1', fetchFn);
     assert.match(captured, /\/sessions\/a%2Fb%20c%231$/);
     assert.equal(method, 'DELETE');
+  });
+});
+
+describe('openOrchestrator: POST never-throws + shape (tecla O)', () => {
+  it('ok: 200 {workspace_ref, existing} → { ok:true, workspace_ref, existing }', async () => {
+    const fetchFn = makeFetch({
+      status: 200, ok: true,
+      json: async () => ({ ok: true, workspace_ref: 'workspace:7', existing: true }),
+    });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, true);
+    assert.equal(result.workspace_ref, 'workspace:7');
+    assert.equal(result.existing, true);
+  });
+
+  it('usa method POST', async () => {
+    let method;
+    const fetchFn = async (_url, init) => {
+      method = init?.method;
+      return { status: 200, ok: true, json: async () => ({ ok: true, workspace_ref: 'workspace:1', existing: false }) };
+    };
+    // @ts-ignore — shape mínima.
+    await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(method, 'POST');
+  });
+
+  it('500 sin body útil → { ok:false, error:"HTTP 500" }', async () => {
+    const fetchFn = makeFetch({ status: 500, ok: false, json: async () => { throw new SyntaxError('not json'); } });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'HTTP 500');
+  });
+
+  it('500 con {error} → propaga el reason honesto', async () => {
+    const fetchFn = makeFetch({ status: 500, ok: false, json: async () => ({ ok: false, error: 'internal error' }) });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'internal error');
+  });
+
+  it('resolve-only: 200 {workspace_ref:null} → { ok:true, workspace_ref:null } (orquestador no corriendo)', async () => {
+    // Contrato resolve-only: ref null NO es error, es "no está corriendo" (el server no lanza).
+    const fetchFn = makeFetch({ status: 200, ok: true, json: async () => ({ ok: true, workspace_ref: null, existing: false }) });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, true);
+    assert.equal(result.workspace_ref, null);
+    assert.equal(result.existing, false);
+  });
+
+  it('resolve-only: 200 sin campo workspace_ref → { ok:true, workspace_ref:null } (tratado como ausente)', async () => {
+    const fetchFn = makeFetch({ status: 200, ok: true, json: async () => ({ ok: true }) });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, true);
+    assert.equal(result.workspace_ref, null);
+  });
+
+  it('shape inválida (sin campo ok) → { ok:false, error:"bad shape" }', async () => {
+    const fetchFn = makeFetch({ status: 200, ok: true, json: async () => ({ foo: 'bar' }) });
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'bad shape');
+  });
+
+  it('red lanza → { ok:false } (never-throws)', async () => {
+    const fetchFn = async () => { throw new Error('ECONNREFUSED'); };
+    // @ts-ignore — simula fallo de red.
+    const result = await openOrchestrator(BASE_URL, fetchFn);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /ECONNREFUSED/);
   });
 });
