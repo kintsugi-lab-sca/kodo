@@ -1,21 +1,21 @@
 # kodo 心動
 
-Bridge entre [Plane CE](https://plane.so) y [Claude Code](https://claude.ai/code) via [cmux](https://cmux.dev).
+Sesiones de Claude Code automatizadas desde tu kanban. Mueves una tarea a "In Progress" → kodo lanza [Claude Code](https://claude.ai/code) en un workspace de [cmux](https://cmux.dev) → al terminar, la tarea vuelve como "In Review".
 
-Mueves una tarea a "In Progress" en Plane → kodo crea un workspace en cmux → lanza Claude Code → al terminar, la tarea pasa a "In Review".
+Providers soportados: [Plane](https://plane.so) (webhook) y GitHub Issues (polling).
 
 ## Cómo funciona
 
 ```
-Plane (kanban)          kodo (bridge)              cmux (terminal)
+Plane (kanban)          kodo (daemon)              cmux (terminal)
 ─────────────           ─────────────              ────────────────
-                                                  
-Tarea → In Progress ──webhook──→ kodo server       
-                                  │                
-                        ¿tiene label "kodo"?       
-                          │ no → ignorar           
-                          │ sí ↓                   
-                        crea workspace ──────────→ TENDERIO-42 [Amber]
+
+Tarea → In Progress ──webhook──→ kodo
+                                  │
+                        ¿tiene label "kodo"?
+                          │ no → ignorar
+                          │ sí ↓
+                        crea workspace ──────────→ KL-42 [Amber]
                         lanza claude ────────────→ claude --model opus ...
                                                      │
                                                    Claude trabaja
@@ -24,32 +24,40 @@ Tarea → In Progress ──webhook──→ kodo server
                                                    (Ctrl+C, /exit, cerrar)
                                                      │
                         stop hook ←──────────────────┘
-                          │                        
-                        Plane → In Review          TENDERIO-42 [Blue]
-                        notifica orquestador       
+                          │
+                        Plane → In Review          KL-42 [Blue]
+                        notifica orquestador
                           │
                         humano/orquestador revisa
                           │
-                        Plane → Done               TENDERIO-42 [Green]
+                        Plane → Done               KL-42 [Green]
 ```
 
-## Setup
+## Instalación
 
-### 1. Instalar
+Requiere macOS, Node ≥ 20 y [cmux](https://cmux.dev).
+
+### Homebrew (recomendado)
 
 ```bash
-git clone git@github.com:deikka/kodo.git
+brew tap kintsugi-lab-sca/kodo
+brew install kodo
+```
+
+### Desde el código
+
+```bash
+git clone https://github.com/kintsugi-lab-sca/kodo.git
 cd kodo
 npm install
 npm link   # hace "kodo" disponible globalmente
 ```
 
-### 2. Configurar credenciales
+## Puesta en marcha
+
+### 1. Credenciales
 
 ```bash
-# Genera un API token en: https://tasks.kintsugi-lab.com/profile/api-tokens/
-# El webhook secret lo obtienes al crear el webhook en Plane
-
 mkdir -p ~/.kodo
 cat > ~/.kodo/.env << 'EOF'
 PLANE_API_KEY=plane_api_tu_token_aqui
@@ -57,192 +65,171 @@ PLANE_WEBHOOK_SECRET=plane_wh_tu_secret_aqui
 EOF
 ```
 
-### 3. Mapear proyectos
+- `PLANE_API_KEY`: en Plane → perfil → **API tokens**.
+- `PLANE_WEBHOOK_SECRET`: lo obtienes al crear el webhook (paso 4).
+- `KODO_API_TOKEN` (auth del dashboard y la API) se genera solo en el primer arranque — no hace falta crearlo.
+
+### 2. Configurar y mapear proyectos
 
 ```bash
 kodo config   # wizard interactivo: conecta con Plane, lista proyectos, pide paths locales
 ```
 
-Esto crea `~/.kodo/config.json` y `~/.kodo/projects.json`.
+Crea `~/.kodo/config.json` y `~/.kodo/projects.json` (proyecto de Plane → path del repo local).
 
-### 4. Crear labels en Plane
+### 3. Crear labels en Plane
 
-En cada proyecto, crea estos labels:
+En cada proyecto que quieras automatizar:
 
 | Label | Efecto |
 |---|---|
-| `kodo` | Activa la automatización. Modelo: Opus |
-| `kodo:sonnet` | Usa Sonnet en vez de Opus |
-| `kodo:haiku` | Usa Haiku |
-| `kodo:yolo` | Activa `--dangerously-skip-permissions` |
+| `kodo` | Activa la automatización. Modelo por defecto: Opus |
+| `kodo:sonnet` / `kodo:haiku` | Cambia el modelo |
+| `kodo:yolo` | Añade `--dangerously-skip-permissions` |
+| `kodo:gsd` / `kodo:gsd-quick` | Modo GSD (workflow de planificación estructurada); implica yolo |
 
 Solo las tareas con label `kodo` (o `kodo:*`) se automatizan.
 
-### 5. Configurar webhook en Plane
+### 4. Configurar el webhook en Plane
 
-Settings → Webhooks → Agregar webhook:
+Settings → Webhooks → nuevo webhook:
 
-- **URL**: `http://<tu-ip-tailscale>:9090/webhook`
+- **URL**: `http://<ip-alcanzable-desde-plane>:9090/webhook`
 - **Events**: Work Items
-- **Secret**: copia el secret a `~/.kodo/.env`
+- **Secret**: cópialo a `PLANE_WEBHOOK_SECRET` en `~/.kodo/.env`
 
-Requiere que Plane y tu Mac estén en la misma red Tailscale.
+> ⚠️ Por defecto kodo escucha **solo en `127.0.0.1`**. Si Plane corre en otra
+> máquina, expón el bind (p. ej. tu IP de Tailscale) o el webhook nunca llegará:
+>
+> ```bash
+> kodo config --set server.bind=100.x.y.z
+> ```
+>
+> Ver [Topología multi-nodo](#topología-multi-nodo) para las implicaciones de seguridad.
 
-### 6. Instalar hooks de Claude Code
+### 5. Instalar hooks de Claude Code
 
 ```bash
 kodo install   # registra SessionStart y Stop hooks en ~/.claude/settings.json
 ```
 
-### 7. Arrancar
+### 6. Arrancar
 
 ```bash
-kodo start   # arranca el servidor webhook en :9090
+kodo up   # arranca el daemon en background y abre el dashboard TUI
 ```
 
-## Configuración
-
-### Slots paralelos
-
-El número máximo de sesiones simultáneas de Claude (por defecto 3):
+Con Homebrew puedes dejarlo como servicio de arranque automático:
 
 ```bash
-kodo config --set claude.max_parallel=5
+brew services start kodo
 ```
-
-### Thresholds
-
-```bash
-kodo config --set server.idle_threshold_min=5     # minutos para considerar idle
-kodo config --set server.stuck_threshold_min=30    # minutos para considerar stuck
-```
-
-### Ver configuración actual
-
-```bash
-kodo config --show
-```
-
-### Rate limit de la API de Plane
-
-Plane limita por defecto a **60 requests/minuto** por API key. kodo cachea
-estados, labels y módulos al arrancar (TTL 5 min) y reintenta con backoff
-exponencial ante 429, pero si gestionas varios proyectos con webhooks
-concurrentes puedes agotar el cupo.
-
-En un Plane self-hosted, sube el límite editando el `.env` del contenedor
-`api` y reinicia:
-
-```env
-API_KEY_RATE_LIMIT=300/minute
-```
-
-Formato: `<número>/<unidad>`. Más detalles en
-[docs de Plane](https://developers.plane.so/self-hosting/govern/environment-variables).
-
-## Topología multi-nodo
-
-Por defecto el servidor escucha en **`127.0.0.1`** (loopback), así que **no es
-accesible desde otras interfaces ni desde otros nodos** de tu red. Es la postura
-segura: la superficie de red queda cerrada salvo que la abras deliberadamente.
-
-El webhook de Plane se entrega **desde un host externo** (tu instancia de Plane),
-por lo que para recibirlo en otra máquina tienes que exponer el bind de forma
-consciente ajustando `config.server.bind` a la IP de tailscale (o la interfaz
-que uses):
-
-```bash
-# Expón el servidor en la IP de tailscale (config.server.bind)
-kodo config --set server.bind=100.x.y.z
-```
-
-Exponer el bind es un **opt-in explícito** y debe ir acompañado de una **ACL /
-firewall** que restrinja quién puede alcanzar el puerto `:9090` (por ejemplo, las
-ACL de tailscale o reglas de `pf`/`ufw`). No dejes el bind abierto a `0.0.0.0`
-sin control de acceso delante.
-
-La exposición **no** relaja la autenticación:
-
-- El **carril no-webhook** (dashboard / API de estado) sigue exigiendo el
-  **bearer token** aunque el servidor esté expuesto — sin token responde `401`.
-- **`/webhook`** conserva su verificación **HMAC** con el webhook secret de Plane.
-- **`/health`** permanece abierto (probe de salud sin auth).
-
-> **Nota de seguridad — token en la URL.** Las rutas HTML del dashboard aceptan el
-> bearer token como query param (`/?token=...`) porque una navegación de navegador
-> no puede enviar la cabecera `Authorization`. Ese token queda registrado en el
-> **historial del navegador** (y es visible en la barra de direcciones o en
-> capturas de pantalla). El token es de larga vida: si sospechas que se ha
-> filtrado, rótalo manualmente — edita (o borra, para que se regenere solo al
-> arrancar) la línea `KODO_API_TOKEN` de `~/.kodo/.env` y reinicia el servicio
-> (`kodo stop && kodo start`).
 
 ## Uso
 
 ### Automático (webhook)
 
-1. Añade label `kodo` a una tarea en Plane
+1. Añade el label `kodo` a una tarea en Plane
 2. Muévela a "In Progress"
-3. kodo crea workspace cmux + lanza Claude
-4. Claude trabaja en su workspace
-5. Al cerrar la sesión (Ctrl+C, `/exit`, cerrar pestaña) → tarea pasa a "In Review"
-6. Tú o el orquestador revisáis y movéis a "Done"
+3. kodo crea el workspace cmux y lanza Claude
+4. Claude trabaja y documenta su progreso como comentarios en la tarea
+5. Al cerrar la sesión → la tarea pasa a "In Review"
+6. Tú (o el orquestador) revisáis y movéis a "Done"
+
+Los nombres de estado son configurables (`plane.states.trigger/review/done`); por defecto `In Progress` / `In review` / `Done`.
 
 ### Manual
 
 ```bash
-kodo launch TENDERIO-42   # lanza una tarea específica
-kodo status               # ver sesiones activas
-kodo orchestrate          # lanza sesión supervisora
+kodo launch KL-42   # lanza una tarea específica sin pasar por el webhook
+kodo orchestrate    # lanza la sesión supervisora
 ```
+
+### Dashboard
+
+```bash
+kodo dashboard   # TUI en vivo (también se abre con kodo up)
+```
+
+Teclas: `↑↓` mover · `c` comentarios · `l` logs de la sesión · `L` log general del daemon · `p` plan · `/` filtrar · `d` descartar sesión muerta · `o` abrir tarea en el navegador · `O` enfocar el orquestador · `a` adoptar sesión ad-hoc · `e` config · `m` proyectos · `q` salir
+
+También hay dashboard web: `http://localhost:9090/?token=<KODO_API_TOKEN>` (el token está en `~/.kodo/.env`).
 
 ## Comandos
 
 ```
-kodo config              # wizard de configuración
-kodo start               # arranca webhook server (:9090)
-kodo stop                # para el server
-kodo check               # vigilante: revisa estado y lanza orquestador si necesario (0 tokens)
-kodo check --dry-run     # solo reporta, no actúa
-kodo launch <ID>         # lanza tarea manualmente (ej: KL-42)
-kodo status              # sesiones activas
-kodo orchestrate         # lanza sesión orquestadora (usa tokens)
-kodo install             # registra hooks en Claude Code
-kodo uninstall           # elimina hooks
+kodo up                  # arranca daemon + dashboard (comando principal)
+kodo stop                # para el daemon
+kodo status              # estado del daemon (running|stopped)
+kodo dashboard           # TUI de sesiones activas
+kodo config              # wizard de configuración / --show / --set clave=valor
+kodo launch <REF>        # lanza una tarea manualmente (ej: KL-42)
+kodo check               # vigilante: revisa estado y lanza orquestador si hace falta (0 tokens)
+kodo orchestrate         # lanza la sesión orquestadora (usa tokens)
+kodo adopt               # adopta una sesión ad-hoc de cmux como tarea trackeada
+kodo comment <REF>       # postea un comentario resumen en una tarea existente
+kodo logs [session-id]   # inspecciona logs de sesión (dump, tail, filtro)
+kodo install / uninstall # registra/elimina hooks de Claude Code
 ```
 
-## Ciclo de vida de una tarea
+## GitHub como provider
 
+kodo también puede operar contra GitHub Issues (sin webhook: polling integrado en el daemon).
+
+```bash
+# En ~/.kodo/.env
+GITHUB_TOKEN=ghp_...
 ```
-Backlog → Todo → In Progress → [Claude trabaja] → In Review → Done
-                      ↑                                ↑
-                 webhook trigger                 humano/orquestador
+
+Configura `provider: "github"` vía `kodo config`. El trigger son issues con el label `kodo`; al terminar, la sesión reporta con un comentario y el estado de revisión es el cierre del issue.
+
+## Configuración
+
+```bash
+kodo config --show                                  # ver configuración actual
+kodo config --set claude.max_parallel=5             # sesiones simultáneas (default 3)
+kodo config --set claude.default_model=opus         # modelo por defecto
+kodo config --set server.idle_threshold_min=5       # minutos para considerar idle
+kodo config --set server.stuck_threshold_min=30     # minutos para considerar stuck
 ```
 
-- **In Progress**: kodo detecta el webhook y lanza Claude (si tiene label `kodo`)
-- **In Review**: la sesión terminó, esperando validación
-- **Done**: alguien (tú o el orquestador) confirmó que el trabajo está correcto
+### Rate limit de la API de Plane
 
-## Visibilidad del progreso
+Plane limita por defecto a **60 requests/minuto** por API key. kodo cachea
+estados, labels y módulos (TTL 5 min) y reintenta con backoff exponencial ante
+429, pero con varios proyectos concurrentes puedes agotar el cupo. En un Plane
+self-hosted, súbelo en el `.env` del contenedor `api`:
 
-Todo el progreso se documenta en Plane como comentarios, sin necesidad de abrir cmux:
+```env
+API_KEY_RATE_LIMIT=300/minute
+```
 
-**Durante la sesión** — Claude recibe instrucciones de documentar en Plane:
-- Al empezar: plan de acción
-- Tras cada hito (feature, bug fix, decisión): comentario breve
-- Al terminar: resumen de lo hecho y pendientes
+## Topología multi-nodo
 
-**Al cerrar la sesión** — el stop hook automáticamente:
-- Lee las últimas 30 líneas del screen de cmux
-- Posta un comentario de cierre con duración y output final
-- Mueve la tarea a "In Review"
+Por defecto el servidor escucha en **`127.0.0.1`** (loopback): la superficie de
+red queda cerrada salvo que la abras deliberadamente. Para recibir el webhook
+desde otra máquina, expón el bind de forma consciente:
 
-**Con el orquestador activo** — rondas de supervisión cada ~5 minutos:
-- Lee el screen de cada sesión activa
-- Evalúa progreso y documenta el estado observado en Plane
-- Si detecta problemas, actúa (nudge, desbloqueo, escalado)
+```bash
+kodo config --set server.bind=100.x.y.z   # p. ej. tu IP de Tailscale
+```
 
-Resultado: abres cualquier tarea en Plane y ves el historial completo de lo que hizo Claude.
+Exponer el bind es un **opt-in explícito** y debe ir acompañado de una ACL o
+firewall que restrinja quién alcanza el puerto `:9090` (ACLs de Tailscale,
+`pf`/`ufw`). No dejes `0.0.0.0` sin control de acceso delante.
+
+La exposición **no** relaja la autenticación:
+
+- El carril no-webhook (dashboard / API) sigue exigiendo el **bearer token**
+  (`KODO_API_TOKEN`) — sin token responde `401`.
+- `/webhook` conserva su verificación **HMAC** con el webhook secret.
+- `/health` permanece abierto (probe de salud sin auth).
+
+> **Nota — token en la URL.** Las rutas HTML del dashboard aceptan el token como
+> query param (`/?token=...`) porque el navegador no puede enviar la cabecera
+> `Authorization` al navegar. Ese token queda en el historial del navegador. Si
+> sospechas que se ha filtrado, borra la línea `KODO_API_TOKEN` de `~/.kodo/.env`
+> (se regenera al arrancar) y reinicia (`kodo stop && kodo up`).
 
 ## Supervisión: vigilante + orquestador
 
@@ -250,96 +237,59 @@ Dos niveles separados: mecánico (0 tokens) y cognitivo (LLM).
 
 ### Vigilante (`kodo check`)
 
-Script Node.js puro que revisa el estado del sistema:
+Script puro que revisa el estado del sistema — sesiones stuck, tareas en
+"In Review" esperando aprobación, tareas pendientes con slots libres — y lanza
+el orquestador **solo si detecta algo que requiere juicio**.
 
 ```bash
 kodo check              # revisa y actúa
 kodo check --dry-run    # solo reporta
 ```
 
-Comprueba:
-- Sesiones stuck (>30min sin progreso)
-- Tareas en "In Review" esperando aprobación
-- Tareas pendientes con label `kodo` y slots disponibles
-
-Si detecta algo que requiere juicio → lanza el orquestador automáticamente.
-
-Para supervisión continua:
-```bash
-/loop 5m kodo check     # cada 5 minutos, 0 tokens
-```
-
 ### Orquestador (`kodo orchestrate`)
 
-Sesión de Claude Code que se lanza **solo cuando hay trabajo real**:
+Sesión de Claude Code supervisora: lee los screens de las sesiones activas vía
+cmux, evalúa tareas en "In Review" y decide si pasan a "Done", desbloquea
+sesiones stuck, lanza nuevas tareas si hay slots, y documenta sus decisiones en
+Plane. Desde el dashboard se enfoca con la tecla `O`.
 
-- Revisa sesiones activas leyendo screens via cmux
-- Evalúa tareas en "In Review" y decide si pasan a "Done"
-- Desbloquea sesiones stuck
-- Lanza nuevas tareas si hay slots
-- Documenta decisiones en Plane
+Su skill (`.claude/skills/kodo-orchestrate/`) acumula conocimiento entre
+sesiones: quirks de la API, mapeos descubiertos, procesos validados. Antes de
+cerrar, el orquestador actualiza la skill y el stop hook auto-commitea los
+cambios — la siguiente sesión arranca con todo el contexto previo.
 
-Se activa:
-- Automáticamente por `kodo check` cuando detecta algo
-- Manualmente con `kodo orchestrate`
+## Visibilidad del progreso
 
-### Skill con autoaprendizaje
+Todo queda documentado en Plane como comentarios, sin abrir cmux:
 
-El orquestador tiene un skill en `skills/kodo-orchestrate/skill.md` que acumula conocimiento:
+- **Durante la sesión** — Claude comenta su plan al empezar, hitos intermedios y un resumen final.
+- **Al cerrar** — el stop hook postea un comentario de cierre (duración + output final) y mueve la tarea a "In Review".
+- **Con el orquestador activo** — rondas de supervisión que documentan el estado observado.
 
-- Quirks de la API de Plane (ej: filtros que devuelven 403)
-- Mapeo de proyectos y paths descubiertos
-- Decisiones de diseño y procesos validados
+## Arquitectura
 
-Antes de terminar cada sesión, el orquestador actualiza el skill con lo aprendido. El stop hook detecta cambios en `skills/` y los auto-commitea. La próxima sesión arranca con todo el contexto previo.
+| Módulo | Qué hace |
+|---|---|
+| `src/server.js` | Servidor HTTP `:9090` — webhook (HMAC), API autenticada, dashboard web |
+| `src/daemon/` | Ciclo de vida del daemon (`kodo up/stop/status`, `daemon run` para launchd) |
+| `src/triggers/` | Dispatch de eventos: webhook (Plane), polling (GitHub) |
+| `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
+| `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
+| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación |
+| `src/hooks/` | SessionStart (inyecta contexto de la tarea) y Stop (In Review, comentario de cierre) |
+| `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
+| `src/cli/dashboard/` | Dashboard TUI (Ink/React) |
 
-```
-Sesión N: descubre quirk → actualiza skill.md → cierra → auto-commit
-Sesión N+1: lee skill.md → ya conoce el quirk → no repite el error
-```
-
-## Componentes
-
-### Server (`src/server.js`)
-Servidor HTTP en `:9090`. Recibe webhooks de Plane, verifica firma HMAC, filtra por labels, y lanza sesiones.
-
-### Plane client (`src/plane/client.js`)
-Cliente REST para la API de Plane: proyectos, work items, estados. Resuelve identificadores tipo `TENDERIO-42`.
-
-### cmux client (`src/cmux/client.js`)
-Wrapper sobre el CLI de cmux: crear workspaces, enviar comandos, leer screens, cambiar colores, notificaciones.
-
-### Session manager (`src/session/manager.js`)
-Orquesta el lanzamiento: resuelve work item → verifica límite de sesiones → crea workspace → lanza Claude → trackea en state.
-
-### State store (`src/session/state.js`)
-JSON file en `~/.kodo/state.json`. Trackea sesiones activas: workspace ref, Plane ID, estado, timestamps.
-
-### Health checker (`src/session/health.js`)
-Cada 60s verifica sesiones activas:
-- **gone**: workspace cerrado → limpia state
-- **stuck**: >30min sin progreso → notifica + lanza orquestador
-- **idle**: >5min en prompt → log
-
-### Hooks (`src/hooks/`)
-- **session-start.js**: inyecta contexto Plane ("Estás trabajando en TENDERIO-42: ...")
-- **stop.js**: Plane → In Review, color azul, notifica orquestador
-- **install.js**: registra/desregistra hooks en `~/.claude/settings.json`
-
-### Labels (`src/labels.js`)
-Parsea labels de Plane (`kodo`, `kodo:sonnet`, `kodo:yolo`) para configurar modelo y permisos.
-
-### Orquestador (`src/orchestrator/` + `skills/kodo-orchestrate/`)
-Sesión supervisora de Claude Code. Ver sección [Orquestador](#orquestador) más arriba.
-
-## Archivos de configuración
+## Archivos
 
 ```
 ~/.kodo/
-├── .env              # PLANE_API_KEY, PLANE_WEBHOOK_SECRET
-├── config.json       # Plane URL, workspace slug, colores, thresholds
-├── projects.json     # Plane project ID → path local
-└── state.json        # sesiones activas
+├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
+├── config.json        # provider, estados, servidor, claude
+├── projects.json      # proyecto del provider → path local
+├── state.json         # sesiones activas
+├── plans/             # planes de acción por tarea
+└── logs/              # logs NDJSON por sesión
 ```
 
 ## Colores de workspace
@@ -357,3 +307,7 @@ Sesión supervisora de Claude Code. Ver sección [Orquestador](#orquestador) má
 ```bash
 npm test
 ```
+
+## Licencia
+
+MIT
