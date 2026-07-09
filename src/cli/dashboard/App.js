@@ -117,6 +117,11 @@ export const OVERLAY_COMMENTS_UNSUPPORTED = 'comments not supported by this prov
 export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
 export const OVERLAY_LOGS_ERROR = 'error fetching logs';
 export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
+// Vista de log GENERAL (`L`): el buffer compartido COMPLETO, sin grep por sesión — para
+// debug del daemon (webhooks, dispatch, lifecycle). La etiqueta es honesta igual que la de
+// `l`: declara que es el buffer compartido con TODOS los eventos (no filtrado).
+export const OVERLAY_LOGS_ALL_LABEL = 'shared buffer — all daemon events (newest first)';
+export const OVERLAY_LOGS_ALL_EMPTY = 'no log lines in buffer yet';
 
 // Phase 44 D-07 (PLAN-02): copy literal-estable del overlay de plan GSD (`p`), espejo léxico de
 // OVERLAY_COMMENTS_*. EXPORTADAS para que tests y SessionTable.js las importen sin duplicar strings
@@ -637,10 +642,10 @@ export default function App({
   //     pero este objeto NO se re-escribe por onResult → el texto del overlay no salta bajo el lector.
   //     Forma: { kind, taskRef, status:'ok'|'empty'|'not-found'|'error', lines: string[] } donde
   //     `lines` ya viene proyectado a strings (comentarios o `msg` de cada log entry).
-  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'plan'|'adopt'|null} */ (null));
+  const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'logs-all'|'plan'|'adopt'|null} */ (null));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [overlaySnapshot, setOverlaySnapshot] = useState(
-    /** @type {{ kind: 'comments'|'logs'|'plan'|'adopt', taskRef: string, status: string, lines: string[], adoptable?: Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }> }|null} */ (null),
+    /** @type {{ kind: 'comments'|'logs'|'logs-all'|'plan'|'adopt', taskRef: string, status: string, lines: string[], adoptable?: Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }> }|null} */ (null),
   );
 
   // onResult: en ok refresca el contador/at/connected; en fallo NO toca lastGoodCount/lastGoodAt
@@ -1729,6 +1734,31 @@ export default function App({
         setMode('overlay');
         return;
       }
+      if (input === 'L') {
+        // Vista de log GENERAL: el buffer compartido COMPLETO, sin grep por sesión (espejo de `l`,
+        // para debug del daemon: webhooks/dispatch/lifecycle). NO requiere fila seleccionada.
+        // Mismo guard CR-01 anti-reapertura-obsoleta que `l` (fetch async).
+        const reqId = ++overlayReqRef.current;
+        const res = await fetchLogs(baseUrl, fetchFn);
+        if (overlayReqRef.current !== reqId) return; // cerrada/superada durante el await
+        let status;
+        /** @type {string[]} */
+        let lines = [];
+        if (res.ok) {
+          // SIN grep: se proyectan TODAS las líneas del buffer (newest-first, como lo sirve /logs).
+          lines = res.data.logs.map((e) =>
+            `${e.ts ? `${e.ts} ` : ''}${e.level ? `${e.level} ` : ''}${e.msg ?? ''}`.trim(),
+          );
+          status = lines.length ? 'ok' : 'empty';
+        } else {
+          status = 'error';
+        }
+        setOverlaySnapshot({ kind: 'logs-all', taskRef: '', status, lines });
+        setOverlayKind('logs-all');
+        setScrollOffset(0);
+        setMode('overlay');
+        return;
+      }
       if (input === 'p') {
         // Phase 44 PLAN-01/PLAN-02 (D-02/D-05): overlay del/los PLAN.md de la fase GSD de la fila
         // seleccionada (resuelta por task_id, D-02). CUARTO consumidor del mode:'overlay' junto a c/l.
@@ -1947,6 +1977,6 @@ export default function App({
         projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · m projects · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · a adopt · e config · m projects · q quit'),
   );
 }

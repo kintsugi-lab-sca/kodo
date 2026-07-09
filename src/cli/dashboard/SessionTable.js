@@ -31,6 +31,8 @@ import {
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
+  OVERLAY_LOGS_ALL_LABEL,
+  OVERLAY_LOGS_ALL_EMPTY,
   OVERLAY_PLAN_NO_PHASE,
   OVERLAY_PLAN_NO_PLAN,
   OVERLAY_PLAN_NO_LIGHT,
@@ -165,25 +167,28 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt, un
  *   FOOTER  — hint `↑↓ scroll · Esc close` (dimColor).
  * Color SOLO de nombres ink (cyan/yellow/red/dimColor) — color-isolation D-12 (cero picocolors/ANSI).
  *
- * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }} snap
+ * @param {{ kind: 'comments'|'logs'|'logs-all'|'plan', taskRef: string, status: string, lines: string[] }} snap
  * @param {number} scrollOffset
- * @param {'comments'|'logs'|'plan'|null} kind
+ * @param {'comments'|'logs'|'logs-all'|'plan'|null} kind
  * @returns {import('react').ReactElement}
  */
 function renderOverlay(snap, scrollOffset, kind) {
   const effKind = kind ?? snap.kind;
   const isLogs = effKind === 'logs';
+  const isLogsAll = effKind === 'logs-all';
   const isPlan = effKind === 'plan';
 
-  // HEADER: título + (solo logs) etiqueta honesta del buffer compartido (D-04/SC#3).
+  // HEADER: título + (logs y log-general) etiqueta honesta del buffer compartido (D-04/SC#3).
   // Phase 44: el overlay de plan (`plan · <taskRef>`) reusa el título cyan bold de comments.
-  const label = isLogs ? 'logs' : isPlan ? 'plan' : 'comments';
-  const titleText = `${label} · ${snap.taskRef}`;
+  // `L` (log general): título fijo 'log · general' + etiqueta honesta de "todos los eventos".
+  const label = isLogsAll ? 'log' : isLogs ? 'logs' : isPlan ? 'plan' : 'comments';
+  const titleText = isLogsAll ? 'log · general' : `${label} · ${snap.taskRef}`;
   const header = h(
     Box,
     { flexDirection: 'column', marginBottom: 1 },
-    h(Text, { color: isLogs ? undefined : 'cyan', bold: true }, titleText),
-    isLogs ? h(Text, { color: 'yellow' }, OVERLAY_LOGS_LABEL) : null,
+    h(Text, { color: (isLogs || isLogsAll) ? undefined : 'cyan', bold: true }, titleText),
+    isLogsAll ? h(Text, { color: 'yellow' }, OVERLAY_LOGS_ALL_LABEL)
+      : isLogs ? h(Text, { color: 'yellow' }, OVERLAY_LOGS_LABEL) : null,
   );
 
   // BODY: según el status del snapshot congelado.
@@ -220,11 +225,11 @@ function renderOverlay(snap, scrollOffset, kind) {
       copy = OVERLAY_COMMENTS_UNSUPPORTED;
     } else if (snap.status === 'error') {
       // Phase 44 D-07: el copy de error es DISTINTO por overlay (plan vs logs vs comments). Rojo (fallo real).
-      copy = isPlan ? OVERLAY_PLAN_ERROR : isLogs ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
+      copy = isPlan ? OVERLAY_PLAN_ERROR : (isLogs || isLogsAll) ? OVERLAY_LOGS_ERROR : OVERLAY_COMMENTS_ERROR;
       color = 'red';
     } else {
       // 'empty'
-      copy = isLogs ? OVERLAY_LOGS_EMPTY : OVERLAY_COMMENTS_EMPTY;
+      copy = isLogsAll ? OVERLAY_LOGS_ALL_EMPTY : isLogs ? OVERLAY_LOGS_EMPTY : OVERLAY_COMMENTS_EMPTY;
     }
     body = h(Text, { color, dimColor: color ? undefined : true }, copy);
   }

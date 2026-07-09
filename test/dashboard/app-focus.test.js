@@ -198,7 +198,7 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       // inequívoca de que el footer normal volvió.
       assert.match(
         lastFrame(),
-        /↑↓ move · c comments · l logs · p plan · \/ filter \(ps:state\) · d dismiss · o open/,
+        /↑↓ move · c comments · l logs · L log-all · p plan · \/ filter \(ps:state\) · d dismiss · o open/,
         `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
       );
       // Colapsa bordes de caja (│) + whitespace para tolerar el wrap de ink a este ancho.

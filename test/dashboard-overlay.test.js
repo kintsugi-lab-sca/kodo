@@ -34,6 +34,8 @@ import App, {
   OVERLAY_LOGS_EMPTY,
   OVERLAY_LOGS_ERROR,
   OVERLAY_LOGS_LABEL,
+  OVERLAY_LOGS_ALL_LABEL,
+  OVERLAY_LOGS_ALL_EMPTY,
   OVERLAY_PLAN_NO_PHASE,
   OVERLAY_PLAN_NO_PLAN,
   OVERLAY_PLAN_NO_LIGHT,
@@ -292,6 +294,62 @@ describe('TUI-16/SC#2/SC#3: overlay de logs (l) — grep substring, etiqueta hon
     try {
       await drain();
       stdin.write('l');
+      await drain();
+      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('overlay de log GENERAL (L) — buffer completo SIN grep por sesión (debug del daemon)', () => {
+  it('L muestra TODAS las líneas del buffer (incluida una que no matchea la sesión) + etiqueta honesta', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({
+      logs: () =>
+        okResponse({
+          logs: [
+            { ts: '10:00', level: 'info', msg: 'KL-1 started build' },
+            // Línea que el grep por sesión (`l`) FILTRARÍA — el overlay general (`L`) SÍ la muestra.
+            { ts: '10:01', level: 'info', msg: 'zzz webhook received unrelated' },
+          ],
+        }),
+    });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('L');
+      await drain();
+      const frame = lastFrame();
+      assert.match(frame, new RegExp(OVERLAY_LOGS_ALL_LABEL.slice(0, 20)), `el overlay general lleva su etiqueta honesta\n${frame}`);
+      assert.match(frame, /zzz webhook received unrelated/, `el overlay general muestra líneas que NO matchean la sesión (sin grep)\n${frame}`);
+      assert.match(frame, /log · general/, `el header del overlay general es "log · general"\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('L con buffer vacío muestra OVERLAY_LOGS_ALL_EMPTY', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({ logs: () => okResponse({ logs: [] }) });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('L');
+      await drain();
+      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ALL_EMPTY), `buffer vacío → ${OVERLAY_LOGS_ALL_EMPTY}\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('L con error en /logs muestra OVERLAY_LOGS_ERROR', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter({ logs: () => serverErrorResponse() });
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      stdin.write('L');
       await drain();
       assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}\n${lastFrame()}`);
     } finally {
