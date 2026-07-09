@@ -1,7 +1,7 @@
 ---
 phase: 71-fiabilidad-de-entrega-y-backstop
 verified: 2026-07-07T09:30:09Z
-status: human_needed
+status: passed
 score: 4/4 must-haves verificados
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,14 +9,17 @@ re_verification:
   previous_status: gaps_found
   previous_score: 2/4
   gaps_closed:
+
     - "DELIV-03 — `--task-url`/`--task-id` cableados end-to-end en `kodo adopt` → gate `(c2)` de reconciliación de `src/adopt.js` ahora alcanzable desde el CLI real."
     - "DELIV-04 — gate `isTerminalReviewState` en `runReviewBackstop` impide que el backstop cierre issues de GitHub; corregida la premisa falsa D-13 en `71-CONTEXT.md`/`71-RESEARCH.md`."
   gaps_remaining: []
   regressions: []
 human_verification:
+
   - test: "Backstop end-to-end contra Plane real (diferido en VALIDATION.md, D6 del plan 71-03; reconfirmado como pendiente en 71-05): matar una sesión kodo sin `/exit` limpio del LLM con provider Plane y confirmar la transición a «In Review» + comentario «cierre automático»."
     expected: "La tarea en Plane pasa a `In review` (o el `states.review` configurado) y recibe un comentario «cierre automático»; el evento NDJSON `session.backstop.review` se emite con `{session_id, task_id, from:'in_progress', to:reviewState}`."
     why_human: "Requiere un provider Plane real y observar la transición de estado en la UI; no automatizable en la suite unitaria (mocks). Es UAT preexistente, no un gap de código: el gate de estado no-terminal de DELIV-04 no lo elimina (sigue siendo deseable verificar el happy-path de Plane en vivo)."
+
   - test: "Confirmar en un repo GitHub real que un `SessionEnd` limpio con el issue aún `in_progress` NUNCA cierra el issue (regresión del bug que motivó el gap 2)."
     expected: "El issue de GitHub permanece abierto tras el `SessionEnd`; se observa el log `session.backstop.skipped_terminal` en el NDJSON del hook."
     why_human: "Requiere un repo GitHub real y credenciales; la suite unitaria ya reproduce el escenario con un provider mock de 3 capacidades reales, pero no sustituye una confirmación contra la API real de GitHub."
@@ -141,5 +144,16 @@ El único ítem pendiente es la verificación humana contra proveedores reales (
 
 ---
 
+## Acknowledged Gaps
+
+- **UAT Test 2 (GitHub — el backstop nunca cierra el issue): SKIPPED, reconocido por el operador (2026-07-09).**
+  - Motivo del skip: el setup actual solo tiene provider Plane; no hay repo GitHub a mano para el UAT en vivo.
+  - Cobertura compensatoria: `test/hooks/session-end.test.js:285-321` reproduce el escenario con un mock GitHub de las 3 capacidades reales (`getTaskState`/`updateTaskState`/`addComment`) + `states.review:'closed'` → 0 llamadas a `updateTaskState`/`addComment` (no-op verificado). El gate `isTerminalReviewState` está confirmado en código (4/4 must-haves).
+  - UAT Test 1 (backstop end-to-end contra Plane real) — el crítico contra provider vivo — **PASÓ**.
+  - Decisión del operador: reconocer el skip y marcar la fase Complete.
+
+---
+
 _Verificado: 2026-07-07T09:30:09Z_
 _Verificador: Claude (gsd-verifier)_
+_UAT completado + skip reconocido: 2026-07-09_

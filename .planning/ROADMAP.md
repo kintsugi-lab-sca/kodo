@@ -207,7 +207,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
-| 71. Fiabilidad de entrega y backstop | 5/5 | UAT pending | 2026-07-07 |
+| 71. Fiabilidad de entrega y backstop | 5/5 | Complete   | 2026-07-09 |
 | 72. Higiene, DX y verdad documental | 0/? | Not started | - |
 
 ## Backlog

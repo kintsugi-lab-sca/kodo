@@ -5,8 +5,8 @@ milestone_name: activo)
 current_phase: 71
 current_phase_name: Fiabilidad de entrega y backstop
 status: executing
-stopped_at: Phase 71 — 4/4 must-haves verified (gaps closed); awaiting 2 human UAT items (Plane e2e + GitHub no-close)
-last_updated: "2026-07-07T09:34:15.075Z"
+stopped_at: "Phase 71 COMPLETE — UAT 1 pass (Plane backstop en vivo) + 1 skip reconocido (GitHub, cubierto por test automático). Delivery arreglado: bind 0.0.0.0 + webhook Plane reactivado."
+last_updated: "2026-07-09T07:23:41.601Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 71 execution started
 progress:
@@ -111,8 +111,8 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/71-fiabilidad-de-entrega-y-backstop/71-UAT.md
 
-- **Last session:** 2026-07-07T09:34:15.068Z
-- **Stopped at:** Phase 71 — 4/4 must-haves verified (gaps closed); awaiting 2 human UAT items (Plane e2e + GitHub no-close)
+- **Last session:** 2026-07-09T07:23:41.594Z
+- **Stopped at:** Phase 71 COMPLETE — UAT 1 pass (Plane backstop en vivo) + 1 skip reconocido (GitHub, cubierto por test automático). Delivery arreglado: bind 0.0.0.0 + webhook Plane reactivado.
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
   - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
