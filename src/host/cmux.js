@@ -223,7 +223,9 @@ export function createCmuxHost(opts = {}) {
 
     lastSnapshot.clear();
     for (const info of result) lastSnapshot.set(info.workspace_ref, info);
-    logger?.info?.('host.list_workspaces.ok', {
+    // LOG-hygiene: éxito rutinario por-llamada → debug (mismo criterio que el loop de
+    // reconcile). El fallo (host.list_workspaces.fail) sigue en warn.
+    logger?.debug?.('host.list_workspaces.ok', {
       count: result.length,
       duration_ms: Date.now() - started,
     });

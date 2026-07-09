@@ -231,9 +231,37 @@ describe('runReconcileTick — tick con I/O (DI host/loadState/saveState)', () =
     assert.ok(saved, 'tick 2: persiste el cambio');
     assert.equal(saved.sessions.t1.state, 'idle');
 
-    // Emitió host.list_workspaces.ok + host.reconcile.tick.
-    assert.ok(events.find((e) => e.msg === 'host.list_workspaces.ok'), 'emite host.list_workspaces.ok');
-    assert.ok(events.find((e) => e.msg === 'host.reconcile.tick'), 'emite host.reconcile.tick');
+    // Emitió host.list_workspaces.ok (debug) + host.reconcile.tick.
+    // Tick 1 (debounce, sin persistir) → debug; tick 2 (aplica idle, persiste) → info.
+    // Miramos el ÚLTIMO tick (el de tick 2, que sí cambió estado).
+    const listOk = events.find((e) => e.msg === 'host.list_workspaces.ok');
+    const tickEvents = events.filter((e) => e.msg === 'host.reconcile.tick');
+    const lastTick = tickEvents[tickEvents.length - 1];
+    assert.ok(listOk, 'emite host.list_workspaces.ok');
+    assert.equal(listOk.level, 'debug', 'host.list_workspaces.ok a nivel debug (LOG-hygiene: heartbeat no infla el NDJSON)');
+    assert.ok(lastTick, 'emite host.reconcile.tick');
+    assert.equal(lastTick.level, 'info', 'tick que persiste cambio → info');
+  });
+
+  it('tick idle (sin rescued/sealed/transitioned) emite host.reconcile.tick a nivel debug (LOG-hygiene)', async () => {
+    // Sin sesiones → reconcileTick no rescata/sella/transiciona nada. El heartbeat idle
+    // NO debe emitirse a info (era la causa del bloat de reconcile.ndjson: ~info cada 2.5s).
+    const state = { schema_version: 3, sessions: {}, history: [] };
+    const host = { listWorkspaces: async () => [] };
+    const { logger, events } = makeLogger();
+    await runReconcileTick({ host, loadState: () => state, saveState: () => {}, debounceStore: new Map(), tick: 1, now: () => NOW, logger, pgrep: () => '' });
+
+    const tickEv = events.find((e) => e.msg === 'host.reconcile.tick');
+    const listOk = events.find((e) => e.msg === 'host.list_workspaces.ok');
+    assert.ok(tickEv, 'emite host.reconcile.tick');
+    assert.equal(tickEv.level, 'debug', 'tick idle → debug (no info)');
+    assert.deepEqual(
+      { rescued: tickEv.fields.rescued, sealed: tickEv.fields.sealed, transitioned: tickEv.fields.transitioned },
+      { rescued: 0, sealed: 0, transitioned: 0 },
+      'el tick idle no tuvo acción',
+    );
+    assert.ok(listOk, 'emite host.list_workspaces.ok');
+    assert.equal(listOk.level, 'debug', 'list_workspaces.ok a nivel debug también en idle');
   });
 
   it('host throws → fail event + skip (never-throws, no persiste)', async () => {

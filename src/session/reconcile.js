@@ -327,7 +327,9 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
     // El contrato WorkspaceHost.listWorkspaces (Plan 01) retorna WorkspaceInfo[]
     // con {workspace_ref, alive, needs_input}. Es directamente liveRefs.
     liveRefs = Array.isArray(raw) ? raw : [];
-    logger?.info?.('host.list_workspaces.ok', { count: liveRefs.length, duration_ms: now() - started });
+    // LOG-hygiene: éxito rutinario emitido en CADA tick (~2.5s) → debug, no info.
+    // A info inflaba reconcile.ndjson (cientos de MB). El fallo sigue en warn (abajo).
+    logger?.debug?.('host.list_workspaces.ok', { count: liveRefs.length, duration_ms: now() - started });
   } catch (err) {
     logger?.warn?.('host.list_workspaces.fail', {
       code: /** @type {any} */ (err)?.code || 'UNKNOWN',
@@ -359,6 +361,10 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
   const runLocked = withStateLock ?? /** @type {<T>(fn: () => T) => { ok: boolean, value: T }} */ ((fn) => ({ ok: true, value: fn() }));
   /** @type {{ rescued: number, sealed: number, transitioned: number, total: number }} */
   let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0 };
+  // LOG-hygiene: ¿el tick cambió algo (persistió)? Es el señalador de "acción real"
+  // — más fiel que los contadores (la derivación idle persiste pero no incrementa
+  // `transitioned`). Un tick sin cambios es el heartbeat idle que inflaba el NDJSON.
+  let persisted = false;
 
   runLocked(() => {
     // Re-lectura FRESCA bajo el lock: si un hook escribió entre la snapshot del
@@ -393,10 +399,19 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
     const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
     events = ev;
     // Save condicional DENTRO del lock: solo si algo cambió (no-write optimization).
-    if (newState !== state) saveState(newState);
+    if (newState !== state) {
+      persisted = true;
+      saveState(newState);
+    }
   });
 
-  logger?.info?.('host.reconcile.tick', events);
+  // LOG-hygiene: un tick que cambió estado va a info; el heartbeat idle (sin cambios)
+  // baja a debug para no inflar reconcile.ndjson cada ~2.5s.
+  if (persisted) {
+    logger?.info?.('host.reconcile.tick', events);
+  } else {
+    logger?.debug?.('host.reconcile.tick', events);
+  }
   return events;
 }
 
