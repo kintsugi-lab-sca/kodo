@@ -45,7 +45,7 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [x] **HYG-05**: Batch de endurecimiento de config: rechazar `__proto__|constructor|prototype` (M3), chmod 0600 si hay `*_secret` (M5), `split` con `join` del resto (M14), B5, B7
 - [x] **HYG-06**: Batch de BAJAS mecánicas: B1, B2, B3, B4, B8, B9, B12 + M12 (`[-–—]` en roadmap) — diffs de 1–5 líneas
 - [x] **HYG-07**: El dashboard hace strip de `\x1b` en contenido externo (comentarios) — M4, rebajada de prioridad tras Ola 1
-- [ ] **HYG-08**: Pasada de README: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados, y documentar `--dangerously-skip-permissions` en sesiones GSD
+- [x] **HYG-08**: Pasada de README: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados, y documentar `--dangerously-skip-permissions` en sesiones GSD
 
 ### Robustez del trigger del orchestrator (Phase 73 — hallazgo dogfooding 2026-07-07)
 
@@ -128,7 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | HYG-05 | Phase 72 | Complete |
 | HYG-06 | Phase 72 | Complete |
 | HYG-07 | Phase 72 | Complete |
-| HYG-08 | Phase 72 | Pending |
+| HYG-08 | Phase 72 | Complete |
 
 **Coverage:**
 

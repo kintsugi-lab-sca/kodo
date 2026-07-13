@@ -199,7 +199,7 @@ Plans:
   4. El batch de BAJAS mecánicas (B1, B2, B3, B4, B8, B9, B12 + M12 `[-–—]` en roadmap) queda aplicado en diffs de 1–5 líneas. (HYG-06)
   5. El README refleja la realidad: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados y `--dangerously-skip-permissions` documentado en sesiones GSD. (HYG-08)
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -211,7 +211,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1: HYG-04 + borrados)*
 
-- [ ] 72-05-PLAN.md — Pasada DELTA del README contra el estado POST-72 (HYG-08) (Wave 2, depends 72-01, 72-02)
+- [x] 72-05-PLAN.md — Pasada DELTA del README contra el estado POST-72 (HYG-08) (Wave 2, depends 72-01, 72-02)
 
 ## Progreso (v0.16)
 
@@ -220,7 +220,7 @@ Plans:
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
 | 71. Fiabilidad de entrega y backstop | 5/5 | Complete   | 2026-07-09 |
-| 72. Higiene, DX y verdad documental | 4/5 | In Progress|  |
+| 72. Higiene, DX y verdad documental | 5/5 | Complete   | 2026-07-13 |
 
 ## Backlog
 

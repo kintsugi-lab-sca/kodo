@@ -4,9 +4,9 @@ milestone: v0.16
 milestone_name: activo)
 current_phase: 72
 current_phase_name: Higiene, DX y verdad documental
-status: executing
+status: verifying
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T12:50:30.294Z"
+last_updated: "2026-07-13T12:57:15.180Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 72 execution started
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-13 — Phase 72 execution started
 
 ## Roadmap v0.16 (activo)
@@ -111,7 +111,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/72-higiene-dx-y-verdad-documental/72-CONTEXT.md
 
-- **Last session:** 2026-07-13T12:41:49.783Z
+- **Last session:** 2026-07-13T12:57:02.225Z
 - **Stopped at:** Phase 72 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -148,6 +148,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 72 P02 | 45 min | 3 tasks | 6 files |
 | Phase Phase 72 P03 P03 | 35 | 3 tasks | 13 files |
 | Phase Phase 72 PP04 | 9 | 2 tasks tasks | 3 files files |
+| Phase 72 P05 | 10min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -175,3 +176,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase 72]: mergeAndValidateConfig usa structuredClone(DEFAULT_CONFIG) como base del merge — mutar el config devuelto no puede contaminar los defaults in-proceso
 - [Phase ?]: 72-03: Batch BAJAS HYG-06 aplicado (10 micro-diffs). B12b diferido: formato x-ratelimit-reset de Plane self-hosted no confirmable barato (Open Question #2/D-02).
 - [Phase ?]: [72-04] stripControlChars (CSI-strip + control-strip C0/C1/DEL, preserva \n/\t) neutraliza inyección de terminal (OSC-52) del contenido externo; cableado en la proyección de comentarios de App.js (tres ramas); SessionTable intacto; cero deps (HYG-07/M4).
+- [Phase 72]: [72-05] Pasada DELTA del README (HYG-08): claims de cierre atribuidos a SessionEnd/backstop, auto-commit documentado como gated (KODO_ORCHESTRATOR + pathspec); up --url y health-loop 60s confirmados ausentes — solo 4 claims falsos tocados (D-04, no rewrite)
