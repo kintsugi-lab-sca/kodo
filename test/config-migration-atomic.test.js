@@ -16,7 +16,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -90,5 +90,38 @@ describe('migrateConfigIfNeeded atomic tmp+rename (CONC-07 / D-14)', () => {
     assert.ok(again.providers, 'ya tiene providers → migrateConfigIfNeeded no hace nada');
     const files = readdirSync(join(tmpHome, '.kodo'));
     assert.equal(files.filter((f) => f.endsWith('.tmp')).length, 0, 'sin residuo .tmp en la segunda carga');
+  });
+});
+
+describe('WR-04 — el .bak de migración hereda M5 (0600 si el v1 lleva *_secret)', () => {
+  let bakHome;
+  let origBakHome;
+  let loadConfigBak;
+
+  before(async () => {
+    origBakHome = process.env.HOME;
+    bakHome = mkdtempSync(join(tmpdir(), 'kodo-cfgmig-secret-'));
+    process.env.HOME = bakHome;
+    mkdirSync(join(bakHome, '.kodo'), { recursive: true });
+    // Config v1 con un secreto embebido (`plane.webhook_secret`, consumido por registry.js).
+    writeFileSync(
+      join(bakHome, '.kodo', 'config.json'),
+      JSON.stringify({ plane: { base_url: 'https://x', workspace_slug: 'k-lab', webhook_secret: 'SHH' } }, null, 2) + '\n',
+    );
+    const mod = await import('../src/config.js?wr04');
+    loadConfigBak = mod.loadConfig;
+  });
+
+  after(() => {
+    if (origBakHome === undefined) delete process.env.HOME;
+    else process.env.HOME = origBakHome;
+    if (bakHome) rmSync(bakHome, { recursive: true, force: true });
+  });
+
+  it('el config.json.bak con webhook_secret queda en modo 0600 (no world-readable)', () => {
+    loadConfigBak(); // dispara migrateConfigIfNeeded → escribe .bak vía writeFileAtomic
+    const bak = join(bakHome, '.kodo', 'config.json.bak');
+    assert.ok(existsSync(bak), 'el .bak de migración se creó');
+    assert.equal(statSync(bak).mode & 0o777, 0o600, 'M5: el .bak con *_secret hereda 0600');
   });
 });

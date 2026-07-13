@@ -187,13 +187,15 @@ export function migrateConfig(rawConfig) {
  */
 function migrateConfigIfNeeded(rawConfig) {
   if (rawConfig.providers) return rawConfig;
-  writeFileSync(CONFIG_PATH + '.bak', JSON.stringify(rawConfig, null, 2) + '\n');
+  // WR-04: el `.bak` pasa por writeFileAtomic para HEREDAR la detección M5 de `*_secret`
+  // → 0600. Un config v1 con `plane.webhook_secret` (consumido por registry.js) dejaría el
+  // secreto en claro en un `.bak` world-readable (umask 0644) — justo lo que M5 dice impedir;
+  // el commit de la migración a v2 abajo ya se protege, así que la asimetría era el bug.
+  writeFileAtomic(CONFIG_PATH + '.bak', JSON.stringify(rawConfig, null, 2) + '\n');
   const newConfig = migrateConfig(rawConfig);
   // CONC-07 / D-14: persistir la migración de forma ATÓMICA (tmp+rename) — un crash a
   // mitad de la escritura no puede dejar un config.json truncado/corrupto. Reusa el
   // helper writeFileAtomic ya existente (config.js:100), no un writeFileSync directo.
-  // El `.bak` de arriba se deja como writeFileSync directo: el riesgo es un config.json
-  // truncado (el fichero vivo), no el backup.
   writeFileAtomic(CONFIG_PATH, JSON.stringify(newConfig, null, 2) + '\n');
   console.log('[kodo] Config migrada al nuevo schema (backup: config.json.bak)');
   return newConfig;
