@@ -31,7 +31,8 @@
 
 import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -244,6 +245,111 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
       historyAfterSecond.length,
       1,
       'CR-01: state.history no se duplica tras la segunda invocación',
+    );
+  });
+});
+
+// ─── HYG-01 (Phase 72): gate KODO_ORCHESTRATOR + pathspec del auto-commit ────
+//
+// handleOrchestratorStop (stop.js) auto-commitea los aprendizajes de la skill
+// SOLO en la sesión orquestadora. El gate `KODO_ORCHESTRATOR === '1'` (D-06)
+// cubre TODO el bloque add+commit; sin el marcador, una sesión normal del repo
+// kodo hace skip silencioso (cero commits fantasma). El pathspec del commit se
+// restringe a `.claude/skills/kodo-orchestrate/` en add Y commit (D-07).
+//
+// Se ejercita indirectamente vía runStopHook con un input SIN sesión tracked y
+// `cwd = KODO_ROOT` (la rama "no session found + orchestrator" de stop.js). Se
+// usa un repo git tmp real (KODO_ROOT override) para no commitear en el repo de
+// verdad, siguiendo el patrón de aislamiento del fichero.
+describe('stop hook — HYG-01 orchestrator auto-commit gate', () => {
+  let tmpHome;
+  let tmpRepo;
+  let origHome;
+  let origKodoRoot;
+  let origOrchEnv;
+  let runStopHook;
+
+  before(async () => {
+    origHome = process.env.HOME;
+    origKodoRoot = process.env.KODO_ROOT;
+    origOrchEnv = process.env.KODO_ORCHESTRATOR;
+
+    tmpHome = mkdtempSync(join(tmpdir(), 'kodo-test-hyg01-home-'));
+    tmpRepo = mkdtempSync(join(tmpdir(), 'kodo-test-hyg01-repo-'));
+    process.env.HOME = tmpHome;
+    mkdirSync(join(tmpHome, '.kodo'), { recursive: true });
+
+    // Repo git tmp con el subdirectorio de la skill inicializado y committeado,
+    // luego un cambio SIN commitear en el fichero de la skill (el auto-commit
+    // debe recogerlo cuando el gate lo permite).
+    const skillDir = join(tmpRepo, '.claude', 'skills', 'kodo-orchestrate');
+    mkdirSync(skillDir, { recursive: true });
+    const git = (args) => execSync(`git ${args}`, { cwd: tmpRepo, encoding: 'utf-8' });
+    git('init -q');
+    git('config user.email test@kodo.dev');
+    git('config user.name "Kodo Test"');
+    git('config commit.gpgsign false');
+    writeFileSync(join(skillDir, 'skill.md'), '# skill v1\n');
+    git('add -A');
+    git('commit -q -m "initial skill"');
+    // Cambio sin commitear que el auto-commit debe capturar.
+    writeFileSync(join(skillDir, 'skill.md'), '# skill v2 (learnings)\n');
+
+    // KODO_ROOT override ANTES de importar stop.js: el módulo evalúa
+    // `KODO_ROOT = process.env.KODO_ROOT || …` al load-time.
+    process.env.KODO_ROOT = tmpRepo;
+    ({ runStopHook } = await import('../../src/hooks/stop.js'));
+  });
+
+  after(() => {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    if (origKodoRoot === undefined) delete process.env.KODO_ROOT; else process.env.KODO_ROOT = origKodoRoot;
+    if (origOrchEnv === undefined) delete process.env.KODO_ORCHESTRATOR; else process.env.KODO_ORCHESTRATOR = origOrchEnv;
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+    if (tmpRepo) rmSync(tmpRepo, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    delete process.env.KODO_ORCHESTRATOR;
+  });
+
+  function commitCount() {
+    return parseInt(execSync('git rev-list --count HEAD', { cwd: tmpRepo, encoding: 'utf-8' }).trim(), 10);
+  }
+
+  function makeCmuxStub() {
+    return {
+      setColor: async () => {},
+      notify: async () => {},
+      listWorkspaces: async () => '',
+      send: async () => {},
+    };
+  }
+
+  it('sin KODO_ORCHESTRATOR → skip (no crea commit)', async () => {
+    const before = commitCount();
+    await runStopHook(
+      { session_id: 'no-such-session', cwd: tmpRepo },
+      { findSessionFn: () => null, cmux: makeCmuxStub() },
+    );
+    assert.equal(commitCount(), before, 'sin el marcador NO debe crearse ningún commit');
+  });
+
+  it('con KODO_ORCHESTRATOR=1 → alcanza el auto-commit (crea commit del subdir de la skill)', async () => {
+    process.env.KODO_ORCHESTRATOR = '1';
+    const before = commitCount();
+    await runStopHook(
+      { session_id: 'no-such-session', cwd: tmpRepo },
+      { findSessionFn: () => null, cmux: makeCmuxStub() },
+    );
+    assert.equal(commitCount(), before + 1, 'con el marcador debe crearse exactamente un commit');
+    // El commit contiene SOLO el fichero de la skill (pathspec restringido).
+    const files = execSync('git show --name-only --pretty=format: HEAD', { cwd: tmpRepo, encoding: 'utf-8' })
+      .trim().split('\n').filter(Boolean);
+    assert.deepEqual(
+      files,
+      ['.claude/skills/kodo-orchestrate/skill.md'],
+      'el auto-commit solo toca el subdirectorio de la skill (pathspec D-07)',
     );
   });
 });

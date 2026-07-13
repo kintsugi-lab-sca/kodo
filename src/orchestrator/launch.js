@@ -248,6 +248,12 @@ export async function launchOrchestrator(opts = {}) {
   // WT-01 + D-06b universal). Solo el orchestrator queda exento.
   // ─────────────────────────────────────────────────────────────────────
   const claudeCmd = [
+    // HYG-01 (D-07): prefijo de entorno del shell que marca esta sesión como la
+    // orquestadora. Se une con ' ' y se envía como texto por cmux.send (NO hay
+    // spawn), así que el shell del workspace lo exporta al proceso `claude` y a
+    // sus hijos (los hooks Stop/SessionEnd). El gate de stop.js lo lee para
+    // habilitar el auto-commit de aprendizajes de la skill.
+    'KODO_ORCHESTRATOR=1',
     'claude',
     '--model', config.claude.default_model,
     '--session-id', sessionId,

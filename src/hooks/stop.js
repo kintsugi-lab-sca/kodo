@@ -263,11 +263,25 @@ async function main() {
  * Auto-commits any pending changes in .claude/skills/ to preserve learnings.
  */
 async function handleOrchestratorStop() {
+  // HYG-01 gate (D-06): el auto-commit SOLO corre en la sesión orquestadora,
+  // marcada con la env var inyectada al lanzar el workspace (launch.js). Sin el
+  // marcador, una sesión normal del dev en el repo kodo NO debe commitear nada
+  // (evita commits fantasma que arrastren lo que el dev tuviera staged). Espejo
+  // del early-return-con-log de session-end.js. Skip silencioso con log, NO error.
+  // El gate cubre TODO el bloque add+commit de abajo.
+  if (process.env.KODO_ORCHESTRATOR !== '1') {
+    console.error('[kodo] Stop: no es sesión orquestadora (marcador ausente) — skip auto-commit');
+    return;
+  }
+
   const { execSync } = await import('node:child_process');
 
   try {
-    // Check if there are uncommitted changes in .claude/skills/
-    const status = execSync('git status --porcelain .claude/skills/', {
+    // Check if there are uncommitted changes in the orchestrator skill subdir.
+    // HYG-01 (D-07): se consulta el MISMO subdirectorio que el pathspec del
+    // commit, para que el "no changes to commit" sea coherente con lo que se
+    // commitea (no el árbol entero de .claude/skills/).
+    const status = execSync('git status --porcelain .claude/skills/kodo-orchestrate/', {
       cwd: KODO_ROOT,
       encoding: 'utf-8',
     }).trim();
@@ -282,7 +296,10 @@ async function handleOrchestratorStop() {
     // sin TTY (gpg-agent bloquearía pidiendo passphrase) y no firma commits
     // generados por LLM con la clave personal del dev (WR-01 999.1-REVIEW).
     const date = new Date().toISOString().slice(0, 10);
-    execSync(`git -c commit.gpgsign=false add .claude/skills/ && git -c commit.gpgsign=false commit -m "skill: orchestrator learnings ${date}"`, {
+    // HYG-01 (D-07): pathspec restringido al subdirectorio de la skill en AMBOS
+    // pasos (add Y commit) — nunca al árbol entero de .claude/skills/. Así el
+    // commit jamás arrastra otros cambios staged que el dev tuviera pendientes.
+    execSync(`git -c commit.gpgsign=false add -- .claude/skills/kodo-orchestrate/ && git -c commit.gpgsign=false commit -m "skill: orchestrator learnings ${date}" -- .claude/skills/kodo-orchestrate/`, {
       cwd: KODO_ROOT,
       encoding: 'utf-8',
     });
