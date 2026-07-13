@@ -126,26 +126,36 @@ describe('SETUP-01 — needsSetup (detección de first-run)', () => {
   });
 
   it('SETUP-01: config existe + key presente pero Plane sin base_url → true (estructural D-03)', () => {
-    const cfg = () => ({ provider: 'plane', providers: { plane: { workspace_slug: 'k-lab' } } });
-    const result = needsSetup('plane', cfg, () => true, () => true);
+    // CR-01: el gate estructural lee el config CRUDO (5º seam), no `loadConfig()` mergeado.
+    const raw = () => ({ provider: 'plane', providers: { plane: { workspace_slug: 'k-lab' } } });
+    const result = needsSetup('plane', planeComplete, () => true, () => true, raw);
     assert.equal(result, true);
   });
 
   it('SETUP-01: config existe + key presente pero Plane sin workspace_slug → true (estructural D-03)', () => {
-    const cfg = () => ({ provider: 'plane', providers: { plane: { base_url: 'https://x' } } });
-    const result = needsSetup('plane', cfg, () => true, () => true);
+    // CR-01: el gate estructural lee el config CRUDO (5º seam), no `loadConfig()` mergeado.
+    const raw = () => ({ provider: 'plane', providers: { plane: { base_url: 'https://x' } } });
+    const result = needsSetup('plane', planeComplete, () => true, () => true, raw);
     assert.equal(result, true);
   });
 
+  it('SETUP-01 (CR-01): key presente + loadConfig mergeado completo pero config CRUDO sin base_url → true', () => {
+    // Repro CR-01: `loadConfig()` post-B7 SIEMPRE trae base_url (default merge). El gate solo
+    // detecta la ausencia porque lee el config CRUDO de disco — aquí el crudo carece de base_url.
+    const raw = () => ({ provider: 'plane', providers: { plane: { workspace_slug: 'k-lab' } } });
+    const result = needsSetup('plane', planeComplete, () => true, () => true, raw);
+    assert.equal(result, true, 'CR-01: la ausencia en el crudo debe volver a disparar el setup pese al merge');
+  });
+
   it('SETUP-01: config completo + key presente + estructurales válidos → false', () => {
-    const result = needsSetup('plane', planeComplete, () => true, () => true);
+    const result = needsSetup('plane', planeComplete, () => true, () => true, planeComplete);
     assert.equal(result, false);
   });
 
   it('SETUP-01: resuelve el provider activo desde config.provider cuando providerName se omite', () => {
     // Sin providerName → usa config.provider ('plane') para el gate estructural.
     const cfg = () => ({ provider: 'plane', providers: { plane: { base_url: 'https://x', workspace_slug: 'k-lab' } } });
-    assert.equal(needsSetup(undefined, cfg, () => true, () => true), false);
+    assert.equal(needsSetup(undefined, cfg, () => true, () => true, cfg), false);
   });
 
   it('SETUP-01 (D-06): provider github con key presente → false (el gate estructural es Plane-only)', () => {

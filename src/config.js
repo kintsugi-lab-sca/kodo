@@ -279,6 +279,30 @@ export function loadConfig() {
   }
 }
 
+/**
+ * Carga el config CRUDO de disco (parseado + normalizado v1→v2 vía `migrateConfig`,
+ * que es PURA/sin I/O) SIN el deep-merge de `DEFAULT_CONFIG`.
+ *
+ * CR-01: `loadConfig()` (post-B7) deep-mergea sobre los defaults, así que una clave
+ * estructural AUSENTE en disco (`providers.plane.base_url`/`workspace_slug`) queda
+ * indistinguible de una elegida por el operador — rellenada con el host hardcodeado.
+ * `needsSetup` y `kodo config --set` necesitan ver la AUSENCIA real de la clave: por eso
+ * consumen este loader crudo, no `loadConfig()`. El runtime (registry/client/hooks) sigue
+ * usando `loadConfig()` mergeado — nunca ve claves ausentes (D-10 intacto).
+ *
+ * Never-throws: fichero ausente o JSON inválido → `null`.
+ *
+ * @returns {object|null}
+ */
+export function loadRawConfig() {
+  if (!existsSync(CONFIG_PATH)) return null;
+  try {
+    return migrateConfig(JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')));
+  } catch {
+    return null;
+  }
+}
+
 /** @param {typeof DEFAULT_CONFIG} config */
 export function saveConfig(config) {
   ensureDir();
@@ -363,7 +387,10 @@ export function isApiKeyConfigured(providerName) {
  *       `writeEnvVar`, index.js). `needsSetup` NO re-invoca `loadEnvFile` para reconfirmar
  *       una key recién escrita (el parser es load no-override → enmascararía el valor nuevo).
  *   (3) Campos estructurales SOLO si el config existe (D-03 extendido): para `plane`,
- *       `base_url` + `workspace_slug`. GitHub queda FUERA del guiado (D-06) → sin gate estructural.
+ *       `base_url` + `workspace_slug`, leídos del config CRUDO de disco (`loadRawConfig`,
+ *       pre-merge) — NUNCA de `loadConfig()`, cuyo deep-merge B7 (D-10) rellena esas claves
+ *       con los defaults hardcodeados y haría el gate código muerto (CR-01). GitHub queda
+ *       FUERA del guiado (D-06) → sin gate estructural.
  *
  * D-12: NO incluye el webhook secret (`KODO_WEBHOOK_SECRET_PLANE`) — es un secreto distinto,
  * fuera del guiado. Helper puro, sin side-effects, never-throws por construcción.
@@ -375,6 +402,7 @@ export function isApiKeyConfigured(providerName) {
  * @param {() => typeof DEFAULT_CONFIG} [_loadConfig] - loader inyectable (tests).
  * @param {() => boolean} [_configExists] - existencia de config.json inyectable (tests).
  * @param {(name?: string) => boolean} [_isApiKeyConfigured] - presence-check inyectable (tests).
+ * @param {() => object|null} [_loadRawConfig] - loader del config CRUDO (pre-merge) inyectable (tests).
  * @returns {boolean} true si la config está incompleta (first-run / modo setup).
  */
 export function needsSetup(
@@ -382,13 +410,20 @@ export function needsSetup(
   _loadConfig = loadConfig,
   _configExists = () => existsSync(CONFIG_PATH),
   _isApiKeyConfigured = isApiKeyConfigured,
+  _loadRawConfig = loadRawConfig,
 ) {
   if (!_configExists()) return true;                       // (1) Pitfall 12: no config.json → first-run
   const config = _loadConfig();
   const name = providerName || config.provider;
   if (!_isApiKeyConfigured(name)) return true;             // (2) falta API key → setup (solo presencia)
-  const p = config.providers?.[name];                      // (3) estructurales SOLO si config existe (D-03)
-  if (name === 'plane' && (!p?.base_url || !p?.workspace_slug)) return true;
+  // (3) estructurales SOLO si config existe (D-03). CR-01: se evalúa sobre el config
+  //     CRUDO de disco (pre-merge, `loadRawConfig`), NO sobre `loadConfig()`: el deep-merge
+  //     de B7 rellena base_url/workspace_slug con los defaults hardcodeados y volvería este
+  //     gate código muerto para claves AUSENTES (solo dispararía con string vacío explícito).
+  if (name === 'plane') {
+    const p = _loadRawConfig()?.providers?.plane;
+    if (!p?.base_url || !p?.workspace_slug) return true;
+  }
   return false;
 }
 
