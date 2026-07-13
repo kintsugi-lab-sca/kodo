@@ -5,13 +5,17 @@ export class PlaneClient {
   /** @param {{ baseUrl?: string, apiKey?: string, workspaceSlug?: string, logger?: import('../../logger.js').Logger }} [opts] */
   constructor(opts = {}) {
     const config = loadConfig();
-    this.baseUrl = (opts.baseUrl || config.plane.base_url).replace(/\/$/, '');
+    // B2 (Phase 72): leer del schema v2 `config.providers.plane.*`. Tras la
+    // migración v1→v2 (config.js migrateConfig), el bloque legacy top-level de
+    // plane es `undefined` — las lecturas legacy lanzaban un TypeError críptico.
+    const planeCfg = (config.providers && config.providers.plane) || {};
+    this.baseUrl = (opts.baseUrl || planeCfg.base_url).replace(/\/$/, '');
     this.apiKey = opts.apiKey || getPlaneApiKey();
-    this.workspaceSlug = opts.workspaceSlug || config.plane.workspace_slug;
+    this.workspaceSlug = opts.workspaceSlug || planeCfg.workspace_slug;
     this.logger = opts.logger; // undefined if not provided — emission uses optional chain
 
     if (!this.apiKey) {
-      throw new Error(`Plane API key not found. Set ${config.plane.api_key_env} env var.`);
+      throw new Error(`Plane API key not found. Set ${planeCfg.api_key_env} env var.`);
     }
   }
 
@@ -260,8 +264,12 @@ export class PlaneClient {
     } catch (e) {
       // Detect the label-already-exists 409 ONLY. Anything else fails LOUD (D-08).
       const msg = e instanceof Error ? e.message : String(e);
+      // B12c (Phase 72): estrechar el predicado. El `|| msg.includes('labels/')`
+      // se tragaba CUALQUIER 409 cuyo path contuviera `labels/` (p.ej. un 409 no
+      // relacionado con el name-conflict). El único 409 recuperable es el
+      // "Label with the same name already exists".
       const isNameConflict409 =
-        msg.includes('Plane API 409') && (msg.includes('already exists') || msg.includes('labels/'));
+        msg.includes('Plane API 409') && msg.includes('already exists');
       if (!isNameConflict409) throw e;
       // Re-list and reuse the existing label by case-insensitive name (more robust than
       // regex-parsing the id out of the 409 body).
@@ -287,7 +295,11 @@ export class PlaneClient {
    * @param {string} identifier e.g. "KL-42"
    */
   async resolveIdentifier(identifier) {
-    const match = identifier.match(/^([A-Z]+)-(\d+)$/i);
+    // B8 (Phase 72): el prefijo puede contener dígitos internos (`K2-42`). El
+    // `[A-Za-z]+` original NO capturaba el `2` de `K2`, así que un identificador
+    // válido como `K2-42` no resolvía (el `/i` no salva: la clase no incluye
+    // dígitos). Prefijo = letra inicial + alfanuméricos.
+    const match = identifier.match(/^([A-Za-z][A-Za-z0-9]*)-(\d+)$/);
     if (!match) throw new Error(`Invalid identifier: ${identifier}. Expected format: KL-42`);
 
     const prefix = match[1].toUpperCase();

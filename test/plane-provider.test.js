@@ -2,7 +2,34 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TASK_PROVIDER_METHODS } from '../src/interface.js';
+
+// B2 (Phase 72): redirigir HOME a un tmpdir ANTES de que config.js se importe
+// (los describe hacen `await import()` en beforeEach → config.js cachea KODO_DIR
+// = join(homedir(), '.kodo') en el primer import). Escribimos un config v2
+// distintivo para probar que PlaneClient lee de `providers.plane.*`, no del
+// legacy `plane.*` (undefined bajo v2). El resto de tests del fichero pasan opts
+// explícitas / MOCK_CONFIG → no dependen de loadConfig, así que el HOME temporal
+// no los afecta.
+const B2_HOME = mkdtempSync(join(tmpdir(), 'kodo-b2-home-'));
+process.env.HOME = B2_HOME;
+mkdirSync(join(B2_HOME, '.kodo'), { recursive: true });
+const B2_CONFIG = {
+  provider: 'plane',
+  providers: {
+    plane: {
+      base_url: 'https://b2.example.com',
+      api_key_env: 'B2_PLANE_KEY_ENV',
+      workspace_slug: 'b2-workspace',
+      projects: [],
+      states: { trigger: 'In Progress', review: 'In review', done: 'Done' },
+    },
+  },
+};
+writeFileSync(join(B2_HOME, '.kodo', 'config.json'), JSON.stringify(B2_CONFIG, null, 2) + '\n');
 
 /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
 let createPlaneProvider;
@@ -627,6 +654,120 @@ describe('PlaneClient.addWorkItemToModule (Phase 57 module-placement gap-fix)', 
       const client = new PlaneClient(CLIENT_OPTS);
       await client.addWorkItemToModule('proj-uuid', 'mod-1', 'wi-7');
       assert.deepEqual(captured, { issues: ['wi-7'] });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe('PlaneClient — B2 config.providers.plane.* (Phase 72 HYG-06)', () => {
+  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  let PlaneClient;
+  beforeEach(async () => {
+    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+  });
+
+  it('sin opts, lee base_url/workspace_slug de config.providers.plane (schema v2)', () => {
+    // apiKey en opts evita el getPlaneApiKey() (no hay .env en el HOME temporal).
+    const client = new PlaneClient({ apiKey: 'x' });
+    assert.equal(client.baseUrl, 'https://b2.example.com', 'baseUrl viene de providers.plane');
+    assert.equal(client.workspaceSlug, 'b2-workspace', 'workspaceSlug viene de providers.plane');
+  });
+
+  it('el mensaje de API key ausente cita providers.plane.api_key_env', () => {
+    // Sin apiKey en opts y sin B2_PLANE_KEY_ENV en el entorno → throw citando el env canónico.
+    const prev = process.env.B2_PLANE_KEY_ENV;
+    delete process.env.B2_PLANE_KEY_ENV;
+    try {
+      assert.throws(
+        () => new PlaneClient(),
+        /Plane API key not found\. Set B2_PLANE_KEY_ENV env var\./,
+      );
+    } finally {
+      if (prev !== undefined) process.env.B2_PLANE_KEY_ENV = prev;
+    }
+  });
+});
+
+describe('PlaneClient.resolveIdentifier — B8 dígito interno en el prefijo (Phase 72 HYG-06)', () => {
+  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  let PlaneClient;
+  beforeEach(async () => {
+    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+  });
+  const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
+
+  function stubResolve() {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/projects/')) {
+        return new Response(JSON.stringify({ results: [{ id: 'proj-k2', identifier: 'K2' }] }), { status: 200 });
+      }
+      if (path.endsWith('/work-items/')) {
+        return new Response(JSON.stringify({ results: [{ id: 'wi-42', sequence_id: 42, project: 'proj-k2' }] }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${path}`);
+    };
+    return { restore: () => { globalThis.fetch = original; } };
+  }
+
+  it('resolveIdentifier("K2-42") resuelve (prefijo con dígito interno)', async () => {
+    const stub = stubResolve();
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      const { project, workItem } = await client.resolveIdentifier('K2-42');
+      assert.equal(project.identifier, 'K2');
+      assert.equal(workItem.sequence_id, 42);
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('un identificador sin formato válido sigue lanzando', async () => {
+    const client = new PlaneClient(CLIENT_OPTS);
+    await assert.rejects(
+      () => client.resolveIdentifier('42-K2'),
+      /Invalid identifier/,
+      'un prefijo que empieza por dígito no es válido',
+    );
+  });
+});
+
+describe('PlaneClient.createLabel — B12c predicado 409 estrecho (Phase 72 HYG-06)', () => {
+  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  let PlaneClient;
+  beforeEach(async () => {
+    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+  });
+  const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
+
+  it('un 409 con `labels/` en el path pero SIN `already exists` NO se trata como name-conflict', async () => {
+    const original = globalThis.fetch;
+    const calls = { post: 0, get: 0 };
+    globalThis.fetch = async (url, init) => {
+      const method = (init && init.method) || 'GET';
+      const path = new URL(url).pathname; // termina en /labels/
+      if (method === 'POST') {
+        calls.post++;
+        // 409 no relacionado con el name-conflict (p.ej. permiso/estado del proyecto).
+        return new Response('{"error":"conflicto no relacionado"}', {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      calls.get++; // el re-list NO debe ocurrir tras el fix
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    try {
+      const client = new PlaneClient(CLIENT_OPTS);
+      await assert.rejects(
+        () => client.createLabel('proj-uuid', 'kodo:adopted'),
+        /Plane API 409/,
+        'un 409 sin "already exists" se re-lanza LOUD',
+      );
+      assert.equal(calls.post, 1, 'intentó el POST una vez');
+      assert.equal(calls.get, 0, 'NO re-listó labels (predicado estrecho)');
     } finally {
       globalThis.fetch = original;
     }
