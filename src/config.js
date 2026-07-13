@@ -2,24 +2,49 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+// B7 (D-10): validación de loadConfig REUTILIZA config-validate.js — no se duplica.
+// Import seguro sin ciclo: config-validate.js es puro (0 imports de este módulo).
+import { validateField, getEditableFields, getByPath, setByPath } from './config-validate.js';
 
 const KODO_DIR = join(homedir(), '.kodo');
 const CONFIG_PATH = join(KODO_DIR, 'config.json');
 const PROJECTS_PATH = join(KODO_DIR, 'projects.json');
 const ENV_PATH = join(KODO_DIR, '.env');
 
-// Load ~/.kodo/.env into process.env (simple KEY=VALUE parser)
-function loadEnvFile() {
-  if (!existsSync(ENV_PATH)) return;
+/**
+ * Load `~/.kodo/.env` into `process.env` (simple KEY=VALUE parser). Load no-override:
+ * una key que ya exista en `process.env` NO se pisa.
+ *
+ * B5 (T-72-07): tras recortar el valor, hace un strip CONSERVADOR de comillas
+ * emparejadas — si el valor empieza y termina por la MISMA comilla (`"` o `'`), las
+ * quita. Solo pares en inicio Y fin; comillas sueltas internas se preservan. Así
+ * `KEY="valor con espacios"` carga `valor con espacios` sin las comillas.
+ *
+ * `envPath` es DI (default `ENV_PATH`) para tests contra un tmpdir sin depender de
+ * `KODO_DIR`/`HOME` (mismo patrón que `writeEnvVar`).
+ *
+ * @param {string} [envPath=ENV_PATH] - fichero .env a cargar; DI para tests.
+ * @returns {void}
+ */
+export function loadEnvFile(envPath = ENV_PATH) {
+  if (!existsSync(envPath)) return;
   try {
-    const content = readFileSync(ENV_PATH, 'utf-8');
+    const content = readFileSync(envPath, 'utf-8');
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
       const eq = trimmed.indexOf('=');
       if (eq === -1) continue;
       const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      // B5: strip conservador de comillas emparejadas (solo inicio Y fin, misma comilla).
+      if (
+        value.length >= 2 &&
+        ((value[0] === '"' && value.at(-1) === '"') ||
+          (value[0] === "'" && value.at(-1) === "'"))
+      ) {
+        value = value.slice(1, -1);
+      }
       if (!process.env[key]) {
         process.env[key] = value;
       }
@@ -93,14 +118,29 @@ function ensureDir() {
  * durabilidad ante corte de energía (fsync del fichero + del dir) se difiere — el
  * config se regenera trivialmente.
  *
+ * M5 (T-72-05, boundary PERSIST-04): si el contenido serializado incluye una clave
+ * que matchea `*_secret` (sufijo `_secret`), el `.tmp` se crea con `mode:0o600` y se
+ * chmodea a 0600 ANTES del `renameSync` — espejo exacto de la técnica de `writeEnvVar`
+ * (write con mode → chmodSync pre-rename → rename). Defensa en profundidad: config.json
+ * no debería llevar secretos (viven en `~/.kodo/.env` vía writeEnvVar), pero si los
+ * lleva NO puede quedar world-readable ni un instante. Sin `*_secret`, los permisos
+ * quedan como hoy (umask del proceso).
+ *
  * @param {string} path - destino final.
  * @param {string} data - contenido ya serializado (incluye el `\n` final).
  * @returns {void}
  */
 function writeFileAtomic(path, data) {
   const tmp = path + '.tmp';
-  writeFileSync(tmp, data); // si lanza, `path` no se tocó
-  renameSync(tmp, path);    // swap atómico intra-fs
+  // M5: detecta claves `*_secret` en el contenido JSON (p.ej. "api_key_secret": ...).
+  const hasSecret = /"[^"]*_secret"\s*:/.test(data);
+  if (hasSecret) {
+    writeFileSync(tmp, data, { mode: 0o600 }); // mode sujeto a umask
+    chmodSync(tmp, 0o600); // garantía exacta 0600, PRE-rename (espejo writeEnvVar)
+  } else {
+    writeFileSync(tmp, data); // si lanza, `path` no se tocó
+  }
+  renameSync(tmp, path); // swap atómico intra-fs
 }
 
 /**
@@ -157,13 +197,83 @@ function migrateConfigIfNeeded(rawConfig) {
   return newConfig;
 }
 
+/**
+ * Deep-merge puro para B7: `source` (config del usuario, posiblemente parcial) sobre
+ * `base` (los defaults). Objetos planos se mergean recursivamente; arrays y primitivos
+ * del usuario REEMPLAZAN el default (un array no se concatena — es el valor del
+ * operador). Ramas ausentes en el parcial caen al default. Never-throws.
+ *
+ * @param {any} base - objeto base (defaults).
+ * @param {any} source - objeto encima (config del usuario).
+ * @returns {any}
+ */
+function deepMerge(base, source) {
+  const out = { ...base };
+  for (const [k, v] of Object.entries(source)) {
+    if (
+      v && typeof v === 'object' && !Array.isArray(v) &&
+      out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])
+    ) {
+      out[k] = deepMerge(out[k], v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Warn NDJSON never-throws a stderr (patrón lifecycle.js — config.js no puede
+ *  importar logger.js: logger.js importa config.js → ciclo). */
+function warnConfig(event, meta) {
+  try {
+    process.stderr.write(JSON.stringify({ level: 'warn', component: 'config', event, ...(meta || {}) }) + '\n');
+  } catch { /* never-throws */ }
+}
+
+/**
+ * B7 (T-72-06, D-10 — warn-and-fallback, NUNCA crash): deep-mergea una config parseada
+ * (posiblemente parcial) sobre `DEFAULT_CONFIG` y valida los campos conocidos
+ * reutilizando `src/config-validate.js` (NO duplica validación). Un valor inválido
+ * (p.ej. `max_parallel:-5`) cae a su default con un warn NDJSON a stderr.
+ *
+ * La base es un `structuredClone` de `DEFAULT_CONFIG`: el resultado NUNCA comparte
+ * referencias con los defaults (un caller que mute el config devuelto no puede
+ * contaminar `DEFAULT_CONFIG` in-proceso).
+ *
+ * Pura salvo el warn a stderr; never-throws por construcción (los validadores de
+ * config-validate.js son never-throws; `getByPath`/`setByPath` también).
+ *
+ * @param {object} parsed - config parseada (y ya migrada) del disco.
+ * @returns {typeof DEFAULT_CONFIG}
+ */
+export function mergeAndValidateConfig(parsed) {
+  const merged = deepMerge(structuredClone(DEFAULT_CONFIG), parsed || {});
+  for (const field of getEditableFields(merged)) {
+    const current = getByPath(merged, field.path);
+    if (current === undefined) continue; // sin valor (p.ej. provider sin default) → nada que validar
+    const res = validateField(field, current);
+    if (!res.ok) {
+      const fallback = getByPath(DEFAULT_CONFIG, field.path);
+      if (fallback !== undefined) {
+        setByPath(merged, field.path, fallback);
+        warnConfig('config.invalid_value', { path: field.path, error: res.error, fallback });
+      } else {
+        // Sin default conocido (p.ej. providers.github.*, D-08): warn sin tocar el valor.
+        warnConfig('config.invalid_value', { path: field.path, error: res.error });
+      }
+    }
+  }
+  return merged;
+}
+
 /** @returns {typeof DEFAULT_CONFIG} */
 export function loadConfig() {
   ensureDir();
   if (!existsSync(CONFIG_PATH)) return { ...DEFAULT_CONFIG };
   try {
     const parsed = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'));
-    return migrateConfigIfNeeded(parsed);
+    // B7: deep-merge sobre DEFAULT_CONFIG + validación warn-and-fallback (D-10).
+    return mergeAndValidateConfig(migrateConfigIfNeeded(parsed));
   } catch {
     return { ...DEFAULT_CONFIG };
   }
