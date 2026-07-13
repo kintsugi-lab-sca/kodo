@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 71
-current_phase_name: Fiabilidad de entrega y backstop
+current_phase: 72
+current_phase_name: Higiene, DX y verdad documental
 status: executing
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T10:40:05.766Z"
-last_activity: 2026-07-07
-last_activity_desc: Phase 71 execution started
+last_updated: "2026-07-13T11:36:01.888Z"
+last_activity: 2026-07-13
+last_activity_desc: Phase 72 execution started
 progress:
   total_phases: 3
   completed_phases: 0
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first. **v0.16 endurece: cierra la superficie de red, hace segura la concurrencia multiproceso, garantiza la entrega de dispatches con backstop mecánico, y salda la higiene y la deriva documental** (remediación de la auditoría adversarial 2026-07-03, 9 ALTA re-verificados 2026-07-05).
 
-**Current focus:** Phase 71 — Fiabilidad de entrega y backstop
+**Current focus:** Phase 72 — Higiene, DX y verdad documental
 
 ## Current Position
 
-Phase: 71 (Fiabilidad de entrega y backstop) — EXECUTING
-Plan: 5 of 5
+Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-07 — Phase 71 execution started
+Last activity: 2026-07-13 — Phase 72 execution started
 
 ## Roadmap v0.16 (activo)
 
@@ -111,7 +111,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/72-higiene-dx-y-verdad-documental/72-CONTEXT.md
 
-- **Last session:** 2026-07-13T10:40:05.759Z
+- **Last session:** 2026-07-13T11:35:27.501Z
 - **Stopped at:** Phase 72 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -144,6 +144,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 71 P03 | 25min | 2 tasks | 4 files |
 | Phase 71 P04 | 3min | 2 tasks | 3 files |
 | Phase 71 P05 | 5min | 2 tasks | 4 files |
+| Phase 72 P01 | 15min | 2 tasks | 6 files |
 
 ## Decisions
 
@@ -164,3 +165,5 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase 71]: Backstop de In Review en SessionEnd (DELIV-04): transiciona a review + comenta «cierre automático» solo si getTaskState==='in_progress'; capability-gated por typeof (GitHub degrada), idempotente frente al LLM, fail-open por paso
 - [Phase ?]: 71-04: cablear recuperación idempotente de adopt en el CLI vía flags --task-url/--task-id (DELIV-03)
 - [Phase 71]: 71-05 (gap-closure DELIV-04): gate de estado NO-terminal en runReviewBackstop — el backstop NUNCA cierra issues de GitHub. Predicado puro never-throws isTerminalReviewState(reviewState, providerCfg) provider-agnostic vía states.done + token nativo 'closed'. GitHub ('closed') → no-op con log de skip; Plane ('In review') transiciona como hoy. Premisa falsa D-13 (GitHub degrada por capability-gating) CORREGIDA: GitHub SÍ implementa las 3 capacidades; su no-op deriva del gate de estado no-terminal. Descartado el gate verdict.action==='pass'.
+- [Phase ?]: [72-01] Auto-commit del orquestador gated por KODO_ORCHESTRATOR=1 + pathspec .claude/skills/kodo-orchestrate/ en add y commit (HYG-01); efectos de cierre (color/notify/nudge) movidos de Stop a SessionEnd tras el backstop DELIV-04, cada uno never-throws (HYG-04).
+- [Phase ?]: [72-01] git commit lleva -m ANTES de -- <pathspec>; KODO_ROOT se fija a nivel de módulo en el test HYG-01 porque session-end.js importa stop.js transitivamente.

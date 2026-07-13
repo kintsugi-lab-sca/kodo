@@ -199,12 +199,12 @@ Plans:
   4. El batch de BAJAS mecánicas (B1, B2, B3, B4, B8, B9, B12 + M12 `[-–—]` en roadmap) queda aplicado en diffs de 1–5 líneas. (HYG-06)
   5. El README refleja la realidad: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados y `--dangerously-skip-permissions` documentado en sesiones GSD. (HYG-08)
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 72-01-PLAN.md — Hooks: gate `KODO_ORCHESTRATOR` + pathspec en el auto-commit del orquestador (HYG-01) + mover color/notify/nudge de `Stop` a `SessionEnd` tras el backstop (HYG-04) (Wave 1)
+- [x] 72-01-PLAN.md — Hooks: gate `KODO_ORCHESTRATOR` + pathspec en el auto-commit del orquestador (HYG-01) + mover color/notify/nudge de `Stop` a `SessionEnd` tras el backstop (HYG-04) (Wave 1)
 - [ ] 72-02-PLAN.md — Borrado de código muerto (`up --url` HYG-02, loop de health HYG-03) + endurecimiento de config (M3/M14/B5/B7/M5, HYG-05) (Wave 1)
 - [ ] 72-03-PLAN.md — Batch de BAJAS mecánicas: B1, B2, B3, B4, B8, B9, B12 + M12 en diffs de 1-5 líneas (HYG-06) (Wave 1)
 - [ ] 72-04-PLAN.md — Strip de `\x1b`/OSC en la proyección de comentarios del dashboard (HYG-07) (Wave 1)
@@ -220,7 +220,7 @@ Plans:
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
 | 71. Fiabilidad de entrega y backstop | 5/5 | Complete   | 2026-07-09 |
-| 72. Higiene, DX y verdad documental | 0/5 | Not started | - |
+| 72. Higiene, DX y verdad documental | 1/5 | In Progress|  |
 
 ## Backlog
 
