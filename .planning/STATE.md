@@ -6,7 +6,7 @@ current_phase: 72
 current_phase_name: Higiene, DX y verdad documental
 status: executing
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T12:25:38.002Z"
+last_updated: "2026-07-13T12:41:57.223Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 72 execution started
 progress:
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 72 execution started
 
@@ -111,7 +111,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/72-higiene-dx-y-verdad-documental/72-CONTEXT.md
 
-- **Last session:** 2026-07-13T12:24:49.840Z
+- **Last session:** 2026-07-13T12:41:49.783Z
 - **Stopped at:** Phase 72 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -146,6 +146,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 71 P05 | 5min | 2 tasks | 4 files |
 | Phase 72 P01 | 15min | 2 tasks | 6 files |
 | Phase 72 P02 | 45 min | 3 tasks | 6 files |
+| Phase Phase 72 P03 P03 | 35 | 3 tasks | 13 files |
 
 ## Decisions
 
@@ -171,3 +172,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase 72]: M3/M14 extraídos a src/cli/config-args.js (módulo puro) — cli.js ejecuta program.parse() al import y no es unit-testeable
 - [Phase 72]: Warn NDJSON de B7 directo a stderr (patrón lifecycle.js) — logger.js importa config.js — un import inverso crearía ciclo
 - [Phase 72]: mergeAndValidateConfig usa structuredClone(DEFAULT_CONFIG) como base del merge — mutar el config devuelto no puede contaminar los defaults in-proceso
+- [Phase ?]: 72-03: Batch BAJAS HYG-06 aplicado (10 micro-diffs). B12b diferido: formato x-ratelimit-reset de Plane self-hosted no confirmable barato (Open Question #2/D-02).
