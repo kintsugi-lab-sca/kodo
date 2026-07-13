@@ -22,7 +22,7 @@ program
   .option('--set <key=value>', 'Set a config value (dot notation: plane.workspace_slug=klab)')
   .option('--map-project <projectId:path>', 'Map a Plane project ID to a local path')
   .action(async (opts) => {
-    const { loadConfig, saveConfig, loadProjects, saveProjects } = await import('./config.js');
+    const { loadConfig, loadRawConfig, saveConfig, loadProjects, saveProjects } = await import('./config.js');
     const { setNestedValue, parseSetArg, parseMapProjectArg } = await import('./cli/config-args.js');
 
     if (opts.show) {
@@ -40,7 +40,12 @@ program
         console.error('Usage: --set key=value (e.g. plane.workspace_slug=klab)');
         process.exit(1);
       }
-      const config = loadConfig();
+      // WR-05: se lee/muta/guarda el config CRUDO de disco (loadRawConfig), NO loadConfig().
+      // Tras B7, loadConfig() devuelve el merge completo con DEFAULT_CONFIG; persistir ESO
+      // congelaría todos los defaults en ~/.kodo/config.json (pinning: los cambios futuros de
+      // DEFAULT_CONFIG dejarían de aplicar, y amplificaría CR-01 persistiendo el host hardcodeado).
+      // Config ausente → {} (solo se persiste la clave puesta; loadConfig mergea en runtime).
+      const config = loadRawConfig() ?? {};
       try {
         // M3: setNestedValue rechaza __proto__/constructor/prototype (prototype pollution).
         setNestedValue(config, key, value);
