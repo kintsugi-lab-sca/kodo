@@ -66,10 +66,13 @@ export function visibleWidth(s) {
  * NO el vector OSC (`\x1b]…`, p.ej. OSC-52 = escritura al portapapeles del
  * operador). Este helper es un strip AMPLIO e independiente (Don't-Hand-Roll):
  *   1. Elimina las secuencias CSI completas (deja el texto visible limpio).
- *   2. Elimina TODO byte de control C0/C1 y `\x7f` — incluido `\x1b` (ESC, que
- *      cae en `\x0e-\x1f`) y `\x07` (BEL) — con lo que cualquier OSC/secuencia
- *      de escape queda inerte (sin ESC no hay secuencia interpretable).
- * PRESERVA `\n` (`\x0a`) y `\t` (`\x09`). Nunca lanza: coacciona con `String(s)`.
+ *   2. Elimina TODO byte de control C0 y C1 + `\x7f` (DEL) — incluido `\x1b` (ESC),
+ *      `\x07` (BEL), `\x0d` (CR), y los C1 `\x80-\x9f` (WR-02): U+009B (CSI de un
+ *      solo byte) y U+009D (OSC) que algunos terminales interpretan SIN ESC previo.
+ *      Con ello cualquier OSC/secuencia de escape queda inerte.
+ * PRESERVA únicamente `\t` (`\x09`) y `\n` (`\x0a`). `\r` (`\x0d`) SÍ se elimina
+ * (WR-02: evita que un contenido externo reescriba visualmente el inicio de su línea).
+ * Nunca lanza: coacciona con `String(s)`.
  *
  * @param {unknown} s
  * @returns {string}
@@ -78,9 +81,9 @@ export function stripControlChars(s) {
   return String(s)
     // 1. Secuencias CSI completas (`\x1b[…letra`) → fuera, dejando el texto.
     .replace(/\x1b\[[\d;]*[A-Za-z]/g, '')
-    // 2. Bytes de control C0/C1 + DEL (incluye ESC `\x1b` y BEL `\x07`),
-    //    preservando `\t` (\x09), `\n` (\x0a) y `\r` (\x0d).
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    // 2. Bytes de control C0 (incl. ESC `\x1b`, BEL `\x07`, CR `\x0d`) + DEL + C1
+    //    (`\x80-\x9f`), preservando SOLO `\t` (\x09) y `\n` (\x0a).
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 }
 
 /**

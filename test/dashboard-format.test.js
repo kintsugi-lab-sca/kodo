@@ -380,11 +380,24 @@ describe('HYG-07 (M4): stripControlChars neutraliza inyección de terminal', () 
   });
 
   it('Test 4: preserva `\\n` y `\\t`; elimina el resto de C0/C1 y `\\x7f`', () => {
-    assert.equal(stripControlChars('a\nb\tc'), 'a\nb\tc', 'preserva \\n y \\t');
+    assert.equal(stripControlChars('a\nb\tc'), 'a\nb\tc', 'preserva SOLO \\n y \\t');
     assert.equal(
       stripControlChars('a\x00b\x08c\x0bd\x0ce\x1ff\x7fg'),
       'abcdefg',
-      'elimina los demás C0/C1 y \\x7f',
+      'elimina los demás C0 y \\x7f',
+    );
+  });
+
+  it('Test 4b (WR-02): elimina `\\r` (CR) — no permite reescribir el inicio de la línea', () => {
+    assert.equal(stripControlChars('inocente\rMALICIOSO'), 'inocenteMALICIOSO', '\\r se elimina');
+  });
+
+  it('Test 4c (WR-02): elimina los controles C1 (`\\x80-\\x9f`), incl. CSI/OSC de un solo byte', () => {
+    // U+009B (CSI de un byte) y U+009D (OSC) que algunos terminales interpretan sin ESC.
+    assert.equal(
+      stripControlChars('a\x80b\x9bc\x9dd\x9fe'),
+      'abcde',
+      'los bytes C1 se eliminan (contrato del docstring)',
     );
   });
 
