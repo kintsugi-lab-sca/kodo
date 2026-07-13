@@ -5,6 +5,8 @@ import { homedir } from 'node:os';
 // B7 (D-10): validación de loadConfig REUTILIZA config-validate.js — no se duplica.
 // Import seguro sin ciclo: config-validate.js es puro (0 imports de este módulo).
 import { validateField, getEditableFields, getByPath, setByPath } from './config-validate.js';
+// WR-01: mismas claves prohibidas que M3 (config-args.js es puro, 0 imports de este módulo → sin ciclo).
+import { FORBIDDEN_KEYS } from './cli/config-args.js';
 
 const KODO_DIR = join(homedir(), '.kodo');
 const CONFIG_PATH = join(KODO_DIR, 'config.json');
@@ -203,6 +205,11 @@ function migrateConfigIfNeeded(rawConfig) {
  * del usuario REEMPLAZAN el default (un array no se concatena — es el valor del
  * operador). Ramas ausentes en el parcial caen al default. Never-throws.
  *
+ * WR-01: filtra las mismas claves de prototype-pollution que M3 (`__proto__`/`constructor`/
+ * `prototype`). `JSON.parse` crea `__proto__` como own-property, así que sin este filtro un
+ * `config.json` con `{"__proto__":{...}}` dispararía el setter del prototipo al asignar
+ * `out[k] = v` — reintroduciendo el vector que M3 cierra en la ruta hermana (`setNestedValue`).
+ *
  * @param {any} base - objeto base (defaults).
  * @param {any} source - objeto encima (config del usuario).
  * @returns {any}
@@ -210,6 +217,7 @@ function migrateConfigIfNeeded(rawConfig) {
 function deepMerge(base, source) {
   const out = { ...base };
   for (const [k, v] of Object.entries(source)) {
+    if (FORBIDDEN_KEYS.has(k)) continue; // WR-01: nunca caminar claves de prototype pollution
     if (
       v && typeof v === 'object' && !Array.isArray(v) &&
       out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])

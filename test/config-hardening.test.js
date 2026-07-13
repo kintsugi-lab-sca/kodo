@@ -155,6 +155,23 @@ describe('B7 (T-72-06) — mergeAndValidateConfig: deep-merge + warn-and-fallbac
     assert.equal(DEFAULT_CONFIG.cmux.colors.running, 'Amber');
   });
 
+  it('WR-01: deepMerge filtra `__proto__` (own-property de JSON.parse) — no hay prototype spoofing', () => {
+    // `JSON.parse` crea `__proto__` como own-property; sin filtro, `out[k]=v` dispararía el setter
+    // del prototipo y el merged heredaría claves arbitrarias del fichero (mismo vector que M3 cierra).
+    const merged = mergeAndValidateConfig(JSON.parse('{"__proto__":{"polluted":true}}'));
+    assert.equal(merged.polluted, undefined, 'el merged NO hereda claves inyectadas vía __proto__');
+    assert.equal(({}).polluted, undefined, 'Object.prototype global intacto');
+    // La rama estructural real sigue rellenada desde los defaults (el filtro no rompe el merge).
+    assert.equal(merged.providers.plane.base_url, DEFAULT_CONFIG.providers.plane.base_url);
+  });
+
+  it('WR-01: deepMerge ignora `constructor`/`prototype` como claves de config', () => {
+    const merged = mergeAndValidateConfig(JSON.parse('{"constructor":{"x":1},"prototype":{"y":2}}'));
+    // Las claves prohibidas se saltan (no se copian como own-properties de datos).
+    assert.equal(Object.hasOwn(merged, 'prototype'), false);
+    assert.equal(merged.server.port, DEFAULT_CONFIG.server.port);
+  });
+
   it('loadConfig end-to-end (subproceso, HOME aislado): config inválida → default + warn NDJSON, exit 0', () => {
     const home = mkdtempSync(join(tmpdir(), 'kodo-hardening-home-'));
     try {
