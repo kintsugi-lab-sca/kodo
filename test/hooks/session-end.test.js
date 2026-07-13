@@ -25,6 +25,24 @@ function makeLogger() {
   return { logger, events };
 }
 
+/**
+ * Cmux stub — registra las llamadas de los efectos de cierre (HYG-04) para
+ * asserts. Sin inyectarlo, runSessionEndHook usaría el cmux real (conexión a
+ * cmuxd + loadConfig) al disparar los efectos tras el cleanup.
+ */
+function makeCmuxStub() {
+  const calls = [];
+  return {
+    stub: {
+      setColor: async (args) => { calls.push({ fn: 'setColor', args }); },
+      notify: async (args) => { calls.push({ fn: 'notify', args }); },
+      listWorkspaces: async () => { calls.push({ fn: 'listWorkspaces' }); return ''; },
+      send: async (args) => { calls.push({ fn: 'send', args }); },
+    },
+    calls,
+  };
+}
+
 function makeSession(overrides = {}) {
   return {
     session_id: 's-end-1',
@@ -54,6 +72,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
       },
     );
     const end = events.find((e) => e.fields?.event === 'session.end');
@@ -73,6 +92,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
       },
     );
     assert.deepEqual(removed, [], 'NO remueve una sesión ya archivada');
@@ -88,6 +108,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => null,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
       },
     );
     assert.deepEqual(removed, [], 'nada que remover');
@@ -104,10 +125,108 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           removeSessionFn: () => { throw new Error('state.json locked'); },
           loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         },
       ),
       'el hook nunca debe rechazar (never-throws / fail-open)',
     );
+  });
+});
+
+describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', () => {
+  it('dispara setColor(review) + notify + nudge DESPUÉS del cleanup terminal', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    // listWorkspaces devuelve el orquestador para que el nudge dispare el send.
+    cmuxStub.listWorkspaces = async () => {
+      calls.push({ fn: 'listWorkspaces' });
+      return 'workspace:9 kodo-orchestrator\n';
+    };
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: (id) => removed.push(id),
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+      },
+    );
+
+    const setColor = calls.find((c) => c.fn === 'setColor');
+    const notify = calls.find((c) => c.fn === 'notify');
+    const send = calls.find((c) => c.fn === 'send');
+    assert.ok(setColor, 'invoca setColor(review) en SessionEnd');
+    assert.equal(setColor.args.workspace, session.workspace_ref, 'colorea el workspace de la sesión');
+    assert.ok(notify, 'invoca notify de cierre en SessionEnd');
+    assert.equal(notify.args.title, `kodo: ${session.task_ref} cerrada`, 'título de cierre');
+    assert.ok(send, 'invoca el nudge (send) al orquestador');
+    assert.equal(send.args.workspace, 'workspace:9', 'usa el ref del orquestador resuelto');
+    assert.match(send.args.text, /está en Review/, 'el texto del nudge proviene de buildStopNudgeText');
+    // El cleanup (removeSession) corre ANTES de los efectos cosméticos.
+    assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió');
+  });
+
+  it('los efectos van DESPUÉS del backstop (session.backstop.review precede a setColor)', async () => {
+    const session = makeSession();
+    const seq = [];
+    const events = [];
+    const logger = {
+      info: (m, f) => { events.push({ level: 'info', msg: m, fields: f }); if (f?.event === 'session.backstop.review') seq.push('backstop'); },
+      warn: () => {},
+      error: () => {},
+      debug: () => {},
+      child: () => logger,
+    };
+    const { provider } = makeProvider({ state: 'in_progress' });
+    const cmuxStub = {
+      setColor: async () => { seq.push('setColor'); },
+      notify: async () => { seq.push('notify'); },
+      listWorkspaces: async () => '',
+      send: async () => {},
+    };
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        provider,
+        config: makeConfig(),
+        cmux: cmuxStub,
+      },
+    );
+    assert.deepEqual(seq, ['backstop', 'setColor', 'notify'], 'orden LOCKED: backstop → setColor → notify (D-08)');
+  });
+
+  it('never-throws: un setColor que lanza NO impide notify, send ni el cleanup', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const calls = [];
+    const cmuxStub = {
+      setColor: async () => { calls.push('setColor'); throw new Error('cmux down'); },
+      notify: async () => { calls.push('notify'); },
+      listWorkspaces: async () => { calls.push('listWorkspaces'); return 'workspace:9 kodo-orchestrator\n'; },
+      send: async () => { calls.push('send'); },
+    };
+    const removed = [];
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          removeSessionFn: (id) => removed.push(id),
+          loggerFactory: () => logger,
+          cmux: cmuxStub,
+        },
+      ),
+      'un fallo de setColor nunca crashea el hook (never-throws individual)',
+    );
+    assert.ok(calls.includes('setColor'), 'intentó setColor');
+    assert.ok(calls.includes('notify'), 'notify corre pese al fallo de setColor');
+    assert.ok(calls.includes('send'), 'el nudge corre pese al fallo de setColor');
+    assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió antes de los efectos');
   });
 });
 
@@ -153,6 +272,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: makeConfig(),
       },
@@ -182,6 +302,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: makeConfig(),
       },
@@ -203,6 +324,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: makeConfig(),
       },
@@ -224,6 +346,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
           provider,
           config: makeConfig(),
         },
@@ -249,6 +372,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
           provider,
           config: makeConfig(),
         },
@@ -269,6 +393,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: () => {},
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: makeConfig('QA Column'),
       },
@@ -295,6 +420,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: { provider: 'github', providers: { github: { states: { review: 'closed' } } } },
       },
@@ -331,6 +457,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: { provider: 'plane', providers: { plane: { states: { review: 'In review', done: 'Done' } } } },
       },
@@ -356,6 +483,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
         provider,
         config: { provider: 'x', providers: { x: { states: { review: 'Done', done: 'Done' } } } },
       },
@@ -380,6 +508,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           removeSessionFn: () => {},
           loggerFactory: () => logger,
+        cmux: makeCmuxStub().stub,
           provider,
           // states.done no-string y review no-terminal: el gate debe tolerarlo sin lanzar.
           config: { provider: 'plane', providers: { plane: { states: { review: 'In review', done: 123 } } } },

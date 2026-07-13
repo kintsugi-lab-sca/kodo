@@ -14,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
 import { getSessionMode } from '../labels.js';
 import * as cmux from '../cmux/client.js';
-import { colorForStatus } from '../cmux/colors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..');
@@ -82,8 +81,9 @@ async function readStdin() {
  *
  * W-4 deps enumeration:
  *   - findSessionFn: mandatory para tests (lookup en fixture sintético)
- *   - cmux: mandatory para aislamiento — el flow invoca setColor/notify/listWorkspaces/send
- *           tanto en GSD como no-GSD; sin stub los tests intentarían conectar a cmuxd real.
+ *   - cmux: aceptado por compatibilidad de firma; Phase 72 HYG-04 movió los
+ *           efectos cmux (setColor/notify/send) a SessionEnd, así que runStopHook
+ *           ya NO lo consume (los tests legacy aún lo inyectan sin efecto).
  *   - loggerFactory: mandatory para captura de state.transition
  *
  * Phase 58 LIFE-03: `removeSessionFn`/`gitFn` ya NO son deps de Stop — el cleanup
@@ -116,8 +116,10 @@ async function readStdin() {
  */
 export async function runStopHook(input, deps = {}) {
   // W-4: defaults vía OR — runtime productivo usa los imports estáticos.
+  // Phase 72 HYG-04: `deps.cmux` ya NO se consume en runStopHook (los efectos
+  // cmux migraron a SessionEnd); se acepta en la firma por compatibilidad con
+  // los tests existentes que aún lo inyectan.
   const findSessionFn = deps.findSessionFn || findSession;
-  const cmuxClient = deps.cmux || cmux;
   try {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
@@ -150,25 +152,12 @@ export async function runStopHook(input, deps = {}) {
 
     const { id, session } = result;
 
-    // The active Claude session owns all Plane interactions (comments +
-    // state transition to review). The hook only performs mechanical
-    // cleanup: cmux color + local state removal.
-    try {
-      await cmuxClient.setColor({
-        workspace: session.workspace_ref,
-        color: colorForStatus('review'),
-      });
-    } catch (err) {
-      console.error(`[kodo] Error setting color: ${err.message}`);
-    }
-
-    try {
-      await cmuxClient.notify({
-        title: `kodo: ${session.task_ref} cerrada`,
-        body: session.summary,
-        workspace: session.workspace_ref,
-      });
-    } catch {}
+    // Phase 72 HYG-04: los efectos de cierre COSMÉTICOS (setColor review, notify
+    // "cerrada", nudge al orquestador) se MOVIERON a runSessionEndHook — disparan
+    // UNA vez al cierre real, no al final de cada turno. Stop conserva SOLO el
+    // estado ligero: markSessionStatus('idle') + releaseGsdLock. La sesión sigue
+    // "viva" en el dashboard entre turnos; el cierre real (SessionEnd) hace el
+    // resto.
 
     // Phase 19 CR-02 fix: markSessionStatus aplica a TODAS las sesiones (GSD + no-GSD)
     // para que el observable NDJSON refleje el estado real per-turn (idle/lock-released).
@@ -230,17 +219,9 @@ export async function runStopHook(input, deps = {}) {
     // viva en el dashboard entre turnos sin depender del rescate desde history de
     // reconcileTick; el cleanup terminal ocurre UNA vez al cierre real (`/exit`).
 
-    // Notify orchestrator if running
-    try {
-      const workspaces = await cmuxClient.listWorkspaces();
-      const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
-      if (orchMatch) {
-        await cmuxClient.send({
-          workspace: orchMatch[1],
-          text: buildStopNudgeText(session),
-        });
-      }
-    } catch {}
+    // Phase 72 HYG-04: el nudge al orquestador (buildStopNudgeText) se MOVIÓ a
+    // runSessionEndHook — dispara al cierre real, no por turno. buildStopNudgeText
+    // permanece EXPORTADA aquí (la importan tests y ahora session-end.js).
 
     // Session stays in state with status "review" — orchestrator or human removes it after approval
   } catch (err) {

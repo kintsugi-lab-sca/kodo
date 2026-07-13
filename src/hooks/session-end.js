@@ -16,6 +16,11 @@
 import { fileURLToPath } from 'node:url';
 import { findSession, removeSession } from '../session/state.js';
 import { performTerminalCleanup } from './terminal-cleanup.js';
+// Phase 72 HYG-04: efectos de cierre COSMÉTICOS movidos desde stop.js. Disparan
+// al cierre REAL de la sesión (una vez), no al final de cada turno.
+import * as cmux from '../cmux/client.js';
+import { colorForStatus } from '../cmux/colors.js';
+import { buildStopNudgeText } from './stop.js';
 
 const STDIN_TIMEOUT = 3000;
 
@@ -46,12 +51,16 @@ async function readStdin() {
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
  *   provider?: any,
  *   config?: any,
+ *   cmux?: typeof cmux,
  * }} [deps]
  * @returns {Promise<void>}
  */
 export async function runSessionEndHook(input, deps = {}) {
   const findSessionFn = deps.findSessionFn || findSession;
   const removeSessionFn = deps.removeSessionFn || removeSession;
+  // Phase 72 HYG-04: cmux inyectable (default lazy al import estático) para los
+  // efectos de cierre cosméticos — mismo patrón DI que stop.js.
+  const cmuxClient = deps.cmux || cmux;
   try {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
@@ -154,6 +163,45 @@ export async function runSessionEndHook(input, deps = {}) {
       loggerFactory: deps.loggerFactory,
       removeSessionFn,
     });
+
+    // ── Efectos de cierre cosméticos (HYG-04, Phase 72) ────────────────────
+    // MOVIDOS desde runStopHook: disparan UNA vez al cierre REAL (no por turno).
+    // Orden LOCKED (D-08): van al FINAL, DESPUÉS de runReviewBackstop (:117) y del
+    // cleanup terminal — nunca antes, para no alterar la transición de estado del
+    // backstop DELIV-04. Cada efecto en su propio try/catch (never-throws
+    // individual): un fallo de cmux NUNCA aborta los demás efectos ni el cleanup.
+
+    // 1. Color review sobre el workspace de la sesión.
+    try {
+      await cmuxClient.setColor({
+        workspace: session.workspace_ref,
+        color: colorForStatus('review'),
+      });
+    } catch (err) {
+      console.error(`[kodo] Error setting color: ${/** @type {Error} */ (err).message}`);
+    }
+
+    // 2. Notificación de cierre.
+    try {
+      await cmuxClient.notify({
+        title: `kodo: ${session.task_ref} cerrada`,
+        body: session.summary,
+        workspace: session.workspace_ref,
+      });
+    } catch {}
+
+    // 3. Nudge al orquestador si está corriendo (mismo match que el código
+    //    original de stop.js). buildStopNudgeText importado desde stop.js.
+    try {
+      const workspaces = await cmuxClient.listWorkspaces();
+      const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
+      if (orchMatch) {
+        await cmuxClient.send({
+          workspace: orchMatch[1],
+          text: buildStopNudgeText(session),
+        });
+      }
+    } catch {}
   } catch (err) {
     console.error(`[kodo] SessionEnd hook error: ${/** @type {Error} */ (err).message}`);
   }
