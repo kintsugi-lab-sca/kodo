@@ -23,6 +23,7 @@ program
   .option('--map-project <projectId:path>', 'Map a Plane project ID to a local path')
   .action(async (opts) => {
     const { loadConfig, saveConfig, loadProjects, saveProjects } = await import('./config.js');
+    const { setNestedValue, parseSetArg, parseMapProjectArg } = await import('./cli/config-args.js');
 
     if (opts.show) {
       const config = loadConfig();
@@ -33,20 +34,28 @@ program
     }
 
     if (opts.set) {
-      const [key, value] = opts.set.split('=');
+      // M14: parseo por indexOf → el value preserva `=` internos (token=a=b=c).
+      const { key, value } = parseSetArg(opts.set);
       if (!key || value === undefined) {
         console.error('Usage: --set key=value (e.g. plane.workspace_slug=klab)');
         process.exit(1);
       }
       const config = loadConfig();
-      setNestedValue(config, key, value);
+      try {
+        // M3: setNestedValue rechaza __proto__/constructor/prototype (prototype pollution).
+        setNestedValue(config, key, value);
+      } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
       saveConfig(config);
       console.log(`Set ${key} = ${value}`);
       return;
     }
 
     if (opts.mapProject) {
-      const [projectId, localPath] = opts.mapProject.split(':');
+      // M14: parseo por indexOf → localPath preserva `:` internos (rutas absolutas).
+      const { projectId, localPath } = parseMapProjectArg(opts.mapProject);
       if (!projectId || !localPath) {
         console.error('Usage: --map-project projectId:/local/path');
         process.exit(1);
@@ -541,21 +550,6 @@ daemon
 program.parse();
 
 // --- Helpers ---
-
-/**
- * @param {object} obj
- * @param {string} path
- * @param {any} value
- */
-function setNestedValue(obj, path, value) {
-  const keys = path.split('.');
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!(keys[i] in current)) current[keys[i]] = {};
-    current = current[keys[i]];
-  }
-  current[keys[keys.length - 1]] = value;
-}
 
 /**
  * Checks if config.json exists. If not, launches the interactive wizard.
