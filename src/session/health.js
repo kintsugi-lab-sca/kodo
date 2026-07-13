@@ -146,39 +146,3 @@ function detectIdle(screen) {
 
   return false;
 }
-
-/** @type {ReturnType<typeof setInterval>|null} */
-let healthInterval = null;
-
-/**
- * Start periodic health checks
- * @param {{ intervalMs?: number }} [opts]
- */
-export function startHealthLoop(opts = {}) {
-  const intervalMs = opts.intervalMs || 60_000; // Default: every minute
-
-  console.log(`[kodo:health] Starting health checks every ${intervalMs / 1000}s`);
-
-  // Run immediately, then on interval
-  runHealthCheck();
-  healthInterval = setInterval(runHealthCheck, intervalMs);
-}
-
-export function stopHealthLoop() {
-  if (healthInterval) {
-    clearInterval(healthInterval);
-    healthInterval = null;
-  }
-}
-
-async function runHealthCheck() {
-  try {
-    const reports = await checkHealth();
-    const problems = reports.filter((r) => r.health !== 'healthy');
-    if (problems.length > 0) {
-      await actOnHealth(problems);
-    }
-  } catch (err) {
-    console.error(`[kodo:health] Error: ${err.message}`);
-  }
-}

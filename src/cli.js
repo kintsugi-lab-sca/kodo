@@ -72,15 +72,14 @@ program
 program
   .command('up')
   .description('Arranca el daemon en background y engancha el dashboard como visor')
-  .option('--url <baseUrl>', 'Base URL del server kodo (default: http://localhost:<config.server.port>)')
-  .action(async (opts) => {
+  .action(async () => {
     // SIN ensureConfig(): el wizard/first-run es Phase 68 (D-01) — `up` no debe
     // forzar setup aquí. runUp es never-throws/fail-open y resuelve baseUrl
-    // config-driven internamente; --url se reenvía para cuando up.js lo consuma.
+    // config-driven internamente (resolveBaseUrl → DEFAULT_CONFIG.server.port).
     // NO se llama process.exit tras runUp: el daemon queda vivo en su propio
     // process group (D-01) y runUp retorna al cerrar el visor.
     const { runUp } = await import('./cli/up.js');
-    await runUp({ url: opts.url });
+    await runUp();
   });
 
 // --- kodo start ---
