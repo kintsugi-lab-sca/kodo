@@ -6,6 +6,26 @@ import { homedir } from 'node:os';
 const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 
 /**
+ * Ficheros canónicos de los hooks de kodo. B9 (Phase 72): el match de
+ * install/uninstall se hace por el segmento de ruta `/src/hooks/<name>.js`
+ * (soporta separador POSIX y Windows) en vez del substring genérico `'kodo'`,
+ * que confundiría cualquier comando ajeno que mencione "kodo". Robusto ante la
+ * ubicación de instalación (global vs local): no exige la ruta absoluta completa.
+ */
+const KODO_HOOK_FILES = ['session-start.js', 'stop.js', 'session-end.js'];
+
+/**
+ * @param {unknown} command
+ * @returns {boolean} true si el comando invoca un hook canónico de kodo.
+ */
+function isKodoHookCommand(command) {
+  if (typeof command !== 'string') return false;
+  return KODO_HOOK_FILES.some(
+    (f) => command.includes(`/src/hooks/${f}`) || command.includes(`\\src\\hooks\\${f}`),
+  );
+}
+
+/**
  * Install kodo hooks into Claude Code settings.json
  * Adds SessionStart and Stop hooks without clobbering existing ones.
  * Phase 50.1 (DG-08): el hook de captura 50-02 (los eventos Task* →
@@ -79,7 +99,7 @@ export function uninstallHooks() {
     const before = settings.hooks[event].length;
     settings.hooks[event] = settings.hooks[event].filter((entry) => {
       const hooks = entry.hooks || [];
-      return !hooks.some((h) => h.command?.includes('kodo'));
+      return !hooks.some((h) => isKodoHookCommand(h.command));
     });
     if (settings.hooks[event].length !== before) changed = true;
   }
@@ -108,7 +128,7 @@ function addHook(hooks, event, command) {
   // Check if already installed
   const exists = hooks[event].some((entry) => {
     const h = entry.hooks || [];
-    return h.some((hook) => hook.command?.includes('kodo'));
+    return h.some((hook) => isKodoHookCommand(hook.command));
   });
 
   if (exists) return false;

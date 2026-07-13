@@ -64,6 +64,16 @@ async function registerDefaults() {
       // si lo invoca un caller real. Phase 24 verde implica config con github
       // presente.
       const github = config.providers?.github;
+      // B12d (Phase 72): guard + mensaje canónico. Sin este guard, un config sin
+      // bloque `providers.github` pasa `undefined` a createGitHubProvider →
+      // `TypeError: Cannot read properties of undefined (reading 'base_url')`,
+      // críptico y sin pista de la causa. Fallamos con un mensaje accionable
+      // (grep-friendly) que nombra la clave de config ausente.
+      if (!github) {
+        throw new Error(
+          'GitHub provider no configurado: define `providers.github` en ~/.kodo/config.json (base_url, api_key_env, repos, states).',
+        );
+      }
       // D-29: snake_case raw passthrough — el factory consume el sub-objeto tal
       // cual; sin transformación a camelCase (divergencia justificada vs plane).
       // logger se inyecta vía opts en callers (precedente PlaneProvider — el

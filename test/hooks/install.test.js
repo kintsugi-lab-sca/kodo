@@ -161,4 +161,32 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
     assert.equal(created.length, 0, 'NINGÚN TaskCreated kodo tras install (hook 50-02 demotado)');
     assert.equal(completed.length, 0, 'NINGÚN TaskCompleted kodo tras install (hook 50-02 demotado)');
   });
+
+  // B9 (Phase 72 HYG-06): el match de install/uninstall es por la RUTA canónica
+  // del hook (`/src/hooks/<name>.js`), no por el substring genérico `'kodo'`. Un
+  // comando ajeno que menciona "kodo" (p.ej. un script de notas del usuario) NO
+  // debe confundirse con un hook de kodo.
+  const FOREIGN_KODO_CMD = 'node /home/user/kodo-notes/reminder.js';
+
+  it('Test 6 (B9): un comando ajeno que menciona "kodo" NO bloquea la instalación', () => {
+    writeSettings({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: FOREIGN_KODO_CMD }] }] },
+    });
+    installHooks();
+    const ss = commandsOf(readSettings().hooks, 'SessionStart');
+    // Con el fix, el exists-check NO trata el comando ajeno como hook kodo → SÍ instala.
+    assert.ok(ss.some((c) => c.includes('/src/hooks/session-start.js')), 'el hook kodo SÍ se instala');
+    assert.ok(ss.includes(FOREIGN_KODO_CMD), 'el comando ajeno con "kodo" se preserva');
+  });
+
+  it('Test 6b (B9): uninstall NO elimina un comando ajeno que menciona "kodo"', () => {
+    writeSettings({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: FOREIGN_KODO_CMD }] }] },
+    });
+    installHooks(); // añade el session-start.js canónico junto al ajeno
+    uninstallHooks();
+    const ss = commandsOf(readSettings().hooks, 'SessionStart');
+    assert.ok(!ss.some((c) => c.includes('/src/hooks/session-start.js')), 'el hook kodo canónico se elimina');
+    assert.ok(ss.includes(FOREIGN_KODO_CMD), 'el comando ajeno con "kodo" NO se elimina');
+  });
 });

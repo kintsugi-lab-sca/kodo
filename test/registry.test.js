@@ -1,7 +1,39 @@
 // @ts-check
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TASK_PROVIDER_METHODS } from '../src/interface.js';
+
+// B12d (Phase 72): para ejercer el factory REAL de github (registrado por
+// initRegistry → registerDefaults, que lee loadConfig), redirigimos HOME a un
+// tmpdir ANTES de que config.js se importe. Escribimos un config v2 SÓLO con
+// providers.plane (sin providers.github) para probar que getProvider('github')
+// falla con el mensaje canónico, no con un TypeError críptico. Los demás tests
+// del fichero usan registerProvider (fakes) y no tocan loadConfig → intactos.
+const B12D_HOME = mkdtempSync(join(tmpdir(), 'kodo-b12d-home-'));
+process.env.HOME = B12D_HOME;
+mkdirSync(join(B12D_HOME, '.kodo'), { recursive: true });
+writeFileSync(
+  join(B12D_HOME, '.kodo', 'config.json'),
+  JSON.stringify(
+    {
+      provider: 'plane',
+      providers: {
+        plane: {
+          base_url: 'https://b12d.example.com',
+          api_key_env: 'B12D_KEY',
+          workspace_slug: 'b12d',
+          projects: [],
+          states: { trigger: 'In Progress', review: 'In review', done: 'Done' },
+        },
+      },
+    },
+    null,
+    2,
+  ) + '\n',
+);
 
 /** @type {import('../src/providers/registry.js')['getProvider']} */
 let getProvider;
@@ -149,5 +181,26 @@ describe('Provider Registry', () => {
     const first = getProvider('github');
     const second = getProvider('github');
     assert.equal(first, second, 'Expected same instance (singleton)');
+  });
+
+  // B12d (Phase 72 HYG-06): el factory REAL de github (vía initRegistry) sobre un
+  // config SIN providers.github produce el mensaje canónico, no un TypeError.
+  it('getProvider("github") sin providers.github lanza el mensaje canónico (no TypeError)', async () => {
+    const { initRegistry } = await import('../src/providers/registry.js');
+    clearRegistry();
+    await initRegistry(); // registra el factory REAL leyendo el config B12D (plane-only)
+    let thrown;
+    try {
+      getProvider('github');
+    } catch (e) {
+      thrown = e;
+    }
+    assert.ok(thrown, 'debe lanzar');
+    assert.match(thrown.message, /GitHub provider no configurado/, 'mensaje canónico accionable');
+    assert.doesNotMatch(
+      thrown.message,
+      /Cannot read propert/i,
+      'NO es el TypeError críptico de leer base_url de undefined',
+    );
   });
 });
