@@ -398,3 +398,46 @@ describe('HYG-07 (M4): stripControlChars neutraliza inyección de terminal', () 
     assert.equal(stripControlChars(undefined), 'undefined', 'undefined → "undefined" sin lanzar');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 04 Task 2 (HYG-07/M4): la proyección de comentarios de App.js
+// (:1696-1699) es el ÚNICO punto de entrada del contenido externo al render. Aquí
+// se replica exactamente ese map con el helper para asertar que las TRES ramas
+// (autor+body / String(body) / fallback JSON) quedan sin bytes de control — un
+// comentario con OSC-52 no puede inyectar en el terminal del operador.
+// ---------------------------------------------------------------------------
+describe('HYG-07 (Task 2): la proyección de comentarios sanea las tres ramas', () => {
+  const ESC = '\x1b';
+  const BEL = '\x07';
+
+  /** Réplica byte-idéntica de la proyección App.js:1696-1699 con el saneo cableado. */
+  const projectComments = (comments) =>
+    comments.map((c) => {
+      const body = c.body ?? c.text ?? c.message;
+      if (body == null) return stripControlChars(JSON.stringify(c));
+      return stripControlChars(c.author ? `${c.author}: ${body}` : String(body));
+    });
+
+  it('rama autor+body: un body con OSC-52 proyecta una línea sin ESC/BEL', () => {
+    const [line] = projectComments([{ author: 'evil', body: `${ESC}]52;c;AAAA${BEL}evil` }]);
+    assert.equal(line.includes(ESC), false, `sin ESC, fue ${JSON.stringify(line)}`);
+    assert.equal(line.includes(BEL), false, `sin BEL, fue ${JSON.stringify(line)}`);
+    assert.ok(line.includes('evil'), 'conserva el texto visible del comentario');
+  });
+
+  it('rama String(body) (sin autor): OSC-52 también se sanea', () => {
+    const [line] = projectComments([{ body: `${ESC}]52;c;AAAA${BEL}payload` }]);
+    assert.equal(line.includes(ESC), false, `sin ESC, fue ${JSON.stringify(line)}`);
+    assert.equal(line.includes(BEL), false, `sin BEL, fue ${JSON.stringify(line)}`);
+  });
+
+  it('rama fallback JSON.stringify (shape rara): también pasa por el strip', () => {
+    const [line] = projectComments([{ weird: `${ESC}[31minject${ESC}[0m` }]);
+    assert.equal(line.includes(ESC), false, `el fallback JSON no debe escapar al strip, fue ${JSON.stringify(line)}`);
+  });
+
+  it('un comentario normal se proyecta intacto (con prefijo de autor)', () => {
+    const [line] = projectComments([{ author: 'ana', body: 'hola qué tal' }]);
+    assert.equal(line, 'ana: hola qué tal', `comentario normal intacto, fue ${JSON.stringify(line)}`);
+  });
+});

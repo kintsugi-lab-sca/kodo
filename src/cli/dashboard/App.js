@@ -69,6 +69,7 @@ import {
   resolveProjectId,
 } from './select.js';
 import { deriveRepo } from './format.js';
+import { stripControlChars } from '../format.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
 import { existsSync } from 'node:fs';
@@ -1693,10 +1694,14 @@ export default function App({
               status = 'ok';
               // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
               // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
+              // HYG-07/M4 (T-72-12/T-72-13): el contenido externo NO confiable
+              // (comentarios de Plane) pasa por stripControlChars en su ÚNICO punto de
+              // entrada al render — neutraliza OSC-52/escape injection antes del <Text>.
+              // Las TRES ramas (fallback JSON incluido) se sanean; ninguna escapa al strip.
               lines = comments.map((c) => {
                 const body = c.body ?? c.text ?? c.message;
-                if (body == null) return JSON.stringify(c);
-                return c.author ? `${c.author}: ${body}` : String(body);
+                if (body == null) return stripControlChars(JSON.stringify(c));
+                return stripControlChars(c.author ? `${c.author}: ${body}` : String(body));
               });
             } else {
               status = 'empty';
