@@ -1,5 +1,6 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { loadConfig, loadProjects } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
@@ -187,6 +188,40 @@ export function isSchedulable(session) {
   return session.status === 'running' && session.alive !== false;
 }
 
+/**
+ * Detecta si `projectPath` está dentro de un working tree de git.
+ *
+ * `claude --worktree <sessionId>` EXIGE un repo git y aborta en caso contrario
+ * (`Error: Can only use --worktree in a git repository ...`). launchWorkItem usa
+ * este check para decidir si emite el flag: proyectos git → con aislamiento por
+ * worktree (comportamiento Phase 18 intacto); proyectos no-git → sin `--worktree`,
+ * la sesión arranca directamente en el directorio del proyecto.
+ *
+ * NUNCA lanza: cualquier error (no es repo, git ausente, EACCES, ENOENT del cwd)
+ * se interpreta como "no es git" (fail-safe deliberado → path sin aislamiento).
+ * Un launch no-git siempre es válido; un `--worktree` erróneo es fatal, así que
+ * ante la duda preferimos NO aislar. Sigue el idiom `execFileSync('git', ['-C', …])`
+ * ya usado en src/hooks/terminal-cleanup.js y src/gsd/doctor.js.
+ *
+ * @param {string} projectPath - Directorio del proyecto (cwd de la sesión).
+ * @param {(cwd: string, args: string[]) => string} [gitFn] - Inyectable para tests.
+ *   Por defecto ejecuta `git -C <cwd> <args>` de forma síncrona (stderr silenciado
+ *   para no ensuciar la consola con el "fatal: not a git repository" esperado).
+ * @returns {boolean}
+ */
+export function isGitRepo(projectPath, gitFn) {
+  const git = gitFn || ((cwd, args) =>
+    execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim());
+  try {
+    return git(projectPath, ['rev-parse', '--is-inside-work-tree']) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export async function launchWorkItem(identifier, opts = {}) {
   const config = loadConfig();
 
@@ -257,13 +292,25 @@ export async function launchWorkItem(identifier, opts = {}) {
   const sessionId = opts.sessionId || randomUUID();
   const modelOverride = opts.model ?? labelModel;
   const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
+  // KODO-9 bugfix: `claude --worktree` EXIGE un repo git. En proyectos no-git
+  // aborta al instante (proceso claude nunca vive) dejando un falso positivo
+  // running/alive en state.json. Detectamos el cwd ANTES de montar el comando:
+  // git → aislamiento por worktree (Phase 18 intacto); no-git → sin --worktree.
+  const gitBacked = isGitRepo(projectPath);
   // Phase 18 (D-01, D-02, D-03): compute deterministic worktree path PRE-spawn.
   // Single source of truth: computeWorktreePath de session/state.js (Plan 01).
   // El path NO se crea aquí — `claude --worktree <sessionId>` lo materializa al
   // arrancar la sesión del lado de claude. Plan 03 valida la unicidad del path
   // (D-05 fail-fast canonical error en el dispatcher, fuera de launchWorkItem).
-  const worktreePath = computeWorktreePath(projectPath, sessionId);
-  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName);
+  // KODO-9: solo para proyectos git. En no-git no hay worktree que materializar,
+  // así que worktree_path queda sin persistir (buildSessionFromTask lo omite vía
+  // spread condicional) y session-end no intenta un cleanup fantasma.
+  const worktreePath = gitBacked ? computeWorktreePath(projectPath, sessionId) : null;
+  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, gitBacked);
+  // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
+  if (!gitBacked) {
+    console.log(`[kodo] worktree_skipped_nongit — ${task.ref}: ${projectPath} no es un repositorio git; se lanza sin --worktree`);
+  }
 
   // Track session in state with generic task fields
   const session = buildSessionFromTask({
@@ -336,8 +383,12 @@ export async function launchWorkItem(identifier, opts = {}) {
  * @param {string|null|undefined} modelOverride
  * @param {string[]} [kodoFlags]
  * @param {string|null} [moduleName]
+ * @param {boolean} [isGitRepo] - KODO-9: cuando es `false` (proyecto no-git) se
+ *   OMITE `--worktree`, porque `claude --worktree` exige un repo git y aborta si
+ *   no lo hay. Default `true` → backward-compat total (proyectos git y todos los
+ *   callers/tests previos siguen emitiendo `--worktree` exactamente como antes).
  */
-export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null) {
+export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null, isGitRepo = true) {
   const model = modelOverride || config.claude.default_model;
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
   const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
@@ -349,18 +400,23 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   const skipPerms = kodoFlags.includes('yolo') || getGsdMode(kodoFlags) !== null;
   const cliFlags = skipPerms ? '--dangerously-skip-permissions' : '';
 
-  // Phase 18 (D-01, D-06b): `--worktree <sessionId>` se emite SIEMPRE — para TODAS
-  // las sesiones de launchWorkItem (full + quick + no-GSD). El sessionId va como
-  // arg POSICIONAL explícito (NO `--worktree=...`, NO bare `--worktree`) para
-  // garantizar el path determinístico `<projectPath>/.bg-shell/<sessionId>`.
+  // Phase 18 (D-01, D-06b): `--worktree <sessionId>` se emite para las sesiones de
+  // launchWorkItem (full + quick + no-GSD) SIEMPRE QUE el proyecto sea git (KODO-9).
+  // El sessionId va como arg POSICIONAL explícito (NO `--worktree=...`, NO bare
+  // `--worktree`) para garantizar el path determinístico `<projectPath>/.bg-shell/<sessionId>`.
+  //
+  // KODO-9: en proyectos no-git (`isGitRepo === false`) el flag se OMITE por
+  // completo — `claude --worktree` exige un repo git y aborta si no lo hay. El
+  // `.replace(/\s+/g, ' ')` colapsa el hueco que deja el flag ausente.
   //
   // Orden de flags (contractual, golden-bytes QUICK-07):
-  //   --model X --session-id Y --worktree Y [--dangerously-skip-permissions] <prompt-ref>
+  //   --model X --session-id Y [--worktree Y] [--dangerously-skip-permissions] <prompt-ref>
   //
   // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
   // (último arg) — añadir `--worktree` en el header NO muta los offsets relativos
   // de las tags. Phase 20 (HOOK-01) opera sobre buildSessionContext/buildGsdContext.
-  const header = `claude --model ${model} --session-id ${sessionId} --worktree ${sessionId} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+  const worktreeFlag = isGitRepo ? `--worktree ${sessionId}` : '';
+  const header = `claude --model ${model} --session-id ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
 
   // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
   // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como

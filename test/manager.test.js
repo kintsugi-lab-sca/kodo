@@ -18,6 +18,8 @@ let deriveModuleName;
 let resolveTaskAndLaunchContext;
 /** @type {import('../src/session/manager.js')['buildClaudeCommand']} */
 let buildClaudeCommand;
+/** @type {import('../src/session/manager.js')['isGitRepo']} */
+let isGitRepo;
 
 /** @returns {import('../src/interface.js').TaskItem} */
 function makeTask(overrides = {}) {
@@ -44,6 +46,7 @@ describe('manager — pure helpers', () => {
       deriveModuleName,
       resolveTaskAndLaunchContext,
       buildClaudeCommand,
+      isGitRepo,
     } = await import('../src/session/manager.js'));
   });
 
@@ -515,6 +518,105 @@ describe('manager — pure helpers', () => {
       assert.equal(written, expected,
         'el fichero debe contener el prompt exacto, sin escapar ni colapsar nada');
     });
+
+    // KODO-9: `claude --worktree` exige un repo git y aborta si no lo hay. En
+    // proyectos no-git el flag debe OMITIRSE por completo; en git se mantiene
+    // exactamente igual que antes (sin regresión). Cubrimos ambas ramas.
+    describe('git vs non-git worktree branch (KODO-9)', () => {
+      it('non-git (isGitRepo=false): omite --worktree por completo', () => {
+        const cmd = buildClaudeCommand(
+          makeConfig(),
+          'abc-123',
+          makeTask(),
+          'desc',
+          null,
+          [],
+          null,
+          false, // isGitRepo — proyecto NO-git
+        );
+        assert.ok(!cmd.includes('--worktree'),
+          'un proyecto no-git no debe emitir --worktree (claude --worktree aborta sin repo git)');
+        // El resto del header se mantiene intacto y sin dobles espacios residuales.
+        assert.match(cmd, /^claude --model sonnet --session-id abc-123 "\$\(cat .+\)"$/,
+          'header sin --worktree: --model → --session-id → prompt, sin hueco doble');
+      });
+
+      it('non-git + GSD: sin --worktree pero conserva --dangerously-skip-permissions', () => {
+        const cmd = buildClaudeCommand(
+          makeConfig(),
+          'abc-123',
+          makeTask(),
+          'desc',
+          null,
+          ['gsd'],
+          null,
+          false, // isGitRepo — proyecto NO-git
+        );
+        assert.ok(!cmd.includes('--worktree'), 'no-git no debe emitir --worktree ni en modo GSD');
+        assert.ok(cmd.includes('--dangerously-skip-permissions'),
+          'GSD sigue implicando skip-perms independientemente del git-ness');
+        assert.match(cmd, /^claude --model sonnet --session-id abc-123 --dangerously-skip-permissions /,
+          'sin --worktree, skip-perms sube justo tras --session-id (sin hueco doble)');
+      });
+
+      it('git (isGitRepo=true explícito): emite --worktree igual que el default', () => {
+        const cmd = buildClaudeCommand(
+          makeConfig(),
+          'abc-123',
+          makeTask(),
+          'desc',
+          null,
+          [],
+          null,
+          true, // isGitRepo — proyecto git
+        );
+        assert.match(cmd, /--session-id abc-123 --worktree abc-123/,
+          'proyecto git debe emitir --worktree exactamente como el comportamiento por defecto');
+      });
+
+      it('default (arg omitido) mantiene --worktree — backward-compat', () => {
+        const cmd = buildClaudeCommand(makeConfig(), 'abc-123', makeTask(), 'desc', null, [], null);
+        assert.match(cmd, /--worktree abc-123/,
+          'omitir el 8º arg debe comportarse como git (default true) — cero regresión');
+      });
+    });
+  });
+
+  describe('isGitRepo (KODO-9)', () => {
+    it('devuelve true cuando `git rev-parse --is-inside-work-tree` imprime "true"', () => {
+      const calls = [];
+      const gitFn = (cwd, args) => {
+        calls.push({ cwd, args });
+        return 'true';
+      };
+      assert.equal(isGitRepo('/some/git/project', gitFn), true);
+      assert.deepEqual(calls, [{ cwd: '/some/git/project', args: ['rev-parse', '--is-inside-work-tree'] }],
+        'debe invocar `git -C <path> rev-parse --is-inside-work-tree`');
+    });
+
+    it('devuelve false cuando el gitFn lanza (cwd no es repo git → git sale con error)', () => {
+      const gitFn = () => {
+        throw new Error('fatal: not a git repository');
+      };
+      assert.equal(isGitRepo('/some/non-git/project', gitFn), false,
+        'fail-safe: cualquier error del git = no-git (lanzar sin --worktree siempre es válido)');
+    });
+
+    it('devuelve false ante output distinto de "true" (defensivo)', () => {
+      assert.equal(isGitRepo('/x', () => 'false'), false);
+      assert.equal(isGitRepo('/x', () => ''), false);
+    });
+
+    it('detecta correctamente el repo real de este propio proyecto (default gitFn)', () => {
+      // El repo kodo ES git — smoke test del path real sin inyección.
+      assert.equal(isGitRepo(process.cwd()), true);
+    });
+
+    it('un directorio no-git real (p. ej. /tmp) devuelve false con el gitFn por defecto', () => {
+      // /tmp normalmente no es un working tree git — verifica que el error real
+      // de git se traga y devuelve false (no propaga la excepción).
+      assert.equal(isGitRepo('/tmp'), false);
+    });
   });
 });
 
@@ -608,16 +710,44 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 18 WT-01: buildClaudeCommand emits --worktree ${sessionId} in template', () => {
+  it('KODO-9 (supersedes Phase 18 WT-01): buildClaudeCommand emits --worktree ${sessionId} gated by isGitRepo', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // El flag sigue existiendo verbatim en la plantilla (ahora dentro del
+    // worktreeFlag condicional). KODO-9 lo OMITE en proyectos no-git.
     assert.ok(
       /--worktree\s+\$\{sessionId\}/.test(source),
       'buildClaudeCommand template must contain `--worktree ${sessionId}` verbatim',
     );
-    // Order check: --session-id must precede --worktree in the template (golden-bytes QUICK-07).
+    // KODO-9: el flag debe derivar de isGitRepo — NO incondicional. Si vuelve a
+    // ser incondicional, los proyectos no-git vuelven a romperse al arrancar.
     assert.ok(
-      /--session-id\s+\$\{sessionId\}\s+--worktree\s+\$\{sessionId\}/.test(source),
-      '--session-id ${sessionId} must precede --worktree ${sessionId} in the template',
+      /isGitRepo\s*\?\s*`--worktree \$\{sessionId\}`\s*:\s*''/.test(source),
+      'el --worktree debe estar gobernado por `isGitRepo ? `--worktree ${sessionId}` : \'\'` (KODO-9)',
+    );
+    // Order check (runtime): --session-id precede al worktreeFlag en el header
+    // (golden-bytes QUICK-07 preservado — con isGitRepo=true el orden es idéntico).
+    assert.ok(
+      /--session-id\s+\$\{sessionId\}\s+\$\{worktreeFlag\}/.test(source),
+      '--session-id ${sessionId} must precede ${worktreeFlag} in the header template',
+    );
+  });
+
+  it('KODO-9: launchWorkItem detecta git-ness y la cablea en buildClaudeCommand', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // launchWorkItem debe computar el flag desde projectPath...
+    assert.ok(
+      /gitBacked\s*=\s*isGitRepo\(\s*projectPath\s*\)/.test(source),
+      'launchWorkItem must compute `gitBacked = isGitRepo(projectPath)`',
+    );
+    // ...y pasarlo como 8º arg a buildClaudeCommand.
+    assert.ok(
+      /buildClaudeCommand\([^)]*,\s*gitBacked\s*\)/.test(source),
+      'buildClaudeCommand debe recibir gitBacked como último argumento',
+    );
+    // Y worktreePath solo se computa para proyectos git (no cleanup fantasma en no-git).
+    assert.ok(
+      /gitBacked\s*\?\s*computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)\s*:\s*null/.test(source),
+      'worktreePath debe ser `gitBacked ? computeWorktreePath(projectPath, sessionId) : null`',
     );
   });
 
