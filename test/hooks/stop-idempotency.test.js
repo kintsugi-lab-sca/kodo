@@ -298,6 +298,11 @@ describe('stop hook — HYG-01 orchestrator auto-commit gate', () => {
   });
 
   beforeEach(() => {
+    // WR-07: aísla KODO_ORCHESTRATOR ANTES de cada test (el afterEach solo lo borra DESPUÉS).
+    // Si la suite hereda KODO_ORCHESTRATOR=1 del entorno — precisamente la sesión orquestadora
+    // que esta fase crea vía launch.js, o cualquier hijo suyo que corra `npm test` — el primer
+    // test («sin KODO_ORCHESTRATOR → skip») entraría al auto-commit y fallaría.
+    delete process.env.KODO_ORCHESTRATOR;
     // Cambio SIN commitear que el auto-commit debe capturar (reset por test:
     // el test del gate abierto commitea y deja el árbol limpio).
     writeFileSync(
