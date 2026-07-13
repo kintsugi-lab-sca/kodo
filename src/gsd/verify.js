@@ -133,9 +133,14 @@ export async function runGsdVerify(opts, deps = {}) {
   // --- 3. Descubrir directorio de fase (Pitfall #3) ----------------------
   // Canónico: entries.find((e) => e.startsWith(`${padded}-`)) — prefijo exacto.
   // Así "03" matchea "03-foundation" pero NO "30-other".
-  const padded = /^\d+$/.test(session.phase_id)
-    ? session.phase_id.padStart(2, '0')
-    : session.phase_id; // "02.1" se queda como está
+  // B4 (Phase 72): desacoplar el match del zero-pad fijo de 2 dígitos. Un
+  // phase_id numérico puede vivir en un directorio con o sin pad (`9-foo` o
+  // `09-foo`); casamos AMBOS prefijos. El nombre del fichero VERIFICATION.md se
+  // deriva del pad real del directorio encontrado (dirPrefix), no de un pad
+  // asumido. Un phase_id no numérico ("02.1") mantiene su forma tal cual.
+  const phasePrefixes = /^\d+$/.test(session.phase_id)
+    ? [...new Set([session.phase_id, session.phase_id.padStart(2, '0')])]
+    : [session.phase_id];
   // Phase 19 D-06 + KODO-4 (worktree fix): el agente escribe VERIFICATION.md en
   // el worktree REAL de Claude Code (`.claude/worktrees/<session_id>`), derivado
   // con computeRealWorktreePath(project_path, session_id) — NUNCA el
@@ -174,11 +179,15 @@ export async function runGsdVerify(opts, deps = {}) {
         return finalize({ verdict, session, log, getProviderFn, loadConfigFn });
       }
     }
-    const match = entries.find((e) => e.startsWith(`${padded}-`));
+    const match = entries.find((e) => phasePrefixes.some((p) => e.startsWith(`${p}-`)));
     if (!match) {
       verdict = { action: 'missing', phase_id: session.phase_id };
     } else {
-      const verPath = join(phasesRoot, match, `${padded}-VERIFICATION.md`);
+      // El prefijo real del directorio (pad tal cual está en disco) manda para
+      // construir el nombre del VERIFICATION.md — `9-foo` → `9-VERIFICATION.md`,
+      // `09-foo` → `09-VERIFICATION.md`.
+      const dirPrefix = match.slice(0, match.indexOf('-'));
+      const verPath = join(phasesRoot, match, `${dirPrefix}-VERIFICATION.md`);
       if (!existsFn(verPath)) {
         verdict = { action: 'missing', phase_id: session.phase_id };
       } else {

@@ -23,12 +23,14 @@ export function parseRoadmap(md) {
   // `#{2,3}` = exactly 2 or 3 hashes. `\d+(?:\.\d+)?` = integer or decimal.
   // Separator alternatives after the number:
   //   - `:\s*`    → colon (optionally followed by whitespace)
-  //   - `\s+-\s+` → dash padded by whitespace on BOTH sides (e.g. ` - `)
+  //   - `\s+[-–—]\s+` → dash padded by whitespace on BOTH sides (e.g. ` - `).
+  //     M12 (Phase 72): the separator accepts ASCII hyphen `-`, en-dash `–`
+  //     (U+2013) and em-dash `—` (U+2014), so `## Phase 6 — Foundation` matches.
   // The dash-with-spaces rule is what rejects ranges like `Phase 1-5:` —
-  // there is no whitespace between `1` and `-`, so `\s+-\s+` fails and the
+  // there is no whitespace between `1` and `-`, so `\s+[-–—]\s+` fails and the
   // colon branch also fails (first char after `1` is `-`, not `:`).
   // Line anchored (`^...$`); `(.+)$` = non-empty title.
-  const re = /^(#{2,3})\s+Phase\s+(\d+(?:\.\d+)?)(?::\s*|\s+-\s+)(.+)$/;
+  const re = /^(#{2,3})\s+Phase\s+(\d+(?:\.\d+)?)(?::\s*|\s+[-–—]\s+)(.+)$/;
 
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(re);

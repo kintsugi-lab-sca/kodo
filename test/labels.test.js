@@ -255,3 +255,22 @@ describe('BIDIR-06 — isAdopted + KODO_LABEL_ADOPTED', () => {
     assert.equal(isAdopted([null, undefined, 42, true, {}, { name: null }]), false);
   });
 });
+
+describe('parseKodoLabels — B1 opus model (Phase 72 HYG-06)', () => {
+  it('detects kodo:opus model override (no longer falls through to flags)', () => {
+    const result = parseKodoLabels([{ name: 'kodo:opus' }]);
+    assert.equal(result.isKodo, true);
+    assert.equal(result.model, 'opus', 'opus resolves as a model, not a flag');
+    assert.deepEqual(result.flags, [], 'opus must NOT land in flags');
+  });
+
+  it('kodo:opus is case-insensitive', () => {
+    const result = parseKodoLabels([{ name: 'Kodo:OPUS' }]);
+    assert.equal(result.model, 'opus');
+  });
+
+  it('sonnet/haiku still resolve as models (no regression)', () => {
+    assert.equal(parseKodoLabels([{ name: 'kodo:sonnet' }]).model, 'sonnet');
+    assert.equal(parseKodoLabels([{ name: 'kodo:haiku' }]).model, 'haiku');
+  });
+});

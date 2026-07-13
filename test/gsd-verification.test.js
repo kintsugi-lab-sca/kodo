@@ -18,6 +18,8 @@ import {
   parseVerificationFrontmatter,
   computeVerdict,
 } from '../src/gsd/verification.js';
+import { runGsdVerify } from '../src/gsd/verify.js';
+import { join } from 'node:path';
 
 describe('parseVerificationFrontmatter', () => {
   it('P1: extrae los 4 campos obligatorios de un frontmatter válido', () => {
@@ -342,5 +344,176 @@ describe('computeVerdict', () => {
     );
     assert.equal(verdict.action, 'fail');
     assert.equal(verdict.reason, 'gaps-found');
+  });
+});
+
+describe('computeVerdict — B3 must_haves gate usa !== (Phase 72 HYG-06)', () => {
+  it('verified > total (99/3) se RECHAZA con reason must-haves-incomplete', () => {
+    const verdict = computeVerdict(
+      {
+        status: 'passed',
+        must_haves_total: 3,
+        must_haves_verified: 99,
+        gaps_count: 0,
+      },
+      '72',
+    );
+    assert.equal(verdict.action, 'fail', 'un 99/3 inconsistente no puede pasar');
+    assert.equal(verdict.reason, 'must-haves-incomplete');
+    assert.equal(verdict.detail, 'verified=99 total=3');
+  });
+
+  it('verified < total sigue fallando (no regresión del caso original)', () => {
+    const verdict = computeVerdict(
+      { status: 'passed', must_haves_total: 8, must_haves_verified: 5, gaps_count: 0 },
+      '72',
+    );
+    assert.equal(verdict.action, 'fail');
+    assert.equal(verdict.reason, 'must-haves-incomplete');
+  });
+
+  it('verified === total con status passed + 0 gaps → pass (no regresión)', () => {
+    const verdict = computeVerdict(
+      { status: 'passed', must_haves_total: 8, must_haves_verified: 8, gaps_count: 0 },
+      '72',
+    );
+    assert.equal(verdict.action, 'pass');
+  });
+});
+
+describe('parseVerificationFrontmatter — B12a comentario # inline (Phase 72 HYG-06)', () => {
+  it('strip de comentario inline en un valor de status', () => {
+    const md = [
+      '---',
+      'status: passed  # verificado a mano',
+      'must_haves_total: 3',
+      'must_haves_verified: 3',
+      'gaps_count: 0',
+      '---',
+    ].join('\n');
+    const out = parseVerificationFrontmatter(md);
+    assert.equal(out.error, undefined, 'el frontmatter con # inline se parsea OK');
+    assert.equal(out.status, 'passed', 'el comentario se elimina del valor');
+  });
+
+  it('strip de comentario inline en un valor numérico', () => {
+    const md = [
+      '---',
+      'status: passed',
+      'must_haves_total: 3 # tres must-haves',
+      'must_haves_verified: 3',
+      'gaps_count: 0 # sin gaps',
+      '---',
+    ].join('\n');
+    const out = parseVerificationFrontmatter(md);
+    assert.equal(out.error, undefined);
+    assert.equal(out.must_haves_total, 3);
+    assert.equal(out.gaps_count, 0);
+  });
+
+  it('un # pegado al valor (sin espacio previo) es literal, no comentario', () => {
+    // `#` sin whitespace previo NO es comentario YAML → se conserva. Un status
+    // con '#' pegado no está en STATUS_MAP, pero el parser no debe romperlo.
+    const md = [
+      '---',
+      'status: pa#ss',
+      'must_haves_total: 3',
+      'must_haves_verified: 3',
+      'gaps_count: 0',
+      '---',
+    ].join('\n');
+    const out = parseVerificationFrontmatter(md);
+    assert.equal(out.error, undefined);
+    assert.equal(out.status, 'pa#ss', 'el # pegado se conserva literal');
+  });
+
+  it('valor que es SOLO comentario (`key: # x`) cuenta como campo ausente', () => {
+    const md = [
+      '---',
+      'status: # todavía sin verificar',
+      'must_haves_total: 3',
+      'must_haves_verified: 3',
+      'gaps_count: 0',
+      '---',
+    ].join('\n');
+    const out = parseVerificationFrontmatter(md);
+    assert.equal(out.error, 'missing field status');
+  });
+});
+
+describe('runGsdVerify — B4 descubrimiento sin pad-2 fijo (Phase 72 HYG-06)', () => {
+  const PASS_MD = [
+    '---',
+    'status: passed',
+    'must_haves_total: 3',
+    'must_haves_verified: 3',
+    'gaps_count: 0',
+    '---',
+  ].join('\n');
+
+  // Provider cuyo getTask devuelve null → finalize NO llama addComment ni
+  // markSessionStatus (evita cualquier side-effect de fs sobre state.json). El
+  // verdict computado sigue siendo pass — lo único que probamos aquí es que el
+  // fichero VERIFICATION.md se DESCUBRE con el pad real del directorio.
+  const providerNoTask = { getTask: async () => null };
+  const loadConfigStub = () => ({ provider: 'plane', providers: { plane: { states: { review: 'In review' } } } });
+
+  /**
+   * @param {string} phaseId
+   * @param {string} dirName  nombre real del directorio de fase en disco
+   */
+  async function runWith(phaseId, dirName) {
+    const projectPath = '/fake/project';
+    const phasesRoot = join(projectPath, '.planning', 'phases');
+    const prefix = dirName.slice(0, dirName.indexOf('-'));
+    const verPath = join(phasesRoot, dirName, `${prefix}-VERIFICATION.md`);
+    /** @type {string[]} */
+    const readCalls = [];
+    const session = {
+      session_id: 'sess-b4',
+      task_id: 't-b4',
+      task_ref: 'KL-1',
+      provider: 'plane',
+      project_path: projectPath,
+      summary: 'B4',
+      gsd: true,
+      phase_id: phaseId,
+    };
+    const result = await runGsdVerify(
+      { sessionId: 'sess-b4' },
+      {
+        findSessionFn: () => session,
+        getProviderFn: () => providerNoTask,
+        loadConfigFn: loadConfigStub,
+        // existsFn: false para el worktree .claude/worktrees/* → fallback a
+        // project_path; true sólo para phasesRoot y el verPath esperado.
+        existsFn: (p) => p === phasesRoot || p === verPath,
+        readdirFn: (p) => (p === phasesRoot ? [dirName] : []),
+        readFileFn: (p) => {
+          readCalls.push(p);
+          if (p === verPath) return PASS_MD;
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        },
+        loggerFactory: () => ({ info() {}, warn() {}, error() {}, debug() {}, child() { return this; } }),
+      },
+    );
+    return { result, readCalls, verPath };
+  }
+
+  it('phase_id "9" casa un directorio de 1 dígito `9-foundation` (sin pad)', async () => {
+    const { result, readCalls, verPath } = await runWith('9', '9-foundation');
+    assert.equal(result.verdict.action, 'pass', 'la fase 1-dígito se descubre (no missing)');
+    assert.ok(readCalls.includes(verPath), 'leyó 9-VERIFICATION.md, no 09-VERIFICATION.md');
+  });
+
+  it('phase_id "9" sigue casando un directorio padded `09-foundation` (no regresión)', async () => {
+    const { result, readCalls, verPath } = await runWith('9', '09-foundation');
+    assert.equal(result.verdict.action, 'pass');
+    assert.ok(readCalls.includes(verPath), 'leyó 09-VERIFICATION.md derivado del dir real');
+  });
+
+  it('phase_id "72" con directorio `72-foo` (2 dígitos) intacto', async () => {
+    const { result } = await runWith('72', '72-higiene');
+    assert.equal(result.verdict.action, 'pass');
   });
 });

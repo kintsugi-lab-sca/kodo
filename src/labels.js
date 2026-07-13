@@ -26,7 +26,7 @@ export function parseKodoLabels(labels) {
     } else if (name.startsWith('kodo:')) {
       result.isKodo = true;
       const tag = name.slice(5); // after "kodo:"
-      if (['sonnet', 'haiku'].includes(tag)) {
+      if (['opus', 'sonnet', 'haiku'].includes(tag)) {
         result.model = tag;
       } else {
         result.flags.push(tag);

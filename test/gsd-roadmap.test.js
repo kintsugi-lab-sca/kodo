@@ -86,3 +86,36 @@ describe('normalizeTitle', () => {
     assert.equal(normalizeTitle(42), '42');
   });
 });
+
+describe('parseRoadmap — M12 separador en-dash/em-dash (Phase 72 HYG-06)', () => {
+  it('acepta em-dash `—` como separador (## Phase 6 — Foundation)', () => {
+    const { phases } = parseRoadmap('## Phase 6 — Foundation');
+    assert.equal(phases.length, 1);
+    assert.equal(phases[0].n, '6');
+    assert.equal(phases[0].title, 'Foundation');
+  });
+
+  it('acepta en-dash `–` como separador (## Phase 7 – Red)', () => {
+    const { phases } = parseRoadmap('## Phase 7 – Red');
+    assert.equal(phases.length, 1);
+    assert.equal(phases[0].n, '7');
+    assert.equal(phases[0].title, 'Red');
+  });
+
+  it('sigue aceptando guion ASCII `-` (no regresión)', () => {
+    const { phases } = parseRoadmap('## Phase 6 - Foundation');
+    assert.equal(phases.length, 1);
+    assert.equal(phases[0].title, 'Foundation');
+  });
+
+  it('sigue aceptando `:` como separador (no regresión)', () => {
+    const { phases } = parseRoadmap('## Phase 6: Foundation');
+    assert.equal(phases.length, 1);
+    assert.equal(phases[0].title, 'Foundation');
+  });
+
+  it('rechaza rangos `Phase 1-5` (sin whitespace alrededor del guion)', () => {
+    const { phases } = parseRoadmap('## Phase 1-5: batch');
+    assert.equal(phases.length, 0, 'un rango con guion pegado no matchea');
+  });
+});

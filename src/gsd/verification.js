@@ -123,10 +123,22 @@ export function parseVerificationFrontmatter(md) {
     if (HOSTILE_KEYS.has(key)) continue; // T-10-01-05 defense in depth
     // Only keep keys we care about — extras are dropped at parse time.
     if (!REQUIRED_FIELDS.includes(/** @type {any} */ (key))) continue;
-    // If the captured value is empty (`key:`) we skip so the missing-field
-    // check below fires with an accurate error.
-    if (m[2] === '') continue;
-    parsed[key] = m[2];
+    // B12a (Phase 72): strip an inline YAML comment from the value. A `#` is a
+    // comment when it begins the value region (comment-only, `key: # x`) or is
+    // preceded by whitespace (`status: passed  # ok`); a `#` glued to non-space
+    // text is literal (`pa#ss` stays). So `passed # comment` → `passed`,
+    // `3 # three` → `3`, and `# only` → '' (treated as an absent value).
+    let value = m[2];
+    if (value.startsWith('#')) {
+      value = '';
+    } else {
+      const hashIdx = value.search(/\s#/);
+      if (hashIdx !== -1) value = value.slice(0, hashIdx).trimEnd();
+    }
+    // If the captured value is empty (`key:` or `key: # only-comment`) we skip so
+    // the missing-field check below fires with an accurate error.
+    if (value === '') continue;
+    parsed[key] = value;
   }
 
   // Validate presence of every required field.
@@ -210,8 +222,10 @@ export function computeVerdict(parsed, phaseId) {
     };
   }
 
-  //   2. verified < total → must-haves-incomplete.
-  if (p.must_haves_verified < p.must_haves_total) {
+  //   2. verified !== total → must-haves-incomplete. B3 (Phase 72): usar `!==`
+  //      en vez de `<` para que un `verified > total` inconsistente (p.ej. 99/3)
+  //      también se rechace en vez de colarse como pass.
+  if (p.must_haves_verified !== p.must_haves_total) {
     return {
       action: 'fail',
       phase_id: phaseId,
