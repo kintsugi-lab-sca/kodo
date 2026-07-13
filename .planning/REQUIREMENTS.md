@@ -39,10 +39,10 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 ### Higiene, DX y verdad documental (Ola 4)
 
 - [x] **HYG-01**: El stop hook solo auto-commitea si `KODO_ORCHESTRATOR=1` (inyectada al lanzar el workspace orquestador) y con pathspec completo (`git commit -- .claude/skills/kodo-orchestrate/`) (A8)
-- [ ] **HYG-02**: El flag `kodo up --url` se elimina (decisión 2026-07-05: borrar, no cablear) (A9)
-- [ ] **HYG-03**: `startHealthLoop` se elimina y el README deja de prometerlo (decisión 2026-07-05: borrar, no cablear) (M18)
+- [x] **HYG-02**: El flag `kodo up --url` se elimina (decisión 2026-07-05: borrar, no cablear) (A9)
+- [x] **HYG-03**: `startHealthLoop` se elimina y el README deja de prometerlo (decisión 2026-07-05: borrar, no cablear) (M18)
 - [x] **HYG-04**: Coloreado de workspace, notify y nudge se mueven de `Stop` a `SessionEnd` (M19)
-- [ ] **HYG-05**: Batch de endurecimiento de config: rechazar `__proto__|constructor|prototype` (M3), chmod 0600 si hay `*_secret` (M5), `split` con `join` del resto (M14), B5, B7
+- [x] **HYG-05**: Batch de endurecimiento de config: rechazar `__proto__|constructor|prototype` (M3), chmod 0600 si hay `*_secret` (M5), `split` con `join` del resto (M14), B5, B7
 - [ ] **HYG-06**: Batch de BAJAS mecánicas: B1, B2, B3, B4, B8, B9, B12 + M12 (`[-–—]` en roadmap) — diffs de 1–5 líneas
 - [ ] **HYG-07**: El dashboard hace strip de `\x1b` en contenido externo (comentarios) — M4, rebajada de prioridad tras Ola 1
 - [ ] **HYG-08**: Pasada de README: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados, y documentar `--dangerously-skip-permissions` en sesiones GSD
@@ -122,10 +122,10 @@ Which phases cover which requirements. Updated during roadmap creation (2026-07-
 | DELIV-03 | Phase 71 | Complete |
 | DELIV-04 | Phase 71 | Complete |
 | HYG-01 | Phase 72 | Complete |
-| HYG-02 | Phase 72 | Pending |
-| HYG-03 | Phase 72 | Pending |
+| HYG-02 | Phase 72 | Complete |
+| HYG-03 | Phase 72 | Complete |
 | HYG-04 | Phase 72 | Complete |
-| HYG-05 | Phase 72 | Pending |
+| HYG-05 | Phase 72 | Complete |
 | HYG-06 | Phase 72 | Pending |
 | HYG-07 | Phase 72 | Pending |
 | HYG-08 | Phase 72 | Pending |

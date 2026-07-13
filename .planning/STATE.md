@@ -6,7 +6,7 @@ current_phase: 72
 current_phase_name: Higiene, DX y verdad documental
 status: executing
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T11:36:01.888Z"
+last_updated: "2026-07-13T12:25:38.002Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 72 execution started
 progress:
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 72 execution started
 
@@ -111,7 +111,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 
 **Resume file:** .planning/phases/72-higiene-dx-y-verdad-documental/72-CONTEXT.md
 
-- **Last session:** 2026-07-13T11:35:27.501Z
+- **Last session:** 2026-07-13T12:24:49.840Z
 - **Stopped at:** Phase 72 context gathered
 - **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
 - **Files of record:**
@@ -145,6 +145,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 71 P04 | 3min | 2 tasks | 3 files |
 | Phase 71 P05 | 5min | 2 tasks | 4 files |
 | Phase 72 P01 | 15min | 2 tasks | 6 files |
+| Phase 72 P02 | 45 min | 3 tasks | 6 files |
 
 ## Decisions
 
@@ -167,3 +168,6 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase 71]: 71-05 (gap-closure DELIV-04): gate de estado NO-terminal en runReviewBackstop — el backstop NUNCA cierra issues de GitHub. Predicado puro never-throws isTerminalReviewState(reviewState, providerCfg) provider-agnostic vía states.done + token nativo 'closed'. GitHub ('closed') → no-op con log de skip; Plane ('In review') transiciona como hoy. Premisa falsa D-13 (GitHub degrada por capability-gating) CORREGIDA: GitHub SÍ implementa las 3 capacidades; su no-op deriva del gate de estado no-terminal. Descartado el gate verdict.action==='pass'.
 - [Phase ?]: [72-01] Auto-commit del orquestador gated por KODO_ORCHESTRATOR=1 + pathspec .claude/skills/kodo-orchestrate/ en add y commit (HYG-01); efectos de cierre (color/notify/nudge) movidos de Stop a SessionEnd tras el backstop DELIV-04, cada uno never-throws (HYG-04).
 - [Phase ?]: [72-01] git commit lleva -m ANTES de -- <pathspec>; KODO_ROOT se fija a nivel de módulo en el test HYG-01 porque session-end.js importa stop.js transitivamente.
+- [Phase 72]: M3/M14 extraídos a src/cli/config-args.js (módulo puro) — cli.js ejecuta program.parse() al import y no es unit-testeable
+- [Phase 72]: Warn NDJSON de B7 directo a stderr (patrón lifecycle.js) — logger.js importa config.js — un import inverso crearía ciclo
+- [Phase 72]: mergeAndValidateConfig usa structuredClone(DEFAULT_CONFIG) como base del merge — mutar el config devuelto no puede contaminar los defaults in-proceso
