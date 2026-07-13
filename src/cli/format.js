@@ -58,6 +58,32 @@ export function visibleWidth(s) {
 }
 
 /**
+ * Neutraliza la inyección de terminal desde contenido externo NO confiable
+ * (p.ej. comentarios de Plane) antes de renderizarlo en el dashboard Ink
+ * (HYG-07/M4, STRIDE Tampering). Función PURA — no importa/usa color.
+ *
+ * El regex CSI de `visibleWidth` (:57, `\x1b\[[\d;]*[A-Za-z]`) solo cubre CSI y
+ * NO el vector OSC (`\x1b]…`, p.ej. OSC-52 = escritura al portapapeles del
+ * operador). Este helper es un strip AMPLIO e independiente (Don't-Hand-Roll):
+ *   1. Elimina las secuencias CSI completas (deja el texto visible limpio).
+ *   2. Elimina TODO byte de control C0/C1 y `\x7f` — incluido `\x1b` (ESC, que
+ *      cae en `\x0e-\x1f`) y `\x07` (BEL) — con lo que cualquier OSC/secuencia
+ *      de escape queda inerte (sin ESC no hay secuencia interpretable).
+ * PRESERVA `\n` (`\x0a`) y `\t` (`\x09`). Nunca lanza: coacciona con `String(s)`.
+ *
+ * @param {unknown} s
+ * @returns {string}
+ */
+export function stripControlChars(s) {
+  return String(s)
+    // 1. Secuencias CSI completas (`\x1b[…letra`) → fuera, dejando el texto.
+    .replace(/\x1b\[[\d;]*[A-Za-z]/g, '')
+    // 2. Bytes de control C0/C1 + DEL (incluye ESC `\x1b` y BEL `\x07`),
+    //    preservando `\t` (\x09), `\n` (\x0a) y `\r` (\x0d).
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+}
+
+/**
  * Right-pads una celda con espacios hasta alcanzar `width` medido por
  * `visibleWidth`. Si la celda ya excede el width, se devuelve sin truncar
  * (D-10 — no truncation).
