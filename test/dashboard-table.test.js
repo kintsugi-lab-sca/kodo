@@ -222,6 +222,42 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     );
   });
 
+  it('WR-03/M4: task_ref con inyección de terminal (CSI/OSC/C1) se sanea en la proyección al render', async () => {
+    // Un work item con task_ref malicioso del provider externo tiene el mismo vector STRIDE
+    // Tampering que un comentario. El enriched map de App.js pasa task_ref/summary por
+    // stripControlChars antes de rowCells → el frame no debe contener bytes de control.
+    const clock = makeFakeClock();
+    const evil = {
+      count: 1,
+      sessions: [
+        {
+          task_id: 'z',
+          task_ref: 'KL-\x1b[31m9\x9b0m\x07',
+          status: 'running',
+          alive: true,
+          started_at: '2026-05-27T10:00:00Z',
+          project_name: 'kodo',
+          elapsed_min: 1,
+          summary: '',
+          provider_state: 'in_review',
+          provider_state_reason: null,
+        },
+      ],
+    };
+    const fetchFn = async () => okResponse(evil);
+
+    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
+    await drain();
+
+    const frame = lastFrame();
+    // \x07 (BEL) y \x9b (C1 CSI) no los emite ink por sí mismo — su presencia solo podría venir
+    // del task_ref sin sanear. Su ausencia demuestra el strip en la proyección.
+    assert.equal(frame.includes('\x07'), false, 'no debe quedar BEL del task_ref en el render');
+    assert.equal(frame.includes('\x9b'), false, 'no debe quedar el C1 CSI (\\x9b) del task_ref en el render');
+    // El texto visible del task_ref sobrevive (solo se quitaron los bytes de control).
+    assert.match(frame, /KL-90m/, `el texto visible saneado del task_ref debe renderizarse\n${frame}`);
+  });
+
   it('selección inicial (D-07): la primera fila (KL-1, la más reciente) muestra el gutter "› "', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);

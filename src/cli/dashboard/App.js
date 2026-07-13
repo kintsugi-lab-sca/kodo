@@ -714,7 +714,18 @@ export default function App({
   // en el ref expone el último N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone
   // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
   const lastGood = progressLastGoodRef.current;
-  const enriched = sorted.map((row) => {
+  const enriched = sorted.map((rawRow) => {
+    // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
+    // columna task_ref; summary usado en filtro/plan y como task.title) pasa por
+    // stripControlChars en su punto de proyección al render — mismo patrón que los comentarios.
+    // Neutraliza OSC-52/CSI/C1 antes de que cualquier consumidor downstream (rowCells, select,
+    // readPlan) lo toque. Known-limitation: cmux.notify(body: session.summary) en session-end.js
+    // NO se sanea aquí (fuera del render del dashboard, ver REVIEW WR-03).
+    const row = {
+      ...rawRow,
+      ...(rawRow.task_ref != null ? { task_ref: stripControlChars(rawRow.task_ref) } : {}),
+      ...(rawRow.summary != null ? { summary: stripControlChars(rawRow.summary) } : {}),
+    };
     const projectPath = row.project_path;
     const sessionId = row.session_id;
     // DG-04: la ruta del STATE.md se deriva de project_path + session_id, NUNCA de
@@ -1695,9 +1706,10 @@ export default function App({
               // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
               // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
               // HYG-07/M4 (T-72-12/T-72-13): el contenido externo NO confiable
-              // (comentarios de Plane) pasa por stripControlChars en su ÚNICO punto de
-              // entrada al render — neutraliza OSC-52/escape injection antes del <Text>.
-              // Las TRES ramas (fallback JSON incluido) se sanean; ninguna escapa al strip.
+              // (comentarios de Plane) pasa por stripControlChars antes del <Text> —
+              // neutraliza OSC-52/escape injection. Las TRES ramas (fallback JSON incluido)
+              // se sanean. WR-03: task_ref/summary del provider tienen el mismo vector y se
+              // sanean en su punto de proyección (enriched map, ~:717) — éste NO es el único.
               lines = comments.map((c) => {
                 const body = c.body ?? c.text ?? c.message;
                 if (body == null) return stripControlChars(JSON.stringify(c));
