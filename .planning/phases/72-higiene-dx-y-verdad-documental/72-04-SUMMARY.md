@@ -127,6 +127,12 @@ None - sin configuración de servicios externos.
 - Nota para HYG-08 (pasada de README): el comportamiento de saneo es interno, no requiere doc de usuario nuevo salvo mención opcional en notas de seguridad.
 - Queda el Plan 05 de la fase 72 (si aplica) según el roadmap.
 
+## Self-Check: PASSED
+
+- Archivos creados verificados en disco (72-04-SUMMARY.md).
+- Commits verificados en git (d8e26e5 RED, c5fc050 GREEN, 4ea0cad Task 2, 6291f3c metadata).
+- Export `stripControlChars` presente en src/cli/format.js.
+
 ---
 *Phase: 72-higiene-dx-y-verdad-documental*
 *Completed: 2026-07-13*
