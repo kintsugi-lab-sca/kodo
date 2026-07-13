@@ -23,6 +23,7 @@ import {
   progCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
+import { stripControlChars } from '../src/cli/format.js';
 
 describe('TUI-07 (D-03): deriveRepo — project_name | basename(project_path) | —', () => {
   it('project_name presente gana', () => {
@@ -344,5 +345,56 @@ describe('PROG-03: rowCells incluye la clave prog con la forma { text, dim } ent
   it('rowCells().prog sin progreso → { text:"—", dim:true }', () => {
     const cells = rowCells({ task_ref: 'KL-10', status: 'running', alive: true });
     assert.deepEqual(cells.prog, { text: '—', dim: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 04 (HYG-07/M4; T-72-12/T-72-13): stripControlChars neutraliza la
+// inyección de terminal desde contenido externo NO confiable (comentarios de Plane).
+// El regex CSI de format.js:57 solo cubre CSI — NO el vector OSC (`\x1b]`, p.ej.
+// OSC-52 = escritura al portapapeles). El helper es un strip amplio nuevo: elimina
+// TODO `\x1b` (ESC) y los bytes de control C0/C1 (salvo `\n`/`\t`) + limpia el
+// remanente CSI, dejando texto visible seguro. Función pura, sin color.
+// ---------------------------------------------------------------------------
+describe('HYG-07 (M4): stripControlChars neutraliza inyección de terminal', () => {
+  const ESC = '\x1b';
+  const BEL = '\x07';
+
+  it('Test 1: texto normal intacto (letras/espacios)', () => {
+    assert.equal(stripControlChars('hola'), 'hola', 'texto normal no debe cambiar');
+  });
+
+  it('Test 2: OSC-52 queda sin `\\x1b` ni el terminador BEL', () => {
+    const payload = `${ESC}]52;c;AAAA${BEL}x`;
+    const out = stripControlChars(payload);
+    assert.equal(out.includes(ESC), false, `no debe quedar ESC, fue ${JSON.stringify(out)}`);
+    assert.equal(out.includes(BEL), false, `no debe quedar BEL, fue ${JSON.stringify(out)}`);
+  });
+
+  it('Test 3: CSI (`\\x1b[31mrojo\\x1b[0m`) queda como `rojo`', () => {
+    assert.equal(
+      stripControlChars(`${ESC}[31mrojo${ESC}[0m`),
+      'rojo',
+      'los bytes de control CSI deben desaparecer dejando solo el texto',
+    );
+  });
+
+  it('Test 4: preserva `\\n` y `\\t`; elimina el resto de C0/C1 y `\\x7f`', () => {
+    assert.equal(stripControlChars('a\nb\tc'), 'a\nb\tc', 'preserva \\n y \\t');
+    assert.equal(
+      stripControlChars('a\x00b\x08c\x0bd\x0ce\x1ff\x7fg'),
+      'abcdefg',
+      'elimina los demás C0/C1 y \\x7f',
+    );
+  });
+
+  it('texto con acentos/eñes intacto (no es control byte)', () => {
+    assert.equal(stripControlChars('café con leña'), 'café con leña', 'acentos/ñ intactos');
+  });
+
+  it('coacciona input no-string sin lanzar (String(s))', () => {
+    assert.equal(stripControlChars(42), '42', 'number → String');
+    assert.equal(stripControlChars(null), 'null', 'null → "null" sin lanzar');
+    assert.equal(stripControlChars(undefined), 'undefined', 'undefined → "undefined" sin lanzar');
   });
 });
