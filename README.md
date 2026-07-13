@@ -23,9 +23,9 @@ Tarea → In Progress ──webhook──→ kodo
                                                    sesión se cierra
                                                    (Ctrl+C, /exit, cerrar)
                                                      │
-                        stop hook ←──────────────────┘
+                        SessionEnd ←─────────────────┘
                           │
-                        Plane → In Review          KL-42 [Blue]
+                        backstop → In Review       KL-42 [Blue]
                         notifica orquestador
                           │
                         humano/orquestador revisa
@@ -256,14 +256,17 @@ Plane. Desde el dashboard se enfoca con la tecla `O`.
 Su skill (`.claude/skills/kodo-orchestrate/`) acumula conocimiento entre
 sesiones: quirks de la API, mapeos descubiertos, procesos validados. Antes de
 cerrar, el orquestador actualiza la skill y el stop hook auto-commitea los
-cambios — la siguiente sesión arranca con todo el contexto previo.
+cambios — pero solo en la sesión orquestadora (marcada con la env var
+`KODO_ORCHESTRATOR`) y acotado al pathspec `.claude/skills/kodo-orchestrate/`,
+de modo que la siguiente sesión arranca con todo el contexto previo sin
+arrastrar otros cambios staged.
 
 ## Visibilidad del progreso
 
 Todo queda documentado en Plane como comentarios, sin abrir cmux:
 
 - **Durante la sesión** — Claude comenta su plan al empezar, hitos intermedios y un resumen final.
-- **Al cerrar** — el stop hook postea un comentario de cierre (duración + output final) y mueve la tarea a "In Review".
+- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta «cierre automático» (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
 - **Con el orquestador activo** — rondas de supervisión que documentan el estado observado.
 
 ## Arquitectura
@@ -276,7 +279,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
 | `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
 | `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación |
-| `src/hooks/` | SessionStart (inyecta contexto de la tarea) y Stop (In Review, comentario de cierre) |
+| `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/nudge al cierre real) |
 | `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
 | `src/cli/dashboard/` | Dashboard TUI (Ink/React) |
 
