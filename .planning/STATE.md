@@ -6,7 +6,7 @@ current_phase: 72
 current_phase_name: Higiene, DX y verdad documental
 status: executing
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T12:41:57.223Z"
+last_updated: "2026-07-13T12:50:30.294Z"
 last_activity: 2026-07-13
 last_activity_desc: Phase 72 execution started
 progress:
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 ## Current Position
 
 Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-13 — Phase 72 execution started
 
@@ -147,6 +147,7 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 | Phase 72 P01 | 15min | 2 tasks | 6 files |
 | Phase 72 P02 | 45 min | 3 tasks | 6 files |
 | Phase Phase 72 P03 P03 | 35 | 3 tasks | 13 files |
+| Phase Phase 72 PP04 | 9 | 2 tasks tasks | 3 files files |
 
 ## Decisions
 
@@ -173,3 +174,4 @@ Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
 - [Phase 72]: Warn NDJSON de B7 directo a stderr (patrón lifecycle.js) — logger.js importa config.js — un import inverso crearía ciclo
 - [Phase 72]: mergeAndValidateConfig usa structuredClone(DEFAULT_CONFIG) como base del merge — mutar el config devuelto no puede contaminar los defaults in-proceso
 - [Phase ?]: 72-03: Batch BAJAS HYG-06 aplicado (10 micro-diffs). B12b diferido: formato x-ratelimit-reset de Plane self-hosted no confirmable barato (Open Question #2/D-02).
+- [Phase ?]: [72-04] stripControlChars (CSI-strip + control-strip C0/C1/DEL, preserva \n/\t) neutraliza inyección de terminal (OSC-52) del contenido externo; cableado en la proyección de comentarios de App.js (tres ramas); SessionTable intacto; cero deps (HYG-07/M4).
