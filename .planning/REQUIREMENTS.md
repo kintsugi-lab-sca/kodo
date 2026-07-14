@@ -47,13 +47,9 @@ Requirements de este milestone. Cada uno mapea a fases del roadmap. Entre parén
 - [x] **HYG-07**: El dashboard hace strip de `\x1b` en contenido externo (comentarios) — M4, rebajada de prioridad tras Ola 1
 - [x] **HYG-08**: Pasada de README: stop hook real, `kodo status` vs `dashboard`, rutas `src/providers/…`, owner del repo, comandos indocumentados, y documentar `--dangerously-skip-permissions` en sesiones GSD
 
-### Robustez del trigger del orchestrator (Phase 73 — hallazgo dogfooding 2026-07-07)
+### Robustez del trigger del orchestrator (Phase 73 — RETIRADA 2026-07-14)
 
-- [ ] **ORCH-01**: `launchOrchestrator()` en su rama «workspace ya existe» (`src/orchestrator/launch.js:141-149`) no re-envía el nudge más de una vez por ventana de debounce — N llamadas consecutivas dentro de la ventana → ≤1 `cmux.send` (probado con `cmux.send` espiado + reloj inyectable)
-- [ ] **ORCH-02**: El refresh-nudge se suprime cuando el orchestrator está *waiting-for-input* / mid-turn (no interrumpir con nudges redundantes)
-- [ ] **ORCH-03**: El refresh-nudge se suprime cuando las razones de `needsOrchestrator` (`src/check.js runCheck`) no cambiaron desde el último nudge; un cambio real (nueva tarea / sesión que muere) sí vuelve a nudgear. Persistencia de `last_nudge_at` + hash de reasons por workspace, sin endpoints nuevos
-- [ ] **ORCH-04**: Se reconcilia el `\n` literal doble entre `launch.js:146` (`text: '…\\n'`) y `cmux/client.js:46` (que vuelve a añadir `'\\n'`) — el nudge submitea con un único salto correcto
-- [ ] **ORCH-05**: La discrepancia entre el conteo `pending` de `check.js` (`3 pending, 5 slots`) y la vista del orchestrator en vivo («Cola vacía») queda investigada y corregida o documentada (filtrado de label/estado divergente entre `runCheck` y la skill)
+_Resuelta por eliminación, no por debounce: el nudge de refresh «Revisa el estado actual…» se borró de la rama existing de `launchOrchestrator` (commit f4df750) por decisión del operador — el orquestador se auto-pacea con sus rondas. ORCH-01..04 quedan sin objeto. **ORCH-05** (discrepancia del conteo `pending` de `check.js` vs la vista del orchestrator) sigue abierto como backlog en ROADMAP.md §Backlog._
 
 ### Plan vivo por-tarea — handoff continuo (Phase 74 — candidata v0.17, features)
 
@@ -62,7 +58,7 @@ _Feature, NO hardening. El artefacto ya existe (`~/.kodo/plans/<uuid>.md`) pero 
 - [ ] **LIVE-01**: Al cerrar sesión, el hook appendea a `~/.kodo/plans/<uuid>.md` un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:` (una sola línea el `NEXT`). El fichero deja de escribirse únicamente al arranque; se acumula por sesión con traza.
 - [ ] **LIVE-02**: `state.json` guarda por tarea el puntero al plan + el `NEXT:` de una línea (resumen renderizable sin abrir el fichero). La escritura va bajo `withStateLock` (coordina con Phase 70; el hook de cierre es un escritor más).
 - [ ] **LIVE-03**: El TUI/dashboard muestra el `NEXT:` en la lista de tareas y ofrece enlace/panel que abre el markdown completo del plan de esa tarea. Read-model: se renderiza, no se edita a mano.
-- [ ] **LIVE-04**: Cuando existe un `NEXT:` de handoff, el nudge del orchestrator lo usa como contexto en lugar del genérico «Revisa el estado actual…» (interoperación con ORCH-01..03 / Phase 73).
+- [ ] **LIVE-04**: Cuando existe un `NEXT:` de handoff, el nudge del orchestrator lo usa como contexto en lugar del genérico «Revisa el estado actual…» (el nudge genérico se eliminó el 2026-07-14; LIVE-04 definiría el nuevo nudge con contexto).
 
 ### Inbox de capturas global (Phase 75 — candidata v0.17, features)
 
