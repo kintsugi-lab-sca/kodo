@@ -773,3 +773,84 @@ describe('PlaneClient.createLabel — B12c predicado 409 estrecho (Phase 72 HYG-
     }
   });
 });
+
+describe('updateTaskState — resolución case-insensitive de nombres de estado', () => {
+  // Regresión ROMAN-196 (2026-07-14): la capitalización de los estados varía por
+  // proyecto en Plane ("In review" vs "In Review") y el config guarda UN solo nombre.
+  // El lookup exacto por nombre rompía updateTaskState (backstop de SessionEnd) en los
+  // proyectos cuya capitalización no coincidía con el config. byName normaliza a
+  // lowercase (mismo criterio que moduleByName).
+  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  let mkProvider;
+  beforeEach(async () => {
+    ({ createPlaneProvider: mkProvider } = await import('../src/providers/plane/provider.js'));
+  });
+
+  /** Stub fetch que captura método+body de los PATCH y cuenta hits por sufijo. */
+  function stubFetchCapture(routes) {
+    const calls = {};
+    const patches = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init = {}) => {
+      const path = new URL(url).pathname;
+      const matched = Object.keys(routes).find((suffix) => path.endsWith(suffix) || path.includes(suffix));
+      calls[matched || path] = (calls[matched || path] || 0) + 1;
+      if ((init.method || 'GET') === 'PATCH') {
+        patches.push({ path, body: JSON.parse(init.body || '{}') });
+      }
+      const body = matched ? routes[matched]() : { results: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    return { calls, patches, restore: () => { globalThis.fetch = original; } };
+  }
+
+  it('resuelve "In Review" contra un estado llamado "In review" desde el cache caliente (sin re-fetch)', async () => {
+    const stub = stubFetchCapture({
+      '/states/': () => ({ results: [{ id: 'state-rev', name: 'In review' }, { id: 'state-done', name: 'Done' }] }),
+      '/labels/': () => ({ results: [] }),
+      '/modules/': () => ({ results: [] }),
+      '/projects/proj-uuid/work-items/wi-1/': () => ({ id: 'wi-1' }),
+    });
+    try {
+      const provider = mkProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.updateTaskState({ id: 'wi-1', projectId: 'proj-uuid' }, 'In Review');
+      assert.equal(stub.calls['/states/'], 1, 'el cache caliente debe servir el lookup case-insensitive');
+      assert.equal(stub.patches.length, 1, 'exactamente un PATCH al work item');
+      assert.equal(stub.patches[0].body.state, 'state-rev', 'el PATCH lleva el UUID del estado real "In review"');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('resuelve case-insensitive también en el refresh-on-miss (cache frío)', async () => {
+    const stub = stubFetchCapture({
+      '/states/': () => ({ results: [{ id: 'state-prog', name: 'in progress' }] }),
+      '/projects/proj-uuid/work-items/wi-2/': () => ({ id: 'wi-2' }),
+    });
+    try {
+      const provider = mkProvider(MOCK_CONFIG);
+      // SIN init(): stateByName vacío → fuerza la rama de refresh de updateTaskState.
+      await provider.updateTaskState({ id: 'wi-2', projectId: 'proj-uuid' }, 'In Progress');
+      assert.equal(stub.patches[0].body.state, 'state-prog', 'refresh-on-miss casa "In Progress" con "in progress"');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('sigue lanzando LOUD con los nombres ORIGINALES cuando el estado no existe', async () => {
+    const stub = stubFetchCapture({
+      '/states/': () => ({ results: [{ id: 's1', name: 'Backlog' }, { id: 's2', name: 'In review' }] }),
+    });
+    try {
+      const provider = mkProvider(MOCK_CONFIG);
+      await assert.rejects(
+        () => provider.updateTaskState({ id: 'wi-3', projectId: 'proj-uuid' }, 'Shipped'),
+        /State "Shipped" not found\. Available: Backlog, In review/,
+        'el error conserva la capitalización real de Plane (no las claves lowercase)',
+      );
+    } finally {
+      stub.restore();
+    }
+  });
+});

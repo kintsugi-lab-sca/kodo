@@ -130,14 +130,18 @@ export function createPlaneProvider(config, opts = {}) {
       }
       labelCache = allLabels;
 
-      // Cache states for each project (UUID ↔ name, UUID → {name, group})
+      // Cache states for each project (UUID ↔ name, UUID → {name, group}).
+      // Las claves de byName se normalizan a lowercase: los nombres de estado de Plane
+      // varían de capitalización entre proyectos ("In review" vs "In Review") y el config
+      // guarda UN solo nombre — el match exacto rompía updateTaskState por proyecto
+      // (mismo criterio que moduleByName, que ya es lowercase).
       for (const proj of config.projects) {
         const states = await client.listStates(proj.id);
         const byName = new Map();
         for (const s of states) {
           stateCache.set(s.id, s.name);
           stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
-          byName.set(s.name, s.id);
+          byName.set(s.name.toLowerCase(), s.id);
         }
         stateByName.set(proj.id, byName);
       }
@@ -201,19 +205,22 @@ export function createPlaneProvider(config, opts = {}) {
     },
 
     async updateTaskState(task, stateName) {
-      let stateId = stateByName.get(task.projectId)?.get(stateName);
+      // Lookup case-insensitive: byName tiene claves lowercase (ver init) porque la
+      // capitalización de los estados varía por proyecto en Plane.
+      const stateKey = stateName.toLowerCase();
+      let stateId = stateByName.get(task.projectId)?.get(stateKey);
       if (!stateId) {
         // Cache miss: refresh just this project's states (could be a new state).
         const states = await client.listStates(task.projectId);
         const byName = new Map();
         for (const s of states) {
           stateCache.set(s.id, s.name);
-          byName.set(s.name, s.id);
+          byName.set(s.name.toLowerCase(), s.id);
         }
         stateByName.set(task.projectId, byName);
-        stateId = byName.get(stateName);
+        stateId = byName.get(stateKey);
         if (!stateId) {
-          const available = [...byName.keys()].join(', ');
+          const available = states.map((s) => s.name).join(', ');
           throw new Error(`State "${stateName}" not found. Available: ${available}`);
         }
       }
@@ -257,7 +264,7 @@ export function createPlaneProvider(config, opts = {}) {
         for (const s of states) {
           stateCache.set(s.id, s.name);
           stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
-          byName.set(s.name, s.id);
+          byName.set(s.name.toLowerCase(), s.id);
         }
         stateByName.set(projectId, byName);
       }
@@ -286,16 +293,17 @@ export function createPlaneProvider(config, opts = {}) {
       // Resolve the trigger state UUID (D-04), mirroring updateTaskState's refresh-on-miss
       // against stateByName. Unlike updateTaskState, do NOT throw if unresolved — leave
       // `state` off the body and let Plane apply the project default.
-      let stateId = stateByName.get(projectId)?.get(config.states.trigger);
+      const triggerKey = (config.states.trigger || '').toLowerCase();
+      let stateId = stateByName.get(projectId)?.get(triggerKey);
       if (!stateId) {
         const states = await client.listStates(projectId);
         const byName = stateByName.get(projectId) || new Map();
         for (const s of states) {
           stateCache.set(s.id, s.name);
-          byName.set(s.name, s.id);
+          byName.set(s.name.toLowerCase(), s.id);
         }
         stateByName.set(projectId, byName);
-        stateId = byName.get(config.states.trigger);
+        stateId = byName.get(triggerKey);
       }
 
       // Resolve/create the marker label UUID (Open Q1). Plane labels are UUIDs, so look up
@@ -375,7 +383,9 @@ export function createPlaneProvider(config, opts = {}) {
       for (const proj of config.projects) {
         // No expand — stateCache already maps UUID → name, project is known.
         const items = await client.listWorkItems(proj.id);
-        const pending = items.filter((item) => stateCache.get(item.state) === config.states.trigger);
+        const pending = items.filter(
+          (item) => (stateCache.get(item.state) || '').toLowerCase() === (config.states.trigger || '').toLowerCase(),
+        );
         const context = {
           labels: labelCache,
           projectIdentifier: proj.identifier,
