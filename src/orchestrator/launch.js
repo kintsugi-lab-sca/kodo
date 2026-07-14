@@ -195,11 +195,13 @@ export async function launchOrchestrator(opts = {}) {
 
   const existingRef = findOrchestratorRef(workspaceList);
   if (existingRef) {
+    // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
+    // Phase 73): el orquestador ya se auto-pacea con sus rondas de supervisión, y cualquier
+    // disparador repetido (kodo check/orchestrate con needsOrchestrator legítimamente true)
+    // re-inyectaba el mismo texto en CADA llamada quemando tokens. El nudge útil por-evento
+    // (cierre de sesión) vive en session-end.js vía buildStopNudgeText — ese se conserva.
     console.log('[kodo] Orchestrator workspace already exists');
     persistOrchestratorRef(existingRef); // refresca el ref persistido (daemon/tecla O)
-    // Send a nudge to refresh
-    await cmux.send({ workspace: existingRef, text: 'Revisa el estado actual de las sesiones y tareas pendientes.\\n' });
-    console.log('[kodo] Sent refresh nudge to existing orchestrator');
     return { workspace: existingRef, existing: true };
   }
 
