@@ -25,7 +25,7 @@
 - [x] **Phase 69: Red y autenticación** - Bind seguro por defecto (`127.0.0.1`) + bearer en el carril no-webhook + límite de body pre-auth + errores 500 neutros + `sessionId` validado (Ola 1 — cierra la única exposición externa) (completed 2026-07-06)
 - [x] **Phase 70: Concurrencia y ciclo de vida de procesos** - `withStateLock` sobre los ~6 escritores + `acquireGsdLock` atómico + PID ownership + un zombi libera su slot de `max_parallel` (Ola 2 — la más delicada) (completed 2026-07-06)
 - [ ] **Phase 71: Fiabilidad de entrega y backstop** - Cursor de polling solo avanza con dispatch confirmado + centinela de primer tick + `adopt` idempotente + backstop mecánico de "In Review" en `SessionEnd` (Ola 3)
-- [ ] **Phase 72: Higiene, DX y verdad documental** - Marcador `KODO_ORCHESTRATOR=1` + borrar `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + batch de config/BAJAS + pasada de README (Ola 4 — paralelizable)
+- [x] **Phase 72: Higiene, DX y verdad documental** - Marcador `KODO_ORCHESTRATOR=1` + borrar `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + batch de config/BAJAS + pasada de README (Ola 4 — paralelizable) (completed 2026-07-14)
 
 <details>
 <summary>✅ v0.15 «kodo up» — arranque unificado + onboarding dashboard-first (Phases 65-68) — SHIPPED 2026-07-03</summary>
@@ -219,7 +219,7 @@ Plans:
 | 69. Red y autenticación | 4/4 | Complete    | 2026-07-06 |
 | 70. Concurrencia y ciclo de vida de procesos | 4/4 | Complete    | 2026-07-06 |
 | 71. Fiabilidad de entrega y backstop | 5/5 | Complete   | 2026-07-09 |
-| 72. Higiene, DX y verdad documental | 5/5 | Complete   | 2026-07-13 |
+| 72. Higiene, DX y verdad documental | 5/5 | Complete    | 2026-07-13 |
 
 ## Backlog
 

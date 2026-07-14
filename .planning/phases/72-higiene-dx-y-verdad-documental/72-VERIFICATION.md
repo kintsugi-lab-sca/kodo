@@ -1,11 +1,12 @@
 ---
 phase: 72-higiene-dx-y-verdad-documental
 verified: 2026-07-13T13:33:42Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Lanzar el orquestador real (`kodo orchestrate`) en cmux+claude y comprobar que `process.env.KODO_ORCHESTRATOR === '1'` llega al proceso del hook `stop.js` (dogfooding)."
     expected: "El auto-commit de `.claude/skills/kodo-orchestrate/` dispara SOLO en la sesión orquestadora; una sesión normal del repo kodo ya no genera commits fantasma."
     why_human: "La inyección del marcador se hace como prefijo de un command-string enviado por `cmux.send` a un shell real (Pattern 3) — no hay spawn con env explícito. El código confirma la inyección (`launch.js:256`) y el gate (`stop.js:253`), y el test unitario cubre el gate con un git stub, pero la propagación real shell→proceso-hijo en un workspace cmux+claude real solo se puede confirmar lanzando el orquestador de verdad (72-01-SUMMARY D5, Open Question #1/A2, confianza MEDIA). El modo de fallo es seguro por diseño (sin var → skip, cero commits fantasma), así que esto no bloquea el goal, pero la fase lo dejó explícitamente pendiente de confirmación empírica."

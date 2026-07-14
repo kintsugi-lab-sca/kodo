@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.16
 milestone_name: activo)
-current_phase: 72
-current_phase_name: Higiene, DX y verdad documental
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 status: verifying
 stopped_at: Phase 72 context gathered
-last_updated: "2026-07-13T12:57:15.180Z"
-last_activity: 2026-07-13
-last_activity_desc: Phase 72 execution started
+last_updated: "2026-07-14T08:32:37.938Z"
+last_activity: 2026-07-14
+last_activity_desc: Phase 72 complete, transitioned to Phase 999.1
 progress:
-  total_phases: 3
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
 
 ## Current Position
 
-Phase: 72 (Higiene, DX y verdad documental) — EXECUTING
-Plan: 5 of 5
+Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-07-13 — Phase 72 execution started
+Last activity: 2026-07-14 — Phase 72 complete, transitioned to Phase 999.1
 
 ## Roadmap v0.16 (activo)
 
