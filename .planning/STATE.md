@@ -5,15 +5,15 @@ milestone_name: activo)
 current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
 status: executing
-stopped_at: Phase 74 context gathered
-last_updated: "2026-07-15T10:05:33.778Z"
+stopped_at: Completed 74-02-PLAN.md
+last_updated: "2026-07-15T10:14:45.202Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 ## Current Position
 
 Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
 Last activity: 2026-07-15 — Phase 74 execution started
@@ -79,6 +79,9 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase 74-01]: sessionId NO se sanea en buildHandoffBlock — writer y parser deben usar el mismo valor crudo o la deteccion D-04 daria falsos negativos permanentes
 - [Phase 74-01]: el truncado del NEXT a 200 vive en extractNext (el contrato), no en el caller (D-02)
 - [Phase 74-01]: src/session/handoff.js es hoja de CERO imports, blindada por test/check-isolation.test.js (D-13)
+- [Phase 74-02]: state.tasks es aditivo SIN bump de schema_version — los tests siembran v3 explicito: loadState devuelve forma v2 si no hay fichero y migrateStateV2toV3 descartaria la clave
+- [Phase 74-02]: el caso anti-drop de reconcileTick fuerza una transicion — sin cambios reconcile.js:233 devuelve state referencialmente y el test seria vacuo; teeth verificadas por mutacion
+- [Phase 74-02]: upsertTaskHandoff devuelve {ok:false} ante lock-timeout y jamas lanza — el caller (Plan 04) sigue el cierre igualmente, nunca aborta (D-06)
 
 ### Open Blockers
 
@@ -99,10 +102,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/74-handoff-acumulativo-al-cierre/74-CONTEXT.md
+**Resume file:** None
 
-- **Last session:** 2026-07-15T10:01:59.182Z
-- **Stopped at:** Phase 74 context gathered
+- **Last session:** 2026-07-15T10:14:45.195Z
+- **Stopped at:** Completed 74-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -122,3 +125,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 |-------|------|----------|-------|
 | — | — | — | (baseline v0.17 — métricas de v0.16 archivadas en `milestones/v0.16-phases/`) |
 | 74 | 01 | 18m | 3 tasks, 3 files (contrato de handoff: hoja pura + 40 tests) |
+| Phase 74 P02 | 14m | 3 tasks | 3 files |
