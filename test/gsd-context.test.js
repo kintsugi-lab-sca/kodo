@@ -236,3 +236,76 @@ describe('PLAN-03 — quick-mode lightweight plan instruction (EN)', () => {
     assert.equal(tail(ctxPhase), tail(ctxBoot), 'phase tail must equal bootstrap tail');
   });
 });
+
+// Phase 74 PLAN-03 (LIVE-02, D-10): la rama quick ordenaba «overwrite if it exists»
+// (Phase 45 D-06, latest-wins). Es el MISMO bug que la rama ES: LIVE-02 solo nombra la ES
+// porque es donde se detectó. La sobrescritura es el bug, no la feature — lee D-10.
+describe('LIVE-02 / D-10 — preservar-y-appendear + contrato de handoff (EN, quick)', () => {
+  const HANDOFF_INSTR = 'append a handoff block at the end of that same file';
+
+  it('LIVE-02 EN: la semántica de sobrescritura desapareció del contexto construido', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X' }));
+    assert.ok(
+      !ctx.includes('(overwrite if it exists)'),
+      'la rama quick NO debe ordenar sobrescribir el plan (LIVE-02: la acumulación es el dato)',
+    );
+    assert.ok(!ctx.includes('overwrite if it exists'), 'ni siquiera sin paréntesis');
+  });
+
+  it('LIVE-02 EN: ordena explícitamente no sobrescribir y añadir al final', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X' }));
+    assert.match(ctx, /do NOT overwrite it: append your plan at the end/);
+    // El prefijo de la instrucción de plan se conserva (D-11: no hay golden bytes que reparar).
+    assert.match(ctx, /Also, at the start write a short plan/);
+  });
+
+  it('D-01 EN: el marcador de handoff lleva el session_id RESUELTO, no un placeholder', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X' }));
+    assert.ok(
+      ctx.includes('<!-- kodo:handoff v=1 session=sess-abc author=llm at='),
+      'el marcador debe llevar el session_id de la sesión inyectada (D-04 depende de ello)',
+    );
+    assert.ok(!ctx.includes('session=<session_id>'), 'session_id resuelto, no templated');
+  });
+
+  it('D-01 EN: las etiquetas del formato siguen en español (el contrato no alterna, la instrucción sí)', () => {
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'X' }));
+    assert.match(ctx, /\*\*Hecho:\*\*/);
+    assert.match(ctx, /\*\*Pendiente:\*\*/);
+    assert.match(ctx, /\*\*NEXT:\*\*/);
+  });
+
+  it('D-10 exclusión phase: la rama phase NO recibe la instrucción de handoff', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: '08' }));
+    assert.ok(
+      !ctx.includes(HANDOFF_INSTR),
+      'phase branch must NOT inject the handoff instruction — la cubre el backstop mecánico (D-03/D-10)',
+    );
+    assert.ok(!ctx.includes('kodo:handoff'), 'ni el marcador del formato');
+  });
+
+  it('D-10 exclusión bootstrap: la rama bootstrap NO recibe la instrucción de handoff', () => {
+    const ctx = buildGsdContext(makeSession({ phase_id: undefined }));
+    assert.ok(
+      !ctx.includes(HANDOFF_INSTR),
+      'bootstrap branch must NOT inject the handoff instruction — la cubre el backstop mecánico (D-03/D-10)',
+    );
+    assert.ok(!ctx.includes('kodo:handoff'), 'ni el marcador del formato');
+  });
+
+  it('D-02b: la cola EN (instrucción de plan + handoff + bloque común) sin emojis ni ANSI', () => {
+    // El guard preexistente de HOOK-01 corta desde '## No automatic push', que en la rama
+    // quick va DESPUÉS de estas instrucciones — así que no las cubriría. Aquí cortamos desde
+    // la instrucción de plan hasta el final: la región que RESEARCH §Pitfall 2 identifica
+    // como la que romperá si la instrucción nueva lleva emojis.
+    const ctx = buildGsdContext(makeSession({ gsd_mode: 'quick', summary: 'TASK-X' }));
+    const tail = ctx.slice(ctx.indexOf('Also, at the start write a short plan'));
+    assert.ok(tail.includes('kodo:handoff'), 'sanidad: la cola debe incluir la instrucción de handoff');
+    assert.ok(
+      !/[\u{2600}-\u{27BF}\u{1F300}-\u{1FAFF}]/u.test(tail),
+      'la cola EN (plan + handoff) must not contain emojis (D-02b)',
+    );
+    // eslint-disable-next-line no-control-regex
+    assert.ok(!/\x1B\[/.test(tail), 'la cola EN (plan + handoff) must not contain ANSI escapes (D-02b)');
+  });
+});

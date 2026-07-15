@@ -132,6 +132,43 @@ describe('session-start.js — buildSessionContext', () => {
   });
 });
 
+// Phase 74 PLAN-03 (LIVE-02, D-10): la instrucción ordenaba «sobrescribe si ya existe»
+// (Phase 45 D-06, latest-wins). Eso es el BUG, no la feature: destruía el historial de la
+// tarea en el arranque de cada sesión, antes incluso de que el hook de cierre tuviera nada
+// que acumular. Si rompes estos casos, estás revirtiendo LIVE-02 — lee 74-CONTEXT.md D-10.
+describe('LIVE-02 / D-10 — preservar-y-appendear + contrato de handoff (ES)', () => {
+  it('LIVE-02 ES: la semántica de sobrescritura desapareció del contexto construido', () => {
+    const ctx = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    assert.ok(
+      !ctx.includes('(sobrescribe si ya existe)'),
+      'el contexto NO debe ordenar sobrescribir el plan (LIVE-02: la acumulación es el dato)',
+    );
+    assert.ok(!ctx.includes('sobrescribe si ya existe'), 'ni siquiera sin paréntesis');
+  });
+
+  it('LIVE-02 ES: ordena explícitamente no sobrescribir y añadir al final', () => {
+    const ctx = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());
+    assert.match(ctx, /Si el fichero ya existe, NO lo sobrescribas/);
+    assert.match(ctx, /añade tu plan al final/);
+  });
+
+  it('D-01 ES: el marcador de handoff lleva el session_id RESUELTO, no un placeholder', () => {
+    const ctx = buildSessionContext(makeSession({ session_id: 'sess-abc' }), makeConfig());
+    assert.ok(
+      ctx.includes('<!-- kodo:handoff v=1 session=sess-abc author=llm at='),
+      'el marcador debe llevar el session_id de la sesión inyectada (D-04 depende de ello)',
+    );
+    assert.ok(!ctx.includes('session=<session_id>'), 'session_id resuelto, no templated');
+  });
+
+  it('D-01 ES: el contexto entrega las tres etiquetas del formato del bloque', () => {
+    const ctx = buildSessionContext(makeSession(), makeConfig());
+    assert.match(ctx, /\*\*Hecho:\*\*/);
+    assert.match(ctx, /\*\*Pendiente:\*\*/);
+    assert.match(ctx, /\*\*NEXT:\*\*/);
+  });
+});
+
 describe('HOOK-01 — anti-push reminder, no-GSD ES', () => {
   it('HOOK-01: bloque "## Anti-push-fantasma" presente con header H2', () => {
     const ctx = buildSessionContext(makeSession(), makeConfig());
