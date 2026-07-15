@@ -1,54 +1,41 @@
 ---
 phase: 74-handoff-acumulativo-al-cierre
-verified: 2026-07-15T11:02:28Z
-status: gaps_found
-score: 4/5 must-haves verified
+verified: 2026-07-15T13:45:00Z
+status: human_needed
+score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea (LIVE-04, SC#4)"
-    status: partial
-    reason: >
-      The locking/concurrency half of this truth is verified true (withStateLock, additive
-      `tasks` field, reconcileTick stays the sole writer of `alive`, cross-process race
-      test with mutation-tested teeth). But the "reflects the NEXT" half is FALSE in an
-      ordinary two-session sequence: `upsertTaskHandoff` unconditionally overwrites the
-      whole `state.tasks[taskId]` entry, defaulting `next` to `null` when the new entry
-      carries none. A mechanical close (LIVE-03's own designed backstop path — no LLM
-      handoff written) on a task that already had a real `NEXT:` from a prior session
-      silently erases it in `state.json`, even though the real `NEXT:` block is still
-      intact, byte-for-byte, in the plan file. This directly contradicts the must_have this
-      phase's own Plan 02 declared ("El dato sobrevive a `removeSession`... así que la
-      SIGUIENTE sesión de la misma tarea lo encuentra") and the phase's stated purpose
-      ("sin este dato, ni el dashboard ni el nudge tienen nada que enseñar" — Phase 75 will
-      render an empty NEXT cell despite a real one existing on disk). Independently
-      reproduced below (Plan 02/Code Review WR-02, re-verified by this run, not merely
-      trusted from SUMMARY/REVIEW).
-    artifacts:
-      - path: "src/session/state.js:408-429 (upsertTaskHandoff)"
-        issue: "`next: entry.next ?? null` replaces the whole entry; does not fall back to the previous entry's `next` when the new one is absent."
-      - path: "src/hooks/session-end.js:365-366 (writeHandoff, mechanical-block branch)"
-        issue: "Mechanical block always calls `stateWriterFn` with `next: null` by design (LIVE-03), which then clobbers a prior real NEXT via the upsert above."
-    missing:
-      - "Preserve the previous `state.tasks[taskId].next` when the incoming entry's `next` is absent/null, per the WR-02 fix already proposed in 74-REVIEW.md (`const prev = state.tasks[taskId]; next: entry.next ?? (prev ? prev.next : null) ?? null`)."
-      - "A regression test seeding a real NEXT via one `upsertTaskHandoff` call, then calling it again with `next: null`, asserting the previous NEXT survives."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 4/5
+  gaps_closed:
+    - "Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea (LIVE-04, SC#4) — `upsertTaskHandoff` ya no borra un `NEXT:` real de una sesión anterior cuando un cierre mecánico posterior llega sin `NEXT:`. Reproducido de forma independiente por este verifier bajo HOME aislado (no confiado del SUMMARY ni de su test)."
+  gaps_remaining: []
+  regressions: []
+gaps: []
 deferred: []
 behavior_unverified_items: []
 human_verification:
   - test: "LIVE-01/SC#1 — launch a real kodo session against a task, close it with `/exit`, and open `~/.kodo/plans/<task_id>.md`."
     expected: "The file contains a `## Handoff <fecha>` block with Hecho/Pendiente (and NEXT: if the LLM wrote one)."
-    why_human: "The write, its ordering before destructive cleanup, and its content are covered by unit/integration tests against injected deps; the end-to-end lived experience of a real Claude Code session closing was flagged by the executor (74-05-PLAN.md human-check) as not automatable in node:test."
+    why_human: "Pre-existing manual-only item per `74-VALIDATION.md` §Manual-Only Verifications. The write, its ordering before destructive cleanup, and its content are covered by tests against injected deps; the end-to-end lived experience of a real Claude Code session closing is not automatable in node:test. NOT a gap — carried forward unchanged from the initial verification."
   - test: "LIVE-03/SC#3 — provoke a close where the LLM does not write a handoff block, then read the resulting heading."
     expected: "The heading reads `... — automático` and is visually distinguishable at a glance from an LLM-authored block."
-    why_human: "'Distinguishable at a glance' is a human visual judgment; the test suite can only assert the string suffix is present, not that it reads as obviously-different to an operator."
+    why_human: "Pre-existing manual-only item per `74-VALIDATION.md` §Manual-Only Verifications. 'Distinguishable at a glance' is a human visual judgment; the suite can only assert the string suffix is present. NOT a gap — carried forward unchanged."
 ---
 
 # Phase 74: Handoff acumulativo al cierre Verification Report
 
 **Phase Goal:** Al cerrar una sesión, la tarea deja **estado vivo**: su plan gana un bloque de handoff que se acumula sesión tras sesión (nunca se pisa), y `state.json` guarda el puntero al plan + el `NEXT:` de una línea. Es el productor de todo el milestone: sin este dato, ni el dashboard ni el nudge tienen nada que enseñar.
-**Verified:** 2026-07-15T11:02:28Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-07-15T13:45:00Z
+**Status:** human_needed (the LIVE-04 gap is CLOSED; the only residual items are the two pre-existing manual-only checks)
+**Re-verification:** Yes — after gap closure by plan `74-06`
+
+## Verdict
+
+**The gap survives? No.** The single gap from the initial verification (LIVE-04 / WR-02) is closed, verified by this verifier's own repro rather than by the executor's account or its test. All 5 success criteria now hold. Status is `human_needed` rather than `passed` only because the two manual-only items from `74-VALIDATION.md` §Manual-Only Verifications remain unperformed — per the decision tree, `passed` requires an empty human-verification section. Neither item is a gap, and neither blocks the chain.
+
+One real finding, recorded as a **Warning** and inherited by Phase 75: `state.tasks[task_id].next` is now **un-clearable** — see §Assessment, claim 3.
 
 ## Goal Achievement
 
@@ -56,82 +43,100 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 (LIVE-01) | Handoff block appended to `~/.kodo/plans/<task_id>.md` BEFORE destructive terminal cleanup (removeSession + worktree + promptFile) | ✓ VERIFIED | `session-end.js:143` (`writeHandoff` call) is 66 lines before `performTerminalCleanup` at `:209`. Test `ORDEN OBSERVABLE (LIVE-01, SC#1)` in `test/hooks/session-end-handoff.test.js:467` asserts `iHandoff < iRemove` on the shared call-order array. `node --test` green. |
-| 2 (LIVE-02) | Second session of the same task accumulates a second block; first stays intact; `session-start.js` no longer orders "overwrite if exists" | ✓ VERIFIED | `src/hooks/session-start.js:94-99` (ES) and `:173-178` (EN) both instruct "NO lo sobrescribas: añade tu plan al final" / "do NOT overwrite it: append". `findSessionBlock` in `handoff.js` is scoped per `session=<id>` exact token, not by count. Test `acumulación (LIVE-02)` (`session-end-handoff.test.js:182`) confirms two blocks + first byte-identical. `CASO CRÍTICO D-04` test confirms a prior session's block does not fool the current session's detector. |
-| 3 (LIVE-03) | If the LLM closes without a handoff, the hook appends a minimal mechanical block (date + result, no NEXT), distinguishable from an LLM-written block | ✓ VERIFIED | `buildHandoffBlock` (`handoff.js:159-170`) emits heading `... — automático` + `author=auto` in the marker, vs. the LLM-instructed format's `author=llm` (`session-start.js:99`, `:178`). `extractNext` on a mechanical block always returns `null` (no `**NEXT:**` line emitted). Test `bloque mecánico appendeado → next es null` confirms. |
-| 4 (LIVE-04) | `state.json` reflects the plan pointer + one-line NEXT for the task; concurrent writes (hook + reconcile + server) lose nothing; hook goes through `withStateLock`; `reconcileTick` stays sole writer of `alive` | ✗ **FAILED (partial)** | Concurrency/locking half TRUE: `upsertTaskHandoff` only mutates `state.tasks` (never `alive`); `test/state/handoff-state.test.js` asserts no `alive` key touched; `test/state/handoff-concurrency.test.js` proves, cross-process, with mutation-tested teeth (lock bypassed → 0/3 pass), that no `state.tasks` entry is lost under N concurrent closes. BUT the "reflects the NEXT" half is FALSE: `upsertTaskHandoff` (`state.js:408-429`) unconditionally sets `next: entry.next ?? null`, so a later mechanical close (no LLM NEXT) nulls a real NEXT recorded by an earlier session on the same task. Reproduced independently (see Gap below) — not a hypothetical. |
-| 5 (SC#5) | A failing handoff (unreadable plan, unexpected format, busy lock) does not crash Claude Code nor block close; hook stays never-throw; `backstop → setColor → notify` order intact | ✓ VERIFIED | `session-end.js:142-146` wraps `writeHandoff` in its own try/catch (structural, not cosmetic — `withFileLock`'s `fn` has no catch and `acquireLock` rethrows non-EEXIST errors). `runReviewBackstop` at `:176`, `setColor` at `:226`, `notify` at `:236` — order unchanged, inserted before, not interleaved. Tests: `SC#5 — plan ilegible (EACCES)` and `SC#5 — lock ocupado` both assert the hook completes and the trio still runs. |
+| 1 (LIVE-01) | Handoff block appended to `~/.kodo/plans/<task_id>.md` BEFORE destructive terminal cleanup | ✓ VERIFIED (re-confirmed) | `session-end.js:143` (`writeHandoff`) precedes `performTerminalCleanup` at `:209`. Spot-check re-run: `test/hooks/session-end-handoff.test.js` green in the targeted 96/96 run. Manual half → human item #1. |
+| 2 (LIVE-02) | Second session accumulates a second block; first stays intact; `session-start.js` no longer orders "overwrite if exists" | ✓ VERIFIED (re-confirmed) | Re-read live: `session-start.js:94` (`NO lo sobrescribas: añade tu plan al final`), `:96` (`sin borrar los bloques anteriores`), `:173`/`:175` (EN mirror). Not copied forward — re-grepped this run. |
+| 3 (LIVE-03) | Mechanical block on LLM-less close (date + result, no NEXT), distinguishable from an LLM block | ✓ VERIFIED (re-confirmed by execution) | Executed `buildHandoffBlock({sessionId:'s9',reason:'clear',status:'running'})` this run: emits `## Handoff … — automático`, `author=auto`, Hecho/Pendiente, **no NEXT line**; `extractNext(block) === null`. This matters because the `74-06` fix sits on exactly the path this backstop feeds — the backstop still emits `next: null` (`session-end.js:366`), unchanged; the fix lives in the receiver. |
+| 4 (LIVE-04) | `state.json` reflects the plan pointer + one-line NEXT; concurrent writes lose nothing; hook goes through `withStateLock`; `reconcileTick` sole writer of `alive` | ✓ **VERIFIED — gap closed** | Both halves now true. Locking half unchanged and still green (`handoff-concurrency.test.js`, mutation-tested teeth from Plan 05). Data half **independently reproduced by this verifier** (see §Behavioral Spot-Checks): real NEXT survives a later mechanical close; a new non-null NEXT still wins; `alive` untouched; `schema_version` still 3. |
+| 5 (SC#5) | A failing handoff does not crash Claude Code nor block close; never-throw; `backstop → setColor → notify` order intact | ✓ VERIFIED (re-confirmed) | Re-grepped this run: `runReviewBackstop` `:176` → `setColor` `:226` → `notify` `:236`. Order unchanged by `74-06` (which did not touch `session-end.js` at all — `git show --stat 13ecb9b` = `src/session/state.js` only). |
 
-**Score:** 4/5 truths verified (1 partial failure — see Gaps).
+**Score:** 5/5 truths verified (was 4/5).
 
-### Required Artifacts
+### Assessment of the Executor's Four Self-Flagged Claims
 
-| Artifact | Expected | Status | Details |
-|----------|----------|--------|---------|
-| `src/session/handoff.js` | Zero-import pure leaf: writer (buildHandoffBlock, buildPlanHeader, isSafeTaskId, normalizeReason, sanitizeInline) + parser (findSessionBlock, hasSessionHandoff, extractNext) | ✓ VERIFIED | 272 lines, 9/9 exports present, zero imports confirmed by reading the file and by `test/check-isolation.test.js:160-177` (D-13 guard, negative-tested by the executor injecting a real import and watching the guard fail). |
-| `src/session/state.js` (`upsertTaskHandoff`) | Writer of `state.tasks` under `withStateLock`, additive, no schema bump | ✓ VERIFIED (wired), ⚠️ correctness gap — see Gaps | Function exists, wired into `writeHandoff`, mutates only `state.tasks`. `migrateStateV2toV3` still silently drops any pre-existing `tasks` key (WR-03) — confirmed present in code, but not reachable via the real hook flow today (session-end.js's `findSession` guard means `state.json` already exists and has already gone through one `loadState()`/migration cycle by the time `writeHandoff` runs). Latent, not a phase-blocking gap. |
-| `src/hooks/session-end.js` (`writeHandoff` + seam) | RMW under `withFileLock`, create-if-missing, wired at the seam before cleanup | ✓ VERIFIED | `writeHandoff` (lines 289-384) confirmed synchronous, guards `isSafeTaskId` first, tmp+rename with unique name (`planPath + '.tmp.' + pid + '.' + randomUUID()`), never uses `writeFileAtomic`. Seam wired at `:143`. |
-| `src/hooks/session-start.js` | Both instruction branches (ES non-GSD, EN GSD-quick) inverted to preserve-and-append | ✓ VERIFIED | Confirmed at `:94-99` and `:173-178`. |
-| `test/session/handoff.test.js`, `test/state/handoff-state.test.js`, `test/hooks/session-end-handoff.test.js`, `test/state/handoff-concurrency.test.js`, `test/helpers/lock-race-child.mjs` | Test suites backing the above | ✓ VERIFIED (exist, run, pass) | All 5 files present; targeted run (`node --test` on the 6 phase-specific files) = 155/155 pass. Full `npm test` = 2130 total, 2129 pass, 0 fail, 1 skipped (matches SUMMARY claims). |
+**Claim 1 — T-74-16, the lost-update guard. VERIFIED (code read, not inferred).**
+`state.js:430`: `const prev = state.tasks[taskId];` sits **inside** the `withStateLock(state => …)` mutator and reads the mutator's own `state` parameter. `withStateLock` (`:324-330`) calls `loadState()` fresh inside the acquired lock. Confirmed by direct grep: **zero** `loadState` calls added inside `upsertTaskHandoff`; the only `loadState` in the write path is `withStateLock`'s own. The lost update `handoff-concurrency.test.js` forbids is not reintroduced — that suite is green in my targeted run (96/96).
 
-### Key Link Verification
+**Claim 2 — RED→GREEN was real, not staged. VERIFIED by execution at the commit, not by reading the SUMMARY.**
+`git show --stat acc7522` = `test/state/handoff-state.test.js` only (+68). `git show --stat 13ecb9b` = `src/session/state.js` only (+33/-5). `git diff acc7522 13ecb9b -- test/state/handoff-state.test.js` = **empty** — the test was not touched by the fix. I checked out `acc7522` into a throwaway worktree and ran it: `# tests 16 · # pass 15 · # fail 1`, failing with `code: 'ERR_ASSERTION'`, `expected: 'desplegar el fix'`, `actual: ~` — a genuine assertion failure on the asserted behavior, **not** a `TypeError` and not a setup fault. The red was real and the green was earned by the fix.
 
-| From | To | Via | Status | Details |
-|------|----|----|--------|---------|
-| `session-end.js:143` (`writeHandoff` call) | `session-end.js:209` (`performTerminalCleanup`) | Call-order in the same function body | ✓ WIRED | 66 lines apart; test asserts `iHandoff < iRemove` on a shared instrumented-call array. |
-| `writeHandoff` | `src/session/handoff.js` (isSafeTaskId, buildPlanHeader, buildHandoffBlock, findSessionBlock, extractNext) | Static import (`session-end.js:25-31`) | ✓ WIRED | All 5 symbols imported and used inside `writeHandoff`. |
-| `writeHandoff` | `upsertTaskHandoff` (`../session/state.js`) | `stateWriterFn` injected default, called at `:379-383` | ✓ WIRED | Confirmed call site passes `{plan_path, next, updated_at}`; test `el stateWriterFn recibe la entrada de state.tasks exactamente una vez por cierre (LIVE-04)` passes. |
-| `upsertTaskHandoff` | `withStateLock` | Direct call (`state.js:412`) | ✓ WIRED | Confirmed; mutator only touches `state.tasks`. |
-| `session-start.js` instruction text | The exact marker format `findSessionBlock` parses | Literal string match (`session-start.js:99`/`:178` vs. `handoff.js` `HEADING_PREFIX`/`MARKER_OPEN`) | ✓ WIRED | Both use `## Handoff <fecha> <!-- kodo:handoff v=1 session=<id> ... -->`, matching `handoff.js`'s `HEADING_PREFIX`/`MARKER_OPEN`/`MARKER_CLOSE` constants. |
+**Claim 3 — the LLM-branch behavior change. Defensible, disclosed — but it makes `next` un-clearable. That part is a real finding.**
 
-### Requirements Coverage
+*Is it correct?* Largely yes, and it is **not silent** scope creep: it is declared in the SUMMARY key-decisions, in the code comment (`state.js:433-438`), and in the `TaskHandoff` typedef for Phase 75's reader. On the merits: `session-end.js:337` returns `extractNext(existing)`, so an LLM block written without a `NEXT:` line yields `next: null` and now preserves the prior NEXT. The executor justifies this by D-02. Checked against D-02 **as written** (`74-CONTEXT.md:53-57`): D-02 says *"Ausente → sin `NEXT:` (caso válido y esperado del bloque mecánico)"* — it scopes the absent case to the **mechanical** block and is silent on what an LLM block without `NEXT:` means. So "consistent with D-02" is an *extension* of D-02, not something D-02 compels. What rescues it is `session-start.js:103`/`:182`: the LLM is instructed to write `**NEXT:** la siguiente acción concreta, en una sola línea` as part of *"este formato exacto"* — `NEXT:` is a **required** line of the instructed format, not an optional one. An LLM block lacking it is therefore a deviation from instructions, not an assertion of "this task has no next step". Treating an LLM's format slip as an erasure command would be the worse reading. D-05 is silent on clearing and is unaffected. **The change is defensible.**
 
-| Requirement | Source Plan(s) | Description | Status | Evidence |
-|-------------|-----------------|--------------|--------|----------|
-| LIVE-01 | 74-01, 74-04 | Handoff block appended before destructive cleanup | ✓ SATISFIED | Truth #1 above. Left `Pending` in REQUIREMENTS.md deliberately by all 5 executors (phase-level requirement, correctly deferred to this verification gate) — recommend marking **Complete**. |
-| LIVE-02 | 74-01, 74-03 | Second session accumulates without overwriting | ✓ SATISFIED | Truth #2 above. Already marked `Complete` in REQUIREMENTS.md — confirmed correct. |
-| LIVE-03 | 74-01, 74-04 | Mechanical backstop block, distinguishable, no NEXT | ✓ SATISFIED | Truth #3 above. Left `Pending` deliberately — recommend marking **Complete**. |
-| LIVE-04 | 74-02, 74-04, 74-05 | `state.json` reflects pointer + NEXT; concurrency-safe; `withStateLock`; `reconcileTick` sole writer of `alive` | ✗ **NOT FULLY SATISFIED** | Truth #4 above. Concurrency/locking half true; NEXT-preservation half FALSE (WR-02, reproduced). Recommend leaving **Pending** until WR-02 is fixed or explicitly overridden. |
+*Is there any legitimate path to reset `next` to null once set?* **No — and I verified this, it is not theoretical.** My repro's step 6: after a NEXT is set, a further `upsertTaskHandoff(..., {next: null})` leaves it at the previous value. `next: entry.next ?? (prev ? prev.next : null) ?? null` has no branch that yields `null` once `prev.next` is non-null. And `upsertTaskHandoff` is the **only** writer of `state.tasks` entries in the whole of `src/` (grep confirmed: no other assignment, no `delete`, no prune, nothing on task completion). **Consequence for Phase 75:** once a task has ever recorded a `NEXT:`, that string is immortal until a *different* non-null NEXT replaces it. When a task genuinely finishes, its last real NEXT stays forever, and Phase 75's dashboard + nudge — the exact consumers this phase exists to feed — will render and nudge on a stale, already-done NEXT with no code path able to clear it.
 
-No orphaned requirements: all four IDs (LIVE-01..04) are declared across the phase's plan frontmatter and map to the phase's own Success Criteria; none are left unaddressed by any plan.
+*Severity: Warning, not a blocker.* No success criterion (#1..#5) and no requirement (LIVE-01..04) promises clearability; LIVE-04 promises that the NEXT session of that task **finds** the `NEXT:`, which is now true. It is the same family as the deliberately-deferred WR-04 (`state.tasks` unbounded): nothing in the codebase ever prunes `state.tasks`. Recorded here so Phase 75 inherits it explicitly rather than discovering it in a dashboard cell.
 
-### Anti-Patterns Found
+**Claim 4 — the asymmetry. VERIFIED and defensible.**
+Code matches the claim exactly (`state.js:431-448`): `plan_path: entry.plan_path` (unconditional, no fallback); `updated_at: entry.updated_at ?? new Date().toISOString()` (a *generation default*, not a merge with `prev` — it never reads `prev.updated_at`); only `next` merges. Defensible on both flanks: `plan_path` is derived deterministically from the task_id at the caller (`session-end.js:307`), so for a given task it is always the same string — a fallback would preserve nothing and would mask a caller passing `undefined`. `updated_at` **must** advance: the close really happened and its block really landed in the plan file; keeping the old timestamp would lie about the last write. My repro confirms both: after the mechanical close, `next` is preserved **and** `updated_at` advanced to `2026-07-02T00:00:00Z`.
 
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `src/session/state.js` | 408-429 (`upsertTaskHandoff`) | Whole-entry overwrite with `?? null` fallback, no "preserve previous NEXT" guard | 🛑 Blocker (for LIVE-04's full claim) | Silently regresses a real, user-meaningful `NEXT:` to `null` on the very next mechanical close of the same task — reproduced independently, see Gaps. |
-| `src/session/state.js` | 128-151 (`migrateStateV2toV3`) | Exhaustive rebuild drops any unknown key, including `tasks` | ⚠️ Warning (latent, not reachable via the current hook flow) | Documented in 74-REVIEW.md (WR-03) and confirmed present in code; not currently reachable because `session-end.js`'s `findSession` guard means `state.json` has already been migrated at least once by the time `writeHandoff` runs. Reachable from any future direct caller of `upsertTaskHandoff` bypassing the session-tracked flow (e.g., a careless Phase 75 addition, or test helpers). |
-| `src/session/handoff.js` | 163 (`buildHandoffBlock`) | `sessionId` interpolated into the marker with zero validation, unlike every other untrusted field in the module | ⚠️ Warning (latent, low current reachability) | Documented in 74-REVIEW.md (WR-01); confirmed by reading the code — `sessionId` is the one value the entire D-04 detector keys on and it is not sanitized like `reason`/`status`/`summary`/`task_ref`. Not reachable today because `session_id` is always `randomUUID()` at the two call sites (`manager.js:292`, `dispatcher.js:170`), but a defense-in-depth gap in a module whose own stated thesis is "validate before interpolating". |
-| `src/hooks/session-start.js` | 94, 173 | `session.task_id` interpolated into a filesystem path told to the LLM, without the `isSafeTaskId` guard this same phase built and applied on the writer side (`session-end.js:300`) | ⚠️ Warning | Documented in 74-REVIEW.md (WR-05); confirmed no `isSafeTaskId` import in `session-start.js`. The writer refuses unsafe task_ids but the instruction side has already told the LLM to write there — asymmetric application of a guard this exact phase introduced. |
-| — | — | No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` markers found in any of the 12 phase-touched files | — | Clean. |
+### Invariants Re-Confirmed
+
+| Invariant | Status | Evidence |
+|---|---|---|
+| Writes go through `withStateLock` | ✓ | `upsertTaskHandoff` body is a single `withStateLock(mutator)`; no direct `saveState`. |
+| `reconcileTick` remains the ONLY writer of `alive` | ✓ | Mutator touches only `state.tasks`. Repro: `'alive' in loadState()` → absent. No `.alive =` added anywhere. |
+| `addSession`-shaped fail-safe | ✓ | `if (!r.ok) { logger.warn('state.task.handoff_failed', …); return r; }` **then** `logger.info('state.task.handoff_saved', …)` — success telemetry gated AFTER the guard, mirroring `addSession` (`:346-357`). |
+| LOG-12 — `state.js` imports `logger-noop`, never `logger.js` | ✓ | `state.js:8` → `import { noopLogger } from '../logger-noop.js'`. No `logger.js` import. `test/check-isolation.test.js` green. |
+| No `schema_version` bump | ✓ | Repro: `schema_version: 3`. Zero `schema_version` occurrences in the diff. |
+| Zero new npm deps | ✓ | `git diff acc7522~1 HEAD --stat -- package.json package-lock.json` = empty. |
+| `writeFileAtomic` (fixed-tmp-name TRAP) not used | ✓ | `grep -c writeFileAtomic src/session/state.js` = **0**. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Targeted phase test files pass | `node --test test/session/handoff.test.js test/hooks/session-end-handoff.test.js test/state/handoff-state.test.js test/state/handoff-concurrency.test.js test/session-start.test.js test/gsd-context.test.js` | 155/155 pass, 23 suites | ✓ PASS |
-| Full suite (single run, per constraint) | `npm test` | 2130 tests, 2129 pass, 0 fail, 1 skipped | ✓ PASS |
-| Real `~/.kodo` untouched by the test run | `ls ~/.kodo/plans/` before/after; no `.lock`/`.tmp.*` residue | Same file count, no stray lock/tmp artifacts | ✓ PASS |
-| **WR-02 reproduction (LIVE-04 correctness)** | `node -e` script: `addSession` → `upsertTaskHandoff(t1, {next:'desplegar el fix'})` → `upsertTaskHandoff(t1, {next:null})`, inspecting `loadState().tasks.t1` after each step, under an isolated `HOME` | After step 2 (real NEXT): `{"next":"desplegar el fix",...}`. After step 3 (mechanical close, same task): `{"next":null,...}` — the real NEXT is gone. | ✗ FAIL — confirms WR-02 is production-reachable, not hypothetical |
+| **LIVE-04 own repro — the gap, from the requirement's POV** (not the executor's test) | `node` under isolated `HOME`: `addSession` → `upsertTaskHandoff(next:'desplegar el fix')` → `upsertTaskHandoff(next:null)` | `next` is still `'desplegar el fix'` after the mechanical close (was `null` before the fix). **The NEXT session of that task finds the `NEXT:`.** | ✓ **PASS — gap closed** |
+| Asymmetry — `updated_at` still advances | same script, step 2 | `updated_at` = `2026-07-02T00:00:00Z` (advanced) | ✓ PASS |
+| Not "first write wins" — a new non-null NEXT overwrites | same script, step 3 | `next` = `'nuevo paso'` | ✓ PASS |
+| `alive` untouched / `schema_version` unchanged | same script, steps 4-5 | `alive` absent; `schema_version` 3 | ✓ PASS |
+| **`next` can never be reset to null** | same script, step 6 | returns `'nuevo paso'` — null does not clear | ⚠️ Confirmed (see Warning) |
+| RED at the test-only commit | worktree @ `acc7522`, `node --test test/state/handoff-state.test.js` | `# pass 15 · # fail 1`, `ERR_ASSERTION`, `actual: ~` | ✓ PASS (genuine red) |
+| Targeted phase suites | `node --test` on the 5 phase files | **96/96 pass, 0 fail** | ✓ PASS |
+| Full suite, run 1 | `npm test` | 2132 tests · 2130 pass · **1 fail** · 1 skipped | ⚠️ investigated → flake |
+| Full suite, run 2 | `npm test` | 2132 tests · **0 fail** | ✓ PASS |
+| Flake identity — verified, not assumed | 12 isolated runs of `test/gsd-lock-race.test.js` | **1/12 failed**, exactly `gsd lock steal race — concurrent dead-holder steal (CR-01)` | ✓ Matches `deferred-items.md` §D-1 (documented pre-existing, out of scope) |
+| Real `~/.kodo` untouched | `ls ~/.kodo/plans \| wc -l`; lock/tmp residue | 26 plans; **0** `.lock`/`.tmp.` artifacts | ✓ PASS |
+
+Test-count arithmetic checks out: baseline 2130 + the 2 new regression cases = **2132**, matching the executor's claim exactly.
+
+### Requirements Coverage
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| LIVE-01 | ✓ SATISFIED (manual half pending) | Truth #1. Still `Pending` in REQUIREMENTS.md — recommend **Complete** after human item #1. |
+| LIVE-02 | ✓ SATISFIED | Truth #2. Already `Complete` — confirmed correct. |
+| LIVE-03 | ✓ SATISFIED (manual half pending) | Truth #3, re-confirmed by executing `buildHandoffBlock`. Still `Pending` — recommend **Complete** after human item #2. |
+| LIVE-04 | ✓ **NOW SATISFIED** | Truth #4. Both halves verified; `[x]` in REQUIREMENTS.md is now correct (it was ahead of the evidence at the initial verification; the evidence has caught up). |
+
+### Anti-Patterns / Warnings
+
+| File | Line | Pattern | Severity | Impact |
+|------|------|---------|----------|--------|
+| `src/session/state.js` | 443 (`upsertTaskHandoff`) | `next` is un-clearable: no code path resets it to `null` once set; `upsertTaskHandoff` is the only writer of `state.tasks` entries and nothing prunes them | ⚠️ **Warning (new, inherited by Phase 75)** | A completed task keeps its last real `NEXT:` forever; Phase 75's dashboard/nudge will surface a stale, already-done next step with no way to clear it. Not a blocker: no SC or requirement promises clearability. Same family as the deferred WR-04. |
+| `src/session/state.js` | 128-151 (`migrateStateV2toV3`) | Exhaustive rebuild drops unknown keys incl. `tasks` (WR-03) | ⚠️ Warning (deferred, unchanged) | Latent; not reachable via the real hook flow. Deliberately deferred. |
+| `src/session/handoff.js` | 163 | `sessionId` interpolated unvalidated (WR-01) | ⚠️ Warning (deferred, unchanged) | Latent; `session_id` is always `randomUUID()` at both call sites. Deliberately deferred. |
+| `src/hooks/session-start.js` | 94, 173 | `task_id` interpolated without `isSafeTaskId` (WR-05) | ⚠️ Warning (deferred, unchanged) | Deliberately deferred. |
+| — | — | No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` in the 2 files touched by `74-06` | — | Clean. |
+
+The previous 🛑 Blocker on `upsertTaskHandoff` (whole-entry overwrite) is **removed** — the code no longer exhibits it.
 
 ### Human Verification Required
 
-See frontmatter `human_verification` — both items harvested from `74-05-PLAN.md`'s deferred `<human-check>` block (explicitly deferred to this gate by the executor, not skipped):
+Both carried forward unchanged from the initial verification; both are documented manual-only items in `74-VALIDATION.md` §Manual-Only Verifications, not gaps and not regressions.
 
-1. **LIVE-01/SC#1 end-to-end.** Launch a real kodo session, close with `/exit`, open the plan file — confirm the handoff block is really there from the operator's chair. Not automatable in `node:test`.
-2. **LIVE-03/SC#3 visual distinguishability.** Confirm the mechanical block's `— automático` heading actually reads as obviously-different at a glance, not just as a string match.
+1. **LIVE-01/SC#1 end-to-end.** Launch a real kodo session, close with `/exit`, open the plan file.
+2. **LIVE-03/SC#3 visual distinguishability.** Confirm `— automático` reads as obviously different at a glance.
 
-(A third note in the same block — the raw HTML marker being visible in the Phase-74 plan overlay until Phase 75 renders markdown — is a documented, accepted, non-bug window, not a verification item.)
+## Summary
 
-## Gaps Summary
+Plan `74-06` closed the gap it set out to close, and it closed it honestly. The fix is four lines of real semantics (`const prev` from the mutator's own `state`; `next: entry.next ?? (prev ? prev.next : null) ?? null`) with the reasoning committed alongside it in the comment and typedef. I did not take the executor's word or its test's word for any of it: I re-ran the test at its own commit to confirm the red was a genuine `ERR_ASSERTION` on the asserted behavior, confirmed by `git diff` that the test was never touched by the fix, and reproduced the requirement's promise myself under an isolated HOME — a real `NEXT:` from an earlier session now survives the mechanical close that used to erase it, while a new non-null `NEXT:` still wins and `updated_at` still advances. The locking half was already solid and remains so; `prev` comes from the mutator's `state` parameter with zero added `loadState` calls, so T-74-16's lost update is not reintroduced. All 5 success criteria hold.
 
-Phase 74 delivers 4 of its 5 success criteria cleanly, with real teeth: the ordering guarantee (LIVE-01), the accumulation-without-overwrite guarantee (LIVE-02), the mechanical backstop (LIVE-03), and the never-throw/order-preservation guarantee (SC#5) are all verified against the actual code and pass targeted + full test runs, including a mutation-tested cross-process concurrency proof for the locking mechanics themselves.
+The one thing worth the maintainer's attention is not the fix but its shadow: `next` is now **un-clearable**. That is not a nitpick and I checked it rather than reasoned about it — `upsertTaskHandoff` is the only writer of `state.tasks` entries in the entire codebase, nothing prunes them, and no branch of the merge can produce `null` once a real NEXT exists. The executor's extension of the merge to the LLM branch is defensible — D-02 as written scopes "absent" to the mechanical block and is silent on the LLM case, but `session-start.js` instructs `NEXT:` as a required line of the exact format, so an LLM block lacking it is a format slip, not a claim that the task is done — and it was disclosed, not smuggled. But the net effect is that a finished task carries its last `NEXT:` forever, and Phase 75's dashboard and nudge are precisely what will show it. That belongs in Phase 75's discuss as an inherited decision point (alongside WR-04, its structural sibling), not as a Phase 74 blocker.
 
-The one real gap is in LIVE-04: the concurrency/locking machinery is genuinely solid (state.tasks entries are never lost across concurrent closes, `alive` is untouched, `withStateLock` is respected throughout), but the data `upsertTaskHandoff` persists can still be **semantically wrong** — a later, ordinary mechanical close (the exact scenario LIVE-03 exists to handle) silently erases a real `NEXT:` recorded by an earlier session of the same task, even though that `NEXT:` remains intact on disk in the plan file. This was flagged in 74-REVIEW.md as WR-02 and I independently reproduced it end-to-end (not merely trusted from the review or SUMMARY): `addSession` → real-NEXT close → mechanical close leaves `state.tasks[t].next === null`. This directly contradicts a must_have this phase's own Plan 02 declared, and undermines the "producer" framing of this phase for Phase 75's dashboard, which will render an empty NEXT cell in exactly this common case.
-
-The fix is already sketched in 74-REVIEW.md (preserve the previous `next` when the incoming entry's is absent) and is a small, surgical change to `upsertTaskHandoff` plus one regression test. Two secondary latent findings (WR-03: migration drops `tasks`, not currently reachable via the real hook flow; WR-01/WR-05: two asymmetric validation gaps around `sessionId`/`task_id`, low current reachability) are noted as warnings for the maintainer's judgment but do not block any of the 5 success criteria on their own.
+Status is `human_needed`, not `passed`, solely because the two pre-existing manual-only checks from `74-VALIDATION.md` remain unperformed. **No gap survives.**
 
 ---
 
-_Verified: 2026-07-15T11:02:28Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-07-15T13:45:00Z_
+_Verifier: Claude (gsd-verifier) — re-verification after gap closure_
