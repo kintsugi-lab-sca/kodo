@@ -6,7 +6,7 @@ current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
 status: executing
 stopped_at: Phase 74 context gathered
-last_updated: "2026-07-15T10:02:30.027Z"
+last_updated: "2026-07-15T10:05:33.778Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
@@ -68,6 +68,7 @@ Baseline post-v0.16. Todos pre-reconocidos al cierre (audit PASSED, verified clo
 | Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
 | Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera de roadmap) | — |
 | Rendimiento | Reconcile asíncrono (M21) — **medir antes de arreglar** | v2 (solo si `/health` muestra latencia real) | — |
+| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** (~1 de cada 3 runs, timing). Preexistente: no lo causó la Phase 74 (`git diff` vs baseline vacío en `src/gsd/`) | Abierto — investigar con `/gsd-debug`; NO arreglar a ciegas (podría enmascarar una carrera real del lock). Evidencia en `phases/74-.../deferred-items.md` | v0.17 Phase 74 |
 
 ## Accumulated Context
 
@@ -120,4 +121,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (baseline v0.17 — métricas de v0.16 archivadas en `milestones/v0.16-phases/`) |
-| Phase 74 P01 | 18m | 3 tasks | 3 files |
+| 74 | 01 | 18m | 3 tasks, 3 files (contrato de handoff: hoja pura + 40 tests) |
