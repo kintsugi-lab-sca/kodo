@@ -8,10 +8,43 @@
 // y never-throws. La cobertura de worktree vive en stop-worktree-cleanup.test.js
 // (re-apuntado a runSessionEndHook); aquí cubrimos la ruta sin worktree + guards.
 
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runSessionEndHook } from '../../src/hooks/session-end.js';
 import { sessionBackstopReview, EVENTS } from '../../src/logger-events.js';
+
+// ── Aislamiento del HOME (Phase 74, T-74-15) ───────────────────────────────────
+// OBLIGATORIO, no cosmético. Este fichero NO aísla HOME — no lo necesitaba, porque
+// inyecta findSessionFn/removeSessionFn y nunca tocaba el fs. Con el bloque de handoff
+// cableado en session-end.js:97, cada caso de aquí ejecuta writeHandoff, cuyos defaults
+// resuelven a `join(KODO_DIR, 'plans')` y a `upsertTaskHandoff` — es decir, al
+// `~/.kodo/plans` y al `state.json` REALES del operador, en cada `npm test`. La fuga es
+// SILENCIOSA: los tests seguirían verdes mientras ensucian el HOME de quien los corre.
+// (Verificado empíricamente durante el Plan 04: la primera ejecución de esta suite con el
+// seam cableado y sin DI creó `~/.kodo/plans/kodo-end-1.md` y una entrada
+// `tasks['kodo-end-1']` en el state.json real.)
+//
+// `config.js:11` evalúa `homedir()` en MODULE-LOAD, así que pisar `process.env.HOME` no
+// cierra la fuga desde un fichero con imports estáticos: la única salida limpia es la DI
+// que los Tasks 1 y 2 añadieron.
+// El tmpdir se nombra `handoffTmpdir` a propósito, y NO con el nombre de la clave de
+// deps: así ese literal aparece exactamente una vez por invocación del hook, y el
+// criterio de aceptación que cuenta invocaciones contra invocaciones-aisladas mide de
+// verdad lo que quiere medir — que NINGUNA se escape al HOME real.
+let handoffTmpdir;
+before(() => {
+  handoffTmpdir = mkdtempSync(join(tmpdir(), 'kodo-send-'));
+});
+after(() => {
+  rmSync(handoffTmpdir, { recursive: true, force: true });
+  assert.equal(existsSync(handoffTmpdir), false, 'higiene: el tmpdir se borra');
+});
+
+/** Spy no-op — sustituye a upsertTaskHandoff para que el state.json real no se toque. */
+const noopStateWriter = () => ({ ok: true });
 
 function makeLogger() {
   const events = [];
@@ -70,6 +103,8 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -90,6 +125,8 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       {
         // Simula una sesión ya archivada (Stop espurio, SessionEnd previo, doctor).
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -106,6 +143,8 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       { session_id: 'unknown', cwd: '/tmp/elsewhere' },
       {
         findSessionFn: () => null,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -123,6 +162,8 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
           removeSessionFn: () => { throw new Error('state.json locked'); },
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -148,6 +189,8 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: cmuxStub,
@@ -190,6 +233,8 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: () => {},
         loggerFactory: () => logger,
         provider,
@@ -216,6 +261,8 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
           cmux: cmuxStub,
@@ -227,6 +274,34 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     assert.ok(calls.includes('notify'), 'notify corre pese al fallo de setColor');
     assert.ok(calls.includes('send'), 'el nudge corre pese al fallo de setColor');
     assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió antes de los efectos');
+  });
+
+  // Regresión (Phase 74): vigila la MITAD de D-07 que dice qué NO cambia. El bloque de
+  // handoff se inserta ANTES del trío cosmético; insertar antes de una secuencia no la
+  // reordena, y este caso lo fija sobre el array `calls` COMPARTIDO del cmux stub más un
+  // push desde removeSessionFn. Si alguien mueve el handoff (o el trío) y rompe el orden
+  // LOCKED de D-08 (v0.16 Phase 71), esto muerde.
+  it('REGRESIÓN D-08: con el bloque de handoff insertado, el orden removeSession → setColor → notify sigue intacto', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        removeSessionFn: () => { calls.push({ fn: 'removeSession' }); },
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+      },
+    );
+    const iRemove = calls.findIndex((c) => c.fn === 'removeSession');
+    const iColor = calls.findIndex((c) => c.fn === 'setColor');
+    const iNotify = calls.findIndex((c) => c.fn === 'notify');
+    assert.ok(iRemove !== -1 && iColor !== -1 && iNotify !== -1, 'los tres efectos ocurrieron');
+    assert.ok(iRemove < iColor, 'removeSession antes de setColor');
+    assert.ok(iColor < iNotify, 'setColor antes de notify — el trío LOCKED no se reordena');
   });
 });
 
@@ -270,6 +345,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -300,6 +377,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -322,6 +401,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -344,6 +425,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -370,6 +453,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -391,6 +476,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: () => {},
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -418,6 +505,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -455,6 +544,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -481,6 +572,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -506,6 +599,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
           removeSessionFn: () => {},
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
