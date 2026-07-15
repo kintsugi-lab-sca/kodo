@@ -17,8 +17,17 @@
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
+- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-76 (in progress)
+
+> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74.
 
 ## Phases
+
+**v0.17 Plan vivo por-tarea — el plan de la tarea pasa de fire-and-forget a estado vivo (productor → consumidores), + una fase ortogonal de convergencia del conteo:**
+
+- [ ] **Phase 74: Handoff acumulativo al cierre** - `SessionEnd` appendea `## Handoff <fecha>` (`Hecho / Pendiente / NEXT:`) al plan de la tarea antes del cleanup destructivo, con autoría LLM + backstop mecánico, y persiste puntero + `NEXT:` en `state.json` bajo `withStateLock` — LIVE-01..04
+- [ ] **Phase 75: Superficie del `NEXT:` — dashboard y nudge** - El dashboard lista el `NEXT:` por tarea desde `state.json` y abre el plan completo renderizado en la rama `phaseId == null`; el nudge del orquestador usa el `NEXT:` como contexto — LIVE-05, LIVE-06, LIVE-07
+- [ ] **Phase 76: Convergencia del conteo `pending`** - `/status` y `kodo check` reportan el mismo `pending_count`, y con el provider caído `/status` deja de servir un conteo caducado como si fuera fresco — ORCH-05, ORCH-06
 
 <details>
 <summary>✅ v0.16 Hardening (Phases 69-72) — SHIPPED 2026-07-15</summary>
@@ -120,37 +129,80 @@ Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
 Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
 
+## Phase Details (v0.17 activo)
+
+### Phase 74: Handoff acumulativo al cierre
+
+**Goal**: Al cerrar una sesión, la tarea deja **estado vivo**: su plan gana un bloque de handoff que se acumula sesión tras sesión (nunca se pisa), y `state.json` guarda el puntero al plan + el `NEXT:` de una línea. Es el productor de todo el milestone: sin este dato, ni el dashboard ni el nudge tienen nada que enseñar.
+**Depends on**: v0.16 Phase 70 (shipped) — el hook de cierre es un escritor más de `state.json` y está obligado a pasar por `withStateLock`
+**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04
+**Success Criteria** (what must be TRUE):
+
+  1. Al cerrar una sesión de una tarea, `~/.kodo/plans/<task_id>.md` gana un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`, escrito **ANTES** del cleanup terminal destructivo de `SessionEnd` (`removeSession` + worktree + promptFile) — cuando el operador abre el fichero tras el cierre, el handoff está ahí. (LIVE-01)
+  2. Una segunda sesión de la misma tarea acumula un segundo bloque y el primero sigue íntegro en el fichero — la instrucción de `session-start.js:85` deja de ordenar *«sobrescribe si ya existe»* y pasa a preservar-y-appendear. (LIVE-02)
+  3. Si el LLM cierra sin escribir handoff, el fichero gana igualmente un bloque mecánico mínimo (fecha + resultado de la sesión, sin `NEXT:`): ninguna sesión cerrada deja el plan sin traza, y el operador distingue el bloque mecánico del redactado por el LLM. (LIVE-03)
+  4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
+  5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
+
+**Plans**: TBD
+
+### Phase 75: Superficie del `NEXT:` — dashboard y nudge
+
+**Goal**: El operador y el orquestador **consumen** el estado vivo sin abrir ficheros a mano: el `NEXT:` de cada tarea se ve en la lista del dashboard, el plan completo se abre renderizado desde la fila, y el nudge del orquestador deja de ser genérico. Es la cara visible del dato que produce la Phase 74.
+**Depends on**: Phase 74 (consume el `NEXT:` de `state.json` y el bloque de handoff del plan)
+**Requirements**: LIVE-05, LIVE-06, LIVE-07
+**Success Criteria** (what must be TRUE):
+
+  1. El dashboard muestra el `NEXT:` por tarea en la lista, leyéndolo de `state.json` — la TUI **no** abre N ficheros de plan para pintar la tabla, y no aparece ningún endpoint nuevo en `src/server.js`. (LIVE-05)
+  2. Desde la fila de una sesión no-GSD (`phaseId == null`), el operador abre el markdown completo del plan renderizado y de **solo lectura** (no editable), y `Esc` vuelve a la lista preservando el cursor por `task_id`. (LIVE-06)
+  3. Las filas GSD siguen abriendo su overlay de plan GSD exactamente igual que hoy: D-02 intacto, el handoff no se surface en esa rama aunque sí se haya escrito en disco. (LIVE-06)
+  4. Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto concreto en vez del genérico. (LIVE-07)
+  5. Sin `NEXT:` (tarea recién creada, handoff mecánico sin `NEXT:`, plan ausente o ilegible), el dashboard y el nudge degradan limpio — celda vacía y nudge sin contexto, TUI never-throws, cero ruido.
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 76: Convergencia del conteo `pending`
+
+**Goal**: El conteo de tareas `pending` que ve el orquestador converge con el que reporta `kodo check`, y con el provider caído `/status` deja de presentar un dato caducado como si fuera fresco. Ortogonal a los LIVE (vive en `src/server.js` y `src/check.js`, no toca hooks ni planes) → paralelizable.
+**Depends on**: Nothing (independiente de 74/75; puede ejecutarse en paralelo)
+**Requirements**: ORCH-05, ORCH-06
+**Success Criteria** (what must be TRUE):
+
+  1. Con el provider sano, `/status` y `kodo check` reportan el **mismo** `pending_count` sobre la misma realidad — la ventana de divergencia de hasta 30s (`pendingCache` TTL en `server.js:591` vs `listPendingTasks()` fresco en `check.js:37`) desaparece por convergencia de los caminos de lectura, no por cuadrar números a mano. (ORCH-05)
+  2. Con el provider caído, `/status` no sirve un conteo `pending` arbitrariamente viejo como si fuera fresco: la rama de error de `server.js:599` deja de devolver `pendingCache.data` sin comprobar TTL. (ORCH-06)
+  3. El operador y el orquestador distinguen **«0 pendientes»** de **«no se pudo saber»** — el fallo del provider es visible en la respuesta, no solo un `console.warn` en la consola del server. (ORCH-06)
+  4. El arreglo no introduce endpoints nuevos ni un bus de invalidación por evento (fuera de alcance explícito): el comportamiento observable cambia sin rediseñar el `pendingCache`.
+
+**Plans**: TBD
+
+## Progreso (v0.17)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 74. Handoff acumulativo al cierre | 0/? | Not started | - |
+| 75. Superficie del `NEXT:` — dashboard y nudge | 0/? | Not started | - |
+| 76. Convergencia del conteo `pending` | 0/? | Not started | - |
+
 ## Backlog
 
 ### Phase 999.1: kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
 
 _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional** (shipped 2026-06-25) bajo la arquitectura "una fontanería, tres consumidores"._
 
-**Deferido a v2 (trackeado en REQUIREMENTS.md v0.16):** `Retry-After` en 429 del cliente Plane (PLANE-F1/M7) · filtro server-side por label kodo en polling (PLANE-F2/M8) · paginación del listado de work items (PLANE-F3/M9) · reconcile asíncrono fuera del event loop (PERF-F1/M21 — **medir antes de arreglar**).
+**Deferido a v2 (trackeado en REQUIREMENTS.md v0.17):** `Retry-After` en 429 del cliente Plane (PLANE-F1/M7) · filtro server-side por label kodo en polling (PLANE-F2/M8) · paginación del listado de work items (PLANE-F3/M9) · reconcile asíncrono fuera del event loop (PERF-F1/M21 — **medir antes de arreglar**).
 
-**Deferred candidates (futuros milestones):** discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-ORCH-05, Phase 73 retirada 2026-07-14) · hot-reload de config en server/daemon (CFGF-01) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time.
+**Deferred candidates (futuros milestones):** hot-reload de config en server/daemon (CFGF-01) · adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time.
 
-### Phase 74: Plan vivo por-tarea (handoff continuo) — candidata v0.17 (feature)
+_(ORCH-05 salió del backlog: promovido a **Phase 76** en v0.17 con causa raíz localizada en código.)_
 
-**Goal**: Convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget (solo se escribe al arranque) en **estado vivo** de la tarea: el hook de cierre appendea un handoff (`Hecho / Pendiente / NEXT:`) al terminar cada sesión, `state.json` guarda el puntero + el `NEXT:` de una línea para pintar la lista sin abrir N ficheros, y el TUI/dashboard ofrece la ventana a ese estado en cada momento. Cierra la continuidad **entre sesiones de la misma tarea** (hoy inexistente) y alimenta el nudge del orchestrator con un `NEXT:` concreto (el nudge genérico se eliminó el 2026-07-14).
+### Phase 999.2: Inbox de capturas global — fuera de v0.17 (feature)
 
-**Tipo**: Feature (NO hardening). Candidata al primer milestone de features post-v0.16 (v0.17). **No planificar hasta que v0.16 cierre.**
-**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04
-**Depends on**: Phase 70 (el hook de cierre es un escritor más de `state.json` → `withStateLock`)
-**Success Criteria** (what must be TRUE):
-
-  1. Cerrar una sesión de una tarea → `~/.kodo/plans/<uuid>.md` gana un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`; una segunda sesión de la misma tarea acumula otro bloque sin pisar el anterior. (LIVE-01)
-  2. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`. (LIVE-02)
-  3. El TUI lista el `NEXT:` por tarea y abre el markdown completo del plan desde la vista; el contenido se renderiza, no se edita a mano. (LIVE-03)
-  4. Con un `NEXT:` presente, el nudge del orchestrator lo usa como contexto en vez del genérico. (LIVE-04)
-
-**Plans**: TBD (no planificar aún)
-
-### Phase 75: Inbox de capturas global — candidata v0.17 (feature)
+> **Renumerado 2026-07-15:** este item se llamaba «Phase 75» en el backlog. Al promover la candidata Phase 74 a fase activa, v0.17 ocupa 74-76 y el número 75 quedaría ambiguo. Se renumera a 999.2 siguiendo la convención de placeholders del backlog (999.x). Recibirá número real al promoverse.
 
 **Goal**: Dar a kodo un **buffer de captura rápida** para ideas tangenciales que surgen mid-session (un tip de config, una idea de comando, un cambio de sentido) y que NO dan para una tarea de Plane. Global y propio de kodo (`~/.kodo/inbox.md`, append-only, con tag de proyecto), capturable desde shell (`kodo capture`) y desde dentro de la sesión (skill `/kodo-capture`). Lo que hace que funcione y no se pudra es el **destino**: `kodo inbox` enruta cada captura → tarea Plane / fase roadmap / config / descartada, delegando el «a dónde va» en `gsd-capture`.
 
-**Tipo**: Feature (NO hardening). Candidata a v0.17. **No planificar hasta que v0.16 cierre.** Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
+**Tipo**: Feature (NO hardening). **Fuera de v0.17 por decisión del operador (2026-07-15)** — tema ortogonal al plan vivo, no refuerza la Phase 74. Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
 **Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04
 **Depends on**: ninguna dura (aislada). Reutiliza el enrutado de `gsd-capture`/`gsd-inbox`.
 **Success Criteria** (what must be TRUE):
@@ -159,3 +211,5 @@ _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional*
   2. `/kodo-capture` captura mid-session desde Claude Code con el mismo formato, derivando proyecto/tarea del contexto de sesión. (CAPT-02)
   3. `kodo inbox` lista las capturas abiertas y marca cada una como `enrutada`/`descartada` al procesarla (no borra: traza de qué se convirtió en qué). (CAPT-03)
   4. El enrutado a tarea/fase/config lo hace `gsd-capture`, no una reimplementación en kodo. (CAPT-04)
+
+**Plans**: TBD (no planificar aún)

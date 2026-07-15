@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-status: planning
-last_updated: "2026-07-15T08:08:24.696Z"
+status: roadmapped
+last_updated: "2026-07-15T09:10:00.000Z"
 last_activity: 2026-07-15
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,7 +16,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** iniciado 2026-07-15 — definiendo requirements. Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED).
+**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** con roadmap creado 2026-07-15 — **Phases 74-76**, 9/9 requirements mapeados. Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED). Listo para `/gsd-discuss-phase 74`.
 
 ## Project Reference
 
@@ -24,14 +24,23 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** v0.17 «Plan vivo por-tarea» — convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo de la tarea: handoff acumulativo `Hecho/Pendiente/NEXT:` en `SessionEnd` con autoría **LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto (LIVE-01..04) + **ORCH-05** (convergencia del conteo `pending`). Phase 75 (Inbox) queda en Backlog. Numeración: **Phase 74** (el 73 quedó quemado por la retirada del 2026-07-14).
+**Current focus:** v0.17 «Plan vivo por-tarea» — convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo de la tarea: handoff acumulativo `Hecho/Pendiente/NEXT:` en `SessionEnd` con autoría **LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto (LIVE-01..07) + **ORCH-05/06** (convergencia del conteo `pending`). Roadmap en 3 fases: **74** productor (handoff en disco + `NEXT:` en `state.json`), **75** consumidores (dashboard + nudge), **76** conteo `pending` (ortogonal, paralelizable). El Inbox de capturas (CAPT) queda en Backlog, renumerado a **999.2** para no colisionar con la Phase 75 real. Numeración: arranca en **Phase 74** (el 73 quedó quemado por la retirada del 2026-07-14).
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 74 — Handoff acumulativo al cierre (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-15 — Milestone v0.17 started
+Status: Roadmap creado — pendiente de discuss/plan
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
+Last activity: 2026-07-15 — ROADMAP.md creado (Phases 74-76, 9/9 requirements mapeados)
+
+**Fases del milestone:**
+
+| Fase | Goal (resumen) | Requirements | Depende de |
+|------|----------------|--------------|------------|
+| 74 | Handoff acumulativo `## Handoff <fecha>` en `SessionEnd` (pre-cleanup, LLM + backstop mecánico) + puntero/`NEXT:` en `state.json` bajo `withStateLock` | LIVE-01..04 | v0.16 Phase 70 (shipped) |
+| 75 | `NEXT:` en la lista del dashboard + plan completo renderizado en `phaseId == null` (D-02 intacto) + nudge con contexto | LIVE-05, LIVE-06, LIVE-07 | Phase 74 |
+| 76 | `/status` y `kodo check` convergen en `pending_count`; provider caído no sirve conteo caducado como fresco | ORCH-05, ORCH-06 | ninguna (paralelizable) |
 
 ## Most recent shipped milestone
 
@@ -51,7 +60,7 @@ Baseline post-v0.16. Todos pre-reconocidos al cierre (audit PASSED, verified clo
 | Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1); análisis en `milestones/v0.16-phases/70-.../70-WORKTREE-VERIFICATION.md` | v0.16 Phase 70 |
 | UAT | Backstop GitHub real (nunca cierra issues) — skip reconocido por el operador 2026-07-09; mock de 3 capacidades como cobertura compensatoria | Abierto (requiere repo GitHub real) | v0.16 Phase 71 |
 | Cliente Plane | B12b — throttle epoch-vs-delta (`x-ratelimit-reset` no confirmable barato en Plane self-hosted) | Diferido con nota (D-02) | v0.16 Phase 72 |
-| Orchestrator | ORCH-05 — discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-Phase 73, retirada por eliminación 2026-07-14) | Backlog (ROADMAP.md §Backlog) | — |
+| Orchestrator | ORCH-05 — discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-Phase 73, retirada por eliminación 2026-07-14) | **Promovido → v0.17 Phase 76** (con ORCH-06, causa raíz localizada en código) | — |
 | Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
 | Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera de roadmap) | — |
 | Rendimiento | Reconcile asíncrono (M21) — **medir antes de arreglar** | v2 (solo si `/health` muestra latencia real) | — |
@@ -73,24 +82,28 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 - **Server loopback-first:** bind `127.0.0.1` por defecto; exponer requiere `config.server.bind` explícito (topología multi-nodo en README).
 - **Modelo daemon PERSISTENTE:** solo `kodo stop` lo tumba; PID ownership de v0.16 (CONC-04/05) no puede regresionar esto.
 - **Escrituras de `state.json` bajo `withStateLock`** — cualquier escritor nuevo DEBE pasar por la primitiva (`src/session/state.js`); `reconcileTick` sigue siendo el único escritor de `alive`.
+- **D-02 (v0.11 Phase 46):** `readPlan` da prioridad a GSD; el plan ligero (y el handoff) solo se surface en la rama `phaseId == null`. El handoff se escribe en disco para TODA sesión, pero no se pinta en el overlay GSD.
+- **El handoff se escribe ANTES del cleanup terminal destructivo de `SessionEnd`** (`removeSession` + worktree + promptFile) — v0.17 Phase 74.
 - **Backstop de «In Review» en `SessionEnd` con gate de estado no-terminal** — jamás transicionar a un estado terminal (GitHub `closed`); el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
 - **Auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec** — sin la var → skip (cero commits fantasma).
 - **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** · **Cero nuevas dependencias npm** (locks vía `node:fs` built-in) · **TaskProvider contract FROZEN en 9** + métodos opcionales por `typeof` · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
 
 ## Session Continuity
 
-- **Last session:** 2026-07-15 — cierre de milestone v0.16 (audit + archivado + tag)
-- **Stopped at:** Milestone v0.16 shipped
-- **Next action:** `/gsd-new-milestone` — definir v0.17 (candidatas: Phases 74-75 + ORCH-05 en Backlog)
+- **Last session:** 2026-07-15 — requirements v0.17 + creación del roadmap (Phases 74-76)
+- **Stopped at:** ROADMAP.md escrito, traceability 9/9 — ninguna fase discutida ni planificada
+- **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
-  - `.planning/ROADMAP.md` (v0.16 colapsado; Backlog con Phases 74-75)
+  - `.planning/REQUIREMENTS.md` (v0.17 — 9 requirements, traceability 9/9)
+  - `.planning/ROADMAP.md` (v0.17 activo Phases 74-76; v0.16 y anteriores colapsados; Backlog con 999.1 + 999.2 Inbox)
   - `.planning/MILESTONES.md` (entrada v0.16 completa)
   - `.planning/milestones/v0.16-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
 
 ## Operator Next Steps
 
-- `/gsd-new-milestone` para definir v0.17 (requirements frescos; REQUIREMENTS.md se regenera)
+- `/gsd-discuss-phase 74` — formato del handoff + punto de escritura pre-cleanup en `SessionEnd`
+- Phase 76 es ortogonal (server/check, no toca hooks ni planes): puede lanzarse en paralelo a 74/75 si interesa
 
 ## Performance Metrics
 

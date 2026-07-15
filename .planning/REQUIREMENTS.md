@@ -54,7 +54,7 @@ Derivados de invariantes cross-milestone vivos en `STATE.md` y `PROJECT.md` §Ke
 
 Reconocidos pero fuera de este roadmap.
 
-### Inbox de capturas (CAPT) — Phase 75, sigue en Backlog
+### Inbox de capturas (CAPT) — Phase 999.2, sigue en Backlog
 
 - **CAPT-01**: `kodo capture "idea"` appendea a `~/.kodo/inbox.md` con `texto · tag-proyecto · fecha · origen`
 - **CAPT-02**: `/kodo-capture` captura mid-session con el mismo formato
@@ -92,21 +92,27 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LIVE-01 | TBD | Pending |
-| LIVE-02 | TBD | Pending |
-| LIVE-03 | TBD | Pending |
-| LIVE-04 | TBD | Pending |
-| LIVE-05 | TBD | Pending |
-| LIVE-06 | TBD | Pending |
-| LIVE-07 | TBD | Pending |
-| ORCH-05 | TBD | Pending |
-| ORCH-06 | TBD | Pending |
+| LIVE-01 | Phase 74 | Pending |
+| LIVE-02 | Phase 74 | Pending |
+| LIVE-03 | Phase 74 | Pending |
+| LIVE-04 | Phase 74 | Pending |
+| LIVE-05 | Phase 75 | Pending |
+| LIVE-06 | Phase 75 | Pending |
+| LIVE-07 | Phase 75 | Pending |
+| ORCH-05 | Phase 76 | Pending |
+| ORCH-06 | Phase 76 | Pending |
 
 **Coverage:**
 - v1 requirements: 9 total
-- Mapped to phases: 0 (pendiente de roadmap)
-- Unmapped: 9 ⚠️
+- Mapped to phases: 9 ✓
+- Unmapped: 0
+
+Sin huérfanos y sin duplicados: cada requirement mapea a exactamente una fase.
+
+- **Phase 74** — Handoff acumulativo al cierre (productor): LIVE-01, LIVE-02, LIVE-03, LIVE-04
+- **Phase 75** — Superficie del `NEXT:` — dashboard y nudge (consumidores): LIVE-05, LIVE-06, LIVE-07
+- **Phase 76** — Convergencia del conteo `pending` (ortogonal, paralelizable): ORCH-05, ORCH-06
 
 ---
 *Requirements defined: 2026-07-15*
-*Last updated: 2026-07-15 after milestone v0.17 initiation*
+*Last updated: 2026-07-15 after roadmap creation (Phases 74-76)*
