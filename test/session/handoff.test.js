@@ -10,7 +10,25 @@ import {
   isSafeTaskId,
   buildPlanHeader,
   buildHandoffBlock,
+  findSessionBlock,
+  hasSessionHandoff,
+  extractNext,
 } from '../../src/session/handoff.js';
+
+/**
+ * Fixture: un bloque de handoff escrito por el LLM, con el formato de D-01.
+ * @param {string} sessionId
+ * @param {string} next
+ */
+function llmBlock(sessionId, next) {
+  return [
+    `## Handoff 2026-01-05 03:07 <!-- kodo:handoff v=1 session=${sessionId} author=llm at=2026-01-05T02:07:00.000Z -->`,
+    '',
+    `**Hecho:** Trabajo de ${sessionId}`,
+    '**Pendiente:** Algo',
+    `**NEXT:** ${next}`,
+  ].join('\n');
+}
 
 describe('handoff: HANDOFF_REASONS + normalizeReason (D-03 — enum CERRADO)', () => {
   it('el enum contiene exactamente los 5 motivos de D-03', () => {
@@ -192,5 +210,155 @@ describe('handoff: buildHandoffBlock (D-01/D-03 — bloque mecánico)', () => {
     const a = buildHandoffBlock({ sessionId: 's-1', reason: 'clear', status: 'running', at: AT });
     const b = buildHandoffBlock({ sessionId: 's-1', reason: 'clear', status: 'running', at: AT });
     assert.equal(a, b);
+  });
+});
+
+describe('handoff: findSessionBlock (D-04 — scoped por session_id, JAMÁS por conteo)', () => {
+  it('un markdown sin ningún marcador devuelve null', () => {
+    const md = '# KL-9 — Arreglar el login\n\nPlan corto.\n';
+    assert.equal(findSessionBlock(md, 's-1'), null);
+  });
+
+  it('devuelve el bloque de la sesión consultada, empezando por su heading', () => {
+    const md = `# KL-9 — X\n\n${llmBlock('s-1', 'Arreglar el parser de labels')}\n`;
+    const block = findSessionBlock(md, 's-1');
+    assert.ok(block, 'debe encontrar el bloque');
+    assert.ok(block.startsWith('## Handoff '), 'el bloque empieza por su línea de heading');
+    assert.ok(block.includes('session=s-1'));
+  });
+
+  it('CASO CRÍTICO D-04: con el bloque de una sesión ANTERIOR, esta sesión sigue sin handoff', () => {
+    // Éste es el fallo exacto que LIVE-03 existe para evitar: con la acumulación de
+    // LIVE-02, un detector por conteo de bloques vería el bloque de s-0 y concluiría
+    // en falso que el LLM ya escribió — matando el backstop en silencio.
+    const md = `# KL-9 — X\n\n${llmBlock('s-0', 'Lo de la sesión anterior')}\n`;
+    assert.equal(findSessionBlock(md, 's-1'), null, 'el detector es scoped por session_id');
+    assert.equal(hasSessionHandoff(md, 's-1'), false, 'LIVE-03: se debe appendear el bloque mecánico');
+    assert.equal(hasSessionHandoff(md, 's-0'), true, 'la sesión anterior SÍ tiene el suyo');
+  });
+
+  it('con DOS bloques devuelve solo el consultado, sin ninguna línea del otro', () => {
+    const md = `# KL-9 — X\n\n${llmBlock('s-0', 'Lo viejo')}\n\n${llmBlock('s-1', 'Lo nuevo')}\n`;
+    const block = findSessionBlock(md, 's-1');
+    assert.ok(block, 'debe encontrar el bloque de s-1');
+    assert.ok(block.includes('session=s-1'));
+    assert.ok(!block.includes('session=s-0'), 'no incluye el heading del bloque anterior');
+    assert.ok(!block.includes('Lo viejo'), 'no incluye ninguna línea del bloque anterior');
+    assert.ok(!block.includes('Trabajo de s-0'));
+  });
+
+  it('el token se compara por igualdad EXACTA: session=s-1-extra no matchea s-1', () => {
+    const md = `# KL-9 — X\n\n${llmBlock('s-1-extra', 'Otra sesión')}\n`;
+    assert.equal(findSessionBlock(md, 's-1'), null, 'prefijo no confundible (no es substring)');
+    assert.ok(findSessionBlock(md, 's-1-extra'), 'la sesión real sí matchea');
+  });
+
+  it('el bloque termina antes del siguiente heading ## ', () => {
+    const md = `${llmBlock('s-1', 'Lo nuevo')}\n\n## Otra sección\n\nContenido ajeno.\n`;
+    const block = findSessionBlock(md, 's-1');
+    assert.ok(block, 'debe encontrar el bloque');
+    assert.ok(!block.includes('## Otra sección'), 'no invade el siguiente heading');
+    assert.ok(!block.includes('Contenido ajeno'));
+    assert.ok(block.includes('**NEXT:** Lo nuevo'), 'sí incluye su propio cuerpo');
+  });
+
+  it('si es el último bloque, llega hasta el final del fichero', () => {
+    const md = `# KL-9 — X\n\n## Otra sección\n\nAjeno.\n\n${llmBlock('s-1', 'Lo último')}\n`;
+    const block = findSessionBlock(md, 's-1');
+    assert.ok(block, 'debe encontrar el bloque');
+    assert.ok(block.includes('**NEXT:** Lo último'), 'llega hasta el final');
+    assert.ok(!block.includes('Ajeno'));
+  });
+
+  it('T-74-03 lado lector: un marcador en una línea que NO es heading ## Handoff se ignora', () => {
+    const md = [
+      '# KL-9 — X',
+      '',
+      'El summary hostil decía <!-- kodo:handoff v=1 session=s-1 author=llm --> en prosa.',
+      '',
+      '> ## Handoff citado <!-- kodo:handoff v=1 session=s-1 -->',
+      '',
+    ].join('\n');
+    assert.equal(findSessionBlock(md, 's-1'), null, 'solo cuentan los headings ## Handoff reales');
+    assert.equal(hasSessionHandoff(md, 's-1'), false);
+  });
+
+  it('nunca lanza con entradas no-string', () => {
+    assert.equal(findSessionBlock(undefined, 's-1'), null);
+    assert.equal(findSessionBlock(null, 's-1'), null);
+    assert.equal(findSessionBlock('', 's-1'), null);
+    assert.equal(findSessionBlock('# X', undefined), null);
+    assert.equal(hasSessionHandoff(undefined, 's-1'), false);
+  });
+
+  it('hasSessionHandoff es true exactamente cuando findSessionBlock devuelve bloque', () => {
+    const md = `${llmBlock('s-1', 'Lo nuevo')}\n`;
+    for (const id of ['s-1', 's-0', 's-1-extra', '']) {
+      assert.equal(
+        hasSessionHandoff(md, id),
+        findSessionBlock(md, id) !== null,
+        `desincronizado para ${JSON.stringify(id)}`,
+      );
+    }
+  });
+});
+
+describe('handoff: extractNext (D-02 — una línea, primera, truncada a 200)', () => {
+  it('extrae el valor sin el prefijo y trimmed', () => {
+    const block = llmBlock('s-1', 'Arreglar el parser de labels');
+    assert.equal(extractNext(block), 'Arreglar el parser de labels');
+  });
+
+  it('con DOS líneas NEXT: devuelve la PRIMERA', () => {
+    const block = [
+      '## Handoff 2026-01-05 03:07 <!-- kodo:handoff v=1 session=s-1 author=llm -->',
+      '',
+      '**NEXT:** La primera',
+      '**NEXT:** La segunda',
+    ].join('\n');
+    assert.equal(extractNext(block), 'La primera');
+  });
+
+  it('D-03: sobre el bloque MECÁNICO devuelve null (caso válido y esperado)', () => {
+    const mech = buildHandoffBlock({
+      sessionId: 's-1',
+      reason: 'clear',
+      status: 'running',
+      at: new Date(2026, 0, 5, 3, 7, 0),
+    });
+    assert.equal(extractNext(mech), null);
+  });
+
+  it('trunca a exactamente 200 caracteres', () => {
+    const block = llmBlock('s-1', 'a'.repeat(500));
+    const next = extractNext(block);
+    assert.equal(next.length, 200, 'una línea desbocada del LLM no debe engordar state.json');
+  });
+
+  it('un NEXT: vacío devuelve null', () => {
+    const block = '## Handoff 2026-01-05 03:07 <!-- kodo:handoff v=1 session=s-1 -->\n\n**NEXT:**   ';
+    assert.equal(extractNext(block), null);
+  });
+
+  it('nunca lanza con entradas vacías o no-string', () => {
+    assert.equal(extractNext(null), null);
+    assert.equal(extractNext(undefined), null);
+    assert.equal(extractNext(''), null);
+    assert.equal(extractNext(42), null);
+  });
+
+  it('ROUND-TRIP: extractNext(findSessionBlock(md, "s-1")) devuelve el NEXT de s-1, no el de s-0', () => {
+    const md = `# KL-9 — X\n\n${llmBlock('s-0', 'Lo viejo')}\n\n${llmBlock('s-1', 'Lo nuevo')}\n`;
+    assert.equal(extractNext(findSessionBlock(md, 's-1')), 'Lo nuevo');
+    assert.equal(extractNext(findSessionBlock(md, 's-0')), 'Lo viejo');
+  });
+
+  it('ROUND-TRIP del contrato completo: lo que escribe la 74 lo parsea la 75', () => {
+    // buildHandoffBlock (writer) → findSessionBlock (parser): el contrato cierra.
+    const at = new Date(2026, 0, 5, 3, 7, 0);
+    const md = `# KL-9 — X\n\n${buildHandoffBlock({ sessionId: 's-9', reason: 'logout', status: 'running', at })}`;
+    assert.equal(hasSessionHandoff(md, 's-9'), true, 'el parser reconoce lo que el writer produjo');
+    assert.equal(hasSessionHandoff(md, 's-8'), false);
+    assert.equal(extractNext(findSessionBlock(md, 's-9')), null, 'el bloque mecánico no lleva NEXT:');
   });
 });
