@@ -50,8 +50,8 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *
  * @typedef {{
  *   plan_path: string,      // Ruta al fichero de plan de la tarea (`~/.kodo/plans/<task_id>.md`).
- *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03).
- *   updated_at: string,     // ISO 8601 del cierre que escribió la entrada.
+ *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03). OJO al leerlo (WR-02): un `next` ausente/null NO borra el previo, así que este valor puede venir de un cierre ANTERIOR al `updated_at` de al lado; para pisarlo hay que escribir uno nuevo no nulo. null aquí significa «ninguna sesión de esta tarea ha dejado nunca un NEXT:», no «el último cierre no lo traía».
+ *   updated_at: string,     // ISO 8601 del cierre que escribió la entrada. Fecha la ÚLTIMA escritura del puntero — no necesariamente el cierre que produjo el `next` de arriba.
  * }} TaskHandoff
  *
  * @typedef {{
@@ -400,8 +400,16 @@ export function removeSession(taskId, logger = noopLogger) {
  * Telemetry carries ONLY `{task_id, reason}`. The `next` is LLM-redacted content
  * and user content never reaches the logs (precedent T-71-18; mitigates T-74-08).
  *
+ * Upsert semantics are ASYMMETRIC on `next` (WR-02): an absent/null incoming
+ * `next` does NOT erase the previous one — only a new non-null `next` overwrites
+ * it. `plan_path` and `updated_at` are unconditional overwrites. Reason: D-02
+ * frames `null` as "ausente", and a mechanical close (D-03) says "this session
+ * had nothing to say", not "this task has no next step" — the real `NEXT:` is
+ * still in the plan file, so nulling it here would split the two halves of the
+ * same datum.
+ *
  * @param {string} taskId
- * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry
+ * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry Un `next` ausente o `null` preserva el previo (ver arriba); `plan_path` y `updated_at` pisan siempre.
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
@@ -413,10 +421,30 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
     // Defensive guard for the additive field — mirror of removeSession's
     // `if (!Array.isArray(state.history)) state.history = [];` (`:361`).
     if (!state.tasks) state.tasks = {};
+    // T-74-16: `prev` comes from the mutator's OWN `state` argument — never from
+    // a load of our own. `withStateLock` already re-reads fresh INSIDE the
+    // acquired lock (`:324-330`); re-reading the previous entry outside it would
+    // smuggle back the lost update that the cross-process race test forbids: two
+    // concurrent closes of the same task would start from the same stale `prev`
+    // and one would resurrect an already-superseded `NEXT:`.
+    const prev = state.tasks[taskId];
     state.tasks[taskId] = {
+      // NOT merged, by design: the caller builds `plan_path` deterministically
+      // from the task_id (`session-end.js:307`), so for a given task the value is
+      // always the same string — a fallback would have no reachable entry to
+      // preserve and would mask a caller passing `undefined`.
       plan_path: entry.plan_path,
-      // `null` when absent: the mechanical block of D-03 carries no `NEXT:`.
-      next: entry.next ?? null,
+      // The ONE field where an absent incoming value is semantically different
+      // from a persisted `null` (D-02: `null` means "ausente", not "this task has
+      // no next step"). Guards the concrete case: a mechanical close of D-03
+      // landing behind a real `NEXT:` from an earlier session of the same task —
+      // that close had nothing to say, while the real `NEXT:` is still sitting
+      // intact in the plan file. A new non-null `next` still wins.
+      next: entry.next ?? (prev ? prev.next : null) ?? null,
+      // NOT merged either: the close really happened and its block landed in the
+      // plan file, so the pointer must date it. Keeping the previous timestamp
+      // would lie about the last write. The `??` here is a generation default,
+      // not a merge with the previous entry.
       updated_at: entry.updated_at ?? new Date().toISOString(),
     };
   });
