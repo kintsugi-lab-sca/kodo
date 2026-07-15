@@ -168,3 +168,104 @@ export function buildHandoffBlock({ sessionId, reason, status, at = new Date() }
   const pendiente = '**Pendiente:** Sin handoff del LLM — revisar la tarea manualmente';
   return `${heading}\n\n${hecho}\n${pendiente}\n`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// LADO PARSER (D-02/D-04). Vive en el MISMO módulo que el writer por D-13: la Phase 75
+// debe parsear exactamente lo que la Phase 74 escribe.
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Localiza el bloque de handoff de UNA sesión concreta dentro del markdown de un plan (D-04).
+ *
+ * **Por qué scoped por `session_id` y no por conteo de bloques:** con la acumulación de
+ * LIVE-02 el plan guarda los handoffs de TODAS las sesiones. Un detector que contara
+ * bloques (o que mirara el mtime del fichero) vería el bloque de la sesión ANTERIOR y
+ * concluiría en falso que el LLM de ESTA sesión ya escribió — matando el backstop de
+ * LIVE-03 en silencio. Solo el marcador scoped por `session=<id>` es fiable.
+ *
+ * **Por qué line-scoped:** solo se consideran candidatas las líneas que EMPIEZAN por
+ * `## Handoff ` y contienen el marcador. Junto con `sanitizeInline` en el writer, eso
+ * cierra T-74-03: un summary hostil del provider no puede forjar un marcador porque no
+ * puede introducir una línea nueva, y un marcador inline (en prosa, o citado) se ignora.
+ *
+ * **Por qué igualdad EXACTA de token:** se compara `session=<id>` contra los tokens del
+ * marcador, no con `includes` sobre la línea entera — así `session=s-1-extra` no matchea
+ * una consulta por `s-1`.
+ *
+ * @param {unknown} md         Markdown completo del plan (texto arbitrario de un LLM).
+ * @param {unknown} sessionId  session_id de la sesión que se consulta.
+ * @returns {string|null} El bloque (desde su heading hasta antes del siguiente `## `, o
+ *   hasta el final del fichero), o `null` si esa sesión no tiene bloque. Nunca lanza.
+ */
+export function findSessionBlock(md, sessionId) {
+  if (typeof md !== 'string' || typeof sessionId !== 'string' || sessionId.length === 0) {
+    return null;
+  }
+  const wanted = `session=${sessionId}`;
+  const lines = md.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Candidata SOLO si es un heading de handoff real Y lleva marcador (T-74-03).
+    if (!line.startsWith(HEADING_PREFIX)) continue;
+    const open = line.indexOf(MARKER_OPEN);
+    if (open === -1) continue;
+    const rest = line.slice(open + MARKER_OPEN.length);
+    const close = rest.indexOf(MARKER_CLOSE);
+    if (close === -1) continue; // marcador sin cerrar → no es un marcador válido
+    // Tokens del marcador: `v=1`, `session=<id>`, `author=llm|auto`, `at=<ISO>`.
+    const tokens = rest
+      .slice(0, close)
+      .split(' ')
+      .filter((t) => t.length > 0);
+    if (!tokens.includes(wanted)) continue; // igualdad exacta, no substring
+    // El bloque llega hasta el siguiente heading `## ` (empezando a mirar DESPUÉS del
+    // propio heading, que también matchearía) o hasta el final del fichero.
+    let end = lines.length;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].startsWith('## ')) {
+        end = j;
+        break;
+      }
+    }
+    return lines.slice(i, end).join('\n');
+  }
+  return null;
+}
+
+/**
+ * ¿Escribió ESTA sesión su bloque de handoff? (D-04). El hook lo consulta para decidir
+ * si appendea el bloque mecánico de LIVE-03: presente → el LLM ya escribió, no se toca
+ * nada; ausente → append del backstop.
+ *
+ * @param {unknown} md
+ * @param {unknown} sessionId
+ * @returns {boolean}
+ */
+export function hasSessionHandoff(md, sessionId) {
+  return findSessionBlock(md, sessionId) !== null;
+}
+
+/**
+ * Extrae el `NEXT:` de un bloque de handoff (D-02): la PRIMERA línea que empieza por
+ * `**NEXT:**`, su resto trimmed, truncado a 200 caracteres.
+ *
+ * El truncado vive AQUÍ, en el contrato, y no en el caller: la Phase 75 pintará este
+ * valor en una celda de tabla y una línea desbocada del LLM no debe engordar `state.json`.
+ *
+ * Ausente → `null`. Es un caso VÁLIDO y esperado: el bloque mecánico de D-03 no lleva
+ * `NEXT:` por diseño (LIVE-03).
+ *
+ * @param {unknown} block  Un bloque devuelto por `findSessionBlock`.
+ * @returns {string|null} El NEXT (≤ 200 caracteres) o `null`. Nunca lanza.
+ */
+export function extractNext(block) {
+  if (typeof block !== 'string') return null;
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(NEXT_PREFIX)) continue;
+    const value = trimmed.slice(NEXT_PREFIX.length).trim();
+    if (value.length === 0) return null;
+    return value.slice(0, NEXT_MAX_LEN); // D-02: tope duro al persistir
+  }
+  return null;
+}
