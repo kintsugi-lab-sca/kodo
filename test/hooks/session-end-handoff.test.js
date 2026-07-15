@@ -415,3 +415,224 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
     assert.ok(!md.includes('valor-inventado-hostil'), 'el valor crudo NUNCA aterriza en el markdown');
   });
 });
+
+// ── Task 2: el seam cableado en runSessionEndHook ──────────────────────────────
+
+/**
+ * `fs` que delega en el real pero EMPUJA al array compartido en renameSync — la
+ * escritura del handoff se vuelve un evento observable en la secuencia del cierre.
+ */
+function makeTracingFs(calls) {
+  return {
+    ...realFs,
+    renameSync: (from, to) => {
+      calls.push({ fn: 'handoff-write', to });
+      return realFs.renameSync(from, to);
+    },
+  };
+}
+
+/** Deps base del hook: hermético (sin red, sin registry, sin HOME real). */
+function makeHookDeps({ session, calls, plansDir: dir, logger, writer, fs }) {
+  return {
+    findSessionFn: () => ({ id: session.task_id, session }),
+    removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
+    loggerFactory: () => logger,
+    cmux: makeCmuxStub(calls),
+    provider: null,
+    config: {},
+    plansDir: dir,
+    stateWriterFn: writer.fn,
+    now: () => FIXED_NOW,
+    ...(fs ? { fs } : {}),
+  };
+}
+
+describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => {
+  it('cierre completo (LIVE-01): el fichero del plan existe y contiene un bloque ## Handoff', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      makeHookDeps({ session, calls, plansDir, logger, writer }),
+    );
+
+    const md = readFileSync(join(plansDir, `${session.task_id}.md`), 'utf-8');
+    assert.ok(md.includes('## Handoff '), 'el handoff aterrizó en disco al cerrar');
+  });
+
+  it('ORDEN OBSERVABLE (LIVE-01, SC#1): el handoff se escribe ANTES de removeSession (cleanup destructivo)', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      makeHookDeps({ session, calls, plansDir, logger, writer, fs: makeTracingFs(calls) }),
+    );
+
+    const iHandoff = calls.findIndex((c) => c.fn === 'handoff-write');
+    const iRemove = calls.findIndex((c) => c.fn === 'removeSession');
+    assert.ok(iHandoff !== -1, 'el handoff se escribió');
+    assert.ok(iRemove !== -1, 'el cleanup destructivo corrió');
+    assert.ok(
+      iHandoff < iRemove,
+      `el handoff DEBE aterrizar antes del cleanup destructivo (handoff=${iHandoff}, removeSession=${iRemove})`,
+    );
+  });
+
+  it('ORDEN LOCKED (SC#5, D-08): removeSession → setColor → notify sigue intacto tras insertar el bloque', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      makeHookDeps({ session, calls, plansDir, logger, writer, fs: makeTracingFs(calls) }),
+    );
+
+    const iRemove = calls.findIndex((c) => c.fn === 'removeSession');
+    const iColor = calls.findIndex((c) => c.fn === 'setColor');
+    const iNotify = calls.findIndex((c) => c.fn === 'notify');
+    assert.ok(iRemove < iColor, 'removeSession antes de setColor');
+    assert.ok(iColor < iNotify, 'setColor antes de notify — el trío LOCKED no se reordena');
+  });
+
+  it('SC#5 — plan ilegible (EACCES): el hook COMPLETA sin lanzar; cleanup + trío cosmético corren igual', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+    writeFileSync(join(plansDir, `${session.task_id}.md`), '# plan\n');
+    const fsStub = {
+      ...realFs,
+      readFileSync: () => {
+        const err = new Error('permission denied');
+        /** @type {any} */ (err).code = 'EACCES';
+        throw err;
+      },
+    };
+
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        makeHookDeps({ session, calls, plansDir, logger, writer, fs: fsStub }),
+      ),
+      'un handoff que lanza NUNCA bloquea el cierre de Claude Code',
+    );
+
+    assert.ok(calls.some((c) => c.fn === 'removeSession'), 'el cleanup terminal corrió');
+    assert.ok(calls.some((c) => c.fn === 'setColor'), 'setColor corrió');
+    assert.ok(calls.some((c) => c.fn === 'notify'), 'notify corrió');
+    assert.equal(writer.calls.length, 0, 'no persiste state tras el fallo');
+  });
+
+  it('SC#5 — lock ocupado: el hook completa sin lanzar, warn emitido, cleanup + trío corren igual', async () => {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+    writeFileSync(
+      join(plansDir, `${session.task_id}.md.lock`),
+      JSON.stringify({ pid: process.pid, acquired_at: Date.now(), token: 'otro-dueño' }),
+    );
+
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        makeHookDeps({ session, calls, plansDir, logger, writer }),
+      ),
+    );
+
+    assert.ok(events.some((e) => e.level === 'warn'), 'emite un warn del lock ocupado');
+    assert.ok(calls.some((c) => c.fn === 'removeSession'), 'el cleanup corrió pese al lock');
+    assert.ok(calls.some((c) => c.fn === 'setColor'), 'setColor corrió');
+    assert.ok(calls.some((c) => c.fn === 'notify'), 'notify corrió');
+  });
+
+  it('D-09 universal: una sesión GSD sin plan previo TAMBIÉN gana su fichero y su bloque', async () => {
+    const session = makeSession({ gsd: true });
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      makeHookDeps({ session, calls, plansDir, logger, writer }),
+    );
+
+    const planPath = join(plansDir, `${session.task_id}.md`);
+    assert.equal(existsSync(planPath), true, 'el handoff no depende de la rama que produjo (o no) el plan');
+    assert.ok(readFileSync(planPath, 'utf-8').includes('## Handoff '), 'gana su bloque');
+  });
+
+  it('el stateWriterFn recibe la entrada de state.tasks exactamente una vez por cierre (LIVE-04)', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      makeHookDeps({ session, calls, plansDir, logger, writer }),
+    );
+
+    assert.equal(writer.calls.length, 1, 'exactamente una entrada por cierre');
+    assert.equal(writer.calls[0].taskId, session.task_id);
+    assert.equal(writer.calls[0].entry.plan_path, join(plansDir, `${session.task_id}.md`));
+  });
+
+  it('guard de idempotencia intacto: findSessionFn → null → NO se escribe handoff', async () => {
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: 'unknown', cwd: '/tmp/elsewhere', reason: 'clear' },
+      {
+        findSessionFn: () => null,
+        removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
+        loggerFactory: () => logger,
+        cmux: makeCmuxStub(calls),
+        provider: null,
+        config: {},
+        plansDir,
+        stateWriterFn: writer.fn,
+        now: () => FIXED_NOW,
+      },
+    );
+
+    assert.deepEqual(readdirSync(plansDir), [], 'plansDir vacío — el bloque va DESPUÉS de los guards');
+    assert.equal(writer.calls.length, 0, 'sin state');
+  });
+
+  it('guard de idempotencia intacto: source === "history" → NO se escribe handoff', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
+        removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
+        loggerFactory: () => logger,
+        cmux: makeCmuxStub(calls),
+        provider: null,
+        config: {},
+        plansDir,
+        stateWriterFn: writer.fn,
+        now: () => FIXED_NOW,
+      },
+    );
+
+    assert.deepEqual(readdirSync(plansDir), [], 'una sesión ya archivada no re-escribe su handoff');
+    assert.equal(writer.calls.length, 0, 'sin state');
+  });
+});
