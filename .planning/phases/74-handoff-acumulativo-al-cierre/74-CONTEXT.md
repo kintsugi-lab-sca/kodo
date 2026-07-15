@@ -38,11 +38,17 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
   ```
 
   El heading lleva fecha-hora **local** (`YYYY-MM-DD HH:MM`) porque lo lee un humano. El marcador HTML
-  es **invisible al renderizar** (requisito de LIVE-06, que pinta el markdown renderizado) y carga los
-  metadatos que el hook necesita: `v=1` (versión del contrato, permite evolucionarlo sin romper
-  ficheros viejos), `session=<session_id>` (UUID completo), `author=llm|auto`, `at=<ISO-8601 UTC>`.
+  carga los metadatos que el hook necesita: `v=1` (versión del contrato, permite evolucionarlo sin
+  romper ficheros viejos), `session=<session_id>` (UUID completo), `author=llm|auto`, `at=<ISO-8601 UTC>`.
   Rechazado: heading pelado sin marcador — no permite saber **de qué sesión** es un bloque, que es
   justo lo que rompe LIVE-03 en cuanto hay acumulación (ver D-04).
+
+  > **Corrección post-research (2026-07-15).** Este bloque afirmaba que el marcador es «invisible al
+  > renderizar». **Hoy no lo es**: `readLightPlan` (`plan.js:72`) hace `md.split('\n')` — render
+  > plano línea a línea, sin markdown. Hasta que la Phase 75 renderice markdown de verdad (LIVE-06),
+  > el marcador se verá **crudo** en el overlay. La decisión NO cambia: el marcador es la única vía
+  > fiable para LIVE-03 (D-04), y el ruido es cosmético y temporal. Pero la Phase 75 debe saber que
+  > su renderizador es lo que hace cierta la promesa de invisibilidad.
 
 - **D-02: Extracción del `NEXT:`** — dentro de un bloque, la **primera** línea que empieza por
   `**NEXT:**`; el valor es el resto de la línea, trimmed. Una sola línea (precedente D-07 Phase 45).
@@ -79,8 +85,20 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
   (cap FIFO de 50) y borra la fila de `state.sessions`**. Un `NEXT:` guardado en el registro de sesión
   desaparecería de la lista al cerrar y sería desalojable a los 50 cierres — y el dato es de la
   **tarea**, no de la sesión: su valor es sobrevivir a la sesión que lo produjo para que la
-  **siguiente** sesión de esa misma tarea lo encuentre. La Phase 75 lo lee por `task_id` sin endpoint
-  nuevo (`/status` ya sirve `state.json`).
+  **siguiente** sesión de esa misma tarea lo encuentre.
+
+  > **Corrección post-research (2026-07-15).** Este bloque afirmaba que «la Phase 75 lo lee por
+  > `task_id` sin endpoint nuevo porque `/status` ya sirve `state.json`». **Falso**: `server.js:589`
+  > sirve `listSessions()`, es decir `Object.values(loadState().sessions)` — **no** el fichero entero,
+  > así que `state.tasks` NO saldría hoy por `/status`. La decisión D-05 **no cambia** (se sostiene
+  > entera sobre la razón dura de `removeSession`), pero **la Phase 75 hereda un punto de decisión
+  > real**: cómo llega `state.tasks` a la TUI. Hay salidas con precedente y ninguna necesita endpoint
+  > nuevo — anotado como Open Question para el discuss de la 75, NO resuelto aquí.
+  >
+  > Evidencia de seguridad del aditivo (lo que sí verificó el research): `reconcile.js:238` y `:396`
+  > reconstruyen el estado con spread (`{...state, sessions, history}`), así que **preservan claves
+  > top-level desconocidas**; y `migrateStateV2toV3` (`state.js:139-143`), que sí las descartaría,
+  > es inalcanzable desde el carril del hook por el early-return de idempotencia (`:122`).
 
 - **D-06: Escritura bajo `withStateLock`** — el hook es un escritor más (invariante v0.16 Phase 70).
   El mutator toca **solo** `state.tasks`, nunca `alive` (D-04: `reconcileTick` sigue siendo su único
@@ -88,9 +106,14 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
 
 ### Punto de escritura y concurrencia
 
-- **D-07: Bloque autónomo tras los guards, ANTES de `runReviewBackstop`** — en `runSessionEndHook`,
-  después de los guards de idempotencia (`session-end.js:72-83`) y antes del backstop (`:104`), con
-  **try/catch propio** además del outer never-throws.
+- **D-07: Bloque autónomo tras el logger, ANTES de `runReviewBackstop`** — en `runSessionEndHook`,
+  en `session-end.js:97` y antes del backstop (`:104`), con **try/catch propio** además del outer
+  never-throws.
+
+  > **Corrección post-research (2026-07-15).** Este bloque decía «tras los guards (`:72-83`)». El
+  > punto exacto es **`:97`, tras la construcción del `log` (`:88-96`)**, porque el bloque necesita
+  > ese logger para el `log.warn` del lock-timeout (D-06). Sigue estando después de los guards y
+  > antes del backstop, así que el razonamiento de abajo se mantiene intacto.
   Razón: el handoff es una escritura a **disco** (barata, sin red) y es el dato más valioso de la
   fase; si el backstop se atasca en red, el handoff ya aterrizó. **No altera el orden relativo LOCKED
   `backstop → setColor → notify`** (D-08 de v0.16 Phase 71) — inserta antes del trío, no lo reordena.
@@ -119,11 +142,18 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
   formato de D-01. Las ramas GSD full/bootstrap **no** reciben instrucción — las cubre el backstop
   mecánico (D-03), y esas sesiones ya tienen continuidad propia vía GSD.
 
-- **D-11: HOOK-02 (golden bytes) se rompe a propósito — contabilizarlo** — tocar las líneas 85/145
-  invalida los golden byte tests de `buildSessionContext`/`buildGsdContext`, que hasta ahora se
-  satisfacían «por construcción» appendeando al final. **No es una regresión: es el cambio que pide
-  LIVE-02.** El planner debe incluir la actualización de esos golden bytes como **tarea explícita**,
-  no descubrirla como un test roto a mitad de ejecución.
+- **D-11: cobertura de tests de las instrucciones — re-alcanzada tras el research** — la premisa
+  original («tocar 85/145 rompe los golden bytes de HOOK-02, hay que repararlos») resultó **falsa**:
+  el grep exhaustivo del researcher encontró **cero** tests que asserten los literales «sobrescribe si
+  ya existe» / «overwrite if it exists» — las asserts reales son de prefijo, ruta resuelta y orden, así
+  que conservando el prefijo **no se rompe ningún test existente**.
+
+  Lo que sí es real y la premisa original no veía: **`test/session-start.test.js:174-190`** (HOOK-01
+  D-02b) toma el slice desde `lastIndexOf('## Anti-push-fantasma')` **hasta el final del string** y
+  prohíbe emojis y secuencias ANSI. La instrucción de plan de `:85` ya cae dentro de ese slice, y la
+  instrucción de handoff nueva también caerá. **La instrucción nueva debe ser markdown plano, sin
+  emojis.** El planner mantiene la tarea explícita, pero su objeto cambia: **añadir** tests de la
+  semántica nueva (preservar-y-appendear) y respetar el slice sin-emojis — no reparar golden bytes.
 
 ### Alcance
 
@@ -238,6 +268,11 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
 <deferred>
 ## Deferred Ideas
 
+- **Cómo llega `state.tasks` a la TUI (Open Question de la Phase 75)** — descubierto por el research:
+  `/status` sirve `listSessions()` (`server.js:589`), no el `state.json` entero, así que `state.tasks`
+  no viaja hoy hasta el dashboard. Hay salidas con precedente y **ninguna necesita endpoint nuevo**
+  (la TUI ya lee el filesystem directamente en `plan.js`, precedente D-10 Phase 44). Se decide en el
+  discuss de la Phase 75 — la 74 solo produce el dato.
 - **Poda/cap de handoffs antiguos** — v0.18, con datos reales de crecimiento (ya en Out of Scope).
 - **Surface del handoff en el overlay de filas GSD** — rompería D-02 (LOCKED desde v0.11). Se escribe
   en disco, no se pinta.
