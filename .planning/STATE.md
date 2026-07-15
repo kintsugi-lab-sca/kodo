@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: activo)
 current_phase: 74
-status: roadmapped
+current_phase_name: Handoff acumulativo al cierre
+status: executing
 stopped_at: Phase 74 context gathered
-last_updated: "2026-07-15T09:13:38.586Z"
+last_updated: "2026-07-15T10:02:30.027Z"
 last_activity: 2026-07-15
-last_activity_desc: ROADMAP.md creado (Phases 74-76, 9/9 requirements mapeados)
+last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -27,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** v0.17 «Plan vivo por-tarea» — convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo de la tarea: handoff acumulativo `Hecho/Pendiente/NEXT:` en `SessionEnd` con autoría **LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto (LIVE-01..07) + **ORCH-05/06** (convergencia del conteo `pending`). Roadmap en 3 fases: **74** productor (handoff en disco + `NEXT:` en `state.json`), **75** consumidores (dashboard + nudge), **76** conteo `pending` (ortogonal, paralelizable). El Inbox de capturas (CAPT) queda en Backlog, renumerado a **999.2** para no colisionar con la Phase 75 real. Numeración: arranca en **Phase 74** (el 73 quedó quemado por la retirada del 2026-07-14).
+**Current focus:** Phase 74 — Handoff acumulativo al cierre
 
 ## Current Position
 
-Phase: Phase 74 — Handoff acumulativo al cierre (not started)
-Plan: —
-Status: Roadmap creado — pendiente de discuss/plan
+Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
-Last activity: 2026-07-15 — ROADMAP.md creado (Phases 74-76, 9/9 requirements mapeados)
+Last activity: 2026-07-15 — Phase 74 execution started
 
 **Fases del milestone:**
 
@@ -74,6 +75,10 @@ Baseline post-v0.16. Todos pre-reconocidos al cierre (audit PASSED, verified clo
 
 Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+bearer default-deny, advisory lockfile vs single-writer, backstop mecánico + gate no-terminal, cursor confirmado, borrar-no-cablear, auto-commit gated, Phase 73 retirada por eliminación).
 
+- [Phase 74-01]: sessionId NO se sanea en buildHandoffBlock — writer y parser deben usar el mismo valor crudo o la deteccion D-04 daria falsos negativos permanentes
+- [Phase 74-01]: el truncado del NEXT a 200 vive en extractNext (el contrato), no en el caller (D-02)
+- [Phase 74-01]: src/session/handoff.js es hoja de CERO imports, blindada por test/check-isolation.test.js (D-13)
+
 ### Open Blockers
 
 Ninguno. v0.16 cerró con audit PASSED (verified closeout).
@@ -95,7 +100,7 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** .planning/phases/74-handoff-acumulativo-al-cierre/74-CONTEXT.md
 
-- **Last session:** 2026-07-15T09:13:38.579Z
+- **Last session:** 2026-07-15T10:01:59.182Z
 - **Stopped at:** Phase 74 context gathered
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
@@ -115,3 +120,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (baseline v0.17 — métricas de v0.16 archivadas en `milestones/v0.16-phases/`) |
+| Phase 74 P01 | 18m | 3 tasks | 3 files |
