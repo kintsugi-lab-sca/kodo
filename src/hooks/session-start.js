@@ -80,9 +80,28 @@ export function buildSessionContext(session, config) {
     '- Good: "Deploy quedará efectivo una vez se haga `git push origin main`."',
     // Phase 45 PLAN-03: append al FINAL preserva golden bytes (HOOK-02 satisfied-by-construction).
     // D-03: el hook solo emite el string; la sesión escribe el fichero. D-05 markdown plano,
-    // D-06 escribir al empezar (re-dispatch sobrescribe, latest-wins), D-07 una sola línea, D-08 ES.
+    // D-07 una sola línea para el NEXT, D-08 ES.
+    //
+    // Phase 74 D-10 + LIVE-02: la semántica «sobrescribe si ya existe» (Phase 45 D-06,
+    // latest-wins) queda INVERTIDA a preservar-y-appendear. El historial de la tarea ES el
+    // dato: una segunda sesión debe acumular su bloque sobre el de la primera, no destruirlo
+    // en el arranque. Esta instrucción es la mitad OPTIMISTA del patrón LLM+backstop — el
+    // bloque mecánico de D-03 (en session-end.js) es la garantía cuando el LLM no cumple.
+    // El formato del bloque es el de D-01, con el session_id RESUELTO: es lo que permite a
+    // findSessionBlock (D-04) saber de qué sesión es cada bloque. Markdown plano sin emojis:
+    // este texto cae dentro del slice que vigila el guard D-02b de HOOK-01.
     '',
-    `Además, al empezar escribe un plan corto (qué vas a hacer + pasos previstos) en \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\` (sobrescribe si ya existe).`,
+    `Además, al empezar escribe un plan corto (qué vas a hacer + pasos previstos) en \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\`. Si el fichero ya existe, NO lo sobrescribas: añade tu plan al final, conservando íntegro lo que ya hubiera.`,
+    '',
+    'Y al cerrar la sesión, añade al final de ese mismo fichero un bloque de handoff, sin borrar los bloques anteriores, con este formato exacto:',
+    '',
+    '```markdown',
+    `## Handoff <fecha-hora local YYYY-MM-DD HH:MM> <!-- kodo:handoff v=1 session=${session.session_id} author=llm at=<timestamp ISO-8601 UTC> -->`,
+    '',
+    '**Hecho:** qué has completado en esta sesión',
+    '**Pendiente:** qué queda abierto',
+    '**NEXT:** la siguiente acción concreta, en una sola línea',
+    '```',
   ].join('\n');
 }
 
@@ -139,10 +158,29 @@ export function buildGsdContext(session, opts = {}) {
       'Run the slash command and finish — no plan/execute/verify cycle.',
       // Phase 45 PLAN-03: append DENTRO del if quick — antes del bloque común
       // "## No automatic push" (fuera del if/else) preserva la D-04 common-block
-      // invariance. D-03 sin I/O, D-05 markdown plano, D-06 escribir al empezar
-      // (re-dispatch sobrescribe, latest-wins), D-07 una línea, D-08 EN (bloque GSD).
+      // invariance. D-03 sin I/O, D-05 markdown plano, D-07 una línea para el NEXT,
+      // D-08 EN (bloque GSD).
+      //
+      // Phase 74 D-10 + LIVE-02: misma inversión que la rama no-GSD (`buildSessionContext`) —
+      // «overwrite if it exists» (Phase 45 D-06, latest-wins) pasa a preservar-y-appendear.
+      // LIVE-02 nombra solo la rama ES porque es donde se detectó; ambas son el MISMO bug.
+      // Las ramas full y bootstrap NO reciben instrucción por diseño (D-10): las cubre el
+      // backstop mecánico de D-03 y esas sesiones ya tienen continuidad propia vía GSD.
+      // Las etiquetas del formato siguen en español en ambos idiomas: lo que alterna por
+      // rama es la INSTRUCCIÓN (D-08 Phase 45), no el contrato — el parser de D-02 busca
+      // `**NEXT:**` y el bloque mecánico de D-03 escribe español.
       '',
-      `Also, at the start write a short plan (what you'll do + planned steps) to \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\` (overwrite if it exists).`,
+      `Also, at the start write a short plan (what you'll do + planned steps) to \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\`. If the file already exists, do NOT overwrite it: append your plan at the end, keeping intact whatever is already there.`,
+      '',
+      'And when you close the session, append a handoff block at the end of that same file, without deleting the previous blocks, using this exact format:',
+      '',
+      '```markdown',
+      `## Handoff <local date-time YYYY-MM-DD HH:MM> <!-- kodo:handoff v=1 session=${session.session_id} author=llm at=<ISO-8601 UTC timestamp> -->`,
+      '',
+      '**Hecho:** what you completed in this session',
+      '**Pendiente:** what is still open',
+      '**NEXT:** the next concrete action, on a single line',
+      '```',
     );
   } else if (session.phase_id) {
     // Phase known — inject plan/execute/verify sequence (D-01)
