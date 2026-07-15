@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.17
-milestone_name: activo)
+milestone_name: Plan vivo por-tarea
 current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
 status: verifying
-stopped_at: Completed 74-04-PLAN.md
-last_updated: "2026-07-15T10:44:19.716Z"
+stopped_at: Completed 74-06-PLAN.md (gap closure LIVE-04/WR-02)
+last_updated: "2026-07-15T13:32:59.973Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 1
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -35,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
 Plan: 5 of 5
 Status: Phase complete — ready for verification
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
+Progress: [██████████] 100% (0/3 fases)
 Last activity: 2026-07-15 — Phase 74 execution started
 
 **Fases del milestone:**
@@ -114,8 +114,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-15T10:43:53.742Z
-- **Stopped at:** Completed 74-04-PLAN.md
+- **Last session:** 2026-07-15T13:32:59.967Z
+- **Stopped at:** Completed 74-06-PLAN.md (gap closure LIVE-04/WR-02)
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -139,3 +139,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase 74 P03 | 12m | 2 tasks | 3 files |
 | Phase 74 P04 | 5m | 3 tasks | 3 files |
 | Phase 74 P05 | 18m | 2 tasks | 2 files |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 74 P06 | 35 min | 2 tasks | 2 files |
