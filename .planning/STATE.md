@@ -1,180 +1,103 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.16
-milestone_name: activo)
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
-status: verifying
-stopped_at: Phase 72 context gathered
-last_updated: "2026-07-14T08:32:37.938Z"
-last_activity: 2026-07-14
-last_activity_desc: Phase 72 complete, transitioned to Phase 999.1
+milestone_name: Hardening
+current_phase: null
+current_phase_name: null
+status: Awaiting next milestone
+stopped_at: Milestone v0.16 shipped
+last_updated: "2026-07-15T07:30:00.000Z"
+last_activity: 2026-07-15
+last_activity_desc: Milestone v0.16 completed, audited (PASSED) and archived
 progress:
-  total_phases: 2
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 18
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.16 Hardening** — roadmap creado (4 phases 69-72, 27/27 requirements mapeados). Listo para planificar la primera fase con `/gsd-plan-phase 69`. v0.15 «kodo up» shipped 2026-07-03 (ver `## Most recent shipped milestone`).
+**Estado:** Milestone **v0.16 Hardening SHIPPED 2026-07-15** (4 phases 69-72, 18 plans, 44 tasks; audit PASSED 27/27 reqs · 6/6 seams · E2E completo; suite 2027 tests). No hay milestone activo — siguiente paso: `/gsd-new-milestone`.
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening).
+See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first. **v0.16 endurece: cierra la superficie de red, hace segura la concurrencia multiproceso, garantiza la entrega de dispatches con backstop mecánico, y salda la higiene y la deriva documental** (remediación de la auditoría adversarial 2026-07-03, 9 ALTA re-verificados 2026-07-05).
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 72 — Higiene, DX y verdad documental
+**Current focus:** Planificar el siguiente milestone (`/gsd-new-milestone`). Candidatas v0.17 (features): Phase 74 «Plan vivo por-tarea» (LIVE-01..04) · Phase 75 «Inbox de capturas global» (CAPT-01..04) · ORCH-05.
 
 ## Current Position
 
-Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-14 — Phase 72 complete, transitioned to Phase 999.1
-
-## Roadmap v0.16 (activo)
-
-Estructura: **4 olas por causa raíz = 4 fases**, orden **risk-graded** (LOCKED). Numeración **continua** desde Phase 68 (v0.15) → primera fase **Phase 69** (NO reset). Fuente: `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md` + `REQUIREMENTS.md` (este milestone no tuvo research — skip explícito del operador).
-
-| Phase | Goal | Requirements | Riesgo / Nota |
-|-------|------|--------------|---------------|
-| 69. Red y autenticación (Ola 1) | Bind `127.0.0.1` por defecto (`server.bind`) + bearer en carril no-webhook (401 sin token; `/webhook` HMAC, `/health` abierto) + body 1 MB→413 + 500 neutro + `sessionId` validado + doc topología multi-nodo | NET-01..06 (6) | **Bajo** — aditivo, la ola más barata; cierra la única exposición externa (T3) — **va primera** |
-| 70. Concurrencia y ciclo de vida de procesos (Ola 2) | `withStateLock(fn)` sobre los ~6 escritores (+ corregir comentario falso `server.js:682`) + `acquireGsdLock` atómico (`wx`) + zombi libera slot de `max_parallel` + PID ownership (post-bind, `started_at` pre-SIGKILL) + lock en `polling start` + migración v1→v2 atómica + dedup no-GSD cross-proceso + M13 empírico | CONC-01..09 (9) | **Medio** — la más delicada; tocar locks exige tests de proceso real (T1, T2) |
-| 71. Fiabilidad de entrega y backstop (Ola 3) | Cursor de polling solo avanza con dispatch confirmado (`await`+timeout) + centinela de primer tick + `adopt` idempotente (busca por `task_url`) + backstop mecánico de "In Review" en `SessionEnd` | DELIV-01..04 (4) | **Medio** — cambia semántica de polling y `SessionEnd` (T4, T5) |
-| 72. Higiene, DX y verdad documental (Ola 4) | Marcador `KODO_ORCHESTRATOR=1` + pathspec en auto-commit + **borrar** `up --url`/`startHealthLoop` + efectos de cierre a `SessionEnd` + strip `\x1b` + batch config (M3/M5/M14/B5/B7) + batch BAJAS + pasada de README | HYG-01..08 (8) | **Bajo** — paralelizable; se coloca al final por compartir `SessionEnd` con Ola 3 |
-
-- **Ola 1 primero** no por ser la más grave en probabilidad, sino por ser la más barata de cerrar y eliminar la única exposición a atacantes externos. Olas 2 y 3 arreglan el producto para el usuario legítimo. Ola 4 puede solaparse con cualquiera pero se secuencia al final (HYG-04 mueve efectos a `SessionEnd`, el mismo hook que DELIV-04 reordena → evita conflictos de merge).
-- **4 phases con granularidad `coarse` (2-4):** se elige el borde superior porque cada ola es una causa raíz distinta, cerrable y verificable de forma independiente (la propuesta lo estructura así). Ninguna es relleno: cada fase agrupa 4-9 hallazgos por causa raíz.
+Phase: — (milestone v0.16 shipped y archivado)
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-15 — Milestone v0.16 completed, audited (PASSED) and archived
 
 ## Most recent shipped milestone
 
-**v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — shipped 2026-07-03 (4 phases 65-68, 14 plans, 39 tasks; audit PASSED 14/14 reqs · 9/9 seams · 3/3 flujos E2E; suite 1788 pass + 1 skip). `kodo up` arranca el daemon compuesto (server+polling) desacoplado + dashboard como visor (idempotente/persistente); `kodo stop`/`status --json` + `kodo daemon run` foreground; `kodo start` legacy intacto. Distribución Homebrew (`brew install` + `brew services start kodo` → `kodo daemon run` server-only bajo launchd). Onboarding dashboard-first: first-run sin config → modo setup sin `exit 1` → provider/base_url/slug + API key enmascarada → `config.json` + `.env` 0600, boundary PERSIST-04 intacto; `kodo config` headless converge en la misma fontanería.
+**v0.16 Hardening** — shipped 2026-07-15 (4 phases 69-72, 18 plans, 44 tasks; audit PASSED 27/27 reqs · 6/6 seams · flujo E2E completo; suite 1788 → 2027 tests; 157 commits). Remediación de la auditoría adversarial en 4 olas por causa raíz: **red** (bind `127.0.0.1` + bearer default-deny, `/webhook` HMAC y `/health` intactos), **concurrencia/PID** (advisory locks `O_EXCL`+CAS sobre `state.json`, zombi libera slot de `max_parallel`, PID ownership + anti-PID-reuse), **entrega/backstop** (cursor de polling con dispatch confirmado + centinela, `adopt` idempotente por `task_url`, backstop mecánico de «In Review» en `SessionEnd` con gate no-terminal), **higiene** (auto-commit gated `KODO_ORCHESTRATOR=1`, `up --url`/`startHealthLoop` borrados, config endurecida, BAJAS, README reconciliado).
 
-- Roadmap archive: `milestones/v0.15-ROADMAP.md`
-- Requirements archive: `milestones/v0.15-REQUIREMENTS.md`
-- Audit: `milestones/v0.15-MILESTONE-AUDIT.md`
+- Roadmap archive: `milestones/v0.16-ROADMAP.md`
+- Requirements archive: `milestones/v0.16-REQUIREMENTS.md`
+- Audit: `milestones/v0.16-MILESTONE-AUDIT.md`
+- Phases: `milestones/v0.16-phases/`
 
 ## Deferred Items
 
-Reset al baseline de v0.16. v0.15 cerró con audit PASSED (GATE MANUAL aprobado) sin deuda viva que bloquee v0.16.
+Baseline post-v0.16. Todos pre-reconocidos al cierre (audit PASSED, verified closeout).
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera del roadmap v0.16) | — |
+| Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1); análisis en `milestones/v0.16-phases/70-.../70-WORKTREE-VERIFICATION.md` | v0.16 Phase 70 |
+| UAT | Backstop GitHub real (nunca cierra issues) — skip reconocido por el operador 2026-07-09; mock de 3 capacidades como cobertura compensatoria | Abierto (requiere repo GitHub real) | v0.16 Phase 71 |
+| Cliente Plane | B12b — throttle epoch-vs-delta (`x-ratelimit-reset` no confirmable barato en Plane self-hosted) | Diferido con nota (D-02) | v0.16 Phase 72 |
+| Orchestrator | ORCH-05 — discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-Phase 73, retirada por eliminación 2026-07-14) | Backlog (ROADMAP.md §Backlog) | — |
+| Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
+| Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera de roadmap) | — |
 | Rendimiento | Reconcile asíncrono (M21) — **medir antes de arreglar** | v2 (solo si `/health` muestra latencia real) | — |
 
 ## Accumulated Context
 
-### Decisions (Roadmap v0.16)
+### Decisions
 
-- **Numeración continua (NO reset):** v0.16 continúa desde Phase 68 (v0.15) → primera fase **Phase 69**.
-- **4 phases = 4 olas por causa raíz:** la propuesta agrupa los ~40 hallazgos de la auditoría en 4 causas raíz (T1-T5); una fase GSD por ola, cada una cerrable y verificable de forma independiente. Granularidad `coarse` (2-4) → borde superior justificado (no relleno: 6/9/4/8 reqs por fase).
-- **Orden risk-graded LOCKED:** Ola 1 (red) primero — la más barata, cierra la única exposición externa; Ola 2 (concurrencia/PID) la más delicada — locks exigen tests de proceso real; Ola 3 (entrega/backstop) cambia semántica de polling y `SessionEnd`; Ola 4 (higiene) paralelizable, al final por compartir `SessionEnd` con Ola 3.
-- **Sin research (skip explícito del operador):** `.planning/research/` es STALE del milestone v0.15 y NO aplica a v0.16. Fuente de verdad = `REQUIREMENTS.md` + `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md`.
-- **Decisiones de producto del mantenedor (2026-07-05) ya horneadas en los requirements:** (1) default bind `127.0.0.1` + doc de bind a IP tailscale (el webhook de Plane SÍ llega desde otro nodo) → NET-01/NET-06; (2) backstop mecánico de "In Review" ACEPTADO — la instrucción al LLM pasa a ser optimización (cambio de contrato de producto) → DELIV-04; (3) `up --url` y `startHealthLoop` se **borran**, no se cablean → HYG-02/HYG-03.
-- **Fuera de alcance explícito:** rediseño "un solo escritor de estado" (el lockfile CONC-01 cubre el riesgo a ~1/20 del coste), M21 (medir antes de arreglar), M4 antes de la Ola 1 (tras cerrar la red exige colaborador malicioso en tu Plane → strip barato como HYG-07), M7-M9 a v2.
-- **M13 (ubicación real de worktrees) se resuelve empíricamente en Ola 2 (CONC-09):** hoy no hay ningún worktree vivo que lo delate; lanzar una sesión GSD real y observar dónde aparece.
-
-### Roadmap Evolution
-
-- **Phases 74-75 añadidas al backlog (2026-07-07):** dos **features** (NO hardening) capturadas tras debate de diseño. **Phase 74 «Plan vivo por-tarea»** (LIVE-01..04): hacer vivo `~/.kodo/plans/<uuid>.md` — el hook de cierre appendea handoff `Hecho/Pendiente/NEXT:`, `state.json` guarda puntero + `NEXT:` de una línea, ventana en TUI, y el `NEXT:` alimenta el nudge del orchestrator. **Phase 75 «Inbox de capturas global»** (CAPT-01..04): buffer append-only `~/.kodo/inbox.md` para ideas tangenciales mid-session (`kodo capture` + skill `/kodo-capture`), con triage `kodo inbox` que enruta a Plane/roadmap/config/descartada delegando en `gsd-capture`. Decisiones cerradas en debate: dos artefactos separados (plan vivo por-tarea muere con la tarea; inbox global sobrevive con tag de proyecto), inbox propio de kodo (no reusar `gsd-capture` como punto de captura), destino obligatorio. **Candidatas a v0.17 — fuera del cómputo v0.16, no planificar hasta cerrar el hardening.** En Backlog de `ROADMAP.md`; requisitos en `REQUIREMENTS.md`.
-- **Phase 73 añadida (2026-07-07):** «Debounce e idempotencia del nudge del orchestrator» (ORCH-01..05). Hallazgo de dogfooding: `launchOrchestrator` re-inyecta el nudge «Revisa el estado actual…» en bucle sin guard, y `needsOrchestrator` se mantiene true mientras haya tareas pendientes → spam de nudges que quema tokens. Gemelo de Phase 70 (Ola 2) pero para el trigger del orchestrator. Depende de Phase 72 (Ola 4 borra `startHealthLoop`/`up --url`, uno de los disparadores). Zombi ITROMAN-1 purgado en la misma sesión (alivio inmediato; el fix estructural es esta fase).
-- **Phase 73 retirada (2026-07-14):** el nudge de refresh se eliminó directamente (commit f4df750) en vez de debouncearlo — decisión operador: no es necesario, el orquestador se auto-pacea. ORCH-05 (discrepancia pending-count) pasa a backlog.
-- **v0.16 roadmap creado (2026-07-06):** 4 phases (69-72), numeración continua desde v0.15 (NO reset). Estructura 1:1 con las 4 olas de la propuesta, orden risk-graded LOCKED. 27/27 requirements mapeados (Phase 69: 6 · 70: 9 · 71: 4 · 72: 8), 100% cobertura, 0 orphans, 0 duplicados. Sin research (skip del operador). Granularidad `coarse`, borde superior justificado por causa raíz. `.planning/ROADMAP.md` reemplazado (v0.15 colapsado a `<details>`, ya archivado en `milestones/v0.15-ROADMAP.md`).
-- **v0.15 roadmap creado (2026-07-02):** 4 phases (65-68), numeración continua desde v0.14. Pilar 1 (UP+DIST) antes de Pilar 2 (SETUP), orden risk-graded LOCKED.
+Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+bearer default-deny, advisory lockfile vs single-writer, backstop mecánico + gate no-terminal, cursor confirmado, borrar-no-cablear, auto-commit gated, Phase 73 retirada por eliminación).
 
 ### Open Blockers
 
-Ninguno. v0.15 cerró con audit PASSED y GATE MANUAL aprobado.
+Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
-### Open Questions (se resuelven al planificar/discutir cada fase, no bloquean el roadmap)
+### Critical Invariants to Preserve (cross-milestone)
 
-- **Phase 69:** ¿de dónde sale el bearer token — se genera al primer arranque y se persiste en `config.server.token`, o lo introduce el operador? ¿El dashboard lo lee de `config.json` o de `.env`? Decidir en discuss/plan.
-- **Phase 70:** primitiva única `withStateLock` (lockfile `O_EXCL` + retry) reusada por los ~6 escritores Y por `polling start` (M20) Y por el dedup no-GSD (M17); confirmar el retry/timeout y el comportamiento ante lock huérfano (steal). Los tests de 2 procesos concurrentes reales son obligatorios (no unit-mocks).
-- **Phase 71:** timeout del `await dispatchFn` en el path de polling (¿qué valor?, ¿qué pasa si el dispatch tarda más que el tick?). El webhook se queda fire-and-forget a propósito (Plane re-entrega).
-- **Phase 72:** confirmar la lista exacta de BAJAS del batch HYG-06 (B1-B4, B8, B9, B12, M12) contra `AUDITORIA-ADVERSARIAL-2026-07-03.md` antes de tocar código.
-
-### Critical Invariants to Preserve (cross-milestone, must survive este milestone)
-
-- **`/webhook` conserva HMAC y `/health` queda abierto:** la auth bearer de Ola 1 es SOLO para el carril no-webhook. No romper el ingreso del webhook de Plane ni el probe de salud.
-- **Boundary PERSIST-04:** API key solo en `~/.kodo/.env` (0600); nunca renderizada/logueada/en `/status`/en argv. El bearer token de Ola 1 es un secreto distinto — aplicarle el mismo cuidado (no filtrarlo a logs/`/status`).
-- **Modelo daemon PERSISTENTE:** el daemon sobrevive al cierre del dashboard; solo `kodo stop` lo tumba. El PID ownership de Ola 2 (CONC-04/05) no puede regresionar esto.
-- **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** — Ola 1 endurece los endpoints existentes, no añade ninguno.
-- **Cero nuevas dependencias npm:** locks vía `node:fs` (`O_EXCL`/`flag:'wx'`) built-in; nada de `proper-lockfile`/`lockfile`.
-- **TaskProvider contract FROZEN en 9** + getTaskState/createTask opcionales · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico — CONC-07 lo extiende a la migración de config) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
+- **`/webhook` conserva HMAC y `/health` queda abierto** — la auth bearer es SOLO para el carril no-webhook.
+- **Boundary PERSIST-04:** API key y bearer token solo en `~/.kodo/.env` (0600); nunca renderizados/logueados/en `/status`/en argv.
+- **Server loopback-first:** bind `127.0.0.1` por defecto; exponer requiere `config.server.bind` explícito (topología multi-nodo en README).
+- **Modelo daemon PERSISTENTE:** solo `kodo stop` lo tumba; PID ownership de v0.16 (CONC-04/05) no puede regresionar esto.
+- **Escrituras de `state.json` bajo `withStateLock`** — cualquier escritor nuevo DEBE pasar por la primitiva (`src/session/state.js`); `reconcileTick` sigue siendo el único escritor de `alive`.
+- **Backstop de «In Review» en `SessionEnd` con gate de estado no-terminal** — jamás transicionar a un estado terminal (GitHub `closed`); el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
+- **Auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec** — sin la var → skip (cero commits fantasma).
+- **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** · **Cero nuevas dependencias npm** (locks vía `node:fs` built-in) · **TaskProvider contract FROZEN en 9** + métodos opcionales por `typeof` · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/72-higiene-dx-y-verdad-documental/72-CONTEXT.md
-
-- **Last session:** 2026-07-13T12:57:02.225Z
-- **Stopped at:** Phase 72 context gathered
-- **Next action:** `/gsd-plan-phase 69` — planificar la Ola 1 (Red y autenticación).
+- **Last session:** 2026-07-15 — cierre de milestone v0.16 (audit + archivado + tag)
+- **Stopped at:** Milestone v0.16 shipped
+- **Next action:** `/gsd-new-milestone` — definir v0.17 (candidatas: Phases 74-75 + ORCH-05 en Backlog)
 - **Files of record:**
-  - `.planning/PROJECT.md` (Current Milestone: v0.16 Hardening)
-  - `.planning/ROADMAP.md` (v0.16 activo Phases 69-72; v0.10-v0.15 colapsados/archivados)
-  - `.planning/REQUIREMENTS.md` (v0.16, traceability 27/27 → Phases 69-72)
-  - `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md` (fuente: 4 olas por causa raíz)
-  - `.compound/AUDITORIA-ADVERSARIAL-2026-07-03.md` (hallazgos A1-A9, M1-M21, B1-B12)
-  - `.planning/MILESTONES.md` (entrada v0.15 completa)
+  - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
+  - `.planning/ROADMAP.md` (v0.16 colapsado; Backlog con Phases 74-75)
+  - `.planning/MILESTONES.md` (entrada v0.16 completa)
+  - `.planning/milestones/v0.16-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
 
 ## Operator Next Steps
 
-- Planificar la primera fase con `/gsd-plan-phase 69`
+- `/gsd-new-milestone` para definir v0.17 (requirements frescos; REQUIREMENTS.md se regenera)
 
 ## Performance Metrics
 
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
-| — | — | — | (sin planes ejecutados aún en v0.16) |
-| Phase 69 P01 | 3min | 2 tasks | 4 files |
-| Phase 69 P03 | 5min | 2 tasks | 6 files |
-| Phase 69 P04 | 18min | 2 tasks | 4 files |
-| Phase 69 P02 | 24 | 3 tasks | 6 files |
-| Phase 70 P01 | 6 | 3 tasks | 6 files |
-| Phase 70 P03 | 9 | 3 tasks | 8 files |
-| Phase 70 P02 | 15 | 3 tasks | 6 files |
-| Phase 70 P04 | 16 | 4 tasks | 8 files |
-| Phase 71 P01 | 8min | 2 tasks | 2 files |
-| Phase 71 P02 | 9min | 2 tasks | 2 files |
-| Phase 71 P03 | 25min | 2 tasks | 4 files |
-| Phase 71 P04 | 3min | 2 tasks | 3 files |
-| Phase 71 P05 | 5min | 2 tasks | 4 files |
-| Phase 72 P01 | 15min | 2 tasks | 6 files |
-| Phase 72 P02 | 45 min | 3 tasks | 6 files |
-| Phase Phase 72 P03 P03 | 35 | 3 tasks | 13 files |
-| Phase Phase 72 PP04 | 9 | 2 tasks tasks | 3 files files |
-| Phase 72 P05 | 10min | 2 tasks | 2 files |
-
-## Decisions
-
-- [Roadmap v0.16]: 4 phases (69-72) = 4 olas por causa raíz de la auditoría, orden risk-graded LOCKED (red → concurrencia → entrega/backstop → higiene). Granularidad `coarse`, borde superior justificado.
-- [Roadmap v0.16]: Sin research — `.planning/research/` es STALE de v0.15; fuente de verdad `REQUIREMENTS.md` + `.compound/PROPUESTA-MEJORAS-AUDITORIA-2026-07-05.md`.
-- [Roadmap v0.16]: Numeración continua desde Phase 68 → primera fase Phase 69 (NO reset).
-- [Roadmap v0.16]: Decisiones de producto del mantenedor (2026-07-05) ya horneadas en requirements — default bind `127.0.0.1` (NET-01), backstop mecánico de In Review aceptado (DELIV-04), `up --url`/`startHealthLoop` borrados no cableados (HYG-02/03).
-- [Phase ?]: [69-01] Auth primitives en src/server/auth.js (parseBearer, timingSafeTokenEqual length-guarded, isOpenRoute default-deny, getOrCreateApiToken CSPRNG 64-hex 0600, MAX_BODY_BYTES) — cero deps npm nuevas.
-- [Phase ?]: [69-01] config.server.bind default 127.0.0.1 aditivo; configs v0.15 migradas sin la key siguen cargando (Plan 02 resuelve con ?? '127.0.0.1').
-- [Phase ?]: [69-04] sessionId path-traversal guard: HARD reject (exit 2) at kodo logs CLI edge, SOFT non-throwing guard in logger.js (disk sink off) para preservar el reconcile loop — allowlist /^[A-Za-z0-9_-]+/ (NET-05, D-10)
-- [Phase ?]: 69-02: drain-and-discard oversized bodies (not req.destroy) so clients read a clean 413
-- [Phase ?]: 69-02: ?token= query param is HTML-route only; the API rail is bearer-header only (D-05)
-- [Phase ?]: 70-01: Advisory-lock primitive state-lock.js (O_EXCL/wx + steal tmp+rename + Atomics.wait backoff); acquireGsdLock now atomic. Zero new deps.
-- [Phase ?]: 70-01: state-lock steals only on parseable-but-stale (dead pid / TTL); corrupt/partial read retries to keep the O_EXCL create race single-winner.
-- [Phase ?]: Phase 70-03: SIGKILL anti-PID-reuse tolerance = 8000ms; pre-bind PID write preserved (D-10 REVISED); gate reads alive via exported isSchedulable.
-- [Phase ?]: 71-01: carril polling con dispatch confirmado (await+timeout), watermark escalar acotado bajo min(fallidos) y centinela observed que separa cache-ausente de cursor-vacío (DELIV-01/DELIV-02)
-- [Phase ?]: DELIV-03: adoptSession idempotente por task_url — barrido local (sessions+history) antes de la reconciliación; la reconciliación devuelve {ok:true, reused:true}
-- [Phase 71]: Backstop de In Review en SessionEnd (DELIV-04): transiciona a review + comenta «cierre automático» solo si getTaskState==='in_progress'; capability-gated por typeof (GitHub degrada), idempotente frente al LLM, fail-open por paso
-- [Phase ?]: 71-04: cablear recuperación idempotente de adopt en el CLI vía flags --task-url/--task-id (DELIV-03)
-- [Phase 71]: 71-05 (gap-closure DELIV-04): gate de estado NO-terminal en runReviewBackstop — el backstop NUNCA cierra issues de GitHub. Predicado puro never-throws isTerminalReviewState(reviewState, providerCfg) provider-agnostic vía states.done + token nativo 'closed'. GitHub ('closed') → no-op con log de skip; Plane ('In review') transiciona como hoy. Premisa falsa D-13 (GitHub degrada por capability-gating) CORREGIDA: GitHub SÍ implementa las 3 capacidades; su no-op deriva del gate de estado no-terminal. Descartado el gate verdict.action==='pass'.
-- [Phase ?]: [72-01] Auto-commit del orquestador gated por KODO_ORCHESTRATOR=1 + pathspec .claude/skills/kodo-orchestrate/ en add y commit (HYG-01); efectos de cierre (color/notify/nudge) movidos de Stop a SessionEnd tras el backstop DELIV-04, cada uno never-throws (HYG-04).
-- [Phase ?]: [72-01] git commit lleva -m ANTES de -- <pathspec>; KODO_ROOT se fija a nivel de módulo en el test HYG-01 porque session-end.js importa stop.js transitivamente.
-- [Phase 72]: M3/M14 extraídos a src/cli/config-args.js (módulo puro) — cli.js ejecuta program.parse() al import y no es unit-testeable
-- [Phase 72]: Warn NDJSON de B7 directo a stderr (patrón lifecycle.js) — logger.js importa config.js — un import inverso crearía ciclo
-- [Phase 72]: mergeAndValidateConfig usa structuredClone(DEFAULT_CONFIG) como base del merge — mutar el config devuelto no puede contaminar los defaults in-proceso
-- [Phase ?]: 72-03: Batch BAJAS HYG-06 aplicado (10 micro-diffs). B12b diferido: formato x-ratelimit-reset de Plane self-hosted no confirmable barato (Open Question #2/D-02).
-- [Phase ?]: [72-04] stripControlChars (CSI-strip + control-strip C0/C1/DEL, preserva \n/\t) neutraliza inyección de terminal (OSC-52) del contenido externo; cableado en la proyección de comentarios de App.js (tres ramas); SessionTable intacto; cero deps (HYG-07/M4).
-- [Phase 72]: [72-05] Pasada DELTA del README (HYG-08): claims de cierre atribuidos a SessionEnd/backstop, auto-commit documentado como gated (KODO_ORCHESTRATOR + pathspec); up --url y health-loop 60s confirmados ausentes — solo 4 claims falsos tocados (D-04, no rewrite)
+| — | — | — | (baseline v0.17 — métricas de v0.16 archivadas en `milestones/v0.16-phases/`) |

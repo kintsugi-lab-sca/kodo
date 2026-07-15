@@ -490,6 +490,45 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 - Model mix: opus (orquestación + planning + cierre) + sonnet (integration-checker). Sesiones: 1 principal multi-turno (con compactación de contexto).
 - Notable: el cierre del milestone consumió esfuerzo desproporcionado en reconciliar drift de tracking (sketch + UAT frontmatter) frente al trabajo de código, que ya estaba verde (suite 1788/0/1).
 
+## Milestone: v0.16 — Hardening
+
+**Shipped:** 2026-07-15
+**Phases:** 4 (69-72) | **Plans:** 18 | **Tasks:** 44
+
+### What Was Built
+- Superficie de red cerrada (Phase 69): bind `127.0.0.1` por defecto + bearer default-deny en el carril no-webhook (token CSPRNG 0600, constant-time), 413 pre-auth, 500 neutros, `sessionId` allowlist; `/webhook` HMAC y `/health` intactos (NET-01..06).
+- Concurrencia y ciclo de vida seguros (Phase 70): primitiva advisory-lock `O_EXCL` + steal CAS → `withStateLock` sobre los escritores de `state.json`, `acquireGsdLock` atómico, zombi libera slot, PID ownership + anti-PID-reuse pre-SIGKILL (CONC-01..09).
+- Entrega garantizada + backstop (Phase 71): cursor de polling con dispatch confirmado + centinela `observed`, `adopt` idempotente por `task_url` alcanzable desde el CLI, backstop mecánico de «In Review» en `SessionEnd` con gate de estado no-terminal (DELIV-01..04).
+- Higiene y verdad documental (Phase 72): auto-commit gated `KODO_ORCHESTRATOR=1` + pathspec, `up --url`/`startHealthLoop` borrados, efectos de cierre a `SessionEnd`, config endurecida, strip `\x1b`, 10 BAJAS, README reconciliado (HYG-01..08).
+
+### What Worked
+- **Milestone dirigido por auditoría adversarial externa**: agrupar los ~40 hallazgos en 4 olas por causa raíz (T1-T5) dio fases cerrables y verificables de forma independiente, con orden risk-graded LOCKED (la ola más barata que cierra la exposición externa primero).
+- **Tests de carrera con procesos reales como gate obligatorio para locks** (no unit-mocks): cazaron el CR-01 (steal de lock stale no-atómico → doble `acquired`) que un mock jamás habría reproducido.
+- **Estándar de verificación "alcanzable end-to-end desde un consumidor real"**: la verificación inicial de Phase 71 encontró 2 BLOCKERs que la corrección interna ocultaba (DELIV-03 inalcanzable desde el CLI; DELIV-04 cerraba issues de GitHub) — el gap-closure (71-04/71-05) se re-verificó adversarialmente contra el código, no contra los SUMMARY.
+- **Dogfooding como cierre de UAT**: la propagación de `KODO_ORCHESTRATOR=1` (shell→hook, no automatizable) se confirmó lanzando el orquestador real (72-UAT, 2026-07-14).
+
+### What Was Inefficient
+- **Vocabulario no-canónico de frontmatter, segundo milestone seguido**: `72-UAT.md` con `status: passed` (en vez de `complete`) disparó un falso "UAT gap" en `audit-open` al cierre — el mismo tipo de falso positivo que el UAT-CHECKLIST sin frontmatter de v0.15.
+- **Contratos Nyquist sin rellenar**: 3/4 fases cerraron con `VALIDATION.md` en draft (mapa por-task vacío) pese a que la cobertura real de tests existe en las VERIFICATION — el artefacto quedó desacoplado del flujo de ejecución.
+- **Phase 73 planificada sobre un síntoma**: se especificaron 5 requirements de debounce/idempotencia del nudge y luego se retiró entera porque eliminar el nudge (commit f4df750) era más simple que debouncearlo. El residuo real (ORCH-05) quedó en backlog.
+- **Phase dirs de v0.15 (65-68) borrados del working tree sin archivar** (sin `milestones/v0.15-phases/`), rompiendo la convención — restaurados y archivados en este cierre.
+
+### Patterns Established
+- **Primitiva advisory-lock reusable** (`src/session/state-lock.js`: `O_EXCL` + retry + steal CAS con guarda ABA, `Atomics.wait` backoff, cero deps) consumida por N escritores — con race-tests de 2/5/10 procesos reales como estándar de verificación.
+- **Gate de estado no-terminal provider-agnostic** (`states.done` + token nativo `'closed'`, never-throws) para cualquier transición automática de estado.
+- **Backstop mecánico con el LLM como optimización, no única vía** — los efectos de ciclo de vida críticos viven en hooks deterministas (`SessionEnd`), orden LOCKED `backstop→cleanup→efectos`.
+- **Env-marker por prefijo de command-string** (`KODO_ORCHESTRATOR=1` en `claudeCmd`) para discriminar sesiones orquestadoras en hooks, con modo de fallo seguro (sin var → skip).
+
+### Key Lessons
+- **El vocabulario canónico de frontmatter (`status: complete`) debe validarse al escribir el artefacto, no descubrirse al cierre** — dos milestones consecutivos con falsos gaps de audit por este drift son señal de bug de proceso (espejo de la lección de checkbox-drift de v0.3-v0.5).
+- **La alcanzabilidad end-to-end es el estándar de verificación correcto**: "el mecanismo interno es correcto" no basta si ningún consumidor real (CLI/hook) puede dispararlo — los 2 BLOCKERs de Phase 71 lo prueban.
+- **Antes de planificar el fix estructural de un síntoma, preguntar si la causa se puede eliminar**: Phase 73 completa (contexto + 5 reqs) se volvió innecesaria con un borrado de 1 commit.
+- **Locks sin tests de procesos reales son locks sin verificar** — el patrón de `test/helpers/lock-race-child.mjs` (holder con `--hold` que modela un dueño VIVO) queda como canon.
+
+### Cost Observations
+- Model mix: fable/opus (orquestación, planning, cierre) + sonnet (integration-checker del audit). Sesiones: multi-sesión a lo largo de ~9 días (2026-07-05 → 2026-07-14), cierre el 2026-07-15.
+- Notable: el cierre fue barato porque las 4 fases llegaron pre-verificadas (VERIFICATION passed + UAT hechos durante el milestone); el único trabajo real del cierre fue el milestone audit (integration checker: ~52k tokens, 6/6 seams) y la reconciliación del falso UAT-gap + phase dirs de v0.15.
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -508,6 +547,9 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.11 | 5 | 4 | kodo produce su propio artefacto (plan ligero) en vez de olfatear internals frágiles de un tercero + verificación byte-a-byte del contrato de ruta cross-phase + audit de milestone como gate opcional pre-cierre |
 | v0.12 | 10 | 5 | Spike-gate como fase separada antes de feature condicional + corrección de fuente in-milestone (Phase 50→50.1) cuando la superficie validada por el spike resultó vacía en el flujo real + reconciliación manual de deuda al cierre (drift vs obsoleto vs señal) |
 | v0.13 | 17 | 11 | "Una fontanería, tres consumidores" (base determinista 0-token + N consumidores, LLM aislado en un solo carril) + UAT humana en vivo como única red para bugs semánticos/de-latencia + reubicación de requisito (ORCH-01→ORCH-02) cuando la UAT reveló un diseño inalcanzable + fixes post-verificación dentro de la misma fase |
+| v0.14 | 7 | 2 | 2ª ruptura consciente de "TUI read-only" (editor de config/proyectos): text-input in-house en ink + validadores puros + escritura local atómica, cero endpoints nuevos |
+| v0.15 | 14 | 4 | Build order LOCKED por pilares (daemon estable antes del onboarding) + boundary del secreto con escritor único verificado por grep de higiene + UAT runtime + GATE MANUAL no auto-aprobable en `--auto` |
+| v0.16 | 18 | 4 | Milestone dirigido por auditoría adversarial (4 olas por causa raíz, orden risk-graded) + race-tests de procesos reales como gate para locks + estándar de alcanzabilidad end-to-end en verificación (2 BLOCKERs cazados) + retirar una fase entera (73) cuando eliminar la causa gana al fix estructural |
 
 ### Cumulative Quality
 
@@ -526,6 +568,8 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.12 | 1307 | — | — |
 | v0.13 | 1543 | — | — |
 | v0.14 | 1639 | — | — |
+| v0.15 | 1788 | — | — |
+| v0.16 | 2027 | ~28,300 | — |
 
 ### Top Lessons (Verified Across Milestones)
 

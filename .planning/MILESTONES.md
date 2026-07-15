@@ -1,5 +1,24 @@
 # Milestones
 
+## v0.16 Hardening (Shipped: 2026-07-15)
+
+**Phases completed:** 4 phases (69-72), 18 plans, 44 tasks
+**Git:** 157 commits desde v0.15 · 165 ficheros · +21.946/−831 líneas · 2026-07-05 → 2026-07-14
+**Audit:** PASSED (verified closeout) — 27/27 requirements · 4/4 fases verificadas · 6/6 seams cross-phase · flujo E2E completo · suite 1788 → 2027 tests
+
+**Key accomplishments:**
+
+- **Superficie de red cerrada (Ola 1/Phase 69):** el server bindea a `127.0.0.1` por defecto y el carril no-webhook es default-deny con bearer token (CSPRNG 64-hex persistido 0600, comparación constant-time, valor nunca logueado); body 1 MB → 413 pre-auth, errores 500 neutros, `sessionId` con allowlist antes del filesystem y topología multi-nodo documentada — `/health` abierto y `/webhook` con HMAC intactos.
+- **Concurrencia multiproceso segura (Ola 2/Phase 70):** primitiva advisory-lock `O_EXCL` + steal CAS con guarda ABA (cero deps npm nuevas) consumida por `withStateLock` sobre los ~6 escritores de `state.json` (carrera real de 10 procesos sin escrituras perdidas), `acquireGsdLock` atómico, lock de `polling start` (dos arranques → un daemon) y dedup no-GSD cross-proceso por `task_id`.
+- **Ciclo de vida de procesos con ownership (Ola 2/Phase 70):** un zombi libera su slot de `max_parallel` vía `isSchedulable` (`alive !== false`), `teardown` solo borra `kodo.pid` si es suyo, y el anti-PID-reuse compara `started_at` con `ps -o lstart=` antes de cualquier SIGKILL — kodo nunca mata un proceso ajeno.
+- **Entrega garantizada (Ola 3/Phase 71):** el cursor de polling solo incorpora `updated_at` con dispatch confirmado (`await`+timeout; fallo → reintento al siguiente tick) con centinela `observed` de primer tick, y `adopt` es idempotente por `task_url`, alcanzable end-to-end desde el CLI (`--task-url`/`--task-id`).
+- **Backstop mecánico de «In Review» en `SessionEnd` (Ola 3/Phase 71):** si la sesión terminó limpia y la tarea sigue `in_progress`, el hook transiciona y comenta «cierre automático»; el gate de estado no-terminal garantiza que un issue de GitHub jamás se cierra — la instrucción al LLM pasa a ser optimización, no única vía. UAT contra Plane real PASSED.
+- **Higiene y verdad documental (Ola 4/Phase 72):** auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec (cero commits fantasma — propagación confirmada en dogfooding real), `up --url`/`startHealthLoop` borrados, efectos de cierre movidos a `SessionEnd` tras el backstop, config endurecida (rechazo de prototype pollution, chmod 0600 con `*_secret`), strip de `\x1b`/OSC en contenido externo del dashboard, batch de 10 BAJAS mecánicas y README reconciliado con la realidad.
+
+**Deferred (pre-reconocidos):** CONC-09 sign-off empírico de worktrees (D-15) · UAT GitHub del backstop (skip reconocido 2026-07-09) · B12b throttle epoch-vs-delta (D-02) · ORCH-05 a backlog (Phase 73 retirada por eliminación 2026-07-14).
+
+---
+
 ## v0.15 «kodo up» — arranque unificado + onboarding dashboard-first (Shipped: 2026-07-03)
 
 **Phases completed:** 4 phases, 14 plans, 39 tasks
