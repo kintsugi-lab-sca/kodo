@@ -8,6 +8,7 @@
 //   - test/state/state-writers-concurrency.test.js (--kind writer)
 //   - test/daemon/polling-start-race.test.js       (--kind polling)
 //   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
+//   - test/state/handoff-concurrency.test.js       (--kind handoff)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
 // or `blocked` to stdout and exit 0. Never throw — on any error print
@@ -22,11 +23,24 @@
 // asserts zero lost writes. Writer mode prints `written` (or `failed`) and never
 // throws. It ignores --lock/--repo and reads --idx.
 //
+// `--kind handoff` (Phase 74 Plan 05): each child dynamic-imports
+// ../../src/hooks/session-end.js AFTER its HOME is set (parent spawns it with an
+// isolated HOME env so KODO_DIR — and therefore ~/.kodo/plans — resolves to the
+// sandbox) and calls writeHandoff({session, input, log}, {}) with EMPTY deps, so
+// the real defaults (join(KODO_DIR, 'plans') + upsertTaskHandoff) are exercised.
+// `--task <taskId>` selects the race: a DIFFERENT task per child races state.json
+// (state.tasks, LIVE-04); the SAME task for every child races one plan file's
+// read-modify-write (D-08, the lost update). Prints `written` (or `failed`) and
+// never throws. Reads --idx (→ session_id `sess-<idx>`, which makes D-04's
+// authorship detector see every child as a distinct session) and --task.
+//
 // argv:
-//   --kind   state|gsd|writer|polling|dispatch   (required)
+//   --kind   state|gsd|writer|polling|dispatch|handoff   (required)
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd: the fake repo dir)
-//   --idx    <n>                (writer: this writer's session index)
+//   --idx    <n>                (writer/handoff: this writer's session index)
+//   --task   <taskId>           (dispatch/handoff: the task_id to write —
+//                                handoff defaults to `task-<idx>`)
 //   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox root)
 //   --barrier <goFile>          (optional: wait until this file exists)
 //   --hold   <ms>               (optional: after a successful acquire, stay
@@ -86,6 +100,44 @@ async function main() {
         started_at: new Date().toISOString(),
         project_path: '/tmp/w' + idx,
       });
+      written = true;
+    } catch {
+      written = false;
+    }
+    process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Handoff mode (Phase 74 Plan 05, LIVE-04/D-08): dynamic-import session-end.js
+  // AFTER HOME is set by the parent (env), then writeHandoff with EMPTY deps so the
+  // real defaults resolve — plansDir → join(KODO_DIR, 'plans') and stateWriterFn →
+  // upsertTaskHandoff, both inside the sandbox. The import MUST stay dynamic and
+  // POST-HOME (RESEARCH §Pitfall 6): config.js:11 evaluates join(homedir(), '.kodo')
+  // at module-load, so a static import would write to the operator's REAL ~/.kodo.
+  // Never throws — any error collapses to `failed`.
+  if (args.kind === 'handoff') {
+    let written = false;
+    try {
+      const { writeHandoff } = await import('../../src/hooks/session-end.js');
+      const idx = args.idx;
+      const taskId = args.task || 'task-' + idx;
+      const noop = () => {};
+      writeHandoff(
+        {
+          session: {
+            task_id: taskId,
+            // Distinct session per child → D-04's scoped authorship detector finds no
+            // block of its own session, so every child appends (that is the race).
+            session_id: 'sess-' + idx,
+            task_ref: 'KL-' + idx,
+            summary: 'handoff racer ' + idx,
+            status: 'running',
+          },
+          input: { reason: 'clear' },
+          log: { info: noop, warn: noop, error: noop, debug: noop },
+        },
+        {},
+      );
       written = true;
     } catch {
       written = false;
