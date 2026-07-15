@@ -1,26 +1,22 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.16
-milestone_name: Hardening
-current_phase: null
-current_phase_name: null
-status: Awaiting next milestone
-stopped_at: Milestone v0.16 shipped
-last_updated: "2026-07-15T07:30:00.000Z"
+milestone: v0.17
+milestone_name: Plan vivo por-tarea
+status: planning
+last_updated: "2026-07-15T08:08:24.696Z"
 last_activity: 2026-07-15
-last_activity_desc: Milestone v0.16 completed, audited (PASSED) and archived
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.16 Hardening SHIPPED 2026-07-15** (4 phases 69-72, 18 plans, 44 tasks; audit PASSED 27/27 reqs · 6/6 seams · E2E completo; suite 2027 tests). No hay milestone activo — siguiente paso: `/gsd-new-milestone`.
+**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** iniciado 2026-07-15 — definiendo requirements. Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED).
 
 ## Project Reference
 
@@ -28,14 +24,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Planificar el siguiente milestone (`/gsd-new-milestone`). Candidatas v0.17 (features): Phase 74 «Plan vivo por-tarea» (LIVE-01..04) · Phase 75 «Inbox de capturas global» (CAPT-01..04) · ORCH-05.
+**Current focus:** v0.17 «Plan vivo por-tarea» — convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo de la tarea: handoff acumulativo `Hecho/Pendiente/NEXT:` en `SessionEnd` con autoría **LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto (LIVE-01..04) + **ORCH-05** (convergencia del conteo `pending`). Phase 75 (Inbox) queda en Backlog. Numeración: **Phase 74** (el 73 quedó quemado por la retirada del 2026-07-14).
 
 ## Current Position
 
-Phase: — (milestone v0.16 shipped y archivado)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-15 — Milestone v0.16 completed, audited (PASSED) and archived
+Status: Defining requirements
+Last activity: 2026-07-15 — Milestone v0.17 started
 
 ## Most recent shipped milestone
 

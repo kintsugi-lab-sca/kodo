@@ -8,6 +8,25 @@ kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code
 
 Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. El mismo sistema dispara dos modos GSD: full (`kodo:gsd`, multi-fase con verify) y quick (`kodo:gsd-quick`, one-shot), sin acoplar el código GSD al proveedor.
 
+## Current Milestone: v0.17 Plan vivo por-tarea
+
+**Goal:** Convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget (solo se escribe al arranque) en **estado vivo** de la tarea — cerrar la continuidad entre sesiones de la misma tarea (hoy inexistente) y alimentar el nudge del orquestador con un `NEXT:` concreto.
+
+**Target features:**
+- **Handoff acumulativo al cierre (LIVE-01)** — `SessionEnd` appendea un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`; una segunda sesión de la misma tarea acumula otro bloque sin pisar el anterior. Exige invertir la instrucción de `session-start.js:85` de *"sobrescribe si ya existe"* a preservar-y-appendear.
+- **Autoría LLM + backstop mecánico** — el LLM redacta el handoff antes de salir (instrucción en el prompt); si al cerrar no hay bloque nuevo, el hook appendea uno mecánico mínimo (fecha, resultado de la sesión, sin `NEXT:`). La instrucción es optimización, no única vía (patrón heredado de v0.16 Phase 71).
+- **Puntero + `NEXT:` en `state.json` (LIVE-02)** — escrito bajo `withStateLock`, para pintar la lista sin abrir N ficheros.
+- **Superficie TUI en la rama `phaseId == null` (LIVE-03)** — D-02 (prioridad GSD sobre plan ligero) queda INTACTO. El handoff se escribe para toda sesión (la instrucción de `session-start.js` no distingue GSD), pero solo se surface en el overlay de filas quick/non-GSD.
+- **Nudge con contexto (LIVE-04)** — con `NEXT:` presente, el orquestador lo usa en vez del genérico (que se eliminó el 2026-07-14, commit f4df750).
+- **ORCH-05 — convergencia del conteo `pending`** — atacar la causa raíz, no cuadrar números: `/status` sirve `pending_count` desde `pendingCache` con TTL de 30s (`server.js:591`) mientras `check.js:37` llama a `listPendingTasks()` fresco sin caché. Peor: `server.js:599` devuelve `pendingCache.data` en la rama de error **sin comprobar TTL** → con el provider caído, `/status` sirve un conteo arbitrariamente viejo como si fuera fresco (solo un `console.warn` de rastro) mientras `check.js` reporta el error.
+
+**Key context:**
+- Phase 74 ya estaba redactada en el Backlog de ROADMAP.md con goal, 4 requirements y 4 criterios de éxito; v0.17 los recoge tal cual + ORCH-05. Phase 75 (Inbox de capturas) queda en Backlog — tema ortogonal, no refuerza Phase 74.
+- **Depende de v0.16 Phase 70 (cerrada):** el hook de cierre es un escritor más de `state.json` → obligado a pasar por `withStateLock`.
+- **Invariante en riesgo:** `SessionEnd` hace cleanup terminal DESTRUCTIVO (`removeSession` + worktree + promptFile). El handoff debe escribirse ANTES de ese cleanup, y el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
+- **Lección aplicada (RETROSPECTIVE v0.16):** *"Phase 73 planificada sobre un síntoma"* — se especificaron 5 requirements de debounce y luego se retiró la fase entera. ORCH-05 entra con causa raíz localizada en código, no con el enunciado de una línea del backlog.
+- Numeración de fases **continúa** desde Phase 72 → la siguiente es **Phase 74** (el 73 quedó quemado por la retirada del 2026-07-14).
+
 ## Milestone v0.16 Hardening (shipped 2026-07-15, histórico)
 
 **Goal:** Remediar los hallazgos de la auditoría adversarial (2026-07-03, re-verificados 2026-07-05: los 9 ALTA se sostienen) agrupados por causa raíz — cerrar la superficie de red, hacer segura la concurrencia multiproceso sobre `state.json`/PID, garantizar la entrega de dispatches con backstop mecánico del ciclo de vida, y saldar la higiene y la deriva documental.
@@ -203,11 +222,17 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Active
 
-(Se definen con `/gsd-new-milestone`. Candidatas v0.17 — features, capturadas en el Backlog de ROADMAP.md:)
+**Milestone v0.17 «Plan vivo por-tarea»** (definidos 2026-07-15; detalle en `REQUIREMENTS.md`):
 
-- [ ] Phase 74 — Plan vivo por-tarea (handoff continuo): `~/.kodo/plans/<uuid>.md` deja de ser fire-and-forget; el hook de cierre appendea `Hecho/Pendiente/NEXT:`, `state.json` guarda puntero + `NEXT:`, ventana en TUI, nudge del orchestrator con contexto (LIVE-01..04)
+- [ ] LIVE-01 — Handoff acumulativo `## Handoff <fecha>` con `Hecho/Pendiente/NEXT:` appendeado al cierre; segunda sesión acumula sin pisar (exige invertir el "sobrescribe" de `session-start.js:85`)
+- [ ] LIVE-02 — `state.json` guarda puntero al plan + `NEXT:` de una línea, escrito bajo `withStateLock`
+- [ ] LIVE-03 — El TUI lista el `NEXT:` y abre el markdown del plan en la rama `phaseId == null` (D-02 intacto)
+- [ ] LIVE-04 — El nudge del orquestador usa el `NEXT:` como contexto cuando existe
+- [ ] ORCH-05 — Convergencia del conteo `pending` entre `check.js` (fresco) y `/status` (caché 30s + rama de error sin TTL)
+
+**Backlog (no en v0.17):**
+
 - [ ] Phase 75 — Inbox de capturas global: `kodo capture` + skill `/kodo-capture` → `~/.kodo/inbox.md` append-only con triage `kodo inbox` que delega el enrutado en `gsd-capture` (CAPT-01..04)
-- [ ] ORCH-05 — discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-Phase 73, retirada 2026-07-14)
 
 **Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · derivación de título vía API directa de Anthropic (latencia ~1-3s vs ~10-20s del CLI `claude -p`, a cambio de gestionar API key) · toggle de reveal/paste del campo de API key enmascarado (v0.15 Phase 67 Pitfall 11 — el masking oculta typos al teclear)
 
@@ -353,7 +378,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-15 after v0.16 "Hardening" milestone — 4 phases (69-72), 18 plans, 44 tasks, 157 commits desde v0.15, suite 2027 tests. **Remediación completa de la auditoría adversarial 2026-07-03/05** en 4 olas por causa raíz: red/auth (bind loopback + bearer default-deny, `/webhook` HMAC y `/health` intactos), concurrencia/PID (advisory locks `O_EXCL`+CAS sobre `state.json`, zombi libera slot, PID ownership + anti-PID-reuse), entrega/backstop (cursor con dispatch confirmado + centinela, adopt idempotente por `task_url`, backstop mecánico de «In Review» en `SessionEnd` con gate no-terminal), e higiene (auto-commit gated, `up --url`/health-loop borrados, config endurecida, BAJAS, README reconciliado). Audit PASSED — 27/27 requirements, 6/6 seams, E2E completo. Diferidos pre-reconocidos: CONC-09 sign-off empírico, UAT GitHub del backstop, B12b, ORCH-05. Phase 73 retirada por eliminación. Archivos: `milestones/v0.16-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`. Next: `/gsd-new-milestone`.*
+*Last updated: 2026-07-15 — **Milestone v0.17 "Plan vivo por-tarea" iniciado.** Primer milestone de features tras v0.16 (cero features nuevas desde v0.15). Convierte `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo: handoff acumulativo `Hecho/Pendiente/NEXT:` appendeado en `SessionEnd` con **autoría LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a la rama `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto. Suma **ORCH-05** con causa raíz ya localizada (`/status` sirve `pending_count` desde caché de 30s y devuelve caché sin TTL en la rama de error; `check.js` lee fresco) — aplicando la lección de la Phase 73 retirada: no planificar sobre síntomas. Phase 75 (Inbox) queda en Backlog. Numeración continúa desde Phase 72 → primera fase **Phase 74** (el 73 quedó quemado). Origen: Backlog de ROADMAP.md (Phase 74 pre-redactada, LIVE-01..04).*
+
+---
+*Previous: 2026-07-15 after v0.16 "Hardening" milestone — 4 phases (69-72), 18 plans, 44 tasks, 157 commits desde v0.15, suite 2027 tests. **Remediación completa de la auditoría adversarial 2026-07-03/05** en 4 olas por causa raíz: red/auth (bind loopback + bearer default-deny, `/webhook` HMAC y `/health` intactos), concurrencia/PID (advisory locks `O_EXCL`+CAS sobre `state.json`, zombi libera slot, PID ownership + anti-PID-reuse), entrega/backstop (cursor con dispatch confirmado + centinela, adopt idempotente por `task_url`, backstop mecánico de «In Review» en `SessionEnd` con gate no-terminal), e higiene (auto-commit gated, `up --url`/health-loop borrados, config endurecida, BAJAS, README reconciliado). Audit PASSED — 27/27 requirements, 6/6 seams, E2E completo. Diferidos pre-reconocidos: CONC-09 sign-off empírico, UAT GitHub del backstop, B12b, ORCH-05. Phase 73 retirada por eliminación. Archivos: `milestones/v0.16-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`. Next: `/gsd-new-milestone`.*
 
 ---
 *Previous: 2026-07-06 — **Phase 69 (Red y autenticación) completa — Ola 1 cerrada.** Milestone v0.16 "Hardening" iniciado. Remediación de la auditoría adversarial (`.compound/AUDITORIA-ADVERSARIAL-2026-07-03.md`, 9 ALTA re-verificados 2026-07-05) agrupada por causa raíz en 4 olas: red/auth (bind 127.0.0.1 + bearer token), concurrencia/PID (`withStateLock`, lock atómico, puente state→status), fiabilidad de entrega (cursor confirmado + backstop mecánico de In Review — decisión de producto ACEPTADA), e higiene/documentación (borrar `up --url` + health loop — decisión: eliminar, no cablear). Fuera: M21, rediseño single-writer, M7–M9. Numeración continúa desde Phase 68 → primera fase **Phase 69**. Origen: auditoría adversarial 2026-07-03 + propuesta 2026-07-05 (KODO-8).*
