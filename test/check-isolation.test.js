@@ -146,3 +146,32 @@ describe('LOG-12: vigilante isolation (import-graph)', () => {
     );
   });
 });
+
+// Phase 74 D-13: `src/session/handoff.js` es el módulo único dueño del contrato de
+// handoff (writer + parser juntos) y debe seguir siendo una HOJA de cero imports —
+// el mismo contrato que `logger-noop.js` de arriba.
+//
+// Por qué existe este guard y no basta con la disciplina: la tentación natural es meter
+// el I/O del plan DENTRO de handoff.js «porque es su fichero». Eso lo degradaría de hoja
+// a nodo con fs y arrastraría `config.js` (que computa KODO_DIR en module-load) al grafo.
+// La Phase 75 importa el parser desde `src/cli/dashboard/plan.js`, que es un leaf
+// deliberado; sin este guard, esa degradación entraría en silencio en cualquier fase
+// futura y rompería la 75 (y con ella LOG-12) sin que ningún test lo dijera.
+describe('D-13: handoff contract isolation (import-graph)', () => {
+  it('src/session/handoff.js exists and has zero imports', () => {
+    const handoffPath = join(SRC, 'session', 'handoff.js');
+    assert.equal(
+      existsSync(handoffPath),
+      true,
+      'src/session/handoff.js must exist after Plan 74-01 — otherwise this isolation test passes trivially',
+    );
+    const src = readFileSync(handoffPath, 'utf-8');
+    const imports = extractImports(src);
+    assert.deepEqual(
+      imports,
+      [],
+      `handoff.js must have zero imports (including node: builtins) so Phase 75 can import its ` +
+        `parser from the dashboard leaf without pulling in the graph (D-13), found: ${imports.join(', ')}`,
+    );
+  });
+});
