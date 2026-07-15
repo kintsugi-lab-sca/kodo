@@ -27,7 +27,7 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -322,5 +322,37 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
     upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'X', updated_at: '2026-07-15T09:00:00.000Z' });
 
     assert.equal(loadState().schema_version, 3, 'still v3 — the additive key needs no bump');
+  });
+
+  // -----------------------------------------------------------------------
+  // ANTI-REGRESSION (RESEARCH §Pitfall 5) — the additivity does NOT die in the
+  // migration. This is the direct proof of D-05: the write must land on a v3
+  // file so `migrateStateV2toV3` (whose exhaustive rebuild at `:139-143` drops
+  // every unknown key, `tasks` included) never fires on the re-read.
+  // -----------------------------------------------------------------------
+  it('survives the re-read: tasks intact and schema_version still 3 after reload', () => {
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'Sobrevive',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+
+    // The RAW on-disk bytes must already be v3. If saveState had persisted a v2
+    // shape (the trap: loadState returns v2 when no file exists), the very next
+    // loadState would migrate and silently discard `tasks`.
+    const raw = JSON.parse(readFileSync(join(tmpHome, ...STATE_REL), 'utf-8'));
+    assert.equal(raw.schema_version, 3, 'the file ON DISK is v3 — migration never fires');
+    assert.ok(raw.tasks.t1, 'and `tasks` is in the persisted bytes');
+
+    // Re-read twice: migrateStateIfNeeded runs on every loadState; its v3
+    // idempotency early-return (`:223`) must keep `tasks` alive.
+    loadState();
+    const reloaded = loadState();
+    assert.equal(reloaded.schema_version, 3, 'still v3 after reload');
+    assert.deepEqual(
+      reloaded.tasks.t1,
+      { plan_path: '/p/t1.md', next: 'Sobrevive', updated_at: '2026-07-15T09:00:00.000Z' },
+      'the entry survives the reload byte for byte',
+    );
   });
 });
