@@ -131,6 +131,86 @@ describe('runReconcileTick — same lock, never held across host I/O (Pitfall 1)
     assert.ok(!existsSync(LOCK_PATH), 'lock file released after the tick');
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 74 (D-05) ANTI-DROP REGRESSION — `state.tasks` survives the tick.
+  //
+  // The whole of D-05 rests on `reconcile.js:238` (`{...state, sessions,
+  // history}`) and `:396` rebuilding the state with a SPREAD, and therefore
+  // preserving unknown top-level keys. That is verified today by reading the
+  // code, but NOTHING guards it. The day someone swaps that spread for an
+  // explicit rebuild (exactly what `migrateStateV2toV3:139-143` does), every
+  // task's `NEXT:` would vanish silently on the next tick — breaking no test,
+  // and unnoticed until the Phase 75 dashboard shows empty cells.
+  //
+  // The tick MUST transition something: with zero changes `reconcile.js:233`
+  // returns `state` referentially, which would preserve `tasks` trivially and
+  // make this case vacuous. The dead session below forces the running→idle
+  // transition, so the `:238` spread is genuinely exercised.
+  // -------------------------------------------------------------------------
+  it('preserves the additive top-level `tasks` key across a tick (Phase 74 D-05)', async () => {
+    const seededTasks = {
+      t1: {
+        plan_path: '/Users/dev/.kodo/plans/t1.md',
+        next: 'Arreglar el parser del handoff',
+        updated_at: '2026-07-06T11:00:00.000Z',
+      },
+    };
+    let cur = {
+      schema_version: 3,
+      sessions: { t1: session() },
+      history: [],
+      tasks: seededTasks,
+    };
+
+    const host = {
+      listWorkspaces: async () => [
+        { workspace_ref: 'workspace:1', alive: true, needs_input: false },
+      ],
+    };
+    // pgrep finds nothing → process dead → running→idle transition → the
+    // rebuild path at `:238` runs (not the referential no-change early return).
+    const pgrep = () => '';
+    const loadState = () => cur;
+    let saved = null;
+    const saveState = (s) => {
+      saved = s;
+      cur = s;
+    };
+
+    const debounceStore = new Map();
+    for (let t = 1; t <= 2; t++) {
+      await runReconcileTick({
+        host,
+        loadState,
+        saveState,
+        withStateLock: runUnderStateLock,
+        debounceStore,
+        tick: t,
+        now: () => NOW,
+        pgrep,
+      });
+    }
+
+    assert.ok(saved, 'the tick persisted (the transition exercised the rebuild)');
+    assert.equal(
+      saved.sessions.t1.state,
+      'idle',
+      'the transition really happened — otherwise this case would be vacuous',
+    );
+    // The regression itself: the unknown top-level key survived, byte for byte.
+    assert.deepEqual(
+      saved.tasks,
+      seededTasks,
+      '`state.tasks` survives runReconcileTick untouched (D-05 rests on this spread)',
+    );
+
+    // Cross-milestone counter-assert (D-04): reconcileTick remains the ONLY
+    // writer of `alive`, and the new key does not interfere with the state
+    // machine — the transition still derives `alive` with `tasks` present.
+    assert.equal(saved.sessions.t1.process_alive, false, 'process_alive derived to false');
+    assert.equal(saved.sessions.t1.alive, true, 'the tick still writes `alive` with `tasks` present');
+  });
+
   it('no `await` is held inside the withStateLock callback (source guard)', async () => {
     // Structural guard mirroring the Pitfall-1 acceptance criterion: the
     // runLocked(() => { ... }) callback must be synchronous (no await inside),
