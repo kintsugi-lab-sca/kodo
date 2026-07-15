@@ -144,7 +144,14 @@ Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
   4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
   5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
 
-**Plans**: TBD
+**Plans**: 5 plans (3 waves)
+
+Plans:
+- [ ] 74-01-PLAN.md — Contrato de formato: `src/session/handoff.js` como hoja pura (D-01..D-04, D-13) + guard de aislamiento del grafo de imports [wave 1]
+- [ ] 74-02-PLAN.md — `upsertTaskHandoff`: escritor de `state.tasks` bajo `withStateLock`, aditivo sin bump de schema (D-05, D-06) [wave 1]
+- [ ] 74-03-PLAN.md — Invertir las dos instrucciones de `session-start.js` a preservar-y-appendear + contrato de handoff en el prompt (D-10, D-11) [wave 1]
+- [ ] 74-04-PLAN.md — `writeHandoff` cableado en el seam `session-end.js:97`: RMW bajo `withFileLock`, create-if-missing, persistencia (D-07..D-09) [wave 2]
+- [ ] 74-05-PLAN.md — Carreras cross-process: `state.tasks` sin escrituras perdidas y el mismo plan sin lost update (D-08) [wave 3]
 
 ### Phase 75: Superficie del `NEXT:` — dashboard y nudge
 
