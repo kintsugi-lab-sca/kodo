@@ -50,7 +50,7 @@ antiguos, handoff en sesiones muertas por SIGKILL, edición del handoff desde la
   > fiable para LIVE-03 (D-04), y el ruido es cosmético y temporal. Pero la Phase 75 debe saber que
   > su renderizador es lo que hace cierta la promesa de invisibilidad.
 
-- **D-02: Extracción del `NEXT:`** — dentro de un bloque, la **primera** línea que empieza por
+- **D-02: Extracción y truncado del `NEXT`** — dentro de un bloque, la **primera** línea que empieza por
   `**NEXT:**`; el valor es el resto de la línea, trimmed. Una sola línea (precedente D-07 Phase 45).
   Ausente → sin `NEXT:` (caso válido y esperado del bloque mecánico). Al persistir en `state.json` se
   **trunca a 200 caracteres**: evita que una línea desbocada del LLM engorde `state.json`, que la

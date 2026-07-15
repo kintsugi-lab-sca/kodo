@@ -396,7 +396,16 @@ if (!r.ok) log.warn('session.handoff.state_write_failed', { reason: r.reason });
 | A2 | `os.homedir()` respeta `process.env.HOME` en macOS/POSIX (base del aislamiento de tests) | Pitfall 6 | MUY BAJO — todo el suite de `test/state/` depende de esto y pasa hoy |
 | A3 | El operador quiere el `.lock` del plan en `<plan>.md.lock` (junto al plan), como CONTEXT.md D-08 escribe (`<plan>.lock`) | Open Question 2 | BAJO — cosmético; `doctor.js` podría verlo como residuo (ver OQ2) |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> **Estado al cierre del planning (2026-07-15).** Las tres quedan cerradas y ninguna bloquea la
+> ejecución: **OQ1** (cómo llega `state.tasks` a la TUI) se difiere explícitamente a la Phase 75 y
+> está anotada en `74-CONTEXT.md` §Deferred Ideas — la 74 solo produce el dato. **OQ2** (`<plan>.md.lock`
+> vs `doctor.js`) se resolvió durante el planning: `detectHungLocks` (`doctor.js:341`) solo escanea
+> `join(projectPath, '.planning/.kodo.lock')` sobre rutas de proyecto, nunca `~/.kodo/plans/` — no hay
+> colisión posible; documentado en `74-04-PLAN.md` para no re-litigarlo. **OQ3** (el guard de `task_id`
+> sube de listón porque D-09 convierte al hook en escritor) se implementa como `isSafeTaskId` en los
+> planes 01 y 04, con `String.includes` y cero RegExp.
 
 1. **`/status` NO sirve `state.json` — la premisa de consumo de D-05 es incorrecta**
    - **Lo que sabemos:** CONTEXT.md D-05 afirma *«La Phase 75 lo lee por `task_id` sin endpoint nuevo (`/status` ya sirve `state.json`)»*. **Eso es falso contra el código.** `server.js:588-624`: el handler hace `const sessions = listSessions()` (`:589`), y `listSessions` es `Object.values(loadState().sessions)` (`state.js:420-422`). Luego enriquece **por fila** con `{...s, elapsed_min, provider_state, provider_state_reason}` (`:620-624`). **`/status` sirve `sessions` + `pending`, nunca el objeto `state.json` completo.** Con D-05, `state.tasks` **no** saldría por `/status` hoy.
