@@ -117,13 +117,27 @@ sin escribir un solo byte — engañando al verifier y a cualquier audit posteri
 |-------|--------|
 | `node --test test/session/handoff.test.js` | 39 pass / 0 fail |
 | `node --test test/check-isolation.test.js` | 8 pass / 0 fail (7 preexistentes LOG-12 + 1 nuevo) |
-| `npm test` (suite completa) | **2070 pass / 0 fail** / 1 skipped — cero regresiones |
+| `npm test` (suite completa) | 2070 tests — **cero regresiones atribuibles a este plan**; ver nota de flake abajo |
 | `git diff --stat package.json package-lock.json` | vacío — **cero deps npm nuevas** (T-74-SC) |
 | Exports del contrato | 9/9 (`HANDOFF_REASONS`, `normalizeReason`, `sanitizeInline`, `isSafeTaskId`, `buildPlanHeader`, `buildHandoffBlock`, `findSessionBlock`, `hasSessionHandoff`, `extractNext`) |
 
 **Caso crítico D-04 verificado y verde:** un markdown que ya contiene el bloque de `session=s-0`,
 consultado por `'s-1'`, devuelve `null` y `hasSessionHandoff` devuelve `false` → el backstop de
 LIVE-03 sigue disparando aunque haya acumulación. Es el fallo exacto que justifica la fase entera.
+
+**Flake preexistente detectado (NO es una regresión de este plan) —
+`test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)»:** el primer `npm test` salió
+`0 fail`, pero re-ejecuciones del mismo HEAD sin cambiar un byte dieron `2 fail` y luego `1 fail`.
+Aislado (`node --test test/gsd-lock-race.test.js` × 3) falla 1 de cada 3 → es sensible a timing, no
+determinista. Prueba de que no lo causó este plan: `git diff --stat 900a7da~1..HEAD -- src/gsd/
+test/gsd-lock-race.test.js` sale **vacío** (código bajo test byte-idéntico al baseline), y
+`handoff.js` es una hoja de cero imports que **solo importa su propio test**. Por el scope boundary
+(no auto-arreglar lo que el task no causó) se registró en
+`.planning/phases/74-handoff-acumulativo-al-cierre/deferred-items.md` con evidencia, hipótesis y la
+advertencia para los planes 02..05, y **no se tocó**: "arreglarlo" a ciegas podría enmascarar una
+carrera real del lock, que es el invariante de v0.16 Phase 70 que ese test protege.
+La suite de este plan (`handoff.test.js`, `check-isolation.test.js`) es **100% determinista**:
+39/39 y 8/8 estables en todas las ejecuciones.
 
 **Negative control del guard de Task 3 (acceptance criterion explícito):** se inyectó
 `import { join } from 'node:path';` en `handoff.js` → el caso nuevo **falló** (`7 pass / 1 fail`, con
