@@ -69,7 +69,14 @@ async function readStdin() {
  *   provider?: any,
  *   config?: any,
  *   cmux?: typeof cmux,
+ *   plansDir?: string,
+ *   fs?: typeof nodeFs,
+ *   stateWriterFn?: typeof upsertTaskHandoff,
+ *   now?: () => Date,
  * }} [deps]
+ *   `plansDir`/`fs`/`stateWriterFn`/`now` (Phase 74) fluyen tal cual hasta
+ *   `writeHandoff`. Sin ellos, la suite de tests escribiría en el `~/.kodo` REAL del
+ *   operador en cada `npm test` (T-74-15).
  * @returns {Promise<void>}
  */
 export async function runSessionEndHook(input, deps = {}) {
@@ -111,6 +118,32 @@ export async function runSessionEndHook(input, deps = {}) {
             minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
           }).child({ component: 'hook', task_id: session.task_id });
         })();
+
+    // ── Handoff acumulativo (Phase 74, D-07 / LIVE-01/03/04) ───────────────
+    // Escribe el bloque de handoff en ~/.kodo/plans/<task_id>.md y persiste el
+    // puntero + el NEXT en state.tasks. Va AQUÍ, tras los guards de idempotencia
+    // (:72-83) y la construcción del `log` (que D-06 necesita para el warn del
+    // lock-timeout), y ANTES del backstop: el handoff es una escritura a DISCO
+    // (barata, sin red) y es el dato más valioso de la fase — si el backstop se
+    // atasca en red, el handoff ya aterrizó. Queda muy por delante de
+    // performTerminalCleanup (worktree + promptFile + removeSession), como exige
+    // LIVE-01: el dato SIEMPRE aterriza antes del cleanup destructivo.
+    //
+    // NO altera el orden LOCKED `backstop → setColor → notify` (D-08, v0.16 Phase
+    // 71): se inserta ANTES del trío, no lo reordena.
+    //
+    // El try/catch propio (además del outer never-throws) es ESTRUCTURAL, no
+    // cosmético — misma razón que el backstop: el contrato «never throws» de
+    // withFileLock aplica SOLO al agotamiento de reintentos. En el código real
+    // acquireLock hace mkdirSync (state-lock.js:73, puede lanzar) y re-lanza todo
+    // error que no sea EEXIST (:81), y withFileLock corre `fn()` en un try/finally
+    // SIN catch (:226-230) → un fn que lanza propaga. Sin este catch, un
+    // EACCES/EROFS crashearía el hook y bloquearía el cierre de Claude Code (SC#5).
+    try {
+      writeHandoff({ session, input, log }, deps);
+    } catch (err) {
+      console.error(`[kodo:session-end] Handoff error: ${/** @type {Error} */ (err).message}`);
+    }
 
     // ── Review backstop (DELIV-04, D-10..D-14) ─────────────────────────────
     // Bloque AUTÓNOMO: tras los guards de idempotencia (:61-72) y ANTES del
