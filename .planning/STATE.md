@@ -4,17 +4,17 @@ milestone: v0.17
 milestone_name: activo)
 current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
-status: executing
+status: verifying
 stopped_at: Completed 74-04-PLAN.md
-last_updated: "2026-07-15T10:34:00.554Z"
+last_updated: "2026-07-15T10:44:19.716Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 0
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
 Last activity: 2026-07-15 — Phase 74 execution started
 
@@ -89,6 +89,9 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 74-04: writeHandoff propaga el EACCES en vez de capturarlo — el try/catch del seam es el punto ÚNICO de captura (SC#5)
 - [Phase ?]: 74-04: la fuga de HOME (T-74-15) se REPRODUJO — la suite del hook con el seam cableado y sin DI escribió en el ~/.kodo real con los tests verdes; cerrada por DI en las 17 invocaciones
 - [Phase ?]: 74-04: LIVE-01/03/04 quedan Pending hasta el cierre de fase (el Plan 05 verifica la concurrencia) — WR-01: nunca reclamar un éxito no verificado end-to-end
+- [Phase ?]: 74-05: la barrera se libera tras el evento 'spawn' de todos los hijos — el go-file sincrono del analog es un no-op (spawn() retorna antes de que el hijo arranque)
+- [Phase ?]: 74-05: el verdicto 'written' del hijo significa 'no lanzo', no 'escribio' (D-06 fail-safe); el assert que carga el peso es el conteo de bloques
+- [Phase ?]: 74-05: teeth verificadas por mutacion — sin withFileLock las 3 carreras D-08 fallan 5/5; la Carrera 1 sigue verde porque mide withStateLock
 
 ### Open Blockers
 
@@ -111,7 +114,7 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-15T10:34:00.548Z
+- **Last session:** 2026-07-15T10:43:53.742Z
 - **Stopped at:** Completed 74-04-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
@@ -135,3 +138,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase 74 P02 | 14m | 3 tasks | 3 files |
 | Phase 74 P03 | 12m | 2 tasks | 3 files |
 | Phase 74 P04 | 5m | 3 tasks | 3 files |
+| Phase 74 P05 | 18m | 2 tasks | 2 files |

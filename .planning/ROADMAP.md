@@ -144,7 +144,7 @@ Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
   4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
   5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -159,7 +159,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 74-05-PLAN.md — Carreras cross-process: `state.tasks` sin escrituras perdidas y el mismo plan sin lost update (D-08) [wave 3]
+- [x] 74-05-PLAN.md — Carreras cross-process: `state.tasks` sin escrituras perdidas y el mismo plan sin lost update (D-08) [wave 3]
 
 ### Phase 75: Superficie del `NEXT:` — dashboard y nudge
 
@@ -195,7 +195,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 74. Handoff acumulativo al cierre | 4/5 | In Progress|  |
+| 74. Handoff acumulativo al cierre | 5/5 | Complete   | 2026-07-15 |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 0/? | Not started | - |
 | 76. Convergencia del conteo `pending` | 0/? | Not started | - |
 
