@@ -14,8 +14,25 @@
 // coexisten sin pelear; SessionEnd-solo o Stop→SessionEnd convergen. never-throws (D-4).
 
 import { fileURLToPath } from 'node:url';
-import { findSession, removeSession } from '../session/state.js';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import * as nodeFs from 'node:fs';
+import { findSession, removeSession, upsertTaskHandoff } from '../session/state.js';
 import { performTerminalCleanup } from './terminal-cleanup.js';
+// Phase 74 (D-07/D-13): el handoff acumulativo. El FORMATO entero vive en
+// session/handoff.js (hoja pura, cero imports); aquí solo hay I/O + orquestación.
+import { withFileLock } from '../session/state-lock.js';
+import {
+  isSafeTaskId,
+  buildPlanHeader,
+  buildHandoffBlock,
+  findSessionBlock,
+  extractNext,
+} from '../session/handoff.js';
+// Único símbolo de config.js: la raíz de ~/.kodo, para construir la ruta del plan
+// byte-idéntica a la del productor (session-start.js:94) y la del consumidor
+// (dashboard/plan.js:69). Mismo import que ya hace session-start.js.
+import { KODO_DIR } from '../config.js';
 // Phase 72 HYG-04: efectos de cierre COSMÉTICOS movidos desde stop.js. Disparan
 // al cierre REAL de la sesión (una vez), no al final de cada turno.
 import * as cmux from '../cmux/client.js';
@@ -205,6 +222,132 @@ export async function runSessionEndHook(input, deps = {}) {
   } catch (err) {
     console.error(`[kodo] SessionEnd hook error: ${/** @type {Error} */ (err).message}`);
   }
+}
+
+/**
+ * Escribe el handoff de la sesión en `~/.kodo/plans/<task_id>.md` y persiste el puntero
+ * en `state.tasks` (Phase 74, LIVE-01/LIVE-03/LIVE-04).
+ *
+ * ── SÍNCRONA POR CONTRATO, NO POR ESTILO (RESEARCH §Pitfall 4) ───────────────────
+ * `withFileLock` ejecuta `fn()` dentro de un `try/finally` que libera el lock en el
+ * `finally` (`state-lock.js:226-230`) y **no distingue una Promise**. Un `fn` asíncrono
+ * devolvería `{ok:true, value: Promise}` y el lock se liberaría ANTES de que la escritura
+ * aterrizara — la sección crítica no protegería nada y volvería el *lost update* que D-08
+ * existe para evitar (T-74-04). Precedentes del mismo razonamiento en el repo:
+ * `reconcile.js:357-359` y el `sleepSync` con `Atomics.wait` de `state-lock.js:39-48`.
+ *
+ * ── PROPAGA; NO CAPTURA ──────────────────────────────────────────────────────────
+ * Un EACCES/EROFS de lectura sale por aquí a propósito: quien lo captura es el try/catch
+ * propio del seam en `runSessionEndHook` (SC#5). Duplicar el catch aquí escondería el
+ * fallo al caller sin ganar nada.
+ *
+ * @param {{ session: any, input: {reason?: string}, log: any }} args
+ * @param {{
+ *   plansDir?: string,
+ *   fs?: typeof nodeFs,
+ *   stateWriterFn?: typeof upsertTaskHandoff,
+ *   now?: () => Date,
+ * }} [deps]
+ *   `plansDir`/`stateWriterFn` NO son un lujo de testing: sin ellos, la suite del hook
+ *   (que no aísla HOME) escribiría en el `~/.kodo` REAL del operador en cada `npm test`
+ *   (T-74-15).
+ * @returns {void}
+ */
+export function writeHandoff({ session, input, log }, deps = {}) {
+  const plansDir = deps.plansDir || join(KODO_DIR, 'plans');
+  const fs = deps.fs || nodeFs;
+  const stateWriterFn = deps.stateWriterFn || upsertTaskHandoff;
+  const now = deps.now || (() => new Date());
+
+  const taskId = session.task_id;
+
+  // 1. Guard de contención (T-74-01), PRIMERA sentencia. D-09 hace de este hook un
+  //    ESCRITOR: el guard ya no evita solo LEER fuera de ~/.kodo/plans/ — evita CREAR
+  //    ficheros fuera del root. Logs con SOLO {task_id} (T-74-08).
+  if (!isSafeTaskId(taskId)) {
+    log.warn('session.handoff.unsafe_task_id', { task_id: taskId });
+    return;
+  }
+
+  // 2. Ruta CONSTRUIDA, jamás derivada del input — byte-idéntica a la del productor
+  //    (session-start.js:94) y a la del consumidor (dashboard/plan.js:69).
+  const planPath = join(plansDir, `${taskId}.md`);
+  const lockPath = `${planPath}.lock`;
+
+  // 3. El mkdir va FUERA de la sección crítica (no necesita el lock).
+  fs.mkdirSync(plansDir, { recursive: true });
+
+  // 4. RMW bajo el lock advisory de D-08. Un tmp+rename por sí solo NO evita el *lost
+  //    update* de un leer→appendear→escribir concurrente (T-74-04). El `logger` va en
+  //    `opts` para que el `lock.timeout` salga por el logger inyectado y no por
+  //    console.warn (`state-lock.js:218-223`).
+  const r = withFileLock(
+    lockPath,
+    () => {
+      // a. Leer el plan; si no existe, partir de la cabecera mínima (D-09). El handoff
+      //    es UNIVERSAL: cubre también las ramas GSD full y bootstrap, que no producen
+      //    plan ligero.
+      let md;
+      if (fs.existsSync(planPath)) {
+        md = fs.readFileSync(planPath, 'utf-8');
+      } else {
+        md = buildPlanHeader({ taskRef: session.task_ref, summary: session.summary });
+      }
+
+      // b. ¿Escribió el LLM su bloque en ESTA sesión? (D-04). El detector es scoped por
+      //    session_id, no por conteo: con la acumulación de LIVE-02 el plan guarda los
+      //    bloques de TODAS las sesiones, y contar vería el de la sesión ANTERIOR y
+      //    mataría el backstop de LIVE-03 en silencio.
+      const existing = findSessionBlock(md, session.session_id);
+      if (existing) {
+        // El LLM ya escribió: no se appendea nada y NO se reescribe el fichero.
+        return { planPath, next: extractNext(existing) };
+      }
+
+      // c. Backstop mecánico de LIVE-03. El contenido previo NUNCA se reescribe: se
+      //    concatena detrás, así que queda íntegro byte a byte.
+      const block = buildHandoffBlock({
+        sessionId: session.session_id,
+        reason: input.reason,
+        status: session.status,
+        at: now(),
+      });
+      const separator = md.length === 0 || md.endsWith('\n') ? '\n' : '\n\n';
+      const out = md + separator + block;
+
+      // d. tmp+rename con nombre ÚNICO por escritor — patrón de `saveState:280` (fix
+      //    WR-02). NO se usa `writeFileAtomic` de config.js: su tmp es de nombre FIJO
+      //    (`path + '.tmp'`), exactamente lo que WR-02 corrigió, porque dos escritores
+      //    concurrentes lo comparten y se pisan bytes parciales. Bajo el lock sería
+      //    seguro, pero el lock es ROBABLE tras el TTL de 10 s (`state-lock.js:36`), así
+      //    que la garantía no es absoluta (T-74-14). Y además acoplaría a config.js.
+      const tmp = planPath + '.tmp.' + process.pid + '.' + randomUUID();
+      try {
+        fs.writeFileSync(tmp, out);
+        fs.renameSync(tmp, planPath);
+      } catch (err) {
+        fs.rmSync(tmp, { force: true }); // sin residuo de tmp perdido
+        throw err;
+      }
+      // El bloque mecánico no lleva NEXT por diseño (D-03/LIVE-03) → null.
+      return { planPath, next: null };
+    },
+    { logger: log },
+  );
+
+  // 5. Lock ocupado → warn y fuera. El lock-timeout JAMÁS bloquea el cierre (D-06).
+  if (!r.ok) {
+    log.warn('session.handoff.lock_timeout', { task_id: taskId, reason: r.reason });
+    return;
+  }
+
+  // 6. Puntero + NEXT en state.tasks (D-05/LIVE-04). El writer es fail-safe: ante un
+  //    lock-timeout de state.json devuelve {ok:false} sin lanzar (Plan 02).
+  stateWriterFn(
+    taskId,
+    { plan_path: r.value.planPath, next: r.value.next, updated_at: now().toISOString() },
+    log,
+  );
 }
 
 /**
