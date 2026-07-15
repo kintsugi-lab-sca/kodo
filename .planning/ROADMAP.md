@@ -144,7 +144,7 @@ Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
   4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
   5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
 
-**Plans**: 5/5 plans complete
+**Plans**: 5/5 plans complete · +1 gap closure plan pendiente (LIVE-04)
 
 Plans:
 **Wave 1**
@@ -160,6 +160,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 74-05-PLAN.md — Carreras cross-process: `state.tasks` sin escrituras perdidas y el mismo plan sin lost update (D-08) [wave 3]
+
+**Gap closure** *(de `74-VERIFICATION.md` — LIVE-04 parcial: WR-02)*
+
+- [ ] 74-06-PLAN.md — `upsertTaskHandoff` preserva el `NEXT:` previo cuando el entrante es ausente: un cierre mecánico posterior ya no borra el `NEXT:` real de una sesión anterior (WR-02) [gap]
 
 ### Phase 75: Superficie del `NEXT:` — dashboard y nudge
 
