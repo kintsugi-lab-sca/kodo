@@ -49,9 +49,16 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  * }} Session
  *
  * @typedef {{
+ *   plan_path: string,      // Ruta al fichero de plan de la tarea (`~/.kodo/plans/<task_id>.md`).
+ *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03).
+ *   updated_at: string,     // ISO 8601 del cierre que escribió la entrada.
+ * }} TaskHandoff
+ *
+ * @typedef {{
  *   schema_version: number,
  *   sessions: Record<string, Session>,
- *   history?: Array<Session & { ended_at: string }>  // Phase 30 (D-09 cleanup): aditivo opcional. Mantenido por removeSession (FIFO 50-slot cap). Legacy state.json files sin history se leen como ausente — callers usan `Array.isArray(state.history) ? state.history : []` defensive guard.
+ *   history?: Array<Session & { ended_at: string }>,  // Phase 30 (D-09 cleanup): aditivo opcional. Mantenido por removeSession (FIFO 50-slot cap). Legacy state.json files sin history se leen como ausente — callers usan `Array.isArray(state.history) ? state.history : []` defensive guard.
+ *   tasks?: Record<string, TaskHandoff>  // Phase 74 (D-05): aditivo opcional, mantenido por upsertTaskHandoff. El handoff es dato de la TAREA, no de la sesión: `removeSession` archiva la sesión a `history` (FIFO 50) y borra la fila de `sessions`, así que un `NEXT:` guardado ahí no sobreviviría al cierre que lo produjo. State files sin `tasks` se leen como ausente — callers usan el guard defensivo `state.tasks || {}`. NO bump de schema_version.
  * }} State
  */
 
@@ -372,6 +379,52 @@ export function removeSession(taskId, logger = noopLogger) {
     return r;
   }
   logger.info('state.session.removed', { task_id: taskId });
+  return r;
+}
+
+/**
+ * Upsert the handoff pointer of a TASK into the additive top-level `state.tasks`
+ * key (Phase 74, D-05/D-06 — LIVE-04).
+ *
+ * Why `tasks` and not the session record: `performTerminalCleanup` calls
+ * `removeSession`, which archives the session to `history` (FIFO 50-slot cap)
+ * and deletes its row from `state.sessions` (see `:355` above). A `NEXT:` stored
+ * there would vanish from the list at close and be evictable after 50 closes.
+ * The pointer is data of the TASK, not of the session: its whole value is
+ * surviving the session that produced it so the NEXT session of that same task
+ * finds it.
+ *
+ * The mutator touches ONLY `state.tasks` — NEVER `alive`, whose single writer
+ * remains `reconcileTick` (D-04, cross-milestone invariant of STATE.md).
+ *
+ * Telemetry carries ONLY `{task_id, reason}`. The `next` is LLM-redacted content
+ * and user content never reaches the logs (precedent T-71-18; mitigates T-74-08).
+ *
+ * @param {string} taskId
+ * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
+  // WR-01: gate the success telemetry on the lock result. On lock-timeout the
+  // handoff pointer is NOT persisted — do not claim `state.task.handoff_saved`.
+  // D-06: warn + propagate the fail-safe; the close is NEVER blocked, never a throw.
+  const r = withStateLock((state) => {
+    // Defensive guard for the additive field — mirror of removeSession's
+    // `if (!Array.isArray(state.history)) state.history = [];` (`:361`).
+    if (!state.tasks) state.tasks = {};
+    state.tasks[taskId] = {
+      plan_path: entry.plan_path,
+      // `null` when absent: the mechanical block of D-03 carries no `NEXT:`.
+      next: entry.next ?? null,
+      updated_at: entry.updated_at ?? new Date().toISOString(),
+    };
+  });
+  if (!r.ok) {
+    logger.warn('state.task.handoff_failed', { task_id: taskId, reason: r.reason });
+    return r;
+  }
+  logger.info('state.task.handoff_saved', { task_id: taskId });
   return r;
 }
 
