@@ -5,15 +5,15 @@ milestone_name: activo)
 current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
 status: executing
-stopped_at: Completed 74-02-PLAN.md
-last_updated: "2026-07-15T10:22:07.419Z"
+stopped_at: Completed 74-04-PLAN.md
+last_updated: "2026-07-15T10:34:00.554Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 ## Current Position
 
 Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 fases)
 Last activity: 2026-07-15 — Phase 74 execution started
@@ -86,6 +86,9 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase 74-03]: session-start.js NO importa src/session/handoff.js — la instruccion es un prompt, no una construccion de bloque; el acoplamiento se cubre asserting el marcador literal
 - [Phase 74-03]: D-11 confirmado empiricamente — cero tests preexistentes modificados; no habia golden bytes que reparar, solo prefijos que conservar
 - [Phase 74-03]: el guard de emojis EN preexistente NO cubria la instruccion quick (corta desde el bloque comun, posterior) — el caso nuevo corta desde la instruccion de plan
+- [Phase ?]: 74-04: writeHandoff propaga el EACCES en vez de capturarlo — el try/catch del seam es el punto ÚNICO de captura (SC#5)
+- [Phase ?]: 74-04: la fuga de HOME (T-74-15) se REPRODUJO — la suite del hook con el seam cableado y sin DI escribió en el ~/.kodo real con los tests verdes; cerrada por DI en las 17 invocaciones
+- [Phase ?]: 74-04: LIVE-01/03/04 quedan Pending hasta el cierre de fase (el Plan 05 verifica la concurrencia) — WR-01: nunca reclamar un éxito no verificado end-to-end
 
 ### Open Blockers
 
@@ -108,8 +111,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-15T10:21:41.473Z
-- **Stopped at:** Completed 74-02-PLAN.md
+- **Last session:** 2026-07-15T10:34:00.548Z
+- **Stopped at:** Completed 74-04-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -131,3 +134,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | 74 | 01 | 18m | 3 tasks, 3 files (contrato de handoff: hoja pura + 40 tests) |
 | Phase 74 P02 | 14m | 3 tasks | 3 files |
 | Phase 74 P03 | 12m | 2 tasks | 3 files |
+| Phase 74 P04 | 5m | 3 tasks | 3 files |
