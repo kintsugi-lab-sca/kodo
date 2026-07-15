@@ -131,6 +131,74 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
   });
 
   // -----------------------------------------------------------------------
+  // WR-02 / LIVE-04 — la asimetría del campo `next`.
+  //
+  // POR QUÉ: D-02 define `null` como «ausente», NO como «esta tarea no tiene
+  // siguiente paso». Un cierre mecánico (D-03/LIVE-03) no dice nada sobre la
+  // tarea: dice que ESTA sesión no tuvo nada que decir. El `NEXT:` real que dejó
+  // la sesión anterior sigue ahí, intacto byte a byte, en el fichero de plan —
+  // borrarlo de `state.json` parte en dos las dos mitades del mismo dato y deja
+  // a la Phase 75 pintando una celda vacía con un NEXT real en disco.
+  //
+  // El `updated_at` SÍ avanza: el cierre mecánico ocurrió de verdad y su bloque
+  // aterrizó en el plan; preservar el timestamp previo mentiría sobre la última
+  // escritura del puntero.
+  // -----------------------------------------------------------------------
+  it('un NEXT: real sobrevive a un cierre mecánico posterior de la misma tarea (WR-02)', () => {
+    // Sesión 1: el LLM escribió su handoff con un NEXT: real.
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'desplegar el fix',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+
+    // Sesión 2 de la MISMA tarea: cierre mecánico. Así es exactamente como llega
+    // la rama del backstop (`writeHandoff:366` → `{ planPath, next: null }`):
+    // mismo plan_path, `next: null` por diseño, `updated_at` posterior.
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: null,
+      updated_at: '2026-07-15T10:00:00.000Z',
+    });
+
+    const entry = loadState().tasks.t1;
+    assert.equal(
+      entry.next,
+      'desplegar el fix',
+      'el NEXT: de la sesión anterior sobrevive al cierre mecánico — «ausente» no pisa a «presente» (D-02)',
+    );
+    assert.equal(
+      entry.updated_at,
+      '2026-07-15T10:00:00.000Z',
+      'y el updated_at SÍ avanza: el cierre mecánico ocurrió y el puntero lo fecha',
+    );
+  });
+
+  // -----------------------------------------------------------------------
+  // El otro lado de la asimetría: preservar-si-ausente NO es «el primero gana».
+  // Sin este caso, un fix degenerado en append-only / write-once dejaría la
+  // suite verde por el flanco contrario.
+  // -----------------------------------------------------------------------
+  it('un NEXT: nuevo y NO nulo sigue pisando al previo — preservar no es «el primero gana»', () => {
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'el NEXT viejo',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'el NEXT nuevo',
+      updated_at: '2026-07-15T10:00:00.000Z',
+    });
+
+    assert.equal(
+      loadState().tasks.t1.next,
+      'el NEXT nuevo',
+      'un NEXT: presente y no nulo manda sobre el previo: el campo NO es de solo-escritura-una-vez',
+    );
+  });
+
+  // -----------------------------------------------------------------------
   // Two task_ids coexist — neither clobbers the other.
   // -----------------------------------------------------------------------
   it('keeps two distinct task_ids side by side', () => {
