@@ -16,7 +16,7 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 ### Plan vivo (LIVE)
 
 - [ ] **LIVE-01**: Al cerrar una sesión de una tarea, `~/.kodo/plans/<task_id>.md` gana un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`
-- [ ] **LIVE-02**: Una segunda sesión de la misma tarea acumula otro bloque de handoff sin pisar el anterior (incluye invertir la instrucción de `session-start.js:85`, que hoy ordena *"sobrescribe si ya existe"*)
+- [x] **LIVE-02**: Una segunda sesión de la misma tarea acumula otro bloque de handoff sin pisar el anterior (incluye invertir la instrucción de `session-start.js:85`, que hoy ordena *"sobrescribe si ya existe"*)
 - [ ] **LIVE-03**: Si al cierre el LLM no ha escrito un bloque de handoff, el hook appendea uno mecánico mínimo (fecha + resultado de la sesión, sin `NEXT:`) — la instrucción al LLM es optimización, no única vía
 - [ ] **LIVE-04**: Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`
 - [ ] **LIVE-05**: El usuario ve el `NEXT:` por tarea en la lista del dashboard sin que la TUI abra N ficheros de plan
@@ -93,7 +93,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | LIVE-01 | Phase 74 | Pending |
-| LIVE-02 | Phase 74 | Pending |
+| LIVE-02 | Phase 74 | Complete |
 | LIVE-03 | Phase 74 | Pending |
 | LIVE-04 | Phase 74 | Pending |
 | LIVE-05 | Phase 75 | Pending |
@@ -103,6 +103,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | ORCH-06 | Phase 76 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 9 total
 - Mapped to phases: 9 ✓
 - Unmapped: 0
