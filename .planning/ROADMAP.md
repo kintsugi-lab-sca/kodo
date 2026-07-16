@@ -224,7 +224,12 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 77-01-PLAN.md — Fontanería cmux: `listWorkspaceGroups` (read-only) + `buildNewWorkspaceArgs` con `--group` en `client.js`; espejo `_legacy` en `host/cmux.js` (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
 
 ## Progreso (v0.17)

@@ -379,15 +379,15 @@ const workspaceRef = await newWorkspaceWithGroupFallback(               // :280 
 | A2 | El identifier Plane nunca contiene el patrón `-<dígitos>` al final (que `replace(/-\d+$/,'')` cortaría de más). Verificado en los 9 identifiers reales (`ROMAN`,`KODO`,`SCP`,`SCRIBBA`,...): ninguno termina en `-dígitos`. | Pattern 1 | Muy bajo — identifiers Plane son códigos cortos alfanuméricos. |
 | A3 | El daemon headless (launchd sin sesión GUI) hace que `workspace-group list` falle limpio o devuelva otra window → cubierto por capa 1. NO reproducible de forma 100% no-mutante desde aquí (la app GUI del operador está corriendo). Ver Open Questions. | Fail-open | Bajo — cualquier resultado (error, otra window, JSON válido) es seguro por diseño; solo afecta si SE agrupa, nunca si se lanza. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **¿Qué ve el daemon headless (launchd, sin sesión GUI) al correr `workspace-group list --json`?**
+1. **RESOLVED — ¿Qué ve el daemon headless (launchd, sin sesión GUI) al correr `workspace-group list --json`?**
    - **What we know:** Experimento no-mutante ejecutado hoy — `env -i HOME=$HOME /Applications/cmux.app/Contents/Resources/bin/cmux workspace-group list --json` devolvió **EXIT=0 con JSON válido completo** (window:1), incluso con environment stripped. `CMUX_QUIET=1` idéntico. El binario habla con la app vía socket bajo `$HOME`, sin depender de env de GUI.
    - **What's unclear:** Ese experimento corre con la **app cmux del operador VIVA** (yo estoy en una sesión GUI). El caso 66-06 real es launchd SIN ninguna sesión GUI y potencialmente sin app corriendo. No es reproducible sin tumbar la sesión del operador (PROHIBIDO). El precedente 66-06 fue "Failed to write to socket (Broken pipe)" a stderr.
    - **Determinismo del código (VERIFICADO por lectura):** `client.js run()` (:14-26) rejecta la promesa si `execFile` devuelve `err` (exit≠0, spawn error, o timeout 15s). El caller lo envuelve en try/catch → capa 1 → sin `--group`. Si devuelve JSON de OTRA window → `resolveWorkspaceGroup` no matchea → null → sin grupo. **Todos los desenlaces son seguros.**
    - **Recommendation:** El diseño NO depende de la respuesta. Dejar para el executor un experimento opcional bajo launchd real (`launchctl` con el daemon kodo) SOLO si quiere certeza empírica: correr `kodo` bajo su plist y observar si aparece `group_skipped — resolucion_fallo` en `kodo.log`. No bloquea la fase.
 
-2. **¿El operador quiere que `SCP-CMRi` matchee?** (Pitfall 1). Decisión de operación: renombrar el grupo a `SCP` o dejarlo (tareas SCP sueltas). No es código.
+2. **RESOLVED — ¿El operador quiere que `SCP-CMRi` matchee?** (Pitfall 1). Decisión de operación: renombrar el grupo a `SCP` o dejarlo (tareas SCP sueltas). No es código.
 
 ## Environment Availability
 

@@ -36,7 +36,7 @@ Superficie tocada: `src/cmux/client.js` (+1 passthrough), `src/host/cmux.js` (`_
 
 - **D-09: Capa 1 — resolución.** `listWorkspaceGroups` falla (cmux viejo sin subcomando, daemon headless, socket roto) o no hay match → se lanza **sin** `--group`. Sin version-check de cmux: el soporte se deriva del éxito/fallo de la propia llamada.
 - **D-10: Capa 2 — TOCTOU en el launch.** Si `newWorkspace` CON `--group` falla, **reintentar una vez SIN `--group`**. Verificado en vivo: un ref inválido es fatal (`exit=1`, el workspace no se crea) — un grupo borrado entre la resolución y el launch mataría la sesión sin esta capa. El reintento es solo para el fallo con `--group` presente; un fallo del reintento propaga como hoy.
-- **D-11: Observabilidad de la degradación:** un `console.log` de una línea (`[kodo] group_skipped — <motivo corto>`), precedente exacto `worktree_skipped_nongit` (`manager.js:312`). Sin contenido de usuario en el log, solo identifier/motivo. NO se añade logger a `client.js` más allá del param opcional que ya tiene.
+- **D-11: Observabilidad de la degradación.** Un `console.log` de una línea (`[kodo] group_skipped — <motivo corto>`), precedente exacto `worktree_skipped_nongit` (`manager.js:312`). Sin contenido de usuario en el log, solo identifier/motivo. NO se añade logger a `client.js` más allá del param opcional que ya tiene.
 - **D-12: La resolución añade como mucho UNA llamada cmux extra por lanzamiento** (~50ms, presupuesto RESEARCH §S5 de v0.9). Cero llamadas nuevas en el reconcile loop.
 
 ### Alcance: qué lanzamientos se agrupan
