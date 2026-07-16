@@ -377,12 +377,35 @@ export async function launchWorkItem(identifier, opts = {}) {
   // `import * as cmux`; solo cambia el punto de entrada (walker cmux-isolation verde).
   const host = getHost('cmux');
 
+  // Phase 77 (GRP-01/02/03 · D-09/D-12): resolver el grupo cmux del path resuelto EN
+  // FRESCO por lanzamiento. Capa 1 fail-open englobante — cualquier fallo de list /
+  // JSON.parse / derivación deja groupRef=null y la sesión se lanza SIN --group,
+  // exactamente como hoy (cmux viejo, daemon headless, socket roto, sin match). Esta es
+  // la ÚNICA llamada cmux extra por lanzamiento (cero en el reconcile loop) y SIEMPRE va
+  // por host._legacy (nunca import de cmux/client.js — walker cmux-isolation). El
+  // console.log lleva solo el motivo, sin contenido de usuario (D-11, precedente
+  // worktree_skipped_nongit :312). El groupRef NO se persiste (GRP-04).
+  const entry = projects[task.projectId];
+  let groupRef = null;
+  try {
+    const expectedName = deriveExpectedGroupName(task, entry, projectPath);
+    const raw = await host._legacy.listWorkspaceGroups();
+    groupRef = resolveWorkspaceGroup(JSON.parse(raw), expectedName);
+  } catch {
+    console.log('[kodo] group_skipped — resolucion_fallo');
+  }
+
   const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
   const workspaceName = `${prefix}: ${truncate(task.title, 40)}`;
-  const workspaceRef = await host._legacy.newWorkspace({
-    name: workspaceName,
-    cwd: projectPath,
-  });
+  // Phase 77 (D-10 capa 2 TOCTOU): si el new-workspace CON --group falla (grupo borrado
+  // entre list y launch, ref inválido = exit=1 fatal), UN reintento SIN --group salva la
+  // sesión. `cwd: projectPath` LITERAL (invariante Phase 18 D-04 — el worktree lo
+  // materializa claude, no el newWorkspace).
+  const workspaceRef = await newWorkspaceWithGroupFallback(
+    host._legacy.newWorkspace,
+    { name: workspaceName, cwd: projectPath },
+    groupRef,
+  );
 
   // Set color to "running"
   await host._legacy.setColor({ workspace: workspaceRef, color: colorForStatus('running') });

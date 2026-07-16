@@ -768,16 +768,91 @@ describe('manager.js source hygiene', () => {
 
   it('Phase 18 D-04 invariant: newWorkspace still uses cwd: projectPath (NOT worktree path)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // Phase 38 SC#5: newWorkspace migró a host._legacy.newWorkspace; el invariante
-    // D-04 (cwd: projectPath, NO worktreePath) se preserva literal.
+    // Phase 77: la llamada directa a host._legacy.newWorkspace migró a
+    // newWorkspaceWithGroupFallback, pero el objeto de opts sigue llevando
+    // `cwd: projectPath` LITERAL (D-04 lockeado). El invariante se comprueba ahora
+    // sobre ese objeto de opts, no sobre la llamada directa (que ya no existe).
     assert.ok(
-      /host\._legacy\.newWorkspace\(\s*\{[^}]*cwd:\s*projectPath/.test(source),
-      'host._legacy.newWorkspace must keep `cwd: projectPath` (D-04 lockeado — worktree lo materializa claude)',
+      /\{[^}]*name:\s*workspaceName[^}]*cwd:\s*projectPath/.test(source),
+      'el newWorkspace opts debe mantener `cwd: projectPath` (D-04 — worktree lo materializa claude)',
     );
     // Defensive: no accidental swap to worktreePath
     assert.ok(
-      !/host\._legacy\.newWorkspace\(\s*\{[^}]*cwd:\s*worktreePath/.test(source),
-      'host._legacy.newWorkspace must NOT receive cwd: worktreePath',
+      !/newWorkspace[^;]*cwd:\s*worktreePath/.test(source),
+      'newWorkspace opts must NOT receive cwd: worktreePath',
+    );
+  });
+
+  it('Phase 77 (GRP-01/GRP-03): launchWorkItem resuelve el grupo vía host._legacy.listWorkspaceGroups en try/catch (capa 1 fail-open)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // La resolución pasa SIEMPRE por host._legacy (nunca cmux/client.js — walker).
+    assert.ok(
+      /host\._legacy\.listWorkspaceGroups\(\)/.test(source),
+      'launchWorkItem debe invocar host._legacy.listWorkspaceGroups() (D-06, vía _legacy)',
+    );
+    // La derivación y el parseo defensivo se cablean con las funciones puras.
+    assert.ok(
+      /deriveExpectedGroupName\(\s*task\s*,\s*entry\s*,\s*projectPath\s*\)/.test(source),
+      'debe derivar el nombre esperado con deriveExpectedGroupName(task, entry, projectPath)',
+    );
+    assert.ok(
+      /resolveWorkspaceGroup\(\s*JSON\.parse\(\s*raw\s*\)\s*,\s*expectedName\s*\)/.test(source),
+      'debe resolver el ref con resolveWorkspaceGroup(JSON.parse(raw), expectedName)',
+    );
+    // Capa 1 fail-open: la resolución vive en un try/catch que degrada a groupRef=null.
+    assert.ok(
+      /let\s+groupRef\s*=\s*null/.test(source),
+      'groupRef debe inicializarse a null (capa 1 fail-open: sin match → sin --group)',
+    );
+    // D-11: el log de degradación lleva solo el motivo, sin contenido de usuario.
+    assert.ok(
+      /group_skipped — resolucion_fallo/.test(source),
+      'el catch de resolución debe loguear `group_skipped — resolucion_fallo` (D-11, sin user content)',
+    );
+  });
+
+  it('Phase 77 (D-10): el newWorkspace usa newWorkspaceWithGroupFallback con host._legacy.newWorkspace y groupRef', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // La llamada directa a host._legacy.newWorkspace({...}) se sustituyó por el helper
+    // de fallback, que recibe el fn como 1er arg y groupRef como 3er arg (capa 2).
+    assert.ok(
+      /newWorkspaceWithGroupFallback\(\s*host\._legacy\.newWorkspace\s*,\s*\{[^}]*\}\s*,\s*groupRef\s*,?\s*\)/.test(source),
+      'launchWorkItem debe llamar newWorkspaceWithGroupFallback(host._legacy.newWorkspace, {...}, groupRef)',
+    );
+    // La llamada directa antigua NO debe reaparecer (o el retry D-10 se pierde).
+    assert.ok(
+      !/await\s+host\._legacy\.newWorkspace\(/.test(source),
+      'la llamada directa `await host._legacy.newWorkspace(...)` debe pasar por el fallback (D-10)',
+    );
+  });
+
+  it('Phase 77 (GRP-04): manager.js NO ejecuta verbos de gestión de grupos — solo list es admisible', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Regex negativo: de la familia workspace-group solo `list` es read-only admisible.
+    // create/rename/delete/add/ungroup son gestión de grupos → PROHIBIDOS (GRP-04).
+    assert.ok(
+      !/workspace-group['"\s]*[,\s]+['"]?(create|rename|delete|add|ungroup)/.test(source),
+      'manager.js NO debe ejecutar workspace-group create/rename/delete/add/ungroup (GRP-04)',
+    );
+    // Defensa por nombre de método del passthrough: solo listWorkspaceGroups existe.
+    assert.ok(
+      !/\b(createWorkspaceGroup|renameWorkspaceGroup|deleteWorkspaceGroup|addToWorkspaceGroup|ungroupWorkspace)\b/.test(source),
+      'manager.js NO debe invocar ningún método de gestión de grupos (solo listWorkspaceGroups)',
+    );
+  });
+
+  it('Phase 77 (GRP-04): buildSessionFromTask NO gana ningún campo de grupo (nada se persiste)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // Aislar el cuerpo de buildSessionFromTask y verificar que ninguna clave
+    // persistida contiene `group`. El ref workspace_group:N se pasa a newWorkspace
+    // y se DESCARTA — nunca aterriza en el Session record (GRP-04, defensa Phase 43).
+    const start = source.indexOf('export function buildSessionFromTask');
+    assert.ok(start >= 0, 'buildSessionFromTask debe existir');
+    const end = source.indexOf('export function resolveProjectPath');
+    const body = source.slice(start, end);
+    assert.ok(
+      !/\bgroup\w*\s*:/.test(body),
+      'buildSessionFromTask NO debe introducir ningún campo cuyo nombre contenga `group` (GRP-04)',
     );
   });
 
