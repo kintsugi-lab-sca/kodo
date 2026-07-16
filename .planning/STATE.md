@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 74
-current_phase_name: Handoff acumulativo al cierre
+current_phase: 77
+current_phase_name: Agrupación de workspaces en cmux
 status: executing
-stopped_at: Phase 77 context gathered
-last_updated: "2026-07-16T08:11:46.224Z"
-last_activity: 2026-07-15
-last_activity_desc: Phase 74 execution started
+stopped_at: Completed 77-01-PLAN.md
+last_updated: "2026-07-16T08:17:29.025Z"
+last_activity: 2026-07-16
+last_activity_desc: Phase 77 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 50
 ---
 
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 74 — Handoff acumulativo al cierre
+**Current focus:** Phase 77 — Agrupación de workspaces en cmux
 
 ## Current Position
 
-Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
-Plan: 5 of 5
+Phase: 77 (Agrupación de workspaces en cmux) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Progress: [██████████] 100% (0/4 fases)
-Last activity: 2026-07-15 — Phase 74 execution started
+Progress: [█████████░] 88% (0/4 fases)
+Last activity: 2026-07-16 — Phase 77 execution started
 
 **Fases del milestone:**
 
@@ -93,6 +93,8 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 74-05: la barrera se libera tras el evento 'spawn' de todos los hijos — el go-file sincrono del analog es un no-op (spawn() retorna antes de que el hijo arranque)
 - [Phase ?]: 74-05: el verdicto 'written' del hijo significa 'no lanzo', no 'escribio' (D-06 fail-safe); el assert que carga el peso es el conteo de bloques
 - [Phase ?]: 74-05: teeth verificadas por mutacion — sin withFileLock las 3 carreras D-08 fallan 5/5; la Carrera 1 sigue verde porque mide withStateLock
+- [Phase ?]: 77-01: buildNewWorkspaceArgs extraído como función pura exportada para testear el argv de new-workspace (incl. --group) sin execFile
+- [Phase ?]: 77-01: listWorkspaceGroups devuelve stdout crudo sin JSON.parse (D-05); solo verbo list de workspace-group (GRP-04); espejo en host._legacy con HOST_METHODS congelado en 4
 
 ### Open Blockers
 
@@ -113,10 +115,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/77-agrupaci-n-de-workspaces-en-cmux/77-CONTEXT.md
+**Resume file:** None
 
-- **Last session:** 2026-07-16T07:36:59.178Z
-- **Stopped at:** Phase 77 context gathered
+- **Last session:** 2026-07-16T08:17:21.637Z
+- **Stopped at:** Completed 77-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -145,3 +147,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 74 P06 | 35 min | 2 tasks | 2 files |
+| Phase 77 P01 | 15min | 2 tasks | 3 files |
