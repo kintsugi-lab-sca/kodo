@@ -383,6 +383,10 @@ export function createCmuxHost(opts = {}) {
     async listWorkspaces() {
       return (await import('../cmux/client.js')).listWorkspaces();
     },
+    /** @returns {Promise<string>} JSON crudo de `cmux workspace-group list --json` (D-06) */
+    async listWorkspaceGroups() {
+      return (await import('../cmux/client.js')).listWorkspaceGroups();
+    },
   };
 
   return { listWorkspaces, selectWorkspace, isAlive, needsInput, listAgentSurfaces, _legacy };
