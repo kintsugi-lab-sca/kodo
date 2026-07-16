@@ -20,7 +20,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** con roadmap creado 2026-07-15 — **Phases 74-76**, 9/9 requirements mapeados. Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED). Listo para `/gsd-discuss-phase 74`.
+**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** con roadmap creado 2026-07-15 — **Phases 74-77**, 13/13 requirements mapeados (Phase 77 añadida 2026-07-16: agrupación de workspaces cmux, GRP-01..04). Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED).
 
 ## Project Reference
 
@@ -35,7 +35,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 Phase: 74 (Handoff acumulativo al cierre) — EXECUTING
 Plan: 5 of 5
 Status: Phase complete — ready for verification
-Progress: [██████████] 100% (0/3 fases)
+Progress: [██████████] 100% (0/4 fases)
 Last activity: 2026-07-15 — Phase 74 execution started
 
 **Fases del milestone:**
@@ -45,6 +45,7 @@ Last activity: 2026-07-15 — Phase 74 execution started
 | 74 | Handoff acumulativo `## Handoff <fecha>` en `SessionEnd` (pre-cleanup, LLM + backstop mecánico) + puntero/`NEXT:` en `state.json` bajo `withStateLock` | LIVE-01..04 | v0.16 Phase 70 (shipped) |
 | 75 | `NEXT:` en la lista del dashboard + plan completo renderizado en `phaseId == null` (D-02 intacto) + nudge con contexto | LIVE-05, LIVE-06, LIVE-07 | Phase 74 |
 | 76 | `/status` y `kodo check` convergen en `pending_count`; provider caído no sirve conteo caducado como fresco | ORCH-05, ORCH-06 | ninguna (paralelizable) |
+| 77 | Workspaces agrupados en la sidebar de cmux por path resuelto (`--group` en `new-workspace`, resolución en fresco, fail-open; kodo no crea grupos) | GRP-01..04 | ninguna (paralelizable; cmux ≥ 0.64.19) |
 
 ## Most recent shipped milestone
 

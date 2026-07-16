@@ -17,17 +17,18 @@
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
-- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-76 (in progress)
+- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-77 (in progress)
 
 > **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74.
 
 ## Phases
 
-**v0.17 Plan vivo por-tarea — el plan de la tarea pasa de fire-and-forget a estado vivo (productor → consumidores), + una fase ortogonal de convergencia del conteo:**
+**v0.17 Plan vivo por-tarea — el plan de la tarea pasa de fire-and-forget a estado vivo (productor → consumidores), + dos fases ortogonales: convergencia del conteo y agrupación de workspaces:**
 
 - [ ] **Phase 74: Handoff acumulativo al cierre** - `SessionEnd` appendea `## Handoff <fecha>` (`Hecho / Pendiente / NEXT:`) al plan de la tarea antes del cleanup destructivo, con autoría LLM + backstop mecánico, y persiste puntero + `NEXT:` en `state.json` bajo `withStateLock` — LIVE-01..04
 - [ ] **Phase 75: Superficie del `NEXT:` — dashboard y nudge** - El dashboard lista el `NEXT:` por tarea desde `state.json` y abre el plan completo renderizado en la rama `phaseId == null`; el nudge del orquestador usa el `NEXT:` como contexto — LIVE-05, LIVE-06, LIVE-07
 - [ ] **Phase 76: Convergencia del conteo `pending`** - `/status` y `kodo check` reportan el mismo `pending_count`, y con el provider caído `/status` deja de servir un conteo caducado como si fuera fresco — ORCH-05, ORCH-06
+- [ ] **Phase 77: Agrupación de workspaces en cmux** - Las sesiones que kodo lanza aterrizan en el grupo de la sidebar correspondiente a su path resuelto (vía `--group` en el `new-workspace` existente), con resolución nombre→ref en fresco y degradación fail-open; kodo no crea ni gestiona grupos — GRP-01..04
 
 <details>
 <summary>✅ v0.16 Hardening (Phases 69-72) — SHIPPED 2026-07-15</summary>
@@ -195,6 +196,33 @@ Plans:
 
 **Plans**: TBD
 
+### Phase 77: Agrupación de workspaces en cmux
+
+**Goal**: Las sesiones que kodo lanza dejan de amontonarse planas en la sidebar: cada workspace nuevo aterriza dentro del grupo cmux de su proyecto/módulo (varias issues del mismo módulo de ROMAN, juntas y colapsables). kodo **consume** grupos que el operador crea a mano una vez — no los crea, renombra ni borra. Ortogonal a los LIVE (vive en `src/cmux/client.js` + `src/session/manager.js`, no toca hooks ni `state.json`) → paralelizable.
+**Depends on**: Nothing (independiente de 74-76). Dependencia externa: cmux ≥ 0.64.19 (flag `--group` en `new-workspace`).
+**Requirements**: GRP-01, GRP-02, GRP-03, GRP-04
+**Success Criteria** (what must be TRUE):
+
+  1. Al lanzar una tarea cuyo grupo existe en la sidebar, el workspace aterriza dentro del grupo — verificable en `cmux workspace-group list --json` → `member_workspace_refs`. (GRP-01)
+  2. La clave de agrupación es el **path resuelto** (`resolveProjectPath`), no el proyecto ni el módulo a secas: dos módulos de ROMAN con repos distintos (FVF, WAG) caen en grupos distintos, y los 7 módulos-fase de SCP-CMRI (mismo path) caen en el mismo grupo. (GRP-02)
+  3. Sin grupo coincidente, o con `workspace-group list` fallando o cmux < 0.64.19, la sesión se lanza **exactamente como hoy** (sin `--group`): cero sesiones perdidas por culpa de la agrupación — el grupo es cosmético, la sesión es la carga útil. (GRP-03)
+  4. kodo nunca ejecuta `workspace-group create/rename/delete/ungroup`, y ningún ref `workspace_group:N` se persiste en `state.json` ni en config. (GRP-04)
+  5. La resolución añade como mucho una llamada cmux por lanzamiento (~50ms, presupuesto RESEARCH §S5 de v0.9) y no toca el reconcile loop ni el contrato `WorkspaceHost` (`HOST_METHODS` congelado en 4).
+
+**Verificado en vivo (cmux 0.64.19, 2026-07-16) — hechos para research/planning, no re-derivar:**
+
+- `cmux new-workspace --group <ref>` funciona combinado con `--cwd` + `--command` (la combinación exacta del launch real de kodo).
+- `--group` **NO acepta nombres** (`Error: invalid_params: Missing or invalid group_id`) — solo refs `workspace_group:N`. La resolución nombre→ref es responsabilidad de kodo.
+- Un ref inválido es **FATAL**: `exit=1` y el workspace NO se crea (ni siquiera sin grupo). No hay fail-open del lado de cmux → lo aporta kodo omitiendo el flag ante cualquier duda.
+- Las llamadas fallidas no dejan workspaces fantasma.
+- `workspace list --json` **no expone** pertenencia a grupo; la única fuente es `workspace-group list --json` (`member_workspace_refs`, keyed por `workspace:N` reciclable — misma defensa que Phase 43: no persistir, resolver en fresco).
+- El anchor de un grupo es SIEMPRE un workspace nuevo (nunca promociona uno existente); cerrar el anchor disuelve el grupo **preservando** los miembros como workspaces sueltos (el doc web dice otra cosa — el `--help` del binario y el doc de GitHub mandan).
+- `workspace-group create` sin `--from` explícito se traga el workspace activo/caller — razón principal por la que kodo NO crea grupos (GRP-04).
+- Los grupos son **por ventana**; `new-workspace` apunta a la ventana del caller. Hueco para `/gsd-discuss-phase`: qué ventana ve el daemon headless (brew services) al resolver grupos.
+- `new-workspace` es hoy alias legacy de `cmux workspace create` (aviso en output; el regex `workspace:\d+` de `client.js:39` lo tolera; `CMUX_QUIET=1` lo silencia).
+
+**Plans**: TBD
+
 ## Progreso (v0.17)
 
 | Phase | Plans Complete | Status | Completed |
@@ -202,6 +230,7 @@ Plans:
 | 74. Handoff acumulativo al cierre | 6/6 | In Progress|  |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 0/? | Not started | - |
 | 76. Convergencia del conteo `pending` | 0/? | Not started | - |
+| 77. Agrupación de workspaces en cmux | 0/? | Not started | - |
 
 ## Backlog
 

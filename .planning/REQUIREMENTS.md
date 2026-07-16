@@ -28,6 +28,15 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 - [ ] **ORCH-05**: El conteo de tareas `pending` que ve el orquestador converge con el que reporta `kodo check` — hoy `/status` sirve desde `pendingCache` (TTL 30s, `server.js:591`) y `check.js:37` lee fresco sin caché, divergiendo hasta 30s
 - [ ] **ORCH-06**: Con el provider caído, `/status` no presenta un conteo `pending` viejo como si fuera fresco — hoy `server.js:599` devuelve `pendingCache.data` en el catch **sin comprobar TTL**, sirviendo datos arbitrariamente antiguos con solo un `console.warn` de rastro
 
+### Agrupación de workspaces en cmux (GRP)
+
+Añadidos 2026-07-16 por decisión del operador: cmux 0.64.19 introduce workspace groups con flag `--group` en `new-workspace` (verificado en vivo — hechos empíricos en ROADMAP.md §Phase 77).
+
+- [ ] **GRP-01**: Al lanzar una sesión, el `new-workspace` que kodo ya emite incluye `--group <ref>` cuando existe un grupo cmux cuyo nombre coincide con el derivado del contexto de la tarea — el workspace aterriza dentro del grupo en la sidebar
+- [ ] **GRP-02**: La derivación del nombre de grupo es determinística y por **path resuelto** (`resolveProjectPath`): módulos con repos distintos → grupos distintos (ROMAN/FVF vs ROMAN/WAG); módulos que comparten path → mismo grupo (SCP-CMRI F0..F6). El formato exacto del nombre se clava en `/gsd-discuss-phase`
+- [ ] **GRP-03**: La resolución nombre→ref se hace **en fresco** en cada lanzamiento (`workspace-group list --json`) y degrada fail-open: sin grupo coincidente, con la resolución fallando o con cmux sin soporte, la sesión se lanza sin `--group` exactamente como hoy — un ref inválido aborta el `new-workspace` entero (verificado: exit=1, el workspace no se crea)
+- [ ] **GRP-04**: kodo no crea, renombra ni borra grupos (los crea el operador a mano), y no persiste refs `workspace_group:N` — se reciclan igual que `workspace:N` (defensa Phase 43)
+
 ---
 
 ## Constraints (aplican a todos los requirements)
@@ -101,11 +110,15 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | LIVE-07 | Phase 75 | Pending |
 | ORCH-05 | Phase 76 | Pending |
 | ORCH-06 | Phase 76 | Pending |
+| GRP-01 | Phase 77 | Pending |
+| GRP-02 | Phase 77 | Pending |
+| GRP-03 | Phase 77 | Pending |
+| GRP-04 | Phase 77 | Pending |
 
 **Coverage:**
 
-- v1 requirements: 9 total
-- Mapped to phases: 9 ✓
+- v1 requirements: 13 total
+- Mapped to phases: 13 ✓
 - Unmapped: 0
 
 Sin huérfanos y sin duplicados: cada requirement mapea a exactamente una fase.
@@ -113,7 +126,8 @@ Sin huérfanos y sin duplicados: cada requirement mapea a exactamente una fase.
 - **Phase 74** — Handoff acumulativo al cierre (productor): LIVE-01, LIVE-02, LIVE-03, LIVE-04
 - **Phase 75** — Superficie del `NEXT:` — dashboard y nudge (consumidores): LIVE-05, LIVE-06, LIVE-07
 - **Phase 76** — Convergencia del conteo `pending` (ortogonal, paralelizable): ORCH-05, ORCH-06
+- **Phase 77** — Agrupación de workspaces en cmux (ortogonal, paralelizable): GRP-01, GRP-02, GRP-03, GRP-04
 
 ---
 *Requirements defined: 2026-07-15*
-*Last updated: 2026-07-15 after roadmap creation (Phases 74-76)*
+*Last updated: 2026-07-16 — añadida Phase 77 (GRP-01..04, agrupación de workspaces cmux)*
