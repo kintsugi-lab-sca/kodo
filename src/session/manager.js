@@ -115,6 +115,108 @@ export function deriveModuleName(task) {
 }
 
 /**
+ * Deriva el nombre de grupo cmux ESPERADO para una tarea, a partir de su ref y del
+ * path resuelto (GRP-02). Función pura — no toca cmux ni config (D-08).
+ *
+ * Contrato (D-01/D-02):
+ *   - Path resuelto == `entry.default` (o `entry` flat string) → identifier humano a
+ *     secas (`KODO`, `ROMAN`). Los F0..F6 de SCP (todos == default) colapsan aquí.
+ *   - Módulo con path PROPIO distinto del default → `IDENTIFIER/Módulo` (`ROMAN/FVF`).
+ *     El compuesto es obligatorio, no estético (D-02: un módulo pelado es ambiguo).
+ *
+ * El identifier se deriva de `task.ref` sin plumbear config a la función pura
+ * (cross-provider): Plane `IDENT-<seq>` → `IDENT` (strip trailing `-<dígitos>`);
+ * GitHub `owner/repo#n` → basename antes de `#`.
+ *
+ * GUARDA de entrada degenerada (primera línea): si `task.ref` no es un string no-vacío
+ * (ausente, `undefined`, no-string, o solo whitespace tras `trim`) → `return null` de
+ * inmediato. NO deriva un nombre bogus (`'undefined'`, `''`) sobre input malformado:
+ * `null` propaga limpio a `resolveWorkspaceGroup` (que no matchea `null`) → la sesión se
+ * lanza sin `--group` (fail-open). Esto blinda el `replace(/-\d+$/,'')` de correr sobre
+ * `undefined`.
+ *
+ * @param {import('../interface.js').TaskItem} task
+ * @param {string | {default?: string, modules?: Record<string,string>}} entry  projects[task.projectId]
+ * @param {string} resolvedPath  el output de resolveProjectPath (el "path resuelto" de GRP-02)
+ * @returns {string|null} nombre de grupo esperado (`"KODO"`, `"ROMAN/FVF"`) o `null` si `ref` degenerado
+ */
+export function deriveExpectedGroupName(task, entry, resolvedPath) {
+  // Guarda de entrada degenerada — ref debe ser un string no-vacío (tras trim).
+  const ref = task && task.ref;
+  if (typeof ref !== 'string' || ref.trim() === '') return null;
+
+  // Identifier humano desde task.ref — cross-provider, sin config en la función pura.
+  //   Plane:  "KODO-9"    → "KODO"  (strip trailing -digits)
+  //   GitHub: "acme/x#7"  → "x"     (basename antes de #)
+  const identifier = ref.includes('#')
+    ? ref.split('#')[0].split('/').pop()
+    : ref.replace(/-\d+$/, '');
+
+  const moduleName = deriveModuleName(task); // task.groups[0] || null
+
+  // Flat string (kodo) o path resuelto == default → identifier a secas (D-01).
+  // Módulo con path propio DISTINTO del default → "IDENTIFIER/Módulo" (D-01).
+  const isFlat = typeof entry === 'string';
+  const usesModulePath = !isFlat && moduleName && resolvedPath !== entry?.default;
+  return usesModulePath ? `${identifier}/${moduleName}` : identifier;
+}
+
+/**
+ * Resuelve un nombre de grupo esperado a su ref `workspace_group:N` contra la salida
+ * ya parseada de `workspace-group list --json`. Función pura DEFENSIVA — never-throws,
+ * calcada de `normalizeSurface`/`buildTitleMap` (host/cmux.js): shapes inesperados → null
+ * (D-03/D-07).
+ *
+ * Match: NFC + lowercase + trim (cubre `Traça Web` y los grupos live `Kodo`/`SCRIBBA`
+ * contra identifiers `KODO`/`SCRIBBA`). Empate (dos grupos que normalizan al mismo
+ * nombre) → el ref del PRIMERO de la lista (determinista/estable, D-03).
+ *
+ * @param {any} groupsJson  salida ya parseada de `workspace-group list --json`
+ * @param {string|null|undefined} expectedName
+ * @returns {string|null} ref `"workspace_group:N"` o `null`
+ */
+export function resolveWorkspaceGroup(groupsJson, expectedName) {
+  const norm = (s) => String(s).normalize('NFC').toLowerCase().trim();
+  if (!groupsJson || !Array.isArray(groupsJson.groups)) return null; // shape inesperado → null
+  if (typeof expectedName !== 'string') return null; // sin nombre válido no hay match
+  const target = norm(expectedName);
+  for (const g of groupsJson.groups) {
+    // first-match wins (D-03 empate); type-check por campo (never-throws).
+    if (g && typeof g.name === 'string' && typeof g.ref === 'string' && norm(g.name) === target) {
+      return g.ref;
+    }
+  }
+  return null;
+}
+
+/**
+ * Lanza un workspace con fallback fail-open de dos capas para el flag `--group` (D-10).
+ * El `newWorkspaceFn` y el `log` son inyectables → el retry TOCTOU tiene dientes reales
+ * en test (no solo source-hygiene).
+ *
+ * - Sin `group` → `newWorkspaceFn(baseOpts)` una vez (como hoy).
+ * - Con `group` → intenta `{ ...baseOpts, group }`; si RECHAZA (ref inválido = grupo
+ *   borrado entre `list` y `new-workspace`, exit=1 fatal) → EXACTAMENTE UN reintento
+ *   SIN `group` + una línea de log (D-11: solo el ref/motivo, nunca contenido de usuario).
+ * - Un fallo del reintento (sin grupo) PROPAGA como hoy (no se captura).
+ *
+ * @param {(opts:{name:string,cwd?:string,group?:string}) => Promise<string>} newWorkspaceFn
+ * @param {{name:string, cwd?:string}} baseOpts
+ * @param {string|null} group
+ * @param {(msg:string)=>void} [log]  inyectable; default console.log (precedente worktree_skipped_nongit)
+ * @returns {Promise<string>}
+ */
+export async function newWorkspaceWithGroupFallback(newWorkspaceFn, baseOpts, group, log = console.log) {
+  if (!group) return newWorkspaceFn(baseOpts); // sin grupo → como hoy
+  try {
+    return await newWorkspaceFn({ ...baseOpts, group }); // intento con --group
+  } catch {
+    log(`[kodo] group_skipped — retry_sin_grupo ${group}`); // D-11: solo ref/motivo
+    return newWorkspaceFn(baseOpts); // capa 2: reintento SIN --group (D-10)
+  }
+}
+
+/**
  * Resolve a human ref into the launch context: task, project path, module,
  * labels, and derived model/flags. Does not touch cmux or state — returns
  * everything the caller needs to launch a session.
