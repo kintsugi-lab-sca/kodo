@@ -221,7 +221,11 @@ Plans:
 - Los grupos son **por ventana**; `new-workspace` apunta a la ventana del caller. Hueco para `/gsd-discuss-phase`: qué ventana ve el daemon headless (brew services) al resolver grupos.
 - `new-workspace` es hoy alias legacy de `cmux workspace create` (aviso en output; el regex `workspace:\d+` de `client.js:39` lo tolera; `CMUX_QUIET=1` lo silencia).
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 77-01-PLAN.md — Fontanería cmux: `listWorkspaceGroups` (read-only) + `buildNewWorkspaceArgs` con `--group` en `client.js`; espejo `_legacy` en `host/cmux.js` (Wave 1)
+- [ ] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
 
 ## Progreso (v0.17)
 
