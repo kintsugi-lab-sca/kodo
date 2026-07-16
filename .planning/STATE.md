@@ -5,16 +5,16 @@ milestone_name: Plan vivo por-tarea
 current_phase: 74
 current_phase_name: Handoff acumulativo al cierre
 status: verifying
-stopped_at: Completed 74-06-PLAN.md (gap closure LIVE-04/WR-02)
-last_updated: "2026-07-15T13:32:59.973Z"
+stopped_at: Phase 77 context gathered
+last_updated: "2026-07-16T07:36:59.184Z"
 last_activity: 2026-07-15
 last_activity_desc: Phase 74 execution started
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 6
   completed_plans: 6
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -113,10 +113,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** .planning/phases/77-agrupaci-n-de-workspaces-en-cmux/77-CONTEXT.md
 
-- **Last session:** 2026-07-15T13:32:59.967Z
-- **Stopped at:** Completed 74-06-PLAN.md (gap closure LIVE-04/WR-02)
+- **Last session:** 2026-07-16T07:36:59.178Z
+- **Stopped at:** Phase 77 context gathered
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
