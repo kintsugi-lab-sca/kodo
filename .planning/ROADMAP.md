@@ -221,7 +221,7 @@ Plans:
 - Los grupos son **por ventana**; `new-workspace` apunta a la ventana del caller. Hueco para `/gsd-discuss-phase`: qué ventana ve el daemon headless (brew services) al resolver grupos.
 - `new-workspace` es hoy alias legacy de `cmux workspace create` (aviso en output; el regex `workspace:\d+` de `client.js:39` lo tolera; `CMUX_QUIET=1` lo silencia).
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 
 Plans:
 **Wave 1**
@@ -230,7 +230,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
+- [x] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
 
 ## Progreso (v0.17)
 
@@ -239,7 +239,7 @@ Plans:
 | 74. Handoff acumulativo al cierre | 6/6 | In Progress|  |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 0/? | Not started | - |
 | 76. Convergencia del conteo `pending` | 0/? | Not started | - |
-| 77. Agrupación de workspaces en cmux | 1/2 | In Progress|  |
+| 77. Agrupación de workspaces en cmux | 2/2 | In Progress|  |
 
 ## Backlog
 

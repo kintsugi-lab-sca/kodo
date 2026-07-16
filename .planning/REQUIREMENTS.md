@@ -33,7 +33,7 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 Añadidos 2026-07-16 por decisión del operador: cmux 0.64.19 introduce workspace groups con flag `--group` en `new-workspace` (verificado en vivo — hechos empíricos en ROADMAP.md §Phase 77).
 
 - [x] **GRP-01**: Al lanzar una sesión, el `new-workspace` que kodo ya emite incluye `--group <ref>` cuando existe un grupo cmux cuyo nombre coincide con el derivado del contexto de la tarea — el workspace aterriza dentro del grupo en la sidebar
-- [ ] **GRP-02**: La derivación del nombre de grupo es determinística y por **path resuelto** (`resolveProjectPath`): módulos con repos distintos → grupos distintos (ROMAN/FVF vs ROMAN/WAG); módulos que comparten path → mismo grupo (SCP-CMRI F0..F6). El formato exacto del nombre se clava en `/gsd-discuss-phase`
+- [x] **GRP-02**: La derivación del nombre de grupo es determinística y por **path resuelto** (`resolveProjectPath`): módulos con repos distintos → grupos distintos (ROMAN/FVF vs ROMAN/WAG); módulos que comparten path → mismo grupo (SCP-CMRI F0..F6). El formato exacto del nombre se clava en `/gsd-discuss-phase`
 - [x] **GRP-03**: La resolución nombre→ref se hace **en fresco** en cada lanzamiento (`workspace-group list --json`) y degrada fail-open: sin grupo coincidente, con la resolución fallando o con cmux sin soporte, la sesión se lanza sin `--group` exactamente como hoy — un ref inválido aborta el `new-workspace` entero (verificado: exit=1, el workspace no se crea)
 - [x] **GRP-04**: kodo no crea, renombra ni borra grupos (los crea el operador a mano), y no persiste refs `workspace_group:N` — se reciclan igual que `workspace:N` (defensa Phase 43)
 
@@ -111,7 +111,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | ORCH-05 | Phase 76 | Pending |
 | ORCH-06 | Phase 76 | Pending |
 | GRP-01 | Phase 77 | Complete |
-| GRP-02 | Phase 77 | Pending |
+| GRP-02 | Phase 77 | Complete |
 | GRP-03 | Phase 77 | Complete |
 | GRP-04 | Phase 77 | Complete |
 

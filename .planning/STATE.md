@@ -4,17 +4,17 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 77
 current_phase_name: Agrupación de workspaces en cmux
-status: executing
-stopped_at: Completed 77-01-PLAN.md
-last_updated: "2026-07-16T08:17:29.025Z"
+status: verifying
+stopped_at: Completed 77-02-PLAN.md
+last_updated: "2026-07-16T08:27:27.144Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 77 execution started
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 50
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -34,8 +34,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 77 (Agrupación de workspaces en cmux) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
-Progress: [█████████░] 88% (0/4 fases)
+Status: Phase complete — ready for verification
+Progress: [██████████] 100% (0/4 fases)
 Last activity: 2026-07-16 — Phase 77 execution started
 
 **Fases del milestone:**
@@ -95,6 +95,7 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 74-05: teeth verificadas por mutacion — sin withFileLock las 3 carreras D-08 fallan 5/5; la Carrera 1 sigue verde porque mide withStateLock
 - [Phase ?]: 77-01: buildNewWorkspaceArgs extraído como función pura exportada para testear el argv de new-workspace (incl. --group) sin execFile
 - [Phase ?]: 77-01: listWorkspaceGroups devuelve stdout crudo sin JSON.parse (D-05); solo verbo list de workspace-group (GRP-04); espejo en host._legacy con HOST_METHODS congelado en 4
+- [Phase ?]: Phase 77 Plan 02: agrupación de workspaces cmux resuelta en fresco por lanzamiento con fail-open en dos capas (D-09/D-10); cero persistencia de refs de grupo (GRP-04)
 
 ### Open Blockers
 
@@ -117,8 +118,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-16T08:17:21.637Z
-- **Stopped at:** Completed 77-01-PLAN.md
+- **Last session:** 2026-07-16T08:27:21.127Z
+- **Stopped at:** Completed 77-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -148,3 +149,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 |------|----------|-------|-------|
 | Phase 74 P06 | 35 min | 2 tasks | 2 files |
 | Phase 77 P01 | 15min | 2 tasks | 3 files |
+| Phase 77 P02 | ~6min | 2 tasks | 3 files |

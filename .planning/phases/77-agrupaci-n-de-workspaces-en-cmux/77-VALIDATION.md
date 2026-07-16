@@ -5,7 +5,7 @@ slug: agrupaci-n-de-workspaces-en-cmux
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-07-16
 ---
 
@@ -40,10 +40,10 @@ created: 2026-07-16
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 77-01-01 | 01 | 1 | GRP-01, GRP-03, GRP-04 | T-77-01 | argv array vía execFile (sin shell); solo `list` read-only, cero verbos de gestión | unit (pura) | `node --test test/cmux/client-args.test.js` | ❌ W0 (crea test/cmux/client-args.test.js) | ⬜ pending |
-| 77-01-02 | 01 | 1 | GRP-03, GRP-04 | T-77-04 | passthrough `_legacy` sin tocar HOST_METHODS (4); walker verde | structural | `node --test test/host/cmux-isolation.test.js` | ✅ existe | ⬜ pending |
-| 77-02-01 | 02 | 2 | GRP-01, GRP-02, GRP-03 | T-77-02, T-77-03 | JSON parse defensivo never-throws; log sin contenido de usuario (D-11) | unit (pura + DI) | `node --test test/session/group-resolve.test.js` | ❌ W0 (crea test/session/group-resolve.test.js) | ⬜ pending |
-| 77-02-02 | 02 | 2 | GRP-01, GRP-04 | T-77-02 | cero refs `workspace_group:N` persistidos; cero verbos de gestión en manager.js | source-hygiene | `node --test test/manager.test.js test/host/cmux-isolation.test.js` | ✅ existe (se extiende) | ⬜ pending |
+| 77-01-01 | 01 | 1 | GRP-01, GRP-03, GRP-04 | T-77-01 | argv array vía execFile (sin shell); solo `list` read-only, cero verbos de gestión | unit (pura) | `node --test test/cmux/client-args.test.js` | ✅ existe | ✅ green |
+| 77-01-02 | 01 | 1 | GRP-03, GRP-04 | T-77-04 | passthrough `_legacy` sin tocar HOST_METHODS (4); walker verde | structural | `node --test test/host/cmux-isolation.test.js` | ✅ existe | ✅ green |
+| 77-02-01 | 02 | 2 | GRP-01, GRP-02, GRP-03 | T-77-02, T-77-03 | JSON parse defensivo never-throws; log sin contenido de usuario (D-11) | unit (pura + DI) | `node --test test/session/group-resolve.test.js` | ✅ existe (29 tests) | ✅ green |
+| 77-02-02 | 02 | 2 | GRP-01, GRP-04 | T-77-02 | cero refs `workspace_group:N` persistidos; cero verbos de gestión en manager.js | source-hygiene | `node --test test/manager.test.js test/host/cmux-isolation.test.js` | ✅ existe (extendido) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -52,8 +52,8 @@ created: 2026-07-16
 ## Wave 0 Requirements
 
 - [ ] `test/cmux/client-args.test.js` — NUEVO (Plan 01 Task 1): teeth de `buildNewWorkspaceArgs` (`--group` push, orden de flags) para GRP-01.
-- [ ] `test/session/group-resolve.test.js` — NUEVO (Plan 02 Task 1): unit puro de las 3 funciones + fixture live de los 3 grupos reales; incluye el caso D-10 (retry con `newWorkspaceFn` inyectado) para GRP-01/02/03.
-- [ ] Asserts nuevos en `test/manager.test.js` — EXISTENTE (Plan 02 Task 2): source-hygiene del cableado + negativos GRP-04.
+- [x] `test/session/group-resolve.test.js` — NUEVO (Plan 02 Task 1): unit puro de las 3 funciones + fixture live de los 3 grupos reales; incluye el caso D-10 (retry con `newWorkspaceFn` inyectado) para GRP-01/02/03.
+- [x] Asserts nuevos en `test/manager.test.js` — EXISTENTE (Plan 02 Task 2): source-hygiene del cableado + negativos GRP-04.
 
 Infra existente cubre el resto: `node:test` ya instalado; `test/host/cmux-isolation.test.js` (walker) ya existe.
 
