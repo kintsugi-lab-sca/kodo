@@ -122,17 +122,21 @@ Acento reservado para: **solo los headings markdown del overlay light-plan** (D-
 > Cobertura de **estados de UI** de la superficie TUI. Las copias de estado vacío/error viven arriba en
 > `## Copywriting Contract`; esta sección cubre la cobertura de estado y las referencia.
 
-Applicable state considerations resolved: **6 covered, 1 backstop, 0 unresolved**
+Applicable state considerations resolved: **7 covered, 1 backstop, 0 unresolved**
+(probe ejecutado post-verificación bajo `--auto`; kinds confirmados por Claude: E1 celda de tabla/lista,
+E2 vista de contenido read-only, E3 copy de texto — el clasificador heurístico marcó E1/E3
+`unclassified` por cues en español, resueltos aquí por kind-identification, nunca auto-dismiss)
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
 | empty | celda `next` (tarea sin `NEXT:`) | ✅ covered | `nextCell` devuelve `''`; celda vacía sin placeholder (SC#5). Cubierto por `test/dashboard-format.test.js` |
 | empty | columna `next` completa (ninguna fila con dato) | ✅ covered | `deriveAnyNext` → `false` → la columna no se emite; ink recupera el ancho vía flex. Computado sobre `enriched` sin filtrar (Pitfall 4) |
+| empty | nudge sin `NEXT:` (tarea sin dato persistido) | ✅ covered | Texto por-modo **byte-idéntico** al actual (D-09) — ver fila «Nudge SIN `NEXT:`» del `## Copywriting Contract`; tests de no-regresión del nudge |
 | error | `readTasks` sobre `state.json` ausente/corrupto/sin clave `tasks` | ✅ covered | Reader leaf never-throws colapsa a `{}` → celdas vacías, cero ruido, TUI never-throws (SC#5). `test/dashboard-tasks.test.js` (Wave 0) |
 | error | overlay light-plan con plan ausente/ilegible | ✅ covered | Estados `no-light-plan`/`error` existentes, copias intactas; el mini-renderer solo actúa sobre `ok` |
 | overflow | celda `next` con valor largo (hasta 200 chars) | ✅ covered | Doble acotado: 200 en el dato (74 D-02) + `cell({ truncate:true })` al ancho de columna → ellipsis `…` (Pitfall 6) |
 | partial | filtro `/` activo mientras hay filas con `next` | ✅ covered | `anyNext` se computa sobre el set SIN filtrar → la columna no parpadea al teclear la query (Pitfall 4) |
-| long-text | overlay light-plan con plan muy largo (handoffs acumulados) | 🧪 backstop | El mini-renderer pinta snapshot sin scroll propio hoy; scroll/paginación está OUT OF SCOPE (diferido v0.18, M21). El render best-effort (headings/labels/bullets/fences, NO CommonMark) es suficiente para el UAT de LIVE-06 — si el UAT humano exige más (tablas/links/nested), es fricción a confirmar con el operador (A3) |
+| long-text / overflow | overlay light-plan con plan muy largo (handoffs acumulados) | 🧪 backstop | El mini-renderer pinta snapshot sin scroll propio hoy (overflow = mismo root: contenido excede el contenedor); scroll/paginación está OUT OF SCOPE (diferido v0.18, M21). El render best-effort (headings/labels/bullets/fences, NO CommonMark) es suficiente para el UAT de LIVE-06 — si el UAT humano exige más (tablas/links/nested), es fricción a confirmar con el operador (A3) |
 
 **Estado transversal (SC#5) — "todo degrada limpio":** los cinco caminos de dato ausente (tarea recién creada, handoff mecánico sin `NEXT:`, plan ausente, plan ilegible, `state.json` corrupto) resuelven a celda vacía + nudge sin contexto + TUI never-throws, sin logs nuevos ni placeholders. Es el invariante de calidad primario de la fase.
 
