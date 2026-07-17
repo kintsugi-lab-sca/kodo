@@ -204,6 +204,48 @@ describe('check.js — checkPendingTasks (pure)', () => {
       'Plain text error shape preserved',
     );
   });
+
+  // Phase 76 Plan 02 (ORCH-05 / D-07): after routing through fetchFreshPending the sane
+  // `/N pending/` line must stay byte-identical, and the red error line must still carry
+  // the REAL err.message (fetchFreshPending propagates the throw raw — no wrapping).
+  it('ORCH-05: routes through fetchFreshPending, sane /N pending/ line byte-identical', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => [{ id: '1', ref: 'KL-1' }, { id: '2', ref: 'KL-2' }],
+    });
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 0,
+      getProviderFn: () => provider,
+    });
+
+    const out = result.lines.join('\n');
+    assert.match(out, /\[kodo:check\] 2 pending kodo task\(s\), 3 slot\(s\) available/);
+    assert.ok(
+      result.reasons.some((r) => r.includes('2 tarea')),
+      `Expected reasons to include "2 tarea", got: ${JSON.stringify(result.reasons)}`,
+    );
+  });
+
+  it('ORCH-05/D-07: fetchFreshPending propagates the throw — real err.message in red line', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => {
+        throw new Error('network down');
+      },
+    });
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 0,
+      getProviderFn: () => provider,
+    });
+
+    assert.match(
+      result.lines.join('\n'),
+      /\[kodo:check\] Error checking tasks: network down/,
+      'real err.message must survive fetchFreshPending (raw propagation, D-07)',
+    );
+  });
 });
 
 describe('check.js — source invariants', () => {

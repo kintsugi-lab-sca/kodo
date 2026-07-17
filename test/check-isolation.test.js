@@ -202,4 +202,19 @@ describe('D-02: pending contract isolation (import-graph)', () => {
         `fetchFreshPending without pulling deps into the kodo check graph (D-02 / LOG-12), found: ${imports.join(', ')}`,
     );
   });
+
+  // Phase 76 Plan 02 (ORCH-05 / D-09): CONVERGENCE — positive assertion that check.js
+  // actually consumes the shared module. The prohibition guards above (no logger.js /
+  // github / polling) prove pending.js drags nothing in (it's a zero-import leaf); this
+  // one proves check.js truly routes its pending read through it, so the convergence is
+  // observable and cannot silently regress to an inline provider.listPendingTasks() call.
+  it('kodo check reaches src/tasks/pending.js in its import graph (convergence, ORCH-05)', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const pendingPath = join(SRC, 'tasks', 'pending.js');
+    assert.ok(
+      graph.has(pendingPath),
+      `check.js must transitively import src/tasks/pending.js (converged pending read lane, ORCH-05).\n` +
+        `Graph from check.js:\n  ${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
 });
