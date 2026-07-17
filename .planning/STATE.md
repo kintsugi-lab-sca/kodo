@@ -4,9 +4,9 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 77
 current_phase_name: Agrupación de workspaces en cmux
-status: planning
+status: executing
 stopped_at: Phase 76 context gathered
-last_updated: "2026-07-17T12:25:20.788Z"
+last_updated: "2026-07-17T12:51:03.729Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 75 complete, transitioned to Phase 77
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 77 — Agrupación de workspaces en cmux
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Progress: [██████████] 100%
 Last activity: 2026-07-17 — Phase 75 complete, transitioned to Phase 77
 
