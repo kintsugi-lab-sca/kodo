@@ -280,6 +280,66 @@ describe('QUICK-08 — buildStopNudgeText switch', () => {
     assert.ok(!text.includes('kodo gsd verify'), 'non-GSD must not suggest verify');
     assert.ok(!text.includes('quick'), 'non-GSD must not mention quick');
   });
+
+  // ── LIVE-07 (Phase 75 Plan 02, D-09/D-10) ────────────────────────────────
+  // El 2º parámetro opcional `next`: con un NEXT: persistido, el nudge gana una
+  // línea concreta en ES en los TRES modos; sin next queda BYTE-IDÉNTICO al
+  // texto por-modo actual (no-regresión de los tres tests de arriba).
+  const MODES = [
+    { name: 'quick', overrides: { gsd: true, gsd_mode: 'quick' } },
+    { name: 'full', overrides: { gsd: true, gsd_mode: 'full', phase_id: '10' } },
+    { name: 'no-GSD', overrides: { gsd: false } },
+  ];
+
+  it('LIVE-07: con un next string no vacío añade UNA línea ES al final, en los TRES modos', () => {
+    for (const mode of MODES) {
+      const withoutNext = buildStopNudgeText(makeQuickSession(mode.overrides));
+      const withNext = buildStopNudgeText(makeQuickSession(mode.overrides), 'revisar el PR #42');
+      assert.ok(
+        withNext.startsWith(withoutNext),
+        `modo ${mode.name}: el texto por-modo original es un PREFIJO íntegro (no reformatea)`,
+      );
+      assert.ok(withNext.length > withoutNext.length, `modo ${mode.name}: se añadió la línea del NEXT:`);
+      assert.match(withNext, /revisar el PR #42/, `modo ${mode.name}: el next aparece en el texto`);
+      assert.ok(withNext.endsWith('\\n'), `modo ${mode.name}: termina en el escape literal \\\\n`);
+      // Una sola línea añadida: exactamente un `\\n` extra frente al caso sin next.
+      const extra = withNext.slice(withoutNext.length);
+      assert.equal(
+        (extra.match(/\\n/g) || []).length,
+        1,
+        `modo ${mode.name}: UNA sola línea ES añadida`,
+      );
+      // Idioma ES — sin keywords en inglés.
+      assert.ok(!/\bplease\b|\byou must\b/i.test(extra), `modo ${mode.name}: la línea del next es ES`);
+    }
+  });
+
+  it('LIVE-07: sin next (undefined) === next null === next "" — BYTE-IDÉNTICO por modo (D-09)', () => {
+    for (const mode of MODES) {
+      const s = makeQuickSession(mode.overrides);
+      const bare = buildStopNudgeText(s);
+      assert.equal(buildStopNudgeText(s, null), bare, `modo ${mode.name}: null no altera el texto`);
+      assert.equal(buildStopNudgeText(s, ''), bare, `modo ${mode.name}: '' no altera el texto`);
+      assert.equal(buildStopNudgeText(s, undefined), bare, `modo ${mode.name}: undefined no altera el texto`);
+    }
+  });
+
+  it('LIVE-07: un next no-string (número, objeto) degrada limpio a byte-idéntico', () => {
+    const s = makeQuickSession({ gsd: false });
+    const bare = buildStopNudgeText(s);
+    assert.equal(buildStopNudgeText(s, /** @type {any} */ (42)), bare, 'un número no añade línea');
+    assert.equal(buildStopNudgeText(s, /** @type {any} */ ({})), bare, 'un objeto no añade línea');
+  });
+
+  it('LIVE-07: buildStopNudgeText permanece PURA — cero I/O en su cuerpo (D-08)', () => {
+    // El source de la función NO contiene ninguna lectura de disco.
+    const src = readFileSync(new URL('../src/hooks/stop.js', import.meta.url), 'utf-8');
+    const body = src.slice(
+      src.indexOf('export function buildStopNudgeText'),
+      src.indexOf('async function readStdin'),
+    );
+    assert.ok(!/readFileSync|writeFileSync|readFileFn/.test(body), 'buildStopNudgeText no hace I/O');
+  });
 });
 
 // Phase 33-03 LIFE-02-FOLLOWUP (Bloque C): el callsite de markSessionStatus en
