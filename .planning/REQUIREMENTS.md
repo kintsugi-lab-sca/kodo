@@ -19,7 +19,7 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 - [x] **LIVE-02**: Una segunda sesión de la misma tarea acumula otro bloque de handoff sin pisar el anterior (incluye invertir la instrucción de `session-start.js:85`, que hoy ordena *"sobrescribe si ya existe"*)
 - [ ] **LIVE-03**: Si al cierre el LLM no ha escrito un bloque de handoff, el hook appendea uno mecánico mínimo (fecha + resultado de la sesión, sin `NEXT:`) — la instrucción al LLM es optimización, no única vía
 - [x] **LIVE-04**: Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`
-- [ ] **LIVE-05**: El usuario ve el `NEXT:` por tarea en la lista del dashboard sin que la TUI abra N ficheros de plan
+- [x] **LIVE-05**: El usuario ve el `NEXT:` por tarea en la lista del dashboard sin que la TUI abra N ficheros de plan
 - [ ] **LIVE-06**: El usuario abre el markdown completo del plan desde la vista del dashboard, renderizado (no editable), en la rama `phaseId == null`
 - [ ] **LIVE-07**: Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto en vez del genérico
 
@@ -105,7 +105,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | LIVE-02 | Phase 74 | Complete |
 | LIVE-03 | Phase 74 | Pending |
 | LIVE-04 | Phase 74 | Complete |
-| LIVE-05 | Phase 75 | Pending |
+| LIVE-05 | Phase 75 | Complete |
 | LIVE-06 | Phase 75 | Pending |
 | LIVE-07 | Phase 75 | Pending |
 | ORCH-05 | Phase 76 | Pending |

@@ -4,16 +4,16 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 75
 current_phase_name: Superficie del NEXT — dashboard y nudge
-status: ready_to_discuss
-stopped_at: Phase 75 UI-SPEC approved
-last_updated: "2026-07-17T09:53:49.103Z"
+status: executing
+stopped_at: Completed 75-01-PLAN.md
+last_updated: "2026-07-17T10:32:57.391Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 77 complete (UAT 5/5, verificación passed, threat-secure)
+last_activity_desc: Phase 75 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
   percent: 67
 ---
 
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 75 — Superficie del `NEXT:` — dashboard y nudge (Phase 74 ejecutada, pendiente cierre manual)
+**Current focus:** Phase 75 — Superficie del NEXT — dashboard y nudge
 
 ## Current Position
 
-Phase: 75 — Superficie del `NEXT:` — dashboard y nudge (siguiente; 76 paralelizable)
-Plan: Not started
-Status: Ready to discuss
-Progress: [█████░░░░░░░░░░░░░░░] 1/4 fases (77 ✓; 74 ejecutada pendiente de 2 checks manuales; 75-76 sin empezar)
-Last activity: 2026-07-17 — Phase 77 complete (UAT 5/5, verificación passed, threat-secure)
+Phase: 75 (Superficie del NEXT — dashboard y nudge) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Progress: [████████░░] 82%
+Last activity: 2026-07-17 — Phase 75 execution started
 
 **Fases del milestone:**
 
@@ -96,6 +96,7 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 77-01: buildNewWorkspaceArgs extraído como función pura exportada para testear el argv de new-workspace (incl. --group) sin execFile
 - [Phase ?]: 77-01: listWorkspaceGroups devuelve stdout crudo sin JSON.parse (D-05); solo verbo list de workspace-group (GRP-04); espejo en host._legacy con HOST_METHODS congelado en 4
 - [Phase ?]: Phase 77 Plan 02: agrupación de workspaces cmux resuelta en fresco por lanzamiento con fail-open en dos capas (D-09/D-10); cero persistencia de refs de grupo (GRP-04)
+- [Phase ?]: 75-01: NEXT: por tarea en el dashboard leído de state.json por tick (piggyback), cero endpoint nuevo; reader leaf never-throws que no dispara el migrador (Pitfall 1)
 
 ### Open Blockers
 
@@ -116,10 +117,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/75-superficie-del-next-dashboard-y-nudge/75-UI-SPEC.md
+**Resume file:** None
 
-- **Last session:** 2026-07-17T09:53:49.095Z
-- **Stopped at:** Phase 75 UI-SPEC approved
+- **Last session:** 2026-07-17T10:32:57.385Z
+- **Stopped at:** Completed 75-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -150,3 +151,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase 74 P06 | 35 min | 2 tasks | 2 files |
 | Phase 77 P01 | 15min | 2 tasks | 3 files |
 | Phase 77 P02 | ~6min | 2 tasks | 3 files |
+| Phase 75 P01 | 10min | 3 tasks | 8 files |
