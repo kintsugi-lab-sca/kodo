@@ -175,6 +175,32 @@ export function buildHandoffBlock({ sessionId, reason, status, at = new Date() }
 // ─────────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Elimina el marcador HTML `<!-- kodo:handoff … -->` de UNA línea de heading (D-06).
+ *
+ * Dueño único del formato (D-06/D-13): la Phase 75 pinta el plan ligero con el marcador
+ * INVISIBLE, pero jamás debe strippearlo con una regex ad-hoc divergente en el dashboard.
+ * Aquí, junto al writer que lo compone (`buildHandoffBlock`), vive el único conocimiento
+ * del contrato del marcador. Espejo del estilo string-only de `findSessionBlock:210-213`.
+ *
+ * CERO regex (anti-ReDoS T-74-09): solo `indexOf`/`slice`. Conservador — si el marcador
+ * está abierto pero SIN cerrar, la línea se devuelve intacta (no se toca lo ambiguo).
+ *
+ * @param {unknown} line  Una línea del markdown del plan (contenido de un LLM).
+ * @returns {string} La línea sin el marcador (trimEnd) si lo tenía; intacta si no; '' si no es string. Nunca lanza.
+ */
+export function stripHandoffMarker(line) {
+  if (typeof line !== 'string') return '';
+  const open = line.indexOf(MARKER_OPEN);
+  if (open === -1) return line; // sin marcador → intacta
+  // Localizar el cierre DESPUÉS de la apertura (indexOf con fromIndex, cero regex).
+  const close = line.indexOf(MARKER_CLOSE, open + MARKER_OPEN.length);
+  if (close === -1) return line; // marcador sin cerrar → conservador, no se toca
+  const before = line.slice(0, open);
+  const after = line.slice(close + MARKER_CLOSE.length);
+  return (before + after).trimEnd();
+}
+
+/**
  * Localiza el bloque de handoff de UNA sesión concreta dentro del markdown de un plan (D-04).
  *
  * **Por qué scoped por `session_id` y no por conteo de bloques:** con la acumulación de
