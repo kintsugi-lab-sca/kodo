@@ -1,17 +1,19 @@
 ---
 phase: 77-agrupaci-n-de-workspaces-en-cmux
 verified: 2026-07-16T12:00:00Z
-status: human_needed
+status: passed
 score: 17/18 must-haves verified
 behavior_unverified: 1 # SC#1 e2e: el workspace aterriza VISUALMENTE en el grupo — presente y cableado, comportamiento final no ejercitable sin mutar la sidebar real (PROHIBIDO)
 overrides_applied: 0
 prohibitions_verified: 12/12
 behavior_unverified_items:
+
   - truth: "Al lanzar una tarea cuyo grupo existe en la sidebar, el workspace aterriza dentro del grupo (SC#1 / GRP-01 end-to-end)"
     test: "Lanzar una tarea de un proyecto con grupo existente (Kodo/SCRIBBA) con la app cmux GUI viva"
     expected: "El nuevo workspace:N aparece en member_workspace_refs del grupo en `cmux workspace-group list --json` y visualmente dentro del grupo colapsable de la sidebar"
     why_human: "Requiere la app cmux GUI del operador viva y muta la sidebar real (crear workspace) — PROHIBIDO en verificación automatizada. Todas las piezas (argv --group, resolución nombre→ref, cableado) verificadas por repro independiente; solo el attach final del lado de cmux queda sin ejercitar"
 human_verification:
+
   - test: "Lanzar una tarea de un proyecto con grupo existente (Kodo o SCRIBBA) con la app cmux GUI viva, p. ej. `kodo launch KODO-<n>`"
     expected: "El nuevo `workspace:N` aparece en `member_workspace_refs` del grupo correspondiente (`cmux workspace-group list --json`) y el workspace se ve dentro del grupo colapsable en la sidebar"
     why_human: "Confirmación visual end-to-end con la app GUI viva; crear el workspace muta la sidebar real (prohibido en verificación automatizada). Item Manual-Only ya declarado en 77-VALIDATION.md"

@@ -239,7 +239,7 @@ Plans:
 | 74. Handoff acumulativo al cierre | 6/6 | In Progress|  |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 0/? | Not started | - |
 | 76. Convergencia del conteo `pending` | 0/? | Not started | - |
-| 77. Agrupación de workspaces en cmux | 2/2 | In Progress|  |
+| 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
 
 ## Backlog
 

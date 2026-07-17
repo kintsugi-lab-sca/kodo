@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 77
-current_phase_name: Agrupación de workspaces en cmux
-status: verifying
+current_phase: 75
+current_phase_name: Superficie del NEXT — dashboard y nudge
+status: ready_to_discuss
 stopped_at: Completed 77-02-PLAN.md
-last_updated: "2026-07-16T08:27:27.144Z"
-last_activity: 2026-07-16
-last_activity_desc: Phase 77 execution started
+last_updated: "2026-07-17T08:59:36.798Z"
+last_activity: 2026-07-17
+last_activity_desc: Phase 77 complete (UAT 5/5, threat-secure); next Phase 75/76
 progress:
   total_phases: 2
   completed_phases: 2
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 77 — Agrupación de workspaces en cmux
+**Current focus:** Phase 75 — Superficie del `NEXT:` — dashboard y nudge (Phase 74 ejecutada, pendiente cierre manual)
 
 ## Current Position
 
-Phase: 77 (Agrupación de workspaces en cmux) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Progress: [██████████] 100% (0/4 fases)
-Last activity: 2026-07-16 — Phase 77 execution started
+Phase: 75 — Superficie del `NEXT:` — dashboard y nudge (siguiente; 76 paralelizable)
+Plan: Not started
+Status: Ready to discuss
+Progress: [█████░░░░░░░░░░░░░░░] 1/4 fases (77 ✓; 74 ejecutada pendiente de 2 checks manuales; 75-76 sin empezar)
+Last activity: 2026-07-17 — Phase 77 complete (UAT 5/5, verificación passed, threat-secure)
 
 **Fases del milestone:**
 
@@ -118,8 +118,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-16T08:27:21.127Z
-- **Stopped at:** Completed 77-02-PLAN.md
+- **Last session:** 2026-07-17T09:00:00Z
+- **Stopped at:** Phase 77 complete; ready to discuss Phase 75 (o 76)
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
