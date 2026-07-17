@@ -246,13 +246,27 @@ export function progCell(session) {
 }
 
 /**
+ * Deriva la celda de la columna `next` (Phase 75, LIVE-05) desde `session.next` — el `NEXT:`
+ * por tarea que el enrich de App.js mergea por task_id desde `state.tasks` (D-02). Devuelve
+ * el string verbatim si es no-vacío; '' cuando falta (null/undefined/'' o no-string), SIN
+ * placeholder ruidoso (SC5, degradación limpia). Texto PLANO — SIN color propio
+ * (color-isolation D-12: el color queda reservado, no se pinta acento en la celda next).
+ *
+ * @param {Partial<EnrichedSession> & { next?: string|null }} session
+ * @returns {string} `session.next` si es string no-vacío; '' en cualquier otro caso.
+ */
+export function nextCell(session) {
+  return typeof session.next === 'string' && session.next.length > 0 ? session.next : '';
+}
+
+/**
  * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
  * `status` usa `outcomeCell`: solo el outcome auto-reportado (error/done/review), en blanco
  * para los valores de lifecycle (que son del eje `state`), evitando la divergencia state/status.
  * La celda `task` (Phase 43) es el eje provider derivado por `taskCell` con la forma `{ text, dim }`.
  *
- * @param {Partial<EnrichedSession>} session
- * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, prog: { text: string, dim: boolean }, age: string }}
+ * @param {Partial<EnrichedSession> & { next?: string|null }} session
+ * @returns {{ task_ref: string, repo: string, phasemode: string, status: string, task: { text: string, dim: boolean }, prog: { text: string, dim: boolean }, age: string, next: string }}
  */
 export function rowCells(session) {
   return {
@@ -263,5 +277,6 @@ export function rowCells(session) {
     task: taskCell(session),
     prog: progCell(session), // Phase 50 (PROG-03): celda progreso vivo, ENTRE task y age (D-06)
     age: formatAge(session.elapsed_min),
+    next: nextCell(session), // Phase 75 (LIVE-05): NEXT: por tarea, ÚLTIMA columna tras age (D-04)
   };
 }

@@ -243,6 +243,23 @@ export function deriveAnyProgress(rows) {
 }
 
 /**
+ * Flag ESTRUCTURAL de presencia de `NEXT:` por tarea (LIVE-05, D-03): ¿hay ALGUNA fila con un
+ * `next` string no vacío? Pura, React-free, sin regex ni color. Espejo LITERAL de
+ * deriveAnyProgress: el `next` lo mergea el enrich de App.js por task_id desde state.tasks.
+ *
+ * CRÍTICO (RESEARCH Pitfall 4, espejo de deriveAnyProgress): el consumidor (App.js) la computa
+ * sobre el set SIN filtrar (`enriched`), NO sobre `filtered`. La columna `next` es ESTRUCTURAL —
+ * está presente siempre que ALGUNA sesión activa tenga un NEXT: — y no debe parpadear cuando el
+ * operador teclea una query `/` que vacía temporalmente las filas con next del subconjunto visible.
+ *
+ * @param {Array<Partial<EnrichedSession> & { next?: string|null }>} rows — el set SIN filtrar (enriched).
+ * @returns {boolean} true si alguna fila tiene `next` string de longitud > 0.
+ */
+export function deriveAnyNext(rows) {
+  return rows.some((r) => typeof r.next === 'string' && r.next.length > 0);
+}
+
+/**
  * Filtra el buffer COMPARTIDO de `GET /logs` por substring OR de `task_ref` / `workspace_ref`
  * contra `entry.msg` (TUI-16, D-03). El buffer es un ring newest-first sin `session_id` por
  * línea (src/server.js:21-29), por lo que el grep es best-effort: NO parsea un session_id que
