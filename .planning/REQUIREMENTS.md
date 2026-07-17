@@ -21,7 +21,7 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 - [x] **LIVE-04**: Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`
 - [x] **LIVE-05**: El usuario ve el `NEXT:` por tarea en la lista del dashboard sin que la TUI abra N ficheros de plan
 - [ ] **LIVE-06**: El usuario abre el markdown completo del plan desde la vista del dashboard, renderizado (no editable), en la rama `phaseId == null`
-- [ ] **LIVE-07**: Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto en vez del genérico
+- [x] **LIVE-07**: Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto en vez del genérico
 
 ### Conteo de tareas pendientes (ORCH)
 
@@ -107,7 +107,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | LIVE-04 | Phase 74 | Complete |
 | LIVE-05 | Phase 75 | Complete |
 | LIVE-06 | Phase 75 | Pending |
-| LIVE-07 | Phase 75 | Pending |
+| LIVE-07 | Phase 75 | Complete |
 | ORCH-05 | Phase 76 | Pending |
 | ORCH-06 | Phase 76 | Pending |
 | GRP-01 | Phase 77 | Complete |
