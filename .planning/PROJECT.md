@@ -115,6 +115,9 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Validated
 
+- ✓ El dashboard TUI muestra el `NEXT:` por tarea en columna condicional leída de `state.json` (reader leaf never-throws, 1 fichero/tick, cero endpoints nuevos) — v0.17 Phase 75 (LIVE-05)
+- ✓ El plan ligero se abre renderizado read-only desde la fila `phaseId == null` (mini-renderer line-based in-house, marcador `kodo:handoff` invisible, rama GSD byte-idéntica) — v0.17 Phase 75 (LIVE-06)
+- ✓ El nudge del orquestador usa el `NEXT:` persistido como contexto («Siguiente paso sugerido por la sesión: …»), byte-idéntico sin dato — v0.17 Phase 75 (LIVE-07)
 - ✓ Server bindea a `127.0.0.1` por defecto; `config.server.bind` expone explícitamente (string vacío/whitespace → loopback) — v0.16 Phase 69 (NET-01)
 - ✓ Carril no-webhook exige `Authorization: Bearer` default-deny (`/health` abierto, `/webhook` HMAC intacto); dashboard Ink y web envían el token — v0.16 Phase 69 (NET-02)
 - ✓ `readBody` corta a 1 MB pre-auth/pre-HMAC → 413 con drain-and-discard — v0.16 Phase 69 (NET-03)
@@ -381,7 +384,7 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-17 después de Phase 77 — **Agrupación de workspaces en cmux COMPLETA** (UAT 5/5, verificación passed, threat-secure). Las sesiones lanzadas aterrizan en el grupo de la sidebar de su path resuelto vía `--group` en el `new-workspace` existente: derivación determinística (`IDENTIFIER` / `IDENTIFIER/Módulo`), resolución nombre→ref en fresco por lanzamiento y fail-open en 2 capas. Fase ortogonal añadida a v0.17 el 2026-07-16 tras prueba en vivo contra cmux 0.64.19 (GRP-01..04). Deuda menor anotada en 77-REVIEW.md (WR-01 identifier degenerado, WR-02 sin test Unicode). Nota de operación: renombrar el grupo `SCP-CMRi`→`SCP` para agrupar tareas SCP. Pendientes del milestone: cierre manual de Phase 74 (2 checks), Phases 75-76.*
+*Last updated: 2026-07-17 después de Phase 75 — **Superficie del `NEXT:` — dashboard y nudge COMPLETA** (UAT 3/3 con verificación en TUI viva vía mocks de producción, verificación passed, threat-secure 10/10, code review 0 critical). El operador ve el `NEXT:` por tarea en la columna condicional del dashboard (reader leaf de `state.json`, 1 fichero/tick), abre el plan ligero renderizado read-only con el marcador `kodo:handoff` invisible (rama GSD byte-idéntica, D-02 intacto), y el orquestador recibe el nudge con el siguiente paso concreto. Cero endpoints nuevos, cero deps npm. Riesgo aceptado R-75-02 (WR-01: `NEXT:` al `cmux send` sin `stripControlChars` — patrón preexistente de `summary`/`task_ref`; candidato a follow-up de higiene v0.18). Pendientes del milestone: cierre manual de Phase 74 (2 checks), Phase 76.*
 
 *Previous: 2026-07-15 — **Milestone v0.17 "Plan vivo por-tarea" iniciado.** Primer milestone de features tras v0.16 (cero features nuevas desde v0.15). Convierte `~/.kodo/plans/<uuid>.md` de fire-and-forget en estado vivo: handoff acumulativo `Hecho/Pendiente/NEXT:` appendeado en `SessionEnd` con **autoría LLM + backstop mecánico** (patrón Phase 71), puntero + `NEXT:` en `state.json` bajo `withStateLock`, superficie TUI acotada a la rama `phaseId == null` (D-02 intacto) y nudge del orquestador con contexto. Suma **ORCH-05** con causa raíz ya localizada (`/status` sirve `pending_count` desde caché de 30s y devuelve caché sin TTL en la rama de error; `check.js` lee fresco) — aplicando la lección de la Phase 73 retirada: no planificar sobre síntomas. Phase 75 (Inbox) queda en Backlog. Numeración continúa desde Phase 72 → primera fase **Phase 74** (el 73 quedó quemado). Origen: Backlog de ROADMAP.md (Phase 74 pre-redactada, LIVE-01..04).*
 

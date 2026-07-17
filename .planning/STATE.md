@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 75
-current_phase_name: Superficie del NEXT — dashboard y nudge
-status: verifying
-stopped_at: Completed 75-03-PLAN.md
-last_updated: "2026-07-17T10:53:57.448Z"
+current_phase: 77
+current_phase_name: Agrupación de workspaces en cmux
+status: planning
+stopped_at: Phase 75 complete (UAT 3/3, threat-secure); next Phase 76 (o cierre manual de 74)
+last_updated: "2026-07-17T11:34:48.691Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 75 execution started
+last_activity_desc: Phase 75 complete, transitioned to Phase 77
 progress:
   total_phases: 3
   completed_phases: 3
@@ -32,11 +32,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 ## Current Position
 
-Phase: 75 (Superficie del NEXT — dashboard y nudge) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Phase: 77 — Agrupación de workspaces en cmux
+Plan: Not started
+Status: Ready to plan
 Progress: [██████████] 100%
-Last activity: 2026-07-17 — Phase 75 execution started
+Last activity: 2026-07-17 — Phase 75 complete, transitioned to Phase 77
 
 **Fases del milestone:**
 
@@ -119,10 +119,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** None
+**Resume file:** 
 
-- **Last session:** 2026-07-17T10:53:50.197Z
-- **Stopped at:** Completed 75-03-PLAN.md
+- **Last session:** 2026-07-17T11:34:48.684Z
+- **Stopped at:** Phase 75 complete (UAT 3/3, threat-secure); next Phase 76 (o cierre manual de 74)
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)

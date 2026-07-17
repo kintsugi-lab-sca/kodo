@@ -1,17 +1,20 @@
 ---
 phase: 75-superficie-del-next-dashboard-y-nudge
 verified: 2026-07-17T13:10:00Z
-status: human_needed
+status: passed
 score: 13/13 must-haves verificables verificados (0 fallidos)
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "En el dashboard TUI (kodo dashboard), abrir una sesión no-GSD cuya tarea tenga un `NEXT:` persistido en state.json y confirmar visualmente que la columna `next` aparece al final de la tabla con el dato vivo, sin ruido, con truncado correcto."
     expected: "La celda `next` muestra el texto del NEXT: real, truncado con ellipsis si excede el ancho; sin dato, la celda queda vacía sin placeholder."
     why_human: "Verificación visual/funcional sobre datos vivos de una fase en curso — declarado explícitamente human_judgment:true en 75-01-SUMMARY.md (coverage D4); no verificable por grep/test estático."
+
   - test: "Cerrar una sesión cuya tarea dejó un `NEXT:` (o cuyo cierre es mecánico pero la tarea tiene un `NEXT:` previo) y confirmar en el workspace `kodo-orchestrator` (vía cmux) que el nudge recibido contiene la línea «Siguiente paso sugerido por la sesión: …»."
     expected: "El nudge que llega al panel del orquestador incluye la línea concreta del NEXT:, no el texto genérico."
     why_human: "La entrega efectiva del nudge vía `cmux send` al workspace real del orquestador es un efecto de integración con el runtime cmux que la suite hermética no ejercita — declarado explícitamente human_judgment:true en 75-02-SUMMARY.md (coverage D3) y listado en 75-VALIDATION.md §Manual-Only Verifications."
+
   - test: "Desde una fila no-GSD (phaseId==null) con un plan ligero real (headings, **Label:**, bullets, code fences, marcador kodo:handoff), pulsar `p` y confirmar que el render markdown best-effort (NO CommonMark) es legible y suficiente para leer el plan; en particular, un plan largo con múltiples handoffs acumulados."
     expected: "El operador confirma que el render line-based (headings bold/cyan, labels bold, bullets planos, fences dim) es legible y suficiente para el propósito de LIVE-06, sin exigir tablas/links/nested rendering."
     why_human: "Truth explícitamente marcado `verification: backstop` en 75-03-PLAN.md (must_haves.truths) — la fidelidad del render es una decisión de producto que el verificador no puede confirmar con evidencia de código; por contrato honest-verifier, un backstop no confirmado abstiene a human_needed (insufficient_spec), nunca un pase silencioso. Cross-confirmado en 75-VALIDATION.md §Manual-Only Verifications."
