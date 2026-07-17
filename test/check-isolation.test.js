@@ -175,3 +175,31 @@ describe('D-13: handoff contract isolation (import-graph)', () => {
     );
   });
 });
+
+// Phase 76 D-02: `src/tasks/pending.js` es la fuente única del carril de lectura de
+// `pending` (fetch + caché TTL + política de frescura) que server.js (/status) y
+// check.js comparten (convergencia ORCH-05/ORCH-06). Debe seguir siendo una HOJA de
+// cero imports — el mismo contrato que `handoff.js` de arriba.
+//
+// Por qué existe este guard: check.js importará `fetchFreshPending` desde este módulo
+// en el Plan 02. Si pending.js dejara de ser hoja (p. ej. importando logger-events para
+// «loguear el fallo aquí»), arrastraría ese grafo al de `kodo check` y rompería LOG-12
+// en silencio. El módulo NO loguea: el caller inspecciona `stale` y emite el rastro.
+describe('D-02: pending contract isolation (import-graph)', () => {
+  it('src/tasks/pending.js exists and has zero imports', () => {
+    const pendingPath = join(SRC, 'tasks', 'pending.js');
+    assert.equal(
+      existsSync(pendingPath),
+      true,
+      'src/tasks/pending.js must exist after Plan 76-01 — otherwise this isolation test passes trivially',
+    );
+    const src = readFileSync(pendingPath, 'utf-8');
+    const imports = extractImports(src);
+    assert.deepEqual(
+      imports,
+      [],
+      `pending.js must have zero imports (including node: builtins) so check.js can import ` +
+        `fetchFreshPending without pulling deps into the kodo check graph (D-02 / LOG-12), found: ${imports.join(', ')}`,
+    );
+  });
+});
