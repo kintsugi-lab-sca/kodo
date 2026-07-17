@@ -67,6 +67,7 @@ describe('readPlan — resolución de fase y lectura (D-03/D-04/D-06)', () => {
     assert.equal(res.status, 'ok');
     assert.ok(res.lines.includes('objective line'), `lines debe incluir el contenido\n${res.lines.join('\n')}`);
     assert.ok(res.lines.includes('second line'));
+    assert.equal(res.render, 'plain', 'Phase 75: la rama GSD ok → render:plain (byte-idéntico, D-02 LOCKED)');
   });
 
   it('prefijo padded correcto: phase_id="4" matchea "04-foo" NO "40-foo" (startsWith `${padded}-`)', () => {
@@ -264,6 +265,8 @@ describe('readPlan — fallback plan ligero (D-05/D-08/D-09)', () => {
     assert.equal(res.status, 'ok');
     assert.ok(res.lines.includes('paso uno'), `lines debe incluir el contenido\n${res.lines.join('\n')}`);
     assert.ok(res.lines.includes('paso dos'));
+    // Phase 75 (D-07): el carril de plan ligero 'ok' es el ÚNICO que se marca 'markdown'.
+    assert.equal(res.render, 'markdown', 'readLightPlan ok → render:markdown (mini-renderer)');
   });
 
   it('task_id + ENOENT (artefacto ausente) → status no-light-plan', () => {
@@ -349,6 +352,8 @@ describe('readPlan — anti-ReDoS (D-13)', () => {
     const res = readPlan({ phase_id: '44', project_path: BASE }, deps);
     assert.equal(res.status, 'ok', 'el nombre con (|) se trata como literal, no como patrón');
     assert.ok(res.lines.join('\n').includes('literal match content'));
+    // Phase 75 (D-02 LOCKED, SC3): la rama GSD 'ok' se marca 'plain' → nunca pasa por el mini-renderer.
+    assert.equal(res.render, 'plain', 'la rama GSD ok → render:plain (byte-idéntico)');
   });
 
   it('plan.js no compila ningún new RegExp (anti-ReDoS estructural, D-13)', () => {

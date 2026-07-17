@@ -1838,7 +1838,9 @@ export default function App({
         if (!row) return;
         const res = readPlan(row, { resolvePhaseFn: resolvePhase });
         // D-05: snapshot congelado al abrir. NO se toca selectedTaskId (cursor GRATIS al volver, D-06).
-        setOverlaySnapshot({ kind: 'plan', taskRef: row.task_ref ?? '', status: res.status, lines: res.lines });
+        // Phase 75 (D-07): threadea `render` verbatim del resultado — SessionTable ramifica por él
+        // (markdown → mini-renderer del carril light; plain/ausente → <Text> plano GSD byte-idéntico).
+        setOverlaySnapshot({ kind: 'plan', taskRef: row.task_ref ?? '', status: res.status, lines: res.lines, render: res.render });
         setOverlayKind('plan');
         setScrollOffset(0);
         setMode('overlay');

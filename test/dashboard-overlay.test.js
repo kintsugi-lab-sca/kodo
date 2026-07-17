@@ -726,6 +726,108 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
     }
   });
 
+  // ── Phase 75 LIVE-06: mini-renderer del plan ligero + no-regresión GSD (D-02/D-06/SC3) ──
+
+  it('LIVE-06 SC3 / NO-REGRESIÓN GSD: el overlay de plan GSD NO strippea el marcador (render:plain, byte-idéntico)', async () => {
+    // La rama GSD se pinta con <Text> plano: un marcador handoff en el PLAN.md aparece
+    // VERBATIM (no se toca). Es el guard de no-regresión de D-02 LOCKED — la rama GSD
+    // jamás pasa por el mini-renderer, así que el marcador no se vuelve invisible ahí.
+    const tmp = mkdtempSync(join(tmpdir(), 'kodo-plan-'));
+    try {
+      const phaseDir = join(tmp, '.planning', 'phases', '44-overlay');
+      mkdirSync(phaseDir, { recursive: true });
+      writeFileSync(join(phaseDir, '44-01-PLAN.md'), '## Sec <!-- kodo:handoff v=1 session=x -->\n');
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan GSD\n${frame}`);
+        assert.match(
+          frame,
+          /<!-- kodo:handoff/,
+          `SC3: la rama GSD es byte-idéntica → el marcador aparece VERBATIM (no se strippea)\n${frame}`,
+        );
+      } finally {
+        unmount();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('LIVE-06 SC2: el overlay de plan LIGERO (phaseId==null) pinta el heading con el marcador INVISIBLE (D-06)', async () => {
+    // Carril light (render:markdown): el mini-renderer strippea el marcador handoff del
+    // heading (dueño único stripHandoffMarker, D-06). El resto del contenido se muestra.
+    const fakeHome = mkdtempSync(join(tmpdir(), 'kodo-home-'));
+    const origHome = process.env.HOME;
+    try {
+      const plansDir = join(fakeHome, '.kodo', 'plans');
+      mkdirSync(plansDir, { recursive: true });
+      // planStatus({}) hardcodea task_id:'a' → artefacto a.md (fila quick/non-GSD, phaseId==null).
+      writeFileSync(
+        join(plansDir, 'a.md'),
+        '## Handoff hoy <!-- kodo:handoff v=1 session=a author=auto -->\ncuerpo del plan\n',
+      );
+      process.env.HOME = fakeHome;
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({}) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan ligero\n${frame}`);
+        assert.match(frame, /Handoff hoy/, `el texto legible del heading se muestra\n${frame}`);
+        assert.match(frame, /cuerpo del plan/, `el cuerpo del plan se muestra\n${frame}`);
+        assert.doesNotMatch(
+          frame,
+          /<!-- kodo:handoff/,
+          `D-06: el marcador kodo:handoff es INVISIBLE en el render del plan ligero\n${frame}`,
+        );
+      } finally {
+        unmount();
+      }
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('LIVE-06 SC2: Esc cierra el overlay de plan LIGERO y restaura la tabla con el MISMO cursor (KL-1)', async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), 'kodo-home-'));
+    const origHome = process.env.HOME;
+    try {
+      const plansDir = join(fakeHome, '.kodo', 'plans');
+      mkdirSync(plansDir, { recursive: true });
+      writeFileSync(join(plansDir, 'a.md'), '# Plan ligero\npaso uno\n');
+      process.env.HOME = fakeHome;
+      const clock = makeFakeClock();
+      const fetchFn = makeRouter({ status: planStatus({}) });
+      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      try {
+        await drain();
+        stdin.write('p');
+        await drain();
+        assert.match(lastFrame(), /Plan ligero/, `el overlay light se abrió\n${lastFrame()}`);
+        stdin.write('\x1b');
+        await drain();
+        const frame = lastFrame();
+        assert.match(frame, /›.*KL-1/, `Esc restaura la tabla con el cursor en KL-1 (por task_id)\n${frame}`);
+        assert.match(frame, /KL-2/, `Esc restaura la tabla completa (KL-2 visible)\n${frame}`);
+      } finally {
+        unmount();
+      }
+    } finally {
+      process.env.HOME = origHome;
+      rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
   it('Esc cierra el overlay de plan y restaura la tabla con el MISMO cursor (KL-1)', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'kodo-plan-'));
     try {

@@ -23,6 +23,7 @@
 import { Box, Text } from 'ink';
 import { createElement as h } from 'react';
 import { rowCells, statusColor, stateBadge, countsLabel, NO_GSD_LABEL } from './format.js';
+import { renderMarkdownLines } from './markdown.js';
 import {
   OVERLAY_COMMENTS_EMPTY,
   OVERLAY_COMMENTS_NOT_FOUND,
@@ -172,7 +173,9 @@ function LiveIndicator({ connected, lastGoodCount, lastGoodAt, lastAttemptAt, un
  *   FOOTER  — hint `↑↓ scroll · Esc close` (dimColor).
  * Color SOLO de nombres ink (cyan/yellow/red/dimColor) — color-isolation D-12 (cero picocolors/ANSI).
  *
- * @param {{ kind: 'comments'|'logs'|'logs-all'|'plan', taskRef: string, status: string, lines: string[] }} snap
+ * @param {{ kind: 'comments'|'logs'|'logs-all'|'plan', taskRef: string, status: string, lines: string[], render?: 'markdown'|'plain' }} snap
+ *   Phase 75: `render === 'markdown'` (carril plan ligero 'ok') pasa el body por el mini-renderer;
+ *   'plain'/ausente (GSD) → `<Text>` plano byte-idéntico (SC3, D-02 LOCKED).
  * @param {number} scrollOffset
  * @param {'comments'|'logs'|'logs-all'|'plan'|null} kind
  * @returns {import('react').ReactElement}
@@ -200,12 +203,24 @@ function renderOverlay(snap, scrollOffset, kind) {
   let body;
   if (snap.status === 'ok') {
     const start = Math.max(0, scrollOffset);
-    const visible = snap.lines.slice(start, start + OVERLAY_VIEWPORT);
-    body = h(
-      Box,
-      { flexDirection: 'column' },
-      ...visible.map((line, i) => h(Text, { key: `ov-${start + i}` }, line)),
-    );
+    if (snap.render === 'markdown') {
+      // Phase 75 (D-05/D-07): SOLO el carril de plan ligero. El mini-renderer recorre TODAS
+      // las líneas desde 0 (para que el toggle de code fence sea correcto por posición
+      // absoluta) y devuelve el array completo de <Text>; se slicean ESOS elementos por
+      // scrollOffset, no las líneas (SessionTable no reinterpreta el estado de fence).
+      const elements = renderMarkdownLines(snap.lines);
+      const visible = elements.slice(start, start + OVERLAY_VIEWPORT);
+      body = h(Box, { flexDirection: 'column' }, ...visible);
+    } else {
+      // GSD ('plain' o ausente): body EXACTAMENTE como antes del mini-renderer — <Text>
+      // plano byte-idéntico (SC3, D-02 LOCKED). La rama GSD jamás pasa por el mini-renderer.
+      const visible = snap.lines.slice(start, start + OVERLAY_VIEWPORT);
+      body = h(
+        Box,
+        { flexDirection: 'column' },
+        ...visible.map((line, i) => h(Text, { key: `ov-${start + i}` }, line)),
+      );
+    }
   } else {
     let copy;
     let color;

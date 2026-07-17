@@ -45,7 +45,10 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 /**
- * @typedef {{ status: 'ok'|'no-phase'|'no-plan'|'no-light-plan'|'error', lines: string[] }} PlanResult
+ * @typedef {{ status: 'ok'|'no-phase'|'no-plan'|'no-light-plan'|'error', lines: string[], render?: 'markdown'|'plain' }} PlanResult
+ *   Phase 75 (D-05/D-07): `render` discrimina qué pinta el overlay. SOLO el carril de plan
+ *   ligero 'ok' lleva `'markdown'` (se pasa por el mini-renderer); las ramas GSD 'ok' llevan
+ *   `'plain'` (byte-idéntico, D-02 LOCKED). Los estados no-'ok' no consumen el flag.
  */
 
 /**
@@ -69,7 +72,8 @@ function readLightPlan(taskId, deps) {
   const plansDir = deps.kodoPlansDir || join((deps.homedirFn || homedir)(), '.kodo', 'plans');
   try {
     const md = readFileFn(join(plansDir, `${taskId}.md`));
-    return { status: 'ok', lines: md.split('\n') }; // render plano (igual que plan.js:126)
+    // Phase 75 (D-05/D-07): el carril light es el ÚNICO que se pasa por el mini-renderer.
+    return { status: 'ok', lines: md.split('\n'), render: 'markdown' };
   } catch (err) {
     const code = /** @type {NodeJS.ErrnoException} */ (err)?.code;
     if (code === 'ENOENT') return { status: 'no-light-plan', lines: [] }; // ausente → honesta (D-04)
@@ -185,5 +189,6 @@ export function readPlan(row, deps = {}) {
       lines.push(`── ${f} (unreadable) ──`, '');
     }
   }
-  return { status: 'ok', lines };
+  // Phase 75 (D-02 LOCKED, SC3): la rama GSD se pinta byte-idéntica (<Text> plano).
+  return { status: 'ok', lines, render: 'plain' };
 }
