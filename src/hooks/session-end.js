@@ -139,8 +139,13 @@ export async function runSessionEndHook(input, deps = {}) {
     // error que no sea EEXIST (:81), y withFileLock corre `fn()` en un try/finally
     // SIN catch (:226-230) → un fn que lanza propaga. Sin este catch, un
     // EACCES/EROFS crashearía el hook y bloquearía el cierre de Claude Code (SC#5).
+    // Phase 75 LIVE-07: capturamos el `next` EFECTIVO que writeHandoff devuelve
+    // (post-asimetría) para threadearlo al nudge del orquestador más abajo. El
+    // try/catch estructural se conserva íntegro: un fallo del threading colapsa
+    // handoffNext a null (nudge genérico) y JAMÁS aborta el cierre (never-throws, SC5).
+    let handoffNext = null;
     try {
-      writeHandoff({ session, input, log }, deps);
+      handoffNext = writeHandoff({ session, input, log }, deps)?.next ?? null;
     } catch (err) {
       console.error(`[kodo:session-end] Handoff error: ${/** @type {Error} */ (err).message}`);
     }
@@ -248,7 +253,9 @@ export async function runSessionEndHook(input, deps = {}) {
       if (orchMatch) {
         await cmuxClient.send({
           workspace: orchMatch[1],
-          text: buildStopNudgeText(session),
+          // Phase 75 LIVE-07: threadeamos el NEXT: efectivo capturado del handoff.
+          // Con next → línea concreta; sin next → texto byte-idéntico al genérico (D-09).
+          text: buildStopNudgeText(session, handoffNext),
         });
       }
     } catch {}
@@ -284,7 +291,10 @@ export async function runSessionEndHook(input, deps = {}) {
  *   `plansDir`/`stateWriterFn` NO son un lujo de testing: sin ellos, la suite del hook
  *   (que no aísla HOME) escribiría en el `~/.kodo` REAL del operador en cada `npm test`
  *   (T-74-15).
- * @returns {void}
+ * @returns {{ planPath: string, next: string|null } | void}
+ *   Phase 75 LIVE-07: en éxito devuelve el `next` EFECTIVO post-upsert (honra la asimetría);
+ *   en los early-returns (task_id inseguro / lock-timeout) devuelve `undefined` — el caller
+ *   lo colapsa a `null` con `?.next ?? null`.
  */
 export function writeHandoff({ session, input, log }, deps = {}) {
   const plansDir = deps.plansDir || join(KODO_DIR, 'plans');
@@ -376,11 +386,22 @@ export function writeHandoff({ session, input, log }, deps = {}) {
 
   // 6. Puntero + NEXT en state.tasks (D-05/LIVE-04). El writer es fail-safe: ante un
   //    lock-timeout de state.json devuelve {ok:false} sin lanzar (Plan 02).
-  stateWriterFn(
+  const upsertResult = stateWriterFn(
     taskId,
     { plan_path: r.value.planPath, next: r.value.next, updated_at: now().toISOString() },
     log,
   );
+
+  // Phase 75 LIVE-07: threadeamos el `next` EFECTIVO (post-upsert) al caller, que lo
+  // pasa a buildStopNudgeText. CRÍTICO (RESEARCH Pitfall 5): el next del nudge es el
+  // POST-asimetría (`upsertResult.value.next`), NO `r.value.next` — un cierre mecánico
+  // (r.value.next = null) tras un NEXT: real de la tarea debe producir un nudge CON
+  // contexto, no genérico. Si el upsert cayó por lock-timeout, best-effort al next de
+  // esta sesión (`r.value.next`). Cero I/O extra: el value ya viene construido en memoria.
+  const effectiveNext = upsertResult && upsertResult.ok && upsertResult.value
+    ? upsertResult.value.next
+    : r.value.next;
+  return { planPath: r.value.planPath, next: effectiveNext };
 }
 
 /**

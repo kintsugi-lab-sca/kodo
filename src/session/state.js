@@ -411,12 +411,17 @@ export function removeSession(taskId, logger = noopLogger) {
  * @param {string} taskId
  * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry Un `next` ausente o `null` preserva el previo (ver arriba); `plan_path` y `updated_at` pisan siempre.
  * @param {import('../logger-noop.js').NoopLogger} [logger]
- * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ * @returns {{ ok: true, value: { plan_path: string, next: string|null, updated_at: string } } | { ok: false, reason: 'lock-timeout' }}
+ *   Phase 75 LIVE-07: en éxito, `value` es el entry EFECTIVO persistido (post-asimetría) —
+ *   así el nudge del orquestador obtiene el `next` real sin re-leer disco (D-08, cero I/O extra).
  */
 export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
   // WR-01: gate the success telemetry on the lock result. On lock-timeout the
   // handoff pointer is NOT persisted — do not claim `state.task.handoff_saved`.
   // D-06: warn + propagate the fail-safe; the close is NEVER blocked, never a throw.
+  // Phase 75 LIVE-07: capturamos el entry construido bajo el lock para devolverlo
+  // (el `next` efectivo post-asimetría es lo que threadea el nudge, cero I/O extra).
+  let persisted;
   const r = withStateLock((state) => {
     // Defensive guard for the additive field — mirror of removeSession's
     // `if (!Array.isArray(state.history)) state.history = [];` (`:361`).
@@ -428,7 +433,7 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
     // concurrent closes of the same task would start from the same stale `prev`
     // and one would resurrect an already-superseded `NEXT:`.
     const prev = state.tasks[taskId];
-    state.tasks[taskId] = {
+    persisted = {
       // NOT merged, by design: the caller builds `plan_path` deterministically
       // from the task_id (`session-end.js:307`), so for a given task the value is
       // always the same string — a fallback would have no reachable entry to
@@ -447,13 +452,16 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
       // not a merge with the previous entry.
       updated_at: entry.updated_at ?? new Date().toISOString(),
     };
+    state.tasks[taskId] = persisted;
   });
   if (!r.ok) {
     logger.warn('state.task.handoff_failed', { task_id: taskId, reason: r.reason });
     return r;
   }
+  // Telemetría INVARIANTE: solo {task_id} — el `next` (contenido LLM) NUNCA se loguea
+  // (precedente T-71-18, mitiga T-75-06). El `next` viaja SOLO por el return.
   logger.info('state.task.handoff_saved', { task_id: taskId });
-  return r;
+  return { ok: true, value: persisted };
 }
 
 /** @returns {Array<Session & { ended_at: string }>} */
