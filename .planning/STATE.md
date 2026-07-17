@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 77
-current_phase_name: Agrupación de workspaces en cmux
+current_phase: 76
+current_phase_name: Convergencia del conteo pending
 status: executing
-stopped_at: Phase 76 context gathered
-last_updated: "2026-07-17T12:51:03.729Z"
+stopped_at: Completed 76-01-PLAN.md
+last_updated: "2026-07-17T12:56:34.930Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 75 complete, transitioned to Phase 77
+last_activity_desc: Phase 76 execution started
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 13
+  completed_plans: 12
   percent: 75
 ---
 
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 75 — Superficie del NEXT — dashboard y nudge
+**Current focus:** Phase 76 — Convergencia del conteo pending
 
 ## Current Position
 
-Phase: 77 — Agrupación de workspaces en cmux
-Plan: Not started
+Phase: 76 (Convergencia del conteo pending) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Progress: [██████████] 100%
-Last activity: 2026-07-17 — Phase 75 complete, transitioned to Phase 77
+Progress: [█████████░] 92%
+Last activity: 2026-07-17 — Phase 76 execution started
 
 **Fases del milestone:**
 
@@ -99,6 +99,8 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 75-01: NEXT: por tarea en el dashboard leído de state.json por tick (piggyback), cero endpoint nuevo; reader leaf never-throws que no dispara el migrador (Pitfall 1)
 - [Phase ?]: LIVE-07: el nudge del orquestador se alimenta del NEXT: efectivo (post-asimetría) threadeado por return de upsertTaskHandoff→writeHandoff, cero I/O extra; sin next el texto queda byte-idéntico (D-09)
 - [Phase ?]: 75-03: stripHandoffMarker en handoff.js (dueño único D-06); mini-renderer markdown in-house cero deps; gate render:markdown solo en carril light, GSD byte-idéntico (D-02 LOCKED)
+- [Phase ?]: [Phase 76-01]: src/tasks/pending.js es hoja de cero imports — punto de convergencia de pending para server.js y check.js sin arrastrar deps al grafo de kodo check (D-02/LOG-12)
+- [Phase ?]: [Phase 76-01]: fallo del fetch de pending sirve last-known-good etiquetado stale con fetched_at congelado al último éxito, nunca now() (ORCH-06, Pitfall 3); cold-start caído devuelve [] etiquetado stale, jamás presentado como fresco
 
 ### Open Blockers
 
@@ -119,11 +121,13 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
+**Last session:** 2026-07-17T12:56:25.280Z
+
 **Resume file:** 
 
-.planning/phases/76-convergencia-del-conteo-pending/76-CONTEXT.md
+None
 
-- **Stopped at:** Phase 76 context gathered
+- **Stopped at:** Completed 76-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -157,3 +161,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase 75 P01 | 10min | 3 tasks | 8 files |
 | Phase 75 P02 | 5min | 2 tasks | 6 files |
 | Phase 75 P03 | 7min | 3 tasks | 7 files |
+| Phase 76 P01 | 9m | 3 tasks | 3 files |

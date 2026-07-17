@@ -25,8 +25,8 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 
 ### Conteo de tareas pendientes (ORCH)
 
-- [ ] **ORCH-05**: El conteo de tareas `pending` que ve el orquestador converge con el que reporta `kodo check` — hoy `/status` sirve desde `pendingCache` (TTL 30s, `server.js:591`) y `check.js:37` lee fresco sin caché, divergiendo hasta 30s
-- [ ] **ORCH-06**: Con el provider caído, `/status` no presenta un conteo `pending` viejo como si fuera fresco — hoy `server.js:599` devuelve `pendingCache.data` en el catch **sin comprobar TTL**, sirviendo datos arbitrariamente antiguos con solo un `console.warn` de rastro
+- [x] **ORCH-05**: El conteo de tareas `pending` que ve el orquestador converge con el que reporta `kodo check` — hoy `/status` sirve desde `pendingCache` (TTL 30s, `server.js:591`) y `check.js:37` lee fresco sin caché, divergiendo hasta 30s
+- [x] **ORCH-06**: Con el provider caído, `/status` no presenta un conteo `pending` viejo como si fuera fresco — hoy `server.js:599` devuelve `pendingCache.data` en el catch **sin comprobar TTL**, sirviendo datos arbitrariamente antiguos con solo un `console.warn` de rastro
 
 ### Agrupación de workspaces en cmux (GRP)
 
@@ -108,8 +108,8 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | LIVE-05 | Phase 75 | Complete |
 | LIVE-06 | Phase 75 | Complete |
 | LIVE-07 | Phase 75 | Complete |
-| ORCH-05 | Phase 76 | Pending |
-| ORCH-06 | Phase 76 | Pending |
+| ORCH-05 | Phase 76 | Complete |
+| ORCH-06 | Phase 76 | Complete |
 | GRP-01 | Phase 77 | Complete |
 | GRP-02 | Phase 77 | Complete |
 | GRP-03 | Phase 77 | Complete |
