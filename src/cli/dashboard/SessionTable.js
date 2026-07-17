@@ -67,6 +67,8 @@ import {
   PROJECTS_UNMAPPED,
   PROJECTS_LOAD_FAILED,
   PROJECTS_MODULES_TITLE,
+  PROJECTS_DISPATCH_TAG,
+  PROJECTS_MAPPED_ONLY_TAG,
 } from './App.js';
 import { getEditableFields, getByPath } from '../../config-validate.js';
 // Phase 64 Plan 02 (D-06): lee el estado de mapeo de cada fila (forma dual). getProjectPath es puro
@@ -587,9 +589,15 @@ function renderProjectsOverlay(snapshot, fieldCursor, mode, buffer, cursor, proj
     h(Text, { color: 'cyan', bold: true }, PROJECTS_OVERLAY_TITLE),
   );
 
+  // KODO-10: set dispatch-enabled (congelado en el snapshot al abrir). `.has` never-throws aunque
+  // falte (snapshots viejos / tests sin la prop) → ningún tag dispatch.
+  const dispatchSet = snapshot?.dispatch;
+  const isDispatch = (id) => !!(dispatchSet && typeof dispatchSet.has === 'function' && dispatchSet.has(id));
+
   const rows = items.map((item, i) => {
     const selected = i === fieldCursor;
     const isEditing = selected && mode === 'projects-edit';
+    const path = getProjectPath(snapshot.map[item.id]);
     // Valor: el estado de mapeo (read-only) salvo en la fila que se edita, donde se pinta el text-input.
     let valueEl;
     if (isEditing) {
@@ -599,10 +607,16 @@ function renderProjectsOverlay(snapshot, fieldCursor, mode, buffer, cursor, proj
       const right = buffer.slice(cursor + 1);
       valueEl = h(Text, null, left, h(Text, { inverse: true }, under), right);
     } else {
-      const path = getProjectPath(snapshot.map[item.id]);
       valueEl = path
         ? h(Text, { bold: selected }, path)
         : h(Text, { dimColor: true }, PROJECTS_UNMAPPED);
+    }
+    // KODO-10: tag de dispatch (no en la fila que se edita — el text-input ya ocupa el valor).
+    //   dispatch-enabled → verde; mapeado-pero-no-en-config → ámbar (la trampa SCP).
+    let tagEl = null;
+    if (!isEditing) {
+      if (isDispatch(item.id)) tagEl = h(Text, { color: 'green' }, ` ${PROJECTS_DISPATCH_TAG}`);
+      else if (path) tagEl = h(Text, { color: 'yellow' }, ` ${PROJECTS_MAPPED_ONLY_TAG}`);
     }
     return h(
       Box,
@@ -610,6 +624,7 @@ function renderProjectsOverlay(snapshot, fieldCursor, mode, buffer, cursor, proj
       h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
       h(Box, { width: 24 }, h(Text, { bold: selected }, `${item.identifier} — ${item.name}`)),
       valueEl,
+      tagEl,
     );
   });
   const body = h(Box, { flexDirection: 'column' }, ...rows);

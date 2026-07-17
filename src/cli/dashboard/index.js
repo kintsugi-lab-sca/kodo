@@ -40,6 +40,9 @@
 // así que no rompe color-isolation ni encarece el arranque. `loadConfig` (que sí
 // hace I/O de disco) se mantiene lazy dentro de runDashboard (ver más abajo).
 import { DEFAULT_CONFIG } from '../../config.js';
+// KODO-10: helper PURO (solo depende de projects-shape.js) — sin ink/picocolors ni I/O, misma
+// disciplina de import eager que DEFAULT_CONFIG. Extrae los IDs dispatch-enabled del config.
+import { dispatchProjectIds } from '../../config-doctor.js';
 
 // Mensaje canónico D-04 — string EXACTO que test/dashboard-non-tty.test.js
 // compara con stderr.trim(). Construido en dos líneas concatenadas.
@@ -345,6 +348,10 @@ export async function runDashboard(deps = {}) {
     listModulesFn,
     loadProjectsFn: () => loadProjects(),
     saveProjectsFn: (m) => saveProjects(m),
+    // KODO-10: IDs dispatch-enabled del provider activo (config.providers.<provider>.projects). El
+    // overlay marca cada proyecto dispatch vs solo-mapeado (la trampa del caso SCP). Se lee del config
+    // ya cacheado (loadConfig) — cero red. `dispatchProjectIds` es el mismo helper puro que usa `kodo doctor`.
+    dispatchProjectIdsFn: () => [...dispatchProjectIds(loadConfig(), providerName)],
   }));
 
   // SIGTERM handler explícito (D-10): mismo camino de cleanup que q/Ctrl-C.

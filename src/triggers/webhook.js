@@ -44,7 +44,14 @@ export async function handleWebhookRequest(rawBody, headers, provider, deps = {}
 
   // 4. Fire-and-forget dispatch -- do NOT await (webhooks must respond fast)
   dispatchFn(triggerEvent).catch((err) => {
-    console.error(`[kodo] Dispatch error: ${err.message}`);
+    // KODO-10: mensaje accionable. El fallo típico "No configured project ... UNKNOWN" ocurre
+    // cuando el webhook llega de un proyecto ausente de config.providers.<provider>.projects
+    // (mapeado en projects.json pero no dispatch-enabled). Incluimos el taskRef para saber QUÉ
+    // webhook murió y dirigimos a `kodo doctor` (cruce config.json↔projects.json).
+    const hint = /No configured project/i.test(err?.message || '')
+      ? ` — el proyecto del webhook no está en config.providers.<provider>.projects; ejecuta "kodo doctor" para ver la desalineación config.json↔projects.json`
+      : '';
+    console.error(`[kodo] Dispatch error (${triggerEvent.taskRef}): ${err.message}${hint}`);
   });
 
   return { status: 200, body: { ok: true } };

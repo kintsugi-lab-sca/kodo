@@ -399,6 +399,28 @@ program
     await runDashboard({ url: opts.url });
   });
 
+// --- kodo doctor --- (KODO-10)
+// Cruza ~/.kodo/config.json ↔ ~/.kodo/projects.json y detecta la desalineación que hace
+// morir los webhooks de un proyecto mapeado-pero-no-configurado con "No configured project
+// ... UNKNOWN". Por defecto PURO/offline; --states verifica trigger/review/done por red.
+// SIN ensureConfig(): doctor DIAGNOSTICA la config, no exige que esté completa (mismo
+// precedente que `gsd doctor` / `skill sync`).
+program
+  .command('doctor')
+  .description('Diagnose config.json ↔ projects.json alignment (dispatch-enabled vs mapped-only); --states also checks trigger/review/done per project')
+  .option('--states', 'Also verify each configured project has the required states (trigger/review/done) — hits the provider API')
+  .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
+  .action(async (opts) => {
+    try {
+      const { runDoctor } = await import('./cli/doctor.js');
+      const code = await runDoctor({ states: opts.states || false, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo gsd <subcommand> ---
 const gsd = program.command('gsd').description('GSD subcommands (inspect resolver, etc.)');
 

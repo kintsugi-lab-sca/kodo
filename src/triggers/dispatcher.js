@@ -18,6 +18,30 @@ import { EVENTS, gsdPhaseResolved, gsdBootstrap } from '../logger-events.js';
 const inFlight = new Set();
 
 /**
+ * KODO-10 (deliverable B): convierte un verdict fail-closed del resolver GSD en una pista
+ * ACCIONABLE para el log del daemon. `resolver_failed — <ref>: no-match` a secas no explica el
+ * contrato kodo:gsd (el título de la tarea debe coincidir EXACTAMENTE con el título de una fase
+ * de ROADMAP.md), lo que costó una segunda ronda de diagnóstico en el caso SCP. Pura, never-throws.
+ *
+ * @param {{ code: string, detail?: string, matches?: string[] }} verdict
+ * @param {{ taskTitle?: string, projectPath?: string|null, mode?: string }} [ctx]
+ * @returns {string}
+ */
+export function resolverFailureHint(verdict, ctx = {}) {
+  const proj = ctx.projectPath || '<project>';
+  switch (verdict.code) {
+    case 'no-match':
+      return `task title "${ctx.taskTitle ?? ''}" does not match any ROADMAP phase of ${proj} — rename the task to an exact phase title ("## Phase N: Título", sin sufijos entre el número y ":") or add the kodo:gsd-quick label for one-off tasks`;
+    case 'roadmap-missing':
+      return `${proj} has .planning/PROJECT.md but no ROADMAP.md${verdict.detail ? ` (${verdict.detail})` : ''} — create the ROADMAP or run the GSD roadmap step`;
+    case 'multi-match':
+      return `task title matches multiple ROADMAP phases${verdict.matches ? ` (${verdict.matches.join(' | ')})` : ''} — phase titles must be unique`;
+    default:
+      return verdict.detail || verdict.code;
+  }
+}
+
+/**
  * @typedef {{
  *   getProviderFn?: (name?: string) => import('../interface.js').TaskProvider,
  *   launchWorkItemFn?: (ref: string, opts: object) => Promise<any>,
@@ -330,7 +354,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         } catch {
           // silent — never block the return on logger failure
         }
-        console.log(`[kodo:dispatch] resolver_failed — ${task.ref}: ${resolverVerdict.code}${resolverVerdict.detail ? ' (' + resolverVerdict.detail + ')' : ''}`);
+        console.log(`[kodo:dispatch] resolver_failed — ${task.ref}: ${resolverVerdict.code} — ${resolverFailureHint(resolverVerdict, { taskTitle: task.title, projectPath: gsdProjectPath, mode: gsdMode })}`);
         return {
           action: 'resolver_failed',
           code: resolverVerdict.code,

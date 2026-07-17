@@ -90,6 +90,14 @@ En cada proyecto que quieras automatizar:
 
 Solo las tareas con label `kodo` (o `kodo:*`) se automatizan.
 
+> **Contrato `kodo:gsd` (modo full).** El resolver casa la tarea con una fase de
+> `.planning/ROADMAP.md` por **título exacto**: el título de la tarea debe coincidir con el
+> título de una fase, y el heading debe tener el formato canónico **`## Phase N: Título`** o
+> **`### Phase N: Título`** (también `## Phase N — Título`). Cualquier **sufijo entre el número y
+> los dos puntos** — p. ej. `### Phase 0 (MVP): Setup` — hace la fase **invisible** para el
+> resolver y la tarea fallará con `no-match`. Para tareas puntuales sin fase de ROADMAP usa
+> `kodo:gsd-quick`. Cuando un dispatch falle, `kodo logs` explica el motivo con una pista accionable.
+
 ### 4. Configurar el webhook en Plane
 
 Settings → Webhooks → nuevo webhook:
@@ -169,8 +177,27 @@ kodo orchestrate         # lanza la sesión orquestadora (usa tokens)
 kodo adopt               # adopta una sesión ad-hoc de cmux como tarea trackeada
 kodo comment <REF>       # postea un comentario resumen en una tarea existente
 kodo logs [session-id]   # inspecciona logs de sesión (dump, tail, filtro)
+kodo doctor              # diagnostica la alineación config.json ↔ projects.json (--states, --json)
 kodo install / uninstall # registra/elimina hooks de Claude Code
 ```
+
+### `kodo doctor` — alineación config ↔ projects
+
+El dashboard lista **todos** los proyectos del workspace de Plane con el mapeo de `projects.json`
+superpuesto, pero el daemon solo despacha webhooks de los proyectos presentes en
+`config.providers.<provider>.projects`. Un proyecto **mapeado pero no configurado** parece
+operativo y sin embargo todos sus webhooks mueren con `No configured project ... UNKNOWN`.
+
+`kodo doctor` cruza los dos ficheros y reporta la desalineación (exit code 1 si hay problemas):
+
+- **mapeado pero no en config** (ERROR): sus webhooks morirán con `UNKNOWN` → añádelo a `config.json`.
+- **en config pero sin ruta local** (WARN): el launch fallará al resolver el path → mapéalo.
+- **identifier `UNKNOWN`** / **paths duplicados** (WARN): ruido de config.
+
+`--states` además consulta la API y verifica que cada proyecto configurado tiene los estados
+`trigger` / `review` / `done` (por nombre exacto, case-insensitive) — el segundo fallo del caso
+SCP: sin el estado `In review` el cierre del flujo también falla. El editor de proyectos del
+dashboard (`m`) marca cada fila **⚡ dispatch** (en config) o **⚠ solo-mapeado** (la trampa).
 
 ## GitHub como provider
 

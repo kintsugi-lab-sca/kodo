@@ -344,6 +344,16 @@ export const PROJECTS_LOAD_FAILED = (reason) =>
 export const PROJECTS_MODULES_TITLE = 'módulos del proyecto';
 export const PROJECTS_NO_MODULES = 'este provider no tiene módulos';
 
+// KODO-10: tags de estado de DISPATCH por proyecto en el overlay. El dashboard listaba TODOS los
+// proyectos del workspace (listProjects) con el mapeo de projects.json superpuesto, sin distinguir
+// los que el daemon REALMENTE despacha (los de config.providers.<provider>.projects) de los que
+// solo están mapeados — la trampa del caso SCP (mapeado pero no configurado → webhooks a UNKNOWN).
+//   - PROJECTS_DISPATCH_TAG (verde): el proyecto está en config → el daemon despacha sus webhooks.
+//   - PROJECTS_MAPPED_ONLY_TAG (ámbar): mapeado en projects.json pero AUSENTE de config → sus
+//     webhooks morirán con "No configured project" (UNKNOWN). Ejecuta `kodo doctor`.
+export const PROJECTS_DISPATCH_TAG = '⚡ dispatch';
+export const PROJECTS_MAPPED_ONLY_TAG = '⚠ solo-mapeado';
+
 // Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
 // de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
 // getEditableFields (provider + los 11 paths editables) — sin secretos. NO es la fuente de verdad de
@@ -486,6 +496,9 @@ export default function App({
   loadProjectsFn = () => ({}),
   saveProjectsFn = () => {},
   listModulesFn = async () => ({ ok: true, modules: [] }),
+  // KODO-10: IDs dispatch-enabled (config.providers.<provider>.projects). El overlay marca cada
+  // fila dispatch vs solo-mapeado. Default vacío (sin info → ninguna fila se marca como dispatch).
+  dispatchProjectIdsFn = () => [],
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -787,7 +800,9 @@ export default function App({
     const result = await listProjectsFn();
     if (projectsReqRef.current !== reqId) return; // T-64-08: cancelada/superada durante el await
     if (result && result.ok) {
-      setProjectsSnapshot({ remote: result.projects ?? [], map: loadProjectsFn() });
+      // KODO-10: congela también el set dispatch-enabled (estable durante la sesión) para marcar
+      // cada fila dispatch vs solo-mapeado sin re-leer config en cada render.
+      setProjectsSnapshot({ remote: result.projects ?? [], map: loadProjectsFn(), dispatch: new Set(dispatchProjectIdsFn()) });
       setFieldCursor(0);
       setProjectsError(null);
       setProjectsEditError(null);
@@ -796,7 +811,7 @@ export default function App({
       setProjectsError((result && result.error) || 'error desconocido');
       setMode('projects-error');
     }
-  }, [listProjectsFn, loadProjectsFn]);
+  }, [listProjectsFn, loadProjectsFn, dispatchProjectIdsFn]);
 
   // useInput mode-gated (TUI-08/TUI-12). Declarado DESPUÉS del pipeline para que el closure capture
   // `filtered`/`sel` actuales (su índice derivado es la base del movimiento clamp del cursor).

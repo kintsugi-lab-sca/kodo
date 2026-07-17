@@ -40,6 +40,8 @@ import App, {
   PROJECTS_LOAD_FAILED,
   PROJECTS_MODULES_TITLE,
   PROJECTS_NO_MODULES,
+  PROJECTS_DISPATCH_TAG,
+  PROJECTS_MAPPED_ONLY_TAG,
 } from '../src/cli/dashboard/App.js';
 
 // ── Fake clock (idéntico a dashboard-config.test.js) ─────────────────────────
@@ -111,6 +113,8 @@ function injectProps(clock, fetchFn, extra = {}) {
     listProjectsFn: async () => ({ ok: true, projects: PROJECTS_FIXTURE }),
     loadProjectsFn: () => ({}),
     saveProjectsFn: () => {},
+    // KODO-10: set de IDs dispatch-enabled (config.providers.<provider>.projects). Default vacío.
+    dispatchProjectIdsFn: () => [],
     // Phase 64 Plan 03 (PROJ-04): 2º hop async. Default del harness: plane con dos módulos conocidos.
     listModulesFn: async () => ({ ok: true, modules: MODULES_FIXTURE }),
     ...extra,
@@ -196,6 +200,58 @@ describe('PROJ-01 / D-01/D-02/D-10: `m` abre el editor, fetch ok → lista con e
       assert.match(frame, /otro/, `la lista debe mostrar el proyecto p2 (otro)\n${frame}`);
       assert.match(frame, /\/tmp/, `la fila mapeada (p1) debe mostrar su ruta\n${frame}`);
       assert.ok(frame.includes(PROJECTS_UNMAPPED), `la fila NO mapeada (p2) debe mostrar ${PROJECTS_UNMAPPED}\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('KODO-10: marca dispatch-enabled vs solo-mapeado en el overlay de proyectos', () => {
+  it('p1 en config (dispatch) → tag dispatch; p2 mapeado pero no en config → tag solo-mapeado', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter();
+    const { lastFrame, stdin, unmount } = render(
+      createElement(
+        App,
+        injectProps(clock, fetchFn, {
+          // p1 y p2 AMBOS mapeados; solo p1 está dispatch-enabled en config.
+          loadProjectsFn: () => ({ p1: '/tmp', p2: '/tmp/otro' }),
+          dispatchProjectIdsFn: () => ['p1'],
+        }),
+      ),
+    );
+    try {
+      await drain();
+      stdin.write('m');
+      await drain();
+      const frame = lastFrame();
+      assert.ok(frame.includes(PROJECTS_DISPATCH_TAG), `p1 (en config) debe llevar el tag dispatch\n${frame}`);
+      assert.ok(frame.includes(PROJECTS_MAPPED_ONLY_TAG), `p2 (mapeado, no en config) debe llevar el tag solo-mapeado\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('proyecto NI mapeado NI en config → sin tag de dispatch/solo-mapeado (solo [sin mapear])', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = makeRouter();
+    const { lastFrame, stdin, unmount } = render(
+      createElement(
+        App,
+        injectProps(clock, fetchFn, {
+          loadProjectsFn: () => ({}), // nada mapeado
+          dispatchProjectIdsFn: () => [], // nada dispatch-enabled
+        }),
+      ),
+    );
+    try {
+      await drain();
+      stdin.write('m');
+      await drain();
+      const frame = lastFrame();
+      assert.ok(frame.includes(PROJECTS_UNMAPPED), `un proyecto sin mapear muestra ${PROJECTS_UNMAPPED}\n${frame}`);
+      assert.ok(!frame.includes(PROJECTS_DISPATCH_TAG), `sin config no debe haber tag dispatch\n${frame}`);
+      assert.ok(!frame.includes(PROJECTS_MAPPED_ONLY_TAG), `sin mapear no debe haber tag solo-mapeado\n${frame}`);
     } finally {
       unmount();
     }
