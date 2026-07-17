@@ -5,16 +5,16 @@ milestone_name: Plan vivo por-tarea
 current_phase: 77
 current_phase_name: Agrupación de workspaces en cmux
 status: planning
-stopped_at: Phase 75 complete (UAT 3/3, threat-secure); next Phase 76 (o cierre manual de 74)
-last_updated: "2026-07-17T11:34:48.691Z"
+stopped_at: Phase 76 context gathered
+last_updated: "2026-07-17T12:25:20.788Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 75 complete, transitioned to Phase 77
 progress:
-  total_phases: 3
+  total_phases: 4
   completed_phases: 3
   total_plans: 11
   completed_plans: 11
-  percent: 100
+  percent: 75
 ---
 
 # Project State
@@ -121,8 +121,9 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** 
 
-- **Last session:** 2026-07-17T11:34:48.684Z
-- **Stopped at:** Phase 75 complete (UAT 3/3, threat-secure); next Phase 76 (o cierre manual de 74)
+.planning/phases/76-convergencia-del-conteo-pending/76-CONTEXT.md
+
+- **Stopped at:** Phase 76 context gathered
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
