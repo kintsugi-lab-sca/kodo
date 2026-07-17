@@ -4,17 +4,17 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 76
 current_phase_name: Convergencia del conteo pending
-status: executing
-stopped_at: Completed 76-01-PLAN.md
-last_updated: "2026-07-17T12:56:34.930Z"
+status: verifying
+stopped_at: Completed 76-02-PLAN.md
+last_updated: "2026-07-17T13:05:34.676Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 76 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
-  percent: 75
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -34,8 +34,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 76 (Convergencia del conteo pending) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
-Progress: [█████████░] 92%
+Status: Phase complete — ready for verification
+Progress: [██████████] 100%
 Last activity: 2026-07-17 — Phase 76 execution started
 
 **Fases del milestone:**
@@ -101,6 +101,7 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: 75-03: stripHandoffMarker en handoff.js (dueño único D-06); mini-renderer markdown in-house cero deps; gate render:markdown solo en carril light, GSD byte-idéntico (D-02 LOCKED)
 - [Phase ?]: [Phase 76-01]: src/tasks/pending.js es hoja de cero imports — punto de convergencia de pending para server.js y check.js sin arrastrar deps al grafo de kodo check (D-02/LOG-12)
 - [Phase ?]: [Phase 76-01]: fallo del fetch de pending sirve last-known-good etiquetado stale con fetched_at congelado al último éxito, nunca now() (ORCH-06, Pitfall 3); cold-start caído devuelve [] etiquetado stale, jamás presentado como fresco
+- [Phase ?]: 76-02: /status y check.js convergen en src/tasks/pending.js; frescura discriminada (pending_stale/pending_fetched_at) sin endpoints ni deps nuevas (ORCH-05/ORCH-06)
 
 ### Open Blockers
 
@@ -121,13 +122,13 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-17T12:56:25.280Z
+**Last session:** 2026-07-17T13:05:26.280Z
 
 **Resume file:** 
 
 None
 
-- **Stopped at:** Completed 76-01-PLAN.md
+- **Stopped at:** Completed 76-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -162,3 +163,4 @@ None
 | Phase 75 P02 | 5min | 2 tasks | 6 files |
 | Phase 75 P03 | 7min | 3 tasks | 7 files |
 | Phase 76 P01 | 9m | 3 tasks | 3 files |
+| Phase 76 P02 | 16min | 2 tasks | 5 files |
