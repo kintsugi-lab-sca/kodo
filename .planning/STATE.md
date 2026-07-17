@@ -4,17 +4,17 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 75
 current_phase_name: Superficie del NEXT — dashboard y nudge
-status: executing
-stopped_at: Completed 75-02-PLAN.md
-last_updated: "2026-07-17T10:42:56.909Z"
+status: verifying
+stopped_at: Completed 75-03-PLAN.md
+last_updated: "2026-07-17T10:53:57.448Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 75 execution started
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
-  percent: 67
+  completed_plans: 11
+  percent: 100
 ---
 
 # Project State
@@ -34,8 +34,8 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 75 (Superficie del NEXT — dashboard y nudge) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
-Progress: [█████████░] 91%
+Status: Phase complete — ready for verification
+Progress: [██████████] 100%
 Last activity: 2026-07-17 — Phase 75 execution started
 
 **Fases del milestone:**
@@ -98,6 +98,7 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: Phase 77 Plan 02: agrupación de workspaces cmux resuelta en fresco por lanzamiento con fail-open en dos capas (D-09/D-10); cero persistencia de refs de grupo (GRP-04)
 - [Phase ?]: 75-01: NEXT: por tarea en el dashboard leído de state.json por tick (piggyback), cero endpoint nuevo; reader leaf never-throws que no dispara el migrador (Pitfall 1)
 - [Phase ?]: LIVE-07: el nudge del orquestador se alimenta del NEXT: efectivo (post-asimetría) threadeado por return de upsertTaskHandoff→writeHandoff, cero I/O extra; sin next el texto queda byte-idéntico (D-09)
+- [Phase ?]: 75-03: stripHandoffMarker en handoff.js (dueño único D-06); mini-renderer markdown in-house cero deps; gate render:markdown solo en carril light, GSD byte-idéntico (D-02 LOCKED)
 
 ### Open Blockers
 
@@ -120,8 +121,8 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 **Resume file:** None
 
-- **Last session:** 2026-07-17T10:42:50.346Z
-- **Stopped at:** Completed 75-02-PLAN.md
+- **Last session:** 2026-07-17T10:53:50.197Z
+- **Stopped at:** Completed 75-03-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -154,3 +155,4 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 | Phase 77 P02 | ~6min | 2 tasks | 3 files |
 | Phase 75 P01 | 10min | 3 tasks | 8 files |
 | Phase 75 P02 | 5min | 2 tasks | 6 files |
+| Phase 75 P03 | 7min | 3 tasks | 7 files |

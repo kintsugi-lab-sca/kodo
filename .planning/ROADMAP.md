@@ -179,7 +179,7 @@ Plans:
   4. Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto concreto en vez del genérico. (LIVE-07)
   5. Sin `NEXT:` (tarea recién creada, handoff mecánico sin `NEXT:`, plan ausente o ilegible), el dashboard y el nudge degradan limpio — celda vacía y nudge sin contexto, TUI never-throws, cero ruido.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 **Wave 1**
 
 - [x] 75-01-PLAN.md — LIVE-05: columna condicional `next` en la tabla, leída de `state.json` por un reader leaf filesystem (piggyback poll) [Wave 1]
@@ -187,7 +187,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 75-03-PLAN.md — LIVE-06: overlay del plan ligero renderizado (mini-renderer line-based + `stripHandoffMarker`), GSD byte-idéntico [Wave 2, depende de 75-01]
+- [x] 75-03-PLAN.md — LIVE-06: overlay del plan ligero renderizado (mini-renderer line-based + `stripHandoffMarker`), GSD byte-idéntico [Wave 2, depende de 75-01]
 
 **UI hint**: yes
 
@@ -246,7 +246,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 74. Handoff acumulativo al cierre | 6/6 | In Progress|  |
-| 75. Superficie del `NEXT:` — dashboard y nudge | 2/3 | In Progress|  |
+| 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | In Progress|  |
 | 76. Convergencia del conteo `pending` | 0/? | Not started | - |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
 

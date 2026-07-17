@@ -20,7 +20,7 @@ Requirements de este milestone. Cada uno mapea a exactamente una fase del roadma
 - [ ] **LIVE-03**: Si al cierre el LLM no ha escrito un bloque de handoff, el hook appendea uno mecánico mínimo (fecha + resultado de la sesión, sin `NEXT:`) — la instrucción al LLM es optimización, no única vía
 - [x] **LIVE-04**: Tras el cierre, `state.json` refleja para esa tarea el puntero al plan + el `NEXT:` de una línea, escrito bajo `withStateLock`
 - [x] **LIVE-05**: El usuario ve el `NEXT:` por tarea en la lista del dashboard sin que la TUI abra N ficheros de plan
-- [ ] **LIVE-06**: El usuario abre el markdown completo del plan desde la vista del dashboard, renderizado (no editable), en la rama `phaseId == null`
+- [x] **LIVE-06**: El usuario abre el markdown completo del plan desde la vista del dashboard, renderizado (no editable), en la rama `phaseId == null`
 - [x] **LIVE-07**: Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto en vez del genérico
 
 ### Conteo de tareas pendientes (ORCH)
@@ -106,7 +106,7 @@ Qué fases cubren qué requirements. Se rellena durante la creación del roadmap
 | LIVE-03 | Phase 74 | Pending |
 | LIVE-04 | Phase 74 | Complete |
 | LIVE-05 | Phase 75 | Complete |
-| LIVE-06 | Phase 75 | Pending |
+| LIVE-06 | Phase 75 | Complete |
 | LIVE-07 | Phase 75 | Complete |
 | ORCH-05 | Phase 76 | Pending |
 | ORCH-06 | Phase 76 | Pending |
