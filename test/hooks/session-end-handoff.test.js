@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as realFs from 'node:fs';
 import { writeHandoff, runSessionEndHook } from '../../src/hooks/session-end.js';
+import { buildStopNudgeText } from '../../src/hooks/stop.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -60,14 +61,26 @@ function makeSession(overrides = {}) {
   };
 }
 
-/** Spy del escritor de state.tasks — sustituye a upsertTaskHandoff (Plan 02). */
-function makeStateWriter() {
+/**
+ * Spy del escritor de state.tasks — sustituye a upsertTaskHandoff (Plan 02).
+ *
+ * Phase 75 Plan 02 (LIVE-07): el escritor real ahora devuelve el entry PERSISTIDO
+ * en `value` (post-asimetría), y writeHandoff threadea ese `value.next` al nudge.
+ * Por defecto el mock ESPEJA el entry entrante (comportamiento simétrico, suficiente
+ * para los tests de Task 1). Para simular la asimetría (cierre mecánico tras un NEXT:
+ * previo) se pasa un `returnOverride` con el value efectivo.
+ */
+function makeStateWriter(returnOverride) {
   const calls = [];
   return {
     calls,
     fn: (taskId, entry, logger) => {
       calls.push({ taskId, entry, logger });
-      return { ok: true };
+      if (returnOverride !== undefined) return returnOverride;
+      return {
+        ok: true,
+        value: { plan_path: entry.plan_path, next: entry.next, updated_at: entry.updated_at },
+      };
     },
   };
 }
@@ -234,6 +247,86 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
     );
 
     assert.equal(writer.calls[0].entry.next, null, 'el bloque mecánico no tiene NEXT');
+  });
+
+  // ── Phase 75 Plan 02 (LIVE-07): writeHandoff devuelve el next EFECTIVO ──────────
+  it('LIVE-07: writeHandoff devuelve { planPath, next } con el next EFECTIVO post-upsert', () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    // El upsert devuelve el next PERSISTIDO (post-asimetría) — aquí un valor distinto
+    // al de esta sesión, para probar que writeHandoff propaga el del upsert, no r.value.next.
+    const writer = makeStateWriter({
+      ok: true,
+      value: { plan_path: join(plansDir, `${session.task_id}.md`), next: 'el NEXT: efectivo', updated_at: FIXED_NOW.toISOString() },
+    });
+
+    const ret = writeHandoff(
+      { session, input: { reason: 'clear' }, log: logger },
+      { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
+    );
+
+    assert.ok(ret, 'writeHandoff devuelve un objeto (no undefined) en el camino de éxito');
+    assert.equal(ret.planPath, join(plansDir, `${session.task_id}.md`), 'planPath propagado');
+    assert.equal(ret.next, 'el NEXT: efectivo', 'el next es el POST-upsert (asimetría), NO el de esta sesión');
+  });
+
+  it('LIVE-07: cierre mecánico (next null) tras un NEXT: previo → writeHandoff propaga el previo (Pitfall 5)', () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    // Simula la asimetría real: el bloque mecánico de esta sesión manda next:null al
+    // upsert, pero el upsert devuelve el NEXT: previo persistido de la tarea.
+    const writer = makeStateWriter({
+      ok: true,
+      value: { plan_path: join(plansDir, `${session.task_id}.md`), next: 'revisar el PR #42', updated_at: FIXED_NOW.toISOString() },
+    });
+
+    const ret = writeHandoff(
+      { session, input: { reason: 'clear' }, log: logger },
+      { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
+    );
+
+    // El entry ENTRANTE al upsert llevaba next:null (cierre mecánico)...
+    assert.equal(writer.calls[0].entry.next, null, 'el bloque mecánico manda next:null al upsert');
+    // ...pero el next EFECTIVO devuelto (y threadeado al nudge) es el previo.
+    assert.equal(ret.next, 'revisar el PR #42', 'el next efectivo es el previo de la tarea, no genérico');
+  });
+
+  it('LIVE-07: si el upsert falla (lock-timeout de state.json) → best-effort al next de esta sesión', () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const planPath = join(plansDir, `${session.task_id}.md`);
+    // El LLM escribió su NEXT: en ESTA sesión → r.value.next = 'PR #7'.
+    writeFileSync(
+      planPath,
+      [
+        `## Handoff 2026-07-15 10:00 <!-- kodo:handoff v=1 session=${session.session_id} author=llm at=2026-07-15T08:00:00.000Z -->`,
+        '',
+        '**NEXT:** PR #7',
+        '',
+      ].join('\n'),
+    );
+    // El upsert falla → writeHandoff cae al next de esta sesión (best-effort).
+    const writer = makeStateWriter({ ok: false, reason: 'lock-timeout' });
+
+    const ret = writeHandoff(
+      { session, input: { reason: 'clear' }, log: logger },
+      { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
+    );
+
+    assert.equal(ret.next, 'PR #7', 'con el upsert caído, se usa el next de esta sesión (r.value.next)');
+  });
+
+  it('LIVE-07: early-return (task_id inseguro) → writeHandoff devuelve undefined', () => {
+    const session = makeSession({ task_id: '../../evil' });
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+
+    const ret = writeHandoff(
+      { session, input: { reason: 'clear' }, log: logger },
+      { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
+    );
+
+    assert.equal(ret, undefined, 'el caller colapsa undefined a null (?.next ?? null)');
   });
 
   it('el LLM ya escribió con **NEXT:** → ese valor llega al stateWriterFn, truncado a 200 (D-02)', () => {
@@ -585,6 +678,67 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
     assert.equal(writer.calls.length, 1, 'exactamente una entrada por cierre');
     assert.equal(writer.calls[0].taskId, session.task_id);
     assert.equal(writer.calls[0].entry.plan_path, join(plansDir, `${session.task_id}.md`));
+  });
+
+  // ── Phase 75 Plan 02 (LIVE-07): el nudge se threadea con el NEXT: efectivo ──────
+  /** Cmux stub cuyo listWorkspaces expone un orquestador → el nudge se envía. */
+  function makeCmuxStubWithOrch(calls) {
+    return {
+      setColor: async (args) => { calls.push({ fn: 'setColor', args }); },
+      notify: async (args) => { calls.push({ fn: 'notify', args }); },
+      listWorkspaces: async () => { calls.push({ fn: 'listWorkspaces' }); return 'workspace:99 kodo-orchestrator\n'; },
+      send: async (args) => { calls.push({ fn: 'send', args }); },
+    };
+  }
+
+  it('LIVE-07: con un NEXT: persistido, el nudge al orquestador incluye la línea concreta (no genérico)', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    // El upsert devuelve el next efectivo persistido.
+    const writer = makeStateWriter({
+      ok: true,
+      value: { plan_path: join(plansDir, `${session.task_id}.md`), next: 'desplegar el hotfix', updated_at: FIXED_NOW.toISOString() },
+    });
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...makeHookDeps({ session, calls, plansDir, logger, writer }),
+        cmux: makeCmuxStubWithOrch(calls),
+      },
+    );
+
+    const send = calls.find((c) => c.fn === 'send');
+    assert.ok(send, 'se envió el nudge al orquestador');
+    assert.match(send.args.text, /Siguiente paso sugerido por la sesión: desplegar el hotfix/, 'el nudge lleva la línea del NEXT:');
+    assert.equal(send.args.workspace, 'workspace:99', 'al workspace del orquestador matcheado');
+  });
+
+  it('LIVE-07: cierre mecánico SIN NEXT: previo → el nudge queda genérico (byte-idéntico, D-09)', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    // Mock por defecto: espeja el entry; el bloque mecánico manda next:null → efectivo null.
+    const writer = makeStateWriter();
+    const calls = [];
+
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...makeHookDeps({ session, calls, plansDir, logger, writer }),
+        cmux: makeCmuxStubWithOrch(calls),
+      },
+    );
+
+    const send = calls.find((c) => c.fn === 'send');
+    assert.ok(send, 'se envió el nudge');
+    assert.ok(!send.args.text.includes('Siguiente paso sugerido'), 'sin NEXT: el nudge no gana la línea');
+    // Byte-idéntico al texto por-modo original (no-GSD → default).
+    assert.equal(
+      send.args.text,
+      buildStopNudgeText(session),
+      'sin next el nudge es byte-idéntico al buildStopNudgeText(session) de una sola arg',
+    );
   });
 
   it('guard de idempotencia intacto: findSessionFn → null → NO se escribe handoff', async () => {

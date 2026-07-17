@@ -199,6 +199,59 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
   });
 
   // -----------------------------------------------------------------------
+  // Phase 75 Plan 02 (LIVE-07): el return trae el entry PERSISTIDO en `value`.
+  // El nudge del orquestador necesita el `next` EFECTIVO (post-asimetría), y la
+  // única forma de obtenerlo sin re-leer disco es que upsertTaskHandoff lo
+  // devuelva ya construido en memoria bajo el lock (D-08, cero I/O extra).
+  // -----------------------------------------------------------------------
+  it('devuelve { ok:true, value:{plan_path, next, updated_at} } — el entry persistido (LIVE-07)', () => {
+    const r = upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'desplegar el fix',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value, {
+      plan_path: '/p/t1.md',
+      next: 'desplegar el fix',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    }, 'el return espeja el entry persistido en state.tasks');
+    // Y coincide byte a byte con lo que aterrizó en disco.
+    assert.deepEqual(r.value, loadState().tasks.t1, 'value === entry en disco');
+  });
+
+  it('el value devuelto honra la ASIMETRÍA: cierre mecánico tras un NEXT: previo devuelve el previo (LIVE-07 / Pitfall 5)', () => {
+    // Sesión 1: NEXT: real.
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'desplegar el fix',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+    // Sesión 2: cierre mecánico (next null) — como llega la rama del backstop.
+    const r = upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: null,
+      updated_at: '2026-07-15T10:00:00.000Z',
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(
+      r.value.next,
+      'desplegar el fix',
+      'el value.next devuelto es el EFECTIVO post-asimetría, NO el null entrante — es el que threadea el nudge',
+    );
+    assert.equal(r.value.updated_at, '2026-07-15T10:00:00.000Z', 'el updated_at SÍ avanza en el value');
+  });
+
+  it('el value devuelto refleja el pisado: un NEXT: nuevo no nulo gana en el return', () => {
+    upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'viejo', updated_at: '2026-07-15T09:00:00.000Z' });
+    const r = upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'nuevo', updated_at: '2026-07-15T10:00:00.000Z' });
+
+    assert.equal(r.value.next, 'nuevo', 'un NEXT: presente pisa: el value lo refleja');
+  });
+
+  // -----------------------------------------------------------------------
   // Two task_ids coexist — neither clobbers the other.
   // -----------------------------------------------------------------------
   it('keeps two distinct task_ids side by side', () => {
