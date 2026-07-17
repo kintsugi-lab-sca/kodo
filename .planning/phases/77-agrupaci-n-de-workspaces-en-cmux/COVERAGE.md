@@ -23,7 +23,7 @@ las dos capacidades read/attach se INTEGRAN; todo verbo de gestión es un OPT-OU
 |---|---|---|
 | `workspace-group list [--json]` | INTEGRATE | Única fuente de la membresía y de la resolución nombre→ref; read-only. Consumida en fresco por lanzamiento (GRP-01/GRP-03). |
 | `new-workspace --group <ref>` | INTEGRATE | El attach del workspace al grupo — el corazón de la fase (GRP-01). |
-| `new-workspace --group-placement <top\|afterCurrent\|end>` | OPT-OUT | Discreción resuelta en RESEARCH: se usa el default (`top`) omitiendo el flag; `afterCurrent` exige `--group-reference` sin beneficio para kodo. |
+| `new-workspace --group-placement <top / afterCurrent / end>` | OPT-OUT | Discreción resuelta en RESEARCH: se usa el default (`top`) omitiendo el flag; `afterCurrent` exige `--group-reference` sin beneficio para kodo. |
 | `new-workspace --group-reference <ws>` | OPT-OUT | Solo aplica con `--group-placement afterCurrent`; no se usa (ver fila anterior). |
 | `workspace-group create [--from]` | OPT-OUT | GRP-04: kodo no crea grupos (los crea el operador). Sin `--from` se traga el workspace caller (RESEARCH §State of the Art). |
 | `workspace-group delete` | OPT-OUT | GRP-04: kodo no borra grupos. |
