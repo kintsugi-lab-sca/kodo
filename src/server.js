@@ -7,6 +7,7 @@ import { initRegistry, getProvider } from './providers/registry.js';
 import { listSessions, listHistory, removeSession, loadState, saveState, runUnderStateLock } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
+import { createPendingResolver, buildPendingStatusFields } from './tasks/pending.js';
 import { createDismissHandler } from './server/dismiss.js';
 import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken, MAX_BODY_BYTES } from './server/auth.js';
 import * as cmux from './cmux/client.js';
@@ -17,9 +18,10 @@ const PID_PATH = join(KODO_DIR, 'server.pid');
 const LOG_BUFFER_SIZE = 200;
 const logBuffer = [];
 
-// Cache for pending tasks (avoid hitting Plane API every dashboard poll)
+// Cache for pending tasks (avoid hitting Plane API every dashboard poll). The cache
+// itself now lives in the createPendingResolver closure (src/tasks/pending.js); this
+// constant remains the ONLY source of the TTL literal (D-03).
 const PENDING_CACHE_TTL_MS = 30 * 1000;
-let pendingCache = { data: [], ts: 0 };
 
 function pushLog(level, args) {
   const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
@@ -125,6 +127,8 @@ function dashboardHtml(token) {
   .stats { display: flex; gap: 24px; margin-bottom: 20px; }
   .stat { text-align: center; }
   .stat-val { font-size: 28px; font-weight: 700; color: #f59e0b; }
+  .stat-val.stale { color: #555; opacity: 0.6; }
+  .stale-tag { font-size: 13px; color: #ef4444; vertical-align: super; margin-left: 2px; }
   .stat-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
   .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -365,9 +369,13 @@ async function refresh() {
     const data = await res.json();
 
     const m = data.metrics || {};
+    // ORCH-06 (D-06): when the pending lane is stale (provider down past TTL), mark the
+    // «Candidatas» count so the operator distinguishes a real 0 from "couldn't tell".
+    const pendingStaleCls = data.pending_stale ? ' stale' : '';
+    const pendingStaleTag = data.pending_stale ? '<span class="stale-tag">?</span>' : '';
     document.getElementById('stats').innerHTML =
       '<div class="stat"><div class="stat-val">' + data.count + '</div><div class="stat-label">Activas</div></div>' +
-      '<div class="stat"><div class="stat-val">' + data.pending_count + '</div><div class="stat-label">Candidatas</div></div>' +
+      '<div class="stat"><div class="stat-val' + pendingStaleCls + '">' + data.pending_count + pendingStaleTag + '</div><div class="stat-label">Candidatas</div></div>' +
       '<div class="stat"><div class="stat-val">' + (m.closed_24h || 0) + '</div><div class="stat-label">Hoy</div></div>' +
       '<div class="stat"><div class="stat-val">' + (m.closed_7d || 0) + '</div><div class="stat-label">7 días</div></div>' +
       '<div class="stat"><div class="stat-val">' + (m.avg_duration_min || 0) + 'm</div><div class="stat-label">Duración media</div></div>' +
@@ -508,6 +516,18 @@ export async function startServer(opts = {}) {
     now: Date.now,
   });
 
+  // Phase 76 (Plan 02, ORCH-05/ORCH-06): ONE pending resolver for the whole server
+  // lifetime — the converged read lane shared with check.js (src/tasks/pending.js).
+  // Same shape as the providerStateResolver sibling, reusing the PENDING_CACHE_TTL_MS
+  // literal (D-03 — no second number). resolve() NEVER throws: a provider outage past
+  // the TTL is LABELED stale, never served as fresh (ORCH-06). The resolver does not
+  // log; the /status caller inspects `stale` and emits the trace (D-02 / Pitfall 1).
+  const pendingResolver = createPendingResolver({
+    listPendingTasksFn: () => provider.listPendingTasks(),
+    ttlMs: PENDING_CACHE_TTL_MS,
+    now: Date.now,
+  });
+
   // Phase 42 (Plan 01, DISMISS-01/DISMISS-04): ONE dismiss handler for the whole
   // server lifetime (NOT per-request — mirrors the providerStateResolver wiring).
   // Real loadState/executeFn are defaulted inside the factory; we only inject a
@@ -587,18 +607,12 @@ export async function startServer(opts = {}) {
 
     if (req.method === 'GET' && pathname === '/status') {
       const sessions = listSessions();
-      let pending = [];
-      if (Date.now() - pendingCache.ts < PENDING_CACHE_TTL_MS) {
-        pending = pendingCache.data;
-      } else {
-        try {
-          pending = await provider.listPendingTasks();
-          pendingCache = { data: pending, ts: Date.now() };
-        } catch (err) {
-          console.warn(`[kodo] listPendingTasks failed: ${err.message}`);
-          pending = pendingCache.data;
-        }
-      }
+      // Phase 76 (ORCH-05/ORCH-06): the converged pending read lane. The resolver never
+      // throws; a stale result (TTL expired + provider down) is LABELED, not served as
+      // fresh. The warn is generic — no payload, no err.message (D-02 / Pitfall 1 / T-76-01).
+      const pendingResult = await pendingResolver.resolve();
+      if (pendingResult.stale) console.warn('[kodo] listPendingTasks stale — serving last-known-good');
+      const pendingFields = buildPendingStatusFields(pendingResult);
 
       // Enrich sessions with elapsed_min + provider_state. `alive` is the authoritative
       // value written by reconcileTick into state.json (única fuente de verdad, D-04);
@@ -648,8 +662,7 @@ export async function startServer(opts = {}) {
       res.end(JSON.stringify({
         sessions: enriched,
         count: enriched.length,
-        pending: pending.map((t) => ({ ref: t.ref, title: t.title, url: t.url, state: t.state, projectName: t.projectName })),
-        pending_count: pending.length,
+        ...pendingFields,
         history: fullHistory.slice(0, 10),
         metrics: {
           total_closed: fullHistory.length,
