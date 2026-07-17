@@ -13,6 +13,7 @@ import {
   findSessionBlock,
   hasSessionHandoff,
   extractNext,
+  stripHandoffMarker,
 } from '../../src/session/handoff.js';
 
 /**
@@ -360,5 +361,41 @@ describe('handoff: extractNext (D-02 — una línea, primera, truncada a 200)', 
     assert.equal(hasSessionHandoff(md, 's-9'), true, 'el parser reconoce lo que el writer produjo');
     assert.equal(hasSessionHandoff(md, 's-8'), false);
     assert.equal(extractNext(findSessionBlock(md, 's-9')), null, 'el bloque mecánico no lleva NEXT:');
+  });
+});
+
+describe('handoff: stripHandoffMarker (D-06 — dueño único del contrato, marcador invisible en la 75)', () => {
+  it('elimina el marcador de un heading de handoff y hace trimEnd', () => {
+    const line =
+      '## Handoff 2026-07-17 <!-- kodo:handoff v=1 session=abc author=auto at=2026-07-17T10:00:00.000Z -->';
+    assert.equal(stripHandoffMarker(line), '## Handoff 2026-07-17');
+  });
+
+  it('una línea SIN marcador queda intacta (idéntica)', () => {
+    const line = '## Un heading normal sin marcador';
+    assert.equal(stripHandoffMarker(line), line);
+  });
+
+  it('un marcador SIN cerrar (open sin close) queda intacto (conservador)', () => {
+    const line = '## Handoff 2026-07-17 <!-- kodo:handoff v=1 session=abc author=auto';
+    assert.equal(stripHandoffMarker(line), line);
+  });
+
+  it('never-throws: entrada no-string → cadena vacía', () => {
+    assert.equal(stripHandoffMarker(null), '');
+    assert.equal(stripHandoffMarker(undefined), '');
+    assert.equal(stripHandoffMarker(42), '');
+    assert.equal(stripHandoffMarker({}), '');
+  });
+
+  it('el contrato del writer cierra con el strip: buildHandoffBlock → stripHandoffMarker deja el heading limpio', () => {
+    // ROUND-TRIP: lo que la 74 escribe con marcador, la 75 lo pinta sin él (D-06).
+    const at = new Date(2026, 0, 5, 3, 7, 0);
+    const block = buildHandoffBlock({ sessionId: 's-9', reason: 'logout', status: 'running', at });
+    const heading = block.split('\n')[0];
+    const stripped = stripHandoffMarker(heading);
+    assert.ok(!stripped.includes('<!-- kodo:handoff'), 'el marcador desaparece del heading');
+    assert.ok(stripped.startsWith('## Handoff '), 'el texto legible del heading se preserva');
+    assert.ok(stripped.endsWith('automático'), 'trimEnd deja el heading sin espacio colgante');
   });
 });
