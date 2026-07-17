@@ -77,8 +77,8 @@ TUI, surface del handoff en el overlay GSD (rompería D-02 LOCKED), endpoint nue
   `<Text>` — jamás picocolors (color isolation, `test/format-isolation.test.js` escanea
   `src/cli/dashboard/**`).
 
-- **D-06: Strip de los marcadores `<!-- kodo:handoff … -->`** — el render nuevo elimina/oculta el
-  marcador HTML del heading de handoff. Esto **cumple la promesa de invisibilidad** que la 74
+- **D-06: Strip de los marcadores de handoff** — el render nuevo elimina/oculta el
+  marcador HTML `<!-- kodo:handoff … -->` del heading de handoff. Esto **cumple la promesa de invisibilidad** que la 74
   documentó como deuda de esta fase (corrección post-research de 74 D-01: «la Phase 75 debe saber
   que su renderizador es lo que hace cierta la promesa de invisibilidad»). El strip usa el
   conocimiento del contrato de `src/session/handoff.js` — no una regex ad-hoc divergente (74 D-13:
@@ -93,7 +93,7 @@ TUI, surface del handoff en el overlay GSD (rompería D-02 LOCKED), endpoint nue
 
 ### Nudge con contexto (LIVE-07)
 
-- **D-08: `buildStopNudgeText` gana un parámetro opcional con el `NEXT:`** — la función sigue pura
+- **D-08: `buildStopNudgeText` gana un parámetro opcional con el `NEXT`** — la función sigue pura
   (cero I/O); `session-end.js` (bloque «3. Nudge al orquestador», `:243-253`) le threadea el valor
   que quedó **persistido en `state.tasks`** para esa tarea tras el paso de handoff (`:123-128`),
   heredando la semántica asimétrica de `upsertTaskHandoff` (si esta sesión no dejó `NEXT:` pero la
@@ -108,7 +108,7 @@ TUI, surface del handoff en el overlay GSD (rompería D-02 LOCKED), endpoint nue
   convención de escape `\\n` (D-04 Phase 10). Sin `NEXT:` → el texto actual queda **byte-idéntico**
   (degradación limpia del criterio 5, y los tests existentes del nudge no se rompen).
 
-- **D-10: El nudge con `NEXT:` aplica a TODOS los modos (quick/full/no-GSD)** — grounded en
+- **D-10: El nudge con `NEXT` aplica a TODOS los modos (quick/full/no-GSD)** — grounded en
   REQUIREMENTS §Out of Scope: el handoff GSD «sí alimenta el nudge — solo no se pinta en el
   overlay». D-02 restringe el *pintado*, no el nudge.
 

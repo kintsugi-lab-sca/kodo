@@ -180,9 +180,15 @@ Plans:
   5. Sin `NEXT:` (tarea recién creada, handoff mecánico sin `NEXT:`, plan ausente o ilegible), el dashboard y el nudge degradan limpio — celda vacía y nudge sin contexto, TUI never-throws, cero ruido.
 
 **Plans**: 3 plans (2 olas)
+**Wave 1**
+
 - [ ] 75-01-PLAN.md — LIVE-05: columna condicional `next` en la tabla, leída de `state.json` por un reader leaf filesystem (piggyback poll) [Wave 1]
 - [ ] 75-02-PLAN.md — LIVE-07: nudge del orquestador con el `NEXT:` persistido (buildStopNudgeText + threading post-asimetría), byte-idéntico sin dato [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 75-03-PLAN.md — LIVE-06: overlay del plan ligero renderizado (mini-renderer line-based + `stripHandoffMarker`), GSD byte-idéntico [Wave 2, depende de 75-01]
+
 **UI hint**: yes
 
 ### Phase 76: Convergencia del conteo `pending`

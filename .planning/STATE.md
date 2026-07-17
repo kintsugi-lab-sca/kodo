@@ -5,8 +5,8 @@ milestone_name: Plan vivo por-tarea
 current_phase: 75
 current_phase_name: Superficie del NEXT — dashboard y nudge
 status: ready_to_discuss
-stopped_at: Phase 75 context gathered
-last_updated: "2026-07-17T09:36:28.312Z"
+stopped_at: Phase 75 UI-SPEC approved
+last_updated: "2026-07-17T09:53:49.103Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 77 complete (UAT 5/5, verificación passed, threat-secure)
 progress:
@@ -116,10 +116,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Resume file:** .planning/phases/75-superficie-del-next-dashboard-y-nudge/75-CONTEXT.md
+**Resume file:** .planning/phases/75-superficie-del-next-dashboard-y-nudge/75-UI-SPEC.md
 
-- **Last session:** 2026-07-17T09:36:28.305Z
-- **Stopped at:** Phase 75 context gathered
+- **Last session:** 2026-07-17T09:53:49.095Z
+- **Stopped at:** Phase 75 UI-SPEC approved
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
