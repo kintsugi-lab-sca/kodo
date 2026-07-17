@@ -21,6 +21,7 @@ import {
   rowCells,
   taskCell,
   progCell,
+  nextCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
 import { stripControlChars } from '../src/cli/format.js';
@@ -452,5 +453,44 @@ describe('HYG-07 (Task 2): la proyección de comentarios sanea las tres ramas', 
   it('un comentario normal se proyecta intacto (con prefijo de autor)', () => {
     const [line] = projectComments([{ author: 'ana', body: 'hola qué tal' }]);
     assert.equal(line, 'ana: hola qué tal', `comentario normal intacto, fue ${JSON.stringify(line)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 75 Plan 01 (LIVE-05; D-04/SC5): nextCell proyecta la celda `next` desde
+// session.next (el NEXT: por tarea mergeado por task_id). Celda vacía sin placeholder.
+// ---------------------------------------------------------------------------
+
+describe('LIVE-05 (SC5): nextCell proyecta el NEXT: por tarea a la celda next', () => {
+  it('next string no-vacío → el string verbatim', () => {
+    assert.equal(nextCell({ next: 'Escribir el test RED' }), 'Escribir el test RED');
+  });
+
+  it('next null/undefined/"" → "" (celda vacía, sin placeholder, SC5)', () => {
+    assert.equal(nextCell({ next: null }), '');
+    assert.equal(nextCell({ next: undefined }), '');
+    assert.equal(nextCell({ next: '' }), '');
+    assert.equal(nextCell({}), '');
+  });
+
+  it('next no-string (número/objeto malformado) → "" (never-throws)', () => {
+    // @ts-expect-error modelamos dato malformado
+    assert.equal(nextCell({ next: 42 }), '');
+    // @ts-expect-error modelamos dato malformado
+    assert.equal(nextCell({ next: {} }), '');
+  });
+
+  it('rowCells(session).next === nextCell(session) y va como última clave (tras age)', () => {
+    const session = { task_ref: 'KL-1', project_name: 'kodo', status: 'running', elapsed_min: 3, next: 'siguiente paso' };
+    const cells = rowCells(session);
+    assert.equal(cells.next, nextCell(session), 'rowCells().next === nextCell()');
+    const keys = Object.keys(cells);
+    assert.equal(keys[keys.length - 1], 'next', `next debe ser la última clave, orden fue ${keys.join(',')}`);
+    assert.ok(keys.indexOf('next') > keys.indexOf('age'), 'next va DESPUÉS de age (D-04)');
+  });
+
+  it('rowCells sin next → celda "" (degradación limpia)', () => {
+    const cells = rowCells({ task_ref: 'KL-2', project_name: 'kodo', status: 'done', elapsed_min: 1 });
+    assert.equal(cells.next, '', 'sin next → celda vacía');
   });
 });

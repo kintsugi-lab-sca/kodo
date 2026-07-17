@@ -23,6 +23,7 @@ import {
   grepLogs,
   deriveAnyGsd,
   deriveAnyProgress,
+  deriveAnyNext,
 } from '../src/cli/dashboard/select.js';
 
 import { deriveRepo } from '../src/cli/dashboard/format.js';
@@ -461,5 +462,38 @@ describe('PROG-03 (D-06): deriveAnyProgress flag estructural de presencia de pro
     const filtered = applyFilter(full, parseFilter('s:dead'), () => '');
     assert.equal(deriveAnyProgress(filtered), false, 'el filtro elimina la fila con progreso del subconjunto');
     assert.equal(deriveAnyProgress(full), true, 'sobre el set completo sigue siendo true (columna estructural)');
+  });
+});
+
+// Phase 75 Plan 01 (LIVE-05; D-03/RESEARCH Pitfall 4): deriveAnyNext.
+// Flag estructural de presencia de NEXT: — espejo LITERAL de deriveAnyProgress.
+
+describe('LIVE-05 (D-03): deriveAnyNext flag estructural de presencia de NEXT:', () => {
+  it('Test 1: true cuando ≥1 fila tiene next string no-vacío', () => {
+    assert.equal(deriveAnyNext([{ next: 'Escribir el test RED' }, { next: null }]), true);
+    assert.equal(deriveAnyNext([{ next: '' }, { next: 'algo' }]), true);
+  });
+
+  it('Test 2: false cuando NINGUNA fila tiene next no-vacío', () => {
+    assert.equal(deriveAnyNext([{ next: null }, {}]), false);
+    assert.equal(deriveAnyNext([{ next: '' }, { next: undefined }]), false);
+    assert.equal(deriveAnyNext([]), false);
+  });
+
+  it('Test 3: un next no-string (número/objeto) NO cuenta', () => {
+    // @ts-expect-error modelamos dato malformado
+    assert.equal(deriveAnyNext([{ next: 42 }, { next: {} }]), false);
+  });
+
+  it('RESEARCH Pitfall 4: se deriva sobre el set SIN filtrar — la columna next no parpadea bajo `/`', () => {
+    // Espejo del test de deriveAnyProgress: si se derivara de `filtered`, la columna
+    // desaparecería al teclear una query que oculta las filas con NEXT:.
+    const full = [
+      { task_id: 'withnext', next: 'siguiente paso', state: 'running' },
+      { task_id: 'plain', next: '', state: 'dead' },
+    ];
+    const filtered = applyFilter(full, parseFilter('s:dead'), () => '');
+    assert.equal(deriveAnyNext(filtered), false, 'el filtro elimina la fila con next del subconjunto');
+    assert.equal(deriveAnyNext(full), true, 'sobre el set completo sigue siendo true (columna estructural)');
   });
 });
