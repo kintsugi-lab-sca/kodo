@@ -34,24 +34,42 @@ const STDIN_TIMEOUT = 3000;
  *
  * Idioma: español (D-16 Phase 10).
  *
+ * Phase 75 LIVE-07 (D-08/D-09/D-10): 2º parámetro OPCIONAL `next`. Cuando la tarea
+ * tiene un `NEXT:` persistido (threadeado por session-end.js, NUNCA leído aquí — la
+ * función sigue PURA, cero I/O, D-08), se añade UNA línea ES al final del texto
+ * por-modo, en los TRES modos (quick/full/no-GSD, D-10). Sin `next` (null / '' /
+ * undefined / no-string) el texto queda BYTE-IDÉNTICO al de cada rama original —
+ * degradación limpia que protege la no-regresión de los tests por-modo (D-09).
+ *
  * @param {import('../session/state.js').Session} session
+ * @param {string|null} [next] NEXT: persistido de la tarea (post-asimetría). Falsy → sin línea.
  * @returns {string}
  */
-export function buildStopNudgeText(session) {
+export function buildStopNudgeText(session, next) {
   const base = `La sesión ${session.task_ref} (${session.summary}) ha terminado y está en Review.`;
+  let text;
   switch (getSessionMode(session)) {
     case 'quick':
       // D-08: texto ES, NO sugiere verify. Escape literal `\\n` preservado (D-04 Phase 10).
-      return `${base} Es una sesión GSD quick (one-shot, sin VERIFICATION.md). Revísala manualmente como cualquier sesión no-GSD.\\n`;
+      text = `${base} Es una sesión GSD quick (one-shot, sin VERIFICATION.md). Revísala manualmente como cualquier sesión no-GSD.\\n`;
+      break;
     case 'full': {
       // Texto Phase 10 D-04 preservado verbatim.
       const phaseLabel = session.phase_id ? `fase ${session.phase_id}` : 'bootstrap';
-      return `${base} Es una sesión GSD (${phaseLabel}). Ejecuta \`kodo gsd verify ${session.session_id}\` y actúa según el verdict.\\n`;
+      text = `${base} Es una sesión GSD (${phaseLabel}). Ejecuta \`kodo gsd verify ${session.session_id}\` y actúa según el verdict.\\n`;
+      break;
     }
     default:
       // null → sesión no-GSD. Texto original preservado.
-      return `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`;
+      text = `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`;
   }
+  // LIVE-07: con un NEXT: persistido, una única línea ES al final (los 3 modos, D-10).
+  // Guard estricto `typeof === 'string' && length > 0`: null/''/undefined/no-string
+  // NO añaden nada → `text` queda byte-idéntico a la rama original (D-09).
+  if (typeof next === 'string' && next.length > 0) {
+    text += `Siguiente paso sugerido por la sesión: ${next}\\n`;
+  }
+  return text;
 }
 
 async function readStdin() {
