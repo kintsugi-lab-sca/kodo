@@ -115,6 +115,8 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Validated
 
+- ✓ `/status` y `kodo check` derivan `pending_count` de la misma fuente (`src/tasks/pending.js`, hoja de cero imports con factory DI+TTL; check fresco vía `fetchFreshPending`, server vía resolver TTL 30s) — v0.17 Phase 76 (ORCH-05)
+- ✓ Con el provider caído `/status` jamás sirve un conteo caducado como fresco: resultado discriminado `{tasks, fetched_at, stale}` + campos aditivos `pending_stale`/`pending_fetched_at` (cold-start caído → `[]`/`null`/`true`), HTML marca «Candidatas» stale — v0.17 Phase 76 (ORCH-06)
 - ✓ El dashboard TUI muestra el `NEXT:` por tarea en columna condicional leída de `state.json` (reader leaf never-throws, 1 fichero/tick, cero endpoints nuevos) — v0.17 Phase 75 (LIVE-05)
 - ✓ El plan ligero se abre renderizado read-only desde la fila `phaseId == null` (mini-renderer line-based in-house, marcador `kodo:handoff` invisible, rama GSD byte-idéntica) — v0.17 Phase 75 (LIVE-06)
 - ✓ El nudge del orquestador usa el `NEXT:` persistido como contexto («Siguiente paso sugerido por la sesión: …»), byte-idéntico sin dato — v0.17 Phase 75 (LIVE-07)
