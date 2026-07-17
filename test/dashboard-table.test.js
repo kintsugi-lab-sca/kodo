@@ -33,6 +33,8 @@ import App, {
 // Phase 38 Plan 03: pure-function units del render multi-estado (badges + filtros).
 import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/format.js';
 import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
+// Phase 75 Plan 01 (LIVE-05): render directo de SessionTable para la columna condicional `next`.
+import SessionTable from '../src/cli/dashboard/SessionTable.js';
 
 /**
  * Fake clock con un `schedule` determinista para el RE-ARME del tick del loop de polling que
@@ -907,6 +909,135 @@ describe("TUI-15: overlay 'unsupported' — supported:false → mensaje distinto
         new RegExp(OVERLAY_COMMENTS_UNSUPPORTED),
         `vacío NO debe mostrar el copy unsupported\n${frame}`,
       );
+    } finally {
+      unmount();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 75 Plan 01 (LIVE-05; D-03/D-04/T-75-01): columna condicional `next` (NEXT: por tarea).
+// (A) render DIRECTO de SessionTable para la presencia/ausencia condicional de la columna.
+// (B) render de App con readTasksFn inyectado para el merge por task_id y el saneo del contenido LLM.
+// ---------------------------------------------------------------------------
+
+const NEXT_COUNTS = { running: 0, review: 0, done: 0, error: 0, zombie: 0 };
+
+function renderTable(extra) {
+  return render(
+    createElement(SessionTable, {
+      selectedIndex: 0,
+      counts: NEXT_COUNTS,
+      connected: true,
+      lastGoodCount: 0,
+      lastGoodAt: 1,
+      lastAttemptAt: 1,
+      mode: 'list',
+      ...extra,
+    }),
+  );
+}
+
+describe('LIVE-05 (D-03/D-04): columna condicional `next` en SessionTable', () => {
+  it('anyNext=true con ≥1 fila con next → header `next` y la celda con el valor aparecen', () => {
+    const rows = [
+      { task_id: 'a', task_ref: 'KL-1', status: 'running', alive: true, elapsed_min: 5, next: 'Escribir el test RED' },
+      { task_id: 'b', task_ref: 'KL-2', status: 'done', alive: true, elapsed_min: 1, next: null },
+    ];
+    const { lastFrame, unmount } = renderTable({ rows, anyNext: true });
+    try {
+      const frame = lastFrame();
+      assert.match(frame, /next/, `el header 'next' debe emitirse con anyNext=true\n${frame}`);
+      assert.match(frame, /Escribir el test RED/, `la celda next debe mostrar el valor\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('anyNext=false (ninguna fila con next) → ni el header `next` ni la celda se emiten', () => {
+    const rows = [
+      { task_id: 'a', task_ref: 'KL-1', status: 'running', alive: true, elapsed_min: 5, next: null },
+      { task_id: 'b', task_ref: 'KL-2', status: 'done', alive: true, elapsed_min: 1, next: '' },
+    ];
+    const { lastFrame, unmount } = renderTable({ rows, anyNext: false });
+    try {
+      const frame = lastFrame();
+      // El header 'next' no debe aparecer como columna (los task_ref/repo/status siguen ahí).
+      assert.doesNotMatch(frame, /\bnext\b/, `el header 'next' NO debe emitirse con anyNext=false\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('el valor next largo se trunca a la columna con ellipsis nativo `…` (D-04, Pitfall 6)', () => {
+    const longNext = 'x'.repeat(120); // > COLS.next (40) → debe truncar
+    const rows = [
+      { task_id: 'a', task_ref: 'KL-1', status: 'running', alive: true, elapsed_min: 5, next: longNext },
+    ];
+    const { lastFrame, unmount } = renderTable({ rows, anyNext: true });
+    try {
+      const frame = lastFrame();
+      assert.match(frame, /…/, `un next > 40 chars debe truncar con ellipsis nativo\n${frame}`);
+      assert.doesNotMatch(frame, new RegExp(longNext), 'el valor completo NO debe pintarse sin truncar');
+    } finally {
+      unmount();
+    }
+  });
+});
+
+describe('LIVE-05 (T-75-01): enrich por tick — merge por task_id + saneo del contenido LLM', () => {
+  it('(d) el enrich mergea el next por task_id desde readTasksFn → la columna aparece con el dato', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+    // readTasksFn inyectado (aísla el ~/.kodo real): el next se mergea por task_id ('a' → KL-1).
+    const readTasksFn = () => ({ a: { plan_path: 'p', next: 'siguiente paso concreto', updated_at: 'u' } });
+
+    const { lastFrame, unmount } = render(
+      createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
+    );
+    try {
+      await drain();
+      const frame = lastFrame();
+      assert.match(frame, /siguiente paso concreto/, `el next de la tarea 'a' debe pintarse en la fila KL-1\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('(c) un next con caracteres de control se sanea (stripControlChars) ANTES de pintarse', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+    const ESC = String.fromCharCode(0x1b);
+    const BEL = String.fromCharCode(0x07);
+    // OSC-52 injection embebido en el next (contenido LLM de state.json).
+    const readTasksFn = () => ({ a: { plan_path: 'p', next: `${ESC}]52;c;AAAA${BEL}payload`, updated_at: 'u' } });
+
+    const { lastFrame, unmount } = render(
+      createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
+    );
+    try {
+      await drain();
+      const frame = lastFrame();
+      assert.equal(frame.includes(ESC), false, `el next saneado NO debe contener ESC\n${JSON.stringify(frame)}`);
+      assert.equal(frame.includes(BEL), false, `el next saneado NO debe contener BEL\n${JSON.stringify(frame)}`);
+      assert.match(frame, /payload/, `el texto visible del next se conserva tras el saneo\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('sin datos en readTasksFn (default de FIXTURE) → columna next ausente (degradación limpia SC5)', async () => {
+    const clock = makeFakeClock();
+    const fetchFn = async () => okResponse(FIXTURE);
+    const readTasksFn = () => ({}); // ninguna tarea con next → columna oculta
+
+    const { lastFrame, unmount } = render(
+      createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
+    );
+    try {
+      await drain();
+      const frame = lastFrame();
+      assert.doesNotMatch(frame, /\bnext\b/, `sin next en ninguna fila la columna no se renderiza\n${frame}`);
     } finally {
       unmount();
     }

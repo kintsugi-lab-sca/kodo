@@ -92,7 +92,10 @@ import { getProjectPath, getModuleMap } from '../../projects-shape.js';
 // → orden `status → prog → task → age`. width 7: aloja `N/M✓` en el peor caso de dobles dígitos
 // (`12/15✓` = 6 chars) con padding visible; reserva el sufijo `✓` (D-07). `truncate-end` nativo de
 // ink es la red de seguridad anti-DoS (T-50-cell-dos: un n/m absurdo se trunca, no desborda).
-const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7 };
+// Phase 75 D-04 (LIVE-05): columna condicional `next` (NEXT: por tarea) al FINAL, tras `age`.
+// width 40: aloja un NEXT: legible; el `truncate:true` da el ellipsis nativo `…` de ink (doble
+// acotado con el cap de 200 chars que ya trae state.json — Pitfall 6, red anti-DoS de celda).
+const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7, next: 40 };
 
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
@@ -813,6 +816,7 @@ export default function SessionTable({
   hasQuery = false,
   anyGsd = true,
   anyProgress = false,
+  anyNext = false,
   mode = 'list',
   query = '',
   focusError = null,
@@ -997,6 +1001,9 @@ export default function SessionTable({
     // Phase 43 D-03: cabecera de la columna provider entre `status` y `age`, label literal `task`.
     h(Box, { width: COLS.task }, h(Text, { dimColor: true }, 'task')),
     h(Box, { width: COLS.age }, h(Text, { dimColor: true }, 'age')),
+    // Phase 75 D-03 (LIVE-05): cabecera `next` condicional al FINAL, tras `age`. Solo se emite si
+    // ALGUNA sesión tiene un NEXT: (anyNext); si no, se omite y ink recupera el ancho vía flex.
+    ...(anyNext ? [h(Box, { width: COLS.next }, h(Text, { dimColor: true }, 'next'))] : []),
   );
 
   // (4) Filas de datos. React key = task_id (NUNCA índice — Pitfall 7).
@@ -1057,6 +1064,13 @@ export default function SessionTable({
       // ellipsis nativo `…` si el provider_state desborda los 12 chars (D-08 red de seguridad).
       cell({ width: COLS.task, text: cells.task.text, dim: cells.task.dim, bold: selected, truncate: true }),
       cell({ width: COLS.age, text: cells.age, bold: selected, truncate: false }),
+      // Phase 75 D-04 (LIVE-05): celda `next` condicional al FINAL. Texto plano SIN color propio
+      // (color-isolation D-12; el NEXT: ya viene saneado por stripControlChars en el enrich de
+      // App.js). truncate:true → ellipsis nativo `…` (doble acotado con el cap de 200 de state.json,
+      // Pitfall 6). Se omite si !anyNext → ink recupera el ancho vía flex.
+      ...(anyNext
+        ? [cell({ width: COLS.next, text: cells.next, bold: selected, truncate: true })]
+        : []),
     );
   });
 

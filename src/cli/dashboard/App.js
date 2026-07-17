@@ -65,6 +65,7 @@ import {
   mapDismissResult,
   deriveAnyGsd,
   deriveAnyProgress,
+  deriveAnyNext,
   computeAdoptable,
   resolveProjectId,
 } from './select.js';
@@ -72,6 +73,7 @@ import { deriveRepo } from './format.js';
 import { stripControlChars } from '../format.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
+import { readTasks } from './tasks.js';
 import { existsSync } from 'node:fs';
 import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
@@ -499,6 +501,9 @@ export default function App({
   // KODO-10: IDs dispatch-enabled (config.providers.<provider>.projects). El overlay marca cada
   // fila dispatch vs solo-mapeado. Default vacío (sin info → ninguna fila se marca como dispatch).
   dispatchProjectIdsFn = () => [],
+  // Phase 75 (LIVE-05): reader del bloque `tasks` de ~/.kodo/state.json. Default = readTasks real
+  // (never-throws → {}); inyectable para aislar el HOME en tests (mismo patrón DI que fetchFn/loadConfigFn).
+  readTasksFn = readTasks,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -727,6 +732,11 @@ export default function App({
   // en el ref expone el último N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone
   // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
   const lastGood = progressLastGoodRef.current;
+  // Phase 75 (LIVE-05, D-02): lee el bloque `tasks` de ~/.kodo/state.json UNA vez por tick,
+  // piggyback sobre el tick de usePoll que ya refresca /status (cero loop nuevo, cero watcher).
+  // never-throws → {} (Pitfall 1: readTasks NO importa loadState, no escribe .bak). El NEXT: es
+  // dato de la TAREA (por task_id), no de la sesión; ausente → celda vacía.
+  const tasks = readTasksFn({});
   const enriched = sorted.map((rawRow) => {
     // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
     // columna task_ref; summary usado en filtro/plan y como task.title) pasa por
@@ -734,10 +744,18 @@ export default function App({
     // Neutraliza OSC-52/CSI/C1 antes de que cualquier consumidor downstream (rowCells, select,
     // readPlan) lo toque. Known-limitation: cmux.notify(body: session.summary) en session-end.js
     // NO se sanea aquí (fuera del render del dashboard, ver REVIEW WR-03).
+    // Phase 75 (LIVE-05, T-75-01): el NEXT: es dato de la TAREA (por task_id), no de la sesión.
+    // Se toma tasks[task_id]?.next SOLO si task_id es truthy; el contenido es LLM (state.json),
+    // así que pasa por stripControlChars — mismo saneo que task_ref/summary — cuando es string
+    // no vacío, neutralizando OSC-52/CSI/C1 ANTES de proyectarse a la celda. Cualquier otro caso
+    // (ausente / null / no-string) colapsa a null → celda vacía (nextCell → '').
+    const rawNext = rawRow.task_id ? tasks[rawRow.task_id]?.next : null;
+    const next = typeof rawNext === 'string' && rawNext.length > 0 ? stripControlChars(rawNext) : null;
     const row = {
       ...rawRow,
       ...(rawRow.task_ref != null ? { task_ref: stripControlChars(rawRow.task_ref) } : {}),
       ...(rawRow.summary != null ? { summary: stripControlChars(rawRow.summary) } : {}),
+      next,
     };
     const projectPath = row.project_path;
     const sessionId = row.session_id;
@@ -781,6 +799,9 @@ export default function App({
   // Phase 50 (PROG-03, D-06 / Pitfall 5): espejo de deriveAnyGsd — flag estructural sobre el set
   // SIN filtrar (`enriched`, no `filtered`). La columna `prog` no parpadea bajo `/`.
   const anyProgress = deriveAnyProgress(enriched);
+  // Phase 75 (LIVE-05, Pitfall 4): espejo de anyProgress — flag estructural sobre el set SIN
+  // filtrar (`enriched`, no `filtered`). La columna `next` no parpadea al teclear una query `/`.
+  const anyNext = deriveAnyNext(enriched);
   const filtered = applyFilter(enriched, parseFilter(query), deriveRepo);
   const sel = resolveSelection(filtered, selectedTaskId, prevIndexRef.current);
   const counts = countByStatus(filtered);
@@ -2025,6 +2046,7 @@ export default function App({
         hasQuery,
         anyGsd, // TUI-18 D-08: flag estructural GSD (sobre `sorted`, no `filtered`) → drop columna phase/mode
         anyProgress, // PROG-03 D-06: flag estructural progreso (sobre `enriched` sin filtrar) → drop columna prog
+        anyNext, // LIVE-05 Pitfall 4: flag estructural NEXT: (sobre `enriched` sin filtrar) → drop columna next
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)
