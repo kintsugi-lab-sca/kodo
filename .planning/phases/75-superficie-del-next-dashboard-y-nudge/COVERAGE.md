@@ -23,11 +23,11 @@ y el canal de nudge de cmux hacia el workspace del orquestador.
 |---|---|---|
 | Leer `state.json` clave `tasks` por filesystem directo (`readTasks`) | INTEGRATE | Carril elegido en D-01: la TUI ya lee el filesystem local (`plan.js`, `progress.js`); un reader leaf never-throws lee un solo fichero por tick de poll y colapsa fallo a `{}` (LIVE-05, SC1). |
 | Leer el plan ligero `~/.kodo/plans/<task_id>.md` (`readLightPlan`) | INTEGRATE | Carril existente (Phase 46, D-07). LIVE-06 extiende su RENDER, no su lectura; sigue priorizando GSD (D-02). |
-| Enviar el nudge por el canal existente `cmux send` al workspace `kodo-orchestrator` | INTEGRATE | Canal ya vivo (`session-end.js:243-254`); LIVE-07 solo añade +1 línea ES al texto por-modo (D-09). Cero canal nuevo. |
+| Enviar el nudge vía `cmux send` al workspace del orquestador | INTEGRATE | Canal ya vivo hacia `kodo-orchestrator` (`session-end.js:243-254`); LIVE-07 solo añade +1 línea ES al texto por-modo (D-09). Cero canal nuevo. |
 | Extender el payload de `GET /status` con `state.tasks` | OPT-OUT | D-01: se elige el carril filesystem; `/status` sirve `listSessions()` (`server.js:589`) y no debe tocarse. La limitación multi-nodo (dashboard remoto) queda como Deferred Idea de otro milestone. |
 | Añadir un endpoint nuevo en `src/server.js` para servir el `NEXT:` | OPT-OUT | Invariante cross-milestone «cero endpoints nuevos desde v0.10» + ROADMAP §Phase 75 SC1 («no aparece ningún endpoint nuevo en `src/server.js`»). El `NEXT:` viaja en `state.json`, que la TUI ya lee. |
 | Escribir/mutar `state.json` desde la capa de datos de la TUI | OPT-OUT | El reader es read-only puro; NUNCA `loadState()` (migra + escribe `.bak`, RESEARCH §Pitfall 1). El único escritor de `state.tasks` sigue siendo `upsertTaskHandoff` bajo `withStateLock`. |
-| Relectura de `state.json` desde `buildStopNudgeText`/el nudge para obtener el `NEXT:` | OPT-OUT | D-08: la función sigue pura (cero I/O); el hook threadea el valor ya persistido en memoria tras el upsert. Cero I/O extra. |
+| Releer `state.json` desde el nudge para obtener el `NEXT:` | OPT-OUT | D-08: `buildStopNudgeText` sigue pura (cero I/O); el hook threadea el valor ya persistido en memoria tras el upsert. Cero I/O extra. |
 | Nuevas dependencias npm (p. ej. `marked`/`ink-markdown` para el render) | OPT-OUT | Invariante «cero dependencias npm nuevas»: el mini-renderer (D-05) es in-house line-based. |
 
 ## Summary
