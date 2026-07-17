@@ -203,7 +203,16 @@ Plans:
   3. El operador y el orquestador distinguen **«0 pendientes»** de **«no se pudo saber»** — el fallo del provider es visible en la respuesta, no solo un `console.warn` en la consola del server. (ORCH-06)
   4. El arreglo no introduce endpoints nuevos ni un bus de invalidación por evento (fuera de alcance explícito): el comportamiento observable cambia sin rediseñar el `pendingCache`.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 76-01-PLAN.md — Módulo hoja `src/tasks/pending.js` (fetchFreshPending + createPendingResolver + buildPendingStatusFields) + unit tests + guard de aislamiento cero-imports (D-01..D-04, D-08, D-09) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 76-02-PLAN.md — Cablear /status al resolver (campos aditivos `pending_stale`/`pending_fetched_at` + marcador HTML) y check.js a fetchFreshPending byte-idéntico + contrato /status + guard de convergencia (D-05, D-06, D-07, D-09) [wave 2, depende de 76-01]
 
 ### Phase 77: Agrupación de workspaces en cmux
 
@@ -247,7 +256,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 74. Handoff acumulativo al cierre | 6/6 | In Progress|  |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
-| 76. Convergencia del conteo `pending` | 0/? | Not started | - |
+| 76. Convergencia del conteo `pending` | 0/2 | Not started | - |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
 
 ## Backlog
