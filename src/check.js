@@ -12,6 +12,7 @@ import { checkHealth, actOnHealth } from './session/health.js';
 import { initRegistry, getProvider } from './providers/registry.js';
 import { launchOrchestrator } from './orchestrator/launch.js';
 import { createFormatter } from './cli/format.js';
+import { fetchFreshPending } from './tasks/pending.js';
 
 /**
  * Pure helper: queries the configured provider for pending tasks and returns
@@ -34,7 +35,10 @@ export async function checkPendingTasks({ config, runningCount, getProviderFn, f
   try {
     const provider = getProviderFn(config.provider);
     await provider.init();
-    const pending = await provider.listPendingTasks();
+    // ORCH-05 (D-01): converge on the shared read lane. Consume fetchFreshPending in RAW
+    // mode (NOT the resolver) — it propagates the throw, so the try/catch below and its
+    // red error line stay byte-identical (D-07 / Pitfall 2).
+    const pending = await fetchFreshPending(() => provider.listPendingTasks());
     const available = config.claude.max_parallel - runningCount;
     if (pending.length > 0 && available > 0) {
       lines.push(
