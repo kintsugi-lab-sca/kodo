@@ -288,3 +288,31 @@ _(ORCH-05 salió del backlog: promovido a **Phase 76** en v0.17 con causa raíz 
   4. El enrutado a tarea/fase/config lo hace `gsd-capture`, no una reimplementación en kodo. (CAPT-04)
 
 **Plans**: TBD (no planificar aún)
+
+### Phase 999.3: Higiene del sidebar de cmux — `kodo sidebar doctor` + carril orquestador (candidata v0.18)
+
+**Origen**: conversación del operador 2026-07-20, tras cerrar Phase 76 y estrenar la agrupación de Phase 77 — fricción real: no se van a pre-crear grupos para cada módulo (caso vivo: sesiones de OptiAI sueltas porque no existía el grupo `ROMAN/OptiAI`).
+
+**Goal**: Quitar al humano (y al launch path) la carga de mantener el sidebar de cmux: un **doctor determinista** (`kodo sidebar doctor`, espejo del patrón `src/gsd/doctor.js` — `scan` + `execute`, dry-run / `--fix`, 0 tokens) detecta y corrige grupos que faltan (crear), workspaces sueltos con grupo esperado (add), grupos disueltos por cierre de su anchor (re-crear / `set-anchor`) y grupos vacíos (`ungroup`). El **orquestador lo invoca cuando está activo** (una línea en su checklist), y queda disponible como CLI manual.
+
+**Cambio de contrato consciente**: re-fronteriza GRP-04 — el launch path sigue SIN gestionar grupos (GRP-01..03 fail-open byte-idénticos), pero la gestión pasa a estar permitida en el carril doctor con allowlist. Resuelve de paso la frontera D-13 de Phase 77 (sesiones adoptadas y ya lanzadas también se agrupan).
+
+**Constraints de diseño (decididos en la conversación de origen, no re-discutir):**
+
+1. **Allowlist no destructivo**: `create`, `add`, `set-anchor`, `ungroup`. `workspace-group delete` NI SE CABLEA (cierra todos los workspaces del grupo) — guard source-hygiene que verifique su ausencia.
+2. **0 tokens**: lógica 100% determinista reutilizando `deriveExpectedGroupName` (`src/session/manager.js:143`) y `listWorkspaceGroups` (`src/cmux/client.js`); el LLM no decide nada. Puerta LLM solo si aparece ambigüedad real futura (YAGNI hoy).
+3. **El sidebar NO es trigger del orquestador**: la higiene va de piggyback en pases ya motivados por `kodo check` (stuck/review/pending). Consistencia eventual asumida: las sesiones aterrizan sueltas y se agrupan en el siguiente pase.
+4. **Política de anchor**: los grupos cmux se disuelven al cerrarse su anchor workspace (verificado en el help de cmux 2026-07-17); el doctor re-crea/re-ancla en el siguiente pase — auto-curación eventual. Candidato: `set-anchor` al miembro más longevo.
+
+**Requirement adicional (pedido explícito del operador 2026-07-20)**: actualizar el **skill de kodo** (`kodo-orchestrate`) y el **prompt del orquestador** (`src/orchestrator/prompt.md`) para (a) invocar `kodo sidebar doctor --fix` cuando el orquestador esté activo, y (b) **reconciliarlos con todos los últimos cambios de v0.17** que hoy no reflejan: handoff acumulativo + `NEXT:` en `state.json` (Phase 74), superficie del `NEXT:` en dashboard y nudge con contexto (Phase 75), `pending_stale`/`pending_fetched_at` en `/status` y convergencia con `kodo check` (Phase 76), agrupación `--group` de workspaces (Phase 77). Misma disciplina anti-deriva que HYG-08 aplicó al README en v0.16.
+
+**Tipo**: Feature + reconciliación documental. Bajo blast radius (módulo nuevo aislado + edición de prompt/skill; el launch path no se toca).
+**Depends on**: Phase 77 (shipped 2026-07-17).
+**Success Criteria** (what must be TRUE):
+
+  1. `kodo sidebar doctor` (dry-run) lista las acciones pendientes; `--fix` las ejecuta usando exclusivamente los verbos del allowlist; `delete` no aparece en el código (guard automático).
+  2. Con el orquestador activo, un sidebar con grupos faltantes o workspaces sueltos converge al estado agrupado en ≤1 pase, sin intervención humana.
+  3. El launch path queda byte-idéntico (GRP-01..03 intactos: `--group` solo si el grupo ya existe en el momento del lanzamiento, fail-open).
+  4. El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan el doctor y reflejan las features v0.17 — sin prometer features borradas ni omitir las nuevas.
+
+**Plans**: TBD (no planificar aún)
