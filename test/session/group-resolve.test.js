@@ -127,6 +127,35 @@ describe('deriveExpectedGroupName (D-01/D-02/D-08 · GRP-02)', () => {
       assert.equal(resolveWorkspaceGroup(fixtureLive, derived), null);
     });
   });
+
+  describe('identifier derivado colapsa a vacío → null (WR-01: nunca matchear grupo whitespace-only)', () => {
+    it("ref = '#7' → null (basename antes de # es '')", () => {
+      // '#7'.split('#')[0] === '' → identifier vacío, NO un nombre bogus que
+      // aterrice la tarea en un grupo arbitrario whitespace-only.
+      assert.equal(deriveExpectedGroupName(makeTask({ ref: '#7' }), '/x', '/x'), null);
+    });
+
+    it("ref = '-9' → null (strip trailing -dígitos deja '')", () => {
+      // '-9'.replace(/-\d+$/,'') === '' → identifier vacío → fail-open null.
+      assert.equal(deriveExpectedGroupName(makeTask({ ref: '-9' }), '/x', '/x'), null);
+    });
+  });
+
+  describe('trim del ref antes de derivar (IN-01: whitespace de borde no pierde el grupo)', () => {
+    it("ref = 'KODO-9 ' (trailing space) → 'KODO' (hoy devuelve 'KODO-9 ' porque /-\\d+$/ no matchea con el espacio)", () => {
+      assert.equal(
+        deriveExpectedGroupName(makeTask({ ref: 'KODO-9 ' }), '/klab/kodo', '/klab/kodo'),
+        'KODO',
+      );
+    });
+
+    it("ref = 'KODO-9' (limpio) → 'KODO' (no-regresión del caso base)", () => {
+      assert.equal(
+        deriveExpectedGroupName(makeTask({ ref: 'KODO-9' }), '/klab/kodo', '/klab/kodo'),
+        'KODO',
+      );
+    });
+  });
 });
 
 describe('resolveWorkspaceGroup (D-03/D-07 · GRP-01/GRP-03 capa 1)', () => {
@@ -178,6 +207,35 @@ describe('resolveWorkspaceGroup (D-03/D-07 · GRP-01/GRP-03 capa 1)', () => {
 
     it('expectedName null → null (contrato de entrada malformada, no matchea ningún name)', () => {
       assert.equal(resolveWorkspaceGroup(fixtureLive, null), null);
+    });
+  });
+
+  describe('IN-02: g.ref debe cumplir /^workspace_group:\\d+$/ (defensa contra forja de líneas de log)', () => {
+    it("ref con shape anómalo ('grupo-malo') → null aunque el name matchee", () => {
+      const g = { groups: [{ name: 'K', ref: 'grupo-malo' }] };
+      assert.equal(resolveWorkspaceGroup(g, 'K'), null);
+    });
+
+    it("ref con '\\n' embebido ('workspace_group:5\\ninject') → null (rechazo de inyección de log)", () => {
+      const g = { groups: [{ name: 'K', ref: 'workspace_group:5\ninject' }] };
+      assert.equal(resolveWorkspaceGroup(g, 'K'), null);
+    });
+
+    it("ref válido ('workspace_group:9') con name que matchea → devuelve el ref (no-regresión del shape correcto)", () => {
+      const g = { groups: [{ name: 'K', ref: 'workspace_group:9' }] };
+      assert.equal(resolveWorkspaceGroup(g, 'K'), 'workspace_group:9');
+    });
+  });
+
+  describe('WR-02: invariante Unicode NFC — name en NFD matchea expectedName en NFC (red de regresión)', () => {
+    it("name 'Trac\\u0327a' (NFD: c + cedilla combinante) vs expectedName 'Traça' (NFC) → devuelve el ref", () => {
+      // Diente WR-02: borrar `.normalize('NFC')` de manager.js (resolveWorkspaceGroup) pone
+      // este test ROJO — el name en NFD dejaría de normalizar al mismo target que el NFC.
+      const nameNFD = 'Trac' + '\u0327' + 'a'; // c + U+0327 (cedilla combinante) => forma NFD
+      const expectedNFC = 'Tra' + '\u00e7' + 'a'; // c-cedilla precompuesta (U+00E7) => forma NFC
+      assert.notEqual(nameNFD, expectedNFC); // distintos byte-a-byte antes de normalizar
+      const g = { groups: [{ name: nameNFD, ref: 'workspace_group:7' }] };
+      assert.equal(resolveWorkspaceGroup(g, expectedNFC), 'workspace_group:7');
     });
   });
 });
