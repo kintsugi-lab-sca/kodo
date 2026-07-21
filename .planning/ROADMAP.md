@@ -285,7 +285,7 @@ Plans:
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
 | 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
-| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 2/2 | In Progress|  |
+| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 2/2 | Complete    | 2026-07-22 |
 
 ## Backlog
 

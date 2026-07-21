@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 78
-current_phase_name: "Address tech debt: saneo del nudge (75/WR-01"
-status: verifying
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
+status: planning
 stopped_at: Completed 78-02-PLAN.md
-last_updated: "2026-07-21T23:38:19.722Z"
+last_updated: "2026-07-21T23:48:30.468Z"
 last_activity: 2026-07-22
-last_activity_desc: Phase 78 execution started
+last_activity_desc: Phase 78 complete, transitioned to Phase 999.1
 progress:
   total_phases: 5
   completed_phases: 5
@@ -32,11 +32,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 ## Current Position
 
-Phase: 78 (Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
+Plan: Not started
+Status: Ready to plan
 Progress: [██████████] 100%
-Last activity: 2026-07-22 — Phase 78 execution started
+Last activity: 2026-07-22 — Phase 78 complete, transitioned to Phase 999.1
 
 **Fases del milestone:**
 
