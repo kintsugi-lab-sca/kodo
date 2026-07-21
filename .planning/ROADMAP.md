@@ -269,12 +269,12 @@ Plans:
   4. `listWorkspaceGroups()` no se ejecuta cuando `expectedName` es null; el log de degradación incluye el motivo del error sin filtrar contenido de usuario (D-11). (77/IN-04+IN-03)
   5. El fixture live y los guards GRP-04/D-10 quedan intactos; el JSDoc `group?: string` alineado y el assert GRP-04 protegido contra reordenamiento. (77/IN-06+IN-05)
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1** *(los dos planes son ortogonales en ficheros — paralelizables)*
 
-- [ ] 78-01-PLAN.md — Saneo del nudge: `buildStopNudgeText` sanea los 3 campos LLM con `stripControlChars` (Opción 1, mantiene pureza) + regresión byte-idéntica D-09 [wave 1]
+- [x] 78-01-PLAN.md — Saneo del nudge: `buildStopNudgeText` sanea los 3 campos LLM con `stripControlChars` (Opción 1, mantiene pureza) + regresión byte-idéntica D-09 [wave 1]
 - [ ] 78-02-PLAN.md — Hardening de resolución de grupos cmux: WR-01/IN-01/IN-02/IN-04/IN-03 en manager.js + JSDoc IN-06 + tests WR-02/IN-05 [wave 1]
 
 ## Progreso (v0.17)
@@ -285,7 +285,7 @@ Plans:
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
 | 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
-| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 0/2 | Not started | — |
+| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 1/2 | In Progress|  |
 
 ## Backlog
 

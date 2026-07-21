@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 75
-current_phase_name: "Superficie del `NEXT:` — dashboard y nudge"
+current_phase: 78
+current_phase_name: "Address tech debt: saneo del nudge (75/WR-01"
 status: executing
-stopped_at: Completed 74-07-PLAN.md
-last_updated: "2026-07-21T23:26:29.934Z"
-last_activity: 2026-07-21
-last_activity_desc: Phase 74 complete, transitioned to Phase 75
+stopped_at: Completed 78-01-PLAN.md
+last_updated: "2026-07-21T23:31:34.715Z"
+last_activity: 2026-07-22
+last_activity_desc: Phase 78 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 17
+  completed_plans: 16
   percent: 80
 ---
 
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 74 — handoff-acumulativo-al-cierre
+**Current focus:** Phase 78 — Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
 
 ## Current Position
 
-Phase: 75 — Superficie del `NEXT:` — dashboard y nudge
-Plan: Not started
+Phase: 78 (Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Progress: [█████████░] 93%
-Last activity: 2026-07-21 — Phase 74 complete, transitioned to Phase 75
+Progress: [█████████░] 94%
+Last activity: 2026-07-22 — Phase 78 execution started
 
 **Fases del milestone:**
 
@@ -103,6 +103,8 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: [Phase 76-01]: fallo del fetch de pending sirve last-known-good etiquetado stale con fetched_at congelado al último éxito, nunca now() (ORCH-06, Pitfall 3); cold-start caído devuelve [] etiquetado stale, jamás presentado como fresco
 - [Phase ?]: 76-02: /status y check.js convergen en src/tasks/pending.js; frescura discriminada (pending_stale/pending_fetched_at) sin endpoints ni deps nuevas (ORCH-05/ORCH-06)
 - [Phase ?]: kodo doctor detecta deriva instalación↔settings de hooks (G-74-4) vía checkHookRegistration puro; KODO_HOOKS única fuente de verdad
+- [Phase ?]: [Phase 78-01]: saneo del nudge en Opción 1 (punto de composición buildStopNudgeText) — un diff cubre los 3 sinks LLM (task_ref/summary/next), mantiene la pureza y no toca session-end.js (threading handoffNext intacto)
+- [Phase ?]: [Phase 78-01]: import de stripControlChars desde ../cli/format.js NO viola format-isolation (el walker solo prohíbe picocolors directo) — 18/18 tests de isolation verdes
 
 ### Open Blockers
 
@@ -127,13 +129,13 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-21T08:55:31.414Z
+**Last session:** 2026-07-21T23:31:27.883Z
 
 **Resume file:** 
 
 None
 
-- **Stopped at:** Completed 74-07-PLAN.md
+- **Stopped at:** Completed 78-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -170,3 +172,4 @@ None
 | Phase 76 P01 | 9m | 3 tasks | 3 files |
 | Phase 76 P02 | 16min | 2 tasks | 5 files |
 | Phase 74 P07 | 18min | 2 tasks | 4 files |
+| Phase 78 P01 | 2min | 2 tasks | 2 files |
