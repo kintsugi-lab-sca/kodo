@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 74
-current_phase_name: handoff-acumulativo-al-cierre
-status: executing
+current_phase: 75
+current_phase_name: "Superficie del `NEXT:` — dashboard y nudge"
+status: planning
 stopped_at: Completed 74-07-PLAN.md
-last_updated: "2026-07-21T08:55:39.421Z"
+last_updated: "2026-07-21T10:20:47.847Z"
 last_activity: 2026-07-21
-last_activity_desc: Phase 74 execution started
+last_activity_desc: Phase 74 complete, transitioned to Phase 75
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
-  percent: 75
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -32,11 +32,11 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 ## Current Position
 
-Phase: 74 (handoff-acumulativo-al-cierre) — EXECUTING
-Plan: 2 of 8
-Status: Ready to execute
+Phase: 75 — Superficie del `NEXT:` — dashboard y nudge
+Plan: Not started
+Status: Ready to plan
 Progress: [█████████░] 93%
-Last activity: 2026-07-21 — Phase 74 execution started
+Last activity: 2026-07-21 — Phase 74 complete, transitioned to Phase 75
 
 **Fases del milestone:**
 

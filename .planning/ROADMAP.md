@@ -259,7 +259,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 74. Handoff acumulativo al cierre | 8/8 | In Progress|  |
+| 74. Handoff acumulativo al cierre | 8/8 | Complete    | 2026-07-21 |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
 | 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
