@@ -809,6 +809,20 @@ describe('manager.js source hygiene', () => {
       /group_skipped — resolucion_fallo/.test(source),
       'el catch de resolución debe loguear `group_skipped — resolucion_fallo` (D-11, sin user content)',
     );
+    // IN-04 (Phase 78): la llamada cmux `listWorkspaceGroups()` está GUARDADA por
+    // `if (expectedName)` — cuando no hay nombre esperado se evita la llamada
+    // garantizada-inútil. El guard debe englobar la llamada dentro del try.
+    assert.ok(
+      /if\s*\(\s*expectedName\s*\)\s*\{[\s\S]*?host\._legacy\.listWorkspaceGroups\(\)/.test(source),
+      'la llamada listWorkspaceGroups() debe vivir dentro de un guard `if (expectedName)` (IN-04)',
+    );
+    // IN-03 (Phase 78): el catch captura `err` y adjunta el motivo acotado al log.
+    assert.ok(
+      /catch\s*\(\s*err\s*\)[\s\S]*?String\(\s*err\?\.message\s*\)\.slice\(\s*0\s*,\s*80\s*\)/.test(
+        source,
+      ),
+      'el catch debe capturar `err` y loguear String(err?.message).slice(0,80) (IN-03)',
+    );
   });
 
   it('Phase 77 (D-10): el newWorkspace usa newWorkspaceWithGroupFallback con host._legacy.newWorkspace y groupRef', () => {
@@ -849,6 +863,14 @@ describe('manager.js source hygiene', () => {
     const start = source.indexOf('export function buildSessionFromTask');
     assert.ok(start >= 0, 'buildSessionFromTask debe existir');
     const end = source.indexOf('export function resolveProjectPath');
+    // IN-05 (Pitfall 4): el delimitador del slice debe seguir a buildSessionFromTask.
+    // Si un futuro reorden pone resolveProjectPath ANTES, `end` (-1 o < start) haría que
+    // `source.slice(start, end)` devuelva '' y el regex negativo pasaría VACUO con el
+    // guard apagado. Este assert va ANTES de usar `body`.
+    assert.ok(
+      end > start,
+      'resolveProjectPath debe seguir a buildSessionFromTask (delimitador del slice GRP-04)',
+    );
     const body = source.slice(start, end);
     assert.ok(
       !/\bgroup\w*\s*:/.test(body),

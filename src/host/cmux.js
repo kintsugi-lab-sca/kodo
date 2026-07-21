@@ -355,7 +355,7 @@ export function createCmuxHost(opts = {}) {
   // de los callers (la migración semántica al contrato D-03 la hacen 38-02/03/04).
   // El cliente se carga lazy vía import() — confinado a este archivo (SC#5).
   const _legacy = {
-    /** @param {{ name: string, cwd?: string, command?: string }} opts @returns {Promise<string>} */
+    /** @param {{ name: string, cwd?: string, command?: string, group?: string }} opts @returns {Promise<string>} */
     async newWorkspace(opts) {
       return (await import('../cmux/client.js')).newWorkspace(opts);
     },

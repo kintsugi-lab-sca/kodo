@@ -408,10 +408,18 @@ export async function launchWorkItem(identifier, opts = {}) {
   let groupRef = null;
   try {
     const expectedName = deriveExpectedGroupName(task, entry, projectPath);
-    const raw = await host._legacy.listWorkspaceGroups();
-    groupRef = resolveWorkspaceGroup(JSON.parse(raw), expectedName);
-  } catch {
-    console.log('[kodo] group_skipped — resolucion_fallo');
+    // IN-04: solo consultar cmux cuando HAY un nombre esperado. Con expectedName null
+    // (ref degenerado, proyecto sin identifier) la llamada `workspace-group list` es
+    // garantizada-inútil (~50ms/timeout por lanzamiento) → se evita tras el guard.
+    if (expectedName) {
+      const raw = await host._legacy.listWorkspaceGroups();
+      groupRef = resolveWorkspaceGroup(JSON.parse(raw), expectedName);
+    }
+  } catch (err) {
+    // IN-03: el motivo acotado hace diagnosticable la degradación. La causa viene de
+    // cmux / JSON.parse, NUNCA del título de tarea (D-11 preservado); slice(0,80)
+    // acota el ruido en el log.
+    console.log(`[kodo] group_skipped — resolucion_fallo: ${String(err?.message).slice(0, 80)}`);
   }
 
   const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
