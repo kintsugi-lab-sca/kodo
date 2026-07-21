@@ -141,9 +141,14 @@ export function deriveModuleName(task) {
  * @returns {string|null} nombre de grupo esperado (`"KODO"`, `"ROMAN/FVF"`) o `null` si `ref` degenerado
  */
 export function deriveExpectedGroupName(task, entry, resolvedPath) {
-  // Guarda de entrada degenerada — ref debe ser un string no-vacío (tras trim).
-  const ref = task && task.ref;
-  if (typeof ref !== 'string' || ref.trim() === '') return null;
+  // Guarda de entrada degenerada — ref debe ser un string; se DERIVA sobre el ref
+  // TRIMEADO (IN-01): un whitespace de borde (`"KODO-9 "`) ya no rompe el strip
+  // trailing -digits ni pierde el grupo. Se conserva el rechazo por tipo (number /
+  // object → null) para no coaccionar `42`/`{}` a un identifier bogus.
+  const rawRef = task && task.ref;
+  if (typeof rawRef !== 'string') return null;
+  const ref = rawRef.trim();
+  if (ref === '') return null;
 
   // Identifier humano desde task.ref — cross-provider, sin config en la función pura.
   //   Plane:  "KODO-9"    → "KODO"  (strip trailing -digits)
@@ -151,6 +156,11 @@ export function deriveExpectedGroupName(task, entry, resolvedPath) {
   const identifier = ref.includes('#')
     ? ref.split('#')[0].split('/').pop()
     : ref.replace(/-\d+$/, '');
+
+  // WR-01: si la derivación colapsa a vacío (`"#7"`→"", `"-9"`→""), fail-open a null.
+  // Un identifier `''` matchearía un grupo whitespace-only y aterrizaría la tarea en
+  // un grupo arbitrario — se rechaza antes de resolver.
+  if (!identifier || identifier.trim() === '') return null;
 
   const moduleName = deriveModuleName(task); // task.groups[0] || null
 
@@ -181,8 +191,17 @@ export function resolveWorkspaceGroup(groupsJson, expectedName) {
   if (typeof expectedName !== 'string') return null; // sin nombre válido no hay match
   const target = norm(expectedName);
   for (const g of groupsJson.groups) {
-    // first-match wins (D-03 empate); type-check por campo (never-throws).
-    if (g && typeof g.name === 'string' && typeof g.ref === 'string' && norm(g.name) === target) {
+    // first-match wins (D-03 empate); type-check por campo (never-throws). IN-02:
+    // el ref debe cumplir el shape canónico `workspace_group:N` — un ref anómalo de
+    // cmux (otro shape, con `\n` u otro carácter) se rechaza antes de devolverse/
+    // loguearse (defensa contra forja de líneas de log).
+    if (
+      g &&
+      typeof g.name === 'string' &&
+      typeof g.ref === 'string' &&
+      /^workspace_group:\d+$/.test(g.ref) &&
+      norm(g.name) === target
+    ) {
       return g.ref;
     }
   }
