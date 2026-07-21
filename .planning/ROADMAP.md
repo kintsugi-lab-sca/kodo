@@ -17,7 +17,7 @@
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
-- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-77 (in progress)
+- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-78 (in progress)
 
 > **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74.
 
@@ -29,6 +29,7 @@
 - [ ] **Phase 75: Superficie del `NEXT:` — dashboard y nudge** - El dashboard lista el `NEXT:` por tarea desde `state.json` y abre el plan completo renderizado en la rama `phaseId == null`; el nudge del orquestador usa el `NEXT:` como contexto — LIVE-05, LIVE-06, LIVE-07
 - [ ] **Phase 76: Convergencia del conteo `pending`** - `/status` y `kodo check` reportan el mismo `pending_count`, y con el provider caído `/status` deja de servir un conteo caducado como si fuera fresco — ORCH-05, ORCH-06
 - [ ] **Phase 77: Agrupación de workspaces en cmux** - Las sesiones que kodo lanza aterrizan en el grupo de la sidebar correspondiente a su path resuelto (vía `--group` en el `new-workspace` existente), con resolución nombre→ref en fresco y degradación fail-open; kodo no crea ni gestiona grupos — GRP-01..04
+- [ ] **Phase 78: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW** - Deuda técnica de cierre de v0.17: saneo del nudge (75/WR-01, cierra R-75-02) + 8 hallazgos accionables de 77-REVIEW — 2 planes paralelizables
 
 <details>
 <summary>✅ v0.16 Hardening (Phases 69-72) — SHIPPED 2026-07-15</summary>
@@ -255,6 +256,27 @@ Plans:
 
 - [x] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
 
+### Phase 78: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
+
+**Goal:** Saldar la deuda técnica de cierre de v0.17: sanear el contenido LLM del nudge del orquestador (los 3 campos `next`/`summary`/`task_ref`, cierra R-75-02) y endurecer la resolución de grupos cmux con red de regresión (8 hallazgos accionables de 77-REVIEW), sin cambio de comportamiento observable para inputs limpios ni dependencias nuevas.
+**Requirements**: 75/WR-01, 77/WR-01, 77/WR-02, 77/IN-01, 77/IN-02, 77/IN-03, 77/IN-04, 77/IN-05, 77/IN-06 (IDs de hallazgo — fase de deuda sin IDs de REQUIREMENTS.md; IN-07 LOCKED fuera de scope)
+**Depends on:** Phase 77
+**Success Criteria** (what must be TRUE):
+
+  1. El nudge del orquestador emite `next`/`summary`/`task_ref` pasados por `stripControlChars` — ninguna secuencia de escape de terminal sobrevive; para inputs limpios el texto queda byte-idéntico (D-09) y `buildStopNudgeText` sigue pura. (75/WR-01)
+  2. `deriveExpectedGroupName` deriva sobre el ref trimeado y devuelve null para refs que colapsan a identifier vacío (`'#7'`, `'-9'`); `'KODO-9 '` → match limpio. (77/WR-01+IN-01)
+  3. `resolveWorkspaceGroup` solo devuelve `g.ref` cuando cumple `/^workspace_group:\d+$/`, con red de regresión del invariante Unicode NFD↔NFC. (77/IN-02+WR-02)
+  4. `listWorkspaceGroups()` no se ejecuta cuando `expectedName` es null; el log de degradación incluye el motivo del error sin filtrar contenido de usuario (D-11). (77/IN-04+IN-03)
+  5. El fixture live y los guards GRP-04/D-10 quedan intactos; el JSDoc `group?: string` alineado y el assert GRP-04 protegido contra reordenamiento. (77/IN-06+IN-05)
+
+**Plans:** 2 plans
+
+Plans:
+**Wave 1** *(los dos planes son ortogonales en ficheros — paralelizables)*
+
+- [ ] 78-01-PLAN.md — Saneo del nudge: `buildStopNudgeText` sanea los 3 campos LLM con `stripControlChars` (Opción 1, mantiene pureza) + regresión byte-idéntica D-09 [wave 1]
+- [ ] 78-02-PLAN.md — Hardening de resolución de grupos cmux: WR-01/IN-01/IN-02/IN-04/IN-03 en manager.js + JSDoc IN-06 + tests WR-02/IN-05 [wave 1]
+
 ## Progreso (v0.17)
 
 | Phase | Plans Complete | Status | Completed |
@@ -263,6 +285,7 @@ Plans:
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
 | 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
+| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 0/2 | Not started | — |
 
 ## Backlog
 
