@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: resolved
 phase: 74-handoff-acumulativo-al-cierre
 source: [74-01-SUMMARY.md, 74-02-SUMMARY.md, 74-03-SUMMARY.md, 74-04-SUMMARY.md, 74-05-SUMMARY.md, 74-06-SUMMARY.md]
 started: 2026-07-20T09:25:42Z
-updated: 2026-07-21T00:00:00Z
+updated: 2026-07-21T10:21:00Z
 ---
 
 ## Current Test
@@ -68,7 +68,9 @@ blocked: 0
 
 - gap_id: G-74-4
   truth: "Tras un cierre real, ~/.kodo/state.json contiene state.tasks[<task_id>] con plan_path y next (LIVE-04 end-to-end)"
-  status: failed
+  status: resolved
+  resolved_by: "Planes 74-07 (detector de deriva hooks en `kodo doctor`, commits 88bcf72/74ddaa5/818fb2c/aeabb8f) + 74-08 (registro real de SessionEnd vía instalador idempotente, checkpoint aprobado por el operador). Verificado en vivo: state.tasks[a09d786f-…] poblado (updated_at 2026-07-21T10:04:30Z) y 2 eventos state.task.handoff_saved de sesión real d472a0fa-…. Re-verificación independiente del gsd-verifier: passed 5/5."
+  resolved_at: 2026-07-21
   reason: "User reported: no existe esa clave en ningún sitio dentro de /Users/alex/.kodo/state.json"
   severity: major
   test: 4
