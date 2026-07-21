@@ -27,6 +27,8 @@ import { join } from 'node:path';
 
 let installHooks;
 let uninstallHooks;
+let checkHookRegistration;
+let KODO_HOOKS;
 let SETTINGS_PATH;
 let tmpHome;
 let origHome;
@@ -40,6 +42,8 @@ before(async () => {
   const mod = await import('../../src/hooks/install.js');
   installHooks = mod.installHooks;
   uninstallHooks = mod.uninstallHooks;
+  checkHookRegistration = mod.checkHookRegistration;
+  KODO_HOOKS = mod.KODO_HOOKS;
 });
 
 after(() => {
@@ -188,5 +192,103 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
     const ss = commandsOf(readSettings().hooks, 'SessionStart');
     assert.ok(!ss.some((c) => c.includes('/src/hooks/session-start.js')), 'el hook kodo canónico se elimina');
     assert.ok(ss.includes(FOREIGN_KODO_CMD), 'el comando ajeno con "kodo" NO se elimina');
+  });
+});
+
+// ── checkHookRegistration — checker PURO de deriva instalación↔settings (Plan 74-07) ──
+//
+// El detector de G-74-4: dado el objeto settings PARSEADO (no I/O), devuelve qué hooks
+// canónicos de kodo están registrados y cuáles faltan, POR-EVENTO. Never-throws sobre
+// cualquier forma de settings malformado. Raíz del gap: SessionEnd ausente mientras
+// SessionStart/Stop presentes → un match laxo «hay algún hook de kodo» habría dado
+// falso verde; el chequeo mira el file específico de cada evento.
+describe('install.js — checkHookRegistration (deriva instalación↔settings, G-74-4)', () => {
+  /** Command canónico de kodo para un file de hook (ruta POSIX). */
+  const kodoCmd = (file) => `node "/Users/alex/dev/klab/kodo/src/hooks/${file}"`;
+  /** Un settings con los 3 hooks kodo bajo su evento correcto. */
+  const cleanSettings = () => ({
+    hooks: {
+      SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
+      Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
+      SessionEnd: [{ hooks: [{ type: 'command', command: kodoCmd('session-end.js') }] }],
+    },
+  });
+
+  it('KODO_HOOKS expone los 3 hooks canónicos en orden determinista', () => {
+    assert.deepEqual(KODO_HOOKS, [
+      { event: 'SessionStart', file: 'session-start.js' },
+      { event: 'Stop', file: 'stop.js' },
+      { event: 'SessionEnd', file: 'session-end.js' },
+    ]);
+  });
+
+  it('Los 3 hooks registrados → missing vacío, registered de longitud 3', () => {
+    const { registered, missing } = checkHookRegistration(cleanSettings());
+    assert.equal(missing.length, 0);
+    assert.equal(registered.length, 3);
+  });
+
+  it('Falta SessionEnd (solo SessionStart+Stop) → missing = solo SessionEnd (caso G-74-4)', () => {
+    const s = cleanSettings();
+    delete s.hooks.SessionEnd;
+    const { registered, missing } = checkHookRegistration(s);
+    assert.deepEqual(missing, [{ event: 'SessionEnd', file: 'session-end.js' }]);
+    assert.equal(registered.length, 2);
+  });
+
+  it('SessionEnd presente pero con command AJENO → SessionEnd sigue en missing', () => {
+    const s = cleanSettings();
+    s.hooks.SessionEnd = [{ hooks: [{ type: 'command', command: 'python codeisland-state.py' }] }];
+    const { missing } = checkHookRegistration(s);
+    assert.ok(missing.some((m) => m.event === 'SessionEnd'));
+    assert.ok(!missing.some((m) => m.event === 'SessionStart'));
+    assert.ok(!missing.some((m) => m.event === 'Stop'));
+  });
+
+  it('Match por-evento estricto: session-end.js bajo Stop NO cuenta como SessionEnd registrado', () => {
+    const s = cleanSettings();
+    delete s.hooks.SessionEnd;
+    // Un command de session-end.js colocado por error bajo Stop.
+    s.hooks.Stop.push({ hooks: [{ type: 'command', command: kodoCmd('session-end.js') }] });
+    const { missing } = checkHookRegistration(s);
+    assert.ok(missing.some((m) => m.event === 'SessionEnd'), 'SessionEnd sigue ausente');
+  });
+
+  it('Separador Windows: \\src\\hooks\\session-end.js cuenta como registrado', () => {
+    const s = cleanSettings();
+    s.hooks.SessionEnd = [
+      { hooks: [{ type: 'command', command: 'node "C:\\repos\\kodo\\src\\hooks\\session-end.js"' }] },
+    ];
+    const { missing } = checkHookRegistration(s);
+    assert.ok(!missing.some((m) => m.event === 'SessionEnd'), 'SessionEnd registrado vía separador Windows');
+  });
+
+  it('Un comando ajeno que menciona "kodo" en su ruta NO cuenta (B9)', () => {
+    const s = cleanSettings();
+    s.hooks.SessionEnd = [
+      { hooks: [{ type: 'command', command: 'node /home/user/kodo-notes/reminder.js' }] },
+    ];
+    const { missing } = checkHookRegistration(s);
+    assert.ok(missing.some((m) => m.event === 'SessionEnd'), 'el comando ajeno con "kodo" no registra SessionEnd');
+  });
+
+  it('Never-throws sobre settings malformado → los 3 en missing sin lanzar', () => {
+    const malformed = [
+      null,
+      undefined,
+      {},
+      { hooks: null },
+      { hooks: 'nope' },
+      { hooks: { SessionEnd: 'x' } }, // no-array
+      { hooks: { SessionEnd: [{ noHooksArray: true }] } }, // entry sin array hooks
+      { hooks: { SessionEnd: [{ hooks: [{ command: 42 }] }] } }, // command no-string
+      { hooks: { SessionEnd: [null, 'garbage', { hooks: [null] }] } },
+    ];
+    for (const settings of malformed) {
+      let result;
+      assert.doesNotThrow(() => { result = checkHookRegistration(settings); });
+      assert.equal(result.missing.length, 3, `los 3 en missing para ${JSON.stringify(settings)}`);
+      assert.equal(result.registered.length, 0);
+    }
   });
 });
