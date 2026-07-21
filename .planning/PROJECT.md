@@ -115,6 +115,8 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Validated
 
+- ✓ El nudge de cierre del orquestador sanea los 3 campos LLM (`next`/`summary`/`task_ref`) vía `stripControlChars` en `buildStopNudgeText` (pura, byte-idéntica para inputs limpios D-09); cierra el riesgo aceptado R-75-02 — v0.17 Phase 78 (75/WR-01)
+- ✓ Resolución de grupos cmux endurecida: trim + identifier vacío → null, shape guard `/^workspace_group:\d+$/`, red Unicode NFD↔NFC, guard `if (expectedName)` anti-llamada inútil, log de degradación con motivo (D-11), assert de slice no-vacuo, JSDoc `group?` — v0.17 Phase 78 (77-REVIEW WR-01/WR-02/IN-01..06; IN-07 LOCKED D-10)
 - ✓ `/status` y `kodo check` derivan `pending_count` de la misma fuente (`src/tasks/pending.js`, hoja de cero imports con factory DI+TTL; check fresco vía `fetchFreshPending`, server vía resolver TTL 30s) — v0.17 Phase 76 (ORCH-05)
 - ✓ Con el provider caído `/status` jamás sirve un conteo caducado como fresco: resultado discriminado `{tasks, fetched_at, stale}` + campos aditivos `pending_stale`/`pending_fetched_at` (cold-start caído → `[]`/`null`/`true`), HTML marca «Candidatas» stale — v0.17 Phase 76 (ORCH-06)
 - ✓ El dashboard TUI muestra el `NEXT:` por tarea en columna condicional leída de `state.json` (reader leaf never-throws, 1 fichero/tick, cero endpoints nuevos) — v0.17 Phase 75 (LIVE-05)
