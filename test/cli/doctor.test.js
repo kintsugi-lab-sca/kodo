@@ -17,6 +17,19 @@ function idFormatter() {
   return { ok: id, fail: id, yellow: id, red: id, cyan: id, dim: id, green: id, gray: id, info: id, warn: id, error: id, bold: id };
 }
 
+// Settings sintético con los 3 hooks kodo registrados bajo su evento correcto. Se
+// inyecta por defecto en makeSink() para que TODOS los tests existentes queden
+// HERMÉTICOS (dejan de leer el ~/.claude/settings.json real, que hoy tiene SessionEnd
+// ausente — el bug G-74-4 — y viraría sus exit codes a 1).
+const kodoCmd = (file) => `node "/repo/src/hooks/${file}"`;
+const CLEAN_SETTINGS = {
+  hooks: {
+    SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
+    Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
+    SessionEnd: [{ hooks: [{ type: 'command', command: kodoCmd('session-end.js') }] }],
+  },
+};
+
 function makeSink() {
   const out = { s: '', e: '' };
   return {
@@ -24,6 +37,7 @@ function makeSink() {
     writeFn: (x) => { out.s += x; },
     errFn: (x) => { out.e += x; },
     formatterFn: () => idFormatter(),
+    readSettingsFn: () => CLEAN_SETTINGS,
   };
 }
 
@@ -139,5 +153,82 @@ describe('runDoctor --states (check de estados por proyecto, red inyectada)', ()
     });
     assert.equal(code, 1);
     assert.match(sink.out.s, /ECONNREFUSED|no se pudo/i);
+  });
+});
+
+describe('runDoctor: sección hooks (deriva instalación↔settings, G-74-4)', () => {
+  // Settings SIN el SessionEnd de kodo (el escenario exacto de G-74-4): SessionStart y
+  // Stop presentes, SessionEnd solo con un command ajeno.
+  const SETTINGS_MISSING_SESSIONEND = {
+    hooks: {
+      SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
+      Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
+      SessionEnd: [{ hooks: [{ type: 'command', command: 'python codeisland-state.py' }] }],
+    },
+  };
+
+  it('los 3 hooks limpios + config alineada → exit 0 y render nombra los hooks limpios', async () => {
+    const sink = makeSink(); // readSettingsFn → CLEAN_SETTINGS
+    const code = await runDoctor({}, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink,
+    });
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /SessionStart|SessionEnd|hooks/i);
+  });
+
+  it('SessionEnd ausente → exit 1, ERROR nombrando SessionEnd + sugiere "kodo install"', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({}, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink,
+      readSettingsFn: () => SETTINGS_MISSING_SESSIONEND,
+    });
+    assert.equal(code, 1);
+    assert.match(sink.out.s, /SessionEnd/);
+    assert.match(sink.out.s, /kodo install/);
+  });
+
+  it('--json con SessionEnd ausente → payload.hooks.missing incluye SessionEnd, readable true', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ json: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink,
+      readSettingsFn: () => SETTINGS_MISSING_SESSIONEND,
+    });
+    assert.equal(code, 1);
+    const payload = JSON.parse(sink.out.s);
+    assert.ok(payload.hooks, 'el payload lleva la clave hooks');
+    assert.equal(payload.hooks.readable, true);
+    assert.ok(payload.hooks.missing.some((m) => m.event === 'SessionEnd'));
+  });
+
+  it('settings ilegible (readSettingsFn → null) → never-throws, WARN, no fuerza exit 1', async () => {
+    const sink = makeSink();
+    let code;
+    await assert.doesNotReject(async () => {
+      code = await runDoctor({}, {
+        loadRawConfigFn: () => ALIGNED_CONFIG,
+        loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+        ...sink,
+        readSettingsFn: () => null,
+      });
+    });
+    assert.equal(code, 0, 'settings ilegible NO fuerza exit 1 (config alineada)');
+  });
+
+  it('--json con settings ilegible → payload.hooks.readable false', async () => {
+    const sink = makeSink();
+    await runDoctor({ json: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink,
+      readSettingsFn: () => null,
+    });
+    const payload = JSON.parse(sink.out.s);
+    assert.equal(payload.hooks.readable, false);
   });
 });
