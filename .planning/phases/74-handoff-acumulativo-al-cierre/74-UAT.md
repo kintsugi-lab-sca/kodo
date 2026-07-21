@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 74-handoff-acumulativo-al-cierre
 source: [74-01-SUMMARY.md, 74-02-SUMMARY.md, 74-03-SUMMARY.md, 74-04-SUMMARY.md, 74-05-SUMMARY.md, 74-06-SUMMARY.md]
 started: 2026-07-20T09:25:42Z
-updated: 2026-07-20T09:40:00Z
+updated: 2026-07-21T00:00:00Z
 ---
 
 ## Current Test
@@ -72,13 +72,26 @@ blocked: 0
   reason: "User reported: no existe esa clave en ningún sitio dentro de /Users/alex/.kodo/state.json"
   severity: major
   test: 4
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "El hook SessionEnd de kodo no está registrado en ~/.claude/settings.json (solo SessionStart y Stop lo están). writeHandoff → upsertTaskHandoff nunca se ejecuta en cierres reales: cero telemetría handoff_saved/failed de sesiones reales, cero bloques author=auto en ~26 planes, state.tasks siempre vacío. El código de la Phase 74 es correcto; es un gap de registro/instalación (install.js declara los 3 hooks pero el registro real quedó incompleto)."
+  artifacts:
+    - path: "~/.claude/settings.json"
+      issue: "hooks.SessionEnd sin la entrada 'node <repo>/src/hooks/session-end.js'"
+    - path: "src/hooks/install.js"
+      issue: "instalador correcto e idempotente, pero nunca re-ejecutado tras añadir SessionEnd (Phase 58 LIFE-03)"
+  missing:
+    - "Registrar el hook SessionEnd de kodo en ~/.claude/settings.json (re-ejecutar install.js o equivalente)"
+    - "kodo doctor: verificar presencia de los 3 hooks registrados vs KODO_HOOK_FILES (drift instalación↔settings)"
+    - "Verificación post-fix: cierre real → state.tasks poblado + telemetría state.task.handoff_saved"
+  debug_session: ".planning/debug/state-tasks-missing-live04.md"
 - gap_id: G-74-5
   truth: "Al arrancar una sesión kodo (rama gsd-quick), el contexto instruye preservar-y-appendear el plan y entrega el formato de handoff con el session_id resuelto (LIVE-02)"
-  status: failed
+  status: resolved
   reason: "User reported: ROMAN-174 noha hecho nada parecido (gsd-quick"
   severity: major
   test: 5
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "No es un bug: observación prematura. La sesión real de ROMAN-174 (e1cc7e31, 2026-07-20 14:39–14:48) cerró DESPUÉS del reporte y cumplió LIVE-02 de punta a punta: plan preservado y bloque '## Handoff … author=llm' appendeado con el formato exacto y el session_id interpolado (~/.kodo/plans/a09d786f-….md). Los planes se nombran por work item UUID, no por task_ref, lo que dificulta la verificación manual. El residuo real (sin backstop si el LLM no escribe) pertenece a G-74-4."
+  resolved_by: "evidencia en ~/.kodo/plans/a09d786f-3c5f-4a3f-a18f-a98015b4878b.md (no requiere fix de código)"
+  resolved_at: 2026-07-21
+  artifacts: []
+  missing: []
+  debug_session: ".planning/debug/gsd-quick-handoff-instruction-roman174.md"
