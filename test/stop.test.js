@@ -340,6 +340,73 @@ describe('QUICK-08 — buildStopNudgeText switch', () => {
     );
     assert.ok(!/readFileSync|writeFileSync|readFileFn/.test(body), 'buildStopNudgeText no hace I/O');
   });
+
+  // ── 78/WR-01 (Phase 78, T-78-01) ─────────────────────────────────────────
+  // Saneo del nudge del orquestador: los 3 campos LLM (task_ref/summary/next)
+  // cruzan de datos no confiables (LLM / state.json hand-editable) al terminal
+  // del orquestador vía cmuxClient.send. Deben pasar por stripControlChars en el
+  // punto de composición (buildStopNudgeText) — simetría con el carril de render
+  // ya blindado (App.js:752-753). Ninguna secuencia de escape (CSI/OSC/C0/C1/DEL/CR)
+  // puede sobrevivir. Para inputs ASCII limpios el saneo es la identidad (D-09).
+
+  it('78/WR-01: sanea `task_ref` inyectado — CSI y BEL no sobreviven, el identifier limpio permanece', () => {
+    // task_ref con una secuencia CSI completa (\x1b[31m) y un byte C0 (\x07 BEL).
+    const s = makeQuickSession({ gsd: false, task_ref: 'KL\x1b[31m-42\x07' });
+    const text = buildStopNudgeText(s);
+    assert.ok(!text.includes('\x1b'), 'ninguna ESC sobrevive');
+    assert.ok(!text.includes('\x07'), 'ningún BEL sobrevive');
+    assert.ok(!text.includes('[31m'), 'el CSI completo desapareció (no queda el residuo `[31m`)');
+    assert.match(text, /KL-42/, 'la parte ASCII limpia del ref permanece visible');
+  });
+
+  it('78/WR-01: sanea `summary` inyectado — OSC-52 simulado y CR no sobreviven', () => {
+    // summary con un OSC-52 simulado (\x1b]52;c;AAAA\x07 → escritura al portapapeles)
+    // y un CR (\x0d) que reescribiría el inicio de la línea.
+    const s = makeQuickSession({ gsd: false, summary: 'tarea\x1b]52;c;QUJD\x07\x0dok' });
+    const text = buildStopNudgeText(s);
+    assert.ok(!text.includes('\x1b'), 'ninguna ESC del OSC sobrevive');
+    assert.ok(!text.includes('\x07'), 'ningún BEL terminador del OSC sobrevive');
+    assert.ok(!text.includes('\x0d'), 'ningún CR sobrevive');
+    assert.match(text, /tarea/, 'la parte textual limpia del summary permanece');
+    assert.match(text, /ok/, 'el resto del texto limpio permanece');
+  });
+
+  it('78/WR-01: sanea `next` inyectado — CSI y C1 (\\x9b/\\x9d) no sobreviven, el texto limpio permanece', () => {
+    // next con un CSI (\x1b[2J clear-screen) y bytes C1 (\x9b CSI de un solo byte,
+    // \x9d OSC de un solo byte) que algunos terminales interpretan sin ESC previo.
+    const s = makeQuickSession({ gsd: false });
+    const text = buildStopNudgeText(s, 'revisar\x1b[2J el\x9b PR\x9d #42');
+    assert.ok(!text.includes('\x1b'), 'ninguna ESC del next sobrevive');
+    assert.ok(!text.includes('\x9b'), 'ningún C1 \\x9b (CSI single-byte) sobrevive');
+    assert.ok(!text.includes('\x9d'), 'ningún C1 \\x9d (OSC single-byte) sobrevive');
+    assert.match(text, /revisar el PR #42/, 'la parte textual limpia del next permanece');
+  });
+
+  it('78/WR-01: no-regresión D-09 — inputs ASCII limpios producen texto byte-idéntico en los TRES modos', () => {
+    // Sobre valores ASCII limpios stripControlChars es la identidad: el texto por-modo
+    // debe seguir byte-idéntico al literal esperado de la Phase 75 (goldens intactos).
+    const base = 'La sesión KL-42 (Quick task) ha terminado y está en Review.';
+    const expected = {
+      quick: `${base} Es una sesión GSD quick (one-shot, sin VERIFICATION.md). Revísala manualmente como cualquier sesión no-GSD.\\n`,
+      full: `${base} Es una sesión GSD (fase 10). Ejecuta \`kodo gsd verify sess-quick-123\` y actúa según el verdict.\\n`,
+      'no-GSD': `${base} Revisa el resultado y decide si pasa a Done o necesita más trabajo.\\n`,
+    };
+    assert.equal(
+      buildStopNudgeText(makeQuickSession({ gsd: true, gsd_mode: 'quick' })),
+      expected.quick,
+      'modo quick byte-idéntico con input limpio',
+    );
+    assert.equal(
+      buildStopNudgeText(makeQuickSession({ gsd: true, gsd_mode: 'full', phase_id: '10' })),
+      expected.full,
+      'modo full byte-idéntico con input limpio',
+    );
+    assert.equal(
+      buildStopNudgeText(makeQuickSession({ gsd: false })),
+      expected['no-GSD'],
+      'modo no-GSD byte-idéntico con input limpio',
+    );
+  });
 });
 
 // Phase 33-03 LIFE-02-FOLLOWUP (Bloque C): el callsite de markSessionStatus en
