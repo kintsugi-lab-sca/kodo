@@ -6,23 +6,84 @@ import { homedir } from 'node:os';
 const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 
 /**
- * Ficheros canónicos de los hooks de kodo. B9 (Phase 72): el match de
- * install/uninstall se hace por el segmento de ruta `/src/hooks/<name>.js`
- * (soporta separador POSIX y Windows) en vez del substring genérico `'kodo'`,
- * que confundiría cualquier comando ajeno que mencione "kodo". Robusto ante la
- * ubicación de instalación (global vs local): no exige la ruta absoluta completa.
+ * Mapeo canónico evento→file de los hooks de kodo. ÚNICA fuente de verdad de qué
+ * hooks registra kodo: consumida por installHooks/uninstallHooks (evento por evento)
+ * y por el doctor (`checkHookRegistration`). El orden es determinista y fija el orden
+ * del render y del payload del doctor. Añadir un cuarto hook aquí lo cubre
+ * automáticamente el instalador, el uninstall y el detector de deriva sin tocar nada más.
+ * @type {ReadonlyArray<{ event: string, file: string }>}
  */
-const KODO_HOOK_FILES = ['session-start.js', 'stop.js', 'session-end.js'];
+export const KODO_HOOKS = [
+  { event: 'SessionStart', file: 'session-start.js' },
+  { event: 'Stop', file: 'stop.js' },
+  // Phase 58 LIFE-03: SessionEnd hace el cleanup terminal / handoff al cierre real.
+  { event: 'SessionEnd', file: 'session-end.js' },
+];
+
+/**
+ * Ficheros canónicos de los hooks de kodo, DERIVADOS de `KODO_HOOKS` (una sola verdad).
+ * B9 (Phase 72): el match de install/uninstall se hace por el segmento de ruta
+ * `/src/hooks/<name>.js` (soporta separador POSIX y Windows) en vez del substring
+ * genérico `'kodo'`, que confundiría cualquier comando ajeno que mencione "kodo".
+ * Robusto ante la ubicación de instalación (global vs local): no exige la ruta absoluta.
+ */
+const KODO_HOOK_FILES = KODO_HOOKS.map((h) => h.file);
+
+/**
+ * Match por-FILE de un command contra un hook canónico. Guard `typeof string` →
+ * never-throws. Es la primitiva que hace posible el chequeo POR-EVENTO del detector
+ * de deriva (el file específico de cada evento, no «cualquier file de kodo»).
+ * @param {unknown} command
+ * @param {string} file
+ * @returns {boolean}
+ */
+function commandMatchesFile(command, file) {
+  if (typeof command !== 'string') return false;
+  return command.includes(`/src/hooks/${file}`) || command.includes(`\\src\\hooks\\${file}`);
+}
 
 /**
  * @param {unknown} command
  * @returns {boolean} true si el comando invoca un hook canónico de kodo.
  */
 function isKodoHookCommand(command) {
-  if (typeof command !== 'string') return false;
-  return KODO_HOOK_FILES.some(
-    (f) => command.includes(`/src/hooks/${f}`) || command.includes(`\\src\\hooks\\${f}`),
-  );
+  return KODO_HOOK_FILES.some((f) => commandMatchesFile(command, f));
+}
+
+/**
+ * Detector PURO de deriva instalación↔settings (raíz de G-74-4). Dado el objeto
+ * `settings` PARSEADO (NO hace I/O — el CLI lee `~/.claude/settings.json` y se lo pasa),
+ * devuelve qué hooks canónicos de kodo están registrados y cuáles faltan. El chequeo es
+ * POR-EVENTO a propósito: cada file de `KODO_HOOKS` tiene que estar registrado bajo SU
+ * evento (SessionEnd→session-end.js bajo SessionEnd), no un match laxo «hay algún hook de
+ * kodo en algún sitio» — que en G-74-4 (SessionStart/Stop presentes, SessionEnd ausente)
+ * habría dado un falso verde. Never-throws sobre cualquier forma de settings malformado
+ * (null, `hooks` no-objeto, arrays con basura, command no-string): cada anomalía se trata
+ * como «ausente», nunca lanza.
+ *
+ * @param {unknown} settings — objeto settings parseado (o null si ilegible/ausente).
+ * @returns {{ registered: Array<{ event: string, file: string }>, missing: Array<{ event: string, file: string }> }}
+ */
+export function checkHookRegistration(settings) {
+  const hooks =
+    settings && typeof settings === 'object' && /** @type {any} */ (settings).hooks;
+  const hooksObj = hooks && typeof hooks === 'object' ? /** @type {any} */ (hooks) : null;
+
+  /** @type {Array<{ event: string, file: string }>} */
+  const registered = [];
+  /** @type {Array<{ event: string, file: string }>} */
+  const missing = [];
+
+  for (const { event, file } of KODO_HOOKS) {
+    const entries = hooksObj && Array.isArray(hooksObj[event]) ? hooksObj[event] : [];
+    const isRegistered = entries.some((entry) => {
+      const list = entry && typeof entry === 'object' && Array.isArray(entry.hooks) ? entry.hooks : [];
+      return list.some((h) => h && commandMatchesFile(h.command, file));
+    });
+    (isRegistered ? registered : missing).push({ event, file });
+  }
+
+  return { registered, missing };
 }
 
 /**
