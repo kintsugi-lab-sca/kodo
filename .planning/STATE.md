@@ -4,17 +4,17 @@ milestone: v0.17
 milestone_name: Plan vivo por-tarea
 current_phase: 75
 current_phase_name: "Superficie del `NEXT:` — dashboard y nudge"
-status: planning
+status: executing
 stopped_at: Completed 74-07-PLAN.md
-last_updated: "2026-07-21T10:20:47.847Z"
+last_updated: "2026-07-21T23:26:29.934Z"
 last_activity: 2026-07-21
 last_activity_desc: Phase 74 complete, transitioned to Phase 75
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
   total_plans: 15
   completed_plans: 15
-  percent: 100
+  percent: 80
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 Phase: 75 — Superficie del `NEXT:` — dashboard y nudge
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Progress: [█████████░] 93%
 Last activity: 2026-07-21 — Phase 74 complete, transitioned to Phase 75
 
@@ -120,6 +120,10 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 - **Backstop de «In Review» en `SessionEnd` con gate de estado no-terminal** — jamás transicionar a un estado terminal (GitHub `closed`); el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
 - **Auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec** — sin la var → skip (cero commits fantasma).
 - **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** · **Cero nuevas dependencias npm** (locks vía `node:fs` built-in) · **TaskProvider contract FROZEN en 9** + métodos opcionales por `typeof` · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
+
+### Roadmap Evolution
+
+- Phase 78 added: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
 
 ## Session Continuity
 
