@@ -145,7 +145,7 @@ Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
   4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
   5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
 
-**Plans**: 8 plans (6 executed; 74-07/74-08 gap closure para G-74-4, pendientes)
+**Plans**: 7/8 plans executed
 
 Plans:
 **Wave 1**
@@ -168,7 +168,7 @@ Plans:
 
 **Gap closure** *(de `74-UAT.md` — G-74-4: el hook `SessionEnd` de kodo nunca se registró en `~/.claude/settings.json`, así que `writeHandoff→upsertTaskHandoff` jamás corrió en cierres reales y `state.tasks` quedó `{}`; código de la fase correcto, gap de registro/instalación)*
 
-- [ ] 74-07-PLAN.md — Prevención: `kodo doctor` detecta la deriva instalación↔settings (los 3 hooks kodo vs `KODO_HOOKS`) con exit 1 y sugiere `kodo install`; `checkHookRegistration` puro never-throws [wave 1]
+- [x] 74-07-PLAN.md — Prevención: `kodo doctor` detecta la deriva instalación↔settings (los 3 hooks kodo vs `KODO_HOOKS`) con exit 1 y sugiere `kodo install`; `checkHookRegistration` puro never-throws [wave 1]
 - [ ] 74-08-PLAN.md — Fix + verificación en vivo (checkpoint operador): registrar SessionEnd vía el instalador idempotente y comprobar que un cierre real puebla `state.tasks` + telemetría `state.task.handoff_saved` [wave 2, depende de 74-07]
 
 ### Phase 75: Superficie del `NEXT:` — dashboard y nudge
@@ -259,7 +259,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 74. Handoff acumulativo al cierre | 6/8 | Gap closure (G-74-4) |  |
+| 74. Handoff acumulativo al cierre | 7/8 | In Progress|  |
 | 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
 | 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
 | 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |

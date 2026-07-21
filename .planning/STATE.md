@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 77
-current_phase_name: Agrupación de workspaces en cmux
-status: planning
-stopped_at: Completed 76-02-PLAN.md
-last_updated: "2026-07-17T13:15:02.222Z"
-last_activity: 2026-07-17
-last_activity_desc: Phase 76 complete, transitioned to Phase 77
+current_phase: 74
+current_phase_name: handoff-acumulativo-al-cierre
+status: executing
+stopped_at: Completed 74-07-PLAN.md
+last_updated: "2026-07-21T08:55:39.421Z"
+last_activity: 2026-07-21
+last_activity_desc: Phase 74 execution started
 progress:
   total_phases: 4
-  completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
-  percent: 100
+  completed_phases: 3
+  total_plans: 15
+  completed_plans: 14
+  percent: 75
 ---
 
 # Project State
@@ -28,15 +28,15 @@ See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
 
-**Current focus:** Phase 76 — Convergencia del conteo pending
+**Current focus:** Phase 74 — handoff-acumulativo-al-cierre
 
 ## Current Position
 
-Phase: 77 — Agrupación de workspaces en cmux
-Plan: Not started
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-07-17 — Phase 76 complete, transitioned to Phase 77
+Phase: 74 (handoff-acumulativo-al-cierre) — EXECUTING
+Plan: 2 of 8
+Status: Ready to execute
+Progress: [█████████░] 93%
+Last activity: 2026-07-21 — Phase 74 execution started
 
 **Fases del milestone:**
 
@@ -102,6 +102,7 @@ Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+beare
 - [Phase ?]: [Phase 76-01]: src/tasks/pending.js es hoja de cero imports — punto de convergencia de pending para server.js y check.js sin arrastrar deps al grafo de kodo check (D-02/LOG-12)
 - [Phase ?]: [Phase 76-01]: fallo del fetch de pending sirve last-known-good etiquetado stale con fetched_at congelado al último éxito, nunca now() (ORCH-06, Pitfall 3); cold-start caído devuelve [] etiquetado stale, jamás presentado como fresco
 - [Phase ?]: 76-02: /status y check.js convergen en src/tasks/pending.js; frescura discriminada (pending_stale/pending_fetched_at) sin endpoints ni deps nuevas (ORCH-05/ORCH-06)
+- [Phase ?]: kodo doctor detecta deriva instalación↔settings de hooks (G-74-4) vía checkHookRegistration puro; KODO_HOOKS única fuente de verdad
 
 ### Open Blockers
 
@@ -122,13 +123,13 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-17T13:05:26.280Z
+**Last session:** 2026-07-21T08:55:31.414Z
 
 **Resume file:** 
 
 None
 
-- **Stopped at:** Completed 76-02-PLAN.md
+- **Stopped at:** Completed 74-07-PLAN.md
 - **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
@@ -164,3 +165,4 @@ None
 | Phase 75 P03 | 7min | 3 tasks | 7 files |
 | Phase 76 P01 | 9m | 3 tasks | 3 files |
 | Phase 76 P02 | 16min | 2 tasks | 5 files |
+| Phase 74 P07 | 18min | 2 tasks | 4 files |
