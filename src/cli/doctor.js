@@ -17,7 +17,11 @@
 // `ensureConfig()`: doctor DIAGNOSTICA la config, no exige que esté completa (mismo precedente
 // que `gsd doctor` / `skill sync`, que corren sin gate de provider).
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { scanConfigAlignment, checkStates } from '../config-doctor.js';
+import { checkHookRegistration } from '../hooks/install.js';
 import { loadRawConfig, loadProjects } from '../config.js';
 import { createFormatter } from './format.js';
 
@@ -27,10 +31,26 @@ import { createFormatter } from './format.js';
  *   loadRawConfigFn?: () => any,
  *   loadProjectsFn?: () => Record<string, any>,
  *   listStatesFn?: (projectId: string) => Promise<string[]>,
+ *   readSettingsFn?: () => any,
  *   writeFn?: (s: string) => void,
  *   formatterFn?: () => import('./format.js').Formatter,
  * }} RunDoctorDeps
  */
+
+/**
+ * Lee `~/.claude/settings.json` — never-throws: si es ilegible/ausente/malformado
+ * devuelve `null` (el doctor no puede afirmar deriva sobre lo que no pudo leer →
+ * degrada a WARN, nunca a un false-positive de exit 1). Default real, solo se invoca
+ * sin `readSettingsFn` inyectado (mismo precedente que `defaultListStatesFactory`).
+ * @returns {any}
+ */
+function defaultReadSettings() {
+  try {
+    return JSON.parse(readFileSync(join(homedir(), '.claude', 'settings.json'), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * @param {RunDoctorOpts} opts
@@ -54,17 +74,29 @@ export async function runDoctor(opts, deps = {}) {
     states = await runStatesCheck({ config, provider: providerName, listStatesFn: deps.listStatesFn });
   }
 
-  const hasStateProblems = !!states && states.problems.length > 0;
-  const exitCode = alignment.hasIssues || hasStateProblems ? 1 : 0;
+  // 3. Deriva instalación↔settings de hooks (SIEMPRE activa — la invisibilidad fue la
+  //    causa raíz de G-74-4; un flag opt-in que nadie pasa no previene nada). Lectura
+  //    never-throws → objeto o null; el checker es puro y never-throws incluso con null.
+  const settings = (deps.readSettingsFn || defaultReadSettings)();
+  const settingsReadable = settings != null;
+  const hooks = checkHookRegistration(settings);
+  // settings ilegible NO cuenta como deriva (no se puede afirmar sobre lo no leído):
+  // solo un hook AUSENTE con settings LEGIBLE fuerza el exit 1.
+  const hasHookDrift = settingsReadable && hooks.missing.length > 0;
 
-  // 3. Render.
+  const hasStateProblems = !!states && states.problems.length > 0;
+  const exitCode = alignment.hasIssues || hasStateProblems || hasHookDrift ? 1 : 0;
+
+  // 4. Render.
   if (opts.json) {
-    const payload = states
-      ? { ...alignment, states }
-      : alignment;
+    const payload = {
+      ...alignment,
+      ...(states ? { states } : {}),
+      hooks: { readable: settingsReadable, registered: hooks.registered, missing: hooks.missing },
+    };
     write(JSON.stringify(payload, null, 2) + '\n');
   } else {
-    renderHuman({ alignment, states, provider: providerName, write, fmt });
+    renderHuman({ alignment, states, hooks, settingsReadable, provider: providerName, write, fmt });
   }
 
   return exitCode;
@@ -112,12 +144,14 @@ async function runStatesCheck({ config, provider, listStatesFn }) {
  * @param {{
  *   alignment: ReturnType<typeof scanConfigAlignment>,
  *   states: { checked: number, problems: Array<any> }|null,
+ *   hooks: ReturnType<typeof checkHookRegistration>,
+ *   settingsReadable: boolean,
  *   provider: string,
  *   write: (s: string) => void,
  *   fmt: import('./format.js').Formatter,
  * }} params
  */
-function renderHuman({ alignment, states, provider, write, fmt }) {
+function renderHuman({ alignment, states, hooks, settingsReadable, provider, write, fmt }) {
   write(`kodo doctor — alineación config.json ↔ projects.json (provider: ${provider})\n\n`);
 
   if (alignment.findings.length === 0) {
@@ -150,9 +184,24 @@ function renderHuman({ alignment, states, provider, write, fmt }) {
     }
   }
 
-  if (!alignment.hasIssues && (!states || states.problems.length === 0)) {
-    write(`\n${fmt.ok('sin problemas')}\n`);
+  // ── Sección hooks (deriva instalación↔settings, G-74-4) ──
+  const hasHookDrift = settingsReadable && hooks.missing.length > 0;
+  write(`\n─── hooks (~/.claude/settings.json) ───\n`);
+  if (!settingsReadable) {
+    write(`${fmt.yellow('WARN ')} no se pudo leer ~/.claude/settings.json — no se puede verificar el registro de hooks\n`);
+  } else if (hooks.missing.length === 0) {
+    write(`${fmt.ok('clean')} — los 3 hooks kodo (SessionStart/Stop/SessionEnd) están registrados\n`);
   } else {
+    for (const m of hooks.missing) {
+      write(`${fmt.red('ERROR')} hook ${m.event} (${m.file}) NO registrado en settings.json\n`);
+    }
+    write(`      ${fmt.dim('remedio:')} ejecuta "kodo install" para registrarlos (instalador idempotente, no clobbering).\n`);
+  }
+
+  const alignmentOrStateIssues = alignment.hasIssues || (states && states.problems.length > 0);
+  if (!alignmentOrStateIssues && !hasHookDrift) {
+    write(`\n${fmt.ok('sin problemas')}\n`);
+  } else if (alignmentOrStateIssues) {
     write(`\n${fmt.dim('sugerencia:')} añade los proyectos faltantes a ~/.kodo/config.json o mapéalos con "kodo config".\n`);
   }
 }
