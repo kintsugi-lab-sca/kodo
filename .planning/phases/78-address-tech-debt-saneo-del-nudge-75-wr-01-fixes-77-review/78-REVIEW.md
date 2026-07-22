@@ -1,6 +1,6 @@
 ---
 phase: 78-address-tech-debt-saneo-del-nudge-75-wr-01-fixes-77-review
-reviewed: 2026-07-21T23:42:49Z
+reviewed: 2026-07-22T07:54:38Z
 depth: standard
 files_reviewed: 6
 files_reviewed_list:
@@ -13,119 +13,153 @@ files_reviewed_list:
 findings:
   critical: 0
   warning: 1
-  info: 3
-  total: 4
+  info: 5
+  total: 6
 status: issues_found
 ---
 
-# Phase 78: Informe de Code Review
+# Phase 78: Informe de Code Review (2º pase — post-fix)
 
-**Reviewed:** 2026-07-21T23:42:49Z
+**Reviewed:** 2026-07-22T07:54:38Z
 **Depth:** standard
 **Files Reviewed:** 6
 **Status:** issues_found
 
 ## Summary
 
-Revisión adversarial de los cambios de la Phase 78 (tech debt): saneo de los 3 campos LLM
-del nudge del orquestador vía `stripControlChars` en `buildStopNudgeText` (`src/hooks/stop.js`)
-y hardening de `deriveExpectedGroupName`/`resolveWorkspaceGroup`/`launchWorkItem`
-(`src/session/manager.js`), más JSDoc en `src/host/cmux.js` y el endurecimiento de tests.
+Segundo pase de revisión de la Phase 78 tras el commit de corrección `17a706c`.
 
-El núcleo de los cambios de la fase es **correcto y bien probado**. `stripControlChars`
-es pura, coacciona con `String(s)` (never-throws sobre `null`/`undefined`/no-string), y el
-guard `typeof next === 'string' && next.length > 0` protege la no-regresión byte-idéntica
-(D-09); los goldens de los tres modos se verifican explícitamente. Las funciones puras de
-resolución de grupo (`deriveExpectedGroupName`, `resolveWorkspaceGroup`,
-`newWorkspaceWithGroupFallback`) son defensivas, con guardas de entrada degenerada y
-validación de shape canónico del ref (`/^workspace_group:\d+$/`) que bloquea la forja de
-líneas de log.
+**Veredicto del fix WR-01 (VERIFICADO — correcto y completo para la amenaza identificada):**
+El commit `17a706c` envuelve `task.ref`, `task.title` y `projectPath` con `stripControlChars`
+antes de interpolarlos en el texto que `launchWorkItem` teclea al terminal del orquestador vía
+`host._legacy.send` (`src/session/manager.js:523`). El import se añade desde el carril canónico
+`../cli/format.js`, simétrico con `buildStopNudgeText`. La regresión-guard por inspección de
+fuente en `test/manager.test.js:828-850` cubre tanto la presencia del saneo como la ausencia del
+patrón crudo. `workspaceRef` (el otro campo interpolado) proviene de cmux (`workspace:N`, dato
+confiable) y no requiere saneo. **Los únicos carriles de keystroke con contenido no confiable en
+`launchWorkItem` quedan cubiertos**: el `send` de la línea 507 teclea `claudeCmd`, que por diseño
+solo referencia el prompt vía `"$(cat …)"` (ASCII, sin contenido de tarea inline).
 
-El hallazgo principal es una **omisión de cobertura**: la Phase 78 saneó el nudge
-(`buildStopNudgeText`) pero dejó SIN sanear un segundo path paralelo en el MISMO archivo
-(`launchWorkItem`) que envía `task.ref`/`task.title` al terminal del orquestador vía
-`host._legacy.send` — exactamente el mismo modelo de amenaza (inyección de escapes de
-terminal desde datos de provider no confiables) que la fase declara estar cerrando.
+**Re-evaluación de los 3 Info del 1er pase:** los tres SIGUEN PRESENTES en el código actual y se
+arrastran con su numeración original (IN-01, IN-02, IN-03).
+
+**Hallazgo nuevo del 2º pase:** la reutilización del saneador del carril de *render* en el carril
+de *keystroke* deja un residuo de inyección por salto de línea (`\n` → Enter). Ver WR-02. No es un
+defecto introducido por `17a706c` per se, sino una incompletitud que el propio fix hace más
+visible al aplicar `stripControlChars` al carril `send`.
+
+Ningún BLOCKER. El fix es apto para shipear; WR-02 es una mejora de robustez recomendada.
+
+## Narrative Findings (AI reviewer)
 
 ## Warnings
 
-### WR-01: El nudge de "Nueva sesión lanzada" al orquestador NO sanea `task.ref`/`task.title` (mismo vector que 75/WR-01, path paralelo sin cubrir)
+### WR-02: `stripControlChars` preserva `\n` — que en el carril `cmux send` es una pulsación Enter (residuo de inyección al orquestador)
 
-**File:** `src/session/manager.js:516-524`
+**File:** `src/cli/format.js:73-86` (helper) · `src/session/manager.js:523` · `src/hooks/stop.js:56,79`
 **Issue:**
-La Phase 78 (T-78-01) saneó los campos LLM del nudge en `buildStopNudgeText` porque
-"`task_ref/summary` cruzan de datos no confiables (LLM / state.json hand-editable) al
-terminal del orquestador vía `cmuxClient.send`" (comentario en `stop.js:50-56`). Pero
-`launchWorkItem` tiene un SEGUNDO envío al terminal del orquestador que interpola los
-mismos campos de provider SIN pasar por `stripControlChars`:
+`stripControlChars` fue diseñado para el carril de **render** del dashboard (Ink), donde preservar
+`\n`/`\t` es deliberado e inofensivo (docstring en `format.js:73-74`). El fix WR-01 lo reutiliza
+ahora en el carril de **keystroke** (`host._legacy.send`), donde la semántica de `\n` es distinta:
+el propio código documenta que *"`cmux send` inyecta el comando como PULSACIONES de teclado, e
+interpreta `\n`/`\r`/`\t` como Enter/Tab"* (`manager.js:575-577`, comentarios de `stop.js`).
+Consecuencia:
+
+- `stripControlChars` elimina CR (`\x0d`) pero **conserva LF (`\x0a`)** y **no toca** la secuencia
+  literal de dos caracteres `\` + `n` (0x5C 0x6E, ASCII imprimible).
+- Un campo no confiable (`task.title`, `task.ref`, `projectPath`, o el `next` LLM-persistido) que
+  contenga un salto de línea real O el texto literal `\n` sobrevive al saneo y, al teclearse,
+  produce un **Enter** en el terminal del orquestador (una sesión Claude autónoma). Eso permite
+  enviar prematuramente el mensaje parcial e inyectar una línea adicional bajo control del atacante
+  en el input del orquestador — exactamente el tipo de efecto de control que WR-01 pretendía
+  neutralizar.
+
+El fix reduce la superficie (CSI/OSC/C0/C1/DEL/CR quedan inertes) pero no la cierra para el vector
+newline. Explotabilidad realista: baja-media (un título de tarea Plane o un `NEXT:` con `\n`
+embebido), pero el orquestador ACTÚA sobre estos nudges, así que una inyección de salto de línea
+tiene efecto observable.
+
+**Fix:** introducir una variante específica del carril de keystroke que además elimine `\n`
+(y `\t`), en lugar de reutilizar el saneador de render. P. ej.:
 
 ```js
-const workspaces = await host._legacy.listWorkspaces();
-const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
-if (orchMatch) {
-  await host._legacy.send({
-    workspace: orchMatch[1],
-    text: `Nueva sesión lanzada: ${task.ref} (${task.title}) en ${workspaceRef}. Path: ${projectPath}\\n`,
-  });
+// src/cli/format.js
+export function stripControlChars(s) { /* … render rail: preserva \n \t … */ }
+
+/** Carril de keystroke (cmux send): además neutraliza \n/\t (Enter/Tab). */
+export function stripForKeystroke(s) {
+  return stripControlChars(s).replace(/[\r\n\t]/g, ' ').replace(/\\[rnt]/g, ' ');
 }
 ```
 
-`task.ref` y `task.title` provienen de `provider.getTask()` (Plane/GitHub) — la misma
-fuente no confiable que la fase declara peligrosa. Un título de tarea con una secuencia
-CSI/OSC (p.ej. OSC-52 = escritura al portapapeles del operador, o CSI para manipular la
-pantalla) se inyecta directo al terminal del orquestador vía `send` (keystrokes crudos, sin
-sanear en el passthrough de `cmux/client.js`). El fix de la fase queda incompleto: cierra el
-carril del nudge de cierre pero deja abierto el carril del nudge de lanzamiento, que tiene
-idéntico impacto sobre el mismo terminal.
-
-**Fix:** Aplicar `stripControlChars` a los tres campos interpolados, en simetría con
-`buildStopNudgeText` (importar el helper ya usado en `stop.js`):
-
-```js
-import { stripControlChars } from '../cli/format.js';
-// ...
-text: `Nueva sesión lanzada: ${stripControlChars(task.ref)} (${stripControlChars(task.title)}) en ${workspaceRef}. Path: ${stripControlChars(projectPath)}\\n`,
-```
+y usar `stripForKeystroke` en `manager.js:523`, `stop.js:56` y `stop.js:79`. Alternativa mínima
+aceptable: documentar y aceptar explícitamente el residuo si se decide que estos campos nunca
+contendrán saltos de línea (pero entonces conviene validarlo en el borde del provider).
 
 ## Info
 
-### IN-01: Shadowing de `result` en `runStopHook`
+### IN-01 (arrastrado): shadowing de `result` en `stop.js`
 
-**File:** `src/hooks/stop.js:212`
-**Issue:** El `const result = markSessionStatus(...)` (línea 212) shadowea el `let result =
-findSessionFn(...)` del scope externo (línea 156). El outer `result` ya no se usa tras el
-destructuring de la línea 180, así que no hay bug funcional, pero el reuso del nombre dentro
-de un bloque anidado es confuso y dispararía `no-shadow` en lint.
-**Fix:** Renombrar la variable interna a algo específico, p.ej. `const markResult =
-markSessionStatus(...)` y `if (!markResult?.ok)`.
+**File:** `src/hooks/stop.js:156,212`
+**Issue:** `let result = findSessionFn(...)` (scope de función, línea 156) queda sombreado por
+`const result = markSessionStatus(...)` dentro del `try` de la línea 205 (línea 212). No hay bug
+funcional — los usos del `result` externo terminan en la línea 180 (`const { id, session } = result`)
+y el `const` interno vive en su propio bloque — pero el nombre reutilizado dificulta la lectura.
+Sigue presente idéntico al 1er pase. Nota adicional: en ese mismo destructuring, `id` se
+desestructura pero no se usa después (`session` sí).
+**Fix:** renombrar el interno (`const markResult = markSessionStatus(...)` / `if (!markResult?.ok)`)
+y omitir `id` del destructuring (`const { session } = result;`).
 
-### IN-02: `stripControlChars` preserva `\n`/`\t` crudos — un salto de línea embebido en `task_ref`/`summary`/`next` llega intacto al `send`
+### IN-02 (arrastrado): `stripControlChars` preserva `\n`/`\t` por diseño (carril de render)
 
-**File:** `src/cli/format.js:80-87` (consumido por `src/hooks/stop.js:56,79`)
-**Issue:** `stripControlChars` neutraliza CSI/OSC/C0/C1/DEL/CR pero PRESERVA `\t` (`\x09`) y
-`\n` (`\x0a`) deliberadamente. En el contexto del nudge, el texto se envía vía `cmux send`,
-que interpreta `\n` como Enter. Un `task.title`/`summary` con un salto de línea real
-(inhabitual pero posible en datos de provider hand-editables) partiría el nudge en dos
-"comandos" tecleados en el terminal del orquestador. No es el vector de escape que la fase
-ataca, y el riesgo es bajo (los títulos rara vez contienen `\n`), pero el saneo no lo
-contempla para el contexto de una sola línea.
-**Fix:** Si el nudge debe ser mono-línea, colapsar whitespace vertical en el punto de
-composición (p.ej. `.replace(/[\r\n]+/g, ' ')` tras `stripControlChars`), o documentar
-explícitamente que `\n` es aceptable en este carril.
+**File:** `src/cli/format.js:73-86`
+**Issue:** observación original del 1er pase: el saneador conserva `\t` (`\x09`) y `\n` (`\x0a`).
+Para el carril de render del dashboard esto es correcto y deliberado (permite texto multilínea).
+Sigue presente. En el 2º pase esta preservación adquiere una consecuencia nueva al reutilizar el
+helper en el carril de keystroke — ver WR-02, que es el hallazgo accionable derivado.
+**Fix:** ninguno en el carril de render (comportamiento deseado). La acción vive en WR-02.
 
-### IN-03: Título de test contradictorio con su propia aserción (comentario obsoleto tras el fix IN-01 de trim)
+### IN-03 (arrastrado): título de test obsoleto que describe el comportamiento PRE-fix
 
 **File:** `test/session/group-resolve.test.js:145`
-**Issue:** El nombre del test dice `"ref = 'KODO-9 ' (trailing space) → 'KODO' (hoy devuelve
-'KODO-9 ' porque /-\d+$/ no matchea con el espacio)"`, pero la aserción correctamente espera
-`'KODO'` (el comportamiento nuevo tras el trim IN-01). El paréntesis "(hoy devuelve 'KODO-9
-')" describe el comportamiento VIEJO/roto y quedó como residuo tras el fix, contradiciendo lo
-que el test realmente valida. La aserción es correcta; solo el título engaña a quien lo lea.
-**Fix:** Borrar el paréntesis obsoleto del título: `"ref = 'KODO-9 ' (trailing space) →
-'KODO' (el trim IN-01 recupera el grupo)"`.
+**Issue:** el título reza `"ref = 'KODO-9 ' (trailing space) → 'KODO' (hoy devuelve 'KODO-9 '
+porque /-\d+$/ no matchea con el espacio)"`. El paréntesis describe el comportamiento ANTES del
+fix del `trim` (IN-01 de Phase 77), pero la aserción ya verifica `=== 'KODO'`. El título se
+contradice con lo que el test comprueba y confunde a quien lo lea. Sigue presente.
+**Fix:** actualizar el título a algo como `"ref = 'KODO-9 ' (trailing space) → 'KODO' (el trim del
+ref evita que el espacio de borde rompa el strip de -dígitos)"`.
+
+### IN-04 (nuevo): campos de tarea no confiables aún llegan a cmux en crudo en carriles NO-keystroke
+
+**File:** `src/session/manager.js:427,510-514`
+**Issue:** el fix WR-01 saneó el carril de keystroke (`send`), pero `task.title` sigue fluyendo sin
+sanear a dos sinks adyacentes: (1) el **nombre del workspace** `workspaceName = ${prefix}:
+${truncate(task.title,40)}` que se pasa como arg CLI a `newWorkspace` (línea 427), y (2) el **body
+de la notificación** `Lanzada sesión para: ${task.title}` (línea 513). Ninguno es carril de
+keystroke (arg CLI y notificación de SO, no pulsaciones), así que el riesgo es sensiblemente menor
+que WR-01/WR-02, pero completan el modelo de amenaza: contenido de tarea no confiable alcanza cmux
+por rutas no saneadas.
+**Fix:** por consistencia, envolver `task.title` con el saneador de render también en
+`workspaceName` y en el `body` del `notify` (aquí basta el saneador de render — no son carriles de
+keystroke).
+
+### IN-05 (nuevo): `listWorkspaces` puede lanzar pese a su contrato "never-throws" (input malformado a nivel de elemento)
+
+**File:** `src/host/cmux.js:207-222`
+**Issue:** `listWorkspaces` está documentado como *never-throws* (`cmux.js:163`), pero el
+`.map`/`.some` de las líneas 207-222 viven FUERA del `try/catch` de parseo (que cierra en la línea
+205). Si `JSON.parse(...).workspaces` o `.notifications` contuvieran un elemento `null`/primitivo,
+`w.ref` (208) o `n.workspace_ref` (210) lanzarían y la excepción escaparía del método, violando el
+contrato. Probabilidad real: baja — cmux es un binario local confiable y sus arrays son objetos
+bien formados — de ahí la clasificación Info y no Warning. Pre-existente, no introducido por esta
+fase, pero es un hueco de robustez frente al patrón defensivo que el resto del módulo sí aplica
+(`normalizeSurface` chequea `!raw`).
+**Fix:** guardar a nivel de elemento, p. ej. `notifications.some((n) => n && n.workspace_ref ===
+ref && …)` y `workspaces.map((w) => { if (!w) return null; … })` filtrando nulos, o envolver el
+`.map` dentro del `try` existente.
 
 ---
 
-_Reviewed: 2026-07-21T23:42:49Z_
+_Reviewed: 2026-07-22T07:54:38Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
