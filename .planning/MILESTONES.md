@@ -1,5 +1,23 @@
 # Milestones
 
+## v0.17 Plan vivo por-tarea (Shipped: 2026-07-22)
+
+**Phases completed:** 5 phases (74-78), 17 plans, 24 tasks
+**Git:** 168 commits desde v0.16 · 147 ficheros · +22.789/−150 líneas (src/test/bin: 56 ficheros, +6.515/−101) · 2026-07-15 → 2026-07-22
+**Audit:** `tech_debt` sin blockers (verified closeout) — 13/13 requirements · 5/5 fases verificadas · 9/9 seams cross-phase · 6/6 flujos E2E · Nyquist 5/5 compliant · security 6/6 threats closed
+
+**Key accomplishments:**
+
+- **Handoff acumulativo al cierre (Phase 74):** el plan de la tarea (`~/.kodo/plans/<task_id>.md`) deja de ser fire-and-forget — `SessionEnd` appendea un bloque `## Handoff <fecha>` (`Hecho/Pendiente/NEXT:`) ANTES del cleanup destructivo, con autoría LLM + backstop mecánico, RMW bajo `withFileLock` sin pisar bloques previos, y persiste puntero + `NEXT:` en `state.tasks` bajo `withStateLock` (aditivo, sin bump de schema). El gap real G-74-4 (hook `SessionEnd` jamás registrado en `settings.json`) se cerró end-to-end: `kodo doctor` detecta la deriva instalación↔settings (`checkHookRegistration` puro, exit 1) y el registro se verificó con un cierre real poblando `state.tasks`.
+- **Superficie del `NEXT:` — dashboard y nudge (Phase 75):** columna condicional `next` en la tabla del dashboard leída de `state.json` por tick (reader leaf, cero endpoints nuevos, sin abrir N planes), overlay del plan ligero renderizado read-only en la rama `phaseId == null` (mini-renderer markdown in-house, marcador `kodo:handoff` invisible, rama GSD byte-idéntica — D-02 LOCKED), y el nudge del orquestador usa el `NEXT:` persistido como contexto concreto (byte-idéntico sin dato, D-09).
+- **Convergencia del conteo `pending` (Phase 76):** `/status` y `kodo check` derivan `pending_count` del mismo módulo hoja `src/tasks/pending.js` (cero imports, factory DI + TTL); con el provider caído el fallo queda etiquetado (`pending_stale`/`pending_fetched_at`, `fetched_at` congelado al último éxito) — nunca se sirve un conteo caducado como fresco, y «0 pendientes» se distingue de «no se pudo saber».
+- **Agrupación de workspaces en cmux (Phase 77):** cada sesión lanzada aterriza en el grupo cmux de su **path resuelto** (`deriveExpectedGroupName` + `resolveWorkspaceGroup` en fresco + `--group` en `new-workspace`), con fail-open en 2 capas (resolución + retry TOCTOU sin `--group`) — cero sesiones perdidas por agrupación; kodo consume grupos, jamás los gestiona ni persiste refs (GRP-04, verificado en sidebar real por UAT 5/5).
+- **Saldo de deuda de cierre con hardening extra (Phase 78):** el nudge del orquestador sanea los 3 campos LLM (`next`/`summary`/`task_ref`) vía `stripControlChars` en `buildStopNudgeText` (cierra R-75-02 y el carril keystroke con `stripForKeystroke`), + 8 hallazgos accionables de 77-REVIEW (identifier vacío → null, shape-guard `workspace_group:\d+`, red de regresión Unicode NFD↔NFC, log de degradación diagnosticable) — 2 security warnings descubiertos post-ejecución cerrados con teeth el mismo día.
+
+**Deferred (tech debt trazada, 8 items menores → backlog v0.18):** `next` un-clearable en `upsertTaskHandoff` + flaky preexistente `gsd-lock-race` (Phase 74) · 3 drifts documentales + fidelidad markdown best-effort (Phase 75) · nota de operación grupo `SCP-CMRi`≠`SCP` + riesgo aceptado R-77-D10 LOCKED (Phase 77). Detalle en `milestones/v0.17-MILESTONE-AUDIT.md`.
+
+---
+
 ## v0.16 Hardening (Shipped: 2026-07-15)
 
 **Phases completed:** 4 phases (69-72), 18 plans, 44 tasks

@@ -2,113 +2,78 @@
 gsd_state_version: 1.0
 milestone: v0.17
 milestone_name: Plan vivo por-tarea
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
-status: planning
+status: Awaiting next milestone
 stopped_at: Completed 78-02-PLAN.md
-last_updated: "2026-07-21T23:48:30.468Z"
+last_updated: "2026-07-22T11:09:01.474Z"
 last_activity: 2026-07-22
-last_activity_desc: Phase 78 complete, transitioned to Phase 999.1
+last_activity_desc: Milestone v0.17 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 17
   completed_plans: 17
   percent: 100
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
 ---
 
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.17 «Plan vivo por-tarea»** con roadmap creado 2026-07-15 — **Phases 74-77**, 13/13 requirements mapeados (Phase 77 añadida 2026-07-16: agrupación de workspaces cmux, GRP-01..04). Primer milestone de features tras v0.16 Hardening (shipped 2026-07-15, audit PASSED).
+**Estado:** Milestone **v0.17 «Plan vivo por-tarea» SHIPPED 2026-07-22** (verified closeout; audit `tech_debt` sin blockers — 13/13 requirements, Nyquist 5/5 compliant, deuda menor trazada → backlog v0.18). A la espera del siguiente milestone (`/gsd-new-milestone`).
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-15 after v0.16).
+See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene (remediación completa de la auditoría adversarial 2026-07-03/05).
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux.
 
-**Current focus:** Phase 78 — Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
+**Current focus:** Planning next milestone (`/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 999.1 — kodo bidireccional (PROMOVIDO → v0.13 Phases 52-62, SHIPPED)
-Plan: Not started
-Status: Ready to plan
-Progress: [██████████] 100%
-Last activity: 2026-07-22 — Phase 78 complete, transitioned to Phase 999.1
-
-**Fases del milestone:**
-
-| Fase | Goal (resumen) | Requirements | Depende de |
-|------|----------------|--------------|------------|
-| 74 | Handoff acumulativo `## Handoff <fecha>` en `SessionEnd` (pre-cleanup, LLM + backstop mecánico) + puntero/`NEXT:` en `state.json` bajo `withStateLock` | LIVE-01..04 | v0.16 Phase 70 (shipped) |
-| 75 | `NEXT:` en la lista del dashboard + plan completo renderizado en `phaseId == null` (D-02 intacto) + nudge con contexto | LIVE-05, LIVE-06, LIVE-07 | Phase 74 |
-| 76 | `/status` y `kodo check` convergen en `pending_count`; provider caído no sirve conteo caducado como fresco | ORCH-05, ORCH-06 | ninguna (paralelizable) |
-| 77 | Workspaces agrupados en la sidebar de cmux por path resuelto (`--group` en `new-workspace`, resolución en fresco, fail-open; kodo no crea grupos) | GRP-01..04 | ninguna (paralelizable; cmux ≥ 0.64.19) |
+Phase: Milestone v0.17 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-22 — Milestone v0.17 completed and archived
 
 ## Most recent shipped milestone
 
-**v0.16 Hardening** — shipped 2026-07-15 (4 phases 69-72, 18 plans, 44 tasks; audit PASSED 27/27 reqs · 6/6 seams · flujo E2E completo; suite 1788 → 2027 tests; 157 commits). Remediación de la auditoría adversarial en 4 olas por causa raíz: **red** (bind `127.0.0.1` + bearer default-deny, `/webhook` HMAC y `/health` intactos), **concurrencia/PID** (advisory locks `O_EXCL`+CAS sobre `state.json`, zombi libera slot de `max_parallel`, PID ownership + anti-PID-reuse), **entrega/backstop** (cursor de polling con dispatch confirmado + centinela, `adopt` idempotente por `task_url`, backstop mecánico de «In Review» en `SessionEnd` con gate no-terminal), **higiene** (auto-commit gated `KODO_ORCHESTRATOR=1`, `up --url`/`startHealthLoop` borrados, config endurecida, BAJAS, README reconciliado).
+**v0.17 Plan vivo por-tarea** — shipped 2026-07-22 (5 phases 74-78, 17 plans, 24 tasks; audit `tech_debt` sin blockers — 13/13 reqs · 5/5 fases verificadas · 9/9 seams · 6/6 flujos E2E · Nyquist 5/5 compliant; suite 2027 → 2309 tests, verde completa al cierre; 168 commits). El plan de cada tarea es **estado vivo**: **productor** (Phase 74 — handoff acumulativo `Hecho/Pendiente/NEXT:` en `SessionEnd` pre-cleanup, autoría LLM + backstop mecánico, `NEXT:` en `state.tasks` bajo `withStateLock`; G-74-4 cerrado con detector de deriva en `kodo doctor` + registro real verificado en vivo), **consumidores** (Phase 75 — columna `next` del dashboard, overlay del plan renderizado en `phaseId == null` con D-02 intacto, nudge del orquestador con contexto), **ortogonales** (Phase 76 — `pending` convergido en `src/tasks/pending.js` con frescura discriminada `pending_stale`/`pending_fetched_at`; Phase 77 — workspaces agrupados en cmux por path resuelto vía `--group`, fail-open 2 capas, GRP-04), y **deuda de cierre saldada** (Phase 78 — nudge saneado `stripControlChars`/`stripForKeystroke` cerrando R-75-02 + 8 fixes de 77-REVIEW).
 
-- Roadmap archive: `milestones/v0.16-ROADMAP.md`
-- Requirements archive: `milestones/v0.16-REQUIREMENTS.md`
-- Audit: `milestones/v0.16-MILESTONE-AUDIT.md`
-- Phases: `milestones/v0.16-phases/`
+- Roadmap archive: `milestones/v0.17-ROADMAP.md`
+- Requirements archive: `milestones/v0.17-REQUIREMENTS.md`
+- Audit: `milestones/v0.17-MILESTONE-AUDIT.md`
+- Phases: `milestones/v0.17-phases/`
 
 ## Deferred Items
 
-Baseline post-v0.16. Todos pre-reconocidos al cierre (audit PASSED, verified closeout).
+Baseline post-v0.17. Todos pre-reconocidos al cierre (audit `tech_debt` sin blockers, verified closeout). Los 8 items menores de v0.17 detallados en `milestones/v0.17-MILESTONE-AUDIT.md` §tech_debt.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
+| Estado | `next` un-clearable una vez seteado en `upsertTaskHandoff` (`src/session/state.js:443`) — un cierre posterior sin `NEXT:` no lo borra; ningún SC lo prometía | Abierto (limitación conocida, heredada por dashboard/nudge) | v0.17 Phase 74 |
+| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** bajo carga (timing). Preexistente de Phase 70; verde en las 3 runs completas de Phase 78 y en la run de cierre (2026-07-22) | Abierto — investigar con `/gsd-debug`; NO arreglar a ciegas (protege el invariante de locks de v0.16) | v0.17 Phase 74 (heredado de v0.16) |
+| Doc-drift | 75/WR-02 (comentario App.js «una vez por tick» vs render real) · 75/WR-04 (typedef `overlaySnapshot` sin `render`) — solo documentación | Abierto (menor) | v0.17 Phase 75 |
+| Render TUI | 75/WR-03: `nextCell` no colapsa `\n`/`\t` en el RENDER de fila (solo alcanzable por state.json hand-editado; carril keystroke cerrado en Phase 78) · fidelidad markdown best-effort (`#`/`**` inline visibles, dentro del contrato declarado) | Abierto (menor; fricción → v0.18 si molesta en uso real) | v0.17 Phase 75 |
+| Operación | El grupo cmux `SCP-CMRi` del operador no matchea el identifier derivado `SCP` — tareas SCP se lanzan sin grupo (fail-open correcto); renombrar el grupo a `SCP` para agruparlas | Acción de operador | v0.17 Phase 77 |
+| Riesgo aceptado | IN-07 / R-77-D10 (LOCKED D-10): el retry TOCTOU de `newWorkspaceWithGroupFallback` puede duplicar workspace ante timeout | Aceptado y documentado (78-SECURITY.md §Accepted Risks) | v0.17 Phase 77 |
 | Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1); análisis en `milestones/v0.16-phases/70-.../70-WORKTREE-VERIFICATION.md` | v0.16 Phase 70 |
 | UAT | Backstop GitHub real (nunca cierra issues) — skip reconocido por el operador 2026-07-09; mock de 3 capacidades como cobertura compensatoria | Abierto (requiere repo GitHub real) | v0.16 Phase 71 |
 | Cliente Plane | B12b — throttle epoch-vs-delta (`x-ratelimit-reset` no confirmable barato en Plane self-hosted) | Diferido con nota (D-02) | v0.16 Phase 72 |
-| Orchestrator | ORCH-05 — discrepancia del conteo `pending` entre `check.js` y la vista del orchestrator (ex-Phase 73, retirada por eliminación 2026-07-14) | **Promovido → v0.17 Phase 76** (con ORCH-06, causa raíz localizada en código) | — |
-| Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
+| Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION (las 5 fases de v0.17 SÍ quedaron validated al cierre) | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
 | Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera de roadmap) | — |
 | Rendimiento | Reconcile asíncrono (M21) — **medir antes de arreglar** | v2 (solo si `/health` muestra latencia real) | — |
-| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** (~1 de cada 3 runs, timing). Preexistente: no lo causó la Phase 74 (`git diff` vs baseline vacío en `src/gsd/`) | Abierto — investigar con `/gsd-debug`; NO arreglar a ciegas (podría enmascarar una carrera real del lock). Evidencia en `phases/74-.../deferred-items.md` | v0.17 Phase 74 |
 
 ## Accumulated Context
 
 ### Decisions
 
-Log completo en `PROJECT.md` §Key Decisions (v0.16 añadió 8 filas: bind+bearer default-deny, advisory lockfile vs single-writer, backstop mecánico + gate no-terminal, cursor confirmado, borrar-no-cablear, auto-commit gated, Phase 73 retirada por eliminación).
-
-- [Phase 74-01]: sessionId NO se sanea en buildHandoffBlock — writer y parser deben usar el mismo valor crudo o la deteccion D-04 daria falsos negativos permanentes
-- [Phase 74-01]: el truncado del NEXT a 200 vive en extractNext (el contrato), no en el caller (D-02)
-- [Phase 74-01]: src/session/handoff.js es hoja de CERO imports, blindada por test/check-isolation.test.js (D-13)
-- [Phase 74-02]: state.tasks es aditivo SIN bump de schema_version — los tests siembran v3 explicito: loadState devuelve forma v2 si no hay fichero y migrateStateV2toV3 descartaria la clave
-- [Phase 74-02]: el caso anti-drop de reconcileTick fuerza una transicion — sin cambios reconcile.js:233 devuelve state referencialmente y el test seria vacuo; teeth verificadas por mutacion
-- [Phase 74-02]: upsertTaskHandoff devuelve {ok:false} ante lock-timeout y jamas lanza — el caller (Plan 04) sigue el cierre igualmente, nunca aborta (D-06)
-- [Phase 74-03]: las etiquetas del formato (Hecho/Pendiente/NEXT) van en espanol en AMBAS ramas — lo que alterna por rama es la instruccion (D-08), no el contrato que parsea D-02
-- [Phase 74-03]: session-start.js NO importa src/session/handoff.js — la instruccion es un prompt, no una construccion de bloque; el acoplamiento se cubre asserting el marcador literal
-- [Phase 74-03]: D-11 confirmado empiricamente — cero tests preexistentes modificados; no habia golden bytes que reparar, solo prefijos que conservar
-- [Phase 74-03]: el guard de emojis EN preexistente NO cubria la instruccion quick (corta desde el bloque comun, posterior) — el caso nuevo corta desde la instruccion de plan
-- [Phase ?]: 74-04: writeHandoff propaga el EACCES en vez de capturarlo — el try/catch del seam es el punto ÚNICO de captura (SC#5)
-- [Phase ?]: 74-04: la fuga de HOME (T-74-15) se REPRODUJO — la suite del hook con el seam cableado y sin DI escribió en el ~/.kodo real con los tests verdes; cerrada por DI en las 17 invocaciones
-- [Phase ?]: 74-04: LIVE-01/03/04 quedan Pending hasta el cierre de fase (el Plan 05 verifica la concurrencia) — WR-01: nunca reclamar un éxito no verificado end-to-end
-- [Phase ?]: 74-05: la barrera se libera tras el evento 'spawn' de todos los hijos — el go-file sincrono del analog es un no-op (spawn() retorna antes de que el hijo arranque)
-- [Phase ?]: 74-05: el verdicto 'written' del hijo significa 'no lanzo', no 'escribio' (D-06 fail-safe); el assert que carga el peso es el conteo de bloques
-- [Phase ?]: 74-05: teeth verificadas por mutacion — sin withFileLock las 3 carreras D-08 fallan 5/5; la Carrera 1 sigue verde porque mide withStateLock
-- [Phase ?]: 77-01: buildNewWorkspaceArgs extraído como función pura exportada para testear el argv de new-workspace (incl. --group) sin execFile
-- [Phase ?]: 77-01: listWorkspaceGroups devuelve stdout crudo sin JSON.parse (D-05); solo verbo list de workspace-group (GRP-04); espejo en host._legacy con HOST_METHODS congelado en 4
-- [Phase ?]: Phase 77 Plan 02: agrupación de workspaces cmux resuelta en fresco por lanzamiento con fail-open en dos capas (D-09/D-10); cero persistencia de refs de grupo (GRP-04)
-- [Phase ?]: 75-01: NEXT: por tarea en el dashboard leído de state.json por tick (piggyback), cero endpoint nuevo; reader leaf never-throws que no dispara el migrador (Pitfall 1)
-- [Phase ?]: LIVE-07: el nudge del orquestador se alimenta del NEXT: efectivo (post-asimetría) threadeado por return de upsertTaskHandoff→writeHandoff, cero I/O extra; sin next el texto queda byte-idéntico (D-09)
-- [Phase ?]: 75-03: stripHandoffMarker en handoff.js (dueño único D-06); mini-renderer markdown in-house cero deps; gate render:markdown solo en carril light, GSD byte-idéntico (D-02 LOCKED)
-- [Phase ?]: [Phase 76-01]: src/tasks/pending.js es hoja de cero imports — punto de convergencia de pending para server.js y check.js sin arrastrar deps al grafo de kodo check (D-02/LOG-12)
-- [Phase ?]: [Phase 76-01]: fallo del fetch de pending sirve last-known-good etiquetado stale con fetched_at congelado al último éxito, nunca now() (ORCH-06, Pitfall 3); cold-start caído devuelve [] etiquetado stale, jamás presentado como fresco
-- [Phase ?]: 76-02: /status y check.js convergen en src/tasks/pending.js; frescura discriminada (pending_stale/pending_fetched_at) sin endpoints ni deps nuevas (ORCH-05/ORCH-06)
-- [Phase ?]: kodo doctor detecta deriva instalación↔settings de hooks (G-74-4) vía checkHookRegistration puro; KODO_HOOKS única fuente de verdad
-- [Phase ?]: [Phase 78-01]: saneo del nudge en Opción 1 (punto de composición buildStopNudgeText) — un diff cubre los 3 sinks LLM (task_ref/summary/next), mantiene la pureza y no toca session-end.js (threading handoffNext intacto)
-- [Phase ?]: [Phase 78-01]: import de stripControlChars desde ../cli/format.js NO viola format-isolation (el walker solo prohíbe picocolors directo) — 18/18 tests de isolation verdes
+Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupación por path resuelto, fail-open 2 capas, GRP-04 consume-no-gestiona, handoff pre-cleanup LLM+backstop, `state.tasks` aditivo never-throws, detector de deriva instalación↔settings, convergencia por hoja cero-imports, saneo en punto de composición). Las decisiones per-plan de v0.17 quedaron archivadas con sus fases en `milestones/v0.17-phases/`.
 
 ### Open Blockers
 
-Ninguno. v0.16 cerró con audit PASSED (verified closeout).
+Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ### Critical Invariants to Preserve (cross-milestone)
 
@@ -119,58 +84,40 @@ Ninguno. v0.16 cerró con audit PASSED (verified closeout).
 - **Escrituras de `state.json` bajo `withStateLock`** — cualquier escritor nuevo DEBE pasar por la primitiva (`src/session/state.js`); `reconcileTick` sigue siendo el único escritor de `alive`.
 - **D-02 (v0.11 Phase 46):** `readPlan` da prioridad a GSD; el plan ligero (y el handoff) solo se surface en la rama `phaseId == null`. El handoff se escribe en disco para TODA sesión, pero no se pinta en el overlay GSD.
 - **El handoff se escribe ANTES del cleanup terminal destructivo de `SessionEnd`** (`removeSession` + worktree + promptFile) — v0.17 Phase 74.
+- **Contenido LLM hacia terminal/keystroke SIEMPRE saneado** (`stripControlChars` en composición, `stripForKeystroke` en el carril keystroke) — v0.17 Phase 78; simetría con HYG-07.
+- **kodo consume grupos cmux, jamás los gestiona (GRP-04):** solo verbo `list` + flag `--group`; refs `workspace_group:N` nunca persistidos — v0.17 Phase 77 (re-fronterizable solo vía el carril doctor de la candidata 999.3).
 - **Backstop de «In Review» en `SessionEnd` con gate de estado no-terminal** — jamás transicionar a un estado terminal (GitHub `closed`); el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
 - **Auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec** — sin la var → skip (cero commits fantasma).
 - **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** · **Cero nuevas dependencias npm** (locks vía `node:fs` built-in) · **TaskProvider contract FROZEN en 9** + métodos opcionales por `typeof` · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
 
 ### Roadmap Evolution
 
-- Phase 78 added: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
+- (vacío — se rellena durante el siguiente milestone)
 
 ## Session Continuity
 
-**Last session:** 2026-07-21T23:38:19.716Z
+**Last session:** 2026-07-22 — cierre del milestone v0.17
 
-**Resume file:** 
+**Resume file:**
 
 None
 
-- **Stopped at:** Completed 78-02-PLAN.md
-- **Next action:** `/gsd-discuss-phase 74` — clavar el **formato del handoff** (contrato parseable: detectar «¿hay bloque nuevo?» para LIVE-03 y extraer el `NEXT:` para LIVE-04); es el hueco detectado el 2026-07-15 y bloquea a las tres fases LIVE
+- **Stopped at:** Milestone v0.17 archivado (roadmap + requirements + audit + phases) y tagged
+- **Next action:** `/gsd-new-milestone` — questioning → research → requirements → roadmap. Candidatas del backlog: 999.2 (Inbox de capturas) y 999.3 (sidebar doctor + reconciliación skill/prompt con v0.17); + 8 items de tech debt v0.17 elegibles
 - **Files of record:**
-  - `.planning/PROJECT.md` (updated 2026-07-15 after v0.16)
-  - `.planning/REQUIREMENTS.md` (v0.17 — 9 requirements, traceability 9/9)
-  - `.planning/ROADMAP.md` (v0.17 activo Phases 74-76; v0.16 y anteriores colapsados; Backlog con 999.1 + 999.2 Inbox)
-  - `.planning/MILESTONES.md` (entrada v0.16 completa)
-  - `.planning/milestones/v0.16-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
+  - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17)
+  - `.planning/ROADMAP.md` (v0.17 colapsado; Backlog con 999.1 + 999.2 + 999.3)
+  - `.planning/MILESTONES.md` (entrada v0.17 completa)
+  - `.planning/RETROSPECTIVE.md` (sección v0.17 añadida)
+  - `.planning/milestones/v0.17-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v0.17-phases/`
+  - `.planning/REQUIREMENTS.md` eliminado (se crea fresco en `/gsd-new-milestone`)
 
 ## Operator Next Steps
 
-- `/gsd-discuss-phase 74` — formato del handoff + punto de escritura pre-cleanup en `SessionEnd`
-- Phase 76 es ortogonal (server/check, no toca hooks ni planes): puede lanzarse en paralelo a 74/75 si interesa
+- Start the next milestone with /gsd-new-milestone
 
 ## Performance Metrics
 
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
-| — | — | — | (baseline v0.17 — métricas de v0.16 archivadas en `milestones/v0.16-phases/`) |
-| 74 | 01 | 18m | 3 tasks, 3 files (contrato de handoff: hoja pura + 40 tests) |
-| Phase 74 P02 | 14m | 3 tasks | 3 files |
-| Phase 74 P03 | 12m | 2 tasks | 3 files |
-| Phase 74 P04 | 5m | 3 tasks | 3 files |
-| Phase 74 P05 | 18m | 2 tasks | 2 files |
-**Per-Plan Metrics:**
-
-| Plan | Duration | Tasks | Files |
-|------|----------|-------|-------|
-| Phase 74 P06 | 35 min | 2 tasks | 2 files |
-| Phase 77 P01 | 15min | 2 tasks | 3 files |
-| Phase 77 P02 | ~6min | 2 tasks | 3 files |
-| Phase 75 P01 | 10min | 3 tasks | 8 files |
-| Phase 75 P02 | 5min | 2 tasks | 6 files |
-| Phase 75 P03 | 7min | 3 tasks | 7 files |
-| Phase 76 P01 | 9m | 3 tasks | 3 files |
-| Phase 76 P02 | 16min | 2 tasks | 5 files |
-| Phase 74 P07 | 18min | 2 tasks | 4 files |
-| Phase 78 P01 | 2min | 2 tasks | 2 files |
-| Phase 78 P02 | 4min | 2 tasks | 4 files |
+| — | — | — | (baseline post-v0.17 — métricas per-plan de v0.17 archivadas en `milestones/v0.17-phases/`; medias v0.17: ~12 min/plan, 17 plans) |

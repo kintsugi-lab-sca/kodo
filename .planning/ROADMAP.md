@@ -17,19 +17,26 @@
 - ✅ **v0.14 Configuración editable desde el dashboard** — Phases 63-64 (shipped 2026-06-30)
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
-- 🚧 **v0.17 Plan vivo por-tarea** — Phases 74-78 (in progress)
+- ✅ **v0.17 Plan vivo por-tarea** — Phases 74-78 (shipped 2026-07-22)
 
 > **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74.
 
 ## Phases
 
-**v0.17 Plan vivo por-tarea — el plan de la tarea pasa de fire-and-forget a estado vivo (productor → consumidores), + dos fases ortogonales: convergencia del conteo y agrupación de workspaces:**
+<details>
+<summary>✅ v0.17 Plan vivo por-tarea (Phases 74-78) — SHIPPED 2026-07-22</summary>
 
-- [ ] **Phase 74: Handoff acumulativo al cierre** - `SessionEnd` appendea `## Handoff <fecha>` (`Hecho / Pendiente / NEXT:`) al plan de la tarea antes del cleanup destructivo, con autoría LLM + backstop mecánico, y persiste puntero + `NEXT:` en `state.json` bajo `withStateLock` — LIVE-01..04
-- [ ] **Phase 75: Superficie del `NEXT:` — dashboard y nudge** - El dashboard lista el `NEXT:` por tarea desde `state.json` y abre el plan completo renderizado en la rama `phaseId == null`; el nudge del orquestador usa el `NEXT:` como contexto — LIVE-05, LIVE-06, LIVE-07
-- [ ] **Phase 76: Convergencia del conteo `pending`** - `/status` y `kodo check` reportan el mismo `pending_count`, y con el provider caído `/status` deja de servir un conteo caducado como si fuera fresco — ORCH-05, ORCH-06
-- [ ] **Phase 77: Agrupación de workspaces en cmux** - Las sesiones que kodo lanza aterrizan en el grupo de la sidebar correspondiente a su path resuelto (vía `--group` en el `new-workspace` existente), con resolución nombre→ref en fresco y degradación fail-open; kodo no crea ni gestiona grupos — GRP-01..04
-- [ ] **Phase 78: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW** - Deuda técnica de cierre de v0.17: saneo del nudge (75/WR-01, cierra R-75-02) + 8 hallazgos accionables de 77-REVIEW — 2 planes paralelizables
+**Milestone Goal:** Convertir `~/.kodo/plans/<uuid>.md` de fire-and-forget en **estado vivo** de la tarea — cerrar la continuidad entre sesiones de la misma tarea y alimentar el nudge del orquestador con un `NEXT:` concreto (productor Phase 74 → consumidores Phase 75), + dos fases ortogonales: convergencia del conteo `pending` (76) y agrupación de workspaces en cmux (77). La Phase 78 saldó la deuda técnica de cierre (saneo del nudge + fixes 77-REVIEW).
+
+- [x] Phase 74: Handoff acumulativo al cierre (8/8 plans) — LIVE-01..04 ✅ 2026-07-21
+- [x] Phase 75: Superficie del `NEXT:` — dashboard y nudge (3/3 plans) — LIVE-05, LIVE-06, LIVE-07 ✅ 2026-07-17
+- [x] Phase 76: Convergencia del conteo `pending` (2/2 plans) — ORCH-05, ORCH-06 ✅ 2026-07-17
+- [x] Phase 77: Agrupación de workspaces en cmux (2/2 plans) — GRP-01..04 ✅ 2026-07-17
+- [x] Phase 78: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW (2/2 plans) ✅ 2026-07-22
+
+Archivo: `milestones/v0.17-ROADMAP.md` · Requirements: `milestones/v0.17-REQUIREMENTS.md` · Audit: `milestones/v0.17-MILESTONE-AUDIT.md`
+
+</details>
 
 <details>
 <summary>✅ v0.16 Hardening (Phases 69-72) — SHIPPED 2026-07-15</summary>
@@ -130,162 +137,17 @@ Detalle completo de las fases 52-62: ver `milestones/v0.13-ROADMAP.md`.
 Detalle completo de las fases 63-64: ver `milestones/v0.14-ROADMAP.md`.
 Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
+Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
-## Phase Details (v0.17 activo)
+## Progress
 
-### Phase 74: Handoff acumulativo al cierre
-
-**Goal**: Al cerrar una sesión, la tarea deja **estado vivo**: su plan gana un bloque de handoff que se acumula sesión tras sesión (nunca se pisa), y `state.json` guarda el puntero al plan + el `NEXT:` de una línea. Es el productor de todo el milestone: sin este dato, ni el dashboard ni el nudge tienen nada que enseñar.
-**Depends on**: v0.16 Phase 70 (shipped) — el hook de cierre es un escritor más de `state.json` y está obligado a pasar por `withStateLock`
-**Requirements**: LIVE-01, LIVE-02, LIVE-03, LIVE-04
-**Success Criteria** (what must be TRUE):
-
-  1. Al cerrar una sesión de una tarea, `~/.kodo/plans/<task_id>.md` gana un bloque `## Handoff <fecha>` con `Hecho / Pendiente / NEXT:`, escrito **ANTES** del cleanup terminal destructivo de `SessionEnd` (`removeSession` + worktree + promptFile) — cuando el operador abre el fichero tras el cierre, el handoff está ahí. (LIVE-01)
-  2. Una segunda sesión de la misma tarea acumula un segundo bloque y el primero sigue íntegro en el fichero — la instrucción de `session-start.js:85` deja de ordenar *«sobrescribe si ya existe»* y pasa a preservar-y-appendear. (LIVE-02)
-  3. Si el LLM cierra sin escribir handoff, el fichero gana igualmente un bloque mecánico mínimo (fecha + resultado de la sesión, sin `NEXT:`): ninguna sesión cerrada deja el plan sin traza, y el operador distingue el bloque mecánico del redactado por el LLM. (LIVE-03)
-  4. Tras el cierre, `state.json` refleja para esa tarea el puntero al plan y el `NEXT:` de una línea; bajo escrituras concurrentes (hook + reconcile + server) ninguna se pierde, porque el hook pasa por `withStateLock` y `reconcileTick` sigue siendo el único escritor de `alive`. (LIVE-04)
-  5. Un handoff que falla (plan ilegible, formato inesperado, lock ocupado) **no** crashea Claude Code ni bloquea el cierre: el hook sigue never-throw y el orden de efectos `backstop → setColor → notify` (D-08, LOCKED) permanece intacto.
-
-**Plans**: 8/8 plans executed
-
-Plans:
-**Wave 1**
-
-- [x] 74-01-PLAN.md — Contrato de formato: `src/session/handoff.js` como hoja pura (D-01..D-04, D-13) + guard de aislamiento del grafo de imports [wave 1]
-- [x] 74-02-PLAN.md — `upsertTaskHandoff`: escritor de `state.tasks` bajo `withStateLock`, aditivo sin bump de schema (D-05, D-06) [wave 1]
-- [x] 74-03-PLAN.md — Invertir las dos instrucciones de `session-start.js` a preservar-y-appendear + contrato de handoff en el prompt (D-10, D-11) [wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 74-04-PLAN.md — `writeHandoff` cableado en el seam `session-end.js:97`: RMW bajo `withFileLock`, create-if-missing, persistencia (D-07..D-09) [wave 2]
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 74-05-PLAN.md — Carreras cross-process: `state.tasks` sin escrituras perdidas y el mismo plan sin lost update (D-08) [wave 3]
-
-**Gap closure** *(de `74-VERIFICATION.md` — LIVE-04 parcial: WR-02)*
-
-- [x] 74-06-PLAN.md — `upsertTaskHandoff` preserva el `NEXT:` previo cuando el entrante es ausente: un cierre mecánico posterior ya no borra el `NEXT:` real de una sesión anterior (WR-02) [gap]
-
-**Gap closure** *(de `74-UAT.md` — G-74-4: el hook `SessionEnd` de kodo nunca se registró en `~/.claude/settings.json`, así que `writeHandoff→upsertTaskHandoff` jamás corrió en cierres reales y `state.tasks` quedó `{}`; código de la fase correcto, gap de registro/instalación)*
-
-- [x] 74-07-PLAN.md — Prevención: `kodo doctor` detecta la deriva instalación↔settings (los 3 hooks kodo vs `KODO_HOOKS`) con exit 1 y sugiere `kodo install`; `checkHookRegistration` puro never-throws [wave 1]
-- [x] 74-08-PLAN.md — Fix + verificación en vivo (checkpoint operador): registrar SessionEnd vía el instalador idempotente y comprobar que un cierre real puebla `state.tasks` + telemetría `state.task.handoff_saved` [wave 2, depende de 74-07]
-
-### Phase 75: Superficie del `NEXT:` — dashboard y nudge
-
-**Goal**: El operador y el orquestador **consumen** el estado vivo sin abrir ficheros a mano: el `NEXT:` de cada tarea se ve en la lista del dashboard, el plan completo se abre renderizado desde la fila, y el nudge del orquestador deja de ser genérico. Es la cara visible del dato que produce la Phase 74.
-**Depends on**: Phase 74 (consume el `NEXT:` de `state.json` y el bloque de handoff del plan)
-**Requirements**: LIVE-05, LIVE-06, LIVE-07
-**Success Criteria** (what must be TRUE):
-
-  1. El dashboard muestra el `NEXT:` por tarea en la lista, leyéndolo de `state.json` — la TUI **no** abre N ficheros de plan para pintar la tabla, y no aparece ningún endpoint nuevo en `src/server.js`. (LIVE-05)
-  2. Desde la fila de una sesión no-GSD (`phaseId == null`), el operador abre el markdown completo del plan renderizado y de **solo lectura** (no editable), y `Esc` vuelve a la lista preservando el cursor por `task_id`. (LIVE-06)
-  3. Las filas GSD siguen abriendo su overlay de plan GSD exactamente igual que hoy: D-02 intacto, el handoff no se surface en esa rama aunque sí se haya escrito en disco. (LIVE-06)
-  4. Con un `NEXT:` presente, el nudge del orquestador lo usa como contexto concreto en vez del genérico. (LIVE-07)
-  5. Sin `NEXT:` (tarea recién creada, handoff mecánico sin `NEXT:`, plan ausente o ilegible), el dashboard y el nudge degradan limpio — celda vacía y nudge sin contexto, TUI never-throws, cero ruido.
-
-**Plans**: 3/3 plans executed
-**Wave 1**
-
-- [x] 75-01-PLAN.md — LIVE-05: columna condicional `next` en la tabla, leída de `state.json` por un reader leaf filesystem (piggyback poll) [Wave 1]
-- [x] 75-02-PLAN.md — LIVE-07: nudge del orquestador con el `NEXT:` persistido (buildStopNudgeText + threading post-asimetría), byte-idéntico sin dato [Wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 75-03-PLAN.md — LIVE-06: overlay del plan ligero renderizado (mini-renderer line-based + `stripHandoffMarker`), GSD byte-idéntico [Wave 2, depende de 75-01]
-
-**UI hint**: yes
-
-### Phase 76: Convergencia del conteo `pending`
-
-**Goal**: El conteo de tareas `pending` que ve el orquestador converge con el que reporta `kodo check`, y con el provider caído `/status` deja de presentar un dato caducado como si fuera fresco. Ortogonal a los LIVE (vive en `src/server.js` y `src/check.js`, no toca hooks ni planes) → paralelizable.
-**Depends on**: Nothing (independiente de 74/75; puede ejecutarse en paralelo)
-**Requirements**: ORCH-05, ORCH-06
-**Success Criteria** (what must be TRUE):
-
-  1. Con el provider sano, `/status` y `kodo check` reportan el **mismo** `pending_count` sobre la misma realidad — la ventana de divergencia de hasta 30s (`pendingCache` TTL en `server.js:591` vs `listPendingTasks()` fresco en `check.js:37`) desaparece por convergencia de los caminos de lectura, no por cuadrar números a mano. (ORCH-05)
-  2. Con el provider caído, `/status` no sirve un conteo `pending` arbitrariamente viejo como si fuera fresco: la rama de error de `server.js:599` deja de devolver `pendingCache.data` sin comprobar TTL. (ORCH-06)
-  3. El operador y el orquestador distinguen **«0 pendientes»** de **«no se pudo saber»** — el fallo del provider es visible en la respuesta, no solo un `console.warn` en la consola del server. (ORCH-06)
-  4. El arreglo no introduce endpoints nuevos ni un bus de invalidación por evento (fuera de alcance explícito): el comportamiento observable cambia sin rediseñar el `pendingCache`.
-
-**Plans**: 2/2 plans executed
-
-Plans:
-**Wave 1**
-
-- [x] 76-01-PLAN.md — Módulo hoja `src/tasks/pending.js` (fetchFreshPending + createPendingResolver + buildPendingStatusFields) + unit tests + guard de aislamiento cero-imports (D-01..D-04, D-08, D-09) [wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 76-02-PLAN.md — Cablear /status al resolver (campos aditivos `pending_stale`/`pending_fetched_at` + marcador HTML) y check.js a fetchFreshPending byte-idéntico + contrato /status + guard de convergencia (D-05, D-06, D-07, D-09) [wave 2, depende de 76-01]
-
-### Phase 77: Agrupación de workspaces en cmux
-
-**Goal**: Las sesiones que kodo lanza dejan de amontonarse planas en la sidebar: cada workspace nuevo aterriza dentro del grupo cmux de su proyecto/módulo (varias issues del mismo módulo de ROMAN, juntas y colapsables). kodo **consume** grupos que el operador crea a mano una vez — no los crea, renombra ni borra. Ortogonal a los LIVE (vive en `src/cmux/client.js` + `src/session/manager.js`, no toca hooks ni `state.json`) → paralelizable.
-**Depends on**: Nothing (independiente de 74-76). Dependencia externa: cmux ≥ 0.64.19 (flag `--group` en `new-workspace`).
-**Requirements**: GRP-01, GRP-02, GRP-03, GRP-04
-**Success Criteria** (what must be TRUE):
-
-  1. Al lanzar una tarea cuyo grupo existe en la sidebar, el workspace aterriza dentro del grupo — verificable en `cmux workspace-group list --json` → `member_workspace_refs`. (GRP-01)
-  2. La clave de agrupación es el **path resuelto** (`resolveProjectPath`), no el proyecto ni el módulo a secas: dos módulos de ROMAN con repos distintos (FVF, WAG) caen en grupos distintos, y los 7 módulos-fase de SCP-CMRI (mismo path) caen en el mismo grupo. (GRP-02)
-  3. Sin grupo coincidente, o con `workspace-group list` fallando o cmux < 0.64.19, la sesión se lanza **exactamente como hoy** (sin `--group`): cero sesiones perdidas por culpa de la agrupación — el grupo es cosmético, la sesión es la carga útil. (GRP-03)
-  4. kodo nunca ejecuta `workspace-group create/rename/delete/ungroup`, y ningún ref `workspace_group:N` se persiste en `state.json` ni en config. (GRP-04)
-  5. La resolución añade como mucho una llamada cmux por lanzamiento (~50ms, presupuesto RESEARCH §S5 de v0.9) y no toca el reconcile loop ni el contrato `WorkspaceHost` (`HOST_METHODS` congelado en 4).
-
-**Verificado en vivo (cmux 0.64.19, 2026-07-16) — hechos para research/planning, no re-derivar:**
-
-- `cmux new-workspace --group <ref>` funciona combinado con `--cwd` + `--command` (la combinación exacta del launch real de kodo).
-- `--group` **NO acepta nombres** (`Error: invalid_params: Missing or invalid group_id`) — solo refs `workspace_group:N`. La resolución nombre→ref es responsabilidad de kodo.
-- Un ref inválido es **FATAL**: `exit=1` y el workspace NO se crea (ni siquiera sin grupo). No hay fail-open del lado de cmux → lo aporta kodo omitiendo el flag ante cualquier duda.
-- Las llamadas fallidas no dejan workspaces fantasma.
-- `workspace list --json` **no expone** pertenencia a grupo; la única fuente es `workspace-group list --json` (`member_workspace_refs`, keyed por `workspace:N` reciclable — misma defensa que Phase 43: no persistir, resolver en fresco).
-- El anchor de un grupo es SIEMPRE un workspace nuevo (nunca promociona uno existente); cerrar el anchor disuelve el grupo **preservando** los miembros como workspaces sueltos (el doc web dice otra cosa — el `--help` del binario y el doc de GitHub mandan).
-- `workspace-group create` sin `--from` explícito se traga el workspace activo/caller — razón principal por la que kodo NO crea grupos (GRP-04).
-- Los grupos son **por ventana**; `new-workspace` apunta a la ventana del caller. Hueco para `/gsd-discuss-phase`: qué ventana ve el daemon headless (brew services) al resolver grupos.
-- `new-workspace` es hoy alias legacy de `cmux workspace create` (aviso en output; el regex `workspace:\d+` de `client.js:39` lo tolera; `CMUX_QUIET=1` lo silencia).
-
-**Plans**: 2/2 plans executed
-
-Plans:
-**Wave 1**
-
-- [x] 77-01-PLAN.md — Fontanería cmux: `listWorkspaceGroups` (read-only) + `buildNewWorkspaceArgs` con `--group` en `client.js`; espejo `_legacy` en `host/cmux.js` (Wave 1)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 77-02-PLAN.md — Funciones puras (derivar nombre, resolver nombre→ref) + retry fail-open + cableado en `launchWorkItem`; unit tests + source-hygiene (Wave 2, depende de 77-01)
-
-### Phase 78: Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW
-
-**Goal:** Saldar la deuda técnica de cierre de v0.17: sanear el contenido LLM del nudge del orquestador (los 3 campos `next`/`summary`/`task_ref`, cierra R-75-02) y endurecer la resolución de grupos cmux con red de regresión (8 hallazgos accionables de 77-REVIEW), sin cambio de comportamiento observable para inputs limpios ni dependencias nuevas.
-**Requirements**: 75/WR-01, 77/WR-01, 77/WR-02, 77/IN-01, 77/IN-02, 77/IN-03, 77/IN-04, 77/IN-05, 77/IN-06 (IDs de hallazgo — fase de deuda sin IDs de REQUIREMENTS.md; IN-07 LOCKED fuera de scope)
-**Depends on:** Phase 77
-**Success Criteria** (what must be TRUE):
-
-  1. El nudge del orquestador emite `next`/`summary`/`task_ref` pasados por `stripControlChars` — ninguna secuencia de escape de terminal sobrevive; para inputs limpios el texto queda byte-idéntico (D-09) y `buildStopNudgeText` sigue pura. (75/WR-01)
-  2. `deriveExpectedGroupName` deriva sobre el ref trimeado y devuelve null para refs que colapsan a identifier vacío (`'#7'`, `'-9'`); `'KODO-9 '` → match limpio. (77/WR-01+IN-01)
-  3. `resolveWorkspaceGroup` solo devuelve `g.ref` cuando cumple `/^workspace_group:\d+$/`, con red de regresión del invariante Unicode NFD↔NFC. (77/IN-02+WR-02)
-  4. `listWorkspaceGroups()` no se ejecuta cuando `expectedName` es null; el log de degradación incluye el motivo del error sin filtrar contenido de usuario (D-11). (77/IN-04+IN-03)
-  5. El fixture live y los guards GRP-04/D-10 quedan intactos; el JSDoc `group?: string` alineado y el assert GRP-04 protegido contra reordenamiento. (77/IN-06+IN-05)
-
-**Plans:** 2/2 plans executed
-
-Plans:
-**Wave 1** *(los dos planes son ortogonales en ficheros — paralelizables)*
-
-- [x] 78-01-PLAN.md — Saneo del nudge: `buildStopNudgeText` sanea los 3 campos LLM con `stripControlChars` (Opción 1, mantiene pureza) + regresión byte-idéntica D-09 [wave 1]
-- [x] 78-02-PLAN.md — Hardening de resolución de grupos cmux: WR-01/IN-01/IN-02/IN-04/IN-03 en manager.js + JSDoc IN-06 + tests WR-02/IN-05 [wave 1]
-
-## Progreso (v0.17)
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 74. Handoff acumulativo al cierre | 8/8 | Complete    | 2026-07-21 |
-| 75. Superficie del `NEXT:` — dashboard y nudge | 3/3 | Complete    | 2026-07-17 |
-| 76. Convergencia del conteo `pending` | 2/2 | Complete    | 2026-07-17 |
-| 77. Agrupación de workspaces en cmux | 2/2 | Complete    | 2026-07-17 |
-| 78. Address tech debt: saneo del nudge (75/WR-01) + fixes 77-REVIEW | 2/2 | Complete    | 2026-07-22 |
+| Milestone | Phases | Plans | Status | Shipped |
+|-----------|--------|-------|--------|---------|
+| v0.17 Plan vivo por-tarea | 74-78 | 17/17 | Complete | 2026-07-22 |
+| v0.16 Hardening | 69-72 | 18/18 | Complete | 2026-07-15 |
+| v0.15 «kodo up» | 65-68 | 14/14 | Complete | 2026-07-03 |
+| v0.14 Config editable | 63-64 | 7/7 | Complete | 2026-06-30 |
+| v0.13 kodo bidireccional | 52-62 | 17/17 | Complete | 2026-06-25 |
 
 ## Backlog
 

@@ -529,6 +529,48 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 - Model mix: fable/opus (orquestación, planning, cierre) + sonnet (integration-checker del audit). Sesiones: multi-sesión a lo largo de ~9 días (2026-07-05 → 2026-07-14), cierre el 2026-07-15.
 - Notable: el cierre fue barato porque las 4 fases llegaron pre-verificadas (VERIFICATION passed + UAT hechos durante el milestone); el único trabajo real del cierre fue el milestone audit (integration checker: ~52k tokens, 6/6 seams) y la reconciliación del falso UAT-gap + phase dirs de v0.15.
 
+## Milestone: v0.17 — Plan vivo por-tarea
+
+**Shipped:** 2026-07-22
+**Phases:** 5 (74-78) | **Plans:** 17 | **Tasks:** 24
+
+### What Was Built
+- Handoff acumulativo al cierre (Phase 74): `SessionEnd` appendea `## Handoff <fecha>` (`Hecho/Pendiente/NEXT:`) al plan de la tarea ANTES del cleanup destructivo — autoría LLM + backstop mecánico, RMW bajo `withFileLock`, puntero + `NEXT:` en `state.tasks` bajo `withStateLock` (LIVE-01..04); + detector de deriva instalación↔settings en `kodo doctor` y registro real del hook verificado en vivo (G-74-4).
+- Superficie del `NEXT:` (Phase 75): columna condicional en el dashboard leída de `state.json`, overlay del plan ligero renderizado read-only en `phaseId == null` (mini-renderer in-house, GSD byte-idéntico), nudge del orquestador con el `NEXT:` como contexto (LIVE-05..07).
+- Convergencia del conteo `pending` (Phase 76): `/status` y `kodo check` derivan de `src/tasks/pending.js` (hoja cero-imports); frescura discriminada `pending_stale`/`pending_fetched_at`, fallo etiquetado nunca servido como fresco (ORCH-05/06).
+- Agrupación de workspaces en cmux (Phase 77): `--group` por path resuelto con resolución en fresco y fail-open en 2 capas; kodo consume grupos sin gestionarlos ni persistir refs (GRP-01..04).
+- Saldo de deuda de cierre (Phase 78): saneo de los 3 campos LLM del nudge (`stripControlChars` + `stripForKeystroke`, cierra R-75-02) + 8 hallazgos de 77-REVIEW con red de regresión Unicode.
+
+### What Worked
+- **Arquitectura productor→consumidores del milestone**: Phase 74 produce el dato, Phase 75 lo consume, 76/77 ortogonales y paralelizables — dependencias limpias que permitieron ejecutar 76/77 antes de cerrar 74 sin colisión alguna.
+- **UAT en vivo como cazador de gaps de instalación**: los tests de la cadena `writeHandoff→upsertTaskHandoff` estaban verdes, pero el UAT real destapó que el hook `SessionEnd` jamás se registró en `settings.json` (G-74-4) — el código era correcto, el registro faltaba. El cierre produjo un detector permanente (`checkHookRegistration` en doctor) + verificación con un cierre real.
+- **Hechos empíricos pineados en el ROADMAP antes de planificar** (Phase 77): la conducta real de `--group` se verificó en vivo contra cmux 0.64.19 (refs-no-nombres, ref inválido FATAL, anchor disuelve el grupo) y se documentó como «no re-derivar» — el doc web contradecía al binario, y planificar sobre docs habría producido un diseño roto.
+- **Fase dedicada de deuda de cierre (78) con ciclo completo de review**: el review post-ejecución descubrió 2 security warnings nuevos (nudge de launch sin sanear, vector newline→Enter del carril keystroke) y se cerraron con teeth el mismo día — la deuda no se acumuló al siguiente milestone.
+- **Promoción desde backlog con causa raíz localizada** (lección de la Phase 73 aplicada): ORCH-05 entró con las líneas exactas del defecto (`server.js:591/599`) y la Phase 76 se ejecutó en 2 planes sin sorpresas.
+
+### What Was Inefficient
+- **El gap de registro (G-74-4) se descubrió tarde**: toda la cadena productora navegó planning→execute→verify con suite verde sin que nadie comprobara que el hook estaba registrado en el sistema real — 2 planes extra (74-07/08) para cerrarlo. La instalación es parte del deliverable.
+- **Nyquist retroactivo por tercera vez**: las 5 fases cerraron ejecución con `VALIDATION.md` en draft y el sign-off completo se hizo el día del cierre (validate-phase retroactivo × 5) — el artefacto sigue desacoplado del flujo de ejecución.
+- **Triple re-audit al cierre**: el milestone audit corrió 3 veces (2026-07-21, 2026-07-22 10:00Z y 10:31Z) conforme la deuda se saldaba a trozos — señal de que el orden cierre-de-deuda → audit único habría sido más barato.
+- **Flaky `gsd-lock-race` sigue vivo**: verde en las runs completas del cierre pero con flake de timing ocasional documentado desde Phase 70 — diferido con nota de cautela (no tocar como fix rápido).
+
+### Patterns Established
+- **Contrato de bloque parseable como hoja pura** (`src/session/handoff.js`, cero imports, marcador `kodo:handoff`): writer y parser comparten el contrato exacto; blindado por el walker de aislamiento.
+- **Hoja de cero imports como punto de convergencia de carriles de lectura divergentes** (`src/tasks/pending.js`): factory DI + TTL + frescura discriminada con `fetched_at` congelado al último éxito — reusable para cualquier «dos consumidores, una fuente».
+- **Fail-open en 2 capas para features cosméticas sobre sistemas externos** (resolución + retry TOCTOU sin el flag): la sesión es la carga útil, el adorno jamás la mata.
+- **Saneo de contenido LLM en el punto de composición** + carril keystroke con strip propio (`stripForKeystroke`): simetría con el carril de render (HYG-07), byte-idéntico para inputs limpios.
+- **Detector de deriva instalación↔settings en doctor** (`checkHookRegistration` sobre `KODO_HOOKS` como fuente única): la clase de fallo silencioso «código correcto que nunca corre» gana detector permanente.
+
+### Key Lessons
+- **Suite verde ≠ feature corriendo en el sistema real**: si el deliverable depende de un registro/instalación externo (hooks en `settings.json`), la verificación DEBE incluir un disparo real end-to-end — G-74-4 vivió invisible bajo 2000+ tests verdes.
+- **Verificar empíricamente el sistema externo ANTES de planificar contra él**: los hechos en vivo de cmux contradecían su documentación web; pinearlos en el ROADMAP con «no re-derivar» evitó re-trabajo en research/planning/execute.
+- **Cerrar la deuda de review dentro del milestone (fase dedicada) es más barato que heredarla**: la Phase 78 convirtió 9 hallazgos + 2 warnings nuevos en cierre verificado el mismo día, y el audit final quedó limpio.
+- **El sign-off Nyquist debe ocurrir al cerrar cada fase, no en batch al cierre del milestone** — tercer milestone consecutivo con backfill retroactivo; mismo tipo de bug de proceso que el checkbox-drift de v0.3-v0.5 (que se arregló automatizando).
+
+### Cost Observations
+- Model mix: fable (orquestación, planning, ejecución y cierre) + subagentes GSD (reviewer/verifier/auditor). Multi-sesión a lo largo de ~8 días (2026-07-15 → 2026-07-22).
+- Notable: el cierre fue más caro que el de v0.16 — 3 re-runs del milestone audit + sign-off Nyquist retroactivo de 5 fases el mismo día. La causa fue el orden (deuda saldada a trozos post-audit); el patrón barato sigue siendo llegar al cierre con fases pre-verificadas Y pre-firmadas.
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -550,6 +592,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.14 | 7 | 2 | 2ª ruptura consciente de "TUI read-only" (editor de config/proyectos): text-input in-house en ink + validadores puros + escritura local atómica, cero endpoints nuevos |
 | v0.15 | 14 | 4 | Build order LOCKED por pilares (daemon estable antes del onboarding) + boundary del secreto con escritor único verificado por grep de higiene + UAT runtime + GATE MANUAL no auto-aprobable en `--auto` |
 | v0.16 | 18 | 4 | Milestone dirigido por auditoría adversarial (4 olas por causa raíz, orden risk-graded) + race-tests de procesos reales como gate para locks + estándar de alcanzabilidad end-to-end en verificación (2 BLOCKERs cazados) + retirar una fase entera (73) cuando eliminar la causa gana al fix estructural |
+| v0.17 | 17 | 5 | Arquitectura productor→consumidores del milestone (74→75 + 2 ortogonales paralelizables) + hechos empíricos del sistema externo pineados pre-planning («no re-derivar») + UAT en vivo caza gap de instalación (G-74-4) → detector permanente en doctor + fase dedicada de deuda de cierre (78) con review con teeth |
 
 ### Cumulative Quality
 
@@ -570,6 +613,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.14 | 1639 | — | — |
 | v0.15 | 1788 | — | — |
 | v0.16 | 2027 | ~28,300 | — |
+| v0.17 | 2309 | ~25,500 (wc -l `src/**/*.js`; el ~28,3k de v0.16 usó otro método) | ~47,200 |
 
 ### Top Lessons (Verified Across Milestones)
 
