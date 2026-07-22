@@ -825,27 +825,34 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 78 (WR-01): el nudge de "Nueva sesión lanzada" al orquestador sanea task.ref/task.title/projectPath vía stripControlChars', () => {
+  it('Phase 78 (WR-01/WR-02): el nudge de "Nueva sesión lanzada" al orquestador sanea task.ref/task.title/projectPath vía stripForKeystroke', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     // El helper de saneo debe estar importado desde el carril canónico (cli/format.js),
     // el MISMO que usa buildStopNudgeText en stop.js. NO se importa cmux/client.js
-    // (invariante cmux-isolation — verificado por su walker).
+    // (invariante cmux-isolation — verificado por su walker). WR-02: el carril de
+    // keystroke usa stripForKeystroke (no stripControlChars), que además neutraliza `\n`.
     assert.ok(
-      /import\s*\{[^}]*\bstripControlChars\b[^}]*\}\s*from\s*['"]\.\.\/cli\/format\.js['"]/.test(source),
-      'manager.js debe importar stripControlChars desde ../cli/format.js (simetría con stop.js)',
+      /import\s*\{[^}]*\bstripForKeystroke\b[^}]*\}\s*from\s*['"]\.\.\/cli\/format\.js['"]/.test(source),
+      'manager.js debe importar stripForKeystroke desde ../cli/format.js (carril de keystroke, WR-02)',
     );
     // Los tres campos derivados de provider (no confiable) que se interpolan en el
     // texto enviado al terminal del orquestador vía host._legacy.send DEBEN pasar por
-    // stripControlChars — mismo modelo de amenaza (inyección CSI/OSC/C0/C1) que el
-    // nudge de cierre. Sin saneo, un título de tarea con OSC-52/CSI se teclea crudo.
+    // stripForKeystroke — mismo modelo de amenaza (inyección CSI/OSC/C0/C1) MÁS el vector
+    // newline (WR-02). Sin saneo, un título de tarea con OSC-52/CSI/`\n` se teclea crudo.
     assert.ok(
-      /Nueva sesión lanzada: \$\{stripControlChars\(task\.ref\)\} \(\$\{stripControlChars\(task\.title\)\}\)[\s\S]*?Path: \$\{stripControlChars\(projectPath\)\}/.test(source),
-      'el nudge de lanzamiento debe envolver task.ref, task.title y projectPath con stripControlChars (WR-01)',
+      /Nueva sesión lanzada: \$\{stripForKeystroke\(task\.ref\)\} \(\$\{stripForKeystroke\(task\.title\)\}\)[\s\S]*?Path: \$\{stripForKeystroke\(projectPath\)\}/.test(source),
+      'el nudge de lanzamiento debe envolver task.ref, task.title y projectPath con stripForKeystroke (WR-02)',
     );
     // Regresión negativa: los campos crudos sin sanear NO deben reaparecer en ese send.
     assert.ok(
       !/Nueva sesión lanzada: \$\{task\.ref\}/.test(source),
-      'task.ref crudo (sin stripControlChars) NO debe interpolarse en el nudge de lanzamiento (WR-01)',
+      'task.ref crudo (sin sanear) NO debe interpolarse en el nudge de lanzamiento (WR-01)',
+    );
+    // WR-02 con dientes: el saneador de RENDER (stripControlChars, que preserva `\n`)
+    // NO debe usarse en este carril de keystroke — sería el residuo de inyección newline.
+    assert.ok(
+      !/\bstripControlChars\s*\(\s*task\.(ref|title)\s*\)/.test(source),
+      'el carril de keystroke NO debe usar stripControlChars (preserva `\\n` → Enter espurio, WR-02)',
     );
   });
 

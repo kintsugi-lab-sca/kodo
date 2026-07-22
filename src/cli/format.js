@@ -87,6 +87,42 @@ export function stripControlChars(s) {
 }
 
 /**
+ * Variante del carril de KEYSTROKE (`cmux send`) — NO del carril de render.
+ *
+ * `stripControlChars` preserva `\n`/`\t` a propósito porque el render del
+ * dashboard (Ink) los necesita (texto multilínea/tabulado). Pero `cmux send`
+ * inyecta el texto como PULSACIONES de teclado e interpreta `\n`/`\r`/`\t` como
+ * Enter/Tab (ver `manager.js` y `stop.js`). Reutilizar el saneador de render en
+ * ese carril deja un residuo de inyección (WR-02, Phase 78): un campo NO confiable
+ * (`task.title`/`task.ref`/`projectPath` o el `next` LLM-persistido) que contenga
+ * un salto de línea REAL (`\x0a`) —o la secuencia LITERAL de dos chars `\` + `n`
+ * (0x5C 0x6E), imprimible— sobrevive al saneo y, al teclearse, produce un Enter
+ * espurio en el terminal del orquestador (submit prematuro + línea inyectada).
+ *
+ * Esta función parte del saneo de control-chars y ADEMÁS neutraliza, colapsándolos
+ * a un espacio, tanto los `\n`/`\r`/`\t` REALES como sus formas de escape LITERAL
+ * (`\n`/`\r`/`\t` como texto). Sobre ASCII limpio sin esos vectores es la identidad
+ * (goldens byte-idénticos, D-09). Pura — no importa/usa color.
+ *
+ * Se aplica SOLO a los campos no confiables interpolados; el `\n` terminador
+ * intencional (el Enter que envía el nudge) vive fuera de esta llamada y se
+ * conserva.
+ *
+ * @param {unknown} s
+ * @returns {string}
+ */
+export function stripForKeystroke(s) {
+  return stripControlChars(s)
+    // `\n`/`\t` REALES sobreviven a stripControlChars (carril de render); en el
+    // carril de keystroke son Enter/Tab → colapsar a espacio. (`\r` ya lo quitó
+    // stripControlChars; se incluye por robustez y claridad de intención.)
+    .replace(/[\r\n\t]/g, ' ')
+    // Secuencia de escape LITERAL (`\` + n/r/t, ASCII imprimible): `cmux send`
+    // también la interpreta como Enter/Tab → neutralizar.
+    .replace(/\\[rnt]/g, ' ');
+}
+
+/**
  * Right-pads una celda con espacios hasta alcanzar `width` medido por
  * `visibleWidth`. Si la celda ya excede el width, se devuelve sin truncar
  * (D-10 — no truncation).

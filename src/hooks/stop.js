@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
 import { getSessionMode } from '../labels.js';
-import { stripControlChars } from '../cli/format.js';
+import { stripForKeystroke } from '../cli/format.js';
 import * as cmux from '../cmux/client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,10 +50,13 @@ export function buildStopNudgeText(session, next) {
   // Phase 78 (T-78-01, 75/WR-01): sanear los campos LLM en el punto de composición
   // (Opción 1 de RESEARCH §Scope A). task_ref/summary cruzan de datos no confiables
   // (LLM / state.json hand-editable) al terminal del orquestador vía cmuxClient.send;
-  // stripControlChars neutraliza CSI/OSC/C0/C1/DEL/CR. Mismo patrón que el carril de
-  // render ya blindado (App.js:752-753). stripControlChars es pura → la función SIGUE
-  // pura; sobre ASCII limpio es la identidad → goldens byte-idénticos (D-09).
-  const base = `La sesión ${stripControlChars(session.task_ref)} (${stripControlChars(session.summary)}) ha terminado y está en Review.`;
+  // Phase 78 (WR-02): este texto va a cmuxClient.send (carril de KEYSTROKE), no al
+  // render. stripForKeystroke neutraliza CSI/OSC/C0/C1/DEL/CR Y ADEMÁS los `\n`/`\t`
+  // (reales y su forma de escape literal), que en `cmux send` serían Enter/Tab — un
+  // salto de línea en task_ref/summary inyectaría un Enter espurio en el terminal del
+  // orquestador. Es pura → la función SIGUE pura; sobre ASCII limpio es la identidad
+  // → goldens byte-idénticos (D-09).
+  const base = `La sesión ${stripForKeystroke(session.task_ref)} (${stripForKeystroke(session.summary)}) ha terminado y está en Review.`;
   let text;
   switch (getSessionMode(session)) {
     case 'quick':
@@ -74,9 +77,10 @@ export function buildStopNudgeText(session, next) {
   // Guard estricto `typeof === 'string' && length > 0`: null/''/undefined/no-string
   // NO añaden nada → `text` queda byte-idéntico a la rama original (D-09).
   if (typeof next === 'string' && next.length > 0) {
-    // Phase 78 (T-78-01): el `next` (NEXT: persistido, origen LLM/hand-editable)
-    // también se sanea antes de interpolarse. El guard estricto se mantiene tal cual.
-    text += `Siguiente paso sugerido por la sesión: ${stripControlChars(next)}\\n`;
+    // Phase 78 (T-78-01 / WR-02): el `next` (NEXT: persistido, origen LLM/hand-editable)
+    // se sanea con stripForKeystroke antes de interpolarse — carril de keystroke, así que
+    // un `\n` embebido no puede convertirse en Enter. El guard estricto se mantiene tal cual.
+    text += `Siguiente paso sugerido por la sesión: ${stripForKeystroke(next)}\\n`;
   }
   return text;
 }

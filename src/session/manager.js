@@ -9,7 +9,7 @@ import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
-import { stripControlChars } from '../cli/format.js';
+import { stripForKeystroke } from '../cli/format.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.
@@ -520,7 +520,7 @@ export async function launchWorkItem(identifier, opts = {}) {
     if (orchMatch) {
       await host._legacy.send({
         workspace: orchMatch[1],
-        text: `Nueva sesión lanzada: ${stripControlChars(task.ref)} (${stripControlChars(task.title)}) en ${workspaceRef}. Path: ${stripControlChars(projectPath)}\\n`,
+        text: `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
       });
     }
   } catch {}

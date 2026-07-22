@@ -407,6 +407,49 @@ describe('QUICK-08 — buildStopNudgeText switch', () => {
       'modo no-GSD byte-idéntico con input limpio',
     );
   });
+
+  // ── 78/WR-02 (Phase 78, 2º pase) ─────────────────────────────────────────
+  // El texto del nudge va a cmuxClient.send (carril de KEYSTROKE): `cmux send`
+  // interpreta `\n`/`\r`/`\t` como Enter/Tab. stripControlChars (carril de render)
+  // PRESERVA `\n`/`\t` a propósito → residuo de inyección. buildStopNudgeText debe
+  // usar stripForKeystroke, que además colapsa `\n`/`\t` (reales y su forma de escape
+  // literal) a espacio. El único `\n` LITERAL permitido es el terminador intencional
+  // al final (el Enter que envía el nudge), que vive FUERA del saneo de campos.
+  // Tests con DIENTES: fallan con el saneador de render, pasan con stripForKeystroke.
+
+  it('78/WR-02: un LF real (\\x0a) en task_ref/summary NO sobrevive — evita el Enter espurio', () => {
+    // Con stripControlChars el LF real sobreviviría (se preserva por diseño de render).
+    const s = makeQuickSession({ gsd: false, task_ref: 'KL\x0a-42', summary: 'linea1\x0alinea2' });
+    const text = buildStopNudgeText(s);
+    assert.ok(
+      !text.includes('\x0a'),
+      'ningún LF real (0x0a) sobrevive en el nudge (el terminador es el literal `\\n`, no un LF)',
+    );
+    // El contenido limpio permanece, con el LF colapsado a espacio.
+    assert.match(text, /KL -42/, 'el LF de task_ref se colapsó a espacio');
+    assert.match(text, /linea1 linea2/, 'el LF de summary se colapsó a espacio');
+  });
+
+  it('78/WR-02: la secuencia LITERAL `\\n` en un campo NO sobrevive — solo queda el terminador intencional', () => {
+    // `summary` con la secuencia de escape LITERAL de 2 chars `\` + `n` (0x5C 0x6E):
+    // imprimible, sobrevive a stripControlChars, pero `cmux send` la teclea como Enter.
+    const s = makeQuickSession({ gsd: false, summary: 'antes\\ndespues' });
+    const text = buildStopNudgeText(s);
+    // Exactamente UN `\n` literal en todo el texto: el terminador final. El del campo
+    // debe haberse neutralizado (con stripControlChars habría DOS).
+    const literalCount = (text.match(/\\n/g) || []).length;
+    assert.equal(literalCount, 1, 'solo el `\\n` terminador sobrevive; el `\\n` literal del campo se neutraliza');
+    assert.ok(text.endsWith('\\n'), 'el terminador `\\n` intencional se conserva');
+    assert.match(text, /antes despues/, 'el `\\n` literal del campo se colapsó a espacio');
+  });
+
+  it('78/WR-02: un LF real en `next` NO sobrevive — el nudge no envía un Enter intermedio', () => {
+    const s = makeQuickSession({ gsd: false });
+    const text = buildStopNudgeText(s, 'revisa el PR\x0ay mergea');
+    assert.ok(!text.includes('\x0a'), 'ningún LF real del next sobrevive');
+    assert.match(text, /revisa el PR y mergea/, 'el LF del next se colapsó a espacio');
+    assert.ok(text.endsWith('\\n'), 'solo el terminador `\\n` intencional queda al final');
+  });
 });
 
 // Phase 33-03 LIFE-02-FOLLOWUP (Bloque C): el callsite de markSessionStatus en

@@ -24,7 +24,7 @@ import {
   nextCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
-import { stripControlChars } from '../src/cli/format.js';
+import { stripControlChars, stripForKeystroke } from '../src/cli/format.js';
 
 describe('TUI-07 (D-03): deriveRepo — project_name | basename(project_path) | —', () => {
   it('project_name presente gana', () => {
@@ -410,6 +410,51 @@ describe('HYG-07 (M4): stripControlChars neutraliza inyección de terminal', () 
     assert.equal(stripControlChars(42), '42', 'number → String');
     assert.equal(stripControlChars(null), 'null', 'null → "null" sin lanzar');
     assert.equal(stripControlChars(undefined), 'undefined', 'undefined → "undefined" sin lanzar');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 78 (WR-02): stripForKeystroke es la variante del carril de KEYSTROKE
+// (`cmux send`). Parte de stripControlChars y ADEMÁS neutraliza `\n`/`\r`/`\t`
+// (reales y su forma de escape literal), que en el carril de keystroke serían
+// Enter/Tab. Sobre el carril de render seguimos usando stripControlChars (que
+// preserva `\n`/`\t`); esta función es SOLO para el carril de teclado.
+// ---------------------------------------------------------------------------
+describe('WR-02: stripForKeystroke neutraliza también `\\n`/`\\t` (carril de keystroke)', () => {
+  const ESC = '\x1b';
+  const BEL = '\x07';
+
+  it('hereda el saneo de control-chars de stripControlChars (CSI/OSC/C0/C1/DEL)', () => {
+    const out = stripForKeystroke(`${ESC}]52;c;AAAA${BEL}x${ESC}[31mrojo${ESC}[0m`);
+    assert.equal(out.includes(ESC), false, 'sin ESC');
+    assert.equal(out.includes(BEL), false, 'sin BEL');
+    assert.match(out, /xrojo/, 'el texto visible limpio permanece');
+  });
+
+  it('colapsa `\\n` y `\\t` REALES a espacio (a diferencia de stripControlChars)', () => {
+    // Contraste explícito con el carril de render, que los PRESERVA.
+    assert.equal(stripControlChars('a\nb\tc'), 'a\nb\tc', 'render: preserva');
+    assert.equal(stripForKeystroke('a\nb\tc'), 'a b c', 'keystroke: colapsa a espacio');
+  });
+
+  it('elimina `\\r` REAL (heredado de stripControlChars: se borra, no reescribe la línea)', () => {
+    assert.equal(stripForKeystroke('a\rb'), 'ab', 'CR real se elimina (contrato de stripControlChars)');
+  });
+
+  it('neutraliza la secuencia de escape LITERAL `\\n`/`\\r`/`\\t` (backslash + letra)', () => {
+    // `cmux send` interpreta también la forma literal como Enter/Tab.
+    assert.equal(stripForKeystroke('antes\\ndespues'), 'antes despues', 'literal \\n → espacio');
+    assert.equal(stripForKeystroke('a\\tb\\rc'), 'a b c', 'literal \\t y \\r → espacio');
+  });
+
+  it('es la identidad sobre ASCII limpio (goldens byte-idénticos, D-09)', () => {
+    assert.equal(stripForKeystroke('KL-42 (Quick task)'), 'KL-42 (Quick task)', 'sin cambios');
+  });
+
+  it('coacciona input no-string sin lanzar (String(s))', () => {
+    assert.equal(stripForKeystroke(42), '42', 'number → String');
+    assert.equal(stripForKeystroke(null), 'null', 'null → "null" sin lanzar');
+    assert.equal(stripForKeystroke(undefined), 'undefined', 'undefined → "undefined" sin lanzar');
   });
 });
 
