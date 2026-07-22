@@ -3,10 +3,11 @@ phase: 78
 slug: address-tech-debt-saneo-del-nudge-75-wr-01-fixes-77-review
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-22
+validated: 2026-07-22
 ---
 
 # Phase 78 — Validation Strategy
@@ -40,10 +41,10 @@ created: 2026-07-22
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 78-01-01 | 01 | 1 | 75/WR-01 | T-78-01 | Regresión RED con dientes: casos de saneo (CSI/OSC/C0/DEL/CR en `next`/`summary`/`task_ref`) fallan sin el fix; goldens byte-idénticos D-09 intactos | unit (pura) | `node --test test/stop.test.js` | ✅ existe | ⬜ pending |
-| 78-01-02 | 01 | 1 | 75/WR-01 | T-78-01 | `buildStopNudgeText` sanea los 3 campos LLM vía `stripControlChars` (import de `src/cli/format.js`); pureza preservada (cero I/O) | unit (pura) | `node --test test/stop.test.js` | ✅ existe | ⬜ pending |
-| 78-02-01 | 02 | 1 | 77/WR-01, 77/IN-01, 77/IN-02, 77/WR-02 | T-78-02, T-78-03 | `deriveExpectedGroupName` trim + identifier vacío → null; `resolveWorkspaceGroup` valida shape `/^workspace_group:\d+$/` y normaliza NFC | unit (pura) | `node --test test/session/group-resolve.test.js` | ✅ existe (19 tests previos) | ⬜ pending |
-| 78-02-02 | 02 | 1 | 77/IN-03, 77/IN-04, 77/IN-05, 77/IN-06 | T-78-04 | Guard `if (expectedName)` evita llamada cmux inútil; log de degradación con motivo `String(err?.message).slice(0,80)` sin contenido de usuario (D-11); assert slice `end > start` no-vacuo | unit + source-hygiene | `node --test test/manager.test.js` | ✅ existe (source-hygiene :786-855) | ⬜ pending |
+| 78-01-01 | 01 | 1 | 75/WR-01 | T-78-01 | Regresión RED con dientes: casos de saneo (CSI/OSC/C0/DEL/CR en `next`/`summary`/`task_ref`) fallan sin el fix; goldens byte-idénticos D-09 intactos | unit (pura) | `node --test test/stop.test.js` | ✅ existe | ✅ green |
+| 78-01-02 | 01 | 1 | 75/WR-01 | T-78-01 | `buildStopNudgeText` sanea los 3 campos LLM vía `stripControlChars` (import de `src/cli/format.js`); pureza preservada (cero I/O) | unit (pura) | `node --test test/stop.test.js` | ✅ existe | ✅ green |
+| 78-02-01 | 02 | 1 | 77/WR-01, 77/IN-01, 77/IN-02, 77/WR-02 | T-78-02, T-78-03 | `deriveExpectedGroupName` trim + identifier vacío → null; `resolveWorkspaceGroup` valida shape `/^workspace_group:\d+$/` y normaliza NFC | unit (pura) | `node --test test/session/group-resolve.test.js` | ✅ existe (19 tests previos, 37 post-fase) | ✅ green |
+| 78-02-02 | 02 | 1 | 77/IN-03, 77/IN-04, 77/IN-05, 77/IN-06 | T-78-04 | Guard `if (expectedName)` evita llamada cmux inútil; log de degradación con motivo `String(err?.message).slice(0,80)` sin contenido de usuario (D-11); assert slice `end > start` no-vacuo | unit + source-hygiene | `node --test test/manager.test.js` | ✅ existe (source-hygiene :786-855) | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -72,6 +73,18 @@ Ninguna. *All phase behaviors have automated verification.*
 - [x] Wave 0 covers all MISSING references (no hay MISSING)
 - [x] No watch-mode flags
 - [x] Feedback latency < 10s (quick run por task)
-- [ ] `nyquist_compliant: true` set in frontmatter (seeded en plan-phase; sign-off formal en validate-phase §6)
+- [x] `nyquist_compliant: true` set in frontmatter (seeded en plan-phase; sign-off formal en validate-phase §6)
 
-**Approval:** pending
+**Approval:** validated 2026-07-22 (validate-phase retroactivo)
+
+---
+
+## Validation Audit 2026-07-22
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Reconciliación retroactiva post-ejecución (misma fecha): las 4 tareas del mapa estaban `pending` solo por falta del pase formal de validate-phase. Evidencia de hoy: `stop.test.js` (30 tests, incluye regresión WR-02 `stripForKeystroke`), `group-resolve.test.js` (37) y `manager.test.js` (59) re-ejecutados en verde dentro del batch **144/144 pass, 0 fail** (`node --test`, 2026-07-22) — posterior a los fixes de review de esta mañana (WR-02, IN-01..IN-05). Cero Wave 0, cero manual-only. Los 9 requirement-IDs de hallazgo con cobertura automatizada → `nyquist_compliant: true`.
