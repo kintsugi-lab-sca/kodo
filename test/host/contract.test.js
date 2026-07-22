@@ -189,6 +189,40 @@ describe('WorkspaceHost contract matrix', () => {
       const items = await host.listWorkspaces();
       for (const w of items) assert.equal(w.alive, true);
     });
+
+    // IN-05 (Phase 78): guarda a nivel de elemento. listWorkspaces es never-throws por
+    // contrato pero el .map/.some vive FUERA del try/catch de parseo. Un elemento
+    // null/primitivo en workspaces o notifications NO debe hacer escapar una excepción.
+    test('elementos null en workspaces/notifications → se filtran, nunca lanza (IN-05)', async () => {
+      const malformed = async (args) => {
+        const argv = (args || []).join(' ');
+        if (argv.includes('workspace list')) {
+          return JSON.stringify({
+            workspaces: [
+              { ref: 'workspace:1', latest_submitted_at: null, title: 'ok' },
+              null, // elemento malformado: w.ref lanzaría sin el guard
+            ],
+          });
+        }
+        if (argv.includes('notification.list')) {
+          return JSON.stringify({
+            notifications: [
+              null, // elemento malformado: n.workspace_ref lanzaría sin el guard
+              { workspace_ref: 'workspace:1', is_read: false, subtitle: 'Waiting' },
+            ],
+          });
+        }
+        return '';
+      };
+      const h = instantiateHost('cmux', malformed);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.equal(items.length, 1, 'el elemento null de workspaces se filtra');
+      assert.equal(items[0].workspace_ref, 'workspace:1');
+      assert.equal(items[0].needs_input, true, 'el null de notifications no rompe el .some');
+    });
   });
 
   // DETECT-01 — listAgentSurfaces() (método OPCIONAL typeof-detected, FUERA de

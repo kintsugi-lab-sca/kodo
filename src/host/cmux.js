@@ -204,22 +204,31 @@ export function createCmuxHost(opts = {}) {
       return [];
     }
 
-    const result = workspaces.map((w) => {
-      const ref = w.ref;
-      const needs_input = notifications.some(
-        (n) => n.workspace_ref === ref && !n.is_read && n.subtitle === 'Waiting',
-      );
-      return {
-        workspace_ref: ref,
-        alive: true, // presencia en workspace list = tab viva
-        needs_input,
-        last_activity: w.latest_submitted_at ?? null,
-        // Identidad del workspace (kodo fija el título con el task_ref). reconcile la usa para
-        // detectar refs reciclados: cmux reusa `workspace:N` al cerrar/crear tabs, así que la
-        // presencia del ref NO garantiza que siga siendo el workspace de la misma sesión.
-        title: typeof w.title === 'string' ? w.title : undefined,
-      };
-    });
+    // IN-05 (Phase 78): guarda a nivel de ELEMENTO. Este `.map`/`.some` vive FUERA del
+    // try/catch de parseo (que cierra en :205), pero listWorkspaces es never-throws por
+    // contrato (:163). Si `workspaces` o `notifications` contuvieran un elemento
+    // null/primitivo (cmux malformado), `w.ref` / `n.workspace_ref` lanzarían y la
+    // excepción escaparía del método, violando el contrato. Filtramos elementos falsy —
+    // mismo patrón defensivo que `normalizeSurface` (chequea `!raw`).
+    const result = workspaces
+      .map((w) => {
+        if (!w) return null;
+        const ref = w.ref;
+        const needs_input = notifications.some(
+          (n) => n && n.workspace_ref === ref && !n.is_read && n.subtitle === 'Waiting',
+        );
+        return {
+          workspace_ref: ref,
+          alive: true, // presencia en workspace list = tab viva
+          needs_input,
+          last_activity: w.latest_submitted_at ?? null,
+          // Identidad del workspace (kodo fija el título con el task_ref). reconcile la usa para
+          // detectar refs reciclados: cmux reusa `workspace:N` al cerrar/crear tabs, así que la
+          // presencia del ref NO garantiza que siga siendo el workspace de la misma sesión.
+          title: typeof w.title === 'string' ? w.title : undefined,
+        };
+      })
+      .filter((info) => info !== null);
 
     lastSnapshot.clear();
     for (const info of result) lastSnapshot.set(info.workspace_ref, info);
