@@ -181,7 +181,7 @@ export async function runStopHook(input, deps = {}) {
       return;
     }
 
-    const { id, session } = result;
+    const { session } = result;
 
     // Phase 72 HYG-04: los efectos de cierre COSMÉTICOS (setColor review, notify
     // "cerrada", nudge al orquestador) se MOVIERON a runSessionEndHook — disparan
@@ -213,10 +213,10 @@ export async function runStopHook(input, deps = {}) {
       // warn observable y continuar — log+continue simétrico con verify.js (D-01).
       // Optional chaining defensivo; producción siempre retorna el union. Vive DENTRO
       // del try WR-03 existente; markSessionStatus es non-throwing por contrato.
-      const result = markSessionStatus(session.task_id, 'idle', 'session-stop:lock-released', log, session.session_id);
-      if (!result?.ok) {
+      const markResult = markSessionStatus(session.task_id, 'idle', 'session-stop:lock-released', log, session.session_id);
+      if (!markResult?.ok) {
         log.warn('markSessionStatus.skipped', {
-          reason: result?.reason,
+          reason: markResult?.reason,
           session_id: session.session_id,
         });
       }
