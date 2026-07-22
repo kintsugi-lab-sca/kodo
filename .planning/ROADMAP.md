@@ -18,10 +18,17 @@
 - ✅ **v0.15 «kodo up» — arranque unificado + onboarding dashboard-first** — Phases 65-68 (shipped 2026-07-03)
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
 - ✅ **v0.17 Plan vivo por-tarea** — Phases 74-78 (shipped 2026-07-22)
+- 🚧 **v0.18 Higiene del sidebar de cmux** — Phases 79-81 (in progress)
 
-> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74.
+> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74. La Phase 73 no vuelve a usarse — v0.18 continúa desde la Phase 79 (última shipped: Phase 78).
 
 ## Phases
+
+**v0.18 Higiene del sidebar de cmux — un doctor determinista (0 tokens) mantiene el sidebar de cmux, el orquestador lo invoca de piggyback en `kodo check`, se reconcilian skill/prompt con v0.17, y se salda la deuda menor del audit:**
+
+- [ ] **Phase 79: Sidebar Doctor** - `kodo sidebar doctor` (dry-run por defecto / `--fix`, espejo de `gsd doctor`, 0 tokens) detecta y corrige el sidebar de cmux con allowlist no destructivo (`create`/`add`/`set-anchor`/`ungroup`, sin `delete`); launch path byte-idéntico (GRP-01..03 fail-open) — SDR-01..06
+- [ ] **Phase 80: Carril orquestador + reconciliación documental** - El orquestador invoca `kodo sidebar doctor --fix` de piggyback en pases ya motivados por `kodo check` (el sidebar NO es trigger), y el skill `kodo-orchestrate` + `src/orchestrator/prompt.md` se reconcilian con toda la realidad post-v0.17 — ORCH-07, ORCH-08
+- [ ] **Phase 81: Saneo de deuda v0.17** - Los 4 items menores trazados «→ backlog v0.18» por el audit: `next` clearable en `upsertTaskHandoff`, doc-drift de Phase 75, `nextCell` colapsa `\n`/`\t`, y diagnóstico del flaky `gsd-lock-race` vía `/gsd-debug` (no arreglar a ciegas) — DEBT-01..04
 
 <details>
 <summary>✅ v0.17 Plan vivo por-tarea (Phases 74-78) — SHIPPED 2026-07-22</summary>
@@ -139,10 +146,61 @@ Detalle completo de las fases 65-68: ver `milestones/v0.15-ROADMAP.md`.
 Detalle completo de las fases 69-72: ver `milestones/v0.16-ROADMAP.md`.
 Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
+## Phase Details (v0.18 activo)
+
+### Phase 79: Sidebar Doctor
+
+**Goal**: `kodo sidebar doctor` quita al humano **y al launch path** la carga de mantener el sidebar de cmux: un doctor determinista (espejo de `src/gsd/doctor.js` — `scan` + `execute`, dry-run por defecto / `--fix`, 0 tokens) detecta y corrige grupos que faltan (`create`), workspaces sueltos con grupo esperado (`add`), grupos disueltos por cierre de su anchor (`set-anchor` al miembro más longevo / re-crear) y grupos vacíos (`ungroup`). Es el núcleo del milestone; la gestión de grupos —hasta hoy prohibida— pasa a estar permitida SOLO en este carril, con allowlist.
+**Depends on**: v0.17 Phase 77 (shipped) — reutiliza `deriveExpectedGroupName` (`src/session/manager.js`) y `listWorkspaceGroups` (`src/cmux/client.js`); primera fase del milestone (numeración continúa desde Phase 78).
+**Requirements**: SDR-01, SDR-02, SDR-03, SDR-04, SDR-05, SDR-06
+**Success Criteria** (what must be TRUE):
+
+  1. `kodo sidebar doctor` (dry-run por defecto) lista las acciones pendientes clasificadas — grupo faltante → `create`, workspace suelto con grupo esperado → `add`, grupo disuelto por cierre de su anchor → re-crear/`set-anchor`, grupo vacío → `ungroup` — sin ejecutar nada. (SDR-01)
+  2. `kodo sidebar doctor --fix` ejecuta las acciones usando **exclusivamente** el allowlist (`create`, `add`, `set-anchor`, `ungroup`); `workspace-group delete` no existe en el código y un guard source-hygiene automático falla si aparece (constraint LOCKED: `delete` cierra todos los workspaces del grupo). (SDR-02)
+  3. Tras un pase de `--fix`, una sesión adoptada o ya lanzada que aterrizó suelta aparece agrupada bajo su grupo esperado — verificable en `cmux workspace-group list --json` (resuelve la frontera D-13 de Phase 77). (SDR-05)
+  4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
+  5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
+**Plans**: TBD
+
+### Phase 80: Carril orquestador + reconciliación documental
+
+**Goal**: El orquestador mantiene el sidebar limpio automáticamente, sin que el humano intervenga: invoca `kodo sidebar doctor --fix` de piggyback en pases ya motivados por `kodo check` (el sidebar **NO** es trigger — consistencia eventual asumida). Y su skill `kodo-orchestrate` + `src/orchestrator/prompt.md` dejan de estar desfasados: reflejan toda la realidad post-v0.17 que hoy no mencionan.
+**Depends on**: Phase 79 (el orquestador invoca el CLI `kodo sidebar doctor --fix` que Phase 79 entrega).
+**Requirements**: ORCH-07, ORCH-08
+**Success Criteria** (what must be TRUE):
+
+  1. Con el orquestador activo, un sidebar con grupos faltantes o workspaces sueltos converge al estado agrupado en ≤1 pase sin intervención humana — el `--fix` va de piggyback en un pase ya motivado por `kodo check` (stuck/review/pending). (ORCH-07)
+  2. El sidebar no dispara al orquestador: no se añade ningún trigger nuevo (constraint LOCKED); una sesión recién lanzada suelta se agrupa en el **siguiente** pase motivado, no de inmediato. (ORCH-07)
+  3. El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan `kodo sidebar doctor` y reflejan las features v0.17: handoff acumulativo + `NEXT:` en `state.json` (74), superficie del `NEXT:` en dashboard y nudge con contexto (75), `pending_stale`/`pending_fetched_at` + convergencia con `kodo check` (76), agrupación `--group` de workspaces (77). (ORCH-08)
+  4. Ni el skill ni el prompt prometen features borradas ni omiten las nuevas — misma disciplina anti-deriva que HYG-08 aplicó al README en v0.16. (ORCH-08)
+**Plans**: TBD
+
+### Phase 81: Saneo de deuda v0.17
+
+**Goal**: Cerrar los 4 items menores de deuda técnica que el audit de v0.17 trazó «→ backlog v0.18», sin regresionar invariantes (locks de v0.16, dashboard never-throws). El flaky `gsd-lock-race` se toca SOLO con la causa entendida vía `/gsd-debug`, jamás a ciegas — protege el invariante de locks de v0.16.
+**Depends on**: Nothing — deuda ortogonal a las fases del sidebar (paralelizable con 79/80).
+**Requirements**: DEBT-01, DEBT-02, DEBT-03, DEBT-04
+**Success Criteria** (what must be TRUE):
+
+  1. Un cierre de sesión sin `NEXT:` ya no deja un `next` obsoleto en `state.tasks` — la semántica de clear/stale queda decidida y aplicada en `upsertTaskHandoff` (`src/session/state.js`). (DEBT-01)
+  2. Un `next` hand-editado con `\n`/`\t` en `state.json` no descuadra la tabla del dashboard — `nextCell` colapsa el whitespace en el render de fila (carril keystroke ya cerrado en Phase 78). (DEBT-03)
+  3. Los dos doc-drifts de Phase 75 quedan corregidos: el comentario de App.js «lee tasks UNA vez por tick» (WR-02) y el typedef del prop `overlaySnapshot` sin `render` (WR-04) — solo documentación, sin cambio de comportamiento. (DEBT-02)
+  4. El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida — el invariante de locks de v0.16 queda protegido. (DEBT-04)
+**Plans**: TBD
+
+## Progreso (v0.18)
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 79. Sidebar Doctor | 0/? | Not started | - |
+| 80. Carril orquestador + reconciliación documental | 0/? | Not started | - |
+| 81. Saneo de deuda v0.17 | 0/? | Not started | - |
+
 ## Progress
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
+| v0.18 Higiene del sidebar de cmux | 79-81 | 0/? | In progress | - |
 | v0.17 Plan vivo por-tarea | 74-78 | 17/17 | Complete | 2026-07-22 |
 | v0.16 Hardening | 69-72 | 18/18 | Complete | 2026-07-15 |
 | v0.15 «kodo up» | 65-68 | 14/14 | Complete | 2026-07-03 |
@@ -161,13 +219,13 @@ _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional*
 
 _(ORCH-05 salió del backlog: promovido a **Phase 76** en v0.17 con causa raíz localizada en código.)_
 
-### Phase 999.2: Inbox de capturas global — fuera de v0.17 (feature)
+### Phase 999.2: Inbox de capturas global — feature (candidata futura)
 
-> **Renumerado 2026-07-15:** este item se llamaba «Phase 75» en el backlog. Al promover la candidata Phase 74 a fase activa, v0.17 ocupa 74-76 y el número 75 quedaría ambiguo. Se renumera a 999.2 siguiendo la convención de placeholders del backlog (999.x). Recibirá número real al promoverse.
+> **Renumerado 2026-07-15:** este item se llamaba «Phase 75» en el backlog. Al promover la candidata Phase 74 a fase activa, v0.17 ocupó 74-76 y el número 75 quedaría ambiguo. Se renumera a 999.2 siguiendo la convención de placeholders del backlog (999.x). Recibirá número real al promoverse. Sigue en backlog al abrir v0.18 (2026-07-22).
 
 **Goal**: Dar a kodo un **buffer de captura rápida** para ideas tangenciales que surgen mid-session (un tip de config, una idea de comando, un cambio de sentido) y que NO dan para una tarea de Plane. Global y propio de kodo (`~/.kodo/inbox.md`, append-only, con tag de proyecto), capturable desde shell (`kodo capture`) y desde dentro de la sesión (skill `/kodo-capture`). Lo que hace que funcione y no se pudra es el **destino**: `kodo inbox` enruta cada captura → tarea Plane / fase roadmap / config / descartada, delegando el «a dónde va» en `gsd-capture`.
 
-**Tipo**: Feature (NO hardening). **Fuera de v0.17 por decisión del operador (2026-07-15)** — tema ortogonal al plan vivo, no refuerza la Phase 74. Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
+**Tipo**: Feature (NO hardening). Tema ortogonal al plan vivo y a la higiene del sidebar. Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
 **Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04
 **Depends on**: ninguna dura (aislada). Reutiliza el enrutado de `gsd-capture`/`gsd-inbox`.
 **Success Criteria** (what must be TRUE):
@@ -179,30 +237,8 @@ _(ORCH-05 salió del backlog: promovido a **Phase 76** en v0.17 con causa raíz 
 
 **Plans**: TBD (no planificar aún)
 
-### Phase 999.3: Higiene del sidebar de cmux — `kodo sidebar doctor` + carril orquestador (candidata v0.18)
+### Phase 999.3: Higiene del sidebar de cmux (PROMOVIDO → v0.18 Phases 79-81)
 
-**Origen**: conversación del operador 2026-07-20, tras cerrar Phase 76 y estrenar la agrupación de Phase 77 — fricción real: no se van a pre-crear grupos para cada módulo (caso vivo: sesiones de OptiAI sueltas porque no existía el grupo `ROMAN/OptiAI`).
+_Esta candidata se materializó como el milestone **v0.18 Higiene del sidebar de cmux** (en curso desde 2026-07-22). El `kodo sidebar doctor` + su re-fronterización de GRP-04 → **Phase 79**; el carril orquestador + reconciliación skill/prompt → **Phase 80**. Los 4 items de deuda menor del audit v0.17 entraron con ella como **Phase 81** (DEBT-01..04). Detalle vivo en `## Phase Details (v0.18 activo)`._
 
-**Goal**: Quitar al humano (y al launch path) la carga de mantener el sidebar de cmux: un **doctor determinista** (`kodo sidebar doctor`, espejo del patrón `src/gsd/doctor.js` — `scan` + `execute`, dry-run / `--fix`, 0 tokens) detecta y corrige grupos que faltan (crear), workspaces sueltos con grupo esperado (add), grupos disueltos por cierre de su anchor (re-crear / `set-anchor`) y grupos vacíos (`ungroup`). El **orquestador lo invoca cuando está activo** (una línea en su checklist), y queda disponible como CLI manual.
-
-**Cambio de contrato consciente**: re-fronteriza GRP-04 — el launch path sigue SIN gestionar grupos (GRP-01..03 fail-open byte-idénticos), pero la gestión pasa a estar permitida en el carril doctor con allowlist. Resuelve de paso la frontera D-13 de Phase 77 (sesiones adoptadas y ya lanzadas también se agrupan).
-
-**Constraints de diseño (decididos en la conversación de origen, no re-discutir):**
-
-1. **Allowlist no destructivo**: `create`, `add`, `set-anchor`, `ungroup`. `workspace-group delete` NI SE CABLEA (cierra todos los workspaces del grupo) — guard source-hygiene que verifique su ausencia.
-2. **0 tokens**: lógica 100% determinista reutilizando `deriveExpectedGroupName` (`src/session/manager.js:143`) y `listWorkspaceGroups` (`src/cmux/client.js`); el LLM no decide nada. Puerta LLM solo si aparece ambigüedad real futura (YAGNI hoy).
-3. **El sidebar NO es trigger del orquestador**: la higiene va de piggyback en pases ya motivados por `kodo check` (stuck/review/pending). Consistencia eventual asumida: las sesiones aterrizan sueltas y se agrupan en el siguiente pase.
-4. **Política de anchor**: los grupos cmux se disuelven al cerrarse su anchor workspace (verificado en el help de cmux 2026-07-17); el doctor re-crea/re-ancla en el siguiente pase — auto-curación eventual. Candidato: `set-anchor` al miembro más longevo.
-
-**Requirement adicional (pedido explícito del operador 2026-07-20)**: actualizar el **skill de kodo** (`kodo-orchestrate`) y el **prompt del orquestador** (`src/orchestrator/prompt.md`) para (a) invocar `kodo sidebar doctor --fix` cuando el orquestador esté activo, y (b) **reconciliarlos con todos los últimos cambios de v0.17** que hoy no reflejan: handoff acumulativo + `NEXT:` en `state.json` (Phase 74), superficie del `NEXT:` en dashboard y nudge con contexto (Phase 75), `pending_stale`/`pending_fetched_at` en `/status` y convergencia con `kodo check` (Phase 76), agrupación `--group` de workspaces (Phase 77). Misma disciplina anti-deriva que HYG-08 aplicó al README en v0.16.
-
-**Tipo**: Feature + reconciliación documental. Bajo blast radius (módulo nuevo aislado + edición de prompt/skill; el launch path no se toca).
-**Depends on**: Phase 77 (shipped 2026-07-17).
-**Success Criteria** (what must be TRUE):
-
-  1. `kodo sidebar doctor` (dry-run) lista las acciones pendientes; `--fix` las ejecuta usando exclusivamente los verbos del allowlist; `delete` no aparece en el código (guard automático).
-  2. Con el orquestador activo, un sidebar con grupos faltantes o workspaces sueltos converge al estado agrupado en ≤1 pase, sin intervención humana.
-  3. El launch path queda byte-idéntico (GRP-01..03 intactos: `--group` solo si el grupo ya existe en el momento del lanzamiento, fail-open).
-  4. El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan el doctor y reflejan las features v0.17 — sin prometer features borradas ni omitir las nuevas.
-
-**Plans**: TBD (no planificar aún)
+**Constraints LOCKED heredados a v0.18 (no re-discutir):** allowlist no destructivo `create`/`add`/`set-anchor`/`ungroup` sin `delete` (guard source-hygiene) · 0 tokens (determinista, reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`) · el sidebar NO es trigger del orquestador (piggyback en `kodo check`) · launch path byte-idéntico (GRP-01..03 fail-open) · política de anchor por re-anclaje eventual.

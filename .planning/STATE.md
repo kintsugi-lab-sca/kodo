@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
 status: planning
-last_updated: "2026-07-22T16:00:11.920Z"
+last_updated: "2026-07-22T16:40:00.000Z"
 last_activity: 2026-07-22
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,22 +16,32 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.17 «Plan vivo por-tarea» SHIPPED 2026-07-22** (verified closeout; audit `tech_debt` sin blockers — 13/13 requirements, Nyquist 5/5 compliant, deuda menor trazada → backlog v0.18). A la espera del siguiente milestone (`/gsd-new-milestone`).
+**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — roadmap creado 2026-07-22 (3 fases 79-81, 12/12 requirements mapeados, sin huérfanos). Listo para planificar la Phase 79 (`/gsd-plan-phase 79`). Milestone anterior v0.17 SHIPPED 2026-07-22 (audit `tech_debt` sin blockers).
 
 ## Project Reference
 
 See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux.
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Planning next milestone (`/gsd-new-milestone`)
+**Current focus:** Roadmap v0.18 creado — planificar la Phase 79 (`/gsd-plan-phase 79`)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 79 — Sidebar Doctor (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-22 — Milestone v0.18 started
+Status: Roadmap complete — awaiting phase planning
+Last activity: 2026-07-22 — Roadmap v0.18 creado (Phases 79-81)
+
+## Roadmap v0.18 (activo)
+
+| Phase | Goal | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 79 — Sidebar Doctor | `kodo sidebar doctor` determinista (scan+execute, dry-run/`--fix`, 0 tokens, allowlist no destructivo) cura el sidebar; launch path byte-idéntico | SDR-01..06 | v0.17 Phase 77 (shipped) |
+| 80 — Carril orquestador + reconciliación documental | El orquestador invoca `kodo sidebar doctor --fix` de piggyback en `kodo check` (sidebar NO es trigger); skill + prompt reconciliados con v0.17 | ORCH-07, ORCH-08 | Phase 79 |
+| 81 — Saneo de deuda v0.17 | Cerrar los 4 items menores del audit v0.17 (next clearable, doc-drift 75, nextCell whitespace, diagnóstico flaky `gsd-lock-race`) | DEBT-01..04 | Nothing (ortogonal, paralelizable) |
+
+**Coverage:** 12/12 requirements mapeados (sin huérfanos, sin duplicados). Ver `.planning/ROADMAP.md §Phase Details (v0.18 activo)` y `.planning/REQUIREMENTS.md §Traceability`.
 
 ## Most recent shipped milestone
 
@@ -44,20 +54,20 @@ Last activity: 2026-07-22 — Milestone v0.18 started
 
 ## Deferred Items
 
-Baseline post-v0.17. Todos pre-reconocidos al cierre (audit `tech_debt` sin blockers, verified closeout). Los 8 items menores de v0.17 detallados en `milestones/v0.17-MILESTONE-AUDIT.md` §tech_debt.
+Baseline post-v0.17. Los 4 items marcados «→ v0.18» abajo quedan **absorbidos por el roadmap v0.18** (Phase 81, DEBT-01..04) — dejan de ser deuda diferida al planificarse. El resto sigue trazado.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| Estado | `next` un-clearable una vez seteado en `upsertTaskHandoff` (`src/session/state.js:443`) — un cierre posterior sin `NEXT:` no lo borra; ningún SC lo prometía | Abierto (limitación conocida, heredada por dashboard/nudge) | v0.17 Phase 74 |
-| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** bajo carga (timing). Preexistente de Phase 70; verde en las 3 runs completas de Phase 78 y en la run de cierre (2026-07-22) | Abierto — investigar con `/gsd-debug`; NO arreglar a ciegas (protege el invariante de locks de v0.16) | v0.17 Phase 74 (heredado de v0.16) |
-| Doc-drift | 75/WR-02 (comentario App.js «una vez por tick» vs render real) · 75/WR-04 (typedef `overlaySnapshot` sin `render`) — solo documentación | Abierto (menor) | v0.17 Phase 75 |
-| Render TUI | 75/WR-03: `nextCell` no colapsa `\n`/`\t` en el RENDER de fila (solo alcanzable por state.json hand-editado; carril keystroke cerrado en Phase 78) · fidelidad markdown best-effort (`#`/`**` inline visibles, dentro del contrato declarado) | Abierto (menor; fricción → v0.18 si molesta en uso real) | v0.17 Phase 75 |
-| Operación | El grupo cmux `SCP-CMRi` del operador no matchea el identifier derivado `SCP` — tareas SCP se lanzan sin grupo (fail-open correcto); renombrar el grupo a `SCP` para agruparlas | Acción de operador | v0.17 Phase 77 |
+| Estado | `next` un-clearable una vez seteado en `upsertTaskHandoff` (`src/session/state.js:443`) — un cierre posterior sin `NEXT:` no lo borra | **Absorbido → v0.18 Phase 81 (DEBT-01)** | v0.17 Phase 74 |
+| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** bajo carga (timing). Preexistente de Phase 70 | **Absorbido → v0.18 Phase 81 (DEBT-04)** — diagnóstico vía `/gsd-debug`, NO arreglar a ciegas | v0.17 Phase 74 (heredado de v0.16) |
+| Doc-drift | 75/WR-02 (comentario App.js «una vez por tick» vs render real) · 75/WR-04 (typedef `overlaySnapshot` sin `render`) — solo documentación | **Absorbido → v0.18 Phase 81 (DEBT-02)** | v0.17 Phase 75 |
+| Render TUI | 75/WR-03: `nextCell` no colapsa `\n`/`\t` en el RENDER de fila (solo alcanzable por state.json hand-editado; carril keystroke cerrado en Phase 78) | **Absorbido → v0.18 Phase 81 (DEBT-03)** · fidelidad markdown best-effort → FUT-01 (v2, solo si molesta) | v0.17 Phase 75 |
+| Operación | El grupo cmux `SCP-CMRi` del operador no matchea el identifier derivado `SCP` — tareas SCP se lanzan sin grupo (fail-open correcto); renombrar el grupo a `SCP` para agruparlas | Acción de operador (fuera de scope v0.18) | v0.17 Phase 77 |
 | Riesgo aceptado | IN-07 / R-77-D10 (LOCKED D-10): el retry TOCTOU de `newWorkspaceWithGroupFallback` puede duplicar workspace ante timeout | Aceptado y documentado (78-SECURITY.md §Accepted Risks) | v0.17 Phase 77 |
-| Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1); análisis en `milestones/v0.16-phases/70-.../70-WORKTREE-VERIFICATION.md` | v0.16 Phase 70 |
+| Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1) | v0.16 Phase 70 |
 | UAT | Backstop GitHub real (nunca cierra issues) — skip reconocido por el operador 2026-07-09; mock de 3 capacidades como cobertura compensatoria | Abierto (requiere repo GitHub real) | v0.16 Phase 71 |
 | Cliente Plane | B12b — throttle epoch-vs-delta (`x-ratelimit-reset` no confirmable barato en Plane self-hosted) | Diferido con nota (D-02) | v0.16 Phase 72 |
-| Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION (las 5 fases de v0.17 SÍ quedaron validated al cierre) | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
+| Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | Saldable con `/gsd-validate-phase` retroactivo | v0.16 |
 | Cliente Plane | `Retry-After`/filtro kodo/paginación (M7-M9) | v2 (fuera de roadmap) | — |
 | Rendimiento | Reconcile asíncrono (M21) — **medir antes de arreglar** | v2 (solo si `/health` muestra latencia real) | — |
 
@@ -66,6 +76,15 @@ Baseline post-v0.17. Todos pre-reconocidos al cierre (audit `tech_debt` sin bloc
 ### Decisions
 
 Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupación por path resuelto, fail-open 2 capas, GRP-04 consume-no-gestiona, handoff pre-cleanup LLM+backstop, `state.tasks` aditivo never-throws, detector de deriva instalación↔settings, convergencia por hoja cero-imports, saneo en punto de composición). Las decisiones per-plan de v0.17 quedaron archivadas con sus fases en `milestones/v0.17-phases/`.
+
+**Constraints LOCKED de v0.18 (decididos en la conversación de origen 2026-07-20, no re-discutir):**
+
+- **Allowlist no destructivo** en el sidebar doctor: `create`, `add`, `set-anchor`, `ungroup`. `workspace-group delete` NI SE CABLEA (cierra todos los workspaces del grupo) — guard source-hygiene que verifique su ausencia.
+- **0 tokens**: lógica 100% determinista reutilizando `deriveExpectedGroupName` (`src/session/manager.js`) y `listWorkspaceGroups` (`src/cmux/client.js`); el LLM no decide nada (puerta LLM → FUT-03, YAGNI hoy).
+- **El sidebar NO es trigger del orquestador**: la higiene va de piggyback en pases ya motivados por `kodo check` (stuck/review/pending). Consistencia eventual asumida.
+- **Launch path byte-idéntico**: GRP-01..03 fail-open intactos; la gestión de grupos pasa a estar permitida SOLO en el carril doctor (re-fronterización consciente de GRP-04).
+- **Política de anchor por re-anclaje eventual**: los grupos se disuelven al cerrarse su anchor; el doctor re-crea/re-ancla (`set-anchor` al miembro más longevo) en el siguiente pase.
+- **DEBT-04 (flaky `gsd-lock-race`) es SOLO diagnóstico vía `/gsd-debug`** — no arreglar a ciegas; protege el invariante de locks de v0.16.
 
 ### Open Blockers
 
@@ -81,36 +100,35 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 - **D-02 (v0.11 Phase 46):** `readPlan` da prioridad a GSD; el plan ligero (y el handoff) solo se surface en la rama `phaseId == null`. El handoff se escribe en disco para TODA sesión, pero no se pinta en el overlay GSD.
 - **El handoff se escribe ANTES del cleanup terminal destructivo de `SessionEnd`** (`removeSession` + worktree + promptFile) — v0.17 Phase 74.
 - **Contenido LLM hacia terminal/keystroke SIEMPRE saneado** (`stripControlChars` en composición, `stripForKeystroke` en el carril keystroke) — v0.17 Phase 78; simetría con HYG-07.
-- **kodo consume grupos cmux, jamás los gestiona (GRP-04):** solo verbo `list` + flag `--group`; refs `workspace_group:N` nunca persistidos — v0.17 Phase 77 (re-fronterizable solo vía el carril doctor de la candidata 999.3).
+- **kodo consume grupos cmux — la gestión (`create`/`add`/`set-anchor`/`ungroup`) se permite SOLO en el nuevo carril doctor de v0.18 (GRP-04 re-fronterizado); el launch path sigue solo-`list` + `--group`, refs `workspace_group:N` nunca persistidos, y `workspace-group delete` jamás cableado** — v0.17 Phase 77 → re-fronterizado en v0.18 Phase 79.
 - **Backstop de «In Review» en `SessionEnd` con gate de estado no-terminal** — jamás transicionar a un estado terminal (GitHub `closed`); el orden de efectos `backstop→setColor→notify` es LOCKED (D-08).
 - **Auto-commit del orquestador gated por `KODO_ORCHESTRATOR=1` + pathspec** — sin la var → skip (cero commits fantasma).
 - **`kodo start` legacy intacto** · **Cero endpoints nuevos en `src/server.js` (desde v0.10)** · **Cero nuevas dependencias npm** (locks vía `node:fs` built-in) · **TaskProvider contract FROZEN en 9** + métodos opcionales por `typeof` · **TUI never-throws** · **Color isolation** (`picocolors` solo desde `src/cli/format.js`) · **`--json` byte-determinismo** (DX-06) · **Escritura no-corruptiva** (temp+rename atómico) · **Todo lo cmux-específico entra por `HostProvider`** · **LOG-12 guard** · **Worktree always-on**.
 
 ### Roadmap Evolution
 
-- (vacío — se rellena durante el siguiente milestone)
+- 2026-07-22 — Roadmap v0.18 creado: candidata backlog 999.3 (sidebar doctor + reconciliación skill/prompt) promovida a Phases 79-80; los 4 items de deuda menor del audit v0.17 absorbidos como Phase 81 (DEBT-01..04). Granularidad `coarse` → 3 fases. 12/12 requirements mapeados.
 
 ## Session Continuity
 
-**Last session:** 2026-07-22 — cierre del milestone v0.17
+**Last session:** 2026-07-22 — creación del roadmap v0.18
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Milestone v0.17 archivado (roadmap + requirements + audit + phases) y tagged
-- **Next action:** `/gsd-new-milestone` — questioning → research → requirements → roadmap. Candidatas del backlog: 999.2 (Inbox de capturas) y 999.3 (sidebar doctor + reconciliación skill/prompt con v0.17); + 8 items de tech debt v0.17 elegibles
+- **Stopped at:** Roadmap v0.18 escrito (ROADMAP.md §Phase Details activo + Progreso + Milestones/Backlog reconciliados) · REQUIREMENTS.md traceability 12/12 · STATE.md actualizado
+- **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
 - **Files of record:**
-  - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17)
-  - `.planning/ROADMAP.md` (v0.17 colapsado; Backlog con 999.1 + 999.2 + 999.3)
+  - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
+  - `.planning/ROADMAP.md` (v0.18 activo — Phases 79-81; v0.17 colapsado; Backlog con 999.1 + 999.2 + 999.3 promovida)
+  - `.planning/REQUIREMENTS.md` (v0.18 — 12 requirements, traceability 12/12 mapeados)
   - `.planning/MILESTONES.md` (entrada v0.17 completa)
-  - `.planning/RETROSPECTIVE.md` (sección v0.17 añadida)
   - `.planning/milestones/v0.17-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v0.17-phases/`
-  - `.planning/REQUIREMENTS.md` eliminado (se crea fresco en `/gsd-new-milestone`)
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Planificar la primera fase con `/gsd-plan-phase 79`
 
 ## Performance Metrics
 

@@ -55,24 +55,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SDR-01 | — | Pending |
-| SDR-02 | — | Pending |
-| SDR-03 | — | Pending |
-| SDR-04 | — | Pending |
-| SDR-05 | — | Pending |
-| SDR-06 | — | Pending |
-| ORCH-07 | — | Pending |
-| ORCH-08 | — | Pending |
-| DEBT-01 | — | Pending |
-| DEBT-02 | — | Pending |
-| DEBT-03 | — | Pending |
-| DEBT-04 | — | Pending |
+| SDR-01 | Phase 79 | Pending |
+| SDR-02 | Phase 79 | Pending |
+| SDR-03 | Phase 79 | Pending |
+| SDR-04 | Phase 79 | Pending |
+| SDR-05 | Phase 79 | Pending |
+| SDR-06 | Phase 79 | Pending |
+| ORCH-07 | Phase 80 | Pending |
+| ORCH-08 | Phase 80 | Pending |
+| DEBT-01 | Phase 81 | Pending |
+| DEBT-02 | Phase 81 | Pending |
+| DEBT-03 | Phase 81 | Pending |
+| DEBT-04 | Phase 81 | Pending |
 
 **Coverage:**
 - v0.18 requirements: 12 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 12 ⚠️ (se rellena al crear el roadmap)
+- Mapped to phases: 12 ✓ (SDR-01..06 → Phase 79 · ORCH-07..08 → Phase 80 · DEBT-01..04 → Phase 81)
+- Unmapped: 0 ✓ (sin huérfanos, sin duplicados)
 
 ---
 *Requirements defined: 2026-07-22*
-*Last updated: 2026-07-22 after initial definition (milestone v0.18 start)*
+*Last updated: 2026-07-22 after roadmap creation (phases 79-81 mapped; coverage 12/12)*
