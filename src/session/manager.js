@@ -9,7 +9,7 @@ import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
-import { stripForKeystroke } from '../cli/format.js';
+import { stripForKeystroke, stripControlChars } from '../cli/format.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.
@@ -424,7 +424,11 @@ export async function launchWorkItem(identifier, opts = {}) {
   }
 
   const prefix = moduleName ? `${task.ref} [${moduleName}]` : task.ref;
-  const workspaceName = `${prefix}: ${truncate(task.title, 40)}`;
+  // IN-04 (Phase 78): task.title es contenido NO confiable (LLM/Plane) y llega a cmux
+  // como arg CLI de newWorkspace. No es carril de keystroke (no son pulsaciones), así
+  // que basta el saneador de RENDER (stripControlChars) — neutraliza CSI/OSC/C0/C1/DEL/CR
+  // sin colapsar \n/\t. Se sanea ANTES de truncar para que el recorte mida texto limpio.
+  const workspaceName = `${prefix}: ${truncate(stripControlChars(task.title), 40)}`;
   // Phase 77 (D-10 capa 2 TOCTOU): si el new-workspace CON --group falla (grupo borrado
   // entre list y launch, ref inválido = exit=1 fatal), UN reintento SIN --group salva la
   // sesión. `cwd: projectPath` LITERAL (invariante Phase 18 D-04 — el worktree lo
@@ -509,7 +513,10 @@ export async function launchWorkItem(identifier, opts = {}) {
   // Notify
   await host._legacy.notify({
     title: `kodo: ${task.ref}`,
-    body: `Lanzada sesión para: ${task.title}`,
+    // IN-04 (Phase 78): body de la notificación de SO con task.title no confiable. No es
+    // carril de keystroke → saneador de RENDER (stripControlChars), consistente con el
+    // nombre del workspace de arriba.
+    body: `Lanzada sesión para: ${stripControlChars(task.title)}`,
     workspace: workspaceRef,
   });
 

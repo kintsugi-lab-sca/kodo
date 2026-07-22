@@ -849,10 +849,42 @@ describe('manager.js source hygiene', () => {
       'task.ref crudo (sin sanear) NO debe interpolarse en el nudge de lanzamiento (WR-01)',
     );
     // WR-02 con dientes: el saneador de RENDER (stripControlChars, que preserva `\n`)
-    // NO debe usarse en este carril de keystroke — sería el residuo de inyección newline.
+    // NO debe usarse EN ESTE CARRIL de keystroke — sería el residuo de inyección newline.
+    // Scope acotado al propio send (`Nueva sesión lanzada: …` hasta el backtick de cierre):
+    // el carril de RENDER (nombre de workspace / body de notify, IN-04) SÍ usa
+    // stripControlChars legítimamente, así que el check no puede ser source-wide.
     assert.ok(
-      !/\bstripControlChars\s*\(\s*task\.(ref|title)\s*\)/.test(source),
-      'el carril de keystroke NO debe usar stripControlChars (preserva `\\n` → Enter espurio, WR-02)',
+      !/Nueva sesión lanzada:[^`]*stripControlChars/.test(source),
+      'el carril de keystroke (nudge de lanzamiento) NO debe usar stripControlChars (preserva `\\n` → Enter espurio, WR-02)',
+    );
+  });
+
+  it('Phase 78 (IN-04): los carriles NO-keystroke (nombre de workspace y body de notify) sanean task.title con stripControlChars', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // stripControlChars debe estar importado desde el carril canónico (cli/format.js),
+    // junto a stripForKeystroke. NO se importa cmux/client.js (invariante cmux-isolation).
+    assert.ok(
+      /import\s*\{[^}]*\bstripControlChars\b[^}]*\}\s*from\s*['"]\.\.\/cli\/format\.js['"]/.test(source),
+      'manager.js debe importar stripControlChars desde ../cli/format.js (carril de render, IN-04)',
+    );
+    // El nombre del workspace (arg CLI de newWorkspace) sanea task.title ANTES de truncar.
+    assert.ok(
+      /workspaceName\s*=\s*`[^`]*\$\{truncate\(stripControlChars\(task\.title\)\s*,\s*40\)\}/.test(source),
+      'workspaceName debe envolver task.title con stripControlChars antes de truncate (IN-04)',
+    );
+    // El body de la notificación de SO sanea task.title.
+    assert.ok(
+      /body:\s*`Lanzada sesión para: \$\{stripControlChars\(task\.title\)\}`/.test(source),
+      'el body del notify debe envolver task.title con stripControlChars (IN-04)',
+    );
+    // Regresión negativa: task.title crudo NO debe reaparecer en esos dos sinks.
+    assert.ok(
+      !/\$\{truncate\(task\.title\s*,/.test(source),
+      'task.title crudo (sin sanear) NO debe interpolarse en workspaceName (IN-04)',
+    );
+    assert.ok(
+      !/Lanzada sesión para: \$\{task\.title\}/.test(source),
+      'task.title crudo (sin sanear) NO debe interpolarse en el body del notify (IN-04)',
     );
   });
 
