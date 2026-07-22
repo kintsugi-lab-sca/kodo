@@ -3,10 +3,11 @@ phase: 77
 slug: agrupaci-n-de-workspaces-en-cmux
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
+status: validated
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-16
+validated: 2026-07-22
 ---
 
 # Phase 77 — Validation Strategy
@@ -51,7 +52,7 @@ created: 2026-07-16
 
 ## Wave 0 Requirements
 
-- [ ] `test/cmux/client-args.test.js` — NUEVO (Plan 01 Task 1): teeth de `buildNewWorkspaceArgs` (`--group` push, orden de flags) para GRP-01.
+- [x] `test/cmux/client-args.test.js` — NUEVO (Plan 01 Task 1): teeth de `buildNewWorkspaceArgs` (`--group` push, orden de flags) para GRP-01.
 - [x] `test/session/group-resolve.test.js` — NUEVO (Plan 02 Task 1): unit puro de las 3 funciones + fixture live de los 3 grupos reales; incluye el caso D-10 (retry con `newWorkspaceFn` inyectado) para GRP-01/02/03.
 - [x] Asserts nuevos en `test/manager.test.js` — EXISTENTE (Plan 02 Task 2): source-hygiene del cableado + negativos GRP-04.
 
@@ -65,15 +66,29 @@ Infra existente cubre el resto: `node:test` ya instalado; `test/host/cmux-isolat
 |----------|-------------|------------|-------------------|
 | El workspace aterriza VISUALMENTE dentro del grupo en la sidebar | GRP-01 | Requiere la app cmux GUI del operador viva; PROHIBIDO mutar grupos reales en test | Lanzar una tarea de un proyecto con grupo existente (`Kodo`/`SCRIBBA`) y confirmar en `cmux workspace-group list --json` que el nuevo `workspace:N` aparece en `member_workspace_refs` del grupo. Nota de operación, no test automatizado. |
 
+**Cierre (2026-07-22):** ítem manual-only cerrado por `77-UAT.md` Test 5 (pass, 5/5) con la GUI viva — aterrizaje e2e confirmado visualmente y en `member_workspace_refs`.
+
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 77s
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 77s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved 2026-07-16 (plan-phase — mapa por-task completo; `wave_0_complete` lo cierra el executor tras Wave 0)
+**Approval:** approved 2026-07-16 (plan-phase — mapa por-task completo; `wave_0_complete` lo cierra el executor tras Wave 0) · **validated 2026-07-22** (validate-phase retroactivo)
+
+---
+
+## Validation Audit 2026-07-22
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Reconciliación retroactiva: el mapa por-task ya estaba completo y en verde desde la ejecución (2026-07-16); solo faltaba la promoción formal `draft → validated`. Evidencia de hoy: suites mapeadas re-ejecutadas (`client-args`, `cmux-isolation`, `group-resolve` — ahora 37 tests tras los casos Phase 78 —, `manager` — 59 tests) → todas en verde dentro del batch **144/144 pass, 0 fail** (`node --test`, 2026-07-22). Ítem manual-only cerrado por `77-UAT.md` Test 5. GRP-01..04 con cobertura automatizada completa → `nyquist_compliant: true`.
