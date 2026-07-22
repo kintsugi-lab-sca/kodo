@@ -1,77 +1,106 @@
 ---
 phase: 78-address-tech-debt-saneo-del-nudge-75-wr-01-fixes-77-review
-fixed_at: 2026-07-22T00:00:00Z
+fixed_at: 2026-07-22T09:06:31Z
 review_path: .planning/phases/78-address-tech-debt-saneo-del-nudge-75-wr-01-fixes-77-review/78-REVIEW.md
-iteration: 2
-findings_in_scope: 1
-fixed: 1
-skipped: 0
-status: all_fixed
+iteration: 3
+findings_in_scope: 6
+fixed: 4
+skipped: 2
+status: partial
 ---
 
 # Phase 78: Informe de Fix de Code Review
 
-**Fixed at:** 2026-07-22
+**Fixed at:** 2026-07-22T09:06:31Z
 **Source review:** `.planning/phases/78-address-tech-debt-saneo-del-nudge-75-wr-01-fixes-77-review/78-REVIEW.md`
-**Iteration:** 2
+**Iteration:** 3
 
 **Resumen:**
-- Hallazgos en scope (critical_warning): 1
-- Corregidos: 1
-- Omitidos: 0
+- Hallazgos en scope (`all`): 6
+- Corregidos: 4 (IN-01, IN-03, IN-04, IN-05)
+- Omitidos: 2 (WR-02 ya resuelto en pasada previa; IN-02 resuelto-por-WR-02, sin acción)
 
-Solo WR-02 está en el scope `critical_warning`. Los cinco Info (IN-01..IN-05) quedan
-fuera de scope y NO se han tocado.
+Esta pasada opera con scope `all`, así que entran los 5 Info además del WR-02. El WR-02 ya
+fue corregido en el commit `2ce37f2` (pasada anterior) y se verificó presente y correcto en
+el código actual; no se re-aplica. IN-02 es una observación cuya única acción accionable
+vivía en WR-02 (ya cerrado), por lo que se marca resuelto-por-WR-02 sin cambio de código. El
+trabajo real de esta pasada son IN-01, IN-03, IN-04 e IN-05.
 
 ## Fixed Issues
 
-### WR-02: `stripControlChars` preserva `\n` — que en el carril `cmux send` es una pulsación Enter (residuo de inyección al orquestador)
+### IN-01: shadowing de `result` en `stop.js`
 
-**Files modified:** `src/cli/format.js`, `src/session/manager.js`, `src/hooks/stop.js`, `test/dashboard-format.test.js`, `test/manager.test.js`, `test/stop.test.js`
-**Commit:** `2ce37f2`
+**Files modified:** `src/hooks/stop.js`
+**Commit:** `fd2dec6`
+**Applied fix:** La `const result = markSessionStatus(...)` interna (dentro del `try` de la
+línea ~210) sombreaba la `let result` externa (scope de función, lookup de sesión). Se renombra
+la interna a `markResult` (y sus dos usos `!markResult?.ok` / `markResult?.reason`). Además, en
+el destructuring `const { id, session } = result;` se omite `id`, que no se usaba después →
+`const { session } = result;`. Cambio puramente de legibilidad, sin efecto funcional. Los tests
+existentes de `stop.test.js` bastan como cobertura.
 
-**Applied fix:**
+### IN-03: título de test obsoleto que describe el comportamiento PRE-fix
 
-Se introdujo una función hermana PURA `stripForKeystroke` junto a `stripControlChars`
-en `src/cli/format.js` (misma hoja, mismo carril de import — se respeta la color-isolation,
-cero deps nuevas, y `manager.js` NO importa `src/cmux/client.js`). Parte del saneo de
-control-chars de `stripControlChars` y ADEMÁS colapsa a un espacio tanto los `\n`/`\r`/`\t`
-REALES como su forma de escape LITERAL (`\` + `n`/`r`/`t`), que en el carril de keystroke
-(`cmux send`) se interpretarían como Enter/Tab.
+**Files modified:** `test/session/group-resolve.test.js`
+**Commit:** `0a8667a`
+**Applied fix:** El título del test en la línea 145 describía en su paréntesis el comportamiento
+ANTES del fix del trim (Phase 77), contradiciendo la aserción que ya verifica `=== 'KODO'`. Se
+actualiza el paréntesis a "el trim del ref evita que el espacio de borde rompa el strip de
+-dígitos", alineado con el comportamiento post-fix. Cambio de solo-texto en el título.
 
-Se conmutó el saneador SOLO en los carriles de keystroke (verificados contra el sink real):
+### IN-04: campos de tarea no confiables llegaban a cmux en crudo en carriles NO-keystroke
 
-- `src/session/manager.js:523` — el nudge "Nueva sesión lanzada" al terminal del
-  orquestador (`host._legacy.send`): `task.ref`, `task.title` y `projectPath`.
-- `src/hooks/stop.js:56` — `buildStopNudgeText` (`session.task_ref`, `session.summary`).
-- `src/hooks/stop.js:82` — `buildStopNudgeText` (el `next` LLM-persistido).
+**Files modified:** `src/session/manager.js`, `test/manager.test.js`
+**Commit:** `e1bdb01`
+**Applied fix:** `task.title` (contenido no confiable LLM/Plane) fluía sin sanear a dos sinks
+no-keystroke: el nombre de workspace (`workspaceName`, arg CLI de `newWorkspace`) y el body de
+la notificación de SO. Se envuelve `task.title` con `stripControlChars` (saneador de RENDER —
+neutraliza CSI/OSC/C0/C1/DEL/CR sin colapsar `\n`/`\t`, correcto por no ser carriles de
+keystroke). En `workspaceName` el saneo se aplica ANTES de `truncate` para que el recorte mida
+texto limpio. Se añade `stripControlChars` al import ya existente de `../cli/format.js`.
+Regresión añadida en `test/manager.test.js` (positiva + negativa para ambos sinks). Además se
+acotó el guard negativo WR-02 (que era source-wide y prohibía `stripControlChars(task.title)`)
+al propio send del carril de keystroke — de lo contrario el nuevo uso legítimo de render lo
+rompía.
 
-Se verificó que el output de `buildStopNudgeText` alimenta un `cmuxClient.send` (carril de
-keystroke) en `src/hooks/session-end.js:254-258`, confirmando que stop.js está en el mismo
-vector que WR-02 cubre. El `\n` terminador intencional (el Enter que envía el nudge) vive
-FUERA de la llamada de saneo de campos y se conserva intacto.
+### IN-05: `listWorkspaces` podía lanzar pese a su contrato "never-throws"
 
-Los carriles de RENDER (`src/cli/dashboard/App.js`, `src/cli/dashboard/markdown.js`) siguen
-usando `stripControlChars` sin cambios — la preservación de `\n`/`\t` es el contrato de ese
-carril (los goldens del dashboard dependen de ella).
-
-**Verificación:**
-
-- Sintaxis: `node -c` OK en los tres fuentes.
-- `node --test test/manager.test.js test/stop.test.js test/dashboard-format.test.js` → 148 pass, 0 fail.
-- Walker de aislamiento: `test/host/cmux-isolation.test.js` → 4 pass, 0 fail.
-- Regresión con DIENTES añadida para el vector newline: se probó revirtiendo el fix
-  (haciendo `stripForKeystroke` equivalente a `stripControlChars`) y los tests WR-02 fallan
-  (5 fail), confirmando que capturan el residuo de inyección. Con el fix, verdes.
-- No-regresión D-09: sobre ASCII limpio `stripForKeystroke` es la identidad → goldens
-  byte-idénticos preservados (test explícito en stop.test.js y dashboard-format.test.js).
+**Files modified:** `src/host/cmux.js`, `test/host/contract.test.js`
+**Commit:** `b0fecf7`
+**Applied fix:** El `.map`/`.some` de `listWorkspaces` (líneas ~207-222) vive FUERA del
+`try/catch` de parseo pese al contrato never-throws. Un elemento `null`/primitivo en
+`workspaces` o `notifications` haría lanzar `w.ref` / `n.workspace_ref`, escapando la excepción.
+Se añade guarda a nivel de elemento: `if (!w) return null` + `.filter((info) => info !== null)`
+en el `.map`, y `n && n.workspace_ref === ...` en el `.some` — mismo patrón defensivo que
+`normalizeSurface`. Regresión añadida en `test/host/contract.test.js` inyectando elementos null
+en ambos arrays y verificando `doesNotReject` + filtrado correcto.
 
 ## Skipped Issues
 
-Ninguno en scope. Los Info IN-01..IN-05 quedan fuera del scope `critical_warning` por diseño.
+### WR-02: `stripControlChars` preserva `\n` en el carril `cmux send`
+
+**File:** `src/cli/format.js:73-86` · `src/session/manager.js:523` · `src/hooks/stop.js:56,79`
+**Reason:** Ya resuelto en una pasada previa (commit `2ce37f2`), anterior a este REVIEW.md.
+Verificado contra el código actual: existe `stripForKeystroke` en `src/cli/format.js` (colapsa
+`\n`/`\r`/`\t` reales y su forma de escape literal a espacio), y está conmutado en los tres
+sinks de keystroke — `manager.js:523` (nudge "Nueva sesión lanzada") y `stop.js:59,83`
+(`buildStopNudgeText`). Cubierto por los tests de regresión existentes. No se re-aplica.
+**Original issue:** el saneador de render preserva `\n`, que en el carril de keystroke sería un
+Enter espurio inyectado al terminal del orquestador.
+
+### IN-02: `stripControlChars` preserva `\n`/`\t` por diseño (carril de render)
+
+**File:** `src/cli/format.js:73-86`
+**Reason:** Sin acción accionable propia. El review lo marca explícitamente como "ninguna [acción]
+en el carril de render (comportamiento deseado); la acción vive en WR-02". El vector de keystroke
+que le daba consecuencia ya está cerrado por `stripForKeystroke` (WR-02, commit `2ce37f2`). La
+preservación de `\n`/`\t` en el carril de render (Ink, texto multilínea) es correcta y deliberada.
+Resuelto-por-WR-02, sin cambio de código.
+**Original issue:** observación de que el saneador conserva `\t`/`\n`, con consecuencia derivada
+en el carril de keystroke.
 
 ---
 
-_Fixed: 2026-07-22_
+_Fixed: 2026-07-22T09:06:31Z_
 _Fixer: Claude (gsd-code-fixer)_
-_Iteration: 2_
+_Iteration: 3_
