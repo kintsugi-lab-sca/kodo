@@ -142,7 +142,7 @@ describe('deriveExpectedGroupName (D-01/D-02/D-08 · GRP-02)', () => {
   });
 
   describe('trim del ref antes de derivar (IN-01: whitespace de borde no pierde el grupo)', () => {
-    it("ref = 'KODO-9 ' (trailing space) → 'KODO' (hoy devuelve 'KODO-9 ' porque /-\\d+$/ no matchea con el espacio)", () => {
+    it("ref = 'KODO-9 ' (trailing space) → 'KODO' (el trim del ref evita que el espacio de borde rompa el strip de -dígitos)", () => {
       assert.equal(
         deriveExpectedGroupName(makeTask({ ref: 'KODO-9 ' }), '/klab/kodo', '/klab/kodo'),
         'KODO',
