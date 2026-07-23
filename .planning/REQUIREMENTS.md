@@ -55,12 +55,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SDR-01 | Phase 79 | Pending |
-| SDR-02 | Phase 79 | Pending |
-| SDR-03 | Phase 79 | Pending |
-| SDR-04 | Phase 79 | Pending |
-| SDR-05 | Phase 79 | Pending |
-| SDR-06 | Phase 79 | Pending |
+| SDR-01 | Phase 79 | Planned |
+| SDR-02 | Phase 79 | Planned |
+| SDR-03 | Phase 79 | Planned |
+| SDR-04 | Phase 79 | Planned |
+| SDR-05 | Phase 79 | Planned |
+| SDR-06 | Phase 79 | Planned |
 | ORCH-07 | Phase 80 | Pending |
 | ORCH-08 | Phase 80 | Pending |
 | DEBT-01 | Phase 81 | Pending |

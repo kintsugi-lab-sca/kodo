@@ -160,7 +160,10 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   3. Tras un pase de `--fix`, una sesión adoptada o ya lanzada que aterrizó suelta aparece agrupada bajo su grupo esperado — verificable en `cmux workspace-group list --json` (resuelve la frontera D-13 de Phase 77). (SDR-05)
   4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
   5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 79-01-PLAN.md — Passthroughs cmux del allowlist (create/add/set-anchor/ungroup) + lector JSON + guard source-hygiene (SDR-02, SDR-04) — Wave 1
+- [ ] 79-02-PLAN.md — Motor puro scan/execute + reverse-lookup de módulo offline + fail-open/TOCTOU + eventos logger (SDR-01, SDR-02, SDR-03, SDR-05) — Wave 2
+- [ ] 79-03-PLAN.md — CLI `kodo sidebar doctor` espejo de `gsd doctor` + registro + checkpoint de convergencia en vivo (SDR-01, SDR-06) — Wave 3
 
 ### Phase 80: Carril orquestador + reconciliación documental
 
@@ -192,7 +195,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 79. Sidebar Doctor | 0/? | Not started | - |
+| 79. Sidebar Doctor | 0/3 | Not started | - |
 | 80. Carril orquestador + reconciliación documental | 0/? | Not started | - |
 | 81. Saneo de deuda v0.17 | 0/? | Not started | - |
 
