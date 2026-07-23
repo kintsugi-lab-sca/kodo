@@ -161,7 +161,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
   5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 **Wave 1**
 
 - [x] 79-01-PLAN.md — Passthroughs cmux del allowlist (create/add/set-anchor/ungroup) + lector JSON + guard source-hygiene (SDR-02, SDR-04) — Wave 1
@@ -172,7 +172,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 79-03-PLAN.md — CLI `kodo sidebar doctor` espejo de `gsd doctor` + registro + checkpoint de convergencia en vivo (SDR-01, SDR-06) — Wave 3
+- [x] 79-03-PLAN.md — CLI `kodo sidebar doctor` espejo de `gsd doctor` + registro + checkpoint de convergencia en vivo (SDR-01, SDR-06) — Wave 3
 
 ### Phase 80: Carril orquestador + reconciliación documental
 
