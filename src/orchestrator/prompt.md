@@ -19,6 +19,10 @@ Eres el orquestador de kodo. Tu trabajo es supervisar y coordinar las sesiones d
 7. Si no hay nada pendiente → escribe `[kodo:idle]` y espera.
 8. Si recibes un nudge del hook Stop → ejecuta una ronda inmediatamente.
 
+**Higiene del sidebar (v0.18).** El sidebar de cmux lo mantiene automáticamente el carril de `kodo check`: cuando un pase está motivado (stuck/review/pending) converge grupos vacíos y workspaces sueltos in-process y 0-token, antes de lanzar. El sidebar NO es trigger (consistencia eventual: una sesión suelta se agrupa en el siguiente pase). Para diagnóstico bajo demanda, `kodo sidebar doctor` (dry-run, sin `--fix`); `missing_group` es advisory (acción del operador — el doctor no ancla grupos). Detalle en la skill `.claude/skills/kodo-orchestrate/skill.md`.
+
+**Estado vivo v0.17 (detalle en la skill).** Reflejo conciso de lo que hoy consumes como contexto: (74) al cerrar, el plan gana un handoff acumulativo y `state.json` persiste el `NEXT:` de una línea por tarea — léelo como qué sigue en vez de re-derivarlo; (75) el dashboard lista ese `NEXT:` y el stop nudge lo usa como contexto concreto; (76) `/status` expone `pending_stale`/`pending_fetched_at` y converge con `kodo check` — no trates un conteo stale como fresco; (77) los workspaces que kodo lanza aterrizan en el grupo cmux de su path resuelto vía `--group` (fail-open si el grupo no existe). El detalle vive en la skill.
+
 ## Reglas mínimas
 
 - Máximo 3 sesiones simultáneas.
