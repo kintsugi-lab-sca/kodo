@@ -145,6 +145,23 @@ describe('LOG-12: vigilante isolation (import-graph)', () => {
       `check.js transitively imports triggers/polling.js via:\n  ${violators.map((p) => relative(REPO, p)).join('\n  ')}`,
     );
   });
+
+  // Phase 80 Plan 01 (ORCH-07): CONVERGENCE — positive assertion that check.js actually
+  // reaches the sidebar doctor engine. The 4 prohibition guards above (no logger.js /
+  // github/provider / github/normalize / polling) stay GREEN with sidebar-doctor.js in
+  // the graph — that is the proof the piggyback import drags none of the forbidden
+  // modules in (deps {} -> noopLogger; logger-events.js is a pure zero-side-effect leaf).
+  // This one proves the orchestrator lane converges observably and cannot silently
+  // regress to an inline detection.
+  it('kodo check reaches src/cmux/sidebar-doctor.js in its import graph (convergence, ORCH-07)', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const doctorPath = join(SRC, 'cmux', 'sidebar-doctor.js');
+    assert.ok(
+      graph.has(doctorPath),
+      `check.js must transitively import src/cmux/sidebar-doctor.js (converged orchestrator lane, ORCH-07).\n` +
+        `Graph from check.js:\n  ${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
 });
 
 // Phase 74 D-13: `src/session/handoff.js` es el módulo único dueño del contrato de

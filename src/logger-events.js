@@ -18,8 +18,12 @@
 // siguen siendo los de src/logger.js (Fase 6). Este archivo es pure transform:
 // campos → record. No abre archivos, no hace I/O.
 //
-// LOG-12 invariant: ningún consumer en el grafo de src/check.js importa este
-// módulo. Los imports son solo `node:os` + `node:path` (stdlib).
+// LOG-12 invariant (post-Phase-80): tras el carril orquestador (ORCH-07),
+// `src/check.js → cmux/sidebar-doctor.js → logger-events.js` SÍ alcanza este
+// módulo. No viola LOG-12: sigue siendo pure transform zero-side-effect — los
+// imports son solo `node:os` + `node:path` (stdlib), no abre archivos ni loguea.
+// El módulo PROHIBIDO en el grafo del vigilante es `logger.js` (el sink NDJSON
+// real), NUNCA este helper de taxonomía.
 //
 
 import { homedir } from 'node:os';
