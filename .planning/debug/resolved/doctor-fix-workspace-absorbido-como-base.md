@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "G-79-1 (doctor-fix-workspace-absorbido-como-base-grupo): Al ejecutar kodo sidebar doctor --fix con una sesión kodo suelta real, el pase de fix creó el grupo pero el workspace vivo acabó convertido en la BASE del grupo recién creado, perdiendo su título y demás metadatos en la sidebar de cmux."
 created: 2026-07-23T00:00:00Z
-updated: 2026-07-23T12:00:00Z
+updated: 2026-07-23T11:35:00Z
 ---
 
 ## Current Focus
