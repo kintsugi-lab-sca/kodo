@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 79-sidebar-doctor
 source: [79-VERIFICATION.md]
 started: 2026-07-23T08:40:00Z
@@ -45,5 +45,13 @@ blocked: 0
   reason: "User reported: Al ejecutar kodo sidebar doctor --fix se ha cargado una sesión en vivo y ha cerrado todo lo que había para meterlo en el grupo. Fatal! — Refinado tras inspección: la sesión NO se eliminó; el workspace vivo se convirtió en la BASE del grupo creado, perdiendo el título y demás info en la sidebar. Probable causa a investigar: el verbo `create` de cmux convierte/absorbe el workspace como base del grupo en vez de crear un grupo vacío, o el doctor pasa el workspace vivo como base al crear el grupo."
   severity: blocker
   test: 1
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "cmux (0.64.20) modela el header del grupo como la representación sidebar del workspace anchor — su propio --help lo documenta: 'the group header IS the anchor's sidebar representation'. El doctor ancla el grupo recién creado en el workspace de la sesión kodo viva más antigua (scan(): anchor = ordered[0].workspace_ref; execute(): create --from <anchor> + set-anchor al mismo), por lo que la fila sidebar de esa sesión SE CONVIERTE en el header del grupo y pierde su título visible. No hay pérdida real de datos (custom_title y custom_color de workspace:40 intactos en workspace list --json); es pérdida de representación. Causa de fondo: gap de research — el modelo header-is-anchor no se capturó en 79-RESEARCH.md y la política D-08 (anchor = miembro más longevo) se decidió sin conocerlo. La 2ª pasada del dry-run sí sale limpia (exit 0): la convergencia mecánica se cumple; el blocker es exclusivamente la absorción de identidad."
+  artifacts:
+    - path: "src/cmux/sidebar-doctor.js"
+      issue: "scan() elige anchor = ordered[0].workspace_ref (~L267); execute() emite createWorkspaceGroup({name, from: [anchor]}) (L365) y setGroupAnchor({group, workspace: anchor}) (L388) — ancla el grupo en una sesión viva, cuya fila sidebar pasa a ser el header del grupo"
+    - path: ".planning/phases/79-sidebar-doctor/79-RESEARCH.md"
+      issue: "Supuestos A1–A5 y Pitfalls omiten el modelo header-is-anchor de cmux (los verbos mutantes nunca se ejecutaron en vivo antes del UAT)"
+  missing:
+    - "Política de anchor que no sacrifique la identidad de una sesión viva: (a) verificar EN VIVO (grupo throwaway) si `workspace-group create --name X --cwd <path>` sin --from crea un workspace FRESCO como anchor — si es así, anclar el grupo en un workspace base desechable y dejar las sesiones como miembros planos (ojo: el help dice que --from omitido defaultea al caller workspace — semántica SIN verificar); o (b) degradar missing_group a report-only (el doctor solo hace `add` a grupos existentes; crear grupos queda en manos del operador)"
+    - "Resolver a la vez el trade-off compuesto con D-07: anclar en workspace de sesión implica disolución del grupo al terminar esa sesión"
+  debug_session: ".planning/debug/doctor-fix-workspace-absorbido-como-base.md"
