@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
 current_phase: 79
-status: planning
-stopped_at: Phase 79 context gathered
-last_updated: "2026-07-23T07:15:45.699Z"
-last_activity: 2026-07-22
-last_activity_desc: Roadmap v0.18 creado (Phases 79-81)
+current_phase_name: Sidebar Doctor
+status: executing
+stopped_at: Completed 79-01-PLAN.md
+last_updated: "2026-07-23T08:02:07.717Z"
+last_activity: 2026-07-23
+last_activity_desc: Phase 79 execution started
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -27,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Roadmap v0.18 creado — planificar la Phase 79 (`/gsd-plan-phase 79`)
+**Current focus:** Phase 79 — Sidebar Doctor
 
 ## Current Position
 
-Phase: 79 — Sidebar Doctor (not started)
-Plan: —
-Status: Roadmap complete — awaiting phase planning
-Last activity: 2026-07-22 — Roadmap v0.18 creado (Phases 79-81)
+Phase: 79 (Sidebar Doctor) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-23 — Phase 79 execution started
 
 ## Roadmap v0.18 (activo)
 
@@ -88,6 +89,7 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - **Launch path byte-idéntico**: GRP-01..03 fail-open intactos; la gestión de grupos pasa a estar permitida SOLO en el carril doctor (re-fronterización consciente de GRP-04).
 - **Política de anchor por re-anclaje eventual**: los grupos se disuelven al cerrarse su anchor; el doctor re-crea/re-ancla (`set-anchor` al miembro más longevo) en el siguiente pase.
 - **DEBT-04 (flaky `gsd-lock-race`) es SOLO diagnóstico vía `/gsd-debug`** — no arreglar a ciegas; protege el invariante de locks de v0.16.
+- [Phase ?]: Phase 79-01: allowlist no-destructivo workspace-group (create/add/set-anchor/ungroup) en client.js; delete/remove/rename LOCKED, guard source-hygiene lo verifica
 
 ### Open Blockers
 
@@ -114,13 +116,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T07:15:45.692Z
+**Last session:** 2026-07-23T08:02:00.707Z
 
 **Resume file:**
 
-.planning/phases/79-sidebar-doctor/79-CONTEXT.md
+None
 
-- **Stopped at:** Phase 79 context gathered
+- **Stopped at:** Completed 79-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -138,3 +140,8 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (baseline post-v0.17 — métricas per-plan de v0.17 archivadas en `milestones/v0.17-phases/`; medias v0.17: ~12 min/plan, 17 plans) |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 79 P01 | 7min | 2 tasks | 2 files |

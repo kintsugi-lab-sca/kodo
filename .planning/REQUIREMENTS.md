@@ -10,9 +10,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Sidebar Doctor (SDR)
 
 - [ ] **SDR-01**: `kodo sidebar doctor` (dry-run por defecto) lista las acciones pendientes clasificadas — grupo faltante → `create`, workspace suelto con grupo esperado → `add`, grupo disuelto por cierre de su anchor → re-crear/`set-anchor`, grupo vacío → `ungroup` — sin ejecutar nada
-- [ ] **SDR-02**: `kodo sidebar doctor --fix` ejecuta las acciones usando exclusivamente el allowlist (`create`, `add`, `set-anchor`, `ungroup`); `workspace-group delete` no existe en el código y un guard source-hygiene automático verifica su ausencia
+- [x] **SDR-02**: `kodo sidebar doctor --fix` ejecuta las acciones usando exclusivamente el allowlist (`create`, `add`, `set-anchor`, `ungroup`); `workspace-group delete` no existe en el código y un guard source-hygiene automático verifica su ausencia
 - [ ] **SDR-03**: La detección es 100% determinista y 0 tokens — reutiliza `deriveExpectedGroupName` (`src/session/manager.js`) y `listWorkspaceGroups` (`src/cmux/client.js`); ningún paso consulta un LLM
-- [ ] **SDR-04**: El launch path queda byte-idéntico — GRP-01..03 intactos (`--group` solo si el grupo ya existe al lanzar, fail-open en 2 capas)
+- [x] **SDR-04**: El launch path queda byte-idéntico — GRP-01..03 intactos (`--group` solo si el grupo ya existe al lanzar, fail-open en 2 capas)
 - [ ] **SDR-05**: Las sesiones adoptadas o ya lanzadas convergen al grupo esperado en el siguiente pase del doctor (resuelve la frontera D-13 de Phase 77)
 - [ ] **SDR-06**: El CLI es espejo del patrón `gsd doctor` — `--json` byte-determinista (DX-06) y exit codes deterministas
 
@@ -69,6 +69,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEBT-04 | Phase 81 | Pending |
 
 **Coverage:**
+
 - v0.18 requirements: 12 total
 - Mapped to phases: 12 ✓ (SDR-01..06 → Phase 79 · ORCH-07..08 → Phase 80 · DEBT-01..04 → Phase 81)
 - Unmapped: 0 ✓ (sin huérfanos, sin duplicados)
