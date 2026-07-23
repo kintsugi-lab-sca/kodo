@@ -2,11 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
+current_phase: 79
 status: planning
-last_updated: "2026-07-22T16:40:00.000Z"
+stopped_at: Phase 79 context gathered
+last_updated: "2026-07-23T07:15:45.699Z"
 last_activity: 2026-07-22
+last_activity_desc: Roadmap v0.18 creado (Phases 79-81)
 progress:
-  total_phases: 3
+  total_phases: 1
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -111,13 +114,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-22 — creación del roadmap v0.18
+**Last session:** 2026-07-23T07:15:45.692Z
 
 **Resume file:**
 
-None
+.planning/phases/79-sidebar-doctor/79-CONTEXT.md
 
-- **Stopped at:** Roadmap v0.18 escrito (ROADMAP.md §Phase Details activo + Progreso + Milestones/Backlog reconciliados) · REQUIREMENTS.md traceability 12/12 · STATE.md actualizado
+- **Stopped at:** Phase 79 context gathered
 - **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
