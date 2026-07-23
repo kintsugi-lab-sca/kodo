@@ -161,7 +161,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
   5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
 
-**Plans**: 3/3 plans executed
+**Plans**: 4/4 plans executed
 **Wave 1**
 
 - [x] 79-01-PLAN.md — Passthroughs cmux del allowlist (create/add/set-anchor/ungroup) + lector JSON + guard source-hygiene (SDR-02, SDR-04) — Wave 1
@@ -176,7 +176,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
 **Gap closure** *(G-79-1, blocker de UAT)*
 
-- [ ] 79-04-PLAN.md — Cierre de G-79-1: `missing_group` pasa a report-only/advisory; `execute()` deja de auto-crear grupos anclados en sesiones vivas (cero absorción de identidad); loose→add y empty→ungroup intactos. Ratifica la supersesión de D-07/D-08 vía checkpoint:decision (SDR-01, SDR-05) — Gap closure
+- [x] 79-04-PLAN.md — Cierre de G-79-1: `missing_group` pasa a report-only/advisory; `execute()` deja de auto-crear grupos anclados en sesiones vivas (cero absorción de identidad); loose→add y empty→ungroup intactos. Ratifica la supersesión de D-07/D-08 vía checkpoint:decision (SDR-01, SDR-05) — Gap closure
 
 ### Phase 80: Carril orquestador + reconciliación documental
 

@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
 current_phase: 79
-current_phase_name: Sidebar Doctor
-status: verifying
-stopped_at: Completed 79-03-PLAN.md
-last_updated: "2026-07-23T08:26:29.377Z"
+current_phase_name: sidebar-doctor
+status: executing
+stopped_at: Completed 79-04-PLAN.md
+last_updated: "2026-07-23T11:19:36.673Z"
 last_activity: 2026-07-23
-last_activity_desc: Phase 79 execution complete (3/3 plans)
+last_activity_desc: 79-04 executed (missing_group report-only, G-79-1 cerrado)
 progress:
   total_phases: 1
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 100
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Phase 79 — Sidebar Doctor
+**Current focus:** Phase 79 — sidebar-doctor
 
 ## Current Position
 
-Phase: 79 (Sidebar Doctor) — READY FOR VERIFICATION
-Plan: 3 of 3 (todos ejecutados)
-Status: Phase complete — awaiting UAT (`/gsd-verify-work 79`)
-Last activity: 2026-07-23 — Phase 79 execution complete (3/3 plans)
+Phase: 79 (sidebar-doctor) — EXECUTED (4/4 plans complete)
+Plan: 4 of 4 (79-04 gap closure G-79-1 complete)
+Status: Phase 79 execution complete — ready for /gsd-verify-work 79
+Last activity: 2026-07-23 — 79-04 executed (missing_group report-only, G-79-1 cerrado)
 
 ## Roadmap v0.18 (activo)
 
@@ -94,6 +94,8 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - [Phase ?]: 79-02: reverse-lookup de módulo offline (taskLikeFrom) reconstruye el task-like sin persistir expected_group (D-02/D-03)
 - [Phase ?]: 79-03: kodo sidebar doctor CLI (runSidebarDoctor espejo de runGsdDoctor) SIN ensureConfig — 0-provider preservado; exit hasActions?1:0, --json byte-determinista
 - [Phase ?]: 79-03: checkpoint SDR-05 approved con alcance acotado — rama READ-ONLY (dry-run/--json/exit) verificada en vivo; convergencia real --fix + A1/A2/A5 + D-04 diferidos a /gsd-verify-work 79
+- [Phase ?]: 79-04 (G-79-1): missing_group pasa a report-only/advisory — execute() ya no emite create/set-anchor; el doctor nunca ancla un grupo en una sesión kodo viva. Supera D-07/D-08 y la política de re-anclaje eventual (ratificado por checkpoint).
+- [Phase ?]: 79-04: scan() computa hasActions solo con loose+empty (missing_group excluido) y expone hasAdvisories — el CLI/Phase 80 distinguen deriva auto-arreglable de acción del operador; --fix converge a exit 0 sin bucle.
 
 ### Open Blockers
 
@@ -120,13 +122,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T08:25:48.638Z
+**Last session:** 2026-07-23T11:18:58.864Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 79-03-PLAN.md
+- **Stopped at:** Completed 79-04-PLAN.md
 - **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -151,3 +153,4 @@ None
 | Phase 79 P01 | 7min | 2 tasks | 2 files |
 | Phase 79 P02 | 18min | 2 tasks | 4 files |
 | Phase 79 P03 | 6min | 3 tasks | 3 files |
+| Phase 79 P04 | 5min | 3 tasks | 5 files |

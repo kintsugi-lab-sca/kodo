@@ -144,9 +144,9 @@ None - no external service configuration required.
 - **Phase 80 (carril orquestador + piggyback):** el contrato del report ahora distingue `hasActions` (auto-arreglable) de `hasAdvisories` (acción del operador) — el piggyback de `kodo sidebar doctor --fix` en `kodo check` puede converger a exit 0 sin bucle sobre advisories no auto-arreglables.
 - **Diferido a /gsd-verify-work 79:** convergencia real en vivo de `--fix` contra el sidebar cmux del operador (loose→add preserva fila/título; advisory de missing_group). Cubierto herméticamente por tests; la validación visual GUI requiere sesión viva.
 
-## Self-Check
+## Self-Check: PASSED
 
-(pendiente — se anexa tras la verificación de ficheros y commits)
+Verificados en disco los 6 ficheros modificados/creados y presentes en git los 3 commits (`7dee845`, `4ec4c52`, `6f4985d`).
 
 ---
 *Phase: 79-sidebar-doctor*
