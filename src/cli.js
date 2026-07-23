@@ -475,6 +475,30 @@ gsd
     }
   });
 
+// --- kodo sidebar <subcommand> ---
+const sidebar = program
+  .command('sidebar')
+  .description('cmux sidebar hygiene (workspace groups)');
+
+sidebar
+  .command('doctor')
+  .description('Detect (dry-run) and fix (--fix) workspace-group drift: missing/dissolved groups, loose workspaces, empty groups')
+  .option('--fix', 'Converge the sidebar (the only opt-in to mutate; non-destructive allowlist, no prompt)')
+  .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
+  .action(async (opts) => {
+    try {
+      // NOTE: NO `ensureConfig()` — el doctor lee state.json/projects.json/cmux y
+      // NO toca ningún provider (preserva el 0-provider de SDR-03). Mismo
+      // precedente que `gsd doctor` (cli.js arriba).
+      const { runSidebarDoctor } = await import('./cli/sidebar-doctor.js');
+      const code = await runSidebarDoctor({ fix: opts.fix || false, json: opts.json || false });
+      process.exit(code);
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 // --- kodo skill <subcommand> ---
 const skill = program.command('skill').description('Skill management subcommands (sync, etc.)');
 
