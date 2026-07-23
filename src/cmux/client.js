@@ -99,14 +99,86 @@ export async function listWorkspaces() {
 /**
  * Passthrough read-only de `workspace-group list --json`. Devuelve el stdout
  * crudo (JSON sin parsear): el parseo defensivo vive en la función pura de la
- * Plan 02, NO aquí (D-05). De la familia workspace-group solo se expone `list`
- * (GRP-04): create/rename/delete/ungroup/add quedan fuera. Un fallo de `run()`
- * (cmux viejo sin el subcomando, daemon headless, timeout 15s) rejecta la
- * promesa — esa rejección es la capa 1 de fail-open del caller (GRP-03).
+ * Plan 02, NO aquí (D-05). Un fallo de `run()` (cmux viejo sin el subcomando,
+ * daemon headless, timeout 15s) rejecta la promesa — esa rejección es la capa 1
+ * de fail-open del caller (GRP-03).
+ *
+ * RE-FRONTERIZACIÓN GRP-04 (v0.18, Phase 79 · D-12): la gestión de
+ * workspace-group deja de estar totalmente fuera del código. Se permite un
+ * allowlist NO-DESTRUCTIVO —`create`, `add`, `set-anchor`, `ungroup`— usado
+ * EXCLUSIVAMENTE por el carril doctor del sidebar (`kodo sidebar doctor`); ver
+ * los passthroughs más abajo. El launch path (manager.js) sigue consumiendo SOLO
+ * `list` (read-only). Fuera del código quedan LOCKED: el verbo destructivo
+ * `delete` (cierra todos los workspaces del grupo), `remove` y `rename` — el
+ * guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
+ * ellos se cablea.
  * @returns {Promise<string>} JSON crudo de `workspace-group list`
  */
 export async function listWorkspaceGroups() {
   return run(['workspace-group', 'list', '--json']);
+}
+
+/**
+ * Passthrough read-only de `workspace list --json`. Devuelve el stdout crudo
+ * (JSON sin parsear) — el parseo defensivo vive en la función pura del scan
+ * (Plan 02, D-04/D-05). Necesario para comprobar la liveness de los
+ * `workspace_ref` del scan del sidebar doctor. NO sustituye a `listWorkspaces()`
+ * (:95, texto plano — la usa otro carril).
+ * @returns {Promise<string>} JSON crudo de `workspace list`
+ */
+export async function listWorkspacesJson() {
+  return run(['workspace', 'list', '--json']);
+}
+
+// ── Allowlist NO-DESTRUCTIVO de workspace-group (D-12, re-fronterización GRP-04) ──
+// Los 4 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
+// `run()` (execFile, timeout 15s, sin shell) con un argv PLANO de strings: el ref del
+// grupo (`workspace_group:N` o UUID) y el del workspace (`workspace:N`) viajan como
+// elementos de array, jamás interpolados en un string — cero superficie de inyección,
+// espejo de buildNewWorkspaceArgs (:38, V5/Tampering, T-79-01). Sintaxis verificada en
+// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`: el guard lo verifica.
+
+/**
+ * `workspace-group create [--name <name>] [--from <ref>,<ref>...]`. Devuelve el
+ * stdout crudo — el ref del grupo nuevo se obtiene por re-list en el Plan 02
+ * (OQ1), NO se parsea aquí.
+ * @param {{ name?: string, from?: string[] }} opts  `from` = refs `workspace:N`
+ * @returns {Promise<string>} stdout crudo de `workspace-group create`
+ */
+export async function createWorkspaceGroup({ name, from }) {
+  const args = ['workspace-group', 'create'];
+  if (name) args.push('--name', name);
+  if (from && from.length) args.push('--from', from.join(','));
+  return run(args);
+}
+
+/**
+ * `workspace-group add --group <group> --workspace <ws>`.
+ * @param {{ group: string, workspace: string }} opts
+ * @returns {Promise<string>} stdout crudo
+ */
+export async function addToWorkspaceGroup({ group, workspace }) {
+  return run(['workspace-group', 'add', '--group', group, '--workspace', workspace]);
+}
+
+/**
+ * `workspace-group set-anchor --group <group> --workspace <ws>` (D-08: el ancla es
+ * el miembro más longevo).
+ * @param {{ group: string, workspace: string }} opts
+ * @returns {Promise<string>} stdout crudo
+ */
+export async function setGroupAnchor({ group, workspace }) {
+  return run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);
+}
+
+/**
+ * `workspace-group ungroup <group>` — disuelve un grupo preservando sus miembros
+ * (D-05: NO destructivo, aplica a grupos con 0 miembros). `<group>` es posicional.
+ * @param {{ group: string }} opts
+ * @returns {Promise<string>} stdout crudo
+ */
+export async function ungroupWorkspaceGroup({ group }) {
+  return run(['workspace-group', 'ungroup', group]);
 }
 
 /**
