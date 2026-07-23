@@ -160,9 +160,18 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   3. Tras un pase de `--fix`, una sesión adoptada o ya lanzada que aterrizó suelta aparece agrupada bajo su grupo esperado — verificable en `cmux workspace-group list --json` (resuelve la frontera D-13 de Phase 77). (SDR-05)
   4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
   5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
+
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 79-01-PLAN.md — Passthroughs cmux del allowlist (create/add/set-anchor/ungroup) + lector JSON + guard source-hygiene (SDR-02, SDR-04) — Wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 79-02-PLAN.md — Motor puro scan/execute + reverse-lookup de módulo offline + fail-open/TOCTOU + eventos logger (SDR-01, SDR-02, SDR-03, SDR-05) — Wave 2
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 79-03-PLAN.md — CLI `kodo sidebar doctor` espejo de `gsd doctor` + registro + checkpoint de convergencia en vivo (SDR-01, SDR-06) — Wave 3
 
 ### Phase 80: Carril orquestador + reconciliación documental
@@ -176,6 +185,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   2. El sidebar no dispara al orquestador: no se añade ningún trigger nuevo (constraint LOCKED); una sesión recién lanzada suelta se agrupa en el **siguiente** pase motivado, no de inmediato. (ORCH-07)
   3. El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan `kodo sidebar doctor` y reflejan las features v0.17: handoff acumulativo + `NEXT:` en `state.json` (74), superficie del `NEXT:` en dashboard y nudge con contexto (75), `pending_stale`/`pending_fetched_at` + convergencia con `kodo check` (76), agrupación `--group` de workspaces (77). (ORCH-08)
   4. Ni el skill ni el prompt prometen features borradas ni omiten las nuevas — misma disciplina anti-deriva que HYG-08 aplicó al README en v0.16. (ORCH-08)
+
 **Plans**: TBD
 
 ### Phase 81: Saneo de deuda v0.17
@@ -189,6 +199,7 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   2. Un `next` hand-editado con `\n`/`\t` en `state.json` no descuadra la tabla del dashboard — `nextCell` colapsa el whitespace en el render de fila (carril keystroke ya cerrado en Phase 78). (DEBT-03)
   3. Los dos doc-drifts de Phase 75 quedan corregidos: el comentario de App.js «lee tasks UNA vez por tick» (WR-02) y el typedef del prop `overlaySnapshot` sin `render` (WR-04) — solo documentación, sin cambio de comportamiento. (DEBT-02)
   4. El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida — el invariante de locks de v0.16 queda protegido. (DEBT-04)
+
 **Plans**: TBD
 
 ## Progreso (v0.18)
