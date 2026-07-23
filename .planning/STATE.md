@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
-current_phase: 80
-current_phase_name: Carril orquestador + reconciliación documental
-status: verifying
-stopped_at: Completed 80-02-PLAN.md
-last_updated: "2026-07-23T20:09:55.135Z"
+current_phase: 81
+current_phase_name: Saneo de deuda v0.17
+status: planning
+stopped_at: Phase 80 complete (UAT 1/1 en vivo, SECURITY verified) — ready for Phase 81
+last_updated: "2026-07-23T21:09:35.119Z"
 last_activity: 2026-07-23
-last_activity_desc: Phase 80 execution started
+last_activity_desc: Phase 80 complete, transitioned to Phase 81
 progress:
   total_phases: 2
   completed_phases: 2
@@ -20,7 +20,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — **Phase 79 (Sidebar Doctor) completa 2026-07-23** (4/4 plans, UAT 4/4 en vivo, gap G-79-1 cerrado con missing_group report-only ratificado, SECURITY threats_open: 0). Siguiente: Phase 80 (depende de 79); Phase 81 ortogonal (paralelizable). Milestone anterior v0.17 SHIPPED 2026-07-22.
+**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — **Phases 79 y 80 completas 2026-07-23**. Phase 79: `kodo sidebar doctor` determinista (UAT 4/4, missing_group report-only ratificado). Phase 80: carril orquestador (piggyback in-process del doctor en pases motivados de `kodo check`, sidebar NO trigger) + reconciliación documental skill/prompt con v0.17 (UAT 1/1 en vivo, SECURITY threats_open: 0, suite 2356). Siguiente y última: Phase 81 (deuda v0.17). Milestone anterior v0.17 SHIPPED 2026-07-22.
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Phase 80 — Carril orquestador + reconciliación documental
+**Current focus:** Phase 81 — Saneo de deuda v0.17 (última fase de v0.18)
 
 ## Current Position
 
-Phase: 80 (Carril orquestador + reconciliación documental) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-23 — Phase 80 execution started
+Phase: 81 — Saneo de deuda v0.17
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-23 — Phase 80 complete, transitioned to Phase 81
 
 ## Roadmap v0.18 (activo)
 
@@ -124,13 +124,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T20:09:44.918Z
+**Last session:** 2026-07-23T21:09:35.112Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 80-02-PLAN.md
+- **Stopped at:** Phase 80 complete (UAT 1/1 en vivo, SECURITY verified) — ready for Phase 81
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -141,8 +141,9 @@ None
 
 ## Operator Next Steps
 
-- Discutir la Phase 80 con `/gsd-discuss-phase 80` (o `/gsd-plan-phase 80` directo)
-- Phase 81 (deuda v0.17) es paralelizable en cualquier momento
+- Discutir la Phase 81 con `/gsd-discuss-phase 81` (o `--auto` para la cadena completa) — última fase de v0.18
+- Opcional: `/gsd-code-review 80 --fix` para los 3 warnings documentados en 80-REVIEW.md
+- `git push` pendiente de decisión del operador (todo el milestone es local)
 
 ## Performance Metrics
 

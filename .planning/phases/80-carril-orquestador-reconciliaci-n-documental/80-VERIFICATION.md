@@ -1,11 +1,12 @@
 ---
 phase: 80-carril-orquestador-reconciliaci-n-documental
 verified: 2026-07-23T20:22:31Z
-status: human_needed
+status: passed
 score: 11/12 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "SC1 (ROADMAP)/T5 (80-01): con needsOrchestrator===true, un sidebar con workspaces sueltos o grupos vacíos converge al estado agrupado en ≤1 pase (loose→add, empty→ungroup) — y un 2º pase sobre el sidebar ya convergido ejecuta 0 acciones"
     test: "Lanzar una sesión kodo suelta (sin su grupo cmux creado) o dejar un grupo cmux vacío tras cerrar sus miembros; disparar un pase de `kodo check` ya motivado (stuck/review/pending); observar la línea `[kodo:check] Sidebar: N acción(es) aplicadas` y verificar en la sidebar real de cmux que el workspace pasó a estar agrupado / el grupo vacío desapareció"
     expected: "Tras el pase motivado, el sidebar de cmux muestra el workspace ya agrupado (o el grupo vacío disuelto) sin intervención humana; un 2º pase motivado inmediato no vuelve a mover nada (`Sidebar: 0 acción(es) aplicadas`)"
