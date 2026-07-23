@@ -281,7 +281,7 @@ de diseño LOCKED de Phase 60: `addComment` sobre `updateTask`).
 
 ## Diagnóstico
 
-Cuatro flujos síntoma → comando. Sigue el orden de cada uno antes de escalar.
+Cinco flujos síntoma → comando. Sigue el orden de cada uno antes de escalar.
 
 ### 1. Sesión stuck (>30min idle)
 
@@ -324,6 +324,84 @@ estructurada con secciones `config`, `fetch`, `roadmap`, `match` (símbolos
 correr `kodo gsd verify`" con los exit codes deterministas. **Nunca dupliques
 el comentario manual al provider**: el CLI hace `addComment` +
 `updateTaskState` atómicamente y el doble comentario rompe la trazabilidad.
+
+### 5. Sidebar desalineado (grupos vacíos / workspaces sueltos)
+
+Síntoma: la sidebar de cmux tiene workspaces sueltos que deberían estar en un
+grupo, o grupos vacíos que quedaron tras cerrarse sus miembros.
+
+1. `kodo sidebar doctor` (dry-run, **sin** `--fix`) para diagnosticar sin mutar
+   nada — lista las acciones auto-arreglables y los advisories.
+2. Interpreta la salida: las acciones **auto-arreglables** son `loose → add`
+   (workspace suelto con grupo esperado → se añade) y `empty → ungroup` (grupo
+   vacío → se disuelve). Los **advisories** (`missing_group`) son **acción del
+   operador**: el doctor NO crea ni ancla grupos en una sesión viva (anclar un
+   grupo le robaría su fila a la sesión), así que el operador crea el grupo una
+   vez, conscientemente, eligiendo su anchor.
+3. Recuerda que el **carril automático** de `kodo check` ya converge las acciones
+   auto-arreglables en cada pase motivado (ver §"Higiene del sidebar") — el
+   dry-run del doctor es solo diagnóstico bajo demanda, no hace falta correr
+   `--fix` a mano en el flujo normal.
+
+## Higiene del sidebar
+
+La sidebar de cmux se mantiene sola: no hace falta que el operador (ni el
+orquestador) cure grupos a mano. El mecanismo tiene dos caras.
+
+- **Carril automático (piggyback en `kodo check`).** Cuando un pase de `kodo
+  check` está motivado (`stuck` / `review` / `pending` → `needsOrchestrator`),
+  el vigilante converge las acciones auto-arreglables del sidebar **antes** de
+  lanzar al orquestador, **in-process y 0-token** (import directo de
+  `scan`/`execute`; no shellea `kodo sidebar doctor --fix`). Verás una línea
+  `[kodo:check] Sidebar: N acción(es) aplicadas` en la salida del check.
+- **El sidebar NO es trigger.** El resultado del doctor jamás entra en las
+  razones del check ni activa un pase por sí mismo. Consecuencia — **consistencia
+  eventual**: una sesión recién lanzada aterriza suelta y se agrupa en el
+  **siguiente** pase motivado, no de inmediato. No fuerces un pase solo para
+  ordenar la sidebar.
+- **Diagnóstico bajo demanda.** `kodo sidebar doctor` (dry-run, sin `--fix`) es
+  la herramienta para **inspeccionar sin mutar**: lista qué haría el carril. Es
+  read-only; úsala cuando quieras ver el estado sin esperar al próximo pase.
+- **Allowlist no-destructivo.** Las únicas acciones auto-arreglables son
+  `loose → add` y `empty → ungroup`. `workspace-group delete` **no se cablea**
+  (cerraría todos los workspaces del grupo): no existe como acción del doctor.
+- **`missing_group` es advisory (acción del operador).** El doctor **no crea ni
+  ancla grupos** en una sesión viva — solo reporta que faltan. El operador los
+  crea conscientemente (eligiendo el anchor). Nunca describas `missing_group`
+  como algo que el doctor ejecuta.
+- **El launch path queda byte-idéntico.** La gestión de grupos vive
+  exclusivamente en el carril doctor; `launchOrchestrator` no cambia. La
+  agrupación de workspaces al lanzar (`--group`, Phase 77) solo aplica el grupo
+  si YA existe en el momento del lanzamiento, con degradación fail-open: si el
+  grupo no existe o cmux no responde, la sesión se lanza igual, suelta (la
+  sesión es la carga útil; el grupo es cosmético).
+
+## Estado vivo de la tarea (novedades v0.17)
+
+A partir de v0.17 cada tarea deja **estado vivo** que puedes consumir como
+contexto — no tienes que abrir ficheros a mano ni re-derivar qué sigue.
+
+- **Handoff acumulativo + `NEXT:` (Phase 74).** Al cerrar una sesión, su plan
+  (`~/.kodo/plans/<task_id>.md`) gana un bloque `## Handoff <fecha>` con
+  `Hecho / Pendiente / NEXT:` que se **acumula** sesión tras sesión (nunca se
+  pisa). Además `state.json` persiste, por tarea, el puntero al plan y el `NEXT:`
+  de una línea. Cuando supervises o relances una tarea, lee ese `NEXT:` como
+  contexto de qué toca a continuación en vez de reconstruirlo.
+- **Superficie del `NEXT:` — dashboard y nudge (Phase 75).** El dashboard lista
+  el `NEXT:` por tarea leyéndolo de `state.json` (sin abrir N planes), y el
+  **stop nudge** que recibes usa ese `NEXT:` como contexto concreto en vez del
+  genérico. Si una tarea no tiene `NEXT:` (recién creada, handoff mecánico sin
+  `NEXT:`, plan ausente) todo degrada limpio: celda vacía, nudge sin contexto.
+- **Conteo `pending` con frescura discriminada (Phase 76).** `/status` expone
+  `pending_stale` y `pending_fetched_at` junto al conteo, y converge con el
+  `pending` que reporta `kodo check` (mismo camino de lectura). Con el provider
+  caído, un conteo caducado se marca **stale** — distingue «0 pendientes» de «no
+  se pudo saber» antes de decidir lanzamientos; no trates un conteo stale como
+  fresco.
+- **Agrupación de workspaces al lanzar (`--group`, Phase 77).** Las sesiones que
+  kodo lanza aterrizan dentro del grupo cmux de su path resuelto, vía `--group`
+  en el `new-workspace`, si ese grupo ya existe (fail-open si no). Detalle del
+  mantenimiento del sidebar en §"Higiene del sidebar".
 
 ## Cómo actualizar este skill
 
