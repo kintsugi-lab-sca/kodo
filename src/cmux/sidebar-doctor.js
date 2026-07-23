@@ -282,9 +282,15 @@ export async function scan(deps = {}) {
 
   // grupos vacíos (D-05) — defensivo; cmux disuelve al cerrar el anchor, así que
   // un grupo con member_count 0 es un estado transitorio raro (Pitfall 5).
+  // WR-01: excluir los grupos que también son destino de un `add` en este mismo
+  // report (aparecen en loose_workspace). De lo contrario `execute` haría
+  // `add` + `ungroup` contradictorios sobre el MISMO grupo, sin converger.
+  const looseGroupRefs = new Set(loose_workspace.map((l) => l.group));
   /** @type {EmptyGroupItem[]} */
   const empty_group = (groupsJson.groups || [])
-    .filter((g) => g && typeof g.ref === 'string' && g.member_count === 0)
+    .filter((g) => g && typeof g.ref === 'string'
+      && g.member_count === 0
+      && !looseGroupRefs.has(g.ref))
     .map((g) => ({ ref: g.ref, name: typeof g.name === 'string' ? g.name : '' }));
 
   const hasActions = missing_group.length + loose_workspace.length + empty_group.length > 0;

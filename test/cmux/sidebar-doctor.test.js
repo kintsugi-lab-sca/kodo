@@ -122,6 +122,23 @@ describe('sidebar-doctor scan()', () => {
     assert.equal(report.hasActions, true);
   });
 
+  test('WR-01: grupo vacío cuyo nombre normaliza al expected de una sesión viva → SOLO loose_workspace, no empty_group', async () => {
+    // El grupo 'Kodo' (member_count 0) resuelve por nombre al expected 'KODO' de la
+    // sesión viva. La sesión no es miembro → loose_workspace (add). Sin el fix WR-01,
+    // el mismo ref caería ADEMÁS en empty_group (ungroup), dando acciones contradictorias.
+    const s = session({ session_id: 'a', workspace_ref: 'workspace:4' });
+    const report = await scan(readDeps({
+      state: { sessions: { a: s } },
+      projects: { P1: '/repo/kodo' },
+      groups: { groups: [{ name: 'Kodo', ref: 'workspace_group:1', member_count: 0, member_workspace_refs: [] }] },
+      workspaces: { workspaces: [{ ref: 'workspace:4' }] },
+    }));
+    assert.equal(report.loose_workspace.length, 1);
+    assert.deepEqual(report.loose_workspace[0], { group: 'workspace_group:1', workspace_ref: 'workspace:4', name: 'KODO' });
+    // el grupo NO debe aparecer en empty_group aunque tenga member_count 0
+    assert.deepEqual(report.empty_group, []);
+  });
+
   test('D-02: reverse-lookup módulo → path == default → identifier a secas; path == módulo → "IDENTIFIER/Módulo"', async () => {
     const projects = { P1: { default: '/repo/roman', modules: { FVF: '/repo/roman-fvf' } } };
     // path == default → grupo esperado "ROMAN"
