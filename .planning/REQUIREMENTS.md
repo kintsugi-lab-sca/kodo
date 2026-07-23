@@ -18,7 +18,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Carril orquestador (ORCH — continúa numeración desde ORCH-06, v0.17)
 
-- [ ] **ORCH-07**: Con el orquestador activo, un sidebar con grupos faltantes o workspaces sueltos converge al estado agrupado en ≤1 pase sin intervención humana — el orquestador invoca `kodo sidebar doctor --fix` de piggyback en pases ya motivados por `kodo check` (el sidebar NO es trigger)
+- [x] **ORCH-07**: Con el orquestador activo, un sidebar con grupos faltantes o workspaces sueltos converge al estado agrupado en ≤1 pase sin intervención humana — el orquestador invoca `kodo sidebar doctor --fix` de piggyback en pases ya motivados por `kodo check` (el sidebar NO es trigger)
 - [ ] **ORCH-08**: El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan el sidebar doctor y reflejan las features v0.17 (handoff + `NEXT:`, superficie dashboard/nudge, `pending_stale`/`pending_fetched_at`, agrupación `--group`) — sin prometer features borradas ni omitir las nuevas (disciplina HYG-08)
 
 ### Saneo de deuda v0.17 (DEBT)
@@ -61,7 +61,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SDR-04 | Phase 79 | Planned |
 | SDR-05 | Phase 79 | Planned |
 | SDR-06 | Phase 79 | Planned |
-| ORCH-07 | Phase 80 | Pending |
+| ORCH-07 | Phase 80 | Complete |
 | ORCH-08 | Phase 80 | Pending |
 | DEBT-01 | Phase 81 | Pending |
 | DEBT-02 | Phase 81 | Pending |

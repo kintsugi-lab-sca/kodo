@@ -190,10 +190,10 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   3. El skill `kodo-orchestrate` y `src/orchestrator/prompt.md` mencionan `kodo sidebar doctor` y reflejan las features v0.17: handoff acumulativo + `NEXT:` en `state.json` (74), superficie del `NEXT:` en dashboard y nudge con contexto (75), `pending_stale`/`pending_fetched_at` + convergencia con `kodo check` (76), agrupación `--group` de workspaces (77). (ORCH-08)
   4. Ni el skill ni el prompt prometen features borradas ni omiten las nuevas — misma disciplina anti-deriva que HYG-08 aplicó al README en v0.16. (ORCH-08)
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1** *(paralelizable — ficheros disjuntos, sin `depends_on`)*
 
-- [ ] 80-01-PLAN.md — Carril orquestador: piggyback in-process del sidebar doctor en `runCheckAndAct` (gate `needsOrchestrator`, orden doctor-antes-de-launch, fail-open, LOG-12 preservado) (ORCH-07) — Wave 1
+- [x] 80-01-PLAN.md — Carril orquestador: piggyback in-process del sidebar doctor en `runCheckAndAct` (gate `needsOrchestrator`, orden doctor-antes-de-launch, fail-open, LOG-12 preservado) (ORCH-07) — Wave 1
 - [ ] 80-02-PLAN.md — Reconciliación documental: skill `kodo-orchestrate` (detalle) + `prompt.md` (conciso) reflejan `kodo sidebar doctor` + las 4 features v0.17, disciplina anti-deriva HYG-08 (ORCH-08) — Wave 1
 
 ### Phase 81: Saneo de deuda v0.17
