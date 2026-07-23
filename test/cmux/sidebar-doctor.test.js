@@ -188,17 +188,22 @@ describe('sidebar-doctor taskLikeFrom()', () => {
   });
 });
 
+/** Strip line + block comments para asertar sobre el CÓDIGO, no la prosa (espejo hygiene-api-key). */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
 describe('sidebar-doctor source hygiene (SDR-03)', () => {
   test('sidebar-doctor.js NO importa ningún cliente de provider ni logger.js', () => {
-    const src = readFileSync(MODULE_PATH, 'utf-8');
+    const src = stripComments(readFileSync(MODULE_PATH, 'utf-8'));
     assert.ok(!/from\s+['"][^'"]*\/provider['"]/.test(src), 'no debe importar ../provider');
     assert.ok(!/from\s+['"][^'"]*\/plane['"]/.test(src), 'no debe importar ../plane');
     assert.ok(!/from\s+['"][^'"]*\/github['"]/.test(src), 'no debe importar ../github');
     assert.ok(!/from\s+['"][^'"]*\/logger\.js['"]/.test(src), 'no debe importar logger.js (LOG-12)');
   });
 
-  test('sidebar-doctor.js NO importa ningún escritor de state (GRP-04)', () => {
-    const src = readFileSync(MODULE_PATH, 'utf-8');
+  test('sidebar-doctor.js NO usa ningún escritor de state (GRP-04)', () => {
+    const src = stripComments(readFileSync(MODULE_PATH, 'utf-8'));
     assert.ok(!/\bsaveState\b/.test(src), 'no debe usar saveState');
     assert.ok(!/\bwithStateLock\b/.test(src), 'no debe usar withStateLock');
     assert.ok(!/\bupsertTaskHandoff\b/.test(src), 'no debe usar upsertTaskHandoff');

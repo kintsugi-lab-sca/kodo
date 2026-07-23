@@ -55,6 +55,9 @@ import { join } from 'node:path';
  *   DOCTOR_FIX_LOCK: 'doctor.fix.lock',
  *   DOCTOR_FIX_LOG: 'doctor.fix.log',
  *   DOCTOR_FIX_ERROR: 'doctor.fix.error',
+ *   SIDEBAR_DOCTOR_SCAN: 'sidebar.doctor.scan',
+ *   SIDEBAR_DOCTOR_FIX: 'sidebar.doctor.fix',
+ *   SIDEBAR_DOCTOR_FIX_ERROR: 'sidebar.doctor.fix.error',
  *   SESSION_DISMISSED: 'session.dismissed',
  *   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
  * }>} */
@@ -88,6 +91,9 @@ export const EVENTS = Object.freeze({
   DOCTOR_FIX_LOCK:         'doctor.fix.lock',
   DOCTOR_FIX_LOG:          'doctor.fix.log',
   DOCTOR_FIX_ERROR:        'doctor.fix.error',
+  SIDEBAR_DOCTOR_SCAN:     'sidebar.doctor.scan',
+  SIDEBAR_DOCTOR_FIX:      'sidebar.doctor.fix',
+  SIDEBAR_DOCTOR_FIX_ERROR: 'sidebar.doctor.fix.error',
   SESSION_DISMISSED:       'session.dismissed',
   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
 });
@@ -794,6 +800,36 @@ export function doctorFixError(logger, fields) {
     category: fields.category,
     reason: fields.reason,
     target: fields.target,
+  });
+}
+
+// ─── Phase 79: sidebar doctor (workspace-group drift) ──────────────────────
+//
+// Taxonomía espejo de doctor* (arriba) para el carril `kodo sidebar doctor`
+// (Discreción D-11). scan es read-only (info, contadores por categoría); fix
+// emite los contadores del allowlist ejecutado; fix.error registra el fallo
+// per-item (fail-open jamás silencioso).
+
+/**
+ * Emitido (info) por `scan()` del sidebar doctor — read-only, contadores por
+ * categoría clasificada. `mode` distingue el pase dry-run del re-scan interno
+ * de `execute` (D-06 TOCTOU).
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   mode: 'dry-run' | 'fix',
+ *   missing: number,
+ *   loose: number,
+ *   empty: number,
+ * }} fields
+ */
+export function sidebarDoctorScan(logger, fields) {
+  logger.info(EVENTS.SIDEBAR_DOCTOR_SCAN, {
+    event: EVENTS.SIDEBAR_DOCTOR_SCAN,
+    mode: fields.mode,
+    missing: fields.missing,
+    loose: fields.loose,
+    empty: fields.empty,
   });
 }
 
