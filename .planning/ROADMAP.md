@@ -161,14 +161,14 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   4. El golden del launch path sigue byte-idéntico: `--group` solo se pasa si el grupo ya existe al lanzar, fail-open en 2 capas — GRP-01..03 intactos, el launch nunca gestiona grupos. (SDR-04)
   5. La detección es 100% determinista y 0 tokens (ningún paso consulta un LLM; reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`), y el CLI es espejo de `gsd doctor`: `--json` byte-determinista (DX-06) y exit codes deterministas. (SDR-03, SDR-06)
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 **Wave 1**
 
 - [x] 79-01-PLAN.md — Passthroughs cmux del allowlist (create/add/set-anchor/ungroup) + lector JSON + guard source-hygiene (SDR-02, SDR-04) — Wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 79-02-PLAN.md — Motor puro scan/execute + reverse-lookup de módulo offline + fail-open/TOCTOU + eventos logger (SDR-01, SDR-02, SDR-03, SDR-05) — Wave 2
+- [x] 79-02-PLAN.md — Motor puro scan/execute + reverse-lookup de módulo offline + fail-open/TOCTOU + eventos logger (SDR-01, SDR-02, SDR-03, SDR-05) — Wave 2
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

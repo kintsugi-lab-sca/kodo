@@ -5,15 +5,15 @@ milestone_name: Higiene del sidebar de cmux
 current_phase: 79
 current_phase_name: Sidebar Doctor
 status: executing
-stopped_at: Completed 79-01-PLAN.md
-last_updated: "2026-07-23T08:02:07.717Z"
+stopped_at: Completed 79-02-PLAN.md
+last_updated: "2026-07-23T08:15:51.322Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 79 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 ## Current Position
 
 Phase: 79 (Sidebar Doctor) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-23 — Phase 79 execution started
 
@@ -90,6 +90,8 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - **Política de anchor por re-anclaje eventual**: los grupos se disuelven al cerrarse su anchor; el doctor re-crea/re-ancla (`set-anchor` al miembro más longevo) en el siguiente pase.
 - **DEBT-04 (flaky `gsd-lock-race`) es SOLO diagnóstico vía `/gsd-debug`** — no arreglar a ciegas; protege el invariante de locks de v0.16.
 - [Phase ?]: Phase 79-01: allowlist no-destructivo workspace-group (create/add/set-anchor/ungroup) en client.js; delete/remove/rename LOCKED, guard source-hygiene lo verifica
+- [Phase ?]: 79-02: scan() del sidebar doctor es async (await de raws cmux execFile), no sync como gsd/doctor.js
+- [Phase ?]: 79-02: reverse-lookup de módulo offline (taskLikeFrom) reconstruye el task-like sin persistir expected_group (D-02/D-03)
 
 ### Open Blockers
 
@@ -116,13 +118,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T08:02:00.707Z
+**Last session:** 2026-07-23T08:15:44.370Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 79-01-PLAN.md
+- **Stopped at:** Completed 79-02-PLAN.md
 - **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -145,3 +147,4 @@ None
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 79 P01 | 7min | 2 tasks | 2 files |
+| Phase 79 P02 | 18min | 2 tasks | 4 files |
