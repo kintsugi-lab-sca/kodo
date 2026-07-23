@@ -5,16 +5,16 @@ milestone_name: Higiene del sidebar de cmux
 current_phase: 80
 current_phase_name: Carril orquestador + reconciliación documental
 status: planning
-stopped_at: Completed 79-04-PLAN.md
-last_updated: "2026-07-23T19:11:43.589Z"
+stopped_at: Phase 80 context gathered
+last_updated: "2026-07-23T19:24:37.740Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 79 complete, transitioned to Phase 80
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 4
   completed_plans: 4
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -122,13 +122,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T19:14:26.494Z
+**Last session:** 2026-07-23T19:24:37.732Z
 
 **Resume file:**
 
-None
+.planning/phases/80-carril-orquestador-reconciliaci-n-documental/80-CONTEXT.md
 
-- **Stopped at:** Phase 79 complete (UAT 4/4 en vivo, VERIFICATION passed, SECURITY verified) — ready for Phase 80
+- **Stopped at:** Phase 80 context gathered
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
