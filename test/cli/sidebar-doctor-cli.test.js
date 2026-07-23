@@ -41,6 +41,7 @@ function cleanReport() {
     empty_group: [],
     protected: { sessions: [] },
     hasActions: false,
+    hasAdvisories: false,
   };
 }
 
@@ -58,6 +59,7 @@ function driftReport() {
     ],
     protected: { sessions: [{ ref: 'workspace:7', group: 'workspace_group:2', name: 'ACME/Web' }] },
     hasActions: true,
+    hasAdvisories: true, // el missing_group es un advisory (G-79-1)
   };
 }
 
@@ -89,8 +91,9 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     });
     assert.equal(code, 1);
     const out = stdout.get();
-    assert.match(out, /Grupos faltantes\/disueltos \(1\)/, 'missing_group category header');
-    assert.match(out, /create \+ add \+ set-anchor — ACME\/Auth/, 'exact missing action per item');
+    assert.match(out, /Grupos faltantes \(advisory — el operador debe crearlos\) \(1\)/, 'missing_group advisory header');
+    assert.match(out, /crear grupo 'ACME\/Auth' para 2 sesión\(es\)/, 'advisory text describes operator action, not executable label');
+    assert.doesNotMatch(out, /create \+ add \+ set-anchor/, 'missing_group must NOT show the executable action label (G-79-1)');
     assert.match(out, /Workspaces sueltos \(1\)/, 'loose_workspace category header');
     assert.match(out, /add — workspace:3/, 'exact loose action per item');
     assert.match(out, /Grupos vacíos \(1\)/, 'empty_group category header');
@@ -111,6 +114,32 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     });
     assert.equal(code, 0, 'protected sessions must NOT bump exit to 1');
     assert.match(stdout.get(), /protected: 1/, 'protected summary rendered');
+  });
+
+  it('advisory-only (missing_group, no actions) → returns 0 and renders advisory verdict (G-79-1)', async () => {
+    const stdout = makeStdoutStub();
+    const report = {
+      missing_group: [
+        { name: 'ACME/Auth', anchor: 'workspace:1', members: ['workspace:1', 'workspace:2'] },
+      ],
+      loose_workspace: [],
+      empty_group: [],
+      protected: { sessions: [] },
+      hasActions: false,   // missing_group ya no cuenta como acción (advisory)
+      hasAdvisories: true,
+    };
+    const code = await runSidebarDoctor({}, {
+      scanFn: () => report,
+      writeFn: stdout.write,
+      errFn: () => {},
+      formatterFn: nocolorFormatter,
+    });
+    assert.equal(code, 0, 'advisory-only state must exit 0 (converges on a 2nd --fix pass)');
+    const out = stdout.get();
+    assert.match(out, /advisory — requiere acción del operador/, 'advisory verdict rendered');
+    assert.match(out, /crear grupo 'ACME\/Auth'/, 'operator action described');
+    assert.doesNotMatch(out, /drift found/, 'must NOT render drift-found verdict for advisory-only');
+    assert.doesNotMatch(out, /create \+ add \+ set-anchor/, 'no executable action label for missing_group');
   });
 });
 
@@ -187,6 +216,7 @@ describe('runSidebarDoctor — --json byte-determinism (SDR-06)', () => {
     assert.equal(code, 1);
     const parsed = JSON.parse(stdout.get());
     assert.equal(parsed.hasActions, true);
+    assert.equal(parsed.hasAdvisories, true, 'hasAdvisories surfaced in --json (G-79-1)');
     assert.equal(parsed.missing_group[0].name, 'ACME/Auth');
     assert.equal(parsed.loose_workspace[0].workspace_ref, 'workspace:3');
     assert.equal(parsed.empty_group[0].ref, 'workspace_group:9');
