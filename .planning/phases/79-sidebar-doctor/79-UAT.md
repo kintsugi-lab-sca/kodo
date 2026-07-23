@@ -1,27 +1,24 @@
 ---
-status: testing
+status: complete
 phase: 79-sidebar-doctor
 source: [79-VERIFICATION.md]
 started: 2026-07-23T08:40:00Z
-updated: 2026-07-23T11:35:00Z
+updated: 2026-07-23T11:48:00Z
 ---
 
 ## Current Test
 
-number: 4
-name: Round-trip completo de `kodo sidebar doctor --fix` sobre sesión suelta con grupo YA existente (SDR-05, re-scopeado post gap-closure)
-expected: |
-  El workspace de la sesión suelta aparece en member_workspace_refs del grupo esperado; una 2ª pasada del dry-run sale exit 0 (converged); ningún workspace no-kodo del operador fue movido o re-anclado (D-04); ninguna sesión viva pierde su fila/título (execute() ya no emite create/set-anchor bajo ninguna rama).
-awaiting: user response
+[testing complete]
 
 ## Tests
 
 ### 1. Convergencia real del sidebar con `--fix` (SDR-05)
 expected: Tras un pase de `--fix` con una sesión kodo suelta real, el workspace aparece agrupado bajo su grupo esperado en `cmux workspace-group list --json`; sin duplicados; una 2ª pasada del dry-run sale limpia (exit 0).
-result: issue
+result: pass
 reported: "Al ejecutar kodo sidebar doctor --fix se ha cargado una sesión en vivo y ha cerrado todo lo que había para meterlo en el grupo. Fatal!"
 refined: "No se eliminó la sesión — el workspace vivo se convirtió en la base del grupo, perdiendo el título y demás info (al menos en la sidebar). Captura: sidebar muestra el grupo con entrada base sin título original."
 severity: blocker
+resolution: "Gap G-79-1 cerrado por 79-04 (missing_group report-only, checkpoint ratificado); la verdad de este test fue re-verificada en vivo como test 4 (pass, 2026-07-23)."
 
 ### 2. Supuestos A1/A2/A5 del binario cmux real
 expected: `create` crea el grupo (el código no depende de su stdout — A1 informativo); `add` mueve/añade el workspace al grupo indicado (A2); los verbos mutan correctamente aunque kodo corra bajo daemon headless (A5 — relevante para Phase 80, no bloquea esta).
@@ -34,15 +31,15 @@ result: pass
 
 ### 4. Round-trip completo de `kodo sidebar doctor --fix` sobre sesión suelta con grupo YA existente (SDR-05, re-scopeado post gap-closure)
 expected: Con ≥1 sesión kodo real cuyo workspace esté suelto de un grupo que YA EXISTE — `node src/cli.js sidebar doctor` lista `add`; `--fix` lo ejecuta; `cmux workspace-group list --json` muestra el workspace en member_workspace_refs del grupo esperado; 2ª pasada del dry-run sale exit 0; ningún workspace no-kodo movido (D-04); ninguna sesión viva pierde fila/título (G-79-1 irreproducible: execute() no emite create/set-anchor).
-result: [pending]
-notes: "El 2026-07-23 el sidebar del operador estaba limpio (protected: 1, 0 loose/missing/empty) — sin deriva real para ejercitar la rama mutante desde la cadena autónoma. El verbo crudo `add` ya pasó en el test 2 (A2); falta el round-trip vía el binario kodo."
+result: pass
+notes: "Verificado en vivo por el operador (2026-07-23): round-trip completo vía el binario kodo con deriva real — convergencia por add, 2ª pasada exit 0, sin absorción de identidad ni workspaces no-kodo tocados."
 
 ## Summary
 
 total: 4
-passed: 2
-issues: 1
-pending: 1
+passed: 4
+issues: 0
+pending: 0
 skipped: 0
 blocked: 0
 
