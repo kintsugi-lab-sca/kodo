@@ -4,9 +4,9 @@ milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
 current_phase: 80
 current_phase_name: Carril orquestador + reconciliación documental
-status: planning
+status: executing
 stopped_at: Phase 80 context gathered
-last_updated: "2026-07-23T19:24:37.740Z"
+last_updated: "2026-07-23T19:54:50.347Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 79 complete, transitioned to Phase 80
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 Phase: 80 — Carril orquestador + reconciliación documental
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-23 — Phase 79 complete, transitioned to Phase 80
 
 ## Roadmap v0.18 (activo)

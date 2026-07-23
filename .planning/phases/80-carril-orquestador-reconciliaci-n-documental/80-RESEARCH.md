@@ -337,12 +337,12 @@ export async function checkPendingTasks({ config, runningCount, getProviderFn, f
 
 **Nota:** No hay assumptions sobre decisiones LOCKED — todas las decisiones D-01..D-12 se verificaron contra código real (no re-decididas). Las tres A# son áreas de discreción explícitamente delegadas por CONTEXT.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **¿El carril debe llamar `scan()` por separado, o basta el result de `execute()` (que re-scanea internamente)?**
    - Lo que sabemos: `execute()` hace su propio `scan()` fresco (TOCTOU) pero su `result` NO incluye `missing_group`/`hasAdvisories` (solo created/added/ungrouped/errors). Para la línea de advisories (D-08) el carril necesita el `report`.
    - Lo que no está claro: si vale la pena un `scan()` extra (2 scans totales) o si D-08 puede omitirse cuando no hay una fuente barata.
-   - Recomendación: llamar `scan()` una vez para el report (advisories + decidir si hay algo que hacer) y `execute(deps,{fix:true})` para converger — exactamente lo que hace el CLI (`runSidebarDoctor`). El coste es 2 llamadas cmux por pase motivado (~aceptable; el pase ya va a lanzar un LLM). Es el patrón de menor sorpresa.
+   - RESOLVED: llamar `scan()` una vez para el report (advisories + decidir si hay algo que hacer) y `execute(deps,{fix:true})` para converger — exactamente lo que hace el CLI (`runSidebarDoctor`). El coste es 2 llamadas cmux por pase motivado (~aceptable; el pase ya va a lanzar un LLM). Es el patrón de menor sorpresa — adoptado por Plan 80-01 Task 1.
 
 2. **¿Se surface el resumen del doctor al `contextSummary` del launch?**
    - Resuelto por D-08: **no** (infla el prompt; el orquestador puede correr `kodo sidebar doctor` dry-run bajo demanda). Cerrado.
