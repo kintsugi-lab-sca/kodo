@@ -174,6 +174,10 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 
 - [x] 79-03-PLAN.md — CLI `kodo sidebar doctor` espejo de `gsd doctor` + registro + checkpoint de convergencia en vivo (SDR-01, SDR-06) — Wave 3
 
+**Gap closure** *(G-79-1, blocker de UAT)*
+
+- [ ] 79-04-PLAN.md — Cierre de G-79-1: `missing_group` pasa a report-only/advisory; `execute()` deja de auto-crear grupos anclados en sesiones vivas (cero absorción de identidad); loose→add y empty→ungroup intactos. Ratifica la supersesión de D-07/D-08 vía checkpoint:decision (SDR-01, SDR-05) — Gap closure
+
 ### Phase 80: Carril orquestador + reconciliación documental
 
 **Goal**: El orquestador mantiene el sidebar limpio automáticamente, sin que el humano intervenga: invoca `kodo sidebar doctor --fix` de piggyback en pases ya motivados por `kodo check` (el sidebar **NO** es trigger — consistencia eventual asumida). Y su skill `kodo-orchestrate` + `src/orchestrator/prompt.md` dejan de estar desfasados: reflejan toda la realidad post-v0.17 que hoy no mencionan.
