@@ -833,6 +833,39 @@ export function sidebarDoctorScan(logger, fields) {
   });
 }
 
+/**
+ * Emitido (info) al final de `execute({fix:true})` con los contadores del
+ * allowlist ejecutado (grupos creados, workspaces añadidos, grupos disueltos).
+ *
+ * @param {Logger} logger
+ * @param {{ created: number, added: number, ungrouped: number }} fields
+ */
+export function sidebarDoctorFix(logger, fields) {
+  logger.info(EVENTS.SIDEBAR_DOCTOR_FIX, {
+    event: EVENTS.SIDEBAR_DOCTOR_FIX,
+    created: fields.created,
+    added: fields.added,
+    ungrouped: fields.ungrouped,
+  });
+}
+
+/**
+ * Emitido (error) cuando una acción del allowlist del sidebar doctor falla. El
+ * fail-open per item jamás es silencioso. `category` identifica el paso que falló
+ * (create/add/set-anchor/ungroup/missing_group/execute); `target` el item.
+ *
+ * @param {Logger} logger
+ * @param {{ category: string, reason: string, target: string }} fields
+ */
+export function sidebarDoctorFixError(logger, fields) {
+  logger.error(EVENTS.SIDEBAR_DOCTOR_FIX_ERROR, {
+    event: EVENTS.SIDEBAR_DOCTOR_FIX_ERROR,
+    category: fields.category,
+    reason: fields.reason,
+    target: fields.target,
+  });
+}
+
 // ─── Phase 71: backstop mecánico de In Review en SessionEnd (DELIV-04) ─────
 //
 // Emitido (info) por `runReviewBackstop` (src/hooks/session-end.js) cuando el

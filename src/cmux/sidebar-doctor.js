@@ -41,10 +41,17 @@
 import { loadState } from '../session/state.js';
 import { loadProjects } from '../config.js';
 import { deriveExpectedGroupName, resolveWorkspaceGroup } from '../session/manager.js';
-import { listWorkspaceGroups, listWorkspacesJson } from './client.js';
+import {
+  listWorkspaceGroups,
+  listWorkspacesJson,
+  createWorkspaceGroup,
+  addToWorkspaceGroup,
+  setGroupAnchor,
+  ungroupWorkspaceGroup,
+} from './client.js';
 // LOG-12: noopLogger es el stub zero-import whitelisted — NUNCA logger.js.
 import { noopLogger } from '../logger-noop.js';
-import { sidebarDoctorScan } from '../logger-events.js';
+import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../logger-events.js';
 
 /**
  * @typedef {import('../session/state.js').Session} Session
@@ -87,6 +94,11 @@ function resolveDeps(deps = {}) {
     // (el passthrough de client.js devuelve stdout crudo — D-05 Phase 77).
     listWorkspaceGroupsRaw: deps.listWorkspaceGroupsRaw || listWorkspaceGroups,
     listWorkspacesRaw: deps.listWorkspacesRaw || listWorkspacesJson,
+    // Allowlist NO-destructivo (solo lo consume execute; jamás delete/remove/rename).
+    createWorkspaceGroup: deps.createWorkspaceGroup || createWorkspaceGroup,
+    addToWorkspaceGroup: deps.addToWorkspaceGroup || addToWorkspaceGroup,
+    setGroupAnchor: deps.setGroupAnchor || setGroupAnchor,
+    ungroupWorkspaceGroup: deps.ungroupWorkspaceGroup || ungroupWorkspaceGroup,
     now: deps.now || (() => Date.now()),
     // logger default seguro: sidebarDoctorScan invoca logger.info; un undefined
     // lo rompería. noopLogger es no-op (never-throws al emitir eventos).
@@ -291,4 +303,117 @@ export async function scan(deps = {}) {
     protected: { sessions: protectedSessions },
     hasActions,
   };
+}
+
+// ── execute() ────────────────────────────────────────────────────────────────
+
+/**
+ * @typedef {{ created: number, added: number, ungrouped: number, errors: Array<{ category: string, target: string, reason: string }> }} SidebarResult
+ */
+
+/** @returns {SidebarResult} */
+function emptyResult() {
+  return { created: 0, added: 0, ungrouped: 0, errors: [] };
+}
+
+/** @param {unknown} err @returns {string} */
+function errMsg(err) {
+  return String(/** @type {any} */ (err)?.message || err);
+}
+
+/** Registra un fallo en result.errors y emite sidebarDoctorFixError (fail-open jamás silencioso). */
+function pushError(result, log, category, target, reason) {
+  result.errors.push({ category, target, reason });
+  if (log) sidebarDoctorFixError(log, { category, reason, target });
+}
+
+/**
+ * Sanea el sidebar emitiendo EXCLUSIVAMENTE el allowlist NO-destructivo
+ * (create/add/set-anchor/ungroup) en orden D-09. RE-detecta llamando `scan(deps)`
+ * FRESCO (D-06 TOCTOU — NO consume un report externo: un grupo pudo crearse o
+ * disolverse entre el scan del dry-run y este pase). Cada acción va en su
+ * try/catch → pushError + continúa (fail-open per item); never-throws top-level.
+ *
+ * Con `opts.fix` falsy es un no-op (el dry-run usa `scan()` para renderizar).
+ *
+ * @param {SidebarDeps} [deps]
+ * @param {{ fix?: boolean }} [opts]
+ * @returns {Promise<SidebarResult>}
+ */
+export async function execute(deps = {}, opts = {}) {
+  const result = emptyResult();
+  if (!opts.fix) return result; // dry-run path: el CLI usa scan() para mostrar.
+
+  const d = resolveDeps(deps);
+  const log = /** @type {any} */ (d.logger);
+
+  try {
+    // RE-detección fresca (D-06). scan es never-throws → no puede tumbar execute.
+    const report = await scan(deps);
+
+    // ── missing_group: create --from <oldest> → add(resto) → set-anchor <oldest> (D-09) ──
+    for (const g of report.missing_group) {
+      try {
+        // Pitfall 1: --from SIEMPRE explícito con el oldest (nunca omitido; el
+        // default contextual de cmux agarraría el workspace del caller).
+        await d.createWorkspaceGroup({ name: g.name, from: [g.anchor] });
+        // Pitfall 2 / OQ1: el ref del grupo nuevo se obtiene por RE-LIST, no
+        // parseando el stdout de create.
+        let ref = null;
+        try {
+          ref = resolveWorkspaceGroup(JSON.parse(await d.listWorkspaceGroupsRaw()), g.name);
+        } catch {
+          ref = null;
+        }
+        if (!ref) {
+          pushError(result, log, 'missing_group', g.name, 'ref no resuelto tras create');
+          continue;
+        }
+        for (const ws of g.members) {
+          if (ws === g.anchor) continue; // el anchor ya entró vía --from
+          try {
+            await d.addToWorkspaceGroup({ group: ref, workspace: ws });
+            result.added++;
+          } catch (e) {
+            pushError(result, log, 'add', ws, errMsg(e));
+          }
+        }
+        try {
+          await d.setGroupAnchor({ group: ref, workspace: g.anchor }); // D-08 idempotente
+        } catch (e) {
+          pushError(result, log, 'set-anchor', g.anchor, errMsg(e));
+        }
+        result.created++;
+      } catch (e) {
+        pushError(result, log, 'create', g.name, errMsg(e));
+      }
+    }
+
+    // ── loose_workspace: add al grupo existente (SDR-05) ──
+    for (const l of report.loose_workspace) {
+      try {
+        await d.addToWorkspaceGroup({ group: l.group, workspace: l.workspace_ref });
+        result.added++;
+      } catch (e) {
+        pushError(result, log, 'add', l.workspace_ref, errMsg(e));
+      }
+    }
+
+    // ── empty_group: ungroup (no-destructivo, D-05) ──
+    for (const eg of report.empty_group) {
+      try {
+        await d.ungroupWorkspaceGroup({ group: eg.ref });
+        result.ungrouped++;
+      } catch (e) {
+        pushError(result, log, 'ungroup', eg.ref, errMsg(e));
+      }
+    }
+
+    sidebarDoctorFix(log, { created: result.created, added: result.added, ungrouped: result.ungrouped });
+  } catch (err) {
+    // never-throws top-level: retorna result parcial + error registrado.
+    pushError(result, log, 'execute', 'top-level', errMsg(err));
+  }
+
+  return result;
 }
