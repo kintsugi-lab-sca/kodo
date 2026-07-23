@@ -15,132 +15,161 @@ files_reviewed_list:
   - test/sidebar-doctor-hygiene.test.js
 findings:
   critical: 0
-  warning: 1
-  info: 3
-  total: 4
+  warning: 3
+  info: 2
+  total: 5
 status: issues_found
 ---
 
 # Phase 79: Code Review Report
 
-**Reviewed:** 2026-07-23T08:31:29Z
+**Reviewed:** 2026-07-23
 **Depth:** standard
 **Files Reviewed:** 9
 **Status:** issues_found
 
 ## Summary
 
-Se revisó el carril completo `kodo sidebar doctor` (Phase 79): el wiring CLI
-(`cli.js`), el handler de render/exit-code (`src/cli/sidebar-doctor.js`), el
-motor puro `scan`/`execute` (`src/cmux/sidebar-doctor.js`), los 4 passthroughs
-del allowlist no-destructivo en `src/cmux/client.js`, y los 3 nuevos eventos de
-taxonomía en `src/logger-events.js`, más sus tests.
+Re-review of the full `kodo sidebar doctor` phase including the 79-04 gap closure
+(G-79-1). The core invariant of the gap closure — `execute()` NEVER calls
+`createWorkspaceGroup`/`setGroupAnchor`, `missing_group` is report-only/advisory,
+`hasActions` excludes `missing_group`, and the loose→add / empty→ungroup paths
+stay intact (SDR-05) — is **correctly implemented and well covered by tests**.
+`execute()` only invokes `addToWorkspaceGroup` and `ungroupWorkspaceGroup`; the
+create/set-anchor verbs are never reached; the source-hygiene guard blocks the
+destructive `delete/remove/rename` family; and all 34 phase tests pass. Command
+injection surface is clean: every cmux ref travels as a plain `execFile` array
+element (no shell), and the logger helpers use explicit field whitelists.
 
-Veredicto general: la implementación es sólida y disciplinada. Las restricciones
-LOCKED se respetan de forma verificable — el allowlist es exactamente
-`create/add/set-anchor/ungroup`, `workspace-group delete/remove/rename` NI se
-cablea (guard mecánico `test/sidebar-doctor-hygiene.test.js`), los refs viajan
-como elementos de array a `execFile` sin shell (cero superficie de inyección), el
-motor es 0-provider/0-token (guard de imports), never-throws con fail-open
-per-item y re-detección TOCTOU en `execute`. El launch path queda byte-idéntico
-(guard SDR-04). La taxonomía de eventos crece 31 → 34 de forma consistente
-(whitelist explícito field-by-field, sin `...fields` spread).
-
-El único defecto de correctitud real es un conflicto de acciones contradictorias
-en `execute` cuando un grupo esta transitoriamente vacío pero sigue siendo el
-grupo esperado de una sesión viva (WR-01). El resto son notas de robustez/diseño.
-
-No se detectaron vulnerabilidades de seguridad ni riesgos de pérdida de datos.
+No BLOCKER-class defects were found. The gap closure achieved its stated goal.
+However, the closure left behind residue that undermines its own invariant surface
+(dead create/anchor wiring), an unfulfilled observability contract (the `mode:'fix'`
+distinction is never emitted), and a latent dual-source-of-truth in emptiness
+detection that can dissolve a group holding a live grouped session under contradictory
+cmux output. These are the three WARNINGs below.
 
 ## Warnings
 
-### WR-01: `execute` emite `add` y luego `ungroup` sobre el MISMO grupo (acciones contradictorias)
+### WR-01: Dead `createWorkspaceGroup`/`setGroupAnchor` wiring contradicts the G-79-1 invariant
 
-**File:** `src/cmux/sidebar-doctor.js:270-288, 392-410`
-**Issue:**
-`scan` clasifica de forma independiente `loose_workspace` (por
-`member_workspace_refs` / `member_count > 0` implícito) y `empty_group` (por
-`member_count === 0`). Ambas categorías pueden apuntar al MISMO ref de grupo en un
-único report:
-
-Escenario reachable (confirmado contra `resolveWorkspaceGroup`, manager.js:189 —
-casa por nombre normalizado): un grupo `workspace_group:N` con `member_count: 0`
-cuyo nombre normaliza al `expected` de una sesión viva. Ese grupo:
-- resuelve por nombre → la sesión viva no es miembro → entra en
-  `loose_workspace` como `{ group: 'workspace_group:N', ... }` (líneas 271-278), y
-- tiene `member_count === 0` → entra en `empty_group` como `{ ref: 'workspace_group:N' }`
-  (líneas 286-288).
-
-En `execute`, con el orden D-09 (loose antes que empty) sobre un ÚNICO report:
-1. `addToWorkspaceGroup({ group: 'workspace_group:N', workspace })` → `result.added++`
-2. `ungroupWorkspaceGroup({ group: 'workspace_group:N' })` → `result.ungrouped++`
-
-Se añade el workspace al grupo e inmediatamente se disuelve ese grupo. El single
-`--fix` NO converge (el workspace queda suelto de nuevo), y el report emitido
-miente: `added: 1, ungrouped: 1` sugiere convergencia cuando el neto es nulo. Es
-no-destructivo (ungroup preserva los workspaces) y auto-sana en una 2ª pasada
-(la sesión sin grupo cae en `missing_group` → `create`), pero un `--fix` con
-contadores contradictorios y un no-op efectivo es un defecto de correctitud. El
-propio código reconoce que `member_count 0` es un estado transitorio raro
-(Pitfall 5), que es justo la ventana donde esto ocurre.
-
-**Fix:** Excluir de `empty_group` los grupos que también son destino de un `add`
-en el mismo report. Por ejemplo, computar el set de refs referidos por
-`loose_workspace` y filtrarlos del `empty_group`:
-
+**File:** `src/cmux/sidebar-doctor.js:44-51, 78-81, 99-102`
+**Issue:** After G-79-1 made `missing_group` report-only, `execute()` no longer
+calls `createWorkspaceGroup` or `setGroupAnchor` — the only invocations left are
+`addToWorkspaceGroup` and `ungroupWorkspaceGroup` (lines 378, 388). Yet both verbs
+are still imported (44-51), typed in `SidebarDeps` (78-81), and wired into
+`resolveDeps` (99, 101). This is dead code, but it is worse than ordinary dead
+code: the whole point of the gap closure is that the doctor must NEVER be able to
+create or anchor a group on a live session. Keeping the create/anchor verbs
+plumbed into the engine's dependency container keeps that capability one line away
+from being re-enabled, and it directly contradicts the module's own header comment
+("Allowlist NO-destructivo... solo lo consume execute; jamás delete/remove/rename")
+by wiring verbs that `execute` demonstrably no longer consumes. A reader auditing
+the invariant cannot confirm it from the imports alone.
+**Fix:** Remove `createWorkspaceGroup` and `setGroupAnchor` from the import (44-51),
+from the `SidebarDeps` typedef (78-81), and from `resolveDeps` (99, 101). The
+client.js exports may remain (they are guarded by the hygiene test's allowlist),
+but the doctor engine should only depend on the two verbs it actually calls, so the
+"doctor never creates/anchors" invariant is provable at the dependency boundary:
 ```js
-const looseGroupRefs = new Set(loose_workspace.map((l) => l.group));
+import {
+  listWorkspaceGroups,
+  listWorkspacesJson,
+  addToWorkspaceGroup,
+  ungroupWorkspaceGroup,
+} from './client.js';
+```
+
+### WR-02: `sidebar.doctor.scan` always emits `mode:'dry-run'` — the `fix` re-scan is indistinguishable
+
+**File:** `src/cmux/sidebar-doctor.js:306-311` (and `src/logger-events.js:813-834`)
+**Issue:** `scan()` hardcodes `mode: 'dry-run'` in every `sidebarDoctorScan` emission
+(line 307). `execute()` re-invokes `scan(deps)` internally for the D-06 TOCTOU
+re-detection (line 367), which emits a **second** `sidebar.doctor.scan` record —
+also tagged `mode:'dry-run'`. So under `--fix` the NDJSON contains two identical
+`mode:'dry-run'` scan events, and the `mode:'fix'` value is never emitted anywhere
+in the codebase. This breaks the documented contract in `logger-events.js:821-822`
+("`mode` distingue el pase dry-run del re-scan interno de `execute` (D-06 TOCTOU)"):
+the field exists to distinguish the two passes, but the code makes them
+indistinguishable. An operator reading the log sees two dry-runs and cannot tell
+that the second was the mutating re-scan.
+**Fix:** Thread the mode into `scan` so the internal re-scan is labeled correctly, e.g.:
+```js
+export async function scan(deps = {}, { mode = 'dry-run' } = {}) {
+  ...
+  sidebarDoctorScan(d.logger, { mode, missing: ..., loose: ..., empty: ... });
+}
+// in execute():
+const report = await scan(deps, { mode: 'fix' });
+```
+Alternatively, drop the `mode` field from the helper if the distinction is not
+wanted — but do not ship a documented field that is never populated.
+
+### WR-03: Emptiness derived from `member_count` while membership derives from `member_workspace_refs` — a protected group can be ungrouped
+
+**File:** `src/cmux/sidebar-doctor.js:188-200, 289-295`
+**Issue:** `buildMemberIndex` (188) and the loose/protected classification derive
+group membership from `g.member_workspace_refs`, but the `empty_group` filter (293)
+derives emptiness from a **different** field, `g.member_count === 0`. The WR-01
+dedup (289) only excludes groups that are targets of a loose `add` (`looseGroupRefs`);
+it does NOT exclude groups that hold a **protected** (already-member) live session.
+If cmux ever reports a group with `member_count: 0` while `member_workspace_refs`
+still lists a live kodo workspace (a contradictory-but-observed transient the code
+itself calls "estado transitorio raro"), that session is classified `protected`
+(it is in the member index), the group is NOT in `looseGroupRefs`, and so the group
+lands in `empty_group` → `execute()` issues `ungroup` on a group that contains a
+live, correctly-grouped session. `ungroup` is non-destructive (workspaces survive),
+so this is not data loss, but it dissolves a group the doctor is supposed to protect
+and reintroduces the very drift the doctor exists to remove.
+**Fix:** Use a single source of truth for emptiness, and exclude every resolved
+group ref (protected + loose), not only loose targets:
+```js
+const resolvedGroupRefs = new Set([
+  ...loose_workspace.map((l) => l.group),
+  ...protectedSessions.map((p) => p.group),
+]);
 const empty_group = (groupsJson.groups || [])
   .filter((g) => g && typeof g.ref === 'string'
     && g.member_count === 0
-    && !looseGroupRefs.has(g.ref)) // no disolver un grupo al que vamos a añadir
+    && (!Array.isArray(g.member_workspace_refs) || g.member_workspace_refs.length === 0)
+    && !resolvedGroupRefs.has(g.ref))
   .map((g) => ({ ref: g.ref, name: typeof g.name === 'string' ? g.name : '' }));
 ```
 
-Alternativamente, en `execute`, saltar el `ungroup` de cualquier `eg.ref` que
-aparezca como `l.group` en `report.loose_workspace`.
-
 ## Info
 
-### IN-01: grupo creado pero no contabilizado cuando el re-list no resuelve el ref
+### IN-01: `now` dependency is resolved but never used
 
-**File:** `src/cmux/sidebar-doctor.js:359-371`
-**Issue:** En el carril `missing_group`, si `createWorkspaceGroup` tiene éxito
-pero el re-list posterior no resuelve el ref (`ref no resuelto tras create`), se
-hace `pushError(... 'missing_group' ...)` y `continue` SIN incrementar
-`result.created`. El grupo quedó creado en cmux pero no se cuenta ni se le añaden
-miembros. Auto-sana en la siguiente pasada (el grupo ya existente hace que los
-miembros caigan en `loose_workspace`), pero el report de esta pasada subreporta
-lo realmente mutado. Es un trade-off aceptable dado el diseño idempotente;
-documentarlo o contabilizar el create parcial mejoraría la fidelidad del report.
-**Fix:** Considerar `result.created++` antes del `continue`, o registrar el ref
-huérfano en un campo aparte para que el consumidor de `--json` lo perciba.
+**File:** `src/cmux/sidebar-doctor.js:103` (declared), no consumer in the module
+**Issue:** `resolveDeps` wires `now: deps.now || (() => Date.now())` (103), but
+neither `scan` nor `execute` ever calls `d.now()` — ordering uses `started_at`
+strings via `sortByOldest` (170). The dep is inert. It is mirrored from
+`gsd/doctor.js`, but here it carries no behavior and invites the false assumption
+that timing is injectable/tested.
+**Fix:** Remove `now` from `resolveDeps` and from the `SidebarDeps` typedef (line 83),
+or wire it into `sortByOldest`/logging if a deterministic clock is actually intended.
 
-### IN-02: exit code 1 tras un `--fix` que convergió con éxito
+### IN-02: `empty_group.ref` bypasses the `workspace_group:N` shape validation applied everywhere else
 
-**File:** `src/cli/sidebar-doctor.js:74, 91`
-**Issue:** El exit code se deriva de `report.hasActions` del scan PRE-fix, tanto
-en dry-run como en `--fix`. Un `kodo sidebar doctor --fix` que sanea toda la
-deriva devuelve `1`, indistinguible de "quedó deriva sin arreglar". Es un espejo
-consciente de `gsd doctor` (documentado en la cabecera del handler), pero es un
-footgun para automatización que espere `0` en éxito. No es un bug —comportamiento
-especificado— pero conviene que el consumidor lo sepa.
-**Fix:** Ninguno requerido si se mantiene la paridad con `gsd doctor`. Si se
-quiere distinguir, exponer un exit code derivado de `result.errors.length` bajo
-`--fix`, o documentar la semántica en `--help`.
-
-### IN-03: `renderHuman` asume `report.protected.sessions` presente
-
-**File:** `src/cli/sidebar-doctor.js:135`
-**Issue:** `renderHuman` accede a `report.protected.sessions.length` sin guarda.
-El `scan` real siempre construye `protected: { sessions: [...] }`, así que en
-producción es seguro; pero un `scanFn` inyectado que omita `protected` (o un
-report deserializado parcialmente) haría throw en el render. Robustez defensiva
-menor, coherente con el resto del módulo que sí es never-throws.
-**Fix:** Guardar el acceso: `report.protected?.sessions?.length ?? 0`.
+**File:** `src/cmux/sidebar-doctor.js:291-295`
+**Issue:** `resolveWorkspaceGroup` (manager.js:199-204) deliberately validates group
+refs against `/^workspace_group:\d+$/` before returning them ("defensa contra forja
+de líneas de log"), so `loose_workspace[].group` is always shape-clean. The
+`empty_group` filter (292) only checks `typeof g.ref === 'string'`, then feeds that
+unvalidated ref to a real mutation (`ungroupWorkspaceGroup`, 388), to `pushError`
+targets (391), to `--json`, and to the human renderer. Injection is not possible
+(`execFile` array element, no shell) and NDJSON line-forging is neutralized by
+`JSON.stringify` escaping, so real-world risk is low — but the defensive posture is
+inconsistent with the codebase's own stated invariant for the identical value type.
+**Fix:** Apply the same shape guard in the `empty_group` filter:
+```js
+.filter((g) => g && typeof g.ref === 'string'
+  && /^workspace_group:\d+$/.test(g.ref)
+  && g.member_count === 0
+  && !resolvedGroupRefs.has(g.ref))
+```
 
 ---
 
-_Reviewed: 2026-07-23T08:31:29Z_
+_Reviewed: 2026-07-23_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
