@@ -13,7 +13,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { scan, taskLikeFrom } from '../../src/cmux/sidebar-doctor.js';
+import { scan, execute, taskLikeFrom } from '../../src/cmux/sidebar-doctor.js';
 
 const MODULE_PATH = fileURLToPath(new URL('../../src/cmux/sidebar-doctor.js', import.meta.url));
 
@@ -161,6 +161,130 @@ describe('sidebar-doctor scan()', () => {
     const r1 = await scan(mk());
     const r2 = await scan(mk());
     assert.deepEqual(r1, r2);
+  });
+});
+
+/** Deps mutantes con spy de argv sobre los 4 verbos del allowlist. */
+function spyDeps({ state, projects, groupsState, workspaces, throwOn } = {}) {
+  const calls = [];
+  const errors = [];
+  const deps = {
+    loadState: () => state ?? { sessions: {} },
+    loadProjects: () => projects ?? {},
+    listWorkspaceGroupsRaw: () => JSON.stringify(typeof groupsState === 'function' ? groupsState() : (groupsState ?? { groups: [] })),
+    listWorkspacesRaw: () => JSON.stringify(workspaces ?? { workspaces: [] }),
+    createWorkspaceGroup: async (o) => { calls.push(['create', o]); if (throwOn === 'create') throw new Error('cmux rejected create'); return 'OK'; },
+    addToWorkspaceGroup: async (o) => { calls.push(['add', o]); if (throwOn === 'add') throw new Error('cmux rejected add'); return 'OK'; },
+    setGroupAnchor: async (o) => { calls.push(['set-anchor', o]); if (throwOn === 'set-anchor') throw new Error('cmux rejected set-anchor'); return 'OK'; },
+    ungroupWorkspaceGroup: async (o) => { calls.push(['ungroup', o]); if (throwOn === 'ungroup') throw new Error('cmux rejected ungroup'); return 'OK'; },
+    logger: { info() {}, warn() {}, error: (_ev, f) => errors.push(f) },
+  };
+  return { deps, calls, errors };
+}
+
+const DESTRUCTIVE = new Set(['delete', 'remove', 'rename']);
+
+describe('sidebar-doctor execute()', () => {
+  test('fix:false → emptyResult, ningún verbo del allowlist invocado (spy vacío)', async () => {
+    const { deps, calls } = spyDeps({
+      state: { sessions: { a: session({ workspace_ref: 'workspace:3' }) } },
+      projects: { P1: '/repo/kodo' },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }] },
+    });
+    const result = await execute(deps, { fix: false });
+    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
+    assert.equal(calls.length, 0);
+  });
+
+  test('D-09: missing_group (2 members) → create(--from=oldest) → add(segundo) → set-anchor(oldest); ningún verbo destructivo', async () => {
+    let created = false;
+    const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
+    const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
+    const { deps, calls } = spyDeps({
+      state: { sessions: { a: sA, b: sB } },
+      projects: { P1: '/repo/kodo' },
+      // stateful: tras create, la re-list ve el grupo nuevo (OQ1 / TOCTOU real)
+      groupsState: () => created
+        ? { groups: [{ name: 'KODO', ref: 'workspace_group:7', member_count: 1, member_workspace_refs: ['workspace:3'] }] }
+        : { groups: [] },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
+    });
+    deps.createWorkspaceGroup = async (o) => { calls.push(['create', o]); created = true; return 'OK'; };
+
+    const result = await execute(deps, { fix: true });
+
+    const verbs = calls.map((c) => c[0]);
+    assert.deepEqual(verbs, ['create', 'add', 'set-anchor']); // orden D-09
+    assert.deepEqual(calls[0][1], { name: 'KODO', from: ['workspace:3'] }); // --from = oldest
+    assert.deepEqual(calls[1][1], { group: 'workspace_group:7', workspace: 'workspace:4' }); // add del segundo, ref re-listado
+    assert.deepEqual(calls[2][1], { group: 'workspace_group:7', workspace: 'workspace:3' }); // set-anchor al oldest
+    for (const [verb] of calls) assert.ok(!DESTRUCTIVE.has(verb), `verbo destructivo emitido: ${verb}`);
+    assert.equal(result.created, 1);
+    assert.equal(result.added, 1);
+  });
+
+  test('SDR-02 TOCTOU: el grupo ya existe entre scan externo e interno → 0 creaciones (re-detecta)', async () => {
+    const sA = session({ session_id: 'a', workspace_ref: 'workspace:3' });
+    const sB = session({ session_id: 'b', workspace_ref: 'workspace:4' });
+    const { deps, calls } = spyDeps({
+      state: { sessions: { a: sA, b: sB } },
+      projects: { P1: '/repo/kodo' },
+      // el grupo YA existe con ambos miembros → nada que hacer
+      groupsState: { groups: [{ name: 'Kodo', ref: 'workspace_group:1', member_count: 2, member_workspace_refs: ['workspace:3', 'workspace:4'] }] },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
+    });
+    const result = await execute(deps, { fix: true });
+    assert.equal(calls.length, 0);
+    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
+  });
+
+  test('fail-open per item: un add que rechaza no aborta el pase (ungroup del empty sí corre) + emite fix.error', async () => {
+    const { deps, calls, errors } = spyDeps({
+      state: { sessions: { a: session({ workspace_ref: 'workspace:4' }) } },
+      projects: { P1: '/repo/kodo' },
+      groupsState: {
+        groups: [
+          { name: 'Kodo', ref: 'workspace_group:1', member_count: 1, member_workspace_refs: ['workspace:3'] },
+          { name: 'Vacio', ref: 'workspace_group:9', member_count: 0, member_workspace_refs: [] },
+        ],
+      },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
+      throwOn: 'add',
+    });
+    const result = await execute(deps, { fix: true });
+    const verbs = calls.map((c) => c[0]);
+    assert.ok(verbs.includes('add'), 'intentó el add suelto');
+    assert.ok(verbs.includes('ungroup'), 'el ungroup del empty siguió pese al fallo del add');
+    assert.equal(result.ungrouped, 1);
+    assert.equal(result.errors.length, 1);
+    assert.ok(errors.length >= 1, 'emitió sidebarDoctorFixError');
+  });
+
+  test('loose_workspace → add(group,workspace); empty_group → ungroup(ref)', async () => {
+    const { deps, calls } = spyDeps({
+      state: { sessions: { a: session({ workspace_ref: 'workspace:4' }) } },
+      projects: { P1: '/repo/kodo' },
+      groupsState: {
+        groups: [
+          { name: 'Kodo', ref: 'workspace_group:1', member_count: 1, member_workspace_refs: ['workspace:3'] },
+          { name: 'Vacio', ref: 'workspace_group:9', member_count: 0, member_workspace_refs: [] },
+        ],
+      },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
+    });
+    const result = await execute(deps, { fix: true });
+    assert.deepEqual(calls.find((c) => c[0] === 'add')[1], { group: 'workspace_group:1', workspace: 'workspace:4' });
+    assert.deepEqual(calls.find((c) => c[0] === 'ungroup')[1], { group: 'workspace_group:9' });
+    assert.equal(result.added, 1);
+    assert.equal(result.ungrouped, 1);
+  });
+
+  test('never-throws top-level: loadState throws bajo fix → result parcial, no lanza', async () => {
+    const { deps } = spyDeps({ projects: { P1: '/repo/kodo' } });
+    deps.loadState = () => { throw new Error('state ilegible'); };
+    const result = await execute(deps, { fix: true });
+    // scan es never-throws (fallback sessions:{}) → 0 acciones, sin throw
+    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
   });
 });
 
