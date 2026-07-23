@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { checkPendingTasks } from '../src/check.js';
+import { checkPendingTasks, runCheckAndAct } from '../src/check.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHECK_SOURCE_PATH = join(__dirname, '..', 'src', 'check.js');
@@ -311,6 +311,130 @@ describe('check.js — source invariants', () => {
       source,
       /All clear ✓/,
       'Pre-Phase-15 trailing-✓ shape must be gone',
+    );
+  });
+});
+
+// Phase 80 Plan 01 (ORCH-07): el carril orquestador ejecuta el `--fix` del sidebar
+// doctor IN-PROCESS de piggyback en `runCheckAndAct`, gated por `needsOrchestrator`,
+// ANTES de `launchOrchestrator`, fail-open, y sin alimentar jamás el gate (D-03/04/05).
+describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () => {
+  /** SidebarReport limpio (sin acciones ni advisories). */
+  function cleanReport() {
+    return {
+      missing_group: [],
+      loose_workspace: [],
+      empty_group: [],
+      protected: { sessions: [] },
+      hasActions: false,
+      hasAdvisories: false,
+    };
+  }
+  /** SidebarResult vacío (0 acciones). */
+  function emptyResult() {
+    return { created: 0, added: 0, ungrouped: 0, errors: [] };
+  }
+
+  it('Test A: gate ON — executeFn recibe { fix: true } y corre ANTES de launchFn (orden D-05)', async () => {
+    const order = [];
+    let execArgs = null;
+    await runCheckAndAct({
+      runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+      scanFn: async () => { order.push('scan'); return cleanReport(); },
+      executeFn: async (_deps, opts) => { order.push('execute'); execArgs = opts; return emptyResult(); },
+      launchFn: async () => { order.push('launch'); },
+      logFn: () => {},
+      errorFn: () => {},
+    });
+
+    assert.deepEqual(execArgs, { fix: true }, 'executeFn debe recibir { fix: true }');
+    assert.ok(
+      order.indexOf('execute') < order.indexOf('launch'),
+      `execute debe correr ANTES de launch (D-05), got: ${JSON.stringify(order)}`,
+    );
+  });
+
+  it('Test B: gate OFF (All clear) — cero llamadas a scan/execute/launch (edge a, D-03)', async () => {
+    const calls = [];
+    await runCheckAndAct({
+      runCheckFn: async () => ({ needsOrchestrator: false, reasons: [], summary: 's' }),
+      scanFn: async () => { calls.push('scan'); return cleanReport(); },
+      executeFn: async () => { calls.push('execute'); return emptyResult(); },
+      launchFn: async () => { calls.push('launch'); },
+      logFn: () => {},
+      errorFn: () => {},
+    });
+
+    assert.deepEqual(calls, [], 'con needsOrchestrator=false el carril NO corre (edge a)');
+  });
+
+  it('Test C: invariante D-04 (edge c) — un sidebar sucio con check limpio NO dispara el carril', async () => {
+    const calls = [];
+    const dirtyScan = async () => {
+      calls.push('scan');
+      return {
+        missing_group: [{ name: 'g', anchor: 'workspace:1', members: ['workspace:1'] }],
+        loose_workspace: [{ group: 'workspace_group:1', workspace_ref: 'workspace:2', name: 'g' }],
+        empty_group: [{ ref: 'workspace_group:2', name: 'e' }],
+        protected: { sessions: [] },
+        hasActions: true,
+        hasAdvisories: true,
+      };
+    };
+    await runCheckAndAct({
+      runCheckFn: async () => ({ needsOrchestrator: false, reasons: [], summary: 's' }),
+      scanFn: dirtyScan,
+      executeFn: async () => { calls.push('execute'); return emptyResult(); },
+      launchFn: async () => { calls.push('launch'); },
+      logFn: () => {},
+      errorFn: () => {},
+    });
+
+    // El drift del doctor NUNCA re-entra al gate: needsOrchestrator=false ⇒ nada corre.
+    assert.deepEqual(calls, [], 'el resultado del doctor jamás convierte el gate en true (D-04)');
+  });
+
+  it('Test D: fail-open (edge b) — executeFn que lanza NO propaga y launchFn corre igual (D-05)', async () => {
+    const order = [];
+    await assert.doesNotReject(
+      runCheckAndAct({
+        runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+        scanFn: async () => cleanReport(),
+        executeFn: async () => { throw new Error('boom'); },
+        launchFn: async () => { order.push('launch'); },
+        logFn: () => {},
+        errorFn: () => {},
+      }),
+    );
+    assert.deepEqual(order, ['launch'], 'launch corre pese al throw de execute (fail-open)');
+  });
+
+  it('Test D2: fail-open (edge b) — scanFn que lanza NO bloquea el launch', async () => {
+    const order = [];
+    await assert.doesNotReject(
+      runCheckAndAct({
+        runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+        scanFn: async () => { throw new Error('scan boom'); },
+        executeFn: async () => { order.push('execute'); return emptyResult(); },
+        launchFn: async () => { order.push('launch'); },
+        logFn: () => {},
+        errorFn: () => {},
+      }),
+    );
+    assert.ok(order.includes('launch'), 'launch corre aunque scan lance (fail-open)');
+    assert.ok(!order.includes('execute'), 'execute no corre si scan lanzó (mismo try/catch)');
+  });
+
+  it('Test E: runCheck() byte-idéntico — su cuerpo NO contiene líneas Sidebar (Pitfall 4)', () => {
+    const source = readFileSync(CHECK_SOURCE_PATH, 'utf-8');
+    const runCheckStart = source.indexOf('export async function runCheck(');
+    const runCheckAndActStart = source.indexOf('export async function runCheckAndAct(');
+    assert.ok(runCheckStart >= 0 && runCheckAndActStart > runCheckStart, 'ambas funciones deben existir');
+    const runCheckBody = source.slice(runCheckStart, runCheckAndActStart);
+    assert.doesNotMatch(
+      runCheckBody,
+      /Sidebar/,
+      'runCheck() no debe contener el piggyback (vive solo en runCheckAndAct)',
     );
   });
 });
