@@ -67,6 +67,7 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
  *   empty_group: EmptyGroupItem[],
  *   protected: { sessions: ProtectedItem[] },
  *   hasActions: boolean,
+ *   hasAdvisories: boolean,
  * }} SidebarReport
  *
  * @typedef {{
@@ -293,7 +294,14 @@ export async function scan(deps = {}) {
       && !looseGroupRefs.has(g.ref))
     .map((g) => ({ ref: g.ref, name: typeof g.name === 'string' ? g.name : '' }));
 
-  const hasActions = missing_group.length + loose_workspace.length + empty_group.length > 0;
+  // hasActions cuenta SOLO lo que execute() ejecuta (loose→add, empty→ungroup).
+  // missing_group quedó EXCLUIDO (G-79-1): el doctor ya no auto-crea grupos porque
+  // anclar en una sesión viva la convierte en el header del grupo (cmux 0.64.20).
+  // Un grupo faltante es ahora un ADVISORY: requiere acción del operador, no cuenta
+  // para el exit code → un 2º pase --fix converge (exit 0) y el piggyback de Phase 80
+  // no entra en bucle sobre advisories no auto-arreglables.
+  const hasActions = loose_workspace.length + empty_group.length > 0;
+  const hasAdvisories = missing_group.length > 0;
 
   sidebarDoctorScan(/** @type {any} */ (d.logger), {
     mode: 'dry-run',
@@ -308,6 +316,7 @@ export async function scan(deps = {}) {
     empty_group,
     protected: { sessions: protectedSessions },
     hasActions,
+    hasAdvisories,
   };
 }
 
@@ -357,43 +366,11 @@ export async function execute(deps = {}, opts = {}) {
     // RE-detección fresca (D-06). scan es never-throws → no puede tumbar execute.
     const report = await scan(deps);
 
-    // ── missing_group: create --from <oldest> → add(resto) → set-anchor <oldest> (D-09) ──
-    for (const g of report.missing_group) {
-      try {
-        // Pitfall 1: --from SIEMPRE explícito con el oldest (nunca omitido; el
-        // default contextual de cmux agarraría el workspace del caller).
-        await d.createWorkspaceGroup({ name: g.name, from: [g.anchor] });
-        // Pitfall 2 / OQ1: el ref del grupo nuevo se obtiene por RE-LIST, no
-        // parseando el stdout de create.
-        let ref = null;
-        try {
-          ref = resolveWorkspaceGroup(JSON.parse(await d.listWorkspaceGroupsRaw()), g.name);
-        } catch {
-          ref = null;
-        }
-        if (!ref) {
-          pushError(result, log, 'missing_group', g.name, 'ref no resuelto tras create');
-          continue;
-        }
-        for (const ws of g.members) {
-          if (ws === g.anchor) continue; // el anchor ya entró vía --from
-          try {
-            await d.addToWorkspaceGroup({ group: ref, workspace: ws });
-            result.added++;
-          } catch (e) {
-            pushError(result, log, 'add', ws, errMsg(e));
-          }
-        }
-        try {
-          await d.setGroupAnchor({ group: ref, workspace: g.anchor }); // D-08 idempotente
-        } catch (e) {
-          pushError(result, log, 'set-anchor', g.anchor, errMsg(e));
-        }
-        result.created++;
-      } catch (e) {
-        pushError(result, log, 'create', g.name, errMsg(e));
-      }
-    }
+    // ── missing_group: NO se ejecuta (G-79-1). El doctor NO ancla grupos en sesiones
+    //    vivas — en cmux 0.64.20 el header del grupo ES la fila sidebar del anchor, así
+    //    que crear+anclar en una sesión viva le roba su título. missing_group es un
+    //    ADVISORY (report.hasAdvisories): el operador crea el grupo conscientemente y el
+    //    doctor lo mantiene poblado vía add. result.created queda siempre en 0. ──
 
     // ── loose_workspace: add al grupo existente (SDR-05) ──
     for (const l of report.loose_workspace) {

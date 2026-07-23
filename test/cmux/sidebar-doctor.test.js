@@ -45,7 +45,7 @@ function session(over = {}) {
 }
 
 describe('sidebar-doctor scan()', () => {
-  test('D-08: 2 sesiones vivas mismo expectedName sin grupo → 1 missing_group, members por started_at asc, anchor = oldest', async () => {
+  test('D-08 (G-79-1): 2 sesiones vivas mismo expectedName sin grupo → 1 missing_group ADVISORY (hasActions=false, hasAdvisories=true), members/anchor informativos', async () => {
     const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
     const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
     const report = await scan(readDeps({
@@ -56,10 +56,12 @@ describe('sidebar-doctor scan()', () => {
     assert.equal(report.missing_group.length, 1);
     const g = report.missing_group[0];
     assert.equal(g.name, 'KODO');
-    assert.deepEqual(g.members, ['workspace:3', 'workspace:4']); // oldest primero
+    assert.deepEqual(g.members, ['workspace:3', 'workspace:4']); // oldest primero (informativo)
     assert.equal(g.anchor, 'workspace:3');
     assert.equal(g.anchor, g.members[0]);
-    assert.equal(report.hasActions, true);
+    // G-79-1: missing_group ya NO es una acción del doctor → advisory, no acción.
+    assert.equal(report.hasActions, false);
+    assert.equal(report.hasAdvisories, true);
   });
 
   test('SDR-05: sesión cuyo workspace_ref ∉ member_workspace_refs del grupo existente → loose_workspace', async () => {
@@ -213,31 +215,26 @@ describe('sidebar-doctor execute()', () => {
     assert.equal(calls.length, 0);
   });
 
-  test('D-09: missing_group (2 members) → create(--from=oldest) → add(segundo) → set-anchor(oldest); ningún verbo destructivo', async () => {
-    let created = false;
+  test('G-79-1: missing_group (2 members) → execute NO emite create ni set-anchor; ninguna sesión viva anclada; created===0', async () => {
     const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
     const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
     const { deps, calls } = spyDeps({
       state: { sessions: { a: sA, b: sB } },
       projects: { P1: '/repo/kodo' },
-      // stateful: tras create, la re-list ve el grupo nuevo (OQ1 / TOCTOU real)
-      groupsState: () => created
-        ? { groups: [{ name: 'KODO', ref: 'workspace_group:7', member_count: 1, member_workspace_refs: ['workspace:3'] }] }
-        : { groups: [] },
+      groupsState: { groups: [] }, // grupo inexistente → sería missing_group (ahora advisory)
       workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
     });
-    deps.createWorkspaceGroup = async (o) => { calls.push(['create', o]); created = true; return 'OK'; };
 
     const result = await execute(deps, { fix: true });
 
     const verbs = calls.map((c) => c[0]);
-    assert.deepEqual(verbs, ['create', 'add', 'set-anchor']); // orden D-09
-    assert.deepEqual(calls[0][1], { name: 'KODO', from: ['workspace:3'] }); // --from = oldest
-    assert.deepEqual(calls[1][1], { group: 'workspace_group:7', workspace: 'workspace:4' }); // add del segundo, ref re-listado
-    assert.deepEqual(calls[2][1], { group: 'workspace_group:7', workspace: 'workspace:3' }); // set-anchor al oldest
+    // El doctor ya NO ancla grupos en sesiones vivas: cero create/set-anchor (root cause de G-79-1).
+    assert.ok(!verbs.includes('create'), 'execute NO debe emitir create ante missing_group');
+    assert.ok(!verbs.includes('set-anchor'), 'execute NO debe emitir set-anchor ante missing_group');
+    assert.equal(result.created, 0, 'result.created siempre 0: el doctor no crea grupos');
+    // ninguna sesión viva fue anclada: el fixture solo tenía missing_group → cero acciones.
+    assert.equal(calls.length, 0, 'un estado con solo missing_group no emite ningún verbo del allowlist');
     for (const [verb] of calls) assert.ok(!DESTRUCTIVE.has(verb), `verbo destructivo emitido: ${verb}`);
-    assert.equal(result.created, 1);
-    assert.equal(result.added, 1);
   });
 
   test('SDR-02 TOCTOU: el grupo ya existe entre scan externo e interno → 0 creaciones (re-detecta)', async () => {
