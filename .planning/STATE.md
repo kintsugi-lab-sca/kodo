@@ -4,17 +4,17 @@ milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
 current_phase: 80
 current_phase_name: Carril orquestador + reconciliación documental
-status: executing
-stopped_at: Completed 80-01-PLAN.md
-last_updated: "2026-07-23T20:03:13.908Z"
+status: verifying
+stopped_at: Completed 80-02-PLAN.md
+last_updated: "2026-07-23T20:09:55.135Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 80 execution started
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 4
-  percent: 50
+  completed_plans: 6
+  percent: 100
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 Phase: 80 (Carril orquestador + reconciliación documental) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-23 — Phase 80 execution started
 
 ## Roadmap v0.18 (activo)
@@ -97,6 +97,7 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - [Phase ?]: 79-04 (G-79-1): missing_group pasa a report-only/advisory — execute() ya no emite create/set-anchor; el doctor nunca ancla un grupo en una sesión kodo viva. Supera D-07/D-08 y la política de re-anclaje eventual (ratificado por checkpoint).
 - [Phase ?]: 79-04: scan() computa hasActions solo con loose+empty (missing_group excluido) y expone hasAdvisories — el CLI/Phase 80 distinguen deriva auto-arreglable de acción del operador; --fix converge a exit 0 sin bucle.
 - [Phase ?]: 80-01: carril orquestador ORCH-07 — runCheckAndAct ejecuta scan+execute del sidebar doctor in-process, gated por needsOrchestrator, antes de launchOrchestrator, fail-open; el resultado del doctor jamás alimenta el gate (D-04)
+- [Phase ?]: 80-02: reconciliación documental ORCH-08 — skill canónica con detalle (higiene sidebar + flujo 5 + 4 features v0.17), prompt fallback conciso; bloque reporting y placeholders intactos (D-09/D-12)
 
 ### Open Blockers
 
@@ -123,13 +124,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T20:03:13.902Z
+**Last session:** 2026-07-23T20:09:44.918Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 80-01-PLAN.md
+- **Stopped at:** Completed 80-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -157,3 +158,4 @@ None
 | Phase 79 P03 | 6min | 3 tasks | 3 files |
 | Phase 79 P04 | 5min | 3 tasks | 5 files |
 | Phase 80 P01 | 10min | 2 tasks | 4 files |
+| Phase 80 P02 | 3min | 2 tasks | 2 files |
