@@ -1,7 +1,7 @@
 ---
 phase: 79-sidebar-doctor
 verified: 2026-07-23T11:31:07Z
-status: human_needed
+status: passed
 score: 5/6 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
@@ -9,14 +9,17 @@ re_verification:
   previous_status: human_needed
   previous_score: 5/6
   gaps_closed:
+
     - "G-79-1 (blocker): kodo sidebar doctor --fix ya no ancla un grupo recién creado en una sesión kodo viva (absorción de identidad del anchor). execute() eliminó por completo el bucle missing_group -> create/set-anchor; missing_group pasa a report-only/advisory (hasAdvisories); hasActions ya no lo cuenta. Ratificado por checkpoint:decision (Opción A) en 79-04-PLAN.md, verificado por test de regresión y por inspección de código."
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "SDR-05: una sesión kodo suelta cuyo grupo esperado YA EXISTE converge a member_workspace_refs de ese grupo tras `kodo sidebar doctor --fix` real (round-trip completo por el binario kodo, no solo el verbo cmux crudo)."
     test: "Con >=1 sesión kodo real cuyo workspace esté suelto de un grupo ya existente, correr `node src/cli.js sidebar doctor` (debe listar `add`), luego `node src/cli.js sidebar doctor --fix`, luego `cmux workspace-group list --json` y confirmar que el workspace aparece en member_workspace_refs; una 2ª pasada del dry-run debe salir limpia (exit 0)."
     why_human: "Requiere mutar el sidebar cmux real; el 2026-07-23 no existía ninguna sesión kodo suelta con grupo ya existente para ejercitar el round-trip sin fabricar estado en el sidebar del operador desde una cadena autónoma. El verbo `cmux workspace-group add` en sí YA se validó manualmente en 79-UAT.md (A2, pass) y el argv exacto que emite `execute()` está probado por spy en unit — pero el camino completo vía `kodo sidebar doctor --fix` end-to-end contra un cmux vivo queda sin ejercitar."
 human_verification:
+
   - test: "Con >=1 sesión kodo real cuyo workspace esté suelto de un grupo ya existente, correr `node src/cli.js sidebar doctor` (debe listar `add`), luego `node src/cli.js sidebar doctor --fix`, luego `cmux workspace-group list --json`."
     expected: "El workspace de la sesión suelta aparece en member_workspace_refs del grupo esperado; una 2ª pasada del dry-run sale exit 0 (converged); ningún workspace no-kodo del operador fue movido o re-anclado (D-04); NINGUNA sesión viva pierde su fila/título (no debe aparecer ningún grupo nuevo creado — G-79-1 ya no debería poder reproducirse porque execute() no emite create/set-anchor)."
     why_human: "Requiere mutar el sidebar cmux real; los verbos del allowlist no se ejecutan contra un binario cmux vivo en unit tests (DI/spy solamente). El 2026-07-23 (dry-run en vivo, read-only) el sidebar del operador estaba limpio (protected: 1 sesión, 0 loose/missing/empty) — no hay estado de deriva disponible para ejercitar la rama mutante sin fabricarlo artificialmente."
@@ -116,6 +119,7 @@ No aplica — la fase no declara probes (`scripts/*/tests/probe-*.sh`); ninguno 
 ### Gaps Summary
 
 **El blocker G-79-1 reportado en el UAT anterior está CERRADO.** `execute()` ya no contiene ninguna rama que emita `create` ni `set-anchor` — el bucle que anclaba el grupo recién creado en la sesión kodo viva más antigua fue eliminado por completo (no "arreglado", eliminado: cero superficie de mutación insegura). Esto se verificó por:
+
 - Inspección directa del código (`src/cmux/sidebar-doctor.js` líneas 358-402): el cuerpo de `execute()` solo contiene los bucles `loose_workspace → add` y `empty_group → ungroup`.
 - Un test de regresión dedicado que usa un spy de argv y confirma cero llamadas a `createWorkspaceGroup`/`setGroupAnchor` ante un fixture `missing_group`.
 - Una ratificación explícita del operador vía `checkpoint:decision` (Opción A, report-only) documentada en `79-04-PLAN.md` y `79-04-SUMMARY.md`.

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
-current_phase: 79
-current_phase_name: sidebar-doctor
-status: executing
+current_phase: 80
+current_phase_name: Carril orquestador + reconciliación documental
+status: planning
 stopped_at: Completed 79-04-PLAN.md
-last_updated: "2026-07-23T11:19:36.673Z"
+last_updated: "2026-07-23T19:11:43.589Z"
 last_activity: 2026-07-23
-last_activity_desc: 79-04 executed (missing_group report-only, G-79-1 cerrado)
+last_activity_desc: Phase 79 complete, transitioned to Phase 80
 progress:
   total_phases: 1
   completed_phases: 1
@@ -20,7 +20,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — roadmap creado 2026-07-22 (3 fases 79-81, 12/12 requirements mapeados, sin huérfanos). Listo para planificar la Phase 79 (`/gsd-plan-phase 79`). Milestone anterior v0.17 SHIPPED 2026-07-22 (audit `tech_debt` sin blockers).
+**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — **Phase 79 (Sidebar Doctor) completa 2026-07-23** (4/4 plans, UAT 4/4 en vivo, gap G-79-1 cerrado con missing_group report-only ratificado, SECURITY threats_open: 0). Siguiente: Phase 80 (depende de 79); Phase 81 ortogonal (paralelizable). Milestone anterior v0.17 SHIPPED 2026-07-22.
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Phase 79 — sidebar-doctor
+**Current focus:** Phase 80 — Carril orquestador + reconciliación documental
 
 ## Current Position
 
-Phase: 79 (sidebar-doctor) — EXECUTED (4/4 plans complete)
-Plan: 4 of 4 (79-04 gap closure G-79-1 complete)
-Status: Phase 79 execution complete — ready for /gsd-verify-work 79
-Last activity: 2026-07-23 — 79-04 executed (missing_group report-only, G-79-1 cerrado)
+Phase: 80 — Carril orquestador + reconciliación documental
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-23 — Phase 79 complete, transitioned to Phase 80
 
 ## Roadmap v0.18 (activo)
 
@@ -122,14 +122,14 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T11:18:58.864Z
+**Last session:** 2026-07-23T19:14:26.494Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 79-04-PLAN.md
-- **Next action:** `/gsd-plan-phase 79` — planificar la Phase 79 (Sidebar Doctor). Phase 81 es ortogonal (paralelizable); Phase 80 depende de 79.
+- **Stopped at:** Phase 79 complete (UAT 4/4 en vivo, VERIFICATION passed, SECURITY verified) — ready for Phase 80
+- **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
   - `.planning/ROADMAP.md` (v0.18 activo — Phases 79-81; v0.17 colapsado; Backlog con 999.1 + 999.2 + 999.3 promovida)
@@ -139,7 +139,8 @@ None
 
 ## Operator Next Steps
 
-- Planificar la primera fase con `/gsd-plan-phase 79`
+- Discutir la Phase 80 con `/gsd-discuss-phase 80` (o `/gsd-plan-phase 80` directo)
+- Phase 81 (deuda v0.17) es paralelizable en cualquier momento
 
 ## Performance Metrics
 
