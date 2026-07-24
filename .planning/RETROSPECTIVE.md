@@ -571,6 +571,43 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 - Model mix: fable (orquestación, planning, ejecución y cierre) + subagentes GSD (reviewer/verifier/auditor). Multi-sesión a lo largo de ~8 días (2026-07-15 → 2026-07-22).
 - Notable: el cierre fue más caro que el de v0.16 — 3 re-runs del milestone audit + sign-off Nyquist retroactivo de 5 fases el mismo día. La causa fue el orden (deuda saldada a trozos post-audit); el patrón barato sigue siendo llegar al cierre con fases pre-verificadas Y pre-firmadas.
 
+## Milestone: v0.18 — Higiene del sidebar de cmux
+
+**Shipped:** 2026-07-24
+**Phases:** 3 (79-81) | **Plans:** 9
+
+### What Was Built
+- Sidebar doctor determinista (Phase 79): `kodo sidebar doctor [--fix|--json]` 0-tokens, espejo de `gsd doctor` — allowlist no destructivo (`add`/`ungroup`), `missing_group` como advisory del operador, guard source-hygiene que garantiza que `workspace-group delete` jamás se cablea, launch path byte-idéntico (SDR-01..06).
+- Cierre del gap G-79-1 por eliminación (plan 79-04): en cmux 0.64.20 el header del grupo ES la fila sidebar del anchor — auto-crear+anclar absorbía la identidad de una sesión viva; `execute()` perdió las ramas `create`/`set-anchor` por completo (report-only ratificado por checkpoint del operador, regresión imposible por construcción).
+- Carril orquestador (Phase 80): piggyback in-process del doctor en pases ya motivados de `kodo check` (gate `needsOrchestrator`, antes del launch, fail-open, el resultado jamás alimenta el gate — el sidebar NO es trigger) + skill `kodo-orchestrate`/`prompt.md` reconciliados con la realidad post-v0.17 (ORCH-07/08).
+- Saneo de deuda v0.17 (Phase 81): contrato tres-estados del `next` por presencia del campo (DEBT-01), doc-drift de Phase 75 (DEBT-02), colapso de whitespace render-only en `nextCell` (DEBT-03), y diagnóstico de causa raíz del flaky `gsd-lock-race` — carrera real en `stealLock`, `lock.js` intacto por mandato (DEBT-04).
+
+### What Worked
+- **Eliminar la rama insegura en vez de intentar hacerla segura** (G-79-1): ante la absorción de identidad del anchor, la opción ratificada fue borrar `create`/`set-anchor` de `execute()` — cero superficie de mutación insegura, test de regresión por spy de argv. Mismo espíritu que la retirada de la Phase 73.
+- **Diagnóstico gated antes que fix a ciegas** (DEBT-04): el mandato «`lock.js` READ-ONLY, solo con la causa entendida» convirtió un flaky molesto en un hallazgo material — la carrera es de producto, no del harness, y el test queda red-by-design para no enmascararla.
+- **Piggyback in-process con import directo** (Phase 80): determinismo verificable por test («converge en ≤1 pase», orden doctor-antes-de-launch, fail-open, D-04), 0 tokens garantizado, sin subprocesos ni instrucción al LLM.
+- **Cierre con verificación por fase ya hecha**: las 3 fases llegaron al cierre con VERIFICATION passed + UAT complete + SECURITY 0 open — el milestone audit (corrido una sola vez, en el propio cierre) salió `tech_debt` sin blockers al primer intento. Contraste directo con el triple re-audit de v0.17.
+
+### What Was Inefficient
+- **El audit de milestone no se corrió hasta el cierre**: el pre-flight de `/gsd-complete-milestone` lo detectó ausente y hubo que correrlo inline. Salió limpio, pero corerlo tras cerrar la última fase (no durante el cierre) habría separado señal de ceremonia.
+- **Nyquist retroactivo por cuarta vez**: las 3 fases cerraron con `VALIDATION.md` en `draft` (seeded, nunca reconciliado) — el patrón de v0.16/v0.17 se repite; el sign-off sigue desacoplado del flujo de ejecución.
+- **Frontmatter `requirements-completed` ausente en 2 SUMMARYs** (80-01, 81-03): el cross-check de 3 fuentes del audit tuvo que resolverlos a mano contra VERIFICATION.md.
+
+### Patterns Established
+- **Advisory vs acción auto-arreglable como contrato del doctor** (`hasActions` excluye `missing_group`, `hasAdvisories` lo expone): el CLI y el orquestador distinguen deriva que el doctor cura de acción que corresponde al operador — `--fix` converge a exit 0 sin bucle.
+- **Re-fronterización explícita de un invariante** (GRP-04): «kodo no gestiona grupos» pasó a «solo el carril doctor gestiona grupos, con allowlist» — la frontera se movió conscientemente, con guard mecánico y decisión documentada, no por erosión.
+- **Contrato de tres estados discriminado por PRESENCIA del campo** (`'next' in entry`): la única semántica que expresa sobrescribir/borrar/preservar sin conflacionar `null` y `undefined` — reusable para cualquier merge parcial de estado.
+- **Test flaky-red a propósito como marcador de bug conocido**: greenear `gsd-lock-race` enmascararía la carrera diagnosticada; el rojo intermitente es la señal honesta hasta la decisión de mantenedor.
+
+### Key Lessons
+- **Un «saneo de deuda» debe cerrar también la deuda que su propia review descubre — o diferirla con decisión explícita**: 81-REVIEW encontró 2 warnings nuevos (WR-01/WR-02) tocando los mismos símbolos que la fase shippeó; se aceptaron en UAT como R-81-02, pero la verificación los escaló precisamente porque una fase de saneo con deuda propia sin disposición es incoherente.
+- **Los flakies merecen diagnóstico de causa raíz, no re-runs**: el ~48% de repro en loop aislado y el discriminador hold-sensitivity convirtieron «test inestable» en «doble adquisición posible en `stealLock`» — conocimiento accionable que un `.skip` habría enterrado.
+- **Verificar contra la política ratificada, no contra el texto literal pre-gap del ROADMAP**: la 79-VERIFICATION re-scopeó SDR-05 a la política post-checkpoint (missing_group advisory) — el artefacto de verdad es la decisión ratificada, y el informe lo declara explícitamente.
+
+### Cost Observations
+- Model mix: fable (orquestación, planning, ejecución y cierre) + subagentes GSD (reviewer/verifier/auditor/integration-checker). 3 días (2026-07-22 → 2026-07-24), 86 commits, ~8 min/plan de media.
+- Notable: el cierre más barato de los últimos tres milestones — audit único `tech_debt` al primer intento gracias a fases pre-verificadas (UAT + SECURITY + VERIFICATION cerrados por fase antes del cierre).
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -593,6 +630,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.15 | 14 | 4 | Build order LOCKED por pilares (daemon estable antes del onboarding) + boundary del secreto con escritor único verificado por grep de higiene + UAT runtime + GATE MANUAL no auto-aprobable en `--auto` |
 | v0.16 | 18 | 4 | Milestone dirigido por auditoría adversarial (4 olas por causa raíz, orden risk-graded) + race-tests de procesos reales como gate para locks + estándar de alcanzabilidad end-to-end en verificación (2 BLOCKERs cazados) + retirar una fase entera (73) cuando eliminar la causa gana al fix estructural |
 | v0.17 | 17 | 5 | Arquitectura productor→consumidores del milestone (74→75 + 2 ortogonales paralelizables) + hechos empíricos del sistema externo pineados pre-planning («no re-derivar») + UAT en vivo caza gap de instalación (G-74-4) → detector permanente en doctor + fase dedicada de deuda de cierre (78) con review con teeth |
+| v0.18 | 9 | 3 | Eliminar la rama insegura > hacerla segura (G-79-1: `create`/`set-anchor` fuera de `execute()` por construcción) + diagnóstico gated de flaky como entregable (DEBT-04: carrera real hallada, test red-by-design) + re-fronterización explícita de invariante (GRP-04 → carril doctor) + cierre con fases pre-verificadas → audit único al primer intento |
 
 ### Cumulative Quality
 
@@ -614,6 +652,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.15 | 1788 | — | — |
 | v0.16 | 2027 | ~28,300 | — |
 | v0.17 | 2309 | ~25,500 (wc -l `src/**/*.js`; el ~28,3k de v0.16 usó otro método) | ~47,200 |
+| v0.18 | 2364 | ~26,400 | ~48,300 |
 
 ### Top Lessons (Verified Across Milestones)
 

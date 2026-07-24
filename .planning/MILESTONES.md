@@ -1,5 +1,26 @@
 # Milestones
 
+## v0.18 Higiene del sidebar de cmux (Shipped: 2026-07-24)
+
+**Phases completed:** 3 phases, 9 plans, 18 tasks
+
+**Key accomplishments:**
+
+- Allowlist no-destructivo de workspace-group (create/add/set-anchor/ungroup) + lector JSON en client.js, blindados por un guard source-hygiene que falla ante cualquier cableado del verbo destructivo `delete` y con evidencia de que el launch path queda byte-idéntico.
+- `src/cmux/sidebar-doctor.js` — el motor determinista 0-token del `kodo sidebar doctor`: `scan()` clasifica las sesiones kodo vivas contra el sidebar real en missing_group/loose_workspace/empty_group y `execute()` re-detecta (TOCTOU) y emite el allowlist no-destructivo en orden D-09, fail-open per item; espejo arquitectónico exacto de `src/gsd/doctor.js`.
+- `src/cli/sidebar-doctor.js` — `runSidebarDoctor` espejo fiel de `runGsdDoctor`: dry-run humano por categoría / `--fix` / `--json` byte-determinista, exit `hasActions ? 1 : 0`, color aislado; y el namespace `kodo sidebar doctor [--fix] [--json]` registrado en `cli.js` SIN `ensureConfig` (0-provider preservado). Cierra con checkpoint humano donde la rama READ-ONLY se verificó en vivo y la mutación real (`--fix` + A1/A2/A5/D-04) se difiere a UAT.
+- `kodo sidebar doctor --fix` deja de auto-crear grupos anclados en sesiones kodo vivas: `missing_group` pasa a advisory (report-only), execute() ya no emite create/set-anchor, y scan() separa deriva auto-arreglable (hasActions) de acción del operador (hasAdvisories) — la absorción de identidad del anchor es imposible por construcción.
+- El skill `kodo-orchestrate` (canónico) y `src/orchestrator/prompt.md` (fallback degradado) dejan de estar desfasados: mencionan `kodo sidebar doctor`, la higiene automática del sidebar y las 4 features v0.17 (handoff+`NEXT:`, superficie dashboard/nudge, `pending_stale`/`pending_fetched_at`, `--group`), sin prometer features borradas y con el bloque reporting intacto.
+- Un cierre de sesión sin `NEXT:` redactado por el LLM ahora BORRA el puntero `next` obsoleto (clear deliberado), mientras que un cierre mecánico lo PRESERVA — cerrando el bug donde el `??` conflaciaba `null` y `undefined` y nada podía limpiar jamás un `next` viejo.
+- `nextCell` colapsa `\n`/`\t`/`\r`/multi-espacio a un espacio único + trim en el render (DEBT-03), y se corrigen el comentario del render de App.js y el typedef `overlaySnapshot` de SessionTable (DEBT-02) — sin tocar comportamiento, suite verde.
+- El flaky `gsd-lock-race` (CR-01) queda diagnosticado a causa raíz vía `/gsd-debug`: es una **carrera de producto real en `stealLock`** (ventana no-atómica move-aside→O_EXCL permite doble adquisición con N≥2 stealers), no timing del harness — `src/gsd/lock.js` intacto por mandato, test flaky-red a propósito, fix real o aceptación definitiva → decisión de mantenedor (candidata v0.19, R-81-01).
+
+**Stats:** 86 commits en 3 días (2026-07-22 → 2026-07-24) · 22 ficheros de código, +2095/−66 (src+test: +2016/−65) · suite 2309 → 2364 tests · audit `tech_debt` sin blockers (12/12 requirements, integración 8/8, flujos E2E 4/4, informe en `milestones/v0.18-MILESTONE-AUDIT.md`).
+
+**Known verification overrides:** 1 (debug session `gsd-lock-race-cr01` abierta a propósito — diagnóstico completo, cierre pendiente de la decisión de mantenedor sobre R-81-01; ver STATE.md §Deferred Items).
+
+---
+
 ## v0.17 Plan vivo por-tarea (Shipped: 2026-07-22)
 
 **Phases completed:** 5 phases (74-78), 17 plans, 24 tasks
