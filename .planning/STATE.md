@@ -5,16 +5,16 @@ milestone_name: Higiene del sidebar de cmux
 current_phase: 81
 current_phase_name: Saneo de deuda v0.17
 status: planning
-stopped_at: Phase 80 complete (UAT 1/1 en vivo, SECURITY verified) — ready for Phase 81
-last_updated: "2026-07-23T21:09:35.119Z"
+stopped_at: Phase 81 context gathered
+last_updated: "2026-07-24T06:58:55.900Z"
 last_activity: 2026-07-23
 last_activity_desc: Phase 80 complete, transitioned to Phase 81
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
   total_plans: 6
   completed_plans: 6
-  percent: 100
+  percent: 67
 ---
 
 # Project State
@@ -124,13 +124,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-23T21:09:35.112Z
+**Last session:** 2026-07-24T06:58:55.892Z
 
 **Resume file:**
 
-None
+.planning/phases/81-saneo-de-deuda-v0-17/81-CONTEXT.md
 
-- **Stopped at:** Phase 80 complete (UAT 1/1 en vivo, SECURITY verified) — ready for Phase 81
+- **Stopped at:** Phase 81 context gathered
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
