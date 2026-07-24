@@ -236,7 +236,7 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
     assert.equal(call.entry.updated_at, FIXED_NOW.toISOString(), 'updated_at del reloj inyectado');
   });
 
-  it('bloque mecánico appendeado → el `next` que llega al stateWriterFn es null (D-03: sin NEXT)', () => {
+  it('bloque mecánico appendeado → la entry al stateWriterFn OMITE la clave `next` (DEBT-01: preserve)', () => {
     const session = makeSession();
     const { logger } = makeLogger();
     const writer = makeStateWriter();
@@ -246,7 +246,35 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
       { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
     );
 
-    assert.equal(writer.calls[0].entry.next, null, 'el bloque mecánico no tiene NEXT');
+    // DEBT-01: el backstop mecánico OMITE `next` → el writer discrimina por presencia
+    // y PRESERVA el previo. Ya no manda `next: null` (que ahora BORRA).
+    assert.equal('next' in writer.calls[0].entry, false, 'el backstop mecánico omite `next` → preserve');
+  });
+
+  it('LLM escribió su bloque SIN **NEXT:** → la entry al stateWriterFn LLEVA `next: null` (DEBT-01: clear)', () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const writer = makeStateWriter();
+    const planPath = join(plansDir, `${session.task_id}.md`);
+    // Bloque de ESTA sesión (author=llm) pero SIN línea **NEXT:** → extractNext → null.
+    writeFileSync(
+      planPath,
+      [
+        `## Handoff 2026-07-15 10:00 <!-- kodo:handoff v=1 session=${session.session_id} author=llm at=2026-07-15T08:00:00.000Z -->`,
+        '',
+        '**Hecho:** cerré sin dejar un siguiente paso',
+        '',
+      ].join('\n'),
+    );
+
+    writeHandoff(
+      { session, input: { reason: 'clear' }, log: logger },
+      { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
+    );
+
+    const entry = writer.calls[0].entry;
+    assert.equal('next' in entry, true, 'la rama LLM SÍ incluye la clave `next`');
+    assert.equal(entry.next, null, 'y su valor es null → clear deliberado del NEXT: obsoleto');
   });
 
   // ── Phase 75 Plan 02 (LIVE-07): writeHandoff devuelve el next EFECTIVO ──────────
