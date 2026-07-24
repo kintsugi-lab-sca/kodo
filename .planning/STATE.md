@@ -5,15 +5,15 @@ milestone_name: Higiene del sidebar de cmux
 current_phase: 81
 current_phase_name: Saneo de deuda v0.17
 status: executing
-stopped_at: Completed 81-01-PLAN.md
-last_updated: "2026-07-24T07:42:51.901Z"
+stopped_at: Completed 81-02-PLAN.md
+last_updated: "2026-07-24T07:47:45.537Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 81 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 67
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 ## Current Position
 
 Phase: 81 (Saneo de deuda v0.17) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-24 — Phase 81 execution started
 
@@ -99,6 +99,7 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - [Phase ?]: 80-01: carril orquestador ORCH-07 — runCheckAndAct ejecuta scan+execute del sidebar doctor in-process, gated por needsOrchestrator, antes de launchOrchestrator, fail-open; el resultado del doctor jamás alimenta el gate (D-04)
 - [Phase ?]: 80-02: reconciliación documental ORCH-08 — skill canónica con detalle (higiene sidebar + flujo 5 + 4 features v0.17), prompt fallback conciso; bloque reporting y placeholders intactos (D-09/D-12)
 - [Phase ?]: DEBT-01: merge de next en tres estados por presencia (overwrite/clear/preserve); autoría mapeada al contrato en session-end.js
+- [Phase ?]: 81-02: colapso de whitespace en nextCell es render-only (LAYOUT), complementario a stripControlChars de Phase 78 — dato persistido verbatim (D-06)
 
 ### Open Blockers
 
@@ -125,13 +126,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-24T07:42:46.023Z
+**Last session:** 2026-07-24T07:47:45.530Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 81-01-PLAN.md
+- **Stopped at:** Completed 81-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -162,3 +163,4 @@ None
 | Phase 80 P01 | 10min | 2 tasks | 4 files |
 | Phase 80 P02 | 3min | 2 tasks | 2 files |
 | Phase 81 P01 | 5min | 2 tasks | 4 files |
+| Phase 81 P02 | 2min | 2 tasks | 4 files |
