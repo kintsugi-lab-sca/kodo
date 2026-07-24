@@ -7,6 +7,8 @@ import {
   mkdirSync,
   realpathSync,
   renameSync,
+  linkSync,
+  statSync,
 } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -277,40 +279,81 @@ function readGuard(guardPath) {
 }
 
 /**
- * Try to become the steal-guard owner via an O_EXCL create. Ownership is
- * conferred ONLY by this successful exclusive create — never by breaking a
- * stale guard. Returns `true` on win, `false` on `EEXIST` (loser); any other
- * error is rethrown.
+ * Try to become the steal-guard owner by publishing the guard ATOMICALLY IN
+ * CONTENT (D-01 applied to the guard itself). Ownership is conferred ONLY by the
+ * successful publish — never by breaking a stale guard.
+ *
+ * A plain `writeFileSync(guardPath, json, {flag:'wx'})` is exclusive on CREATE
+ * but not atomic on CONTENT: `O_EXCL` opens an empty file, then the bytes are
+ * written. A concurrent stealer that reads `guardPath` in that gap sees an empty
+ * (unparseable) guard, concludes it is stale, breaks a LIVE guard, and re-enters
+ * the critical section → two stealers rename at once. This moved the briefly-empty
+ * window from the LOCK file to the GUARD file.
+ *
+ * The fix: write the full guard body to a unique tmp, then `linkSync(tmp,
+ * guardPath)` — `link(2)` is atomic and fails with `EEXIST` if the guard exists,
+ * so the guard becomes visible already carrying complete content. The tmp is
+ * unlinked best-effort on every path (win or lose).
+ *
+ * Returns `true` on win, `false` on `EEXIST` (loser); any other error is rethrown.
  *
  * @param {string} guardPath
  * @returns {boolean}
  */
 function acquireStealGuard(guardPath) {
+  const tmp = `${guardPath}.tmp.${process.pid}.${randomUUID()}`;
   try {
-    writeFileSync(guardPath, JSON.stringify({ pid: process.pid, ts: Date.now() }), {
-      flag: 'wx',
-    });
-    return true;
-  } catch (e) {
-    if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
-    return false;
+    writeFileSync(tmp, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+    try {
+      linkSync(tmp, guardPath);
+      return true;
+    } catch (e) {
+      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+      return false;
+    }
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
 /**
- * Is a steal-guard breakable? A guard is stale when it is corrupt/absent, its
- * owner PID is dead (primary, always-safe criterion), or it aged past
- * `thresholdMs`. Never break a live+in-window guard — its owner may be mid-rename
- * and breaking it would reintroduce the double-acquire (Pitfall 1).
+ * Is the steal-guard at `guardPath` breakable? Reads the guard defensively:
  *
- * @param {{ pid: number, ts: number } | null} guard
+ *  - Parseable guard: break if the owner PID is dead (primary, always-safe) or
+ *    the recorded `ts` aged past `thresholdMs`.
+ *  - Present but UNPARSEABLE guard: do NOT break merely because it failed to
+ *    parse — a writer mid-publish (or any transient partial content) would be
+ *    broken, reintroducing the double-acquire. Break only when the FILE age
+ *    (mtime) exceeds `thresholdMs` — the sole criterion for persistent garbage
+ *    from a rare crash. (With the atomic `linkSync` publish an empty/partial
+ *    guard is no longer observable from a well-behaved writer; this is defence in
+ *    depth for corruption.)
+ *  - Absent guard: trivially breakable (nothing to break; the caller re-contends).
+ *
+ * Never break a live, in-window guard — its owner may be mid-rename (Pitfall 1).
+ *
+ * @param {string} guardPath
  * @param {number} thresholdMs
  * @returns {boolean}
  */
-function guardIsStale(guard, thresholdMs) {
-  if (!guard) return true;
-  if (!isPidAlive(guard.pid)) return true;
-  return Number.isFinite(guard.ts) && Date.now() - guard.ts > thresholdMs;
+function guardIsStale(guardPath, thresholdMs) {
+  const guard = readGuard(guardPath);
+  if (guard && Number.isFinite(guard.pid)) {
+    if (!isPidAlive(guard.pid)) return true;
+    return Number.isFinite(guard.ts) && Date.now() - guard.ts > thresholdMs;
+  }
+  // Absent or unparseable → decide by file age (mtime); never by parse failure.
+  let mtimeMs;
+  try {
+    mtimeMs = statSync(guardPath).mtimeMs;
+  } catch {
+    return true; // vanished between our EEXIST and here → treat as gone
+  }
+  return Date.now() - mtimeMs > thresholdMs;
 }
 
 /**
@@ -351,11 +394,14 @@ function sleepShort(ms) {
  * an `O_EXCL` create over an absent path); ownership of the GUARD solely by an
  * `O_EXCL` create of `${lockPath}.steal-guard`. That separation is the pivot:
  *
- *  1. Acquire the steal-guard (`O_EXCL`). A guard whose owner PID is dead, or
+ *  1. Acquire the steal-guard by publishing it ATOMICALLY IN CONTENT
+ *     (`linkSync(tmp → guardPath)`, exclusive like `O_EXCL` but never observable
+ *     empty — D-01 applied to the guard). A guard whose owner PID is dead, or
  *     which aged past `STEAL_GUARD_STALE_MS`, is breakable (D-05) — breaking it
  *     clears the orphan but confers no ownership; the winner is still whoever
- *     next wins the `O_EXCL` create. A live+in-window guard is never broken
- *     (Pitfall 1).
+ *     next wins the atomic publish. A live+in-window guard is never broken
+ *     (Pitfall 1), and an unparseable guard is broken by file age only, never by
+ *     parse failure alone.
  *  2. Inside the guarded critical section (serialized across stealers), re-read
  *     `lockPath`: a fresh live holder → reject; a present stale/corrupt holder →
  *     atomic in-place replacement via a uniquely-named `tmp` + `renameSync(tmp →
@@ -385,9 +431,9 @@ function stealLock(lockPath, sessionInfo, reason) {
     if (!acquireStealGuard(guardPath)) {
       // Guard busy. Break it only if orphaned (dead owner / aged out); never
       // break a live, in-window guard (Pitfall 1).
-      if (guardIsStale(readGuard(guardPath), STEAL_GUARD_STALE_MS)) {
+      if (guardIsStale(guardPath, STEAL_GUARD_STALE_MS)) {
         breakStaleGuard(guardPath);
-        continue; // re-contend for a fresh O_EXCL create
+        continue; // re-contend for a fresh atomic publish
       }
       // A live stealer holds the guard. If the lock already has a live holder,
       // reject; otherwise back off briefly and re-contend.

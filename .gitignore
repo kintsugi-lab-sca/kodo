@@ -5,3 +5,4 @@ node_modules/
 .planning/.kodo.lock
 .planning/.kodo.lock.steal-guard
 .planning/.kodo.lock.tmp.*
+.planning/.kodo.lock.steal-guard.tmp.*
