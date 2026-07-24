@@ -208,7 +208,12 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   3. Los dos doc-drifts de Phase 75 quedan corregidos: el comentario de App.js «lee tasks UNA vez por tick» (WR-02) y el typedef del prop `overlaySnapshot` sin `render` (WR-04) — solo documentación, sin cambio de comportamiento. (DEBT-02)
   4. El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida — el invariante de locks de v0.16 queda protegido. (DEBT-04)
 
-**Plans**: TBD
+**Plans**: 3 plans
+**Wave 1** *(los tres paralelizables — ficheros disjuntos, sin `depends_on`)*
+
+- [ ] 81-01-PLAN.md — DEBT-01: writer de tres estados de `next` en `upsertTaskHandoff` (clear/preserve/overwrite por presencia) + mapeo de autoría LLM-clear/mecánico-preserve en `session-end.js` + tests (DEBT-01) — Wave 1
+- [ ] 81-02-PLAN.md — DEBT-02+03: colapso de whitespace en `nextCell` (render-only, dato verbatim) + doc-drift de Phase 75 (comentario App.js WR-02 + typedef `overlaySnapshot` WR-04) (DEBT-02, DEBT-03) — Wave 1
+- [ ] 81-03-PLAN.md — DEBT-04: diagnóstico `/gsd-debug` del flaky `gsd-lock-race` CR-01 (entregable = artefacto; `src/gsd/lock.js` READ-ONLY, sin remedios a ciegas) (DEBT-04) — Wave 1
 
 ## Progreso (v0.18)
 
@@ -216,13 +221,13 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
 |-------|----------------|--------|-----------|
 | 79. Sidebar Doctor | 0/3 | Not started | - |
 | 80. Carril orquestador + reconciliación documental | 0/2 | Not started | - |
-| 81. Saneo de deuda v0.17 | 0/? | Not started | - |
+| 81. Saneo de deuda v0.17 | 0/3 | Not started | - |
 
 ## Progress
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
-| v0.18 Higiene del sidebar de cmux | 79-81 | 0/? | In progress | - |
+| v0.18 Higiene del sidebar de cmux | 79-81 | 0/9 | In progress | - |
 | v0.17 Plan vivo por-tarea | 74-78 | 17/17 | Complete | 2026-07-22 |
 | v0.16 Hardening | 69-72 | 18/18 | Complete | 2026-07-15 |
 | v0.15 «kodo up» | 65-68 | 14/14 | Complete | 2026-07-03 |
