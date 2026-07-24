@@ -1,267 +1,274 @@
-# Architecture Research — v0.15 «kodo up»
+# Architecture Research — v0.19 «Inbox de capturas global»
 
-**Domain:** Unified decoupled daemon entrypoint + OS-service distribution + dashboard-first onboarding for an existing Node.js CLI (kodo)
-**Researched:** 2026-07-01
-**Confidence:** HIGH (grounded in the shipped codebase; no new external tech — the proven `src/cli/polling.js` daemon pattern is the reference)
+**Domain:** A global, append-only capture buffer grafted onto an existing Node.js CLI (kodo) — deterministic 0-token CLI commands + one mid-session skill + a routing handoff to GSD's `gsd-capture`.
+**Researched:** 2026-07-24
+**Confidence:** HIGH (grounded in the shipped codebase; every integration point below cites a file/line read in this pass; no new external tech, no new npm deps)
 
-> Scope note: this is **integration-for-new-features** research, not greenfield ecosystem research. It answers "how do the v0.15 features graft onto the existing architecture, reusing the polling daemon pattern?" and feeds the roadmapper a risk-graded build order (Pilar 1 lifecycle+brew before Pilar 2 onboarding).
+> Scope note: this is **integration-for-a-new-feature** research, not greenfield ecosystem research. It answers "how does the capture inbox graft onto kodo's architecture, reusing existing primitives (`withFileLock`, atomic write, projects.json reverse-lookup, the skill-sync pattern)?" and feeds the roadmapper a risk-graded build order. The inbox is a self-contained surface (one file + two CLI commands + one skill), low blast radius, zero hard dependencies on the server or providers.
 
 ---
 
-## Executive answer (the 4 sub-questions)
+## Executive answer (the sub-questions)
 
-- **(a) One supervised daemon, not PID-tracked children.** `kodo up` composes `startServer` + (conditional) `startPolling` in **one** Node process. Generalize the leaf primitives from `src/cli/polling.js` into a shared `src/daemon/lifecycle.js` + a name-parameterized PID module. Spawning them as separate children would recreate a generic process-manager — explicitly OUT of scope (PROJECT.md "NO gestor de procesos genérico", LOCKED) — and would break `brew services` (launchd would supervise a shell that forks unsupervised children: the double-fork antipattern).
-- **(b) The detach path spawns the foreground path.** This is *already* how `polling.js` works (`runPollingStartCli` spawns `kodo polling start --no-daemon`, polling.js:283-302). Mirror it: `kodo up` detach-spawns a new internal `kodo daemon run` foreground command; launchd/`brew services` invoke `kodo daemon run` **directly**. One foreground entrypoint, two callers.
-- **(c) Dashboard attaches as a pure HTTP viewer and detaches for free.** `runDashboard` (dashboard/index.js:85) is already a stateless `/status` client that owns nothing. `up` = ensure-daemon → poll `/health` until ready → `runDashboard({url})` unchanged → on quit, `up` exits while the **detached** daemon (separate process group via `detached:true`) survives. LOCKED persistent-daemon model falls out of `detached:true` for free.
-- **(d) Masked key → `~/.kodo/.env` via a new single writer; never crosses into config.json/status/logs.** Add `writeEnvVar`/`writeEnvFile` to `config.js` (atomic tmp+rename, `chmod 0o600`) as the *only* sink for secret values — mirror of `saveConfig`. The env var **name** stays in config.json (already does — `api_key_env`, config.js:198); only the **value** goes to `.env`. A source-hygiene grep test enforces the PERSIST-04 boundary, exactly like the color-isolation / mode-derivation guards.
+- **(a) New CLI commands live in `src/cli/`, registered top-level in `src/cli.js`, over a pure core module `src/inbox/store.js`.** Mirror the doctor split that already exists: pure logic in `src/gsd/doctor.js` + thin CLI in `src/cli/gsd-doctor.js` (registered `src/cli.js:459-476`). So: `src/inbox/store.js` (pure: path const, line format, append, parse, status mutation, DI-able paths) + `src/cli/capture.js` + `src/cli/inbox.js` (thin wrappers, lazy-imported). Register `kodo capture <text>` and `kodo inbox` as top-level commands in `src/cli.js` using the identical `program.command(...).action(async () => { const { runX } = await import('./cli/…'); process.exit(await runX(...)); })` lazy-import pattern every other subcommand uses (`src/cli.js:408-422` doctor is the closest template). **No `ensureConfig()`** on either command — the inbox is filesystem-only and provider-agnostic, same precedent as `gsd doctor` / `sidebar doctor` / `skill sync` (`src/cli.js:466-468`, `490-492`, `512-513`).
+
+- **(b) The append-only ↔ mutable-status tension resolves with "grow-only rows, mutable status token, one advisory lock".** The file never deletes a row (append-only *rows* = audit trail); triage flips a status token *in place*, which is a whole-file read-modify-write. Both paths serialize on one advisory lock (`~/.kodo/inbox.md.lock`) via the existing `withFileLock` from **`src/session/state-lock.js:215`** (never-throws, O_EXCL + retry, returns `{ok:false,reason:'lock-timeout'}` — it does **not** throw). Capture appends under the lock; triage does RMW + unique-tmp-name rename under the same lock. This is the exact primitive `session-end.js` already uses for the handoff RMW (`src/hooks/session-end.js:24,331`). See §"The append/mutate proposal" for the concrete format and the tmp-name caveat.
+
+- **(c) `/kodo-capture` derives the project tag deterministically from cwd (and optionally session_id), not from LLM guessing.** The skill shells out to `kodo capture "idea" --origin session [--session-id <id>]`; `kodo capture` then resolves `tag-proyecto` by reverse-matching cwd against `projects.json` — the *nearest configured ancestor path* — exactly the resolution `src/cli/adopt.js:138-143` already performs (`resolveProjectId` / `deriveModuleFromCwd`). If `--session-id` is passed, `findSession({sessionId,cwd})` (`src/session/state.js:568`, already called by the session-start hook at `session-start.js:254`) yields a precise `task_ref` for a sharper tag. The tag derivation is 100% deterministic (0 tokens); the LLM's only job is to phrase the idea and invoke the command.
+
+- **(d) The seam with `gsd-capture` is a *handoff*, not a call.** kodo owns the global buffer (`inbox.md`) + capture + triage-state. GSD's `gsd-capture` skill owns the project-scoped *destination* (todo / note / backlog 999.x / seed — see its routing table, `~/.claude/skills/gsd-capture/SKILL.md:28-39`). When the operator routes an item, they/the LLM run `/gsd-capture --backlog|--seed|… "<texto>"` *inside the target project*, then `kodo inbox route <id>` flips the row to `enrutada`. kodo never imports or re-implements gsd-capture's routing — the two are decoupled by the plain-text idea + its project tag.
 
 ---
 
 ## Standard Architecture
 
-### System Overview — target state after v0.15
+### System Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  ENTRYPOINTS (src/cli.js — commander)                                  │
-│  ┌──────────┐  ┌───────────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ kodo up  │  │ kodo daemon   │  │ kodo     │  │ kodo start (LEGACY│  │
-│  │ (detach  │  │   run         │  │ stop /   │  │  fg server —      │  │
-│  │  +attach)│  │ (foreground)  │  │ status   │  │  UNCHANGED)       │  │
-│  └────┬─────┘  └──────┬────────┘  └────┬─────┘  └──────────────────┘  │
-│       │  spawn detached│                │                              │
-│       │  ───────────► ─┘  ◄── launchd/brew services invoke directly    │
-├───────┼──────────────────────────────────────────────────────────────┤
-│  DAEMON LIFECYCLE (NEW: src/daemon/)                                   │
-│  ┌────────────────────┐   ┌──────────────────────────────────────┐    │
-│  │ lifecycle.js       │   │ run.js  (the ONE foreground funnel)   │    │
-│  │ startDaemon/stop/  │   │  composes startServer + startPolling  │    │
-│  │ status (generic)   │   │  writes ~/.kodo/kodo.pid, blocks fwd  │    │
-│  └─────────┬──────────┘   └───────────────┬──────────────────────┘    │
-│            │ reuses                        │ composes                  │
-├────────────┼─────────────────────────────┼───────────────────────────┤
-│  EXISTING SUBSYSTEMS (reused, lightly refactored)                     │
-│  ┌───────────────┐  ┌────────────────┐  ┌──────────────────────────┐  │
-│  │ server.js     │  │ triggers/      │  │ cli/polling-daemon.js    │  │
-│  │ startServer → │  │ polling.js     │  │ PID primitives (name-    │  │
-│  │  managed mode │  │ startPolling() │  │  parameterized)          │  │
-│  │ (no exit/pid) │  │ →{stop} handle │  │ + gsd/lock.js isPidAlive │  │
-│  └───────┬───────┘  └────────────────┘  └──────────────────────────┘  │
-├──────────┼─────────────────────────────────────────────────────────────┤
-│  VIEWER (unchanged) ── cli/dashboard/index.js runDashboard()          │
-│    pure HTTP client of GET /status + /health; owns nothing            │
+│                         CAPTURE SURFACES                               │
 ├──────────────────────────────────────────────────────────────────────┤
-│  STATE / SECRETS (single writers)                                      │
-│  config.json  projects.json  │  .env (0o600, NEW writeEnvVar sink)     │
-│  kodo.pid (daemon)  server.pid (legacy start)  polling.pid (legacy)    │
+│  shell                    mid-session (Claude Code)                    │
+│  ┌───────────────┐        ┌────────────────────────────┐              │
+│  │ kodo capture  │        │ /kodo-capture (skill)       │              │
+│  │  "idea"       │        │  derives tag from ctx →      │              │
+│  └──────┬────────┘        │  shells `kodo capture … `    │              │
+│         │                 └───────────┬─────────────────┘              │
+│         │  origin=shell               │ origin=session (+session_id)   │
+├─────────┴─────────────────────────────┴──────────────────────────────┤
+│                    CORE  (src/inbox/store.js — pure, DI paths)         │
+│   append(line)  ·  list(filter)  ·  setStatus(id, enrutada|descartada)│
+│         │                    serialized by                             │
+│         ▼          withFileLock(~/.kodo/inbox.md.lock)                 │
+│   ┌──────────────────────────────────────────────────────────┐        │
+│   │  APPEND path (grow-only)   │   RMW path (status mutation)  │        │
+│   │  appendFileSync(line)      │   read → flip token →         │        │
+│   │                            │   writeFile(tmp.pid.uuid)→rename│      │
+│   └──────────────────────────────────────────────────────────┘        │
+├──────────────────────────────────────────────────────────────────────┤
+│                         STATE  (~/.kodo/)                              │
+│   inbox.md   (append-only rows · mutable status token · audit trail)   │
+│   inbox.md.lock   (advisory, O_EXCL + retry, stealable after TTL)      │
+├──────────────────────────────────────────────────────────────────────┤
+│                     TRIAGE / ROUTING (decoupled)                       │
+│   kodo inbox (list open)  ──operator picks──►  /gsd-capture --backlog  │
+│        │                                        (runs in target proj)  │
+│        └── kodo inbox route <id>  ──►  status = enrutada  (no delete)   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
 
-| Component | Responsibility | New/Modified | Reuses |
-|-----------|----------------|--------------|--------|
-| `src/daemon/lifecycle.js` | Generic detach-spawn / stop (SIGTERM+5s+SIGKILL) / status. The "fontanería". | **NEW** | polling.js:212-324 (start), :492-521 (stop), :538-564 (status) as templates |
-| `src/daemon/run.js` | The **single foreground entrypoint**. Composes `startServer` + conditional `startPolling`, writes unified PID, installs signal cleanup, blocks forever. | **NEW** | `runForegroundPolling` polling.js:350-392 as template; `startServer`; `startPolling` |
-| `src/cli/up.js` | `runUp()`: setup-if-first-run → ensure-daemon → wait `/health` → `runDashboard` → exit (daemon persists). | **NEW** | `runDashboard`, lifecycle.js, fetchStatus/health |
-| `src/cli/polling-daemon.js` | PID file primitives, generalized to a `name` param (`~/.kodo/<name>.pid`). | **MODIFIED** (additive) | itself (already atomic + 0o600 + defensive shape) |
-| `src/server.js` `startServer` | Add `managed` mode: no `process.exit` on missing secret, no self-owned PID under the daemon. | **MODIFIED** | itself; PID ownership moves to daemon |
-| `src/config.js` | Add `writeEnvVar`/`writeEnvFile` single writer (atomic, 0o600); export `ENV_PATH`; make `loadEnvFile` re-callable. | **MODIFIED** (additive) | `writeFileAtomic` (config.js:99) |
-| `src/cli/dashboard/` setup mode | CFGF-03 fields (provider/base_url/workspace) + **masked** key input; first-run setup overlay. | **MODIFIED/NEW** | Phase 63/64 in-house text-input + overlay machine |
-| Homebrew formula + `brew services` | `brew install kodo` (depends_on node≥20) + launchd plist via formula `service do { run [bin,"daemon","run"] }`. | **NEW** (tap repo) | `kodo daemon run` foreground entrypoint |
+| Component | Responsibility | Typical Implementation |
+|-----------|----------------|------------------------|
+| `src/inbox/store.js` (NEW, pure) | Path const, line format encode/parse, `appendCapture`, `listCaptures`, `setStatus`; all paths DI-able for tests | Node `fs` + `withFileLock`; mirrors purity of `src/gsd/doctor.js` |
+| `src/cli/capture.js` (NEW) | `runCapture({text, origin, sessionId, cwd})` → derive tag → `appendCapture` → exit 0/1, `--json` | Thin, lazy-imported; mirrors `src/cli/gsd-doctor.js` |
+| `src/cli/inbox.js` (NEW) | `runInbox()` list open; `route <id>` / `discard <id>` → `setStatus`; `--json` byte-deterministic | Thin; deterministic 0-token |
+| `.claude/skills/kodo-capture/skill.md` (NEW) | Mid-session capture; derives context, shells `kodo capture --origin session --session-id …` | Canonical in repo, synced to `~/.claude/skills/` (see skill-sync note) |
+| `src/cli.js` (MODIFIED) | Register `capture` + `inbox` top-level commands | +2 `program.command(...)` blocks, lazy-import pattern |
+| `src/config.js` (MODIFIED) | Export `INBOX_PATH = join(KODO_DIR,'inbox.md')` next to `CONFIG_PATH`/`PROJECTS_PATH` (`config.js:11-14,615`) | 1 const + 1 export |
+| `gsd-capture` (EXTERNAL, unchanged) | Route a plain-text idea into a GSD destination (todo/note/backlog/seed) | Existing GSD skill; kodo does **not** modify it |
 
 ---
 
-## The reuse map: polling.js → generalized daemon (concrete, file:line)
+## Recommended Project Structure
 
-The polling daemon is the **proven, tested, shipped** pattern to generalize. Every piece the v0.15 daemon needs already exists there:
+```
+src/
+├── inbox/                    # NEW — pure core for the capture buffer
+│   └── store.js              # append / list / setStatus + line codec (DI paths)
+├── cli/
+│   ├── capture.js            # NEW — runCapture (append path, tag derivation)
+│   └── inbox.js              # NEW — runInbox / route / discard (triage path)
+├── cli.js                    # MODIFIED — register `capture` + `inbox`
+├── config.js                # MODIFIED — export INBOX_PATH const
+├── session/
+│   └── state-lock.js         # REUSED — withFileLock (the RMW primitive)  :215
+└── ...
+.claude/skills/
+├── kodo-orchestrate/skill.md # existing canonical skill (sync template)
+└── kodo-capture/skill.md     # NEW — canonical, synced to ~/.claude/skills/
+```
 
-| Capability | Where it lives today | How v0.15 reuses it |
-|------------|----------------------|---------------------|
-| **Dual-mode funnel** (detach spawns foreground) | `runPollingStartCli` spawns `kodo polling start --no-daemon` (polling.js:283-302), then `child.unref()` (:303) | `up` detach-spawns `kodo daemon run`; launchd calls `kodo daemon run` directly. Same shape, generic command. |
-| **Detach spawn hygiene** | `spawn(process.execPath, [KODO_BIN,...], {detached:true, stdio:['ignore',logFd,logFd], env})` (polling.js:286-302); `resolveKodoBin()` absolute-path, cero PATH lookup (:180-183) | Lift verbatim into `lifecycle.startDaemon`; parameterize argv (`['daemon','run']`) and logfile name. |
-| **PID pre-flight (attach-if-running / idempotency)** | `readPidFile()` + `isPidAlive()` guard, stale cleanup (polling.js:260-268) | Same guard in `up` → if alive, **skip spawn and just attach** (idempotency requirement). |
-| **Bounded wait for readiness** | 2s poll loop on PID file (polling.js:315-323) | daemon: poll PID file; `up` also polls `/health` for HTTP readiness (port bind is later than PID write). |
-| **Foreground long-runner** | `runForegroundPolling`: start loop → `writePidFile` → SIGINT/SIGTERM cleanup (`handle.stop()`+`removePidFile`+`exit 0`) → `await new Promise(()=>{})` block-forever (polling.js:350-392) | `daemon/run.js` is the exact same shape but composes **two** handles (server + polling). |
-| **Stop protocol** | SIGTERM → 5s `isPidAlive` loop → SIGKILL → `removePidFile`; ESRCH→cleanup+0 (polling.js:492-521) | `stopDaemon` verbatim, name-parameterized. |
-| **Status** | `readPidFile` + `isPidAlive` → running\|idle, `--json` byte-deterministic 4 keys (polling.js:538-564) | `statusDaemon` verbatim. |
-| **PID file primitives** | atomic tmp+rename + `chmod 0o600` pre-rename + defensive shape check + lazy `homedir()` path (polling-daemon.js:70-118) | Generalize `getPidPath()` → `getPidPath(name='polling')`; add `kind` to payload. |
-| **Liveness** | `isPidAlive` (`process.kill(pid,0)`, EPERM=alive) (lock.js:67-74) | Shared, unchanged. |
-| **Signal cleanup ordering precedent** | `kodo orchestrate --polling` installs handlers *before* async setup, idempotent `pollingHandle?.stop()` (cli.js:133-200) | Same discipline for the composed daemon: install handlers before `startServer`/`startPolling`. |
+### Structure Rationale
 
-**Refactor risk grade:** generalizing the **leaf primitives** (PID path name param, `isPidAlive`) and writing a **new** `lifecycle.js`/`run.js` alongside polling.js is LOW risk. **Migrating polling.js itself** to consume the new lifecycle is a nice-to-have that touches a shipped/tested subsystem — defer or make it a separate low-priority phase. Recommended: `up` gets a fresh `lifecycle.js` modeled on polling.js; share only PID primitives + `isPidAlive`; leave polling.js running as-is.
+- **`src/inbox/` (new dir, pure):** matches the "pure core + thin CLI" split proven by `src/gsd/doctor.js` ↔ `src/cli/gsd-doctor.js` and `src/tasks/pending.js` ↔ its consumers. Keeps the file-format and locking logic unit-testable against a tmpdir without going through commander.
+- **CLI in `src/cli/`:** every kodo subcommand's implementation lives there and is lazy-imported from `src/cli.js` so the parent CLI pays no load cost for unrelated commands (`src/cli.js:398`, `469`, `493` are the pattern). Two new files keep capture and triage cohesive but separate.
+- **`INBOX_PATH` in `config.js`:** all `~/.kodo/` paths are centralized there (`config.js:11-14`) and re-exported (`config.js:615`); the lock path is derived as `INBOX_PATH + '.lock'`.
 
 ---
 
-## Architectural Patterns
+## The append/mutate proposal (resolving the core tension)
 
-### Pattern 1: One daemon process, composed handles (NOT child supervision)
+**Requirement restated:** append is trivial and must never lose an idea; triage must flip a row to `enrutada`/`descartada` *without deleting it* (audit trail). These pull in opposite directions — append wants O_APPEND, in-place mutation wants a whole-file rewrite.
 
-**What:** `daemon/run.js` calls `startServer(managed)` → server handle, and (if provider needs polling) `startPolling()` → `{stop}` handle, in the same process. One PID file. One SIGTERM tears down both.
-**When:** always, for `up`/`daemon run`/`brew services`.
-**Trade-offs:** (+) one liveness check, one stop, launchd-friendly, no cross-process races, mutex already implicit (per-repo lock GSD-10; reconcile loop is the single `state.json` writer, server.js:589-610). (−) a crash in one subsystem takes the whole daemon — acceptable for a personal tool and *desirable* under launchd `KeepAlive` (it just restarts).
-**Precedent:** `kodo orchestrate --polling` already runs polling in-process with the orchestrator and returns a `{stop}` handle (cli.js:156-159).
+**Line format (line-based markdown, GitHub-checkbox status marker):**
 
-```js
-// src/daemon/run.js (sketch)
-export async function runDaemon() {
-  installSignalHandlersFirst();                 // before async — orchestrate.js precedent
-  const server = await startServer({ managed: true }); // no process.exit, no self-PID
-  const polling = providerUsesPolling(config)          // github → yes, plane(webhook) → no
-    ? startPolling({ provider, repos, intervalSec, logger })
-    : null;
-  writePidFile('kodo', { pid: process.pid, started_at: nowISO(), kind: 'daemon' });
-  const cleanup = () => { try{polling?.stop()}catch{}; try{server.close()}catch{}; removePidFile('kodo'); process.exit(0); };
-  process.on('SIGTERM', cleanup); process.on('SIGINT', cleanup);
-  await new Promise(() => {}); // block forever
-}
+```
+- [ ] <id> · <texto> · <tag-proyecto> · <fecha ISO> · <origen>
 ```
 
-### Pattern 2: Detach path spawns the foreground path (dual-mode)
+- `- [ ]` = **open**; triage rewrites the marker to `- [x]` and appends a trailing status word + date:
+  ```
+  - [x] <id> · <texto> · <tag> · <fecha> · <origen> · enrutada 2026-07-24
+  - [x] <id> · <texto> · <tag> · <fecha> · <origen> · descartada 2026-07-24
+  ```
+- `<id>` = a short stable token (e.g. `c` + base36 epoch-ms, or first 8 hex of `randomUUID()`), **first field** so triage can address the exact row unambiguously (`kodo inbox route <id>`), independent of free-text `texto`.
+- `enrutada` vs `descartada` both close the checkbox but differ by the trailing word → `kodo inbox` lists open rows by filtering `- [ ]`.
+- Renders cleanly in any markdown viewer (it's a task list), satisfying "the operator can just read `inbox.md`".
 
-**What:** `up` (detached) re-invokes `kodo daemon run` (foreground) as a detached, unref'd child; launchd/brew invoke `kodo daemon run` in foreground with `RunAtLoad`+`KeepAlive`. Both funnel through the same foreground code.
-**When:** `up` on macOS/Linux → detach; launchd/brew → foreground; Windows `up` → foreground fallback (documented constraint, no background).
-**Trade-offs:** (+) zero duplicate lifecycle logic; launchd correctly tracks the process (no double-fork). (−) `up` must poll for readiness because the spawned child binds the port asynchronously.
-**Precedent:** verbatim the polling.js self-spawn (`kodo polling start` → `kodo polling start --no-daemon`, polling.js:286-302).
+**Sanitization (mandatory):** `texto` must be a single line — strip `\n`/`\r`/control chars before append. Reuse `stripControlChars` (`src/cli/format.js:80`), the same sanitizer Phase 78 applied to the nudge fields. This keeps `·`-delimited parsing safe (id is fixed-position-first; status is a known suffix word; texto is free but newline-free).
 
-### Pattern 3: Dashboard as detach-safe pure viewer
+**Concurrency design — one lock, two operations:**
 
-**What:** `runDashboard` is unchanged. `up` calls it after the daemon is healthy; when it returns, `up` exits, daemon persists.
-**When:** the attach half of `up`.
-**Trade-offs:** (+) the persistent-daemon LOCKED requirement is satisfied *for free* by `detached:true` — Ctrl-C in the terminal that ran `up` never reaches the daemon's separate process group. `up` must **not** register handlers that kill the daemon. (−) none material.
-**Key invariant:** `up` owns the dashboard lifecycle only; it must never signal `kodo.pid`. Stopping the daemon is exclusively `kodo stop`.
+1. **Append (`kodo capture`, `/kodo-capture`):** acquire `withFileLock(INBOX_PATH+'.lock')` (`src/session/state-lock.js:215`), then `appendFileSync(INBOX_PATH, line+'\n')`. Append (not full rewrite) means a crash mid-write can only lose the trailing partial line, never a prior row. **Lock-timeout fallback:** on `{ok:false,reason:'lock-timeout'}`, do a single **lockless** `appendFileSync` — O_APPEND makes concurrent single-line appends atomic on local fs, so the idea is never lost; the only residual race (a triage rename landing in the same instant) is a documented, acceptable corner on a single-user buffer.
 
-### Pattern 4: Secrets single-writer + PERSIST-04 boundary guard
+2. **Triage (`kodo inbox route|discard`):** under the **same** `withFileLock`, read all rows → locate by `<id>` → flip that row's marker + append status word → write via **unique-tmp-name + rename**:
+   ```
+   const tmp = INBOX_PATH + '.tmp.' + process.pid + '.' + randomUUID();
+   fs.writeFileSync(tmp, out); fs.renameSync(tmp, INBOX_PATH);
+   ```
+   **Do NOT use `writeFileAtomic` from `config.js`** here: its tmp name is *fixed* (`path + '.tmp'`, `config.js:136`), which two concurrent writers share and corrupt — exactly the `WR-02` bug `session-end.js:368-373` documents and avoids with the unique-tmp pattern. Copy that pattern verbatim.
 
-**What:** `writeEnvVar(name, value)` in config.js is the *only* place a secret value is written, to `~/.kodo/.env`, atomic + `chmod 0o600`. The dashboard masked-input calls an `onSaveApiKey` DI handler (mirror of `onSaveConfig`, dashboard/index.js:275-282). The value never enters the React snapshot, config.json, `/status`, or logs.
-**When:** CFGF-03 masked-key entry.
-**Trade-offs:** (+) one auditable sink; boundary enforceable by grep test. (−) `.env` is read only at import (`loadEnvFile`, config.js:30) → key change needs a daemon restart (honest "restart" notice, reuse v0.14 pattern; or first-run captures key *before* `up` starts the daemon so it loads fresh).
-
-```js
-// src/config.js (additive — mirror saveConfig)
-export function writeEnvVar(name, value) {
-  ensureDir();
-  const map = readEnvMap();                 // parse existing ~/.kodo/.env
-  map[name] = value;
-  const body = Object.entries(map).map(([k,v]) => `${k}=${v}`).join('\n') + '\n';
-  writeFileAtomic(ENV_PATH, body);          // tmp+rename (config.js:99)
-  chmodSync(ENV_PATH, 0o600);               // owner-only, like the PID file
-}
-```
-
-**Masked rendering rule:** the field starts empty; typing renders `•` per char; the editor probes `getProviderApiKey(provider)` → boolean "set / not set" for display, and **never** reads the value back. Add a source-hygiene test (walker/grep, mirror `test/format-isolation.test.js`) asserting no write of key values into config.json / status / logs and that `writeEnvVar` is the sole `.env` writer.
+**Why this closes the tension:** because triage's temp+rename holds the same lock that appends serialize on, the rename can never clobber a concurrent append. Rows are grow-only (audit trail preserved); status is the only mutable field; capture degrades to lockless-append rather than ever losing an idea. This is the strongest option that stays within the hard constraints (no new deps, never-throws, deterministic).
 
 ---
 
 ## Data Flow
 
-### `kodo up` (normal run, daemon not yet up)
+### Capture flow (shell)
+
 ```
-kodo up
- └─ ensureConfigured()?  ── no ──► dashboard SETUP mode (CFGF-03) ──► writeEnvVar + saveConfig ──┐
-        │ yes                                                                                    │
-        ▼ ◄──────────────────────────────────────────────────────────────────────────────────── ┘
- lifecycle.startDaemon('kodo'):
-   readPidFile('kodo') & isPidAlive?  ── yes ──► skip spawn (idempotent attach)
-        │ no
-        ▼
-   spawn detached [node, kodo, daemon, run] ─► child.unref()
-        │
-        ▼  daemon: startServer(managed)+startPolling ─► writePidFile('kodo') ─► listen(port)
-   poll /health until 200 (bounded)
-        ▼
- runDashboard({ url })   ── polls GET /status every 5s (existing) ──►
-        │ user quits (q / Ctrl-C / SIGTERM)
-        ▼
- up exits.   Daemon keeps running (detached, own PID file).   ← LOCKED persistent model
+kodo capture "idea"
+   → runCapture: derive tag (cwd → projects.json nearest-ancestor, adopt.js:138)
+   → stripControlChars(texto)
+   → withFileLock(inbox.lock): appendFileSync("- [ ] <id> · … · shell\n")
+   → exit 0
 ```
 
-### `kodo stop` / `status` (unified)
+### Capture flow (mid-session)
+
 ```
-kodo stop   → lifecycle.stopDaemon('kodo') → SIGTERM kodo.pid → 5s isPidAlive → SIGKILL → rm pid
-              (daemon cleanup() stops server+polling)
-kodo status → lifecycle.statusDaemon('kodo') → readPidFile+isPidAlive → running|idle (+ port/health)
+/kodo-capture "idea"   (skill, in a kodo-launched Claude session)
+   → reads injected `# kodo <task_ref>` header (session-start.js:33-39) for context
+   → shells: kodo capture "idea" --origin session --session-id <id>
+   → runCapture: findSession({sessionId,cwd}) → precise task_ref tag
+   → append (origin=session) → exit 0
 ```
 
-### `brew services start kodo`
-```
-launchd loads plist (RunAtLoad, KeepAlive) → exec [node, kodo, daemon, run] (FOREGROUND)
-   daemon run: startServer+startPolling, writePidFile('kodo'), block-forever
-   stdout/stderr → ~/.kodo/logs/  (launchd redirect)
-   crash → launchd KeepAlive restarts
-```
+### Triage + routing flow
 
-### Secret write (CFGF-03)
 ```
-dashboard masked input → onSaveApiKey(name,value) DI → config.js writeEnvVar → ~/.kodo/.env (0o600)
-   value NEVER → config.json / snapshot / /status / logs   (PERSIST-04, grep-guarded)
-   effect on next daemon (re)start: loadEnvFile → process.env → getProviderApiKey
+kodo inbox                         → list rows where marker == "- [ ]"
+operator picks item <id>
+   ├─ route:   /gsd-capture --backlog "<texto>"   (runs in target project's repo)
+   │              → GSD files it into ROADMAP.md 999.x / todo / seed
+   │           kodo inbox route <id>  → setStatus(id, 'enrutada')  (no delete)
+   └─ discard: kodo inbox discard <id> → setStatus(id, 'descartada') (no delete)
 ```
 
 ---
 
-## Anti-Patterns to Avoid
+## Architectural Patterns
 
-| Anti-pattern | Why bad | Instead |
-|--------------|---------|---------|
-| Spawn server & polling as **separate** PID-tracked children | Becomes a generic process manager (OUT of scope); double-fork breaks launchd/`brew services` supervision; two liveness checks + startup races | One composed daemon process, one PID file |
-| `daemon run` self-detaches | launchd/brew need a foreground process to supervise; a self-detaching service exits immediately and launchd flaps | Only `up` detaches; `daemon run` stays foreground |
-| `up` installs SIGINT/SIGTERM that signals the daemon | Would kill the daemon on dashboard quit — violates LOCKED persistent model | `up` owns only the dashboard; `detached:true` isolates the daemon's process group |
-| Reuse `startServer`'s `process.exit(1)` (server.js:407) under the daemon | Kills the whole daemon on a recoverable config gap; unfriendly under launchd | `managed` mode: throw/return a typed error, let `up`/launchd decide |
-| Two writers for the unified PID file | server.js writes `server.pid` (plain int, server.js:581) *and* daemon writes `kodo.pid` → drift | Under daemon, server does NOT write a PID; daemon owns `kodo.pid` (JSON shape) |
-| Overload `kodo install` (= Claude hooks) or `kodo start` (= fg server) | Breaks documented meaning; `start` is LOCKED-intact | `up` and `daemon run` are **new** commands |
-| Masked value read back into the render tree / config snapshot | Leaks secret to `/status`/logs (PERSIST-04 breach) | Value flows only to `writeEnvVar`; display is a "set/not set" probe |
-| Write `.env` non-atomically or world-readable | Torn write corrupts creds; 0o644 leaks secrets | `writeFileAtomic` + `chmod 0o600` (PID-file precedent) |
+### Pattern 1: Pure core + thin lazy-imported CLI
 
----
+**What:** All logic in `src/inbox/store.js` with DI-able paths; `src/cli/{capture,inbox}.js` only parse args, call the core, format output, and pick an exit code.
+**When:** Every kodo subcommand. **Trade-offs:** one extra file per command, but full unit-testability against a tmpdir and zero parse cost for unrelated commands. Cite: `src/gsd/doctor.js` ↔ `src/cli/gsd-doctor.js` (registered `src/cli.js:459`).
 
-## Integration Points (explicit new-vs-modified)
+### Pattern 2: Advisory-lock RMW with unique-tmp rename (never-throws)
 
-**NEW modules**
-- `src/daemon/lifecycle.js` — `startDaemon`/`stopDaemon`/`statusDaemon` (generic; templated on polling.js).
-- `src/daemon/run.js` — composed foreground entrypoint (`runDaemon`).
-- `src/cli/up.js` — `runUp()` orchestration (setup → ensure-daemon → wait-health → runDashboard → exit).
-- Homebrew tap: `Formula/kodo.rb` (`depends_on "node"` ≥20, `service do { run [bin, "daemon", "run"]; keep_alive true; log_path/error_log_path → ~/.kodo/logs }`).
-- Dashboard setup surface: CFGF-03 fields + masked input (extends Phase 63 in-house text-input to render `•`).
+**What:** Serialize file mutations with `withFileLock`; write via `tmp.<pid>.<uuid>` + `rename`, never a fixed tmp name.
+**When:** Any concurrent read-modify-write of a `~/.kodo/` file. **Trade-offs:** O(n) rewrite (fine — the inbox is tiny), but crash-safe and lost-update-safe. Cite: `src/hooks/session-end.js:327-381`, `src/session/state-lock.js:215`.
 
-**MODIFIED files**
-- `src/cli.js` — register `up`, `daemon run` (internal/hidden), unify `stop`/`status` onto the daemon (keep legacy `start` foreground server intact; decide whether `polling`/`server.pid` paths stay or deprecate — flag for roadmapper).
-- `src/server.js` — `startServer({managed})`: skip `process.exit` (server.js:405-408) and skip `writeFileSync(PID_PATH,...)` (server.js:581) when managed; return a closable handle; keep standalone `start`/`stopServer` behavior for legacy.
-- `src/config.js` — add `writeEnvVar`/`writeEnvFile` (atomic+0o600), export `ENV_PATH`, make `loadEnvFile` idempotently re-callable.
-- `src/cli/polling-daemon.js` — `getPidPath(name='polling')`; payload gains `kind`; keep `getPidPath()` back-compat.
-- `src/cli/dashboard/index.js` + `App.js` — add `onSaveApiKey` DI prop (mirror `onSaveConfig` :275-282) + setup-mode entry; wire first-run.
+### Pattern 3: Deterministic tag derivation, LLM only phrases
 
-**Data-flow changes**
-- New `~/.kodo/kodo.pid` (JSON) for the daemon; `server.pid`/`polling.pid` remain for legacy commands.
-- New secret write path (dashboard → `writeEnvVar` → `.env`), read path unchanged.
-- `up` adds a `/health` readiness poll between spawn and attach.
+**What:** The project tag is computed from cwd/session_id, not asked of the model. **When:** the `/kodo-capture` skill. **Trade-offs:** the skill is a thin shell-out; all "intelligence" is the deterministic reverse-lookup already in `src/cli/adopt.js:138-143`. Keeps the capture path 0-token and reproducible.
+
+### Pattern 4: Decoupled handoff to GSD (no import)
+
+**What:** kodo emits a plain-text idea + tag; `gsd-capture` consumes it into a GSD destination in a separate invocation. **When:** routing. **Trade-offs:** the operator/LLM is the courier (two steps: `/gsd-capture …` then `kodo inbox route <id>`), but kodo carries zero GSD-routing logic and the two evolve independently. Cite: `~/.claude/skills/gsd-capture/SKILL.md:28-39`.
 
 ---
 
-## Recommended build order (risk-graded — Pilar 1 before Pilar 2)
+## Anti-Patterns
 
-**Pilar 1 — lifecycle + entrypoint + brew (shippable core)**
-1. **Foundation (LOW):** generalize PID primitives (`name` param) + extract `src/daemon/lifecycle.js` from polling.js. Pure, unit-testable, zero behavior change to polling. *Dependency: none.*
-2. **Foreground daemon (MEDIUM — highest integration risk):** `src/daemon/run.js` + `kodo daemon run` + refactor `startServer` to `managed` mode (no `process.exit`, no self-PID). Do this **early** so everything else builds on a stable server. Verify standalone `kodo start` unchanged. *Depends on 1.*
-3. **`kodo up` + unified `stop`/`status` (MEDIUM):** detach-spawn, idempotent attach, `/health` wait, `runDashboard` viewer, clean detach-on-quit. *Depends on 2.*
-4. **Homebrew + `brew services` + Windows fallback (LOW-MEDIUM):** formula + launchd plist via `service do run [bin,"daemon","run"]`; Windows `up` → foreground. *Depends on 2/3 being stable.*
+### Anti-Pattern 1: Using `config.js` `writeFileAtomic` for the triage RMW
 
-**Pilar 2 — onboarding dashboard-first (depends on all of Pilar 1)**
-5. **Secrets writer + masked input + boundary guard (LOW-MEDIUM):** `writeEnvVar` single writer, masked text-input, PERSIST-04 source-hygiene test. *Depends on Phase 63 text-input.*
-6. **CFGF-03 editor + first-run setup mode (MEDIUM):** provider/base_url/workspace + masked key in dashboard; wire first-run detection into `up`. *Depends on 3 (`up`) + 5.*
+**What people do:** reuse the handy `writeFileAtomic(INBOX_PATH, …)`.
+**Why it's wrong:** its tmp name is fixed `path + '.tmp'` (`config.js:136`); two concurrent writers share it and corrupt each other — the `WR-02` bug `session-end.js:368-373` explicitly warns against.
+**Do this instead:** unique tmp `INBOX_PATH + '.tmp.' + pid + '.' + randomUUID()` + rename, under the lock.
 
-Rationale: 1 is pure foundation; 2 carries the only real integration risk (server.js refactor) so it goes early; 3→4 are orchestration/packaging on top; Pilar 2 needs `up` to exist (first-run wiring) so it strictly follows Pilar 1 — matching the requested "Pilar 1 lifecycle+brew before Pilar 2 onboarding."
+### Anti-Pattern 2: Deleting rows on discard/route
+
+**What people do:** remove the line when it's handled.
+**Why it's wrong:** kills the audit trail the feature exists to provide ("marks `enrutada`/`descartada` sin borrar", backlog 999.2).
+**Do this instead:** flip the status token in place; rows are grow-only.
+
+### Anti-Pattern 3: Adding a server endpoint or the model deciding the tag
+
+**What people do:** POST captures to `src/server.js`, or ask the LLM which project a capture belongs to.
+**Why it's wrong:** violates "cero endpoints nuevos" (LOCKED since v0.10; v0.14 config-editor precedent) and the "deterministic CLI, 0 tokens" constraint.
+**Do this instead:** filesystem-only writes; deterministic cwd→projects.json tag derivation.
+
+### Anti-Pattern 4: Re-implementing gsd-capture's routing inside kodo
+
+**What people do:** parse the idea and write ROADMAP.md/todos from kodo.
+**Why it's wrong:** duplicates GSD logic that will drift; explicitly out of scope ("routing delegated to GSD's gsd-capture, no reimplementation").
+**Do this instead:** hand the text to `/gsd-capture`; kodo only tracks triage state.
 
 ---
 
-## Open questions for the roadmapper
+## Integration Points
 
-- **`kodo stop`/`status` unification vs legacy `polling`/`server.pid`.** Does v0.15 deprecate the standalone `polling start` daemon and `stopServer`, or keep them alongside the unified daemon? (LOCKED: `kodo start` foreground server stays.) Recommend: keep legacy commands, add the unified daemon as the primary path; revisit deprecation later.
-- **Does the daemon always run polling, or only when provider=github?** Plane uses webhook (server ingress); github uses polling. Recommend conditional `startPolling` gated on `providerUsesPolling(config)`. Confirm plane users don't want polling too.
-- **Homebrew tap location** — separate `homebrew-kodo` tap repo vs core. `brew services` needs the `service do` block in the formula; confirm tap ownership.
-- **First-run "configured?" signal** — reuse `ensureConfig`'s `!existsSync(CONFIG_PATH)` (cli.js:538) *plus* a "provider API key set?" probe (`getProviderApiKey`) so setup mode also triggers when config exists but the key is missing.
+### External / Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `src/cli.js` ↔ `src/cli/{capture,inbox}.js` | lazy `await import()` in `.action()` | Two new `program.command` blocks; no `ensureConfig()` (provider-agnostic) |
+| `src/inbox/store.js` ↔ `~/.kodo/inbox.md` | `fs` append + RMW under `withFileLock` | Lock at `INBOX_PATH+'.lock'` |
+| `src/cli/capture.js` ↔ `projects.json` | `loadProjects()` reverse cwd match | Reuse `resolveProjectId`/`deriveModuleFromCwd` shape from `src/cli/adopt.js:138` |
+| `/kodo-capture` skill ↔ `kodo capture` CLI | shell-out (`Bash` allowed-tool) | Skill passes `--origin session --session-id`; derivation stays in kodo |
+| `kodo inbox` ↔ `gsd-capture` | operator/LLM courier (no code link) | Route = run `/gsd-capture` then `kodo inbox route <id>` |
+| `kodo skill sync` ↔ new skill | canonical `.claude/skills/` → `~/.claude/skills/` | **⚠ `kodo skill sync` currently syncs ONLY `kodo-orchestrate`** (`src/cli.js:507`). Adding `kodo-capture` needs skill-sync generalized to multi-skill, or a documented manual copy — flag for the roadmap. |
+| `src/server.js` | **none** | Hard constraint honored: zero endpoints touched |
+
+---
+
+## Suggested build order (dependency-graded)
+
+1. **Phase 82 — Inbox core + `kodo capture` (foundation).** `src/config.js` `INBOX_PATH` export; `src/inbox/store.js` (line codec, `appendCapture`, `listCaptures`, `setStatus`, lock wiring, unique-tmp RMW); `src/cli/capture.js` + register `kodo capture` in `src/cli.js`; tag derivation via projects.json reverse-lookup + `stripControlChars`. Everything downstream depends on the store + format. Deterministic, 0 tokens, no server. *Verifies the append path + concurrency under `withFileLock`.*
+2. **Phase 83 — `kodo inbox` triage (list + route/discard).** `src/cli/inbox.js` + register; consumes the store's `listCaptures`/`setStatus`; append-only-rows / mutable-status invariant; `--json` byte-deterministic. Depends on Phase 82's store. (Phases 82 and 83 could split within one milestone phase if the store lands first; the CLI surfaces parallelize once the core exists.)
+3. **Phase 84 — `/kodo-capture` skill + skill-sync generalization.** Canonical `.claude/skills/kodo-capture/skill.md` (context derivation → shell `kodo capture --origin session`); **generalize `kodo skill sync` to multi-skill** (or document manual placement). Depends on Phase 82 (the CLI it shells) and touches the sync surface (`src/cli/skill-sync.js`, `src/cli.js:507`).
+4. **Routing seam (doc/skill wiring, no kodo code).** Document the `kodo inbox` → `/gsd-capture` → `kodo inbox route <id>` handoff in the README / `kodo-orchestrate` skill so the courier flow is discoverable. Depends on Phase 83.
+
+**Ordering rationale:** the file format + lock + append is the spine — nothing lists or triages without it, so it lands first and is where the concurrency risk concentrates (research flag: exercise N-way concurrent capture + simultaneous triage RMW). Triage is pure consumption of the store. The skill is last because it only shells the already-shipped CLI and drags in the orthogonal skill-sync generalization. The gsd-capture seam is a documentation/wiring concern with no kodo code, so it trails.
+
+**Research flags for phases:**
+- **Phase 82:** concurrency is the real risk — verify the append lock-timeout fallback and the triage unique-tmp rename against N processes (mirror the `gsd-lock-race` scrutiny this very milestone is fixing). Confirm `appendFileSync` O_APPEND atomicity assumption on the target fs.
+- **Phase 84:** the skill-sync multi-skill generalization is a small but real API change to `src/cli/skill-sync.js` — scope it explicitly; don't let a second skill silently not-sync.
+- **Phases 83 / routing:** standard patterns, unlikely to need deeper research.
+
+---
+
+## Confidence / corrections
+
+- **HIGH** — every claim cites a file/line read in this pass; no external tech.
+- **Correction to the milestone brief:** the brief says "file locks in `src/gsd/lock.js` (withFileLock pattern)". Verified in-repo: `src/gsd/lock.js` is the **per-repo GSD lock** (`acquireGsdLock`/`releaseGsdLock`/`stealLock`, a different concern — that's the one v0.19 also fixes for the `stealLock` race). The reusable advisory-lock RMW primitive the inbox should use is **`withFileLock` in `src/session/state-lock.js:215`**, the same one `src/hooks/session-end.js:331` uses for the handoff RMW. Use the latter; do not couple the inbox to the GSD per-repo lock.
 
 ## Sources
 
-- Codebase (HIGH confidence, direct read): `src/cli/polling.js` (daemon pattern), `src/cli/polling-daemon.js` (PID primitives), `src/server.js` (startServer/stopServer), `src/config.js` (single writers, `.env` read), `src/cli/dashboard/index.js` (viewer + DI wiring), `src/gsd/lock.js` (`isPidAlive`), `src/cli.js` (command wiring, orchestrate signal ordering), `bin/kodo`, `package.json`, `.planning/PROJECT.md` (v0.15 goal, LOCKED constraints, PERSIST-04 boundary), `.planning/ROADMAP.md`.
-- Homebrew `service do` DSL / launchd `RunAtLoad`+`KeepAlive` for `brew services` (MEDIUM — standard Homebrew formula convention; verify exact DSL keys against current Homebrew docs at roadmap time).
+- `src/cli.js` (command registration + lazy-import pattern) — `:408-476`, `:479-500`, `:502-521`
+- `src/inbox/…` — NEW (proposed), modeled on `src/gsd/doctor.js` ↔ `src/cli/gsd-doctor.js`
+- `src/session/state-lock.js:182-231` — `withFileLock` / `releaseLock` (never-throws advisory lock)
+- `src/hooks/session-end.js:325-391` — handoff RMW: `withFileLock` + unique-tmp rename, WR-02 caveat
+- `src/hooks/session-start.js:33-106`, `:121-234`, `:254` — injected `# kodo <task_ref>` context + `findSession`
+- `src/config.js:11-14`, `:135-146`, `:615` — `KODO_DIR`/path consts, `writeFileAtomic` fixed-tmp caveat, exports
+- `src/cli/adopt.js:108-143` — projects.json reverse cwd→project resolution to reuse for the tag
+- `src/cli/format.js:80` — `stripControlChars` sanitizer
+- `~/.claude/skills/gsd-capture/SKILL.md:1-39` — routing table for the decoupled handoff
+- `.claude/skills/kodo-orchestrate/skill.md` + `src/cli.js:502-521` — skill-sync single-skill scope (generalization flag)
+
+---
+*Architecture research for: kodo v0.19 global capture inbox*
+*Researched: 2026-07-24*
