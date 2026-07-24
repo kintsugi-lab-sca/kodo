@@ -6,15 +6,15 @@ current_phase: 82
 current_phase_name: Fix de la carrera de `stealLock`
 status: executing
 stopped_at: Completed 82-01-PLAN.md
-last_updated: "2026-07-24T21:42:14.390Z"
+last_updated: "2026-07-24T22:06:53.547Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 82 execution started
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 25
 ---
 
 # Project State
@@ -141,3 +141,7 @@ None
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 82 P01 | 20min | 2 tasks | 3 files |
+
+### Blockers
+
+- 82-02 BLOCKED: el fix de 82-01 (steal-guard O_EXCL + rename in-place) NO cierra CR-01 — bajo carga sigue habiendo doble adquisicion (~4/100, todos N=5). Root cause reproducido: acquireStealGuard usa writeFileSync(guardPath,{flag:wx}), exclusivo en creacion pero deja el guard briefly-empty; un stealer perdedor lee el guard vacio como corrupto/stale (readGuard->null->guardIsStale->true), ROMPE un guard VIVO y re-entra en la seccion critica -> dos renames. El fix reubico la ventana briefly-empty del LOCK al GUARD. Fix: publicar el guard con linkSync(tmp,guardPath) atomico + no romper guard presente-no-parseable. Requiere rework de 82-01 (Rule 4, decision de mantenedor).
