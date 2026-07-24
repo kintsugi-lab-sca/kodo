@@ -25,6 +25,7 @@ import {
   readdirSync,
   existsSync,
   rmSync,
+  utimesSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -187,5 +188,52 @@ describe('gsd lock — steal-guard states (via public API + seeding)', () => {
     const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
     assert.equal(lock.session_id, 'sess-d');
     assert.equal(lock.pid, process.pid);
+  });
+
+  it('(e) present but empty/unparseable RECENT guard + stale lock → NOT broken', () => {
+    // Regression for the guard-level briefly-empty window: a guard that fails to
+    // parse must NOT be treated as stale merely for being unparseable — a fresh
+    // writer mid-publish would be broken, re-opening the double-acquire. A recent
+    // unparseable guard (fresh mtime) is respected; it is broken only once it ages.
+    const guardPath = join(tmpDir, '.planning', GUARD_BASENAME);
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    writeFileSync(guardPath, ''); // empty → unparseable; mtime = now (recent)
+    writeStaleDeadLock(tmpDir);
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-e' }));
+
+    assert.equal(result.acquired, false);
+
+    // The recent unparseable guard is left intact (never broken).
+    assert.ok(existsSync(guardPath), 'recent unparseable guard must not be broken');
+
+    // Lock state stays consistent: exactly one lock file, unchanged stale owner.
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
+    assert.equal(lock.session_id, 'crashed');
+  });
+
+  it('(f) present but unparseable AGED guard + stale lock → broken by mtime, steals', () => {
+    const guardPath = join(tmpDir, '.planning', GUARD_BASENAME);
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    writeFileSync(guardPath, '{partial'); // unparseable
+    // Backdate mtime one hour → well past any seconds-order threshold.
+    const past = new Date(Date.now() - 3600_000);
+    utimesSync(guardPath, past, past);
+    writeStaleDeadLock(tmpDir);
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-f' }));
+
+    assert.equal(result.acquired, true);
+
+    const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
+    assert.equal(lock.session_id, 'sess-f');
+    assert.equal(lock.pid, process.pid);
+
+    // Aged unparseable guard cleaned up; exactly one lock file of the caller.
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.includes(GUARD_BASENAME), `aged guard should be gone; got: ${entries}`);
   });
 });
