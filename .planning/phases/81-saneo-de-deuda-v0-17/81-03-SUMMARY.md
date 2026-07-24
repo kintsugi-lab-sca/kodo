@@ -69,3 +69,11 @@ Ninguno. Solo se crearon dos artefactos de documentación con contenido sustanti
 ## Follow-ups
 
 - **Nuevo item de deuda (mantenedor):** fix de la carrera de `stealLock` con gate D-09. Direcciones en el artefacto §Suggested Fix Direction (steal atómico sin ventana vacía vía lock por directorio / `link()` con CAS por inodo; o serializar la sección crítica del steal). Alternativa: aceptar el riesgo documentado (multi-steal simultáneo del mismo dead lock es un peor-caso sintético) con test red-esperado.
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/debug/gsd-lock-race-cr01.md`
+- FOUND: `.planning/phases/81-saneo-de-deuda-v0-17/81-DEBT-04-DIAGNOSIS.md`
+- FOUND: `.planning/phases/81-saneo-de-deuda-v0-17/81-03-SUMMARY.md`
+- FOUND commits: 9f9cf0e (deliverables), db7768f (summary)
+- `git diff --quiet -- src/gsd/lock.js` verde (producción intacta)

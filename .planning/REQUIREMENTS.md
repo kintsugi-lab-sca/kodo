@@ -26,7 +26,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **DEBT-01**: Un cierre de sesión sin `NEXT:` no deja un `next` obsoleto en `state.tasks` — semántica de clear/stale decidida y aplicada en `upsertTaskHandoff` (`src/session/state.js`)
 - [x] **DEBT-02**: Doc-drift de Phase 75 corregido — comentario de App.js «lee tasks UNA vez por tick» (75/WR-02) y typedef del prop `overlaySnapshot` sin `render` (75/WR-04)
 - [x] **DEBT-03**: `nextCell` colapsa `\n`/`\t` en el render de fila — un `next` hand-editado en `state.json` no descuadra la tabla (75/WR-03)
-- [ ] **DEBT-04**: El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida, jamás a ciegas (protege el invariante de locks de v0.16)
+- [x] **DEBT-04**: El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida, jamás a ciegas (protege el invariante de locks de v0.16)
 
 ## Future Requirements (v2, no en este roadmap)
 
@@ -66,7 +66,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEBT-01 | Phase 81 | Complete |
 | DEBT-02 | Phase 81 | Complete |
 | DEBT-03 | Phase 81 | Complete |
-| DEBT-04 | Phase 81 | Pending |
+| DEBT-04 | Phase 81 | Complete |
 
 **Coverage:**
 
