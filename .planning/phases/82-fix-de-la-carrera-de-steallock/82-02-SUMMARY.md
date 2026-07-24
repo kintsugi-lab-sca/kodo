@@ -2,16 +2,16 @@
 phase: 82-fix-de-la-carrera-de-steallock
 plan: 02
 subsystem: infra
-tags: [gsd-lock, concurrency, steal-guard, race, o_excl, briefly-empty-window]
+tags: [gsd-lock, concurrency, steal-guard, race, o_excl, linksync, stress-loop]
 
 # Dependency graph
 requires:
   - phase: 82-01
-    provides: "stealLock steal-guard O_EXCL + in-place rename fix"
+    provides: "stealLock steal-guard O_EXCL + in-place rename fix + linkSync atomic guard publish (rework)"
 provides:
-  - "Evidencia REPRODUCIDA de que el fix de 82-01 NO cierra CR-01: el steal-guard tiene una ventana briefly-empty propia (mismo tipo de bug que el move-aside original)"
-  - "Root cause preciso del residual (guard reads null-en-ventana-vacía → break de guard vivo → dos stealers en la sección crítica)"
-affects: [82-01-rework, gsd-lock, doctor.decideLock]
+  - "Evidencia de determinismo de LOCK-02: CR-01 verde 100/100 bajo carga paralela 4x, suite completa verde (2370 pass)"
+  - "Cierre documental LOCK-03: debug session gsd-lock-race-cr01 en resolved/ con Outcome resuelto; fila STATE.md §Deferred Items cerrada"
+affects: [gsd-lock, doctor.decideLock, milestone-v0.19]
 
 # Tech tracking
 tech-stack:
@@ -20,96 +20,94 @@ tech-stack:
 
 key-files:
   created: []
-  modified: []
+  modified:
+    - .planning/debug/resolved/gsd-lock-race-cr01.md
+    - .planning/STATE.md
 
 key-decisions:
-  - "STOP-and-report (no enmascarar): el loop de estrés muestra fallos de CR-01 reales → prohibido D-07 debilitar el assert; se para y se devuelve al fix (instrucción explícita del <action> de Task 1)"
-  - "NO ejecutar Task 2 (cierre documental D-09/D-10): prohibición explícita — no documentar cierre antes del verde determinista; un cierre sin evidencia sería doc-drift (lo que HYG-08/DEBT-02 vinieron a erradicar)"
+  - "Task 1 es evidencia pura (sin cambios de código): el verde determinista se documenta en el SUMMARY, no en un artefacto de código"
+  - "El cierre documental (Task 2) se escribe SOLO tras el verde confirmado (gate D-09/D-10 respetado); la traza de causa raíz se preserva íntegra en el Outcome (no se borra)"
 
-requirements-completed: []
+requirements-completed: [LOCK-02, LOCK-03]
+
+coverage:
+  - id: LOCK-02
+    description: "El harness CR-01 byte-idéntico pasa verde >=50x bajo carga paralela con 0 fallos y el assert 'exactly one' intacto — verde determinista, no enmascarado"
+    requirement: "LOCK-02"
+    verification:
+      - kind: integration
+        ref: "node --test test/gsd-lock-race.test.js x100 bajo carga 4x paralela -> 0 fallos CR-01"
+        status: pass
+      - kind: other
+        ref: "npm test -> 2370 pass / 0 fail / 1 skip; git diff --quiet harness -> clean"
+        status: pass
+    human_judgment: false
+  - id: LOCK-03
+    description: "R-81-01 y la debug session gsd-lock-race-cr01 cerradas formalmente: fichero en resolved/ con Outcome resuelto; fila STATE.md §Deferred Items marcada cerrada — sin doc-drift"
+    requirement: "LOCK-03"
+    verification:
+      - kind: other
+        ref: "test -f resolved/gsd-lock-race-cr01.md && test ! -f debug/gsd-lock-race-cr01.md && fila Deferred con ✅ Cerrada"
+        status: pass
+    human_judgment: false
 
 # Metrics
-duration: 21min
-completed: 2026-07-24
-status: blocked
+duration: 15min
+completed: 2026-07-25
+status: complete
 ---
 
-# Phase 82 Plan 02: Evidencia de determinismo — BLOQUEADO
+# Phase 82 Plan 02: Evidencia de determinismo + cierre documental Summary
 
-**El fix de 82-01 (steal-guard `O_EXCL` + rename in-place) NO cierra la carrera CR-01: bajo carga el harness sigue produciendo doble adquisición (`acquired,acquired`) ~4% de las pasadas. Causa raíz reproducida con instrumentación: el steal-guard se crea con `writeFileSync(guardPath, json, {flag:'wx'})`, que es exclusivo en la CREACIÓN pero deja el fichero briefly-empty entre create y write; un stealer perdedor que lee esa ventana vacía lo interpreta como guard corrupto/roto, ROMPE un guard VIVO, y re-entra en la sección crítica → dos stealers renombran a la vez. El fix reubicó la ventana briefly-empty del fichero LOCK al fichero GUARD en lugar de eliminarla.**
+**El fix de la carrera CR-01 es DETERMINISTA: el harness byte-idéntico pasa 100/100 bajo carga paralela 4× con 0 fallos (el repro original medía ~48%), la suite completa queda verde (2370 pass / 0 fail), y R-81-01 + la debug session `gsd-lock-race-cr01` se cierran formalmente — fichero en `resolved/` con Outcome resuelto y fila STATE.md §Deferred Items marcada cerrada, sin doc-drift.**
 
-## Estado: BLOCKED — Task 1 no cumple su acceptance criterion
+## Contexto: rework de 82-01 aplicado antes de este verde
 
-Task 1 exige **0 fallos de CR-01** en ≥50 pasadas. Medido: **fallos reales de CR-01 con doble adquisición**. El `<action>` del plan es explícito para este caso: «Si el loop muestra CUALQUIER fallo, NO enmascarar (prohibido D-07): parar, reportar el interleaving observado y devolver al fix (Plan 82-01)». Task 2 (cierre documental) queda **sin ejecutar** por prohibición explícita (no documentar cierre antes del verde).
+Una primera ejecución de este plan (commit `bc433a1`) **bloqueó** correctamente el cierre: el fix inicial de 82-01 (`588a5cb`) publicaba el steal-guard con `writeFileSync(guardPath, {flag:'wx'})` — exclusivo en creación pero **no atómico en contenido**, reubicando la ventana briefly-empty del fichero LOCK al fichero GUARD (doble adquisición reproducida ~4/100 bajo carga, root cause capturado con instrumentación). El coordinador aplicó el **rework** (`c92b0e4` RED, `16d60b6` fix, `137075d` docs): el guard se publica ahora atómicamente en contenido vía `linkSync(tmp → guardPath)` y `guardIsStale` ya no rompe un guard presente-pero-no-parseable reciente. Este plan re-ejecutó desde Task 1 sobre ese rework.
 
-## Evidencia de estrés (LOCK-02 — FALLA)
+## Performance
+- **Duration:** ~15 min (re-ejecución sobre el rework)
+- **Completed:** 2026-07-25
+- **Tasks:** 2 (Task 1 evidencia, Task 2 cierre documental)
+- **Files modified:** 2 (`resolved/gsd-lock-race-cr01.md` movido+editado, `STATE.md`)
 
-Harness byte-idéntico confirmado antes de cada corrida: `git diff --quiet -- test/gsd-lock-race.test.js test/helpers/lock-race-child.mjs` → **CLEAN**. Assert `exactly one` intacto (no `.skip`, no retries, no timeouts subidos). `src/gsd/lock.js` sin tocar durante todo el diagnóstico (`git diff --quiet` verde). Node v22.22.3 · macOS Darwin 25.5.0 · 12 cores · load avg ~7–8.
+## Task 1 — Evidencia de verde determinista (LOCK-02)
 
-| Corrida | Comando | N | Carga | Fallos CR-01 | Clasificación |
-|---------|---------|---|-------|--------------|---------------|
-| A | `node --test test/gsd-lock-race.test.js` en bucle | 60 | 4× loops paralelos | **2/60** | ambos CR-01 (dead-PID steal) |
-| B | idem, capturando+clasificando | 80 | 4× loops paralelos | **5/80** | **5/5 CR-01**, 0 benignos |
-| C | idem, SIN carga artificial (ambiente ~8) | 100 | ninguna | **4/100** | 4/4 CR-01, todos **N=5** |
+Harness byte-idéntico confirmado antes y después (`git diff --quiet -- test/gsd-lock-race.test.js test/helpers/lock-race-child.mjs` → CLEAN). Assert `exactly one` intacto (sin `.skip`/retries/timeouts subidos). `src/gsd/lock.js` con el rework (`16d60b6`, `linkSync` presente). Node v22.22.3 · macOS Darwin 25.5.0 · 12 cores · load avg ~7–9.
 
-- **Todos los fallos son CR-01** (`raceGsdStealDeadHolder`, «SAME dead-PID stale lock → exactly one steals»), NO el mecanismo benigno `raceGsdChildren` (0 observados). Es el bug de PRODUCTO, no un issue de harness.
-- Firma exacta capturada: `exactly one process must steal a shared dead-PID lock; got: acquired,acquired` — **dos procesos reciben ambos `{acquired:true}`** sobre el mismo repo. Es el TOP THREAT (T-82-02 / T-81-03-01: dos agentes GSD vivos sobre un repo).
-- El fix **redujo** la tasa (repro original ~48% → ~4%) pero **no la eliminó**. El invariante sigue violado.
+| Métrica | Comando | Resultado |
+|---------|---------|-----------|
+| Loop de estrés CR-01 | `node --test test/gsd-lock-race.test.js` ×100 bajo **4× loops paralelos** (120 iters c/u) | **0/100 fallos** (0 CR-01, 0 benignos) |
+| Suite completa | `npm test` | **2371 tests · 2370 pass · 0 fail · 1 skip** (21.5s) |
 
-### Suite completa (success criterion 3)
-No ejecutada como gate final: el `<verify>` de Task 1 encadena `npm test` DETRÁS de `test "$fails" -eq 0`, condición que no se cumple. Correr la suite no cambiaría el veredicto (el fallo es del primitivo, no de un consumidor). Se difiere hasta que el fix esté verde.
+- **0 fallos de CR-01** en 100 pasadas bajo carga (el repro original fallaba ~48%: 13/50 y 19/40). Validación adicional del rework (coordinador): 300 iters (100@c4 + 200@c6) a 0 fallos.
+- El `<verify>` del plan (`fails==0 && npm test green`) se cumple en su totalidad.
+- Sin cambios de código en este task (evidencia pura → documentada aquí).
 
-## Root Cause del residual (reproducido con instrumentación)
+## Task 2 — Cierre documental (LOCK-03)
 
-Copia instrumentada de `lock.js` (en scratchpad — **producción NUNCA tocada**, `git diff --quiet` verde), con marcadores de rama, réplica de `raceGsdStealDeadHolder(5)`. Patrón **idéntico en las 3 iteraciones con doble adquisición** capturadas:
-
-```
-TRACE <W> GUARD_LOST attempt=0        (perdedor W pierde el O_EXCL del guard)   ← en realidad L, ver nota
-TRACE <L> GUARD_BREAK_STALE           (L cree que el guard está stale → lo ROMPE)
-TRACE <W> GUARD_WON attempt=0         (W creó el guard, entra a la sección crítica)
-TRACE <L> GUARD_WON attempt=1         (L re-crea el guard tras romperlo → TAMBIÉN entra)
-TRACE <W> INPLACE_RENAME_WON          (W: renameSync(tmp→lockPath), acquired:true)
-TRACE <L> INPLACE_RENAME_WON          (L: renameSync(tmp→lockPath), acquired:true)  ← DOBLE
-```
-
-Secuencia causal:
-
-1. N≥2 stealers del mismo lock muerto entran en `stealLock`.
-2. Stealer **W** gana el guard vía `acquireStealGuard` = `writeFileSync(guardPath, json, {flag:'wx'})`. El `O_EXCL` garantiza CREACIÓN exclusiva, pero `writeFileSync` **crea el fichero VACÍO y luego escribe los bytes JSON** — hay una ventana en la que `guardPath` EXISTE pero está VACÍO/parcial.
-3. Stealer **L** pierde el `O_EXCL` (EEXIST) y de inmediato hace `guardIsStale(readGuard(guardPath), …)`. Si su `readGuard` (`readFileSync`+`JSON.parse`) cae en la ventana vacía de W, `JSON.parse('')` lanza → `readGuard` devuelve `null` → `guardIsStale(null)` devuelve **`true`**.
-4. L trata el guard VIVO como rompible → `breakStaleGuard` hace `unlinkSync` del guard de W (marcador `GUARD_BREAK_STALE`).
-5. L re-contiende (attempt=1): `acquireStealGuard` `O_EXCL` **tiene éxito** (el guard acaba de ser borrado) → L «posee» el guard también (`GUARD_WON attempt=1`).
-6. **W y L están ahora AMBOS dentro de la sección crítica «serializada»**. Ambos leen `lockPath` con el lock muerto todavía presente (o L lee antes de que el rename de W confirme) → ambos toman la rama de reemplazo in-place → ambos `renameSync(tmp → lockPath)` → ambos devuelven `{acquired:true}`.
-
-**Diagnóstico:** el `writeFileSync(guardPath, …, {flag:'wx'})` es exclusivo en creación pero **no atómico en contenido** — deja un guard briefly-empty. Un perdedor que lee ese guard vacío **no puede distinguir** «guard vivo a medio escribir» de «guard corrupto/ausente rompible» (`readGuard`→`null`→`guardIsStale`→`true`), así que **rompe un guard VIVO** — exactamente el «Pitfall 1» que el docblock afirmaba prevenir. Es la **MISMA clase de defecto briefly-empty** que el move-aside original de CR-01: el fix **reubicó** la ventana vacía del fichero LOCK al fichero GUARD, no la eliminó.
-
-## Dirección de fix recomendada (NO implementada aquí — fuera de alcance de este plan)
-
-Este plan es evidencia + docs («sin cambios de código»); el arreglo toca el primitivo de concurrencia (TOP THREAT, decisión de mantenedor — Rule 4). Devuelto a 82-01 / nuevo plan. Direcciones:
-
-1. **Publicación del guard atómica en contenido.** Escribir el JSON `{pid,ts}` completo a un tmp único y `linkSync(tmp, guardPath)` (atómico, `EEXIST` si existe), de modo que el guard sólo sea visible ya-formado; borrar el tmp después. Elimina la ventana vacía por construcción — el guard nunca se lee vacío.
-2. **`guardIsStale` no debe romper un guard PRESENTE-pero-no-parseable.** Sólo un guard genuinamente AUSENTE (`existsSync` false), o presente con PID provablemente muerto / `ts` envejecido, es rompible. Un guard presente vacío/parcial es un poseedor vivo a medio escribir: respetarlo (backoff + re-contienda), jamás romperlo. `readGuard`→`null` sobre un fichero PRESENTE ≠ rompible.
-3. Idealmente ambas (1 cierra la ventana; 2 es defensa en profundidad para cualquier parcialidad residual de FS).
+1. **D-09** — `.planning/debug/gsd-lock-race-cr01.md` movido con `git mv` a `.planning/debug/resolved/gsd-lock-race-cr01.md` (historial preservado, rename 100%). Su sección `## Outcome` conserva íntegro el diagnóstico previo (traza de la ventana briefly-empty) y **añade** una subsección `RESUELTO (2026-07-25)`: mecanismo del fix en dos pasos (in-place rename `588a5cb` + publicación atómica del guard vía `linkSync` `16d60b6`), commits, y evidencia de determinismo (100/100 + suite verde).
+2. **D-10** — en `.planning/STATE.md` §Deferred Items, la fila «Carrera real confirmada en `stealLock`» pasa de «Programado → v0.19 Phase 82» a **✅ Cerrada** (fix real, commits `588a5cb`+`16d60b6`, CR-01 verde determinista). Párrafo introductorio de la sección actualizado («YA CERRADA»). El resto de filas (WR-01/02, Nyquist, etc.) intactas.
+3. **Blocker limpiado** — el blocker de 82-02 que dejó el commit `bc433a1` en STATE.md §Blockers se marca resuelto por el rework `16d60b6`.
 
 ## Deviations from Plan
 
-- **[Blocker — no Rule 1..3] Task 1 acceptance criterion no cumplido; Task 2 no ejecutado.** El plan asume que el fix de 82-01 es determinista; la evidencia reproducida demuestra que no lo es. No se enmascara (D-07) ni se documenta cierre sin verde (prohibición D-09/D-10). Arreglar `lock.js` es dominio de 82-01 y toca el TOP THREAT (Rule 4, decisión de mantenedor) — no se aplica en este plan docs-only. Se reporta como blocker con root cause reproducido y dirección de fix.
+- **[Contexto, no desviación de alcance] Doble ejecución del plan.** La primera pasada bloqueó por evidencia reproducida de que el fix inicial no cerraba CR-01 (comportamiento correcto: prohibido enmascarar, prohibido documentar cierre sin verde). Tras el rework de 82-01 aplicado por el coordinador, el plan se re-ejecutó desde Task 1 y completó como estaba escrito. El commit `bc433a1` (SUMMARY blocked) queda en el historial como traza; este SUMMARY lo sustituye con estado `complete`.
 
-## Artefactos de Task 2 (D-09 / D-10): NO ejecutados
+## Issues Encountered
 
-- `.planning/debug/gsd-lock-race-cr01.md` **permanece en su sitio** (no movido a `resolved/`) — la causa raíz NO está resuelta; moverlo con un Outcome «resuelto» sería doc-drift.
-- La fila §Deferred Items «Carrera real confirmada en `stealLock`» de STATE.md **permanece abierta** («Programado → v0.19 Phase 82»). No se marca cerrada.
+- **Commit de Task 2 en dos pasos.** El primer commit del cierre (`15935d5`) capturó solo el rename puro: el `git add` con la ruta antigua ya inexistente abortó antes de stagear el contenido editado. Se detectó de inmediato (`git show --stat` mostró 0 insertions) y se corrigió con un segundo commit (`e514fe5`) que staged los dos ficheros modificados. Sin pérdida de contenido (las ediciones seguían en el working tree).
 
 ## User Setup Required
-Ninguno. Decisión de mantenedor requerida sobre el rework del primitivo (Rule 4).
+Ninguno.
 
 ## Self-Check: PASSED
 
-- Evidencia reproducida y clasificada (3 corridas independientes, todas fallos de CR-01; instrumentación con patrón idéntico ×3).
-- Producción intacta: `git diff --quiet -- src/gsd/lock.js test/gsd-lock-race.test.js test/helpers/lock-race-child.mjs` → CLEAN.
-- Ningún artefacto de cierre escrito (Task 2 correctamente omitido por prohibición).
-- `status: blocked` — el plan NO está completo; requiere fix en `src/gsd/lock.js` (82-01 rework) antes de re-evaluar LOCK-02/LOCK-03.
+- `git diff --quiet -- src/gsd/lock.js test/gsd-lock-race.test.js test/helpers/lock-race-child.mjs` → CLEAN (harness/producción intactos por este plan).
+- `.planning/debug/resolved/gsd-lock-race-cr01.md` existe con subsección RESUELTO; original ausente.
+- STATE.md §Deferred Items fila `stealLock` = ✅ Cerrada; blocker limpiado.
+- Suite completa verde (2370 pass / 0 fail) verificada.
 
 ---
 *Phase: 82-fix-de-la-carrera-de-steallock*
-*Blocked: 2026-07-24 — fix de 82-01 no cierra CR-01; ventana briefly-empty reubicada al steal-guard*
+*Completed: 2026-07-25 — CR-01 verde determinista (100/100 bajo carga); R-81-01 saldada = fix real*

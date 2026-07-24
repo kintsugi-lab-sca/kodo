@@ -55,7 +55,7 @@
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 82-02-PLAN.md — Evidencia de verde determinista bajo estrés + cierre documental (debug session → resolved/, fila STATE.md) (LOCK-02, LOCK-03) [wave 2]
+- [x] 82-02-PLAN.md — Evidencia de verde determinista bajo estrés + cierre documental (debug session → resolved/, fila STATE.md) (LOCK-02, LOCK-03) [wave 2]
 
 ### Phase 83: Inbox foundation — captura + triage
 

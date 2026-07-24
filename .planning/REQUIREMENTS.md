@@ -11,7 +11,7 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 
 - [x] **LOCK-01**: Con N≥2 procesos robando el mismo lock GSD muerto, exactamente uno adquiere — la ventana no-atómica move-aside→`O_EXCL` de `stealLock` (`src/gsd/lock.js:283-351`) queda cerrada (diagnóstico base: `.planning/debug/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`)
 - [x] **LOCK-02**: El test `gsd-lock-race` pasa verde de forma determinista validando la garantía real (sin debilitar el assert ni enmascarar la carrera — constraint heredado de DEBT-04)
-- [ ] **LOCK-03**: R-81-01 y la debug session `gsd-lock-race-cr01` quedan formalmente cerradas con la resolución documentada (STATE.md Deferred Items, debug session file)
+- [x] **LOCK-03**: R-81-01 y la debug session `gsd-lock-race-cr01` quedan formalmente cerradas con la resolución documentada (STATE.md Deferred Items, debug session file)
 
 ### Inbox de capturas (CAPT)
 
@@ -68,7 +68,7 @@ Qué fases cubren qué requirements.
 |-------------|-------|--------|
 | LOCK-01 | Phase 82 | Complete |
 | LOCK-02 | Phase 82 | Complete |
-| LOCK-03 | Phase 82 | Pending |
+| LOCK-03 | Phase 82 | Complete |
 | CAPT-01 | Phase 83 | Pending |
 | CAPT-02 | Phase 84 | Pending |
 | CAPT-03 | Phase 83 | Pending |
