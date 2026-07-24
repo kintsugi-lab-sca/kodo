@@ -400,16 +400,29 @@ export function removeSession(taskId, logger = noopLogger) {
  * Telemetry carries ONLY `{task_id, reason}`. The `next` is LLM-redacted content
  * and user content never reaches the logs (precedent T-71-18; mitigates T-74-08).
  *
- * Upsert semantics are ASYMMETRIC on `next` (WR-02): an absent/null incoming
- * `next` does NOT erase the previous one — only a new non-null `next` overwrites
- * it. `plan_path` and `updated_at` are unconditional overwrites. Reason: D-02
- * frames `null` as "ausente", and a mechanical close (D-03) says "this session
- * had nothing to say", not "this task has no next step" — the real `NEXT:` is
- * still in the plan file, so nulling it here would split the two halves of the
- * same datum.
+ * Upsert semantics on `next` are a THREE-STATE contract discriminated by
+ * PRESENCE of the field, NOT by truthiness (DEBT-01, D-01/D-04):
+ *
+ *   | Incoming `next`        | Effect on stored `next`     | Authorship (D-02)   |
+ *   |------------------------|-----------------------------|---------------------|
+ *   | non-empty string       | OVERWRITE with the string   | LLM wrote a NEXT:   |
+ *   | `null` (explicit)      | CLEAR — persist `null`      | LLM close, no NEXT: |
+ *   | field ABSENT/undefined | PRESERVE the previous value | mechanical backstop |
+ *
+ * Why by presence, not `??`: the earlier merge used `entry.next ?? prev.next`,
+ * which conflated `null` and `undefined` (both preserved) — that WAS the bug: an
+ * LLM close without a `NEXT:` could never erase a stale pointer.
+ *
+ * This REFRAMES (does not discard) the Phase 74 74/WR-02 rationale: a mechanical
+ * close (D-03) still says "this session had nothing to say", NOT "this task has
+ * no next step" — the real `NEXT:` is still in the plan file, so it must NOT be
+ * nulled. Under the three-state contract that intent maps to the FIELD-ABSENT
+ * lane (preserve), while an EXPLICIT `null` from the LLM branch is a deliberate
+ * clear. `plan_path` and `updated_at` remain unconditional overwrites. The type
+ * `next: string|null` stays legal, so no schema bump is needed (D-04).
  *
  * @param {string} taskId
- * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry Un `next` ausente o `null` preserva el previo (ver arriba); `plan_path` y `updated_at` pisan siempre.
+ * @param {{ plan_path: string, next?: string|null, updated_at?: string }} entry Un `next` string sobrescribe, `null` explícito borra (clear), campo AUSENTE preserva el previo (ver la tabla arriba); `plan_path` y `updated_at` pisan siempre.
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  * @returns {{ ok: true, value: { plan_path: string, next: string|null, updated_at: string } } | { ok: false, reason: 'lock-timeout' }}
  *   Phase 75 LIVE-07: en éxito, `value` es el entry EFECTIVO persistido (post-asimetría) —
@@ -433,19 +446,33 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
     // concurrent closes of the same task would start from the same stale `prev`
     // and one would resurrect an already-superseded `NEXT:`.
     const prev = state.tasks[taskId];
+    // DEBT-01 three-state merge, discriminated by PRESENCE of `next`, NOT by
+    // truthiness. Built BEFORE the `persisted` literal so the literal stays a
+    // flat, readable field list.
+    //   - field ABSENT/undefined → PRESERVE prev (mechanical backstop, D-03)
+    //   - `null` explicit        → CLEAR (deliberate — LLM close with no NEXT:)
+    //   - non-empty string       → OVERWRITE
+    // The old `entry.next ?? (prev ? prev.next : null) ?? null` conflated `null`
+    // and `undefined` (both preserved) — that was the bug (D-01).
+    let nextValue;
+    if (!('next' in entry) || entry.next === undefined) {
+      nextValue = prev ? prev.next : null; // absent → preserve (or null on first write)
+    } else if (entry.next === null) {
+      nextValue = null; // explicit null → deliberate clear
+    } else {
+      nextValue = entry.next; // non-empty string → overwrite
+    }
     persisted = {
       // NOT merged, by design: the caller builds `plan_path` deterministically
       // from the task_id (`session-end.js:307`), so for a given task the value is
       // always the same string — a fallback would have no reachable entry to
       // preserve and would mask a caller passing `undefined`.
       plan_path: entry.plan_path,
-      // The ONE field where an absent incoming value is semantically different
-      // from a persisted `null` (D-02: `null` means "ausente", not "this task has
-      // no next step"). Guards the concrete case: a mechanical close of D-03
-      // landing behind a real `NEXT:` from an earlier session of the same task —
-      // that close had nothing to say, while the real `NEXT:` is still sitting
-      // intact in the plan file. A new non-null `next` still wins.
-      next: entry.next ?? (prev ? prev.next : null) ?? null,
+      // Three-state result (see the `nextValue` discrimination above): the datum
+      // whose whole value is surviving the session that produced it. The real
+      // `NEXT:` also lives byte-for-byte in the plan file — a field-absent close
+      // preserves it, an explicit `null` clears it deliberately.
+      next: nextValue,
       // NOT merged either: the close really happened and its block landed in the
       // plan file, so the pointer must date it. Keeping the previous timestamp
       // would lie about the last write. The `??` here is a generation default,
