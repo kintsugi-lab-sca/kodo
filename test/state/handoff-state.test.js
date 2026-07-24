@@ -152,12 +152,13 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
       updated_at: '2026-07-15T09:00:00.000Z',
     });
 
-    // Sesión 2 de la MISMA tarea: cierre mecánico. Así es exactamente como llega
-    // la rama del backstop (`writeHandoff:366` → `{ planPath, next: null }`):
-    // mismo plan_path, `next: null` por diseño, `updated_at` posterior.
+    // Sesión 2 de la MISMA tarea: cierre mecánico. Bajo el contrato de tres estados
+    // (DEBT-01), el backstop mecánico OMITE el campo `next` (D-02/D-03): «campo
+    // ausente» = preserve. `null` explícito ahora BORRA (clear deliberado del LLM),
+    // así que el cierre mecánico ya NO puede expresarse como `next: null` — se
+    // expresa como campo-ausente, dejando solo plan_path + updated_at.
     upsertTaskHandoff('t1', {
       plan_path: '/p/t1.md',
-      next: null,
       updated_at: '2026-07-15T10:00:00.000Z',
     });
 
@@ -228,10 +229,10 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
       next: 'desplegar el fix',
       updated_at: '2026-07-15T09:00:00.000Z',
     });
-    // Sesión 2: cierre mecánico (next null) — como llega la rama del backstop.
+    // Sesión 2: cierre mecánico (campo `next` AUSENTE) — como llega la rama del
+    // backstop bajo el contrato de tres estados (DEBT-01): campo ausente = preserve.
     const r = upsertTaskHandoff('t1', {
       plan_path: '/p/t1.md',
-      next: null,
       updated_at: '2026-07-15T10:00:00.000Z',
     });
 
@@ -239,7 +240,7 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
     assert.equal(
       r.value.next,
       'desplegar el fix',
-      'el value.next devuelto es el EFECTIVO post-asimetría, NO el null entrante — es el que threadea el nudge',
+      'el value.next devuelto es el EFECTIVO post-preserve, NO genérico — es el que threadea el nudge',
     );
     assert.equal(r.value.updated_at, '2026-07-15T10:00:00.000Z', 'el updated_at SÍ avanza en el value');
   });
@@ -249,6 +250,89 @@ describe('upsertTaskHandoff — state.tasks writer (LIVE-04, D-05/D-06)', () => 
     const r = upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'nuevo', updated_at: '2026-07-15T10:00:00.000Z' });
 
     assert.equal(r.value.next, 'nuevo', 'un NEXT: presente pisa: el value lo refleja');
+  });
+
+  // -----------------------------------------------------------------------
+  // DEBT-01 — el contrato de TRES estados de `next` (D-01/D-04). La
+  // discriminación es por PRESENCIA del campo, no por truthiness: el `??`
+  // antiguo conflaciaba `null` y `undefined` (ambos preservaban) y ESE era el
+  // bug — nada podía borrar nunca un `next` obsoleto.
+  //
+  //   string no-vacío  → sobrescribe (overwrite)
+  //   `null` explícito → borra el previo (clear deliberado — LLM sin NEXT:)
+  //   campo ausente    → preserva el previo (backstop mecánico)
+  // -----------------------------------------------------------------------
+  it('CLEAR: `next: null` explícito con un prev pre-existente BORRA el previo (persiste null) — D-01', () => {
+    // Sesión 1: un NEXT: real de la tarea.
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'el NEXT viejo',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+    // Sesión 2: cierre LLM SIN `NEXT:` → el caller pasa `next: null` (clear deliberado).
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: null,
+      updated_at: '2026-07-15T10:00:00.000Z',
+    });
+
+    const entry = loadState().tasks.t1;
+    assert.equal(
+      entry.next,
+      null,
+      '`null` explícito BORRA el previo: es el clear deliberado del LLM-sin-NEXT (D-01), no un preserve',
+    );
+    assert.equal(entry.updated_at, '2026-07-15T10:00:00.000Z', 'y el updated_at avanza');
+  });
+
+  it('PRESERVE: campo `next` AUSENTE con un prev pre-existente PRESERVA el previo — D-01/D-02', () => {
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      next: 'el NEXT viejo',
+      updated_at: '2026-07-15T09:00:00.000Z',
+    });
+    // Campo `next` omitido → backstop mecánico → preserve.
+    upsertTaskHandoff('t1', {
+      plan_path: '/p/t1.md',
+      updated_at: '2026-07-15T10:00:00.000Z',
+    });
+
+    assert.equal(
+      loadState().tasks.t1.next,
+      'el NEXT viejo',
+      'campo ausente PRESERVA el previo — la discriminación es por presencia, no truthiness',
+    );
+  });
+
+  it('OVERWRITE: `next` no vacío con un prev pre-existente SOBRESCRIBE — D-01', () => {
+    upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'viejo', updated_at: '2026-07-15T09:00:00.000Z' });
+    upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'nuevo', updated_at: '2026-07-15T10:00:00.000Z' });
+
+    assert.equal(loadState().tasks.t1.next, 'nuevo', 'un string no vacío pisa el previo');
+  });
+
+  it('LIVE-07: el value.next devuelto refleja el CLEAR — `null` explícito devuelve null (nudge genérico)', () => {
+    upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'el NEXT viejo', updated_at: '2026-07-15T09:00:00.000Z' });
+    const r = upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: null, updated_at: '2026-07-15T10:00:00.000Z' });
+
+    assert.equal(r.ok, true);
+    assert.equal(
+      r.value.next,
+      null,
+      'el value.next post-merge es `null` en el clear → el nudge LIVE-07 será genérico',
+    );
+  });
+
+  it('LIVE-07: el value.next devuelto refleja el PRESERVE — campo ausente devuelve el prev.next (nudge contextual)', () => {
+    upsertTaskHandoff('t1', { plan_path: '/p/t1.md', next: 'el NEXT viejo', updated_at: '2026-07-15T09:00:00.000Z' });
+    const r = upsertTaskHandoff('t1', { plan_path: '/p/t1.md', updated_at: '2026-07-15T10:00:00.000Z' });
+
+    assert.equal(r.ok, true);
+    assert.equal(
+      r.value.next,
+      'el NEXT viejo',
+      'el value.next post-merge es el prev.next en el preserve → el nudge LIVE-07 será contextual',
+    );
   });
 
   // -----------------------------------------------------------------------
