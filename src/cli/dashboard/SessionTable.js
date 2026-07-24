@@ -814,7 +814,7 @@ function renderModulesOverlay(snapshot, fieldCursor, mode, buffer, cursor, proje
  *   picker de adopt (overlaySnapshot.kind==='adopt').
  * @param {'comments'|'logs'|'plan'|'adopt'|null} [props.overlayKind] - Phase 39: overlay abierto (c/l), Phase 44: 'plan' (p), Phase 56: 'adopt' (a), o null.
  * @param {number} [props.scrollOffset] - Phase 39 D-06: primera línea visible del body del overlay.
- * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[] }|null} [props.overlaySnapshot]
+ * @param {{ kind: 'comments'|'logs'|'plan', taskRef: string, status: string, lines: string[], render?: 'markdown'|'plain' }|null} [props.overlaySnapshot]
  *   Phase 39 D-05: contenido CONGELADO del overlay (no salta bajo el poll). status discrimina la copy.
  * @returns {import('react').ReactElement}
  */

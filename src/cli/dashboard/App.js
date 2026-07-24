@@ -732,10 +732,13 @@ export default function App({
   // en el ref expone el último N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone
   // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
   const lastGood = progressLastGoodRef.current;
-  // Phase 75 (LIVE-05, D-02): lee el bloque `tasks` de ~/.kodo/state.json UNA vez por tick,
-  // piggyback sobre el tick de usePoll que ya refresca /status (cero loop nuevo, cero watcher).
-  // never-throws → {} (Pitfall 1: readTasks NO importa loadState, no escribe .bak). El NEXT: es
-  // dato de la TAREA (por task_id), no de la sesión; ausente → celda vacía.
+  // Phase 75 (LIVE-05, D-02): lee el bloque `tasks` de ~/.kodo/state.json. Esta lectura vive en
+  // el cuerpo del componente, que React re-ejecuta en CADA render (75/WR-02) — no solo en los
+  // ticks de usePoll: cada pulsación de tecla en filtro, cada scroll de overlay y cada cambio de
+  // `mode` dispara una lectura síncrona (readFileSync). En la práctica hace piggyback sobre el
+  // tick de usePoll que refresca /status (cero loop nuevo, cero watcher), pero NO está limitada a
+  // ese tick. never-throws → {} (Pitfall 1: readTasks NO importa loadState, no escribe .bak). El
+  // NEXT: es dato de la TAREA (por task_id), no de la sesión; ausente → celda vacía.
   const tasks = readTasksFn({});
   const enriched = sorted.map((rawRow) => {
     // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
