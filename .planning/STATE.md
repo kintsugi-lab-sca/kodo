@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
-current_phase: 82
-current_phase_name: Fix de la carrera de `stealLock`
-status: verifying
+current_phase: 83
+current_phase_name: Inbox foundation — captura + triage
+status: planning
 stopped_at: Completed 82-02-PLAN.md (LOCK-02/03 done, phase ready for verification)
-last_updated: "2026-07-24T22:26:23.236Z"
-last_activity: 2026-07-24
-last_activity_desc: Phase 82 execution started
+last_updated: "2026-07-24T22:36:50.571Z"
+last_activity: 2026-07-25
+last_activity_desc: Phase 82 complete, transitioned to Phase 83
 progress:
   total_phases: 4
   completed_phases: 1
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 ## Current Position
 
-Phase: 82 (Fix de la carrera de `stealLock`) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-24 — Phase 82 execution started
+Phase: 83 — Inbox foundation — captura + triage
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-25 — Phase 82 complete, transitioned to Phase 83
 
 ## Most recent shipped milestone
 
@@ -55,6 +55,7 @@ Baseline al cierre de v0.18 (2026-07-24). **Varios items quedan ahora programado
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
 | Concurrencia | **Carrera real confirmada en `stealLock`** (`src/gsd/lock.js`): el move-aside `renameSync` dejaba `lockPath` ausente una ventana en la que dos `O_EXCL` podían ganar a la vez → doble adquisición con N≥2 procesos robando el mismo lock muerto. Diagnóstico completo en `.planning/debug/resolved/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`. | ✅ **Cerrada** — fix real en Phase 82 (commits `588a5cb` + rework `16d60b6`): move-aside eliminado (propiedad solo por `renameSync(tmp→lockPath)`), steal-guard `O_EXCL` publicado atómicamente vía `linkSync` (sin ventana briefly-empty en el guard); CR-01 verde determinista 100/100 bajo carga (+300 iters rework), suite 2370 verde. R-81-01 saldada = fix. | v0.18 Phase 81 (DEBT-04) |
+| Concurrencia | **82-REVIEW CR-01 (carrera de segundo orden en `stealLock`, holder VIVO):** el branch PRESENT del steal hace `renameSync(tmp→lockPath)` incondicional y los creadores Case-1 no pasan por el guard — con un holder stale VIVO (TTL expirado / corrupt-live) que hace `release` en plena sección crítica, el stealer puede clobbear a un creador fresco legítimo → dos owners. Fuera del criterio literal LOCK-01 (holder MUERTO, cerrado y probado); invisible al harness (siembra solo dead-PID). Fix por construcción exige serializar Case-1/release con el guard (rediseño del primitivo). Detalle en `82-REVIEW.md` CR-01 (+ WR-01/WR-02/IN-01/IN-02 menores). | **Pendiente de decisión del mantenedor (R-82-01)** — fix con gate vs riesgo aceptado documentado; NO aplicar parche apresurado (T-81-03-02) | v0.19 Phase 82 (code review) |
 | Doc/consistencia | 81-REVIEW WR-01 (typedef `TaskHandoff` en `state.js:53` documenta la semántica PRE-DEBT-01) · WR-02 (`deriveAnyNext` en `select.js:258` no colapsa whitespace al decidir presencia de columna) — aceptados en UAT 81 como deuda conocida | **Programado → v0.19 Phase 85** (DEBT-05/06, salda R-81-02) | v0.18 Phase 81 |
 | Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | **Programado → v0.19 Phase 85** (NYQ-02) | v0.16 |
 | Nyquist | VALIDATION.md en draft (seeded, nunca reconciliado) en Phases 79/80/81 — cobertura real sí evidenciada en cada VERIFICATION (suite 2364) | **Programado → v0.19 Phase 85** (NYQ-01) | v0.18 |
