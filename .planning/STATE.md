@@ -6,7 +6,7 @@ current_phase: 82
 current_phase_name: Fix de la carrera de `stealLock`
 status: executing
 stopped_at: Completed 82-01-PLAN.md
-last_updated: "2026-07-24T22:06:53.547Z"
+last_updated: "2026-07-24T22:16:20.801Z"
 last_activity: 2026-07-24
 last_activity_desc: Phase 82 execution started
 progress:
@@ -82,6 +82,7 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 
 - [Phase ?]: 82-01: stealLock cierra la carrera por construcción con steal-guard O_EXCL + renameSync(tmp->lockPath); move-aside eliminado (D-01/D-02)
 - [Phase ?]: 82-01: guard breakable por PID muerto (primario) o edad>5000ms (backstop); discriminar presente(rename)/ausente(O_EXCL) con existsSync para preservar Case 5 corrupt (D-08)
+- [Phase ?]: 82-01 rework: publicar el steal-guard atómicamente vía linkSync(tmp->guardPath); writeFileSync(wx) reabria la ventana briefly-empty en el guard (doble adquisicion reproducible). guardIsStale no rompe por parse-failure, solo por PID/edad. Validado: 300 iters CR-01 sin fallos.
 
 ### Open Blockers
 

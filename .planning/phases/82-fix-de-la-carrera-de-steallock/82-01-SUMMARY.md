@@ -64,6 +64,15 @@ coverage:
       - kind: unit
         ref: "test/gsd-lock-guard.test.js#(d) simulated crash mid-steal -> consistent"
         status: pass
+      - kind: unit
+        ref: "test/gsd-lock-guard.test.js#(e) recent unparseable guard -> NOT broken"
+        status: pass
+      - kind: unit
+        ref: "test/gsd-lock-guard.test.js#(f) aged unparseable guard -> broken by mtime, steals"
+        status: pass
+      - kind: integration
+        ref: "CR-01 stress loop: 300 iters (100@conc4 + 200@conc6) under parallel load -> 0 double-acquire"
+        status: pass
     human_judgment: false
   - id: D3
     description: "D-08 contract intact: Cases 1-5, AcquireResult shape, JSON lock format, exports (==5), consumers unchanged; harness byte-identical (D-07); zero new deps"
@@ -88,9 +97,9 @@ status: complete
 
 ## Performance
 
-- **Duration:** ~20 min
+- **Duration:** ~20 min (+ rework tras hallazgo del stress loop de 82-02)
 - **Completed:** 2026-07-24
-- **Tasks:** 2 (TDD: RED + GREEN)
+- **Tasks:** 2 (TDD: RED + GREEN) + 1 rework (RED + GREEN, bug de concurrencia)
 - **Files modified:** 3 (1 created, 2 modified)
 
 ## Accomplishments
@@ -106,8 +115,10 @@ Cada tarea se commiteó atómicamente (TDD):
 
 1. **Task 1: Unit tests dirigidos del steal-guard (RED)** - `17ef347` (test)
 2. **Task 2: Reescribir `stealLock` — guard `O_EXCL` + rename in-place + docblock + .gitignore (GREEN)** - `588a5cb` (feat)
+3. **Rework (Rule 1): casos de guard vacío/no-parseable (RED)** - `c92b0e4` (test)
+4. **Rework (Rule 1): publicación atómica del guard vía `linkSync` (GREEN)** - `16d60b6` (fix)
 
-_TDD gate sequence: `test(...)` (RED, 3/4 casos rojos) -> `feat(...)` (GREEN, 23/23 verdes)._
+_TDD gate sequence: `test(...)` (RED, 3/4 casos rojos) -> `feat(...)` (GREEN, 23/23 verdes) -> `test(...)` (RED, caso (e) rojo) -> `fix(...)` (GREEN, 25/25 verdes + stress 300×/0 fallos)._
 
 ## Files Created/Modified
 - `test/gsd-lock-guard.test.js` - Nuevo. 4 casos deterministas del guard (huérfano-PID-muerto, vivo+fresco-bloquea, viejo-por-edad-rompe, crash-mid-steal) vía `acquireGsdLock` + seeding de `.kodo.lock` y `.kodo.lock.steal-guard`; cabecera documenta que A1 (dos breakers concurrentes) la cubre el harness CR-01 + estrés de 82-02.
@@ -121,7 +132,20 @@ _TDD gate sequence: `test(...)` (RED, 3/4 casos rojos) -> `feat(...)` (GREEN, 23
 
 ## Deviations from Plan
 
-None - plan executed exactly as written. (El uso de `existsSync` para discriminar presente/ausente es discreción del implementador explícitamente permitida por el plan — "nombres/detalle exacto = discreción del implementador" — y necesaria para no romper el Case 5 corrupt; no constituye una desviación de alcance.)
+### Auto-fixed Issues
+
+**1. [Rule 1 - Bug] La ventana briefly-empty se había MOVIDO del lock al guard**
+- **Found during:** Rework tras el stress loop de 82-02 (dobles adquisiciones reproducibles: 2/60, 5/80, 4/100 iteraciones, todas N=5, firma `got: acquired,acquired`).
+- **Issue:** `acquireStealGuard` usaba `writeFileSync(guardPath, json, {flag:'wx'})` — exclusivo en la CREACIÓN pero NO atómico en CONTENIDO. Entre el `open` `O_EXCL` (fichero vacío) y el `write`, un stealer perdedor leía el guard vacío → `readGuard` → null → `guardIsStale(null)` → `true` → rompía un guard VIVO y re-entraba en la sección crítica → dos stealers renombraban a la vez. El fix del Plan 82-01 cerró la ventana del fichero LOCK pero la reabrió en el fichero GUARD.
+- **Fix:** (1) Publicación atómica en contenido del guard: escribir el JSON a un tmp único y publicarlo con `linkSync(tmp → guardPath)` — `link(2)` es atómico y falla `EEXIST` si el guard existe; el guard aparece ya con contenido completo (D-01 aplicado al guard). tmp con `unlink` best-effort en todos los caminos. (2) `guardIsStale` defensivo: un guard presente-pero-no-parseable NO se considera stale por no parsear; se rompe solo por PID muerto / edad `ts` (parseable) o edad de fichero (mtime) para contenido no-parseable. (3) `.gitignore` cubre el tmp del guard.
+- **Files modified:** `src/gsd/lock.js`, `.gitignore`, `test/gsd-lock-guard.test.js` (casos (e)/(f)).
+- **Verification:** `node --test` lock+guard+race verde (25/25); **stress loop CR-01: 300 iteraciones (100@conc4 + 200@conc6) bajo carga paralela de suites → 0 dobles adquisiciones.** Export count == 5; harness byte-idéntico (D-07); `package.json` intacto (cero deps, D-08).
+- **Committed in:** `c92b0e4` (test RED, caso (e)), `16d60b6` (fix GREEN).
+
+---
+
+**Total deviations:** 1 auto-fixed (Rule 1 — bug de concurrencia reproducido y cerrado).
+**Impact on plan:** El fix es necesario para la correctitud (LOCK-01/LOCK-02): sin él la garantía "exactamente uno adquiere" es falsa bajo estrés. Sin scope creep — mismo mecanismo (guard `O_EXCL`-exclusivo), reforzado para atomicidad de contenido. Discreción del implementador previa (`existsSync` para discriminar presente/ausente y preservar el Case 5 corrupt) se mantiene.
 
 ## Issues Encountered
 - **Riesgo detectado y evitado durante Task 2:** un primer borrador de la rama "absent" usaba `readLockContent()==null` como señal de ausencia, lo que habría enviado un lock CORRUPTO (presente pero no parseable) a la rama `O_EXCL`, y el fallback de agotamiento habría hecho `JSON.parse` sobre bytes corruptos y lanzado — rompiendo el Case 5 del contrato. Se corrigió antes de commitear discriminando con `existsSync(lockPath)` y usando `readLockContent` (que traga errores) en el fallback. Verificado: `test/gsd-lock.test.js` 15/15 verde.
@@ -130,13 +154,13 @@ None - plan executed exactly as written. (El uso de `existsSync` para discrimina
 None - no external service configuration required.
 
 ## Next Phase Readiness
-- Plan 82-02 (loop de estrés >=50x + cierre de docs) puede proceder: la implementación del guard está en verde bajo una pasada de CR-01 (N=2/N=5); 82-02 evidencia el determinismo bajo estrés y cubre la propiedad concurrente A1 (dos breakers del mismo guard huérfano).
-- Suite completa verde: 2368 pass / 0 fail / 1 todo (pre-existente).
+- Plan 82-02 (loop de estrés >=50x + cierre de docs) puede proceder: el guard ahora resiste el estrés — **300 iteraciones del harness CR-01 bajo carga paralela, 0 dobles adquisiciones** (A1 validada empíricamente: la ventana briefly-empty ya no existe ni en el lock ni en el guard).
+- Suite completa verde: 2370 pass / 0 fail / 1 todo (pre-existente).
 
 ## Self-Check: PASSED
 
 - Files verified on disk: `test/gsd-lock-guard.test.js`, `src/gsd/lock.js`, `.gitignore`, `82-01-SUMMARY.md`.
-- Commits verified in git: `17ef347` (test/RED), `588a5cb` (feat/GREEN).
+- Commits verified in git: `17ef347` (test/RED), `588a5cb` (feat/GREEN), `c92b0e4` (test/RED rework), `16d60b6` (fix/GREEN rework).
 
 ---
 *Phase: 82-fix-de-la-carrera-de-steallock*
