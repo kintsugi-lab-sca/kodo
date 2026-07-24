@@ -40,7 +40,10 @@ created: 2026-07-24
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (seeded draft — el planner rellena este mapa con los task IDs reales) | | | LOCK-01..03 | | exactamente un stealer adquiere | integration | `node --test test/gsd-lock-race.test.js` | ✅ | ⬜ pending |
+| 82-01/T1 | 82-01 | 1 | LOCK-01 | T-82-01 | estados del steal-guard (huérfano PID-muerto rompe; vivo+fresco bloquea; viejo-por-edad rompe; crash consistente) vía API pública + seeding | unit | `node --test test/gsd-lock-guard.test.js` | ❌ Wave 0 (fichero nuevo) | ⬜ pending |
+| 82-01/T2 | 82-01 | 1 | LOCK-01, LOCK-02 | T-82-01 | `stealLock` cierra la ventana por construcción (guard `O_EXCL` + rename in-place); contrato D-08 intacto | unit + integration | `node --test test/gsd-lock.test.js test/gsd-lock-guard.test.js test/gsd-lock-race.test.js` | ✅ (race harness byte-idéntico D-07) | ⬜ pending |
+| 82-02/T1 | 82-02 | 2 | LOCK-02 | T-82-02 | verde determinista ≥50× bajo carga (0 fallos) + suite completa sin regresión | stress loop + full suite | loop ≥50× `node --test test/gsd-lock-race.test.js` + `npm test` | ✅ (harness existente) | ⬜ pending |
+| 82-02/T2 | 82-02 | 2 | LOCK-03 | T-82-05 | cierre documental: debug session → `resolved/` con Outcome (D-09) + fila STATE.md cerrada (D-10) | manual/doc | grep de artefactos (ver 82-02 verify) | N/A (doc) | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

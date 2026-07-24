@@ -45,7 +45,9 @@
   2. El test `gsd-lock-race` pasa verde de forma determinista en ejecuciones repetidas, validando la garantía real sin debilitar el assert ni enmascarar la carrera (constraint heredado de DEBT-04: greenear enmascarando está prohibido). (LOCK-02)
   3. La suite completa sigue verde tras el fix, sin regresiones en el resto de `src/gsd/lock.js` ni en sus consumidores.
   4. R-81-01 y la debug session `gsd-lock-race-cr01` figuran formalmente cerradas con la resolución documentada (STATE.md Deferred Items + fichero de la debug session). (LOCK-03)
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 82-01-PLAN.md — Reescribir `stealLock` (steal-guard `O_EXCL` + reemplazo in-place atómico) + unit tests del guard + docblock (LOCK-01, LOCK-02) [wave 1]
+- [ ] 82-02-PLAN.md — Evidencia de verde determinista bajo estrés + cierre documental (debug session → resolved/, fila STATE.md) (LOCK-02, LOCK-03) [wave 2]
 
 ### Phase 83: Inbox foundation — captura + triage
 **Goal**: kodo gana su primer buffer de captura global — `kodo capture "idea"` appendea una línea atómica a `~/.kodo/inbox.md` y `kodo inbox` lista y marca capturas (`enrutada`/`descartada`) sin borrarlas jamás. Aquí se concentra el riesgo de concurrencia: el modelo de estado se decide explícitamente antes de construir cualquier consumidor.
