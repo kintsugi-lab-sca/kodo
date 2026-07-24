@@ -52,9 +52,15 @@ import { randomUUID } from 'node:crypto';
 
 const LOCK_FILE = '.planning/.kodo.lock';
 const DEFAULT_TTL_HOURS = 4;
-// Bounded re-contention budget for the compare-and-swap steal (CR-01). Each
-// iteration is a full CAS attempt; a pathological churn can never spin forever.
+// Bounded re-contention budget for the guarded steal (CR-01). Each iteration is
+// a full guard-acquire attempt; a pathological churn can never spin forever.
 const MAX_STEAL_ATTEMPTS = 8;
+// Age threshold past which an orphaned steal-guard is breakable (D-05). Orders
+// of magnitude larger than the ~1ms critical section (read+write+rename), so a
+// live stealer inside the guard is never broken by age (A2). Dead-PID is the
+// primary, always-safe break criterion; this age bound is the backstop for a
+// guard whose owner PID was recycled onto a live-but-unrelated process.
+const STEAL_GUARD_STALE_MS = 5_000;
 
 /**
  * Check whether `pid` is alive on the current host.
@@ -256,24 +262,113 @@ function isStaleLock(lock) {
 }
 
 /**
- * Replace an existing (stale/corrupt) lock with new ownership using a
- * compare-and-swap so that at most ONE of N concurrent stealers wins (CR-01).
+ * Read + parse the steal-guard at `guardPath`. Returns `null` if absent or
+ * unparseable (a corrupt/partial guard is treated as breakable).
  *
- * The previous implementation did an unconditional `renameSync` over the lock
- * (last-writer-wins), so two processes observing the same stale lock could both
- * "steal" and both return `{ acquired: true }` — two GSD agents on one repo. The
- * CAS closes that race:
+ * @param {string} guardPath
+ * @returns {{ pid: number, ts: number } | null}
+ */
+function readGuard(guardPath) {
+  try {
+    return JSON.parse(readFileSync(guardPath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to become the steal-guard owner via an O_EXCL create. Ownership is
+ * conferred ONLY by this successful exclusive create — never by breaking a
+ * stale guard. Returns `true` on win, `false` on `EEXIST` (loser); any other
+ * error is rethrown.
  *
- *  1. Move the CURRENT lock aside to a unique path. `renameSync` of a given
- *     inode succeeds only ONCE, so exactly one concurrent stealer wins the move;
- *     the losers get `ENOENT` and re-evaluate against the fresh state.
- *  2. ABA guard: confirm the bytes we moved aside are still the stale lock we
- *     meant to replace. A fresh live winner could have been created between the
- *     caller's read and our rename — if so, restore it and reject rather than
- *     double-acquire.
- *  3. Create the fresh lock via O_EXCL (`{flag:'wx'}`). If another process
- *     created one in the (briefly empty) window, we lose with `EEXIST` and
- *     reject in favour of the new holder.
+ * @param {string} guardPath
+ * @returns {boolean}
+ */
+function acquireStealGuard(guardPath) {
+  try {
+    writeFileSync(guardPath, JSON.stringify({ pid: process.pid, ts: Date.now() }), {
+      flag: 'wx',
+    });
+    return true;
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+    return false;
+  }
+}
+
+/**
+ * Is a steal-guard breakable? A guard is stale when it is corrupt/absent, its
+ * owner PID is dead (primary, always-safe criterion), or it aged past
+ * `thresholdMs`. Never break a live+in-window guard — its owner may be mid-rename
+ * and breaking it would reintroduce the double-acquire (Pitfall 1).
+ *
+ * @param {{ pid: number, ts: number } | null} guard
+ * @param {number} thresholdMs
+ * @returns {boolean}
+ */
+function guardIsStale(guard, thresholdMs) {
+  if (!guard) return true;
+  if (!isPidAlive(guard.pid)) return true;
+  return Number.isFinite(guard.ts) && Date.now() - guard.ts > thresholdMs;
+}
+
+/**
+ * Best-effort removal of a stale guard so a fresh `O_EXCL`-create can proceed.
+ * Breaking does NOT confer ownership; it only clears the orphaned guard.
+ *
+ * @param {string} guardPath
+ * @returns {void}
+ */
+function breakStaleGuard(guardPath) {
+  try {
+    unlinkSync(guardPath);
+  } catch {
+    /* best-effort — another contender may have broken it first */
+  }
+}
+
+/**
+ * Synchronous bounded backoff (best-effort) between re-contention attempts.
+ *
+ * @param {number} ms
+ * @returns {void}
+ */
+function sleepShort(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* SharedArrayBuffer unavailable — skip the backoff */
+  }
+}
+
+/**
+ * Replace an existing (stale/corrupt) lock with new ownership so that at most
+ * ONE of N concurrent stealers wins (CR-01), closing the double-acquire race by
+ * construction (D-01/D-02).
+ *
+ * Ownership of the LOCK is conferred SOLELY by `renameSync(tmp → lockPath)` (or
+ * an `O_EXCL` create over an absent path); ownership of the GUARD solely by an
+ * `O_EXCL` create of `${lockPath}.steal-guard`. That separation is the pivot:
+ *
+ *  1. Acquire the steal-guard (`O_EXCL`). A guard whose owner PID is dead, or
+ *     which aged past `STEAL_GUARD_STALE_MS`, is breakable (D-05) — breaking it
+ *     clears the orphan but confers no ownership; the winner is still whoever
+ *     next wins the `O_EXCL` create. A live+in-window guard is never broken
+ *     (Pitfall 1).
+ *  2. Inside the guarded critical section (serialized across stealers), re-read
+ *     `lockPath`: a fresh live holder → reject; a present stale/corrupt holder →
+ *     atomic in-place replacement via a uniquely-named `tmp` + `renameSync(tmp →
+ *     lockPath)`, so `lockPath` is NEVER briefly-empty (D-01); an ABSENT holder
+ *     → respect a fresh creator via `O_EXCL` create rather than clobbering it
+ *     (Pitfall 2), since a fresh `acquireGsdLock` Case-1 create bypasses the
+ *     guard.
+ *  3. Release the guard in a `finally` (happy + error paths).
+ *
+ * The bounded budget (`MAX_STEAL_ATTEMPTS`) caps re-contention; on exhaustion it
+ * rejects against the current holder or makes a final atomic `O_EXCL` acquire —
+ * never by renaming the live lock away, never by creating over a path left
+ * deliberately empty.
  *
  * @param {string} lockPath
  * @param {SessionInfo} sessionInfo
@@ -283,70 +378,86 @@ function isStaleLock(lock) {
 function stealLock(lockPath, sessionInfo, reason) {
   console.error(`[kodo:lock] Lock stolen: ${reason}`);
   mkdirSync(dirname(lockPath), { recursive: true });
+  const guardPath = `${lockPath}.steal-guard`;
 
   for (let attempt = 0; attempt < MAX_STEAL_ATTEMPTS; attempt++) {
-    const aside = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
-
-    // Step 1: CAS move-aside. Only one stealer can rename a given inode.
-    try {
-      renameSync(lockPath, aside);
-    } catch (e) {
-      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'ENOENT') throw e;
-      // Lost the move — someone else took the stale lock. If a live holder now
-      // owns it within TTL, reject; otherwise re-contend.
+    // Contend for the steal-guard. Ownership comes ONLY from the O_EXCL create.
+    if (!acquireStealGuard(guardPath)) {
+      // Guard busy. Break it only if orphaned (dead owner / aged out); never
+      // break a live, in-window guard (Pitfall 1).
+      if (guardIsStale(readGuard(guardPath), STEAL_GUARD_STALE_MS)) {
+        breakStaleGuard(guardPath);
+        continue; // re-contend for a fresh O_EXCL create
+      }
+      // A live stealer holds the guard. If the lock already has a live holder,
+      // reject; otherwise back off briefly and re-contend.
       const holder = readLockContent(lockPath);
       if (holder && !isStaleLock(holder)) return { acquired: false, holder };
+      sleepShort(2 * (attempt + 1));
       continue;
     }
 
-    // Step 2: ABA guard. If we moved aside a now-fresh live lock, restore it.
-    const movedAside = readLockContent(aside);
-    if (movedAside && !isStaleLock(movedAside)) {
-      try {
-        renameSync(aside, lockPath);
-      } catch {
-        try {
-          unlinkSync(aside);
-        } catch {
-          /* best-effort */
-        }
-      }
-      return { acquired: false, holder: movedAside };
-    }
-
-    // Step 3: O_EXCL-create the fresh lock; drop the moved-aside copy.
+    // ── Critical section, serialized by the guard ──
     try {
-      writeFileSync(lockPath, serializeLockContent(sessionInfo), { flag: 'wx' });
+      const current = readLockContent(lockPath);
+
+      // A fresh live holder appeared between the caller's read and here → reject.
+      if (current && !isStaleLock(current)) return { acquired: false, holder: current };
+
+      if (existsSync(lockPath)) {
+        // Present (stale or corrupt) → atomic in-place replacement. `lockPath` is
+        // never briefly-empty: rename swaps the inode atomically (POSIX). No fresh
+        // Case-1 creator can race here — its O_EXCL create fails EEXIST while any
+        // bytes are present, so the guard fully serializes us.
+        const tmp = `${lockPath}.tmp.${process.pid}.${randomUUID()}`;
+        try {
+          writeFileSync(tmp, serializeLockContent(sessionInfo));
+          renameSync(tmp, lockPath);
+        } catch (err) {
+          try {
+            unlinkSync(tmp);
+          } catch {
+            /* best-effort */
+          }
+          throw err;
+        }
+        return { acquired: true };
+      }
+
+      // Absent (holder released mid-steal) → respect a fresh creator via O_EXCL
+      // rather than clobbering it (Pitfall 2).
       try {
-        unlinkSync(aside);
+        writeFileSync(lockPath, serializeLockContent(sessionInfo), { flag: 'wx' });
+        return { acquired: true };
+      } catch (e) {
+        if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
+        const holder = readLockContent(lockPath);
+        if (holder && !isStaleLock(holder)) return { acquired: false, holder };
+        // A stale/corrupt lock reappeared → fall through to re-contend.
+      }
+    } finally {
+      try {
+        unlinkSync(guardPath);
       } catch {
         /* best-effort */
       }
-      return { acquired: true };
-    } catch (e) {
-      try {
-        unlinkSync(aside);
-      } catch {
-        /* best-effort */
-      }
-      if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
-      const holder = readLockContent(lockPath);
-      if (holder && !isStaleLock(holder)) return { acquired: false, holder };
-      // else re-contend
     }
   }
 
-  // Bounded churn exhausted (pathological). One final atomic create; if even
-  // that loses, reject against the current holder.
+  // Bounded budget exhausted (pathological churn). Never reopen the window:
+  // reject against the current holder, or make a final atomic O_EXCL acquire if
+  // the lock is legitimately absent. Never rename the live lock away; never
+  // create over a path left deliberately empty.
+  const holder = readLockContent(lockPath);
+  if (holder) return { acquired: false, holder };
   try {
-    writeLockFile(lockPath, sessionInfo);
+    writeFileSync(lockPath, serializeLockContent(sessionInfo), { flag: 'wx' });
     return { acquired: true };
   } catch (e) {
     if (/** @type {NodeJS.ErrnoException} */ (e).code !== 'EEXIST') throw e;
-    const holder =
-      readLockContent(lockPath) ??
-      /** @type {LockContent} */ (JSON.parse(readFileSync(lockPath, 'utf-8')));
-    return { acquired: false, holder };
+    const raced = readLockContent(lockPath);
+    if (raced) return { acquired: false, holder: raced };
+    throw e; // present-but-unparseable at the very end — surface, never clobber
   }
 }
 

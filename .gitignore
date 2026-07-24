@@ -1,1 +1,7 @@
 node_modules/
+
+# GSD per-repo lock runtime artifacts (ephemeral; never committed). The lock and
+# its steal-guard/tmp siblings live under the tracked .planning/ dir.
+.planning/.kodo.lock
+.planning/.kodo.lock.steal-guard
+.planning/.kodo.lock.tmp.*
