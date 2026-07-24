@@ -525,6 +525,21 @@ describe('LIVE-05 (SC5): nextCell proyecta el NEXT: por tarea a la celda next', 
     assert.equal(nextCell({ next: {} }), '');
   });
 
+  it('DEBT-03: colapsa \\n/\\t/\\r/multi-espacio a un espacio único + trim (fix de LAYOUT render-only)', () => {
+    assert.equal(nextCell({ next: 'a\nb\tc' }), 'a b c');
+    assert.equal(nextCell({ next: '  multiple   spaces  ' }), 'multiple spaces');
+    assert.equal(nextCell({ next: 'a\r\nb' }), 'a b');
+  });
+
+  it('DEBT-03: next solo-whitespace → "" (celda vacía, SIN placeholder, SC5)', () => {
+    assert.equal(nextCell({ next: '\n\t \r' }), '');
+    assert.equal(nextCell({ next: '   ' }), '');
+  });
+
+  it('DEBT-03: next sin whitespace interno pasa verbatim tras colapso (una sola línea)', () => {
+    assert.equal(nextCell({ next: 'plan ok' }), 'plan ok');
+  });
+
   it('rowCells(session).next === nextCell(session) y va como última clave (tras age)', () => {
     const session = { task_ref: 'KL-1', project_name: 'kodo', status: 'running', elapsed_min: 3, next: 'siguiente paso' };
     const cells = rowCells(session);
