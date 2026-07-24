@@ -8,6 +8,22 @@ kodo es un bridge entre sistemas de gestión de tareas y sesiones de Claude Code
 
 Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. El mismo sistema dispara dos modos GSD: full (`kodo:gsd`, multi-fase con verify) y quick (`kodo:gsd-quick`, one-shot), sin acoplar el código GSD al proveedor.
 
+## Current Milestone: v0.19 Inbox de capturas + fix stealLock + saneo de deuda
+
+**Goal:** Dar a kodo su primer buffer de captura global (candidata 999.2 promovida), cerrar con un fix real la carrera de `stealLock` diagnosticada en v0.18 (decisión R-81-01 resuelta: fix, no aceptación), y saldar la deuda doc/Nyquist acumulada de v0.16 y v0.18.
+
+**Target features:**
+- **Fix de la carrera de `stealLock`** — cerrar la ventana no-atómica move-aside→`O_EXCL` de `src/gsd/lock.js:283-351` (doble adquisición posible con N≥2 procesos robando el mismo lock muerto) y greenear el test `gsd-lock-race` (hoy flaky-red a propósito). Diagnóstico completo en `.planning/debug/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`; cierra R-81-01 y la debug session abierta.
+- **Inbox de capturas global (999.2)** — `kodo capture "idea"` desde shell appendea a `~/.kodo/inbox.md` (append-only, atómico, con `texto · tag-proyecto · fecha · origen`); skill `/kodo-capture` captura mid-session derivando proyecto/tarea del contexto; `kodo inbox` lista y marca `enrutada`/`descartada` sin borrar; el enrutado a tarea/fase/config lo hace `gsd-capture`, no una reimplementación (CAPT-01..04 del backlog).
+- **Barrido de deuda v0.18 + v0.16** — backfill Nyquist retroactivo (`/gsd-validate-phase` citation-based) de Phases 79/80/81 y 69/71/72; 3 warnings de 80-REVIEW; WR-01/WR-02 de 81-REVIEW (typedef `TaskHandoff` pre-DEBT-01 · `deriveAnyNext` sin colapso de whitespace) si el coste es marginal.
+
+**Fuera de alcance (siguen diferidos con su trigger real, no ejecutables a demanda):** UAT GitHub del backstop (requiere repo GitHub real) · CONC-09 sign-off de worktrees (requiere sesión GSD viva) · evidencia en vivo del round-trip `--fix` 79/80 (espera deriva real; prohibido fabricar estado en el sidebar del operador) · grupo `SCP-CMRi`≠`SCP` (acción de operador).
+
+**Key context:**
+- La decisión R-81-01 la tomó el mantenedor al abrir este milestone (2026-07-24): **fix real**, coherente con el espíritu hardening de v0.16/v0.18. Constraint heredado del diagnóstico: el test `gsd-lock-race` NO se greenea enmascarando — solo con el fix real de la ventana.
+- El inbox es la única feature nueva: superficie aislada (comando + skill + fichero), bajo blast radius, sin dependencias duras; reutiliza el enrutado de `gsd-capture`/`gsd-inbox`.
+- Numeración de fases **continúa** desde Phase 81 → la primera fase es **Phase 82**.
+
 ## Milestone v0.18 Higiene del sidebar de cmux (shipped 2026-07-24, histórico)
 
 **Goal:** Quitar al humano (y al launch path) la carga de mantener el sidebar de cmux — un doctor determinista (`kodo sidebar doctor`) detecta y corrige grupos que faltan, workspaces sueltos y grupos disueltos; el orquestador lo invoca cuando está activo; y el skill `kodo-orchestrate` + `src/orchestrator/prompt.md` se reconcilian con la realidad post-v0.17. Cierra además la deuda menor trazada por el audit v0.17.
@@ -62,7 +78,7 @@ Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor 
 
 ## Current State
 
-**In progress:** — (v0.18 shipped 2026-07-24; siguiente milestone por definir vía `/gsd-new-milestone`).
+**In progress:** v0.19 Inbox de capturas + fix stealLock + saneo de deuda (iniciado 2026-07-24) — fix real de la carrera de `stealLock` (R-81-01), buffer de captura global (`kodo capture` / `/kodo-capture` / `kodo inbox`), y barrido de deuda doc/Nyquist v0.16+v0.18.
 
 **Shipped:** v0.18 (2026-07-24) — Higiene del sidebar de cmux · el sidebar de cmux deja de mantenerse a mano (Phases 79-81, 9 plans, 86 commits, 3 días). **Phase 79:** `kodo sidebar doctor [--fix|--json]` determinista 0-tokens (scan/execute espejo de `gsd doctor`, allowlist no destructivo `add`/`ungroup`, guard source-hygiene contra `delete`, launch path byte-idéntico, UAT 4/4 en vivo). El gap G-79-1 del UAT (absorción de identidad del anchor: en cmux 0.64.20 el header del grupo ES la fila sidebar del anchor) se cerró con la política **missing_group report-only/advisory** ratificada por checkpoint (supera D-07/D-08): `execute()` jamás emite `create`/`set-anchor` — eliminado por construcción con test de regresión. **Phase 80:** los pases motivados de `kodo check` ejecutan el carril fix del doctor in-process (gate `needsOrchestrator`, antes del launch, fail-open, sidebar NO trigger — D-04 verificado por test) y skill `kodo-orchestrate` + `prompt.md` reconciliados con v0.17 + sidebar doctor (reparto asimétrico, bloque reporting intacto). **Phase 81:** deuda v0.17 saldada — DEBT-01 contrato tres-estados del `next` en `upsertTaskHandoff` (string sobrescribe / `null` explícito borra / ausente preserva, autoría mapeada en `session-end.js`), DEBT-02 doc-drift de Phase 75 corregido, DEBT-03 `nextCell` colapsa whitespace en el render (dato verbatim), DEBT-04 diagnóstico del flaky `gsd-lock-race`: **carrera REAL en `stealLock`** (ventana no-atómica move-aside→O_EXCL → doble adquisición posible; `lock.js` intacto por mandato, test flaky-red a propósito, fix → decisión de mantenedor, R-81-01/candidata v0.19). WR-01/WR-02 de 81-REVIEW aceptados como deuda conocida (R-81-02). Audit `tech_debt` sin blockers — 12/12 reqs, integración 8/8, flujos E2E 4/4; suite 2364 pass.
 
@@ -258,13 +274,12 @@ v0.7 entrega GitHub Issues como segundo adapter funcional del contrato `TaskProv
 
 ### Active
 
-*(Vacío — v0.18 shipped al completo. El siguiente milestone define sus requirements vía `/gsd-new-milestone`.)*
+*(Milestone v0.19 en curso — los requirements con REQ-ID se definen en `.planning/REQUIREMENTS.md`. Alcance: fix `stealLock` (R-81-01) + inbox de capturas global (999.2 promovida, CAPT-01..04) + barrido de deuda doc/Nyquist v0.16+v0.18.)*
 
-**Backlog (candidatas al siguiente milestone, detalle en ROADMAP.md §Backlog):**
+**Backlog restante (no absorbido por v0.19, detalle en ROADMAP.md §Backlog):**
 
-- [ ] Phase 999.2 — Inbox de capturas global: `kodo capture` + skill `/kodo-capture` → `~/.kodo/inbox.md` append-only con triage `kodo inbox` que delega el enrutado en `gsd-capture` (CAPT-01..04)
-- [ ] **Fix o aceptación definitiva de la carrera de `stealLock`** (candidata v0.19, decisión de mantenedor): carrera real confirmada en `src/gsd/lock.js:283-351` (ventana move-aside→O_EXCL, doble adquisición posible con N≥2 stealers); diagnóstico en `.planning/debug/gsd-lock-race-cr01.md`; el test `gsd-lock-race` queda flaky-red a propósito hasta entonces (R-81-01)
-- [ ] Tech debt v0.18 (menor, trazada en `milestones/v0.18-MILESTONE-AUDIT.md`): WR-01/WR-02 de 81-REVIEW aceptados (typedef `TaskHandoff` pre-DEBT-01 · `deriveAnyNext` sin colapso de whitespace, R-81-02) · 3 warnings 80-REVIEW (observabilidad/cobertura) · evidencia en vivo del round-trip `--fix` (79/80) · Nyquist retroactivo 79-81 (`/gsd-validate-phase`) · fidelidad markdown best-effort · grupo `SCP-CMRi`≠`SCP` (acción de operador) · R-77-D10 LOCKED
+- [ ] Evidencia en vivo del round-trip `--fix` (79/80) — espera deriva real del sidebar (no fabricar estado)
+- [ ] UAT GitHub del backstop (requiere repo GitHub real) · CONC-09 sign-off de worktrees (requiere sesión GSD viva) · grupo `SCP-CMRi`≠`SCP` (acción de operador) · fidelidad markdown best-effort (solo si molesta en uso real) · R-77-D10 LOCKED
 
 **Deferred candidates (futuros milestones):** adapter ClickUp · adapter local (JSON/Markdown) + file watcher · webhook GitHub ingress real-time · GitHub Enterprise (`base_url`) · OAuth GitHub App · derivación de título vía API directa de Anthropic (latencia ~1-3s vs ~10-20s del CLI `claude -p`, a cambio de gestionar API key) · toggle de reveal/paste del campo de API key enmascarado (v0.15 Phase 67 Pitfall 11 — el masking oculta typos al teclear)
 
@@ -424,7 +439,7 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-24 after v0.18 milestone — **v0.18 «Higiene del sidebar de cmux» SHIPPED** (Phases 79-81, 9 plans, audit `tech_debt` sin blockers, suite 2364). Decisión pendiente para v0.19: fix o aceptación definitiva de la carrera de `stealLock` (R-81-01). Next: `/gsd-new-milestone`.*
+*Last updated: 2026-07-24 — **milestone v0.19 «Inbox de capturas + fix stealLock + saneo de deuda» iniciado** (R-81-01 decidido: fix real; 999.2 promovida; deuda doc/Nyquist v0.16+v0.18 al barrido). Fases continúan desde Phase 82. Next: definir REQUIREMENTS.md + ROADMAP.md.*
 
 ---
 *Previous: 2026-07-22 — **Milestone v0.18 "Higiene del sidebar de cmux" iniciado.** Promueve la candidata 999.3 del Backlog (conversación del operador 2026-07-20): `kodo sidebar doctor` determinista (scan/`--fix`, allowlist no destructivo `create`/`add`/`set-anchor`/`ungroup`, `delete` ni se cablea, 0 tokens) + carril orquestador piggyback sobre pases de `kodo check` + re-fronterización consciente de GRP-04 (gestión de grupos permitida SOLO en el carril doctor; launch path byte-idéntico) + reconciliación del skill `kodo-orchestrate` y `src/orchestrator/prompt.md` con v0.17 (disciplina HYG-08). Incluye fase de saneo de los 8 items menores de deuda v0.17. Numeración continúa desde Phase 78 → primera fase **Phase 79**.*

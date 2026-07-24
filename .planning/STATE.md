@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.18
-milestone_name: Higiene del sidebar de cmux
-status: Awaiting next milestone
-stopped_at: Phase 81 complete (UAT 1/1, SECURITY 0 open) — milestone v0.18 100%, ready to complete milestone
-last_updated: "2026-07-24T09:43:50.842Z"
+milestone: v0.19
+milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
+status: planning
+last_updated: "2026-07-24T11:17:56.761Z"
 last_activity: 2026-07-24
-last_activity_desc: Milestone v0.18 completed and archived
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
-current_phase: 999.1
-current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -32,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 ## Current Position
 
-Phase: Milestone v0.18 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-24 — Milestone v0.18 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-24 — Milestone v0.19 started
 
 ## Most recent shipped milestone
 
