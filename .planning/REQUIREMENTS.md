@@ -62,31 +62,37 @@ Exclusiones explícitas. Documentadas para prevenir scope creep.
 
 ## Traceability
 
-Qué fases cubren qué requirements. Se rellena al crear el roadmap.
+Qué fases cubren qué requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOCK-01 | TBD | Pending |
-| LOCK-02 | TBD | Pending |
-| LOCK-03 | TBD | Pending |
-| CAPT-01 | TBD | Pending |
-| CAPT-02 | TBD | Pending |
-| CAPT-03 | TBD | Pending |
-| CAPT-04 | TBD | Pending |
-| CAPT-05 | TBD | Pending |
-| CAPT-06 | TBD | Pending |
-| CAPT-07 | TBD | Pending |
-| DEBT-05 | TBD | Pending |
-| DEBT-06 | TBD | Pending |
-| DEBT-07 | TBD | Pending |
-| NYQ-01 | TBD | Pending |
-| NYQ-02 | TBD | Pending |
+| LOCK-01 | Phase 82 | Pending |
+| LOCK-02 | Phase 82 | Pending |
+| LOCK-03 | Phase 82 | Pending |
+| CAPT-01 | Phase 83 | Pending |
+| CAPT-02 | Phase 84 | Pending |
+| CAPT-03 | Phase 83 | Pending |
+| CAPT-04 | Phase 83 | Pending |
+| CAPT-05 | Phase 84 | Pending |
+| CAPT-06 | Phase 83 | Pending |
+| CAPT-07 | Phase 84 | Pending |
+| DEBT-05 | Phase 85 | Pending |
+| DEBT-06 | Phase 85 | Pending |
+| DEBT-07 | Phase 85 | Pending |
+| NYQ-01 | Phase 85 | Pending |
+| NYQ-02 | Phase 85 | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15 ⚠️ (pre-roadmap)
+- Mapped to phases: 15 ✓
+- Unmapped: 0
+
+**Distribución por fase:**
+- Phase 82 (Fix stealLock): LOCK-01, LOCK-02, LOCK-03 (3)
+- Phase 83 (Inbox foundation — captura + triage): CAPT-01, CAPT-03, CAPT-04, CAPT-06 (4)
+- Phase 84 (Superficies de captura): CAPT-02, CAPT-05, CAPT-07 (3)
+- Phase 85 (Saneo de deuda + Nyquist): DEBT-05, DEBT-06, DEBT-07, NYQ-01, NYQ-02 (5)
 
 ---
 *Requirements defined: 2026-07-24*
-*Last updated: 2026-07-24 after initial definition (milestone v0.19)*
+*Last updated: 2026-07-24 after roadmap creation (milestone v0.19 — 15/15 requirements mapeados a Phases 82-85)*

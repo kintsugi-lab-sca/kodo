@@ -19,8 +19,67 @@
 - ✅ **v0.16 Hardening** — Phases 69-72 (shipped 2026-07-15)
 - ✅ **v0.17 Plan vivo por-tarea** — Phases 74-78 (shipped 2026-07-22)
 - ✅ **v0.18 Higiene del sidebar de cmux** — Phases 79-81 (shipped 2026-07-24)
+- 🚧 **v0.19 Inbox de capturas + fix stealLock + saneo de deuda** — Phases 82-85 (en curso desde 2026-07-24)
 
-> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74. La Phase 73 no vuelve a usarse — v0.18 continúa desde la Phase 79 (última shipped: Phase 78).
+> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74. La Phase 73 no vuelve a usarse — v0.18 continuó desde la Phase 79 (última shipped: Phase 78) y v0.19 continúa desde la Phase 82 (última shipped: Phase 81).
+
+## Active Milestone: v0.19 Inbox de capturas + fix stealLock + saneo de deuda
+
+**Milestone Goal:** Dar a kodo su primer buffer de captura global (candidata backlog 999.2 promovida), cerrar con un fix real la carrera de `stealLock` diagnosticada en v0.18 (decisión R-81-01 resuelta por el mantenedor 2026-07-24 = fix, no aceptación), y saldar la deuda doc/Nyquist acumulada de v0.16 y v0.18. Tres workstreams independientes; el inbox es la única feature nueva (superficie aislada: comando + skill + fichero, bajo blast radius).
+
+**Granularidad:** `coarse` → 4 fases. **Cobertura:** 15/15 requirements mapeados.
+
+- [ ] **Phase 82: Fix de la carrera de `stealLock`** - Cerrar con un fix real la ventana no-atómica move-aside→`O_EXCL` de `stealLock` y greenear `gsd-lock-race` — LOCK-01..03
+- [ ] **Phase 83: Inbox foundation — captura + triage** - Store + `kodo capture` (append atómico) + `kodo inbox` triage (list/mark sin borrar) + seam de enrutado a `gsd-capture` — CAPT-01, CAPT-03, CAPT-04, CAPT-06
+- [ ] **Phase 84: Superficies de captura — skill, sync, conteo ambient** - `/kodo-capture` mid-session + `kodo skill sync` multi-skill + conteo de capturas sin enrutar en el dashboard — CAPT-02, CAPT-05, CAPT-07
+- [ ] **Phase 85: Saneo de deuda + Nyquist retroactivo** - Deuda doc de v0.18 (WR-01/WR-02, 80-REVIEW) + Nyquist retroactivo de 79/80/81 y 69/71/72 — DEBT-05..07, NYQ-01, NYQ-02
+
+## Phase Details
+
+### Phase 82: Fix de la carrera de `stealLock`
+**Goal**: Con N≥2 procesos robando el mismo lock GSD muerto, exactamente uno adquiere — la ventana no-atómica move-aside→`O_EXCL` de `stealLock` queda cerrada con un fix real (no enmascarando) y el test lo prueba en verde de forma determinista.
+**Depends on**: Nada (workstream independiente; resuelve R-81-01, decisión del mantenedor 2026-07-24 = fix real, coherente con el espíritu hardening de v0.16/v0.18)
+**Requirements**: LOCK-01, LOCK-02, LOCK-03
+**Success Criteria** (what must be TRUE):
+  1. Ejecutar N≥2 procesos que roban el mismo lock GSD muerto resulta en exactamente una adquisición — nunca dos (la ventana no-atómica move-aside→`O_EXCL` de `stealLock`, `src/gsd/lock.js:283-351`, está cerrada). (LOCK-01)
+  2. El test `gsd-lock-race` pasa verde de forma determinista en ejecuciones repetidas, validando la garantía real sin debilitar el assert ni enmascarar la carrera (constraint heredado de DEBT-04: greenear enmascarando está prohibido). (LOCK-02)
+  3. La suite completa sigue verde tras el fix, sin regresiones en el resto de `src/gsd/lock.js` ni en sus consumidores.
+  4. R-81-01 y la debug session `gsd-lock-race-cr01` figuran formalmente cerradas con la resolución documentada (STATE.md Deferred Items + fichero de la debug session). (LOCK-03)
+**Plans**: TBD
+
+### Phase 83: Inbox foundation — captura + triage
+**Goal**: kodo gana su primer buffer de captura global — `kodo capture "idea"` appendea una línea atómica a `~/.kodo/inbox.md` y `kodo inbox` lista y marca capturas (`enrutada`/`descartada`) sin borrarlas jamás. Aquí se concentra el riesgo de concurrencia: el modelo de estado se decide explícitamente antes de construir cualquier consumidor.
+**Depends on**: Nada dura (superficie nueva aislada). Reutiliza `withFileLock` (`src/session/state-lock.js:215`, NO `src/gsd/lock.js`), `stripForKeystroke` (`src/cli/format.js`) y la resolución cwd→proyecto de `src/cli/adopt.js`
+**Requirements**: CAPT-01, CAPT-03, CAPT-04, CAPT-06
+**Success Criteria** (what must be TRUE):
+  1. `kodo capture "idea"` desde cualquier proyecto añade a `~/.kodo/inbox.md` una línea `texto · tag-proyecto · fecha · origen`; N capturas concurrentes producen N líneas sin pérdidas (append atómico O_APPEND, nunca `writeFileAtomic`) y el texto queda saneado a una sola línea vía `stripForKeystroke`. (CAPT-01)
+  2. `kodo inbox` lista las capturas abiertas y permite marcar cada una como `enrutada`/`descartada` sin borrarla jamás — se conserva la traza permanente de qué se convirtió en qué. (CAPT-03)
+  3. Una captura concurrente durante el marcado nunca se pierde; el modelo de estado (lock compartido `withFileLock` vs event-log append-only) queda decidido explícitamente en discuss-phase, no por defecto silencioso de un implementador. (CAPT-03)
+  4. Una captura `enrutada` conserva un trace pointer `→ destino` en su línea cuando el flujo de enrutado aporta una ref barata; si `gsd-capture` no devuelve ref, la marca `enrutada` queda sin destino sin bloquear el enrutado (best-effort explícito). (CAPT-06)
+  5. La documentación describe el seam de enrutado (`kodo inbox` → `/gsd-capture` → marcar `enrutada`) delegando el «a dónde va» en `gsd-capture`, sin import ni reimplementación de su lógica de destinos en kodo. (CAPT-04)
+**Plans**: TBD
+
+### Phase 84: Superficies de captura — skill, sync, conteo ambient
+**Goal**: La captura mid-session y la presión de triage cierran el ciclo — `/kodo-capture` captura desde dentro de una sesión Claude Code con formato byte-idéntico al CLI, y el operador ve el conteo de capturas sin enrutar como superficie ambient contra el inbox rot.
+**Depends on**: Phase 83 (el skill shellea el `kodo capture` ya shippeado — jamás escribe el fichero; el conteo lee el formato de `~/.kodo/inbox.md` ya definido)
+**Requirements**: CAPT-02, CAPT-05, CAPT-07
+**Success Criteria** (what must be TRUE):
+  1. `/kodo-capture` captura mid-session derivando proyecto/tarea del contexto de sesión de forma determinista y shelleando a `kodo capture`; el formato de línea es byte-idéntico al del CLI (un solo writer — el skill jamás escribe `inbox.md` directamente), verificado con golden test skill-path↔CLI-path. (CAPT-02)
+  2. `kodo skill sync` distribuye tanto `kodo-orchestrate` como `kodo-capture` — el mecanismo hoy single-skill queda generalizado a multi-skill de forma explícita. (CAPT-05)
+  3. El operador ve en el dashboard TUI el conteo de capturas sin enrutar, leído de `~/.kodo/inbox.md` (reader leaf never-throws, cero endpoints nuevos en `src/server.js`) — presión ambient contra el inbox rot. (CAPT-07)
+**Plans**: TBD
+
+### Phase 85: Saneo de deuda + Nyquist retroactivo
+**Goal**: La deuda documental de v0.18 y la columna Nyquist de v0.16+v0.18 quedan saldadas — barrido ligero, mayormente mecánico y doc-only.
+**Depends on**: Nada (workstream independiente; doc/debt sweep)
+**Requirements**: DEBT-05, DEBT-06, DEBT-07, NYQ-01, NYQ-02
+**Success Criteria** (what must be TRUE):
+  1. El typedef `TaskHandoff` (`src/session/state.js`) documenta la semántica post-DEBT-01 — el contrato tres-estados del `next` por presencia del campo (string sobrescribe / `null` borra / ausente preserva) — cerrando 81-REVIEW WR-01. (DEBT-05)
+  2. `deriveAnyNext` (`src/cli/dashboard/select.js`) colapsa whitespace al decidir la presencia de la columna `next`, coherente con el render de `nextCell`; con la crit 1 salda R-81-02, cerrando 81-REVIEW WR-02. (DEBT-06)
+  3. Los 3 warnings de 80-REVIEW.md (observabilidad/cobertura) quedan resueltos o re-aceptados individualmente con razón documentada. (DEBT-07)
+  4. Phases 79/80/81 tienen `VALIDATION.md` `nyquist_compliant: true` citation-based (`/gsd-validate-phase` retroactivo, evidencia de la suite existente sin re-derivar). (NYQ-01)
+  5. Phases 69/71/72 tienen `VALIDATION.md` `nyquist_compliant: true` citation-based — salda la columna Nyquist de v0.16 en Deferred Items. (NYQ-02)
+**Plans**: TBD
 
 ## Phases
 
@@ -158,6 +217,7 @@ Detalle completo de las fases 79-81: ver `milestones/v0.18-ROADMAP.md`.
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
+| v0.19 Inbox de capturas + fix stealLock + saneo de deuda | 82-85 | 0/TBD | In progress | - |
 | v0.18 Higiene del sidebar de cmux | 79-81 | 9/9 | Complete | 2026-07-24 |
 | v0.17 Plan vivo por-tarea | 74-78 | 17/17 | Complete | 2026-07-22 |
 | v0.16 Hardening | 69-72 | 18/18 | Complete | 2026-07-15 |
@@ -177,26 +237,24 @@ _Este backlog item se materializó como el milestone **v0.13 kodo bidireccional*
 
 _(ORCH-05 salió del backlog: promovido a **Phase 76** en v0.17 con causa raíz localizada en código.)_
 
-### Phase 999.2: Inbox de capturas global — feature (candidata futura)
+### Phase 999.2: Inbox de capturas global — feature (PROMOVIDO → v0.19 Phases 83-84)
 
-> **Renumerado 2026-07-15:** este item se llamaba «Phase 75» en el backlog. Al promover la candidata Phase 74 a fase activa, v0.17 ocupó 74-76 y el número 75 quedaría ambiguo. Se renumera a 999.2 siguiendo la convención de placeholders del backlog (999.x). Recibirá número real al promoverse. Sigue en backlog al abrir v0.18 (2026-07-22).
+> **Renumerado 2026-07-15:** este item se llamaba «Phase 75» en el backlog. Al promover la candidata Phase 74 a fase activa, v0.17 ocupó 74-76 y el número 75 quedaría ambiguo. Se renumeró a 999.2 siguiendo la convención de placeholders del backlog (999.x). Promovido a fases reales al abrir v0.19 (2026-07-24).
 
-**Goal**: Dar a kodo un **buffer de captura rápida** para ideas tangenciales que surgen mid-session (un tip de config, una idea de comando, un cambio de sentido) y que NO dan para una tarea de Plane. Global y propio de kodo (`~/.kodo/inbox.md`, append-only, con tag de proyecto), capturable desde shell (`kodo capture`) y desde dentro de la sesión (skill `/kodo-capture`). Lo que hace que funcione y no se pudra es el **destino**: `kodo inbox` enruta cada captura → tarea Plane / fase roadmap / config / descartada, delegando el «a dónde va» en `gsd-capture`.
+_Esta candidata se materializó como el núcleo del milestone **v0.19 Inbox de capturas + fix stealLock + saneo de deuda** (en curso desde 2026-07-24). El store + `kodo capture` + `kodo inbox` triage → **Phase 83** (CAPT-01/03/04/06); el skill `/kodo-capture` + generalización de `kodo skill sync` + conteo ambient en el dashboard → **Phase 84** (CAPT-02/05/07). La candidata trazaba CAPT-01..04; el milestone amplió el scope con **CAPT-05** (skill-sync multi-skill), **CAPT-06** (trace pointer best-effort) y **CAPT-07** (superficie ambient contra el inbox rot). Detalle vivo en `## Phase Details`._
 
-**Tipo**: Feature (NO hardening). Tema ortogonal al plan vivo y a la higiene del sidebar. Bajo blast radius (superficie nueva, aislada: comando + skill + fichero).
-**Requirements**: CAPT-01, CAPT-02, CAPT-03, CAPT-04
-**Depends on**: ninguna dura (aislada). Reutiliza el enrutado de `gsd-capture`/`gsd-inbox`.
-**Success Criteria** (what must be TRUE):
+**Constraints heredados (research SUMMARY 2026-07-24, no re-discutir a ciegas):**
+- Cero deps npm nuevas · cero endpoints nuevos en `src/server.js` (el dashboard lee filesystem).
+- Primitiva de lock del inbox = `withFileLock` (`src/session/state-lock.js:215`), **NUNCA** `src/gsd/lock.js` (ése es el lock per-repo GSD que arregla la Phase 82 — el inbox no debe acoplarse a él).
+- Nunca `writeFileAtomic` (fixed tmp) para paths del inbox: los appends usan `O_APPEND`; cualquier rewrite usa unique-tmp-name + rename (patrón en `src/hooks/session-end.js:331-389`).
+- El skill `/kodo-capture` shellea `kodo capture`, jamás escribe el fichero (single-writer-by-construction + golden test).
+- El enrutado lo hace `gsd-capture`, no una reimplementación en kodo (CAPT-04, seam documental).
+- **Decisión abierta a resolver en discuss/plan de Phase 83** (no defaultear silenciosamente): modelo de estado del marcado — lock compartido `withFileLock` + token in-place vs. event-log append-only.
 
-  1. `kodo capture "idea"` desde cualquier proyecto appendea a `~/.kodo/inbox.md` una línea con `texto · tag-proyecto · fecha · origen`; escritura atómica/con lock ante capturas concurrentes. (CAPT-01)
-  2. `/kodo-capture` captura mid-session desde Claude Code con el mismo formato, derivando proyecto/tarea del contexto de sesión. (CAPT-02)
-  3. `kodo inbox` lista las capturas abiertas y marca cada una como `enrutada`/`descartada` al procesarla (no borra: traza de qué se convirtió en qué). (CAPT-03)
-  4. El enrutado a tarea/fase/config lo hace `gsd-capture`, no una reimplementación en kodo. (CAPT-04)
+**Diferido a v2 (trazado en REQUIREMENTS.md):** filtro `--project`/`--open` en `kodo inbox` (CAPT-F1, solo con volumen real) · archival/rotación del inbox (CAPT-F2, solo si el fichero crece hasta molestar).
 
-**Plans**: TBD (no planificar aún)
+### Phase 999.3: Higiene del sidebar de cmux (PROMOVIDO → v0.18 Phases 79-81, SHIPPED)
 
-### Phase 999.3: Higiene del sidebar de cmux (PROMOVIDO → v0.18 Phases 79-81)
+_Esta candidata se materializó como el milestone **v0.18 Higiene del sidebar de cmux** (shipped 2026-07-24). El `kodo sidebar doctor` + su re-fronterización de GRP-04 → **Phase 79**; el carril orquestador + reconciliación skill/prompt → **Phase 80**. Los 4 items de deuda menor del audit v0.17 entraron con ella como **Phase 81** (DEBT-01..04)._
 
-_Esta candidata se materializó como el milestone **v0.18 Higiene del sidebar de cmux** (en curso desde 2026-07-22). El `kodo sidebar doctor` + su re-fronterización de GRP-04 → **Phase 79**; el carril orquestador + reconciliación skill/prompt → **Phase 80**. Los 4 items de deuda menor del audit v0.17 entraron con ella como **Phase 81** (DEBT-01..04). Detalle vivo en `## Phase Details (v0.18 activo)`._
-
-**Constraints LOCKED heredados a v0.18 (no re-discutir):** allowlist no destructivo `create`/`add`/`set-anchor`/`ungroup` sin `delete` (guard source-hygiene) · 0 tokens (determinista, reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`) · el sidebar NO es trigger del orquestador (piggyback en `kodo check`) · launch path byte-idéntico (GRP-01..03 fail-open) · política de anchor por re-anclaje eventual.
+**Constraints LOCKED heredados a v0.18 (histórico):** allowlist no destructivo `create`/`add`/`set-anchor`/`ungroup` sin `delete` (guard source-hygiene) · 0 tokens (determinista, reutiliza `deriveExpectedGroupName` + `listWorkspaceGroups`) · el sidebar NO es trigger del orquestador (piggyback en `kodo check`) · launch path byte-idéntico (GRP-01..03 fail-open) · política de anchor por re-anclaje eventual.
