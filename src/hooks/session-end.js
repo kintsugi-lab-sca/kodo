@@ -292,9 +292,13 @@ export async function runSessionEndHook(input, deps = {}) {
  *   (que no aísla HOME) escribiría en el `~/.kodo` REAL del operador en cada `npm test`
  *   (T-74-15).
  * @returns {{ planPath: string, next: string|null } | void}
- *   Phase 75 LIVE-07: en éxito devuelve el `next` EFECTIVO post-upsert (honra la asimetría);
- *   en los early-returns (task_id inseguro / lock-timeout) devuelve `undefined` — el caller
- *   lo colapsa a `null` con `?.next ?? null`.
+ *   Phase 75 LIVE-07: en éxito devuelve el `next` EFECTIVO post-upsert (el valor
+ *   POST-merge del writer, `upsertResult.value.next`), NO el de esta sesión. DEBT-01:
+ *   la autoría se mapea al contrato de tres estados del writer — la rama LLM pasa
+ *   `next` (posible `null` → CLEAR, nudge genérico), la mecánica OMITE `next` → el
+ *   writer PRESERVA el previo (nudge contextual con el NEXT: real de la tarea). En los
+ *   early-returns (task_id inseguro / lock-timeout) devuelve `undefined` — el caller lo
+ *   colapsa a `null` con `?.next ?? null`.
  */
 export function writeHandoff({ session, input, log }, deps = {}) {
   const plansDir = deps.plansDir || join(KODO_DIR, 'plans');
@@ -344,7 +348,10 @@ export function writeHandoff({ session, input, log }, deps = {}) {
       const existing = findSessionBlock(md, session.session_id);
       if (existing) {
         // El LLM ya escribió: no se appendea nada y NO se reescribe el fichero.
-        return { planPath, next: extractNext(existing) };
+        // DEBT-01: `authored: 'llm'` sobrevive fuera del lock para que el call-site
+        // INCLUYA la clave `next` (posiblemente `null` → clear deliberado del NEXT:
+        // obsoleto cuando el LLM cerró sin línea **NEXT:**).
+        return { planPath, next: extractNext(existing), authored: 'llm' };
       }
 
       // c. Backstop mecánico de LIVE-03. El contenido previo NUNCA se reescribe: se
@@ -372,8 +379,13 @@ export function writeHandoff({ session, input, log }, deps = {}) {
         fs.rmSync(tmp, { force: true }); // sin residuo de tmp perdido
         throw err;
       }
-      // El bloque mecánico no lleva NEXT por diseño (D-03/LIVE-03) → null.
-      return { planPath, next: null };
+      // El bloque mecánico no lleva NEXT por diseño (D-03/LIVE-03). DEBT-01:
+      // `authored: 'auto'` hace que el call-site OMITA la clave `next` → el writer
+      // discrimina por presencia y PRESERVA el `next` previo de la tarea (no lo
+      // borra: un cierre mecánico «no tuvo nada que decir», el NEXT: real sigue en
+      // el plan). `next: null` se mantiene solo para el best-effort del nudge si el
+      // upsert cayera por lock-timeout.
+      return { planPath, next: null, authored: 'auto' };
     },
     { logger: log },
   );
@@ -386,11 +398,18 @@ export function writeHandoff({ session, input, log }, deps = {}) {
 
   // 6. Puntero + NEXT en state.tasks (D-05/LIVE-04). El writer es fail-safe: ante un
   //    lock-timeout de state.json devuelve {ok:false} sin lanzar (Plan 02).
-  const upsertResult = stateWriterFn(
-    taskId,
-    { plan_path: r.value.planPath, next: r.value.next, updated_at: now().toISOString() },
-    log,
-  );
+  //    DEBT-01: la autoría (que SOBREVIVE fuera del lock en `r.value.authored`) mapea
+  //    al contrato de tres estados del writer. Build CONDICIONAL de la entry por
+  //    presencia de la clave `next`:
+  //      - rama LLM  → INCLUYE `next` (extractNext, posible `null` → clear deliberado)
+  //      - mecánico  → OMITE `next` → el writer PRESERVA el previo de la tarea
+  //    NUNCA se pasa `r.value.next` incondicionalmente (colapsaría ambas ramas).
+  const entry = {
+    plan_path: r.value.planPath,
+    updated_at: now().toISOString(),
+    ...(r.value.authored === 'llm' ? { next: r.value.next } : {}),
+  };
+  const upsertResult = stateWriterFn(taskId, entry, log);
 
   // Phase 75 LIVE-07: threadeamos el `next` EFECTIVO (post-upsert) al caller, que lo
   // pasa a buildStopNudgeText. CRÍTICO (RESEARCH Pitfall 5): el next del nudge es el

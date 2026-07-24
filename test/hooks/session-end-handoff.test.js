@@ -298,11 +298,11 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
     assert.equal(ret.next, 'el NEXT: efectivo', 'el next es el POST-upsert (asimetría), NO el de esta sesión');
   });
 
-  it('LIVE-07: cierre mecánico (next null) tras un NEXT: previo → writeHandoff propaga el previo (Pitfall 5)', () => {
+  it('LIVE-07: cierre mecánico (omite next) tras un NEXT: previo → writeHandoff propaga el previo (Pitfall 5)', () => {
     const session = makeSession();
     const { logger } = makeLogger();
-    // Simula la asimetría real: el bloque mecánico de esta sesión manda next:null al
-    // upsert, pero el upsert devuelve el NEXT: previo persistido de la tarea.
+    // Simula la asimetría real (DEBT-01): el bloque mecánico de esta sesión OMITE
+    // `next` (preserve), y el upsert devuelve el NEXT: previo persistido de la tarea.
     const writer = makeStateWriter({
       ok: true,
       value: { plan_path: join(plansDir, `${session.task_id}.md`), next: 'revisar el PR #42', updated_at: FIXED_NOW.toISOString() },
@@ -313,9 +313,9 @@ describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () 
       { plansDir, stateWriterFn: writer.fn, now: () => FIXED_NOW },
     );
 
-    // El entry ENTRANTE al upsert llevaba next:null (cierre mecánico)...
-    assert.equal(writer.calls[0].entry.next, null, 'el bloque mecánico manda next:null al upsert');
-    // ...pero el next EFECTIVO devuelto (y threadeado al nudge) es el previo.
+    // El entry ENTRANTE al upsert OMITE la clave `next` (cierre mecánico → preserve)...
+    assert.equal('next' in writer.calls[0].entry, false, 'el bloque mecánico omite `next` → el writer preserva');
+    // ...y el next EFECTIVO devuelto (y threadeado al nudge) es el previo de la tarea.
     assert.equal(ret.next, 'revisar el PR #42', 'el next efectivo es el previo de la tarea, no genérico');
   });
 
