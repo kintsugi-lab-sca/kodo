@@ -92,7 +92,21 @@ Opción de la propia deuda: si el coste del fix no se justifica frente a la frec
 
 ## Outcome
 
+### Diagnóstico (2026-07-24)
+
 - **Causa raíz CONFIRMADA** (carrera de producto, ventana briefly-empty en el move-aside del CAS steal), con evidencia reproducida (traza de dos O_EXCL-create ganadores + insensibilidad al hold).
 - **`src/gsd/lock.js` intacto** (invariante v0.16 protegido, D-09). **Sin remedios a ciegas** (cero retries/`.skip`/timeouts subidos/edición de producción).
 - **El test permanece flaky-red a propósito**: captura un bug real; ponerlo verde sería enmascarar la carrera (prohibido, T-81-03-02). Los casos CR-01 NO quedan `.skip`.
 - **No se añadió instrumentación al helper**: la instrumentación de la rama CAS exige tocar `lock.js` (READ-ONLY) para exponer la rama, y el test ya vuelca `verdicts` al fallar; una instrumentación cara/arriesgada no se justifica con la causa ya confirmada (D-10 aplica a no-repro; aquí SÍ reprodujo).
+
+### RESUELTO (2026-07-25, v0.19 Phase 82)
+
+**Estado: CERRADO — carrera real eliminada por construcción, CR-01 verde determinista.**
+
+- **Mecanismo del fix (dos pasos, `src/gsd/lock.js`):**
+  1. **Sección crítica del steal reescrita** (Plan 82-01, commit `588a5cb`): el move-aside `renameSync(lockPath → aside)` desaparece; la propiedad del lock la confiere SOLO `renameSync(tmp → lockPath)` (reemplazo in-place atómico) o un `O_EXCL`-create sobre ruta ausente — `lockPath` **jamás queda briefly-empty** (D-01/D-02). Un steal-guard `O_EXCL` (`${lockPath}.steal-guard`) serializa el cuerpo crítico entre stealers.
+  2. **Rework de la publicación del guard** (Plan 82-01 rework, commit `16d60b6`): el primer intento (`588a5cb`) publicaba el guard con `writeFileSync(guardPath, json, {flag:'wx'})`, exclusivo en la creación pero **no atómico en contenido** — reubicó la ventana briefly-empty del fichero LOCK al fichero GUARD (un perdedor que leía el guard vacío lo tomaba por corrupto/stale vía `readGuard→null→guardIsStale→true`, ROMPÍA un guard VIVO y re-entraba en la sección crítica → doble adquisición, reproducida ~4/100 bajo carga). El rework publica el guard **atómicamente en contenido**: escribe el body completo a un tmp único y `linkSync(tmp → guardPath)` (exclusivo como `O_EXCL` pero nunca observable a medio escribir); `guardIsStale` ya no rompe un guard presente-pero-no-parseable reciente (solo PID muerto, `ts` envejecido, o mtime envejecido).
+
+- **Evidencia de determinismo (Plan 82-02, 2026-07-25):** el harness CR-01 byte-idéntico (`git diff --quiet` verde) pasa **100/100 iteraciones bajo carga paralela 4×** con 0 fallos (el repro original medía ~48%: 13/50 y 19/40); el rework se validó además con 300 iteraciones (100@c4 + 200@c6) a 0 fallos. Suite completa verde (2370 pass / 0 fail / 1 skip). El assert `exactly one` intacto — verde real, no enmascarado.
+
+- **Cierre:** R-81-01 (DEBT-04) saldada como **fix real** (no aceptación de riesgo). El test `gsd-lock-race` es ahora green determinista sin `.skip`/retries/timeouts. Debug session movida a `resolved/`. La causa raíz previa se preserva íntegra arriba (traza de la ventana briefly-empty).
