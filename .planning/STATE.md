@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.18
 milestone_name: Higiene del sidebar de cmux
-current_phase: 81
-current_phase_name: Saneo de deuda v0.17
-status: verifying
+current_phase: 999.1
+current_phase_name: PROMOVIDO → v0.13 Phases 52-62, SHIPPED
+status: planning
 stopped_at: Completed 81-03-PLAN.md
-last_updated: "2026-07-24T08:07:53.031Z"
+last_updated: "2026-07-24T09:31:30.803Z"
 last_activity: 2026-07-24
-last_activity_desc: Phase 81 execution started
+last_activity_desc: Phase 81 complete, transitioned to Phase 999.1
 progress:
   total_phases: 3
   completed_phases: 3
@@ -20,7 +20,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — **Phases 79 y 80 completas 2026-07-23**. Phase 79: `kodo sidebar doctor` determinista (UAT 4/4, missing_group report-only ratificado). Phase 80: carril orquestador (piggyback in-process del doctor en pases motivados de `kodo check`, sidebar NO trigger) + reconciliación documental skill/prompt con v0.17 (UAT 1/1 en vivo, SECURITY threats_open: 0, suite 2356). Siguiente y última: Phase 81 (deuda v0.17). Milestone anterior v0.17 SHIPPED 2026-07-22.
+**Estado:** Milestone **v0.18 «Higiene del sidebar de cmux»** — **100% completo: Phases 79, 80 y 81 cerradas** (81 el 2026-07-24: UAT 1/1, SECURITY threats_open: 0, suite 2364 pass). Phase 79: `kodo sidebar doctor` determinista (UAT 4/4, missing_group report-only ratificado). Phase 80: carril orquestador + reconciliación documental skill/prompt. Phase 81: deuda v0.17 saldada (DEBT-01..04) — con hallazgo material: el flaky `gsd-lock-race` es una **carrera real en `stealLock`** (diagnóstico en `.planning/debug/gsd-lock-race-cr01.md`; fix diferido a decisión de mantenedor). Pendiente: `/gsd-complete-milestone` para archivar v0.18. Milestone anterior v0.17 SHIPPED 2026-07-22.
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Phase 81 — Saneo de deuda v0.17
+**Current focus:** Cierre del milestone v0.18 (todas las fases completas)
 
 ## Current Position
 
-Phase: 81 (Saneo de deuda v0.17) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-07-24 — Phase 81 execution started
+Phase: — (v0.18 completo: Phases 79-81 cerradas; el «999.1» que reportó `phase.complete` es un placeholder del Backlog, no una fase real)
+Plan: —
+Status: Milestone ready to complete (`/gsd-complete-milestone`)
+Last activity: 2026-07-24 — Phase 81 complete (UAT 1/1, SECURITY 0 open) — milestone v0.18 100%
 
 ## Roadmap v0.18 (activo)
 
@@ -58,14 +58,12 @@ Last activity: 2026-07-24 — Phase 81 execution started
 
 ## Deferred Items
 
-Baseline post-v0.17. Los 4 items marcados «→ v0.18» abajo quedan **absorbidos por el roadmap v0.18** (Phase 81, DEBT-01..04) — dejan de ser deuda diferida al planificarse. El resto sigue trazado.
+Baseline post-Phase 81 (2026-07-24). Los 4 items DEBT absorbidos por Phase 81 quedan **CERRADOS** (DEBT-01/02/03 implementados; DEBT-04 diagnosticado — su hallazgo genera el primer item nuevo de la tabla). El resto sigue trazado.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
-| Estado | `next` un-clearable una vez seteado en `upsertTaskHandoff` (`src/session/state.js:443`) — un cierre posterior sin `NEXT:` no lo borra | **Absorbido → v0.18 Phase 81 (DEBT-01)** | v0.17 Phase 74 |
-| Tests | `test/gsd-lock-race.test.js` «concurrent dead-holder steal (CR-01)» es **flaky** bajo carga (timing). Preexistente de Phase 70 | **Absorbido → v0.18 Phase 81 (DEBT-04)** — diagnóstico vía `/gsd-debug`, NO arreglar a ciegas | v0.17 Phase 74 (heredado de v0.16) |
-| Doc-drift | 75/WR-02 (comentario App.js «una vez por tick» vs render real) · 75/WR-04 (typedef `overlaySnapshot` sin `render`) — solo documentación | **Absorbido → v0.18 Phase 81 (DEBT-02)** | v0.17 Phase 75 |
-| Render TUI | 75/WR-03: `nextCell` no colapsa `\n`/`\t` en el RENDER de fila (solo alcanzable por state.json hand-editado; carril keystroke cerrado en Phase 78) | **Absorbido → v0.18 Phase 81 (DEBT-03)** · fidelidad markdown best-effort → FUT-01 (v2, solo si molesta) | v0.17 Phase 75 |
+| Concurrencia | **Carrera real confirmada en `stealLock`** (`src/gsd/lock.js:283-351`): el move-aside `renameSync` deja `lockPath` ausente una ventana en la que dos `O_EXCL` pueden ganar a la vez → doble adquisición posible con N≥2 procesos robando el mismo lock muerto. Diagnóstico completo en `.planning/debug/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`; el test `gsd-lock-race` queda flaky-red A PROPÓSITO (greenearlo enmascararía). Fix real o aceptación definitiva → decisión de mantenedor (candidato v0.19) | Abierto — R-81-01 (81-SECURITY.md §Accepted Risks, interino) | v0.18 Phase 81 (DEBT-04) |
+| Doc/consistencia | 81-REVIEW WR-01 (typedef `TaskHandoff` en `state.js:53` documenta la semántica PRE-DEBT-01) · WR-02 (`deriveAnyNext` en `select.js:258` no colapsa whitespace al decidir presencia de columna) — aceptados explícitamente por el operador en UAT 81 como deuda conocida | Aceptado — R-81-02 (81-SECURITY.md §Accepted Risks) | v0.18 Phase 81 |
 | Operación | El grupo cmux `SCP-CMRi` del operador no matchea el identifier derivado `SCP` — tareas SCP se lanzan sin grupo (fail-open correcto); renombrar el grupo a `SCP` para agruparlas | Acción de operador (fuera de scope v0.18) | v0.17 Phase 77 |
 | Riesgo aceptado | IN-07 / R-77-D10 (LOCKED D-10): el retry TOCTOU de `newWorkspaceWithGroupFallback` puede duplicar workspace ante timeout | Aceptado y documentado (78-SECURITY.md §Accepted Risks) | v0.17 Phase 77 |
 | Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1) | v0.16 Phase 70 |
@@ -98,6 +96,10 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - [Phase ?]: 79-04: scan() computa hasActions solo con loose+empty (missing_group excluido) y expone hasAdvisories — el CLI/Phase 80 distinguen deriva auto-arreglable de acción del operador; --fix converge a exit 0 sin bucle.
 - [Phase ?]: 80-01: carril orquestador ORCH-07 — runCheckAndAct ejecuta scan+execute del sidebar doctor in-process, gated por needsOrchestrator, antes de launchOrchestrator, fail-open; el resultado del doctor jamás alimenta el gate (D-04)
 - [Phase ?]: 80-02: reconciliación documental ORCH-08 — skill canónica con detalle (higiene sidebar + flujo 5 + 4 features v0.17), prompt fallback conciso; bloque reporting y placeholders intactos (D-09/D-12)
+- [Phase 81]: DEBT-01 — contrato tres-estados del `next` por PRESENCIA del campo (string sobrescribe / `null` explícito borra / ausente preserva); `session-end.js` mapea autoría con flag `authored: 'llm'|'auto'` y spread condicional (LLM sin `NEXT:` → `null` clear; backstop mecánico → omite → preserva). Refina 74/WR-02 sin invalidarlo
+- [Phase 81]: DEBT-03 — colapso de whitespace SOLO en el punto de proyección al render (`nextCell`, `/\s+/g`→' '+trim); dato persistido verbatim, `stripControlChars` del enrich intacto (capas complementarias)
+- [Phase 81]: DEBT-04 — el flaky CR-01 NO era timing del harness: carrera real en `stealLock` (ventana no-atómica move-aside→O_EXCL, hold-independiente, ~48% repro en loop aislado); `lock.js` intacto por mandato D-09, test flaky-red a propósito, fix → decisión de mantenedor
+- [Phase 81]: WR-01/WR-02 de 81-REVIEW aceptados en UAT como deuda conocida (R-81-02) en lugar de arreglarse en fase — precedente: la misma vía que 75/WR-02/WR-04 usaron para entrar como DEBT-02
 - [Phase ?]: DEBT-01: merge de next en tres estados por presencia (overwrite/clear/preserve); autoría mapeada al contrato en session-end.js
 - [Phase ?]: 81-02: colapso de whitespace en nextCell es render-only (LAYOUT), complementario a stripControlChars de Phase 78 — dato persistido verbatim (D-06)
 - [Phase ?]: DEBT-04: flaky gsd-lock-race (CR-01) es carrera de producto real en stealLock (ventana briefly-empty move-aside->create); lock.js READ-ONLY, fix gated D-09; test red-by-design (T-81-03-02, no enmascarar)
@@ -133,8 +135,8 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 None
 
-- **Stopped at:** Completed 81-03-PLAN.md
-- **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
+- **Stopped at:** Phase 81 complete (UAT 1/1, SECURITY 0 open) — milestone v0.18 100%, ready to complete milestone
+- **Next action:** `/gsd-complete-milestone` — archivar v0.18 y preparar el siguiente ciclo.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
   - `.planning/ROADMAP.md` (v0.18 activo — Phases 79-81; v0.17 colapsado; Backlog con 999.1 + 999.2 + 999.3 promovida)
@@ -144,8 +146,9 @@ None
 
 ## Operator Next Steps
 
-- Discutir la Phase 81 con `/gsd-discuss-phase 81` (o `--auto` para la cadena completa) — última fase de v0.18
-- Opcional: `/gsd-code-review 80 --fix` para los 3 warnings documentados en 80-REVIEW.md
+- Cerrar el milestone con `/gsd-complete-milestone` — v0.18 al 100% (Phases 79-81, UAT y SECURITY verificados)
+- **Decisión pendiente (candidata v0.19):** fix real de la carrera de `stealLock` o aceptación definitiva — diagnóstico en `.planning/debug/gsd-lock-race-cr01.md`; el test `gsd-lock-race` queda flaky-red a propósito hasta entonces
+- Opcional: `/gsd-code-review 80 --fix` (3 warnings de 80-REVIEW.md) · WR-01/WR-02 de 81-REVIEW aceptados como deuda (R-81-02)
 - `git push` pendiente de decisión del operador (todo el milestone es local)
 
 ## Performance Metrics

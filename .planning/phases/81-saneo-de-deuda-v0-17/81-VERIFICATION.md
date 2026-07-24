@@ -1,11 +1,12 @@
 ---
 phase: 81-saneo-de-deuda-v0-17
 verified: 2026-07-24T08:20:05Z
-status: human_needed
+status: passed
 score: 26/26 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Decidir si los 2 warnings del propio code review de la fase (81-REVIEW.md, WR-01 y WR-02, ambos aún abiertos en HEAD) bloquean el cierre de DEBT-01/DEBT-03 o se aceptan/difieren explícitamente a backlog"
     expected: "O bien se corrige el typedef `TaskHandoff` (state.js:53, sigue documentando la semántica PRE-DEBT-01, contradictoria con el comportamiento ya shippeado) y se alinea `deriveAnyNext` (select.js:258) con el colapso de whitespace de `nextCell` (format.js), o un humano acepta explícitamente dejarlos como deuda conocida para v0.18+"
     why_human: "Es un juicio de alcance/prioridad (¿este 'saneo de deuda' debe cerrar la deuda que su propia revisión encontró, o puede difpage a un futuro item?), no una comprobación programática — el código de ambos hallazgos está confirmado y reproducido abajo, la decisión de aceptar o arreglar es del mantenedor"
