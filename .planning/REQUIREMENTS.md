@@ -9,8 +9,8 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 
 ### Fix stealLock (LOCK)
 
-- [ ] **LOCK-01**: Con N≥2 procesos robando el mismo lock GSD muerto, exactamente uno adquiere — la ventana no-atómica move-aside→`O_EXCL` de `stealLock` (`src/gsd/lock.js:283-351`) queda cerrada (diagnóstico base: `.planning/debug/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`)
-- [ ] **LOCK-02**: El test `gsd-lock-race` pasa verde de forma determinista validando la garantía real (sin debilitar el assert ni enmascarar la carrera — constraint heredado de DEBT-04)
+- [x] **LOCK-01**: Con N≥2 procesos robando el mismo lock GSD muerto, exactamente uno adquiere — la ventana no-atómica move-aside→`O_EXCL` de `stealLock` (`src/gsd/lock.js:283-351`) queda cerrada (diagnóstico base: `.planning/debug/gsd-lock-race-cr01.md` + `81-DEBT-04-DIAGNOSIS.md`)
+- [x] **LOCK-02**: El test `gsd-lock-race` pasa verde de forma determinista validando la garantía real (sin debilitar el assert ni enmascarar la carrera — constraint heredado de DEBT-04)
 - [ ] **LOCK-03**: R-81-01 y la debug session `gsd-lock-race-cr01` quedan formalmente cerradas con la resolución documentada (STATE.md Deferred Items, debug session file)
 
 ### Inbox de capturas (CAPT)
@@ -66,8 +66,8 @@ Qué fases cubren qué requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOCK-01 | Phase 82 | Pending |
-| LOCK-02 | Phase 82 | Pending |
+| LOCK-01 | Phase 82 | Complete |
+| LOCK-02 | Phase 82 | Complete |
 | LOCK-03 | Phase 82 | Pending |
 | CAPT-01 | Phase 83 | Pending |
 | CAPT-02 | Phase 84 | Pending |
@@ -83,11 +83,13 @@ Qué fases cubren qué requirements.
 | NYQ-02 | Phase 85 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 15 total
 - Mapped to phases: 15 ✓
 - Unmapped: 0
 
 **Distribución por fase:**
+
 - Phase 82 (Fix stealLock): LOCK-01, LOCK-02, LOCK-03 (3)
 - Phase 83 (Inbox foundation — captura + triage): CAPT-01, CAPT-03, CAPT-04, CAPT-06 (4)
 - Phase 84 (Superficies de captura): CAPT-02, CAPT-05, CAPT-07 (3)

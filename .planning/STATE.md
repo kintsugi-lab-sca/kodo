@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 82
-status: in_progress
-stopped_at: Phase 82 context gathered
-last_updated: "2026-07-24T21:01:09.300Z"
+current_phase_name: Fix de la carrera de `stealLock`
+status: executing
+stopped_at: Completed 82-01-PLAN.md
+last_updated: "2026-07-24T21:42:14.390Z"
 last_activity: 2026-07-24
-last_activity_desc: Roadmap v0.19 creado (Phases 82-85)
+last_activity_desc: Phase 82 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -27,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Planificar la Phase 82 (fix de la carrera de `stealLock`) — `/gsd-plan-phase 82`
+**Current focus:** Phase 82 — Fix de la carrera de `stealLock`
 
 ## Current Position
 
-Phase: Phase 82 — Fix de la carrera de `stealLock` (Not started)
-Plan: —
-Status: Roadmap creado; awaiting plan de la Phase 82
-Last activity: 2026-07-24 — Roadmap v0.19 creado (Phases 82-85)
+Phase: 82 (Fix de la carrera de `stealLock`) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-24 — Phase 82 execution started
 
 ## Most recent shipped milestone
 
@@ -79,6 +80,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 
 **Frontera vigente cross-milestone (v0.18):** la gestión de grupos cmux (`create`/`add`/`set-anchor`/`ungroup`) SOLO existe en el carril doctor; `workspace-group delete` jamás se cablea (guard source-hygiene); el launch path sigue solo-`list` + `--group` fail-open; el sidebar NO es trigger del orquestador; `missing_group` es advisory del operador — el doctor nunca crea/ancla grupos en sesiones vivas.
 
+- [Phase ?]: 82-01: stealLock cierra la carrera por construcción con steal-guard O_EXCL + renameSync(tmp->lockPath); move-aside eliminado (D-01/D-02)
+- [Phase ?]: 82-01: guard breakable por PID muerto (primario) o edad>5000ms (backstop); discriminar presente(rename)/ausente(O_EXCL) con existsSync para preservar Case 5 corrupt (D-08)
+
 ### Open Blockers
 
 Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
@@ -106,13 +110,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-24T21:01:09.291Z
+**Last session:** 2026-07-24T21:42:06.738Z
 
 **Resume file:**
 
-.planning/phases/82-fix-de-la-carrera-de-steallock/82-CONTEXT.md
+None
 
-- **Stopped at:** Phase 82 context gathered
+- **Stopped at:** Completed 82-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -132,3 +136,8 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase | Plan | Duration | Notes |
 |-------|------|----------|-------|
 | — | — | — | (baseline post-v0.18 — métricas per-plan de v0.18 archivadas en `milestones/v0.18-phases/`; medias v0.18: ~8 min/plan, 9 plans; medias v0.17: ~12 min/plan, 17 plans) |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 82 P01 | 20min | 2 tasks | 3 files |

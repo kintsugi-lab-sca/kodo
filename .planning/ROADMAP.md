@@ -51,7 +51,7 @@
 **Plans**: 2 plans
 **Wave 1**
 
-- [ ] 82-01-PLAN.md — Reescribir `stealLock` (steal-guard `O_EXCL` + reemplazo in-place atómico) + unit tests del guard + docblock (LOCK-01, LOCK-02) [wave 1]
+- [x] 82-01-PLAN.md — Reescribir `stealLock` (steal-guard `O_EXCL` + reemplazo in-place atómico) + unit tests del guard + docblock (LOCK-01, LOCK-02) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
