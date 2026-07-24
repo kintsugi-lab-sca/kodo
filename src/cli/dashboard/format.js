@@ -248,15 +248,22 @@ export function progCell(session) {
 /**
  * Deriva la celda de la columna `next` (Phase 75, LIVE-05) desde `session.next` — el `NEXT:`
  * por tarea que el enrich de App.js mergea por task_id desde `state.tasks` (D-02). Devuelve
- * el string verbatim si es no-vacío; '' cuando falta (null/undefined/'' o no-string), SIN
+ * el string con el whitespace colapsado (colapso de LAYOUT render-only, DEBT-03): toda
+ * secuencia de whitespace (`/\s+/g`: `\n` `\t` `\r` + espacios múltiples) se reduce a un
+ * espacio único + `trim`, de modo que un `next` hand-editado en state.json no pueda romper
+ * la fila de ancho fijo ni descuadrar la tabla. El colapso es SOLO de render: el dato
+ * persistido queda VERBATIM (D-06) — el enrich de App.js sigue con `stripControlChars`
+ * únicamente (capa complementaria de Phase 78, no sustituida). Devuelve '' cuando falta
+ * (null/undefined/'' o no-string) o cuando el colapso deja vacío (solo-whitespace), SIN
  * placeholder ruidoso (SC5, degradación limpia). Texto PLANO — SIN color propio
  * (color-isolation D-12: el color queda reservado, no se pinta acento en la celda next).
  *
  * @param {Partial<EnrichedSession> & { next?: string|null }} session
- * @returns {string} `session.next` si es string no-vacío; '' en cualquier otro caso.
+ * @returns {string} `session.next` con whitespace colapsado + trim si es string; '' en cualquier otro caso.
  */
 export function nextCell(session) {
-  return typeof session.next === 'string' && session.next.length > 0 ? session.next : '';
+  if (typeof session.next !== 'string') return ''; // never-throws (D-07): no-string → celda vacía
+  return session.next.replace(/\s+/g, ' ').trim(); // colapso de LAYOUT (DEBT-03); vacío → '' sin placeholder
 }
 
 /**
