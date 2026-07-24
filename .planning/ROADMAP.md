@@ -208,10 +208,10 @@ Detalle completo de las fases 74-78: ver `milestones/v0.17-ROADMAP.md`.
   3. Los dos doc-drifts de Phase 75 quedan corregidos: el comentario de App.js «lee tasks UNA vez por tick» (WR-02) y el typedef del prop `overlaySnapshot` sin `render` (WR-04) — solo documentación, sin cambio de comportamiento. (DEBT-02)
   4. El flaky de `test/gsd-lock-race.test.js` («concurrent dead-holder steal», CR-01) tiene diagnóstico de causa raíz documentado vía `/gsd-debug`; solo se toca con la causa entendida — el invariante de locks de v0.16 queda protegido. (DEBT-04)
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 **Wave 1** *(los tres paralelizables — ficheros disjuntos, sin `depends_on`)*
 
-- [ ] 81-01-PLAN.md — DEBT-01: writer de tres estados de `next` en `upsertTaskHandoff` (clear/preserve/overwrite por presencia) + mapeo de autoría LLM-clear/mecánico-preserve en `session-end.js` + tests (DEBT-01) — Wave 1
+- [x] 81-01-PLAN.md — DEBT-01: writer de tres estados de `next` en `upsertTaskHandoff` (clear/preserve/overwrite por presencia) + mapeo de autoría LLM-clear/mecánico-preserve en `session-end.js` + tests (DEBT-01) — Wave 1
 - [ ] 81-02-PLAN.md — DEBT-02+03: colapso de whitespace en `nextCell` (render-only, dato verbatim) + doc-drift de Phase 75 (comentario App.js WR-02 + typedef `overlaySnapshot` WR-04) (DEBT-02, DEBT-03) — Wave 1
 - [ ] 81-03-PLAN.md — DEBT-04: diagnóstico `/gsd-debug` del flaky `gsd-lock-race` CR-01 (entregable = artefacto; `src/gsd/lock.js` READ-ONLY, sin remedios a ciegas) (DEBT-04) — Wave 1
 

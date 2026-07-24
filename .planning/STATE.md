@@ -5,15 +5,15 @@ milestone_name: Higiene del sidebar de cmux
 current_phase: 81
 current_phase_name: Saneo de deuda v0.17
 status: executing
-stopped_at: Phase 81 UI-SPEC approved
-last_updated: "2026-07-24T07:33:04.971Z"
-last_activity: 2026-07-23
-last_activity_desc: Phase 80 complete, transitioned to Phase 81
+stopped_at: Completed 81-01-PLAN.md
+last_updated: "2026-07-24T07:42:51.901Z"
+last_activity: 2026-07-24
+last_activity_desc: Phase 81 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 9
+  completed_plans: 7
   percent: 67
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-22 after v0.17).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega y higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux. **v0.18 quita al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y se salda la deuda menor de v0.17.
 
-**Current focus:** Phase 81 — Saneo de deuda v0.17 (última fase de v0.18)
+**Current focus:** Phase 81 — Saneo de deuda v0.17
 
 ## Current Position
 
-Phase: 81 — Saneo de deuda v0.17
-Plan: Not started
+Phase: 81 (Saneo de deuda v0.17) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-23 — Phase 80 complete, transitioned to Phase 81
+Last activity: 2026-07-24 — Phase 81 execution started
 
 ## Roadmap v0.18 (activo)
 
@@ -98,6 +98,7 @@ Log completo en `PROJECT.md` §Key Decisions — v0.17 añadió 8 filas (agrupac
 - [Phase ?]: 79-04: scan() computa hasActions solo con loose+empty (missing_group excluido) y expone hasAdvisories — el CLI/Phase 80 distinguen deriva auto-arreglable de acción del operador; --fix converge a exit 0 sin bucle.
 - [Phase ?]: 80-01: carril orquestador ORCH-07 — runCheckAndAct ejecuta scan+execute del sidebar doctor in-process, gated por needsOrchestrator, antes de launchOrchestrator, fail-open; el resultado del doctor jamás alimenta el gate (D-04)
 - [Phase ?]: 80-02: reconciliación documental ORCH-08 — skill canónica con detalle (higiene sidebar + flujo 5 + 4 features v0.17), prompt fallback conciso; bloque reporting y placeholders intactos (D-09/D-12)
+- [Phase ?]: DEBT-01: merge de next en tres estados por presencia (overwrite/clear/preserve); autoría mapeada al contrato en session-end.js
 
 ### Open Blockers
 
@@ -124,13 +125,13 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-24T07:12:52.156Z
+**Last session:** 2026-07-24T07:42:46.023Z
 
 **Resume file:**
 
-.planning/phases/81-saneo-de-deuda-v0-17/81-UI-SPEC.md
+None
 
-- **Stopped at:** Phase 81 UI-SPEC approved
+- **Stopped at:** Completed 81-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 80` — discutir la Phase 80 (sin CONTEXT.md aún). Phase 81 es ortogonal (paralelizable).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-22 after v0.17; §Current Milestone = v0.18)
@@ -160,3 +161,4 @@ Ninguno. v0.17 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 79 P04 | 5min | 3 tasks | 5 files |
 | Phase 80 P01 | 10min | 2 tasks | 4 files |
 | Phase 80 P02 | 3min | 2 tasks | 2 files |
+| Phase 81 P01 | 5min | 2 tasks | 4 files |
