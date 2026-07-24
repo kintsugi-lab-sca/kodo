@@ -2,9 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
+current_phase: 82
 status: in_progress
-last_updated: "2026-07-24T11:30:00.000Z"
+stopped_at: Phase 82 context gathered
+last_updated: "2026-07-24T21:01:09.300Z"
 last_activity: 2026-07-24
+last_activity_desc: Roadmap v0.19 creado (Phases 82-85)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -103,13 +106,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-24T11:30:00.000Z
+**Last session:** 2026-07-24T21:01:09.291Z
 
 **Resume file:**
 
-None
+.planning/phases/82-fix-de-la-carrera-de-steallock/82-CONTEXT.md
 
-- **Stopped at:** Roadmap v0.19 creado (Phases 82-85) — 15/15 requirements mapeados, ROADMAP.md/REQUIREMENTS.md/STATE.md escritos
+- **Stopped at:** Phase 82 context gathered
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
