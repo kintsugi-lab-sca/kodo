@@ -159,13 +159,17 @@ export function nextCell(session) {
 > COPY lives in `## Copywriting Contract` above; this section covers state coverage and references
 > those rows (de-dup).
 
-Applicable state considerations resolved: 4 covered, 0 backstop, 0 unresolved.
+Applicable state considerations resolved (probe run 2026-07-24, engine `ui-consideration-probe.cjs`): 8 covered, 0 backstop, 0 unresolved.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
 | empty | `next` column cell | ✅ covered | Missing, `null`, `undefined`, `''`, or non-string `next` renders the empty cell `''` (Copywriting: Empty state). A DEBT-01 cleared `next` lands here, byte-identical to never-set. |
+| loading | `next` column cell | ✅ covered | No async loading state exists by design: `readTasksFn` is a synchronous local read piggybacked on the poll tick; until data lands the value is absent → same `''` empty cell. No spinner/skeleton is introduced. |
+| error | `next` column cell | ✅ covered | Reader is never-throws (`readTasksFn` degrades to `{}`); any non-string input → `''`. No error copy, no retry affordance — degradación limpia (SC5), unchanged contract. |
 | populated | `next` column cell | ✅ covered | Non-empty string renders verbatim after whitespace collapse + trim — always a single line. |
+| partial | `next` column cell | ✅ covered | Rows degrade independently: sessions whose `task_id` lacks a `tasks` entry (or whose entry has no `next`) render `''` while sibling rows render their value — no cross-row coupling. |
 | overflow | `next` column cell | ✅ covered | Embedded `\n`/`\t`/`\r`/multi-space (hand-edited `state.json`) collapse to a single space, so the row cannot break into multiple lines and skew the fixed-width table. This is the core DEBT-03 fix. |
+| zero-one-many | `next` column | ✅ covered | Existing Phase 75 conditional-column behavior, unchanged by this phase: zero sessions with `next` → column hidden; one/many → per-row independent cells. No singular/plural copy exists (plain data cell). |
 | long-text | `next` column cell | ✅ covered | After collapse, an over-long single line is truncated by the existing Ink `<Box width:~40 wrap:'truncate-end'>` — unchanged by this phase; the collapse guarantees truncation operates on one line. |
 
 <!-- Status vocabulary (locked by probe-core projectTruths):
