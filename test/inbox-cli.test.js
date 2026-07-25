@@ -20,7 +20,9 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync, mkdtempSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -730,10 +732,12 @@ const KODO_BIN = join(REPO, 'bin', 'kodo');
  * @param {string} home
  * @param {string[]} args
  * @param {Record<string, string>} [env]
+ * @param {{ cwd?: string }} [opts] — `cwd` solo lo fija el caso que verifica la derivación del
+ *   tag: el resto de casos corren desde el repo, que es el molde histórico.
  */
-function kodo(home, args, env = {}) {
+function kodo(home, args, env = {}, opts = {}) {
   return spawnSync(process.execPath, [KODO_BIN, ...args], {
-    cwd: REPO,
+    cwd: opts.cwd || REPO,
     encoding: 'utf-8',
     timeout: 10_000, // WR-01 Phase 14 — fail-fast si el bin cuelga (higiene de CI)
     env: { ...process.env, HOME: home, ...env },
@@ -880,6 +884,38 @@ describe('CLI `kodo capture` — proceso real (CAPT-01, D-19)', () => {
     const c = parseLine(ls[0]);
     assert.ok(c, 'la línea escrita debe parsear');
     assert.equal(c.text, text, 'el guion inicial sobrevive: el texto se persiste ÍNTEGRO');
+  });
+
+  // GAP-3 / CR-03 — extremo a extremo sobre el binario, con la forma REAL de projects.json.
+  // El carril unit vive en `test/inbox-store.test.js`; este comprueba el campo REALMENTE
+  // PERSISTIDO, que es lo que el operador acaba leyendo.
+  it('el tag persistido es el NOMBRE del proyecto, no el identificador de proveedor (GAP-3)', () => {
+    // `realpathSync` sobre el sandbox: en macOS `mkdtempSync` devuelve `/var/folders/…` pero el
+    // `process.cwd()` del proceso hijo llega ya resuelto a `/private/var/folders/…`. Sin resolver,
+    // el path del mapa no sería ancestro del cwd y el caso mediría el fallback, no la proyección.
+    const projectDir = join(realpathSync(home), 'dev', 'klab', 'kodo');
+    const deepCwd = join(projectDir, 'src', 'inbox');
+    mkdirSync(deepCwd, { recursive: true });
+    mkdirSync(join(home, '.kodo'), { recursive: true });
+    // Forma real: clave = identificador de proveedor (UUID de 36 chars), valor = objeto con la
+    // ruta por defecto y su tabla de módulos.
+    const uuid = '7246e3fe-3dc4-4f24-9078-1911ad477e0d';
+    writeFileSync(
+      join(home, '.kodo', 'projects.json'),
+      JSON.stringify({ [uuid]: { default: projectDir, modules: { DEV: projectDir } } }) + '\n',
+    );
+
+    // Capturar desde un SUBDIRECTORIO profundo: el caso normal del operador.
+    const r = kodo(home, ['capture', 'idea con tag legible'], {}, { cwd: deepCwd });
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+
+    const c = parseLine(inboxLines(home)[0]);
+    assert.ok(c, 'la línea escrita debe parsear');
+    assert.ok(
+      c.tag.length < 36,
+      `el tag no puede ser un identificador de 36 chars: ${JSON.stringify(c.tag)}`,
+    );
+    assert.equal(c.tag, 'kodo', 'el último segmento de la ruta del PROYECTO, no la del cwd');
   });
 
   it('LIMITACIÓN CONOCIDA (no deseada): sin `--`, el mismo texto NO se captura y no toca el disco', () => {

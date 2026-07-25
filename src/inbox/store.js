@@ -185,14 +185,87 @@ export function todayLocal(now = new Date()) {
 }
 
 /**
+ * Forma canónica de 36 caracteres de un identificador de proveedor: cinco grupos hexadecimales
+ * 8-4-4-4-12 separados por guiones. Anclada a los DOS extremos e insensible a mayúsculas.
+ *
+ * CONSTANTE DE MÓDULO, jamás compilada desde input (mismo criterio anti-ReDoS que `LINE_RE`):
+ * `projects.json` es operator-editable y sus claves llegan aquí sin validar. Longitudes fijas y
+ * cero cuantificadores anidados → sin backtracking catastrófico posible.
+ */
+const UUID_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * ¿Tiene `s` forma de identificador de proveedor? Coacciona con `String(...)` (never-throws).
+ *
+ * @param {unknown} s
+ * @returns {boolean}
+ */
+function isUuidLike(s) {
+  return UUID_KEY_RE.test(String(s));
+}
+
+/**
+ * Ruta del PROYECTO asociada a `projectId` en el mapa, o `''` si no hay ninguna utilizable.
+ *
+ * Acepta las DOS formas reales del valor (UAT Phase 56 Plan 04, ver `resolveProjectId`): una
+ * cadena que ya es la ruta, o un objeto con una clave de ruta por defecto. Todo candidato que no
+ * sea una cadena NO VACÍA se descarta, exactamente por la razón por la que `candidatesOf` de
+ * `resolveProjectId` lo hace: el fichero es operator-editable y un `default` numérico, nulo o
+ * array de un hand-edit no puede hacer lanzar a un carril never-throws.
+ *
+ * **NO recorre la tabla de módulos a propósito.** El tag identifica el PROYECTO; el path del
+ * módulo más específico no es lo que el operador necesita leer en una fila de una lista de triage.
+ * Sin ruta por defecto, el caller cae al último recurso (el nombre del directorio actual).
+ *
+ * @param {Record<string, unknown> | undefined} projects
+ * @param {string} projectId
+ * @returns {string}
+ */
+function mappedProjectPath(projects, projectId) {
+  try {
+    const value = /** @type {any} */ (projects ?? {})[projectId];
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object' && typeof value.default === 'string') {
+      return value.default;
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Deriva el tag-proyecto desde el cwd (D-15). Reutiliza `resolveProjectId` (nearest-ancestor sobre
- * `projects.json`) — NO reimplementa su semántica.
+ * `projects.json`) — NO reimplementa su semántica; solo PROYECTA su resultado a algo legible.
  *
  * `resolveProjectId` tiene DOS modos de fallo, no uno: `{error:'none'}` y `{error:'ambiguous'}`
  * (Pitfall 3). La forma robusta es exigir la PRESENCIA de `projectId`; cualquier otro shape
  * (incluido uno inesperado de una futura refactorización) cae a `basename(cwd)`. Un tag no mapeado
  * es sencillamente el nombre del directorio desde el que se capturó: un solo campo, siempre
  * poblado, siempre informativo.
+ *
+ * ## Proyección del identificador de proveedor (GAP-3 / CR-03)
+ *
+ * La clave de `projects.json` es el identificador del PROVEEDOR de tareas, no un nombre elegido
+ * por el operador. En la instalación real medida, las 10 claves son UUIDs canónicos de 36
+ * caracteres y la mitad legible es el VALOR (la ruta). Devolver la clave cruda escribía
+ * `7246e3fe-3dc4-4f24-9078-1911ad477e0d` como tag de una captura hecha desde este mismo repo:
+ * deformaba la columna del listado y no comunicaba nada — que es precisamente la única función
+ * del campo según D-15.
+ *
+ * **Decisión A — la proyección es CONDICIONAL.** Solo se proyecta cuando el identificador tiene
+ * forma de UUID. Un identificador ya legible se devuelve TAL CUAL, exactamente como antes: el
+ * comportamiento previo es correcto para toda configuración con claves legibles y el cierre de un
+ * gap no reabre lo que ya funcionaba. Una proyección incondicional además haría depender el tag de
+ * la forma del VALOR del mapa, que es operator-editable.
+ *
+ * **Decisión B — la ruta legible sale del MAPA, no del cwd.** El tag es el último segmento de la
+ * ruta mapeada a ese identificador. El nombre del directorio actual es el ÚLTIMO recurso, no el
+ * primero: capturar desde un subdirectorio del proyecto (lo normal) daría el nombre del
+ * subdirectorio, que informa peor que el nombre del proyecto.
+ *
+ * Solo se persiste el ÚLTIMO SEGMENTO de la ruta, nunca la ruta completa (T-83-38): el grado de
+ * información expuesto es el mismo que ya exponía el fallback `basename(cwd)`.
  *
  * Never-throws: `projects` sale de `~/.kodo/projects.json`, que es operator-editable y puede ser
  * `null`, un número o un array tras un hand-edit.
@@ -206,7 +279,11 @@ export function deriveTag(cwd, projects) {
   try {
     const r = resolveProjectId(cwd, /** @type {any} */ (projects ?? {}));
     if (r && typeof r === 'object' && 'projectId' in r && typeof r.projectId === 'string') {
-      return r.projectId;
+      if (!isUuidLike(r.projectId)) return r.projectId;
+      // Identificador de proveedor: proyectar a la mitad legible del mapa (Decisiones A y B).
+      const mapped = mappedProjectPath(projects, r.projectId).replace(/\/+$/, '');
+      const name = mapped === '' ? '' : basename(mapped);
+      return name === '' ? fallback : name;
     }
     return fallback;
   } catch {
