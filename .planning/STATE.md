@@ -5,16 +5,16 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: inbox-foundation-captura-triage
 status: executing
-stopped_at: Completed 83-06-PLAN.md
-last_updated: "2026-07-25T16:21:53.199Z"
+stopped_at: Completed 83-07-PLAN.md
+last_updated: "2026-07-25T16:37:15.168Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 8
-  percent: 25
+  completed_plans: 9
+  percent: 50
 ---
 
 # Project State
@@ -33,9 +33,9 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 ## Current Position
 
 Phase: 83 (inbox-foundation-captura-triage) — EXECUTING
-Plan: 6 of 7
-Status: Ready to execute
-Last activity: 2026-07-25 — Phase 83 execution started
+Plan: 7 of 7
+Status: 7 de 7 planes completados (ciclo de cierre de gaps incluido) — pendiente de verificación
+Last activity: 2026-07-25 — 83-07 cierra GAP-3 (tag legible con la config real), WR-02, WR-08 e IN-02
 
 ## Most recent shipped milestone
 
@@ -108,6 +108,11 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-06: guard de cobertura de la rama fail-open en los DOS escenarios mixtos — cada hijo de captura registra su rama en capture-branches.log y la suite exige >=1 failopen por iteracion; perder cobertura pasa a ser un fallo en vez de un silencio (WR-03/DEBT-04)
 - [Phase ?]: 83-06: la cabecera de test/inbox-concurrency.test.js ELIMINA 'subir el presupuesto de reintentos del lock' de los arreglos admitidos ante una carrera roja; el unico admitido es corregir el invariante en produccion
 - [Phase ?]: 83-06 [desviacion]: los escenarios mixtos se liberan en DOS TIEMPOS (el marcado primero, las capturas solo cuando el lockfile existe) — con un barrier unico las capturas podian ganar el lock y el escenario no media la colision; lo destapo el propio guard (coordinated=6, failopen=0). Endurece: hold, hijos y aserciones intactos
+- [Phase ?]: 83-07: la clave de projects.json es el identificador del PROVEEDOR — con forma de UUID el tag pasa a ser el último segmento de la ruta MAPEADA (Decisión B); el basename del cwd queda como ÚLTIMO recurso. Verificado sobre la config real: 7246e3fe-... -> kodo
+- [Phase ?]: 83-07: la proyección del tag es CONDICIONAL (Decisión A) — un identificador ya legible se devuelve tal cual; cerrar un gap no reabre lo que ya funcionaba
+- [Phase ?]: 83-07 [REVIERTE 83-02]: es FALSO que el carril --json pueda ir verbatim porque JSON.stringify escapa los C0 — el serializador NO escapa DEL ni el bloque C1 y ambos salían íntegros. sanitizeJsonField los elimina en texto, tag, origen y dest
+- [Phase ?]: 83-07: concurrent-write gana rama propia (exit 1 reintentable) con copy que nombra la causa real — un guard que aborta para no destruir una captura concurrente, no contención de lock (D-13)
+- [Phase ?]: 83-07 [desviación]: el test de integración del fail-open sobre el binario NO muerde (el default del store escribe al mismo process.stderr que el test lee); se declara en el propio test y se añade un unit sobre la propagación del seam que sí muerde
 
 ### Open Blockers
 
@@ -136,13 +141,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T16:21:34.409Z
+**Last session:** 2026-07-25T16:37:15.162Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-06-PLAN.md
+- **Stopped at:** Completed 83-07-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -174,6 +179,7 @@ None
 | Phase 83 P04 | 6min | 2 tasks | 2 files |
 | Phase 83 P05 | 10min | 3 tasks | 2 files |
 | Phase 83 P06 | 8min | 2 tasks | 2 files |
+| Phase 83 P07 | 12min | 3 tasks | 7 files |
 
 ### Blockers
 
