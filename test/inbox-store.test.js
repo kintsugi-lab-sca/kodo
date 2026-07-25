@@ -7,6 +7,9 @@
 //     DOS forgeries (T-83-01), más el saneo de los tres carriles y la identidad de una captura.
 //   - `listCaptures`: reader leaf never-throws (D-18) que jamás escribe.
 //   - `appendCapture`: `O_APPEND` de una sola llamada con fail-open ante lock-timeout (D-02/D-03).
+//   - `markCapture`: RMW bajo lock con unique-tmp + rename, preservación BYTE A BYTE de toda línea
+//     ajena —incluidas las que no parsean, las vacías y el newline final— (D-01/D-04), sin
+//     fail-open (contrato 3) y sin residuo de tmp (T-83-03).
 //
 // AISLAMIENTO (T-83-05, Pitfall 5): **todos** los paths van por DI (`{inboxPath, lockPath}`
 // apuntando a un sandbox de `mkdtempSync`). Este fichero NO toca `HOME` en ningún punto y por
@@ -23,12 +26,19 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createHash } from 'node:crypto';
 import { acquireLock, releaseLock } from '../src/session/state-lock.js';
 import {
   encodeLine, parseLine, newCaptureId, todayLocal, deriveTag, defaultInboxPaths,
-  listCaptures, appendCapture,
+  listCaptures, appendCapture, markCapture,
   INBOX_FILENAME, INBOX_LOCK_FILENAME, MAX_TEXT_LEN, MAX_DEST_LEN,
 } from '../src/inbox/store.js';
+
+/** sha256 hex del contenido de un fichero — la prueba dura de «byte-idéntico». */
+const sha = (/** @type {string} */ p) => createHash('sha256').update(readFileSync(p)).digest('hex');
+
+/** ¿Queda algún tmp residual en el sandbox? (T-83-03) */
+const hasTmpResidue = (/** @type {string} */ d) => readdirSync(d).some((f) => f.includes('.tmp.'));
 
 /** @type {string} */ let dir;
 /** @type {string} */ let inboxPath;
@@ -413,5 +423,245 @@ describe('appendCapture — fail-open ante lock-timeout (D-03, contrato 6)', () 
     appendCapture(encodeLine(BASE) + '\n', { inboxPath, lockPath });
     assert.equal(readdirSync(dir).some((f) => f.includes('.tmp.')), false);
     assert.equal(existsSync(inboxPath), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// markCapture — RMW bajo lock con unique-tmp + rename (D-01, D-04, T-83-02/03)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixture de 6 líneas — 3 capturas válidas + 1 heading + 1 línea hand-written + 1 línea vacía.
+ * La captura de la posición 0 es la que se marca en los tests de preservación.
+ * @type {ReadonlyArray<string>}
+ */
+const FIXTURE_LINES = Object.freeze([
+  '- [ ] a3f9k2 · primera captura · kodo · 2026-07-25 · cli',
+  '## Notas del operador',
+  '- [ ] b7c1m0 · segunda captura · ROMAN · 2026-07-25 · cli',
+  'esto lo escribi a mano y no parsea',
+  '',
+  '- [x] c4d8n5 · tercera captura · kodo · 2026-07-24 · cli · descartada',
+]);
+
+/**
+ * Siembra el fixture. `trailingNewline` discrimina los dos casos de D-04.
+ * @param {string} p
+ * @param {boolean} trailingNewline
+ */
+function seedFixture(p, trailingNewline) {
+  writeFileSync(p, FIXTURE_LINES.join('\n') + (trailingNewline ? '\n' : ''));
+}
+
+describe('markCapture — cierre de una captura (CAPT-03, CAPT-06, D-10)', () => {
+  beforeEach(() => seedFixture(inboxPath, true));
+
+  it('`enrutada` CON dest cierra la línea con el trace pointer', () => {
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: '.planning/todos/TODO-012.md', inboxPath, lockPath,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.capture?.open, false);
+    assert.equal(r.capture?.estado, 'enrutada');
+    assert.equal(r.capture?.dest, '.planning/todos/TODO-012.md');
+
+    const line = readFileSync(inboxPath, 'utf-8').split('\n')[0];
+    assert.equal(line, '- [x] a3f9k2 · primera captura · kodo · 2026-07-25 · cli · enrutada → .planning/todos/TODO-012.md');
+  });
+
+  it('`enrutada` SIN dest cierra igualmente y devuelve ok — la falta de ref nunca bloquea (CAPT-06)', () => {
+    const r = markCapture('a3f9k2', 'enrutada', { inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    assert.equal(r.capture?.dest, null);
+
+    const line = readFileSync(inboxPath, 'utf-8').split('\n')[0];
+    assert.equal(line, '- [x] a3f9k2 · primera captura · kodo · 2026-07-25 · cli · enrutada');
+    assert.equal(line.includes('→'), false);
+  });
+
+  it('`descartada` cierra con su sufijo', () => {
+    const r = markCapture('b7c1m0', 'descartada', { inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    assert.equal(r.capture?.estado, 'descartada');
+    assert.equal(
+      readFileSync(inboxPath, 'utf-8').split('\n')[2],
+      '- [x] b7c1m0 · segunda captura · ROMAN · 2026-07-25 · cli · descartada',
+    );
+  });
+
+  it('la captura marcada SIGUE en el fichero con id/texto/tag/fecha/origen intactos (CAPT-03: cero borrado)', () => {
+    const before = readFileSync(inboxPath, 'utf-8').split('\n');
+    markCapture('a3f9k2', 'descartada', { inboxPath, lockPath });
+    const after = readFileSync(inboxPath, 'utf-8').split('\n');
+
+    assert.equal(after.length, before.length, 'el número de líneas del fichero no cambia');
+    const c = parseLine(after[0]);
+    assert.equal(c?.id, 'a3f9k2');
+    assert.equal(c?.text, 'primera captura');
+    assert.equal(c?.tag, 'kodo');
+    assert.equal(c?.date, '2026-07-25');
+    assert.equal(c?.origin, 'cli');
+    assert.equal(listCaptures({ inboxPath }).captures.length, 3, 'las 3 capturas siguen listadas');
+  });
+
+  it('localiza por ID, nunca por índice: la captura de la línea 3 se marca en su sitio (D-06)', () => {
+    const r = markCapture('b7c1m0', 'enrutada', { inboxPath, lockPath, dest: 'SEED-012' });
+    assert.equal(r.ok, true);
+    const lines = readFileSync(inboxPath, 'utf-8').split('\n');
+    assert.equal(lines[2].endsWith('· enrutada → SEED-012'), true, 'se marcó la línea del ID');
+    assert.equal(lines[0], FIXTURE_LINES[0], 'la línea 0 (otro ID) no se tocó');
+  });
+});
+
+describe('markCapture — preservación BYTE A BYTE de toda línea ajena (D-04, el invariante)', () => {
+  for (const trailingNewline of [true, false]) {
+    it(`fixture de 6 líneas ${trailingNewline ? 'CON' : 'SIN'} newline final: las otras 5 líneas y el terminador sobreviven`, () => {
+      seedFixture(inboxPath, trailingNewline);
+      const rawBefore = readFileSync(inboxPath, 'utf-8');
+      const before = rawBefore.split('\n');
+
+      const r = markCapture('a3f9k2', 'enrutada', { dest: '999.4', inboxPath, lockPath });
+      assert.equal(r.ok, true);
+
+      const rawAfter = readFileSync(inboxPath, 'utf-8');
+      const after = rawAfter.split('\n');
+
+      assert.equal(after.length, before.length, 'mismo número de elementos → mismo terminador');
+      assert.deepEqual(after.slice(1), before.slice(1), 'las 5 líneas restantes, byte a byte');
+      assert.equal(
+        rawAfter.endsWith('\n'), trailingNewline,
+        'la presencia/ausencia de newline final se conserva',
+      );
+      // Exactamente UNA línea cambiada.
+      const changed = before.reduce((n, l, i) => n + (l === after[i] ? 0 : 1), 0);
+      assert.equal(changed, 1);
+      // La línea vacía y la que no parsea siguen ahí, intactas.
+      assert.equal(after[3], 'esto lo escribi a mano y no parsea');
+      assert.equal(after[4], '');
+      assert.equal(after[1], '## Notas del operador');
+      // Los bytes NO tocados son idénticos en longitud.
+      assert.equal(
+        rawAfter.length - after[0].length,
+        rawBefore.length - before[0].length,
+      );
+    });
+  }
+
+  it('no deja residuo de tmp tras 10 invocaciones mixtas (T-83-03)', () => {
+    seedFixture(inboxPath, true);
+    const calls = [
+      () => markCapture('a3f9k2', 'enrutada', { dest: 'x', inboxPath, lockPath }),
+      () => markCapture('a3f9k2', 'enrutada', { inboxPath, lockPath }),      // already-closed
+      () => markCapture('no-existe', 'descartada', { inboxPath, lockPath }), // not-found
+      () => markCapture('b7c1m0', 'descartada', { inboxPath, lockPath }),
+      () => markCapture('c4d8n5', 'enrutada', { inboxPath, lockPath }),      // already-closed
+    ];
+    for (let i = 0; i < 2; i++) for (const c of calls) c();
+    assert.equal(hasTmpResidue(dir), false, `residuo en: ${readdirSync(dir).join(', ')}`);
+  });
+});
+
+describe('markCapture — rutas de fallo, todas sin reescribir el fichero', () => {
+  it('id inexistente → not-found y el fichero queda byte-idéntico (sha256)', () => {
+    seedFixture(inboxPath, true);
+    const before = sha(inboxPath);
+    const r = markCapture('zzzzzz', 'enrutada', { inboxPath, lockPath });
+    assert.deepEqual(r, { ok: false, reason: 'not-found' });
+    assert.equal(sha(inboxPath), before);
+  });
+
+  it('captura ya cerrada CON sufijo → already-closed, fichero intacto', () => {
+    seedFixture(inboxPath, true);
+    const before = sha(inboxPath);
+    const r = markCapture('c4d8n5', 'enrutada', { dest: 'x', inboxPath, lockPath });
+    assert.deepEqual(r, { ok: false, reason: 'already-closed' });
+    assert.equal(sha(inboxPath), before);
+  });
+
+  it('hand-edit `- [x]` SIN sufijo → already-closed y NO se reescribe (contrato 2)', () => {
+    const handEdited = '- [x] d5e6f7 · marcada a mano sin sufijo · kodo · 2026-07-25 · cli';
+    writeFileSync(inboxPath, handEdited + '\n');
+    const before = sha(inboxPath);
+
+    assert.equal(parseLine(handEdited)?.open, false, 'el checkbox es la autoridad');
+    assert.equal(parseLine(handEdited)?.estado, null, 'cierre desconocido');
+
+    const r = markCapture('d5e6f7', 'enrutada', { inboxPath, lockPath });
+    assert.deepEqual(r, { ok: false, reason: 'already-closed' });
+    assert.equal(sha(inboxPath), before);
+  });
+
+  it('fichero inexistente → not-found y NO se crea nada', () => {
+    const r = markCapture('a3f9k2', 'enrutada', { inboxPath, lockPath });
+    assert.deepEqual(r, { ok: false, reason: 'not-found' });
+    assert.equal(existsSync(inboxPath), false);
+  });
+
+  it('lock ocupado → lock-timeout y fichero INTACTO (contrato 3: sin fail-open)', () => {
+    seedFixture(inboxPath, true);
+    const before = sha(inboxPath);
+    const got = acquireLock(lockPath);
+    assert.notEqual(got, null);
+
+    let consoleWarns = 0;
+    const realConsoleWarn = console.warn;
+    console.warn = () => { consoleWarns++; };
+    let r;
+    try {
+      r = markCapture('a3f9k2', 'enrutada', { dest: 'x', inboxPath, lockPath });
+    } finally {
+      console.warn = realConsoleWarn;
+      releaseLock(lockPath, /** @type {{token:string}} */ (got).token);
+    }
+
+    assert.deepEqual(r, { ok: false, reason: 'lock-timeout' });
+    assert.equal(sha(inboxPath), before, 'la asimetría con D-03 es deliberada: el marcado NO reescribe');
+    assert.equal(consoleWarns, 0, 'el console.warn de la primitiva queda silenciado');
+    assert.equal(hasTmpResidue(dir), false);
+  });
+
+  it('dos líneas con el MISMO id → se marca la primera; la segunda queda abierta (contrato 5)', () => {
+    writeFileSync(inboxPath, [
+      '- [ ] dupdup · primera con id duplicado · kodo · 2026-07-25 · cli',
+      '- [ ] dupdup · segunda con id duplicado · kodo · 2026-07-25 · cli',
+    ].join('\n') + '\n');
+
+    const r = markCapture('dupdup', 'descartada', { inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    const lines = readFileSync(inboxPath, 'utf-8').split('\n');
+    assert.equal(parseLine(lines[0])?.open, false);
+    assert.equal(parseLine(lines[1])?.open, true, 'la segunda sigue abierta');
+    assert.equal(parseLine(lines[1])?.text, 'segunda con id duplicado');
+  });
+});
+
+describe('markCapture — seam `_afterReadFn` (D-21.2)', () => {
+  it('se invoca EXACTAMENTE una vez, dentro del lock y ANTES de publicar', () => {
+    seedFixture(inboxPath, true);
+    const rawBefore = readFileSync(inboxPath, 'utf-8');
+
+    let calls = 0;
+    let lockHeldDuringHook = false;
+    let fileStillOldDuringHook = false;
+
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: '999.4', inboxPath, lockPath,
+      _afterReadFn: () => {
+        calls++;
+        lockHeldDuringHook = existsSync(lockPath);
+        fileStillOldDuringHook = readFileSync(inboxPath, 'utf-8') === rawBefore;
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(calls, 1);
+    assert.equal(lockHeldDuringHook, true, 'el hook corre DENTRO de la sección crítica');
+    assert.equal(fileStillOldDuringHook, true, 'el hook corre ANTES del rename de publicación');
+    assert.notEqual(readFileSync(inboxPath, 'utf-8'), rawBefore, 'tras el hook sí se publicó');
+  });
+
+  it('el default es no-op: markCapture funciona sin el hook', () => {
+    seedFixture(inboxPath, true);
+    assert.equal(markCapture('a3f9k2', 'descartada', { inboxPath, lockPath }).ok, true);
   });
 });
