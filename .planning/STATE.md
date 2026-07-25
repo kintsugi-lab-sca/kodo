@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: inbox-foundation-captura-triage
 status: executing
-stopped_at: Completed 83-05-PLAN.md
-last_updated: "2026-07-25T16:09:00.030Z"
+stopped_at: Completed 83-06-PLAN.md
+last_updated: "2026-07-25T16:21:53.199Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 25
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 ## Current Position
 
 Phase: 83 (inbox-foundation-captura-triage) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 83 execution started
 
@@ -104,6 +104,10 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-05: el gate source-hygiene se acota por sed a la REGION del inbox y filtra comentarios antes de contar — un gate de fichero completo seria incorrecto por construccion (37 usos legitimos en el resto del fichero)
 - [Phase ?]: 83-05: fixture de regresion de 1500 capturas (~230 KB) que NO se recorta por rapidez; mordida verificada revirtiendo el arreglo a mano (3 casos rojos con 'se corto en 65536 bytes')
 - [Phase ?]: 83-05: WR-05 se cierra DOCUMENTANDO el separador de argumentos en la ayuda de kodo capture, no interceptando el error de opcion desconocida de commander (diferido); la limitacion conocida queda fijada por un test etiquetado, no por un comentario
+- [Phase ?]: 83-06: el escenario de concurrencia por encima de TODO presupuesto (hold 1500 ms, 6 capturas, x3) entra en la suite y se verifica su MORDIDA: con el guard compare-and-swap de 83-04 revertido a mano sobreviven 0 de 6 con exit 0 en los 7 procesos; restaurado, 6 de 6
+- [Phase ?]: 83-06: guard de cobertura de la rama fail-open en los DOS escenarios mixtos — cada hijo de captura registra su rama en capture-branches.log y la suite exige >=1 failopen por iteracion; perder cobertura pasa a ser un fallo en vez de un silencio (WR-03/DEBT-04)
+- [Phase ?]: 83-06: la cabecera de test/inbox-concurrency.test.js ELIMINA 'subir el presupuesto de reintentos del lock' de los arreglos admitidos ante una carrera roja; el unico admitido es corregir el invariante en produccion
+- [Phase ?]: 83-06 [desviacion]: los escenarios mixtos se liberan en DOS TIEMPOS (el marcado primero, las capturas solo cuando el lockfile existe) — con un barrier unico las capturas podian ganar el lock y el escenario no media la colision; lo destapo el propio guard (coordinated=6, failopen=0). Endurece: hold, hijos y aserciones intactos
 
 ### Open Blockers
 
@@ -132,13 +136,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T16:09:00.022Z
+**Last session:** 2026-07-25T16:21:34.409Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-05-PLAN.md
+- **Stopped at:** Completed 83-06-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -169,6 +173,7 @@ None
 | Phase 83 P03 | 8min | 3 tasks | 5 files |
 | Phase 83 P04 | 6min | 2 tasks | 2 files |
 | Phase 83 P05 | 10min | 3 tasks | 2 files |
+| Phase 83 P06 | 8min | 2 tasks | 2 files |
 
 ### Blockers
 

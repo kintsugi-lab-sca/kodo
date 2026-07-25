@@ -88,7 +88,7 @@
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 83-06-PLAN.md — Evidencia de GAP-1: escenario de concurrencia con la ventana por encima de cualquier presupuesto + guard de cobertura de la rama fail-open (CAPT-01, CAPT-03) [wave 4]
+- [x] 83-06-PLAN.md — Evidencia de GAP-1: escenario de concurrencia con la ventana por encima de cualquier presupuesto + guard de cobertura de la rama fail-open (CAPT-01, CAPT-03) [wave 4]
 - [ ] 83-07-PLAN.md — GAP-3: tag legible con la forma real de `projects.json`, saneo del carril `--json`, mapeo del fallo por escritura concurrente y copy corregida del seam (CAPT-01, CAPT-03, CAPT-04, CAPT-06) [wave 4]
 
 ### Phase 84: Superficies de captura — skill, sync, conteo ambient
