@@ -763,6 +763,53 @@ function seedInbox(home, content) {
   writeFileSync(inboxOf(home), content);
 }
 
+/**
+ * Id determinista de la captura sembrada en la posición `i`: base36 del índice, padded a los 6
+ * caracteres del alfabeto que acepta el parser (`[0-9a-z]+`). Único para cualquier `n < 36^6`.
+ *
+ * @param {number} i
+ * @returns {string}
+ */
+function capIdAt(i) {
+  return i.toString(36).padStart(6, '0');
+}
+
+/**
+ * Siembra un inbox GRANDE de UNA SOLA escritura y devuelve su tamaño en bytes.
+ *
+ * NO se usa el binario para sembrar: 1500 invocaciones de proceso harían el test inutilizable.
+ * Las líneas se construyen con la gramática literal de `encodeLine` y se verifican parseables por
+ * el propio fixture (ver el primer assert de cada caso, que exige el conteo exacto de capturas).
+ *
+ * `closedTail` cierra las N últimas capturas con su sufijo de estado y su trace pointer — el
+ * material del carril `--all` (CAPT-06).
+ *
+ * @param {string} home
+ * @param {number} n
+ * @param {{ closedTail?: number }} [opts]
+ * @returns {number} tamaño en bytes del fichero escrito
+ */
+function seedLargeInbox(home, n, opts = {}) {
+  const closedTail = opts.closedTail ?? 0;
+  const openCount = n - closedTail;
+  /** @type {string[]} */
+  const lines = [];
+  for (let i = 0; i < n; i++) {
+    const id = capIdAt(i);
+    const text =
+      `captura sembrada numero ${i} — texto largo y determinista para que el fichero ` +
+      `cruce con holgura el umbral de truncado de la pipe`;
+    const head = `${id} · ${text} · kodo · 2026-07-25 · cli`;
+    lines.push(
+      i < openCount ? `- [ ] ${head}` : `- [x] ${head} · enrutada → .planning/todos/TODO-${id}.md`,
+    );
+  }
+  const content = lines.join('\n') + '\n';
+  mkdirSync(join(home, '.kodo'), { recursive: true });
+  writeFileSync(inboxOf(home), content);
+  return Buffer.byteLength(content, 'utf-8');
+}
+
 /** Id de la primera captura parseable del fichero. @param {string} home */
 function firstId(home) {
   for (const l of inboxLines(home)) {
@@ -966,6 +1013,134 @@ describe('CLI `kodo inbox route|discard` — cierre sin borrado (CAPT-03, CAPT-0
     assert.equal(after[0], heading, 'el heading sobrevive byte a byte');
     assert.equal(after[2], handwritten, 'la nota a mano sobrevive byte a byte');
   });
+});
+
+// DEFECTO QUE CUBRE ESTE BLOQUE (Plan 83-05 / GAP-2 / 83-REVIEW CR-01).
+//
+// Los cuatro handlers del inbox terminaban el proceso inmediatamente después de escribir en
+// stdout. Cuando la salida NO es un terminal sino una pipe, esas escrituras son ASÍNCRONAS: el
+// proceso moría sin drenar el buffer del sistema y la salida se cortaba en EXACTAMENTE 65536
+// bytes. Reproducción medida sobre este repo antes del arreglo: con 4000 capturas (~550 KB de
+// fichero), `kodo inbox --json` canalizado devolvía 65536 bytes y `JSON.parse` fallaba con
+// «Unterminated string in JSON at position 65536».
+//
+// NO RECORTAR EL TAMAÑO DEL FIXTURE «POR RAPIDEZ». Un fixture por debajo del umbral deja el caso
+// verde con y sin el arreglo, que es exactamente el enmascaramiento que DEBT-04 prohíbe: una
+// carrera (o un truncado) nunca se pone verde escondiéndola. Comprobado con el arreglo revertido a
+// mano: el caso 1 se pone ROJO.
+//
+// Como CAPT-03 prohíbe borrar, el fichero solo crece: cruzar 64 KB no es un caso límite, es una
+// certeza a plazo.
+describe('CLI `kodo inbox` — la salida CANALIZADA no se trunca (GAP-2, DX-06, CAPT-03)', () => {
+  /** Capturas del fixture: ~155 bytes por línea → fichero muy por encima de 100 000 bytes. */
+  const N = 1500;
+  /** Cola ya cerrada del fixture del carril `--all`. */
+  const CLOSED_TAIL = 300;
+
+  /** @type {string} */
+  let home;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'kodo-inbox-big-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it(
+    '--json: la salida canalizada parsea ENTERA y trae las N capturas, con la ÚLTIMA presente',
+    { timeout: 30_000 },
+    () => {
+      const fileBytes = seedLargeInbox(home, N);
+      assert.ok(fileBytes > 100_000, `el fixture debe ser realista, no simbólico: ${fileBytes} bytes`);
+
+      const r = kodo(home, ['inbox', '--json']);
+      assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+
+      const outBytes = Buffer.byteLength(r.stdout, 'utf-8');
+      assert.ok(
+        outBytes > 65536,
+        `la salida canalizada se cortó en ${outBytes} bytes — el truncado de la pipe está en 65536`,
+      );
+
+      const payload = JSON.parse(r.stdout);
+      assert.equal(payload.captures.length, N, 'ni una captura de menos: la salida llegó completa');
+      // Este assert es el que distingue «no se truncó» de «se truncó en un punto que casualmente
+      // parsea»: exige el identificador de la ÚLTIMA captura sembrada, que vive al final del stream.
+      assert.equal(payload.captures[N - 1].id, capIdAt(N - 1), 'la última captura sembrada llega');
+    },
+  );
+
+  it(
+    '--all --json: la traza completa tampoco se corta y el dest de la última cerrada llega íntegro',
+    { timeout: 30_000 },
+    () => {
+      const fileBytes = seedLargeInbox(home, N, { closedTail: CLOSED_TAIL });
+      assert.ok(fileBytes > 100_000, `el fixture debe ser realista, no simbólico: ${fileBytes} bytes`);
+
+      const r = kodo(home, ['inbox', '--all', '--json']);
+      assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+
+      const outBytes = Buffer.byteLength(r.stdout, 'utf-8');
+      assert.ok(
+        outBytes > 65536,
+        `la traza canalizada se cortó en ${outBytes} bytes — el truncado de la pipe está en 65536`,
+      );
+
+      const payload = JSON.parse(r.stdout);
+      assert.equal(payload.captures.length, N, 'la traza permanente llega entera');
+      assert.equal(payload.open, N - CLOSED_TAIL, 'el conteo de abiertas es el sembrado');
+
+      const last = payload.captures[N - 1];
+      assert.equal(last.id, capIdAt(N - 1), 'la última captura cerrada llega');
+      assert.equal(last.estado, 'enrutada');
+      assert.equal(
+        last.dest,
+        `.planning/todos/TODO-${capIdAt(N - 1)}.md`,
+        'CAPT-06 viaja por el mismo carril: el trace pointer llega íntegro, no cortado',
+      );
+    },
+  );
+
+  it(
+    'el carril HUMAN canalizado tampoco se corta (un paginador es el mismo camino asíncrono)',
+    { timeout: 30_000 },
+    () => {
+      seedLargeInbox(home, N);
+
+      const r = kodo(home, ['inbox']);
+      assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+
+      const outBytes = Buffer.byteLength(r.stdout, 'utf-8');
+      assert.ok(
+        outBytes > 65536,
+        `el render human se cortó en ${outBytes} bytes — el truncado de la pipe está en 65536`,
+      );
+      assert.ok(
+        r.stdout.includes(capIdAt(N - 1)),
+        'la última fila del render llega al consumidor: el listado no se corta a mitad',
+      );
+    },
+  );
+
+  it(
+    'los exit codes deterministas de D-13 sobreviven al cambio de mecanismo de terminación',
+    { timeout: 30_000 },
+    () => {
+      seedLargeInbox(home, N);
+
+      const missing = kodo(home, ['inbox', 'route', 'zzzzzz']);
+      assert.equal(missing.status, 2, `id inexistente → 2; fue ${missing.status}: ${missing.stderr}`);
+
+      const id = capIdAt(N - 1);
+      const ok = kodo(home, ['inbox', 'route', id, '--dest', '.planning/todos/TODO-012.md']);
+      assert.equal(ok.status, 0, `status ${ok.status}\nstderr: ${ok.stderr}`);
+      assert.match(ok.stdout, new RegExp(`Captura ${id} enrutada`), 'la confirmación identifica la captura');
+      assert.equal(ok.stdout.at(-1), '\n', 'y llega COMPLETA: terminada en su newline');
+
+      const closed = kodo(home, ['inbox', 'route', id]);
+      assert.equal(closed.status, 2, `re-cerrar sigue saliendo 2; fue ${closed.status}: ${closed.stderr}`);
+    },
+  );
 });
 
 describe('CLI — superficie LOCKED: nada de más, nada de menos (D-12, D-14, D-17)', () => {
