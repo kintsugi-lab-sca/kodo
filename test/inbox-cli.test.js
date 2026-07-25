@@ -865,6 +865,34 @@ describe('CLI `kodo capture` — proceso real (CAPT-01, D-19)', () => {
     const texts = inboxLines(home).map((l) => parseLine(l)?.text);
     assert.deepEqual(texts, ['primera', 'segunda', 'tercera']);
   });
+
+  // WR-05 (83-REVIEW): un texto que EMPIEZA POR GUION es la forma típica de una línea pegada de
+  // una lista markdown o de una métrica negativa. El parser lo lee como una opción, así que sin el
+  // separador de argumentos la captura se aborta y la idea se PIERDE. La forma segura está ahora
+  // declarada en la ayuda del propio comando (`src/cli.js`, descripción del argumento de texto).
+  it('texto que empieza por guion CON el separador `--`: captura verbatim y sale 0 (CAPT-01)', () => {
+    const text = '-3 % de conversión en el checkout tras el rediseño';
+    const r = kodo(home, ['capture', '--', text]);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+
+    const ls = inboxLines(home);
+    assert.equal(ls.length, 1, 'exactamente una línea');
+    const c = parseLine(ls[0]);
+    assert.ok(c, 'la línea escrita debe parsear');
+    assert.equal(c.text, text, 'el guion inicial sobrevive: el texto se persiste ÍNTEGRO');
+  });
+
+  it('LIMITACIÓN CONOCIDA (no deseada): sin `--`, el mismo texto NO se captura y no toca el disco', () => {
+    // Este test fija el comportamiento REAL de hoy, no el deseable. Interceptar el error de opción
+    // desconocida de commander está DIFERIDO (toca el manejo global de errores del parser, ver
+    // §Diferidos del plan 83-05). Si algún día se intercepta, este test se pondrá ROJO y obligará
+    // a actualizar la expectativa de forma consciente en vez de por deriva.
+    const text = '-3 % de conversión en el checkout tras el rediseño';
+    const r = kodo(home, ['capture', text]);
+    assert.notEqual(r.status, 0, `sin separador el parser aborta; status fue ${r.status}`);
+    assert.match(r.stderr, /unknown option/i, 'el parser lo lee como una opción, no como texto');
+    assert.equal(existsSync(inboxOf(home)), false, 'CERO escritura: un gate del parser no toca el disco');
+  });
 });
 
 describe('CLI `kodo inbox` — listado (CAPT-03, D-12, D-18)', () => {

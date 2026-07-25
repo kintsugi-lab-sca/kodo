@@ -613,7 +613,12 @@ daemon
 program
   .command('capture')
   .description('Capturar una idea al inbox (~/.kodo/inbox.md) sin salir de lo que estás haciendo')
-  .argument('<text>', 'Texto de la captura: se persiste VERBATIM, saneado a una sola línea')
+  .argument(
+    '<text>',
+    'Texto de la captura: se persiste VERBATIM, saneado a una sola línea. Si el texto empieza ' +
+      'por guion, antepón el separador de argumentos — `kodo capture -- "-3 % de conversión"`: ' +
+      'sin él el parser lo interpreta como una opción desconocida y la captura se aborta',
+  )
   .option(
     '--origin <valor>',
     'Origen de la captura — USO INTERNO (lo fija el skill de captura al shellear a este mismo writer); default: cli',
