@@ -599,6 +599,17 @@ daemon
   });
 
 // --- kodo capture --- (Phase 83 / CAPT-01 / D-15, D-16, D-17)
+//
+// DRENAJE DE LA SALIDA ESTÁNDAR — aplica a los CUATRO handlers del bloque del inbox (`capture`,
+// el padre `inbox`, `inbox route` y `inbox discard`), y SOLO a ellos (Plan 83-05 / GAP-2 / CR-01):
+// cuando la salida no es un terminal sino una pipe, las escrituras a stdout son ASÍNCRONAS.
+// Terminar el proceso de forma inmediata tras escribir aborta el buffer pendiente y entrega
+// exactamente 65536 bytes — JSON truncado e inválido en el carril que se anuncia como scriptable
+// (DX-06). Reproducido: 4000 capturas canalizadas → 65536 bytes y `JSON.parse` falla. Por eso
+// estos handlers FIJAN el código de salida y dejan que el runtime termine cuando el event loop se
+// vacía: el buffer drena entero y el código se preserva. El resto de comandos de este fichero
+// (`polling`, `daemon`, `gsd`, `sidebar`, `skill`) queda deliberadamente fuera de este cierre de
+// gaps — sus payloads están acotados muy por debajo del umbral.
 program
   .command('capture')
   .description('Capturar una idea al inbox (~/.kodo/inbox.md) sin salir de lo que estás haciendo')
@@ -613,10 +624,10 @@ program
       // NOTE: NO `ensureConfig()` — el inbox es filesystem local (~/.kodo/inbox.md) y NO toca
       // ningún provider. Mismo precedente que `skill sync`, `gsd doctor` y `sidebar doctor`.
       const { runCaptureCli } = await import('./cli/capture.js');
-      process.exit(runCaptureCli({ text, origin: opts.origin }));
+      process.exitCode = runCaptureCli({ text, origin: opts.origin });
     } catch (err) {
       console.error(`Error: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 
@@ -640,10 +651,10 @@ const inbox = program
     try {
       // NOTE: NO `ensureConfig()` — mismo precedente que `skill sync` / `gsd doctor`.
       const { runInboxListCli } = await import('./cli/inbox.js');
-      process.exit(runInboxListCli({ all: opts.all || false, json: opts.json || false }));
+      process.exitCode = runInboxListCli({ all: opts.all || false, json: opts.json || false });
     } catch (err) {
       console.error(`Error: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 
@@ -657,10 +668,10 @@ inbox
   .action(async (id, opts) => {
     try {
       const { runInboxMarkCli } = await import('./cli/inbox.js');
-      process.exit(runInboxMarkCli(id, 'enrutada', { dest: opts.dest }));
+      process.exitCode = runInboxMarkCli(id, 'enrutada', { dest: opts.dest });
     } catch (err) {
       console.error(`Error: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 
@@ -670,10 +681,10 @@ inbox
   .action(async (id) => {
     try {
       const { runInboxMarkCli } = await import('./cli/inbox.js');
-      process.exit(runInboxMarkCli(id, 'descartada', {}));
+      process.exitCode = runInboxMarkCli(id, 'descartada', {});
     } catch (err) {
       console.error(`Error: ${err.message}`);
-      process.exit(1);
+      process.exitCode = 1;
     }
   });
 
