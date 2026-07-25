@@ -20,8 +20,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync,
-  statSync, lstatSync, existsSync, readdirSync, chmodSync,
+  mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, appendFileSync,
+  statSync, lstatSync, existsSync, readdirSync, chmodSync, renameSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -663,5 +663,186 @@ describe('markCapture — seam `_afterReadFn` (D-21.2)', () => {
   it('el default es no-op: markCapture funciona sin el hook', () => {
     seedFixture(inboxPath, true);
     assert.equal(markCapture('a3f9k2', 'descartada', { inboxPath, lockPath }).ok, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// markCapture — guard compare-and-swap (Plan 04, GAP-1 / CR-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Siembra el fixture con un byte que NO es UTF-8 válido en una línea AJENA.
+ *
+ * Es la variante elegida para provocar el AGOTAMIENTO del RMW. Razón: el seam `_afterReadFn`
+ * pertenece deliberadamente al PRIMER intento (si se disparase en cada uno, el hold del test de
+ * concurrencia se multiplicaría por el número de intentos y el escenario dejaría de converger), y
+ * espiar el `statSync` del guard exigiría meter código de test en producción — justo lo que este
+ * repo prohíbe. En su lugar se siembra una condición de mismatch PERMANENTE y libre de reloj:
+ * `readFileSync(…, 'utf-8')` sustituye el byte huérfano `0x80` por U+FFFD (3 bytes), así que
+ * `Buffer.byteLength(raw, 'utf-8')` NUNCA puede igualar el `size` del fichero y el guard reporta
+ * «cambiado» en los N intentos, sin depender de ninguna carrera ni de ningún timing.
+ *
+ * Cubre además el caso real que esa desigualdad protege: publicar el buffer reescribiría ese byte
+ * ajeno como mojibake, violando la preservación byte a byte de D-04.
+ *
+ * @param {string} p
+ */
+function seedFixtureWithInvalidUtf8(p) {
+  writeFileSync(p, Buffer.concat([
+    Buffer.from(FIXTURE_LINES.join('\n') + '\n', 'utf-8'),
+    Buffer.from([0x80]), // byte de continuación UTF-8 huérfano, en una línea que no es la marcada
+    Buffer.from('\n', 'utf-8'),
+  ]));
+}
+
+describe('markCapture — guard compare-and-swap contra la lectura obsoleta (GAP-1, CR-02)', () => {
+  it('un append en la ventana lectura→rename NO se pierde: el RMW se rehace sobre el fichero nuevo', () => {
+    seedFixture(inboxPath, true);
+    const extra = '- [ ] e9x1y2 · captura appendeada durante la ventana · kodo · 2026-07-25 · cli';
+
+    let hookCalls = 0;
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: '999.4', inboxPath, lockPath,
+      _afterReadFn: () => { hookCalls++; appendFileSync(inboxPath, extra + '\n'); },
+    });
+
+    assert.equal(r.ok, true, 'el marcado converge en un segundo intento');
+    assert.equal(hookCalls, 1, 'el seam pertenece al PRIMER intento: no se multiplica con el reintento');
+
+    const lines = readFileSync(inboxPath, 'utf-8').split('\n');
+    assert.ok(lines.includes(extra), 'la captura appendeada durante la ventana NO se pierde (CR-02)');
+    assert.equal(parseLine(lines[0])?.open, false, 'la línea objetivo quedó marcada');
+    assert.equal(parseLine(lines[0])?.dest, '999.4');
+    assert.equal(listCaptures({ inboxPath }).captures.length, 4, '3 del fixture + la appendeada');
+    assert.equal(hasTmpResidue(dir), false);
+  });
+
+  it('toda línea ajena sobrevive byte a byte AUNQUE el RMW se rehaga (D-04 a través del reintento)', () => {
+    seedFixture(inboxPath, true);
+    const extra = '- [ ] e9x1y2 · appendeada en la ventana · kodo · 2026-07-25 · cli';
+
+    const r = markCapture('a3f9k2', 'descartada', {
+      inboxPath, lockPath,
+      _afterReadFn: () => appendFileSync(inboxPath, extra + '\n'),
+    });
+    assert.equal(r.ok, true);
+
+    const after = readFileSync(inboxPath, 'utf-8').split('\n');
+    assert.deepEqual(
+      after.slice(1, FIXTURE_LINES.length),
+      FIXTURE_LINES.slice(1),
+      'las 5 líneas ajenas del fixture, byte a byte, tras el reintento',
+    );
+    assert.equal(after[FIXTURE_LINES.length], extra, 'la línea appendeada conserva sus bytes');
+  });
+
+  it('una publicación por rename de un tercero con el MISMO tamaño se detecta por INODO', () => {
+    seedFixture(inboxPath, true);
+    const original = readFileSync(inboxPath, 'utf-8');
+    // Mismo número de bytes EXACTO: solo cambia un carácter ASCII de una línea ajena. Sin el
+    // componente `ino` del baseline, el guard de tamaño sería ciego a este caso.
+    const replaced = original.replace('## Notas del operador', '## Notas del operadoR');
+    assert.equal(Buffer.byteLength(replaced, 'utf-8'), Buffer.byteLength(original, 'utf-8'));
+
+    let hookCalls = 0;
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: 'INO', inboxPath, lockPath,
+      _afterReadFn: () => {
+        hookCalls++;
+        const publicado = join(dir, 'tercero.publicacion');
+        writeFileSync(publicado, replaced);
+        renameSync(publicado, inboxPath); // inodo NUEVO, mismo tamaño
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(hookCalls, 1);
+    const after = readFileSync(inboxPath, 'utf-8');
+    assert.ok(after.includes('## Notas del operadoR'), 'el RMW se rehízo sobre el fichero NUEVO');
+    assert.equal(parseLine(after.split('\n')[0])?.open, false);
+    assert.equal(parseLine(after.split('\n')[0])?.dest, 'INO');
+    assert.equal(hasTmpResidue(dir), false);
+  });
+
+  it('agotados los intentos → concurrent-write, fichero byte-idéntico y línea objetivo ABIERTA', () => {
+    seedFixtureWithInvalidUtf8(inboxPath);
+    const before = sha(inboxPath);
+
+    const r = markCapture('a3f9k2', 'enrutada', { dest: 'x', inboxPath, lockPath });
+
+    assert.deepEqual(r, { ok: false, reason: 'concurrent-write' });
+    assert.equal(sha(inboxPath), before, 'no se publicó ninguna versión: el fichero queda intacto');
+    assert.equal(
+      parseLine(readFileSync(inboxPath, 'utf-8').split('\n')[0])?.open, true,
+      'la línea objetivo sigue ABIERTA — el fallo es ruidoso, nunca un clobber',
+    );
+  });
+
+  it('el agotamiento no deja NINGÚN fichero temporal residual', () => {
+    seedFixtureWithInvalidUtf8(inboxPath);
+    markCapture('a3f9k2', 'enrutada', { dest: 'x', inboxPath, lockPath });
+    assert.equal(hasTmpResidue(dir), false, `residuo en: ${readdirSync(dir).join(', ')}`);
+  });
+
+  it('agotamiento CON un append en la ventana: la línea appendeada sobrevive igual', () => {
+    seedFixtureWithInvalidUtf8(inboxPath);
+    const extra = '- [ ] e9x1y2 · appendeada durante un agotamiento · kodo · 2026-07-25 · cli';
+
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: 'x', inboxPath, lockPath,
+      _afterReadFn: () => appendFileSync(inboxPath, extra + '\n'),
+    });
+
+    assert.deepEqual(r, { ok: false, reason: 'concurrent-write' });
+    const lines = readFileSync(inboxPath, 'utf-8').split('\n');
+    assert.ok(lines.includes(extra), 'la captura appendeada NO se pierde ni cuando el RMW se rinde');
+    assert.equal(parseLine(lines[0])?.open, true, 'la línea objetivo sigue abierta');
+    assert.equal(hasTmpResidue(dir), false);
+  });
+
+  it('`not-found` y `already-closed` siguen siendo terminales y no consumen el fichero', () => {
+    seedFixture(inboxPath, true);
+    const before = sha(inboxPath);
+    assert.deepEqual(
+      markCapture('zzzzzz', 'enrutada', { inboxPath, lockPath }),
+      { ok: false, reason: 'not-found' },
+    );
+    assert.deepEqual(
+      markCapture('c4d8n5', 'enrutada', { inboxPath, lockPath }),
+      { ok: false, reason: 'already-closed' },
+    );
+    assert.equal(sha(inboxPath), before);
+  });
+});
+
+describe('markCapture — devuelve la captura PERSISTIDA, no el objeto pre-saneo (WR-07, CAPT-06)', () => {
+  it('un dest por encima de MAX_DEST_LEN se devuelve ya recortado, igual que en el fichero', () => {
+    seedFixture(inboxPath, true);
+    const r = markCapture('a3f9k2', 'enrutada', {
+      dest: 'd'.repeat(MAX_DEST_LEN + 50), inboxPath, lockPath,
+    });
+    assert.equal(r.ok, true);
+
+    const onDisk = parseLine(readFileSync(inboxPath, 'utf-8').split('\n')[0]);
+    assert.equal(r.capture?.dest?.length, MAX_DEST_LEN, 'la confirmación no puede anunciar más de lo escrito');
+    assert.deepEqual(r.capture, onDisk, 'lo devuelto es EXACTAMENTE lo persistido');
+  });
+
+  it('`descartada` no conserva un dest que la línea escrita no contiene', () => {
+    seedFixture(inboxPath, true);
+    const r = markCapture('a3f9k2', 'descartada', {
+      dest: 'ref-que-nunca-se-escribe', inboxPath, lockPath,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.capture?.dest, null);
+    assert.deepEqual(r.capture, parseLine(readFileSync(inboxPath, 'utf-8').split('\n')[0]));
+  });
+
+  it('un texto hand-editado por encima de MAX_TEXT_LEN se devuelve recortado como en el fichero', () => {
+    writeFileSync(inboxPath, `- [ ] lng001 · ${'y'.repeat(MAX_TEXT_LEN + 40)} · kodo · 2026-07-25 · cli\n`);
+    const r = markCapture('lng001', 'descartada', { inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    assert.equal(r.capture?.text.length, MAX_TEXT_LEN);
+    assert.deepEqual(r.capture, parseLine(readFileSync(inboxPath, 'utf-8').split('\n')[0]));
   });
 });
