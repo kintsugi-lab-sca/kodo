@@ -4,9 +4,9 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: Inbox foundation — captura + triage
-status: planning
+status: executing
 stopped_at: Phase 83 context gathered
-last_updated: "2026-07-25T09:42:15.625Z"
+last_updated: "2026-07-25T10:25:58.206Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 82 complete, transitioned to Phase 83
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 Phase: 83 — Inbox foundation — captura + triage
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-25 — Phase 82 complete, transitioned to Phase 83
 
 ## Most recent shipped milestone

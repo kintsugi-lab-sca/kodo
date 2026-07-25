@@ -114,11 +114,18 @@ El hallazgo que más impacto tiene en el plan es el **conflicto sobre `writeFile
 
 ---
 
-## ⚠ CONFLICTO A RESOLVER ANTES DE PLANIFICAR
+## ⚠ CONFLICTO — RESUELTO 2026-07-25
+
+> **RESUELTO.** Gana el invariante: el marcado usa **unique-tmp-name + `renameSync`**
+> (`<path>.tmp.<pid>.<randomUUID>`, patrón `src/hooks/session-end.js:375`), **NO**
+> `writeFileAtomic`. `83-CONTEXT.md` D-04 lleva la corrección post-research (commit
+> `ce8257c`) y los tres PLAN.md la blindan por construcción (`src/inbox/store.js` no
+> importa `src/config.js` en absoluto, con gate `grep` de source-hygiene). La sección
+> se conserva por su análisis técnico — **no re-arbitrar**.
 
 ### `writeFileAtomic` (D-04) vs. unique-tmp-name (invariante cross-milestone)
 
-Tres fuentes del propio proyecto se contradicen. El planner **debe** arbitrar explícitamente y dejar constancia; no es un detalle de implementación delegable al ejecutor.
+Tres fuentes del propio proyecto se contradecían. Arbitrado en plan-phase; queda como registro del porqué.
 
 | Fuente | Autoridad | Dice |
 |--------|-----------|------|
@@ -907,24 +914,29 @@ No devuelve valor máquina-legible por ningún canal — confirma D-09 y D-10 (`
 
 ---
 
-## Open Questions
+## Open Questions (TODAS RESUELTAS — 2026-07-25)
 
-1. **`writeFileAtomic` (D-04) vs unique-tmp-name (`STATE.md:100`) — ¿cuál gana?**
+> **Las 7 quedaron cerradas en plan-phase.** #1 en `83-CONTEXT.md` D-04 (enmienda post-research,
+> commit `ce8257c`); #2–#7 en `83-01-PLAN.md` §Contract decisions, cada una con criterio de
+> aceptación testable y referenciada desde `83-02` y `83-03`. Resoluciones abajo, inline.
+> **No re-arbitrar ninguna.**
+
+1. **`writeFileAtomic` (D-04) vs unique-tmp-name (`STATE.md:100`) — ¿cuál gana?** — **RESUELTA: unique-tmp-name.** `83-CONTEXT.md` D-04 enmendado; blindado por construcción (`store.js` no importa `config.js`, con gate `grep`).
    - Lo que sabemos: las dos fuentes se contradicen literalmente; el research del milestone y el comentario del fix WR-02 en el propio repo respaldan unique-tmp; el invariante de `STATE.md` es cross-milestone (autoridad superior a una decisión de fase).
    - Lo que no está claro: si D-04 citó `writeFileAtomic` como *mecanismo* o solo como *referencia semántica* de «temp+rename intra-fs».
    - Recomendación: **conservar la semántica de D-04, cambiar el mecanismo a unique-tmp local al módulo.** Registrarlo como enmienda explícita en el PLAN (no dejarlo al ejecutor). Si el mantenedor prefiere D-04 literal, hay que enmendar `STATE.md:100` — no ignorarlo en silencio.
 
-2. **Semántica de `- [x]` sin sufijo (hand-edit).** Ver A2. Afecta a `parseLine`, al listado y a los exit codes. Decidir y testear.
+2. **[RESUELTA — `{open:false, estado:null}`; `route`/`discard` → `already-closed` exit 2, sin reescribir la línea]** **Semántica de `- [x]` sin sufijo (hand-edit).** Ver A2. Afecta a `parseLine`, al listado y a los exit codes. Decidir y testear.
 
-3. **¿Hace fail-open el marcado ante `lock-timeout`?** Ver A5. Recomendación: **no** (exit 1 + stderr). Registrarlo.
+3. **[RESUELTA — NO: exit 1, fichero intacto; asimetría deliberada frente a D-03, escrita en el código]** **¿Hace fail-open el marcado ante `lock-timeout`?** Ver A5. Recomendación: **no** (exit 1 + stderr). Registrarlo.
 
-4. **Exit code del texto vacío.** Ver A3. D-13 no lo cubre.
+4. **[RESUELTA — exit 2, cero escritura]** **Exit code del texto vacío.** Ver A3. D-13 no lo cubre.
 
-5. **¿Reintenta la captura ante colisión de ID?** Ver A4. Recomendación: no reintentar, documentar la probabilidad.
+5. **[RESUELTA — sin reintento; gana la primera línea que casa (~0,023 % a 1000 capturas)]** **¿Reintenta la captura ante colisión de ID?** Ver A4. Recomendación: no reintentar, documentar la probabilidad.
 
-6. **Doble warn en el fail-open de D-03.** `withFileLock` ya emite `console.warn('[kodo:lock] lock.timeout …')` salvo que se le inyecte `opts.logger.warn`. Decidir si se silencia el del lock y se emite solo el de inbox (recomendado: sí, mensaje único y accionable).
+6. **[RESUELTA — warn único: `withFileLock` recibe `{logger:{warn:()=>{}}}`; el mensaje accionable lo emite `appendCapture`]** **Doble warn en el fail-open de D-03.** `withFileLock` ya emite `console.warn('[kodo:lock] lock.timeout …')` salvo que se le inyecte `opts.logger.warn`. Decidir si se silencia el del lock y se emite solo el de inbox (recomendado: sí, mensaje único y accionable).
 
-7. **¿Se exporta `INBOX_PATH` desde `src/config.js` o vive en `src/inbox/store.js`?** El research del milestone proponía `config.js`; CONTEXT lo deja en Claude's Discretion. Recomendación: **en `src/inbox/store.js`**, para no ampliar la superficie de `config.js` (que es el módulo con la fuga de aislamiento de `KODO_DIR`) y para mantener el DI limpio.
+7. **[RESUELTA — en `src/inbox/store.js`, como resolvedor perezoso `defaultInboxPaths()`, nunca constante de módulo (cierra además el Pitfall 5)]** **¿Se exporta `INBOX_PATH` desde `src/config.js` o vive en `src/inbox/store.js`?** El research del milestone proponía `config.js`; CONTEXT lo deja en Claude's Discretion. Recomendación: **en `src/inbox/store.js`**, para no ampliar la superficie de `config.js` (que es el módulo con la fuga de aislamiento de `KODO_DIR`) y para mantener el DI limpio.
 
 ---
 
