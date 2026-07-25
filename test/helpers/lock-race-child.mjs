@@ -9,6 +9,7 @@
 //   - test/daemon/polling-start-race.test.js       (--kind polling)
 //   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
 //   - test/state/handoff-concurrency.test.js       (--kind handoff)
+//   - test/inbox-concurrency.test.js               (--kind capture, --kind mark)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
 // or `blocked` to stdout and exit 0. Never throw — on any error print
@@ -34,21 +35,46 @@
 // never throws. Reads --idx (→ session_id `sess-<idx>`, which makes D-04's
 // authorship detector see every child as a distinct session) and --task.
 //
+// `--kind capture` (Phase 83 Plan 03, CAPT-01/D-21.1): each child
+// dynamic-imports ../../src/inbox/store.js AFTER its HOME is set (parent spawns
+// it with an isolated HOME env so defaultInboxPaths() resolves inside the
+// sandbox) and appendCaptures ONE line whose id is DETERMINISTIC — `cap<idx>` —
+// so the parent can assert the identity of every surviving line without
+// depending on the random id generator. The lock-timeout warn is silenced with
+// an injected no-op `warnFn`: in this race the fail-open is an EXPECTED outcome
+// (D-03), not an error. Prints `written` (or `failed`) and never throws. Reads
+// --idx.
+//
+// `--kind mark` (Phase 83 Plan 03, CAPT-03 crit 3 / D-21.2 — the scenario that
+// justifies D-01): dynamic-imports the same module and calls markCapture(--id,
+// 'enrutada', {dest, _afterReadFn}). The injected `_afterReadFn` sleeps
+// SYNCHRONOUSLY for `--hold` ms inside the lock, after the fresh read and
+// before the rename — that is what deterministically WIDENS the read→rename
+// window during which the `capture` siblings append. Marking does NOT fail open
+// (contract 3): if the lock is busy the child reports `failed` and the parent
+// does not mask it. Prints `written` (or `failed`) and never throws. Reads --id,
+// --hold and the optional --dest.
+//
 // argv:
-//   --kind   state|gsd|writer|polling|dispatch|handoff   (required)
+//   --kind   state|gsd|writer|polling|dispatch|handoff|capture|mark  (required)
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd: the fake repo dir)
-//   --idx    <n>                (writer/handoff: this writer's session index)
+//   --idx    <n>                (writer/handoff/capture: this writer's index)
 //   --task   <taskId>           (dispatch/handoff: the task_id to write —
 //                                handoff defaults to `task-<idx>`)
 //   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox root)
+//   --id     <captureId>        (mark: the short id of the capture to close)
+//   --dest   <ref>              (mark, optional: the opaque trace pointer — kodo
+//                                never validates nor interprets it, D-11)
 //   --barrier <goFile>          (optional: wait until this file exists)
 //   --hold   <ms>               (optional: after a successful acquire, stay
 //                                alive holding the lock for <ms> before exit —
 //                                models a holder's critical section so a
 //                                slightly-later sibling sees a LIVE owner and
 //                                is blocked, instead of stealing a dead-PID
-//                                lock the winner abandoned by exiting)
+//                                lock the winner abandoned by exiting.
+//                                `--kind mark` reuses it as the width of the
+//                                read→rename window, held inside the lock)
 
 import { existsSync } from 'node:fs';
 
@@ -63,6 +89,15 @@ function parseArgs(argv) {
     }
   }
   return out;
+}
+
+/**
+ * Sleep SYNCHRONOUSLY for `ms` — same primitive the barrier spin uses, so a
+ * synchronous critical section can be widened without an async boundary.
+ */
+function sleepSync(ms) {
+  const sab = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(sab, 0, 0, ms);
 }
 
 /** Busy-wait (bounded) until the barrier go-file appears. */
@@ -139,6 +174,70 @@ async function main() {
         {},
       );
       written = true;
+    } catch {
+      written = false;
+    }
+    process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Inbox capture mode (Phase 83 Plan 03, CAPT-01/D-21.1): dynamic-import
+  // store.js AFTER HOME is set by the parent (env), so defaultInboxPaths()
+  // resolves `<sandbox>/.kodo/inbox.md`. The import MUST stay dynamic and
+  // POST-HOME (RESEARCH §Pitfall 5): a static import would evaluate homedir()
+  // at module-load and this child would append to the operator's REAL
+  // ~/.kodo/inbox.md. The id is DETERMINISTIC (`cap<idx>`, inside the parser's
+  // [0-9a-z]+ alphabet) so the parent asserts identity per line, not just count.
+  // Never throws — any error collapses to `failed`.
+  if (args.kind === 'capture') {
+    let written = false;
+    try {
+      const { appendCapture, defaultInboxPaths, encodeLine, todayLocal } = await import(
+        '../../src/inbox/store.js'
+      );
+      const idx = String(args.idx);
+      const { inboxPath, lockPath } = defaultInboxPaths();
+      const line = encodeLine({
+        id: 'cap' + idx.padStart(3, '0'),
+        text: 'captura concurrente ' + idx,
+        tag: 'kodo-race',
+        date: todayLocal(),
+        origin: 'cli',
+        open: true,
+        estado: null,
+        dest: null,
+      });
+      // warnFn silenced: the fail-open on lock-timeout (D-03) is an EXPECTED
+      // outcome of this race, not an error. The parent asserts on the file.
+      const res = appendCapture(line + '\n', { inboxPath, lockPath, warnFn: () => {} });
+      written = res.ok === true;
+    } catch {
+      written = false;
+    }
+    process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Inbox mark mode (Phase 83 Plan 03, CAPT-03 crit 3 / D-21.2): same dynamic
+  // POST-HOME import discipline. `_afterReadFn` is the injected seam from Plan
+  // 01: it runs INSIDE the lock, after the fresh read and before the rename, so
+  // sleeping there widens the read→rename window deterministically — no timing
+  // hacks, no test code in production. The `capture` siblings append during that
+  // window; the parent then asserts NONE of them was lost.
+  // markCapture does NOT fail open (contract 3): a busy lock yields `failed`.
+  if (args.kind === 'mark') {
+    let written = false;
+    try {
+      const { defaultInboxPaths, markCapture } = await import('../../src/inbox/store.js');
+      const { inboxPath, lockPath } = defaultInboxPaths();
+      const holdMs = Number(args.hold || 300);
+      const res = markCapture(args.id, 'enrutada', {
+        dest: args.dest ?? null,
+        inboxPath,
+        lockPath,
+        _afterReadFn: () => sleepSync(holdMs),
+      });
+      written = res.ok === true;
     } catch {
       written = false;
     }
