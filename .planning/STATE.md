@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: Inbox foundation — captura + triage
 status: executing
-stopped_at: Phase 83 context gathered
-last_updated: "2026-07-25T10:25:58.206Z"
+stopped_at: Completed 83-01-PLAN.md
+last_updated: "2026-07-25T10:44:43.899Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 82 complete, transitioned to Phase 83
+last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 25
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 82 — Fix de la carrera de `stealLock`
+**Current focus:** Phase 83 — Inbox foundation — captura + triage
 
 ## Current Position
 
-Phase: 83 — Inbox foundation — captura + triage
-Plan: Not started
+Phase: 83 (Inbox foundation — captura + triage) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-25 — Phase 82 complete, transitioned to Phase 83
+Last activity: 2026-07-25 — Phase 83 execution started
 
 ## Most recent shipped milestone
 
@@ -85,6 +85,11 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 82-01: guard breakable por PID muerto (primario) o edad>5000ms (backstop); discriminar presente(rename)/ausente(O_EXCL) con existsSync para preservar Case 5 corrupt (D-08)
 - [Phase ?]: 82-01 rework: publicar el steal-guard atómicamente vía linkSync(tmp->guardPath); writeFileSync(wx) reabria la ventana briefly-empty en el guard (doble adquisicion reproducible). guardIsStale no rompe por parse-failure, solo por PID/edad. Validado: 300 iters CR-01 sin fallos.
 - [Phase ?]: 82-02: CR-01 verde determinista validado (100/100 bajo carga 4x, suite 2370 verde) sobre el rework de 82-01 (linkSync atomic guard publish, 16d60b6); R-81-01 saldada = fix real, debug session en resolved/, fila Deferred cerrada
+- [Phase ?]: 83-01: el marcado del inbox publica con tmp de nombre ÚNICO (<path>.tmp.<pid>.<randomUUID>) + renameSync; writeFileAtomic de src/config.js inalcanzable POR CONSTRUCCIÓN (store.js no importa config.js) — STATE.md:100
+- [Phase ?]: 83-01: '- [x]' hand-editado sin sufijo de estado se lee como cerrada con cierre desconocido; route/discard devuelven already-closed y NO reescriben la línea (contrato 2)
+- [Phase ?]: 83-01: el marcado NO hace fail-open ante lock-timeout — asimetría deliberada frente al fail-open de la captura (D-03); un marcado sin coordinación reintroduce el lost-update que D-01 cierra
+- [Phase ?]: 83-01: sin reintento ante colisión de ID corto (~0,023% a 1000 capturas); markCapture marca la PRIMERA línea que casa (contrato 5)
+- [Phase ?]: 83-01: los paths del inbox son un resolvedor PEREZOSO defaultInboxPaths(), nunca constante de módulo — la fuga de HOME de config.js:11 contamina los tests (contrato 7)
 
 ### Open Blockers
 
@@ -113,13 +118,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T09:42:15.617Z
+**Last session:** 2026-07-25T10:44:35.147Z
 
 **Resume file:**
 
-.planning/phases/83-inbox-foundation-captura-triage/83-CONTEXT.md
+None
 
-- **Stopped at:** Phase 83 context gathered
+- **Stopped at:** Completed 83-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -145,6 +150,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 |------|----------|-------|-------|
 | Phase 82 P01 | 20min | 2 tasks | 3 files |
 | Phase 82 P02 | 15min | 2 tasks | 2 files |
+| Phase 83 P01 | 41min | 3 tasks | 3 files |
 
 ### Blockers
 

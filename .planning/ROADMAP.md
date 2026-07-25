@@ -74,7 +74,7 @@
 
 **Wave 1**
 
-- [ ] 83-01-PLAN.md — `src/inbox/store.js`: codec, parser anclado a cola, reader never-throws, append `O_APPEND` con fail-open y marcado RMW bajo lock con unique-tmp + rename (CAPT-01, CAPT-03, CAPT-06) [wave 1]
+- [x] 83-01-PLAN.md — `src/inbox/store.js`: codec, parser anclado a cola, reader never-throws, append `O_APPEND` con fail-open y marcado RMW bajo lock con unique-tmp + rename (CAPT-01, CAPT-03, CAPT-06) [wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
