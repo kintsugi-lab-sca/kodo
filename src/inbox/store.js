@@ -104,6 +104,21 @@ const CAPTURE_LOCK_RETRIES = 50;
 const CAPTURE_LOCK_BACKOFF_MS = 20;
 
 /**
+ * Techo de intentos del ciclo read-modify-write de `markCapture`, DENTRO de una única toma del
+ * lock (Plan 04, GAP-1).
+ *
+ * Cada intento cuesta una relectura del fichero: medida por el reviewer en 20,3 ms sobre un inbox
+ * de 50 000 capturas (5,8 MB), y sub-milisegundo en el rango realista (0,6 ms a 100 capturas,
+ * 1,0 ms a 1000). El techo es por tanto barato incluso en el peor caso.
+ *
+ * El bucle solo gira cuando el guard detecta un cambio REAL del fichero entre la lectura y el
+ * rename, es decir cuando hay un escritor fuera de coordinación (el fail-open de D-03) o una
+ * publicación por rename de un tercero. 5 intentos convergen salvo bajo un flujo PERPETUO de esos
+ * escritores; agotado el techo, `markCapture` devuelve `concurrent-write` sin tocar el fichero.
+ */
+const MARK_RMW_ATTEMPTS = 5;
+
+/**
  * Separador de campos: espacio + U+00B7 (MIDDLE DOT) + espacio.
  * Los campos ESTRUCTURADOS (tag, origen) jamás lo contienen — el sanitizador lo sustituye por
  * guion (Pitfall 4). El texto y el `dest` sí pueden: el primero porque el parseo está anclado a la
@@ -521,6 +536,47 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
  * coordinación reintroduce el lost-update que D-01 cierra; una captura sin coordinación solo
  * arriesga una ventana residual de milisegundos ya documentada y aceptada (D-03).
  *
+ * ## Guard compare-and-swap: el invariante depende del ESTADO DEL FICHERO, no del reloj (GAP-1)
+ *
+ * El lock por sí solo NO impide el lost-update, porque el fail-open de D-03 appendea
+ * DELIBERADAMENTE fuera de coordinación: un `renameSync` construido sobre una lectura anterior a
+ * ese append lo borraría. Subir el presupuesto de reintentos de la captura tampoco lo cierra —
+ * solo mueve el umbral, y el TTL del lock es de 10 s (`state-lock.js:36`), así que cualquier
+ * titular vivo que se atasque abre la ventana durante segundos.
+ *
+ * Por eso el RMW compara ESTADO antes de publicar. El baseline se toma así, y el ORDEN es la
+ * parte crítica:
+ *
+ *   - **bytes: de la LECTURA**, `Buffer.byteLength(raw, 'utf-8')`. JAMÁS del `size` de un
+ *     `statSync` tomado por separado: un append que aterrice entre el `readFileSync` y ese stat
+ *     entraría en el baseline y el guard quedaría CIEGO justo ante el caso que debe detectar.
+ *   - **inodo: del destino**, tomado inmediatamente después de la lectura.
+ *
+ * Y la comprobación va **tras escribir el tmp y justo antes del `renameSync`**, contra un
+ * `statSync` FRESCO. Como los appends solo pueden hacer CRECER el fichero y ningún otro marcado
+ * puede publicar (todos toman el lock), `size !== bytesLeídos` detecta cualquier append —
+ * coordinado o fail-open— que haya aterrizado en la ventana. El `ino` cubre el otro caso: una
+ * publicación por rename de un tercero (un editor humano, o un marcado que robó el lock tras su
+ * TTL) con el mismo tamaño. Si el guard detecta cambio, el tmp se borra y el RMW se REHACE con una
+ * lectura nueva, hasta `MARK_RMW_ATTEMPTS` veces.
+ *
+ * `mtimeMs` queda FUERA de la comparación a propósito: es redundante (todo append cambia el
+ * tamaño) y un `touch` produciría reintentos espurios. No «completar» esto más tarde.
+ *
+ * **Ventana residual, declarada sin adornos.** Entre el `statSync` de comprobación y el
+ * `renameSync` quedan dos syscalls adyacentes. NINGÚN lock puede cerrar ese hueco mientras D-03
+ * mantenga el append fail-open fuera de coordinación; este guard NO lo cierra y no debe leerse
+ * como si lo hiciera. Lo que cambia es la magnitud: la ventana pasa de ser toda la sección crítica
+ * del marcado (segundos, si el titular se atasca) a ser el hueco entre dos syscalls contiguos, y
+ * deja de depender de ningún presupuesto de tiempo.
+ *
+ * **Degradación conservadora conocida.** Si el fichero contiene bytes que NO son UTF-8 válido,
+ * `readFileSync(…, 'utf-8')` los sustituye por U+FFFD y `Buffer.byteLength` deja de igualar al
+ * `size` de forma PERMANENTE: el marcado agota los intentos y devuelve `concurrent-write` sin
+ * tocar nada. Es deliberado y es la dirección correcta del fallo — publicar habría reescrito esos
+ * bytes ajenos como mojibake, violando la preservación byte a byte de D-04. El operador ve un
+ * fallo ruidoso en vez de una corrupción silenciosa.
+ *
  * @param {string} id
  * @param {'enrutada' | 'descartada'} estado
  * @param {{
@@ -530,9 +586,14 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
  *   _afterReadFn?: () => void,
  * }} o — `_afterReadFn` es el seam de inyección del test de concurrencia de D-21.2: permite
  *   ensanchar la ventana lectura→rename de forma determinista SIN código de test en producción.
- *   Se invoca dentro del lock, tras la lectura fresca y antes de publicar; default no-op.
+ *   Se invoca dentro del lock, tras la lectura fresca y antes de publicar. Solo en el PRIMER
+ *   intento: si se disparase en cada uno, el hold del test se multiplicaría por
+ *   `MARK_RMW_ATTEMPTS` y el escenario dejaría de converger. Default no-op.
  * @returns {{ ok: true, capture: Capture }
- *          | { ok: false, reason: 'not-found' | 'already-closed' | 'lock-timeout' | 'fs' }}
+ *          | { ok: false, reason: 'not-found' | 'already-closed' | 'lock-timeout'
+ *                              | 'concurrent-write' | 'fs' }}
+ *   `concurrent-write` es REINTENTABLE: el marcado no se aplicó y el fichero quedó intacto, así
+ *   que repetir la operación es seguro.
  */
 export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _afterReadFn }) {
   /** @type {{ ok: true, value: any } | { ok: false, reason: 'lock-timeout' }} */
@@ -541,58 +602,108 @@ export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _aft
     r = withFileLock(
       lockPath,
       () => {
-        if (!existsSync(inboxPath)) return { ok: false, reason: 'not-found' };
+        // El bucle vive DENTRO de la misma toma del lock: no se suelta ni se retoma entre
+        // intentos. El lock sigue protegiendo contra otros marcados; lo que se reintenta es la
+        // lectura frente a los appends descoordinados de D-03.
+        for (let attempt = 0; attempt < MARK_RMW_ATTEMPTS; attempt++) {
+          if (!existsSync(inboxPath)) return { ok: false, reason: 'not-found' };
 
-        /** @type {string} */
-        let raw;
-        try {
-          raw = readFileSync(inboxPath, 'utf-8');
-        } catch {
-          return { ok: false, reason: 'fs' };
-        }
-
-        // Round-trip exacto: `join('\n')` reconstruye byte a byte, incluido el terminador.
-        const lines = raw.split('\n');
-
-        let idx = -1;
-        /** @type {Capture | null} */
-        let found = null;
-        for (let i = 0; i < lines.length; i++) {
-          const c = parseLine(lines[i]);
-          if (c && c.id === id) {
-            idx = i;
-            found = c;
-            break;
+          /** @type {string} */
+          let raw;
+          try {
+            raw = readFileSync(inboxPath, 'utf-8');
+          } catch {
+            return { ok: false, reason: 'fs' };
           }
+
+          // Baseline del guard. Los bytes salen de la LECTURA (ver el JSDoc: un stat separado
+          // absorbería un append que la lectura no vio); el inodo, del destino, justo después.
+          const baseBytes = Buffer.byteLength(raw, 'utf-8');
+          /** @type {number | null} */
+          let baseIno = null;
+          try {
+            baseIno = statSync(inboxPath).ino;
+          } catch {
+            baseIno = null; // sin componente de inodo; el de tamaño sigue vigente
+          }
+
+          // Round-trip exacto: `join('\n')` reconstruye byte a byte, incluido el terminador.
+          const lines = raw.split('\n');
+
+          let idx = -1;
+          /** @type {Capture | null} */
+          let found = null;
+          for (let i = 0; i < lines.length; i++) {
+            const c = parseLine(lines[i]);
+            if (c && c.id === id) {
+              idx = i;
+              found = c;
+              break;
+            }
+          }
+
+          // Terminales: no son condiciones de carrera, así que NO consumen intentos.
+          if (idx === -1 || !found) return { ok: false, reason: 'not-found' };
+          if (found.open === false) return { ok: false, reason: 'already-closed' };
+
+          /** @type {Capture} */
+          const updated = { ...found, open: false, estado, dest: dest ?? null };
+          const encoded = encodeLine(updated);
+          lines[idx] = encoded;
+          // WR-07: se devuelve lo PERSISTIDO, re-parseado de la línea realmente escrita. `updated`
+          // guarda el `dest`/`text` CRUDOS y `encodeLine` los sanea y recorta, así que devolverlo
+          // haría que la confirmación del CLI anunciara un trace pointer que no está en el
+          // fichero. El objeto pre-saneo solo queda como último recurso.
+          const persisted = parseLine(encoded) ?? updated;
+          const out = lines.join('\n');
+
+          if (attempt === 0 && typeof _afterReadFn === 'function') _afterReadFn();
+
+          // tmp+rename con nombre ÚNICO por escritor — patrón de `session-end.js:374` /
+          // `state.js:280` (fix WR-02). NO se usa `writeFileAtomic` de `config.js`, ni siquiera
+          // bajo el lock: (a) su tmp es de nombre FIJO (`path + '.tmp'`), compartido entre
+          // escritores, y el lock es ROBABLE tras su TTL de 10 s (`state-lock.js:36`), así que dos
+          // marcados podrían pisarse bytes parciales (Pitfall 2); (b) su heurístico de secretos
+          // chmodearía el inbox a 0600 contra D-20. El invariante está en `.planning/STATE.md:100`
+          // §Critical Invariants — y aquí es inalcanzable por construcción: este módulo no importa
+          // `config.js`.
+          //
+          // ORDEN INAMOVIBLE: escribir el tmp → stat FRESCO del destino → comparar → renombrar.
+          // Comparar ANTES de escribir el tmp dejaría fuera de la ventana vigilada el propio coste
+          // de la escritura, que es la parte más cara del paso.
+          const tmp = inboxPath + '.tmp.' + process.pid + '.' + randomUUID();
+          /** @type {'published' | 'stale' | 'fs'} */
+          let outcome;
+          try {
+            writeFileSync(tmp, out);
+
+            let changed;
+            try {
+              const st = statSync(inboxPath);
+              changed = st.size !== baseBytes || (baseIno !== null && st.ino !== baseIno);
+            } catch {
+              changed = true; // conservador: si no se puede comprobar, NO se publica
+            }
+
+            if (changed) {
+              rmSync(tmp, { force: true }); // sin residuo de tmp perdido
+              outcome = 'stale';
+            } else {
+              renameSync(tmp, inboxPath);
+              outcome = 'published';
+            }
+          } catch {
+            rmSync(tmp, { force: true });
+            outcome = 'fs';
+          }
+
+          if (outcome === 'published') return { ok: true, capture: persisted };
+          if (outcome === 'fs') return { ok: false, reason: 'fs' };
+          // 'stale' → rehacer el RMW con una lectura nueva.
         }
 
-        if (idx === -1 || !found) return { ok: false, reason: 'not-found' };
-        if (found.open === false) return { ok: false, reason: 'already-closed' };
-
-        /** @type {Capture} */
-        const updated = { ...found, open: false, estado, dest: dest ?? null };
-        lines[idx] = encodeLine(updated);
-        const out = lines.join('\n');
-
-        if (typeof _afterReadFn === 'function') _afterReadFn();
-
-        // tmp+rename con nombre ÚNICO por escritor — patrón de `session-end.js:374` /
-        // `state.js:280` (fix WR-02). NO se usa `writeFileAtomic` de `config.js`, ni siquiera bajo
-        // el lock: (a) su tmp es de nombre FIJO (`path + '.tmp'`), compartido entre escritores, y
-        // el lock es ROBABLE tras su TTL de 10 s (`state-lock.js:36`), así que dos marcados podrían
-        // pisarse bytes parciales (Pitfall 2); (b) su heurístico de secretos chmodearía el inbox a
-        // 0600 contra D-20. El invariante está en `.planning/STATE.md:100` §Critical Invariants —
-        // y aquí es inalcanzable por construcción: este módulo no importa `config.js`.
-        const tmp = inboxPath + '.tmp.' + process.pid + '.' + randomUUID();
-        try {
-          writeFileSync(tmp, out);
-          renameSync(tmp, inboxPath);
-        } catch {
-          rmSync(tmp, { force: true }); // sin residuo de tmp perdido
-          return { ok: false, reason: 'fs' };
-        }
-
-        return { ok: true, capture: updated };
+        // Techo agotado: el fichero queda INTACTO y el fallo es ruidoso. Nunca un clobber.
+        return { ok: false, reason: 'concurrent-write' };
       },
       { logger: { warn: () => {} } },
     );
