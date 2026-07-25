@@ -84,7 +84,7 @@
 **Wave 3** *(cierre de gaps de `83-VERIFICATION.md` — 3 blockers)*
 
 - [x] 83-04-PLAN.md — GAP-1: guard compare-and-swap dentro del lock del marcado, reintento acotado del RMW, presupuesto de la captura de vuelta al default y publicación que preserva inodo y modo (CAPT-01, CAPT-03, CAPT-06) [wave 3]
-- [ ] 83-05-PLAN.md — GAP-2: los cuatro handlers del inbox drenan la salida estándar (fin del truncado de 64 KB en `--json`) + regresión con inbox >64 KB (CAPT-01, CAPT-03, CAPT-06) [wave 3]
+- [x] 83-05-PLAN.md — GAP-2: los cuatro handlers del inbox drenan la salida estándar (fin del truncado de 64 KB en `--json`) + regresión con inbox >64 KB (CAPT-01, CAPT-03, CAPT-06) [wave 3]
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

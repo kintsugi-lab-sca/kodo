@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: inbox-foundation-captura-triage
 status: executing
-stopped_at: Completed 83-04-PLAN.md
-last_updated: "2026-07-25T15:58:54.282Z"
+stopped_at: Completed 83-05-PLAN.md
+last_updated: "2026-07-25T16:09:00.030Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 25
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 ## Current Position
 
 Phase: 83 (inbox-foundation-captura-triage) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 83 execution started
 
@@ -99,6 +99,11 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-04: el lost-update del inbox se cierra con un guard compare-and-swap dentro del lock (bytes de la LECTURA + inodo del destino, comprobados justo antes del renameSync), NO con un presupuesto de reintentos — revierte la decisión central de 83-03
 - [Phase ?]: 83-04: CAPTURE_LOCK_RETRIES/BACKOFF eliminadas — appendCapture vuelve a los defaults de withFileLock y la rama fail-open vuelve a ser ALCANZABLE (una rama inalcanzable es una rama sin cobertura, DEBT-04)
 - [Phase ?]: 83-04: la publicación del marcado resuelve el destino real (realpathSync) y reaplica el modo con chmodSync antes del rename — el symlink y el chmod 0600 del operador sobreviven (WR-01)
+- [Phase ?]: 83-05: el truncado del carril --json no estaba en los handlers de src/cli/ (que ya retornaban el codigo desde 83-02) sino en el registro de commander de src/cli.js — los cuatro handlers del inbox fijan process.exitCode y dejan drenar stdout
+- [Phase ?]: 83-05: el cambio se acota a los cuatro comandos del inbox; polling/daemon/gsd/sidebar/skill conservan el mecanismo actual (payloads muy por debajo de 64 KB) — deuda registrada para un barrido propio
+- [Phase ?]: 83-05: el gate source-hygiene se acota por sed a la REGION del inbox y filtra comentarios antes de contar — un gate de fichero completo seria incorrecto por construccion (37 usos legitimos en el resto del fichero)
+- [Phase ?]: 83-05: fixture de regresion de 1500 capturas (~230 KB) que NO se recorta por rapidez; mordida verificada revirtiendo el arreglo a mano (3 casos rojos con 'se corto en 65536 bytes')
+- [Phase ?]: 83-05: WR-05 se cierra DOCUMENTANDO el separador de argumentos en la ayuda de kodo capture, no interceptando el error de opcion desconocida de commander (diferido); la limitacion conocida queda fijada por un test etiquetado, no por un comentario
 
 ### Open Blockers
 
@@ -127,13 +132,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T15:58:32.746Z
+**Last session:** 2026-07-25T16:09:00.022Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-04-PLAN.md
+- **Stopped at:** Completed 83-05-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -163,6 +168,7 @@ None
 | Phase 83 P02 | 15min | 3 tasks | 4 files |
 | Phase 83 P03 | 8min | 3 tasks | 5 files |
 | Phase 83 P04 | 6min | 2 tasks | 2 files |
+| Phase 83 P05 | 10min | 3 tasks | 2 files |
 
 ### Blockers
 
