@@ -6,9 +6,9 @@
 //   1. `runInboxListCli` — listado de capturas: abiertas por defecto, todas con `--all`.
 //      Render human coloreado via `createFormatter`, o una línea de JSON con `--json`.
 //   2. `runInboxMarkCli` — cierre de una captura (`enrutada` / `descartada`) delegando en
-//      `markCapture`; mapea sus cuatro `reason` a los exit codes de D-13.
-//   3. Exit codes: listado 0 SIEMPRE (never-throws, D-18) — marcado 0 ok · 1 lock-timeout o
-//      error de filesystem · 2 id inexistente o captura ya cerrada.
+//      `markCapture`; mapea sus `reason` a los exit codes de D-13.
+//   3. Exit codes: listado 0 SIEMPRE (never-throws, D-18) — marcado 0 ok · 1 lock-timeout,
+//      escritura concurrente o error de filesystem · 2 id inexistente o captura ya cerrada.
 //
 // EL SEAM DE ENRUTADO ES DOCUMENTAL (D-09 / CAPT-04). kodo NO decide, NO valida y NO ejecuta el
 // destino de una captura. El flujo del operador es de TRES pasos manuales y desacoplados:
@@ -90,9 +90,18 @@ export function runInboxListCli(opts, deps = {}) {
 
     // 3. Rama `--json` PRIMERO, antes de instanciar el formatter: así el carril máquina no puede
     //    contaminarse con ANSI por construcción, no solo por convención (DX-06 byte-determinismo).
-    //    El texto va VERBATIM: es el carril de scripting y `JSON.stringify` ya escapa todo byte
-    //    de control C0 a `\uXXXX`, dejándolo inerte. El saneo agresivo vive en el render human,
-    //    que es el que llega al terminal del operador (T-83-09).
+    //
+    //    SANEO DEL CARRIL DE DATOS (WR-02). Aquí vivía la afirmación de que el texto podía ir
+    //    VERBATIM porque `JSON.stringify` escapaba «todo byte de control». La medición del review
+    //    la refutó: el serializador escapa los C0, pero NO escapa DEL ni el bloque C1, y ambos
+    //    salían íntegros. Como `~/.kodo/inbox.md` es human-editable por diseño, una línea pegada a
+    //    mano con una secuencia de escritura al portapapeles llegaba entera al consumidor de este
+    //    carril — que es además el que la skill del orquestador manda usar y cuya salida un modelo
+    //    reemite hacia el terminal. Mismo modelo de amenaza que el render human ya cerraba: se
+    //    cierra en los DOS carriles o el hueco es por diseño.
+    //
+    //    Solo se sanean los campos que provienen del FICHERO. El id y la fecha no lo necesitan: el
+    //    parser los restringe a `[0-9a-z]+` y a `\d{4}-\d{2}-\d{2}`, alfabetos sin controles.
     if (opts.json === true) {
       /** @type {{ open: number, unparsed: number, captures: Record<string, unknown>[] }} */
       const payload = {
@@ -102,16 +111,18 @@ export function runInboxListCli(opts, deps = {}) {
           /** @type {Record<string, unknown>} */
           const o = {
             id: c.id,
-            text: c.text,
-            tag: c.tag,
+            text: sanitizeJsonField(c.text),
+            tag: sanitizeJsonField(c.tag),
             date: c.date,
-            origin: c.origin,
+            origin: sanitizeJsonField(c.origin),
             open: c.open,
           };
           // Claves opcionales añadidas condicionalmente y en orden FIJO (molde `skill-sync.js:92`).
           if (opts.all === true) {
             o.estado = c.estado;
-            o.dest = c.dest;
+            // `dest` es NULABLE (una cerrada sin trace pointer, o una descartada): el null se
+            // preserva tal cual — sanearlo lo convertiría en la cadena "null".
+            o.dest = c.dest === null ? null : sanitizeJsonField(c.dest);
           }
           return o;
         }),
@@ -128,6 +139,34 @@ export function runInboxListCli(opts, deps = {}) {
     err(`[kodo:inbox] no se pudo renderizar el listado: ${/** @type {Error} */ (e).message}\n`);
     return 0;
   }
+}
+
+/**
+ * Saneo del carril de DATOS: elimina EXCLUSIVAMENTE el rango de controles que `JSON.stringify`
+ * deja pasar VERBATIM — DEL (`\u007f`) y el bloque C1 (`\u0080`-`\u009f`).
+ *
+ * El serializador escapa los controles C0 a `\uXXXX` y los deja inertes, pero NO toca DEL ni C1
+ * (medición del review, WR-02): U+009B es el CSI de un solo byte y U+009D el OSC de un solo byte,
+ * que algunos terminales interpretan SIN ESC previo. Ambos salían íntegros por este carril.
+ *
+ * Importa porque `~/.kodo/inbox.md` es human-editable POR DISEÑO: una línea pegada a mano con una
+ * secuencia de escritura al portapapeles llega verbatim al consumidor de `--json` — que es además
+ * el carril que la skill del orquestador manda usar, y cuya salida un modelo reemite hacia el
+ * terminal del operador. Es el MISMO modelo de amenaza que el render human ya cierra con
+ * `stripControlChars`; cerrarlo en un solo carril dejaba el otro como agujero por diseño.
+ *
+ * Deliberadamente MÁS ESTRECHO que `stripControlChars` (Decisión C): no re-escapa nada de lo que
+ * el serializador ya cubre, no colapsa whitespace y no altera el orden ni el conjunto de claves
+ * del objeto emitido — el byte-determinismo de DX-06 queda intacto.
+ *
+ * Never-throws: coacciona con `String(s)`.
+ *
+ * @private
+ * @param {unknown} s
+ * @returns {string}
+ */
+function sanitizeJsonField(s) {
+  return String(s).replace(/[\u007f-\u009f]/g, '');
 }
 
 /**
@@ -244,7 +283,7 @@ export function runInboxMarkCli(id, estado, opts, deps = {}) {
     return 0;
   }
 
-  // Mapeo de los cuatro `reason` del store (D-13 + contrato 3). `lock-timeout` NO hace fail-open:
+  // Mapeo de los `reason` del store (D-13 + contrato 3). `lock-timeout` NO hace fail-open:
   // un marcado sin coordinación reintroduce el lost-update que D-01 cierra, así que se reporta
   // como fallo reintentable y el fichero queda intacto.
   switch (result.reason) {
@@ -257,6 +296,18 @@ export function runInboxMarkCli(id, estado, opts, deps = {}) {
     case 'lock-timeout':
       err(
         `Error: lock-timeout — el marcado de ${safeId} NO se ha aplicado; reinténtalo en unos segundos\n`,
+      );
+      return 1;
+    case 'concurrent-write':
+      // Rama PROPIA, no conflada con `lock-timeout` (D-13). Aquí el lock SÍ se obtuvo: lo que
+      // pasó es que una captura concurrente aterrizó mientras se marcaba, y el guard
+      // compare-and-swap abortó la publicación PARA NO DESTRUIRLA. El fichero queda intacto y la
+      // acción del operador es la misma —reintentar—, pero la causa no lo es: conflarlas dejaría
+      // al siguiente mantenedor buscando contención de lock donde hay un guard funcionando
+      // exactamente como debe.
+      err(
+        `Error: escritura concurrente — el marcado de ${safeId} se ha abortado para no perder una ` +
+          `captura que aterrizó a la vez; el fichero queda intacto, reinténtalo\n`,
       );
       return 1;
     default:

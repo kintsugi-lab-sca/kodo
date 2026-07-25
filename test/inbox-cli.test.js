@@ -476,6 +476,101 @@ describe('runInboxListCli — render human saneado (T-83-09, Pitfall 6)', () => 
   });
 });
 
+// DEFECTO QUE CUBRE ESTE BLOQUE (Plan 83-07 / 83-REVIEW WR-02).
+//
+// El carril de datos emitía el contenido del fichero VERBATIM apoyándose en que `JSON.stringify`
+// escapaba «todo byte de control». La medición del review lo refutó con un volcado de bytes: el
+// serializador escapa los C0 a `\uXXXX`, pero NO escapa DEL ni el bloque C1 — y U+009B es el CSI
+// de un solo byte y U+009D el OSC de un solo byte, que algunos terminales interpretan sin ESC
+// previo. Como el fichero es human-editable por diseño, una línea pegada a mano llegaba íntegra
+// al consumidor de `--json`: precisamente el carril que la skill del orquestador manda usar, y
+// cuya salida un modelo reemite hacia el terminal del operador.
+//
+// Es el espejo EXACTO del bloque de arriba sobre el render human. Que un carril estuviera cerrado
+// y el otro no era un agujero por diseño en el mismo modelo de amenaza.
+describe('runInboxListCli — --json saneado: lo que el serializador NO escapa (WR-02, T-83-37)', () => {
+  /**
+   * Fixture con los tres vectores que el serializador deja pasar, en NOTACIÓN DE ESCAPE (higiene
+   * de este fichero: cero bytes de control literales en el source).
+   */
+  const dirty = () => ({
+    captures: [
+      cap({
+        id: 'ddd444',
+        text: 'idea \u009d52;c;aGVsbG8=\u009c con cola',
+        tag: 'pro\u009byecto',
+        origin: 'cl\u007fi',
+        open: false,
+        estado: 'enrutada',
+        dest: '.planning/todos/TODO\u0085-012.md',
+      }),
+    ],
+    unparsed: 0,
+  });
+
+  it('ningún campo del carril de datos conserva DEL ni un control del bloque C1', () => {
+    const out = collector();
+    const code = runInboxListCli(
+      { json: true, all: true },
+      listDeps({ writeFn: out.write, listFn: dirty }),
+    );
+    assert.equal(code, 0);
+
+    const raw = out.get();
+    assert.ok(
+      !/[\u007f-\u009f]/.test(raw),
+      'la salida CRUDA no puede llevar DEL ni C1: el consumidor la reemite hacia un terminal',
+    );
+
+    const c = JSON.parse(raw).captures[0];
+    for (const [field, value] of Object.entries(c)) {
+      if (typeof value !== 'string') continue;
+      assert.ok(
+        !/[\u007f-\u009f]/.test(value),
+        `el campo ${field} conserva un byte de control: ${JSON.stringify(value)}`,
+      );
+    }
+  });
+
+  it('el resto del texto sobrevive ÍNTEGRO: se elimina el control, no el contenido', () => {
+    const out = collector();
+    runInboxListCli({ json: true, all: true }, listDeps({ writeFn: out.write, listFn: dirty }));
+    const c = JSON.parse(out.get()).captures[0];
+    assert.equal(c.text, 'idea 52;c;aGVsbG8= con cola');
+    assert.equal(c.tag, 'proyecto');
+    assert.equal(c.origin, 'cli');
+    assert.equal(c.dest, '.planning/todos/TODO-012.md');
+    assert.equal(c.id, 'ddd444', 'el id no pasa por el saneo: el parser ya lo restringe');
+    assert.equal(c.date, '2026-07-25');
+  });
+
+  it('sigue siendo UNA sola línea, sin color y byte-determinista tras el saneo (DX-06)', () => {
+    const a = collector();
+    const b = collector();
+    runInboxListCli({ json: true, all: true }, listDeps({ writeFn: a.write, listFn: dirty }));
+    runInboxListCli({ json: true, all: true }, listDeps({ writeFn: b.write, listFn: dirty }));
+    const s = a.get();
+    assert.equal(s, b.get(), 'dos ejecuciones sobre el mismo fixture → bytes idénticos');
+    assert.equal(s.indexOf('\n'), s.length - 1, 'UNA sola línea');
+    assert.ok(!/\u001b/.test(s), 'cero secuencias de color');
+  });
+
+  it('un `dest` nulo sigue siendo null, nunca la cadena "null"', () => {
+    const out = collector();
+    runInboxListCli(
+      { json: true, all: true },
+      listDeps({
+        writeFn: out.write,
+        listFn: () => ({
+          captures: [cap({ open: false, estado: 'descartada', dest: null })],
+          unparsed: 0,
+        }),
+      }),
+    );
+    assert.equal(JSON.parse(out.get()).captures[0].dest, null);
+  });
+});
+
 describe('runInboxListCli — --json determinista (DX-06)', () => {
   it('una sola línea, parseable, y byte-idéntica entre dos invocaciones', () => {
     const a = collector();
@@ -657,6 +752,39 @@ describe('runInboxMarkCli — mapeo de reasons a exit codes (D-13, contrato 3)',
     assert.equal(code, 1, 'el marcado NO hace fail-open (contrato 3)');
     assert.match(err.get(), /lock/i);
     assert.match(err.get(), /no se ha aplicado|reint/i);
+  });
+
+  // El `reason` que el Plan 83-04 introdujo con el guard compare-and-swap. Antes de este plan
+  // caía en la rama por defecto y se reportaba como «filesystem error»: un mantenedor leyendo ese
+  // mensaje buscaría un disco roto donde hay un guard funcionando exactamente como debe.
+  it('concurrent-write → 1, nombra la CAUSA y difiere del mensaje de lock ocupado (D-13)', () => {
+    const conc = collector();
+    const code = runInboxMarkCli(
+      'a3f9k2',
+      'enrutada',
+      {},
+      markDeps({ errFn: conc.write, markFn: () => ({ ok: false, reason: 'concurrent-write' }) }),
+    );
+    assert.equal(code, 1, 'reintentable, igual que el lock ocupado');
+    assert.match(conc.get(), /concurren/i, 'la causa real es una escritura concurrente');
+    assert.match(conc.get(), /intact/i, 'y el fichero queda intacto: reintentar es seguro');
+    assert.ok(
+      !/^Error: filesystem error/.test(conc.get()),
+      'no puede caer en la rama por defecto: no es un fallo de filesystem',
+    );
+
+    const lock = collector();
+    runInboxMarkCli(
+      'a3f9k2',
+      'enrutada',
+      {},
+      markDeps({ errFn: lock.write, markFn: () => ({ ok: false, reason: 'lock-timeout' }) }),
+    );
+    assert.notEqual(
+      conc.get(),
+      lock.get(),
+      'mismo exit code, causas DISTINTAS: los mensajes no pueden conflarse',
+    );
   });
 
   it('fs → 1 con el mensaje canónico de filesystem', () => {
