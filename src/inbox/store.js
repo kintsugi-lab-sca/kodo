@@ -11,7 +11,9 @@
 //      (D-15) y resolución PEREZOSA de los paths por defecto (`defaultInboxPaths`).
 //   4. Reader leaf never-throws (`listCaptures`, D-18).
 //   5. Append `O_APPEND` con fail-open ante lock-timeout (`appendCapture`, D-02/D-03).
-//   6. Marcado RMW bajo lock con unique-tmp + rename (`markCapture`, D-01/D-04).
+//   6. Marcado RMW bajo lock con unique-tmp + rename y guard compare-and-swap contra la lectura
+//      obsoleta (`markCapture`, D-01/D-04). El guard —no el presupuesto del lock— es lo que impide
+//      que un append fuera de coordinación (D-03) se pierda bajo el rename.
 //
 // Invariantes:
 //   - PROHIBIDO importar `src/config.js`. Tres razones independientes, cada una suficiente:
@@ -35,8 +37,8 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync,
-  renameSync, rmSync, statSync, writeFileSync,
+  appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync,
+  realpathSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -75,33 +77,6 @@ export const MAX_TEXT_LEN = 1000;
 
 /** Cota del trace pointer `--dest`. Es una ref opaca (D-11), no un path que kodo resuelva. */
 export const MAX_DEST_LEN = 200;
-
-/**
- * Presupuesto de reintentos del lock para la CAPTURA (`appendCapture`), en reintentos y ms de
- * backoff: 50 × 20 ms ≈ 1000 ms, frente al default de la primitiva (8 × 20 ms ≈ 160 ms).
- *
- * **Por qué NO vale el default (evidencia empírica, `test/inbox-concurrency.test.js`).** El
- * riesgo residual de D-03 no es teórico: con el marcado sosteniendo su ventana lectura→rename
- * durante 300 ms, las 6 capturas concurrentes agotaban los ~160 ms del default, entraban por la
- * rama fail-open, appendeaban SIN coordinación y el `renameSync` del marcado —construido sobre
- * una lectura anterior a esos appends— las borraba TODAS. Cero de 6 supervivientes. Ese es
- * exactamente el lost-update que D-01 cierra y que CAPT-03 criterio 3 prohíbe.
- *
- * El arreglo es el que D-03 y `83-CONTEXT.md:184` dejan escrito de antemano: **subir el
- * presupuesto de reintentos de la captura**, jamás debilitar el test de D-21.
- *
- * Coste en el camino feliz: **cero**. El presupuesto es un TECHO, no una espera: `acquireLock`
- * devuelve en cuanto obtiene el lock, y la sección crítica del marcado real (leer, sustituir una
- * línea, escribir el tmp, renombrar) es de sub-milisegundo. Solo se paga bajo contención real, y
- * lo que se compra es que la captura NO se pierda.
- *
- * El fail-open sigue existiendo y sigue acotado (D-03): agotados los ~1000 ms, la captura se
- * escribe igual. Una idea perdida sigue siendo peor que una línea sin coordinar; lo que cambia es
- * que ahora hace falta un titular patológico (>1 s sosteniendo el lock) para llegar ahí, en vez
- * de un marcado normal.
- */
-const CAPTURE_LOCK_RETRIES = 50;
-const CAPTURE_LOCK_BACKOFF_MS = 20;
 
 /**
  * Techo de intentos del ciclo read-modify-write de `markCapture`, DENTRO de una única toma del
@@ -446,14 +421,37 @@ function appendLine(inboxPath, line) {
  * concurrentes producen N líneas aunque el lock no existiera; el lock protege ADEMÁS contra el
  * RMW de `markCapture` (D-01). Jamás se reescribe el fichero completo.
  *
- * **Fail-open ante `lock-timeout` (D-03).** Agotado el presupuesto (`CAPTURE_LOCK_RETRIES` ×
- * `CAPTURE_LOCK_BACKOFF_MS` ≈ 1000 ms), la captura se appendea IGUAL y se emite un warn
- * accionable. Principio GTD: una idea perdida es peor que una línea escrita sin coordinación.
- * **Riesgo residual ACEPTADO y acotado:** la captura solo puede perderse si el timeout coincide
- * además con la ventana lectura→rename de un marcado concurrente. Ese riesgo SE MATERIALIZÓ con
- * el presupuesto por defecto (ver `CAPTURE_LOCK_RETRIES` y `test/inbox-concurrency.test.js`), y
- * se cerró subiendo el presupuesto — que es el arreglo que D-03 prescribe. Nunca se debilita el
- * test de concurrencia de D-21.
+ * **Fail-open ante `lock-timeout` (D-03).** Agotado el presupuesto del lock, la captura se
+ * appendea IGUAL y se emite un warn accionable. Principio GTD: una idea perdida es peor que una
+ * línea escrita sin coordinación.
+ *
+ * ## Presupuesto de reintentos: el DEFAULT de la primitiva, y por qué (Plan 04, revierte 83-03)
+ *
+ * Este `withFileLock` NO pasa `retries` ni `backoffMs`: aplica los defaults de la primitiva
+ * (8 × 20 ms ≈ 160 ms, `state-lock.js:34-35`). El plan 83-03 los había subido a 50 × 20 ms
+ * ≈ 1000 ms afirmando que eso «cerraba» el lost-update. Tres hechos, en orden:
+ *
+ *   (a) **El presupuesto ya no carga ningún invariante.** Quien impide el lost-update es el guard
+ *       compare-and-swap de `markCapture`, que compara el ESTADO del fichero y es independiente
+ *       del reloj. Un umbral temporal solo movía la frontera: el verificador reprodujo la pérdida
+ *       total (0 de 6 supervivientes, exit 0 en los 7 procesos) con un hold de 1500 ms usando el
+ *       harness del propio repo, y el TTL del lock es de 10 s, así que cualquier titular vivo que
+ *       se atasque abre esa ventana en producción.
+ *   (b) **La medición real no justifica el presupuesto elevado.** La sección crítica del marcado
+ *       mide 20,3 ms sobre un inbox de 50 000 capturas (5,8 MB) — 0,6 ms a 100 capturas, 1,0 ms a
+ *       1000, 4,9 ms a 10 000. El default de 160 ms ya cubre 8× el peor caso realista; los
+ *       1000 ms solo existían para superar el hold ARTIFICIAL de 300 ms de un test.
+ *   (c) **La rama fail-open vuelve a ser ALCANZABLE, que es lo correcto.** Con el presupuesto
+ *       recalibrado, los 18/18 hijos del test de concurrencia entraban por la rama coordinada: el
+ *       test que existía para demostrar que una captura concurrente no se pierde había dejado de
+ *       ejecutar el código que la perdía. Una rama inalcanzable es una rama sin cobertura, y
+ *       poner una carrera en verde enmascarándola es exactamente lo que DEBT-04 (Phase 82)
+ *       prohíbe por nombre.
+ *
+ * El riesgo residual de D-03 sigue existiendo y sigue acotado: entre el `statSync` de
+ * comprobación del marcado y su `renameSync` quedan dos syscalls contiguos, y un append que
+ * aterrice justo ahí puede perderse. Ningún lock puede cerrar ese hueco mientras esta rama
+ * appendee deliberadamente fuera de coordinación. Ver el JSDoc de `markCapture`.
  *
  * Asimetría deliberada con `markCapture`, que NO hace fail-open: un marcado sin coordinación
  * reintroduce exactamente el lost-update que D-01 cierra; una captura sin coordinación solo
@@ -483,8 +481,6 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
   let r;
   try {
     r = withFileLock(lockPath, () => appendLine(inboxPath, line), {
-      retries: CAPTURE_LOCK_RETRIES,
-      backoffMs: CAPTURE_LOCK_BACKOFF_MS,
       logger: { warn: () => {} },
     });
   } catch {
@@ -503,6 +499,45 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
   }
   warn('[kodo:inbox] lock-timeout — captura appendeada sin coordinación (fail-open)\n');
   return { ok: true, coordinated: false };
+}
+
+/**
+ * Destino REAL de la publicación del marcado y modo a preservar (WR-01).
+ *
+ * `writeFileSync` + `renameSync` publica un inodo NUEVO. Sin resolver el symlink, el primer
+ * marcado sobre un `~/.kodo/inbox.md` enlazado a un dotfiles lo SUSTITUYE por un fichero regular:
+ * a partir de ahí el destino del operador queda congelado y kodo escribe en otro sitio, sin aviso.
+ * Y sin preservar el modo, un `chmod 600` explícito del operador vuelve a 0644 en el primer
+ * marcado — D-20 dice que el inbox no es un secreto, pero degradar en silencio una decisión
+ * explícita del operador es otra cosa.
+ *
+ * Precedente del repo: `src/gsd/lock.js:190-205` resuelve el destino real antes de operar sobre
+ * él por la divergencia de paths por symlink de macOS.
+ *
+ * NEVER-THROWS: ambas sondas van en `try/catch`.
+ *   - `target`: el destino real; ante cualquier error (fichero aún inexistente, symlink roto)
+ *     degrada al propio `inboxPath`.
+ *   - `mode`: los 9 bits bajos del modo actual; ante cualquier error, `undefined` (fichero nuevo
+ *     → que decida el umask, D-20).
+ *
+ * @param {string} inboxPath
+ * @returns {{ target: string, mode: number | undefined }}
+ */
+function resolvePublishTarget(inboxPath) {
+  let target = inboxPath;
+  try {
+    target = realpathSync(inboxPath);
+  } catch {
+    /* no existe aún / symlink roto → publicar sobre el propio path */
+  }
+  /** @type {number | undefined} */
+  let mode;
+  try {
+    mode = statSync(target).mode & 0o777;
+  } catch {
+    mode = undefined;
+  }
+  return { target, mode };
 }
 
 /**
@@ -619,10 +654,14 @@ export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _aft
           // Baseline del guard. Los bytes salen de la LECTURA (ver el JSDoc: un stat separado
           // absorbería un append que la lectura no vio); el inodo, del destino, justo después.
           const baseBytes = Buffer.byteLength(raw, 'utf-8');
+          // Destino REAL (symlink resuelto) y modo del operador: la publicación por rename debe
+          // conservar ambos (WR-01). Se resuelve por intento porque un tercero puede haber
+          // republicado el fichero entre dos vueltas del bucle.
+          const { target, mode } = resolvePublishTarget(inboxPath);
           /** @type {number | null} */
           let baseIno = null;
           try {
-            baseIno = statSync(inboxPath).ino;
+            baseIno = statSync(target).ino;
           } catch {
             baseIno = null; // sin componente de inodo; el de tamaño sigue vigente
           }
@@ -671,15 +710,18 @@ export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _aft
           // ORDEN INAMOVIBLE: escribir el tmp → stat FRESCO del destino → comparar → renombrar.
           // Comparar ANTES de escribir el tmp dejaría fuera de la ventana vigilada el propio coste
           // de la escritura, que es la parte más cara del paso.
-          const tmp = inboxPath + '.tmp.' + process.pid + '.' + randomUUID();
+          const tmp = target + '.tmp.' + process.pid + '.' + randomUUID();
           /** @type {'published' | 'stale' | 'fs'} */
           let outcome;
           try {
             writeFileSync(tmp, out);
+            // El modo va por `chmodSync` explícito, no por la opción de escritura: esa queda
+            // sujeta al umask del proceso y no reproduce exactamente un 0600 del operador.
+            if (mode !== undefined) chmodSync(tmp, mode);
 
             let changed;
             try {
-              const st = statSync(inboxPath);
+              const st = statSync(target);
               changed = st.size !== baseBytes || (baseIno !== null && st.ino !== baseIno);
             } catch {
               changed = true; // conservador: si no se puede comprobar, NO se publica
@@ -689,7 +731,7 @@ export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _aft
               rmSync(tmp, { force: true }); // sin residuo de tmp perdido
               outcome = 'stale';
             } else {
-              renameSync(tmp, inboxPath);
+              renameSync(tmp, target);
               outcome = 'published';
             }
           } catch {
