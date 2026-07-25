@@ -252,6 +252,95 @@ describe('Identidad de una captura (D-06, D-07, D-15) + paths perezosos', () => 
     }
   });
 
+  // -------------------------------------------------------------------------------------------
+  // GAP-3 / CR-03 — POR QUÉ EXISTE ESTE BLOQUE.
+  //
+  // Todos los fixtures de `deriveTag` de arriba inventan claves LEGIBLES (`kodo`, `alpha`,
+  // `beta`). En el `~/.kodo/projects.json` REAL del operador la clave es el identificador del
+  // PROVEEDOR de tareas: las 10 claves comprobadas en esta máquina son UUIDs canónicos de 36
+  // caracteres y el valor —una cadena, o un objeto `{default, modules}`— es la mitad legible.
+  // Con esa forma real, `deriveTag` devolvía la clave cruda: una captura desde este mismo repo
+  // escribía `7246e3fe-3dc4-4f24-9078-1911ad477e0d` como tag, deformando la columna del listado
+  // y sin comunicar NADA — que es exactamente la única función del campo (D-15).
+  //
+  // El defecto era invisible a una suite verde precisamente porque ningún fixture usaba la forma
+  // real. Estos casos la usan: es la aserción que lo habría cazado.
+  // -------------------------------------------------------------------------------------------
+  describe('deriveTag — forma REAL de projects.json: clave UUID de proveedor (GAP-3, D-15)', () => {
+    const UUID = '7246e3fe-3dc4-4f24-9078-1911ad477e0d';
+    const PROJ = '/Users/x/dev/klab/kodo';
+    /** La forma que el operador tiene en disco: valor OBJETO con ruta por defecto + módulos. */
+    const REAL = { [UUID]: { default: PROJ, modules: { DEV: PROJ, DOCS: PROJ + '/docs' } } };
+
+    it('cwd == la ruta del proyecto → el último segmento de la ruta, JAMÁS el UUID', () => {
+      const tag = deriveTag(PROJ, REAL);
+      assert.equal(tag, 'kodo');
+      assert.ok(tag.length < 36, `el tag no puede ser un identificador de 36 chars: ${tag}`);
+    });
+
+    it('cwd en un SUBDIRECTORIO profundo → sigue siendo el nombre del PROYECTO (Decisión B)', () => {
+      // Capturar desde un subdirectorio es lo NORMAL. Proyectar el basename del cwd daría
+      // `inbox`, que informa peor que el nombre del proyecto.
+      assert.equal(deriveTag(PROJ + '/src/inbox', REAL), 'kodo');
+      assert.equal(deriveTag(PROJ + '/a/b/c/d', REAL), 'kodo');
+    });
+
+    it('valor CADENA (la otra forma admitida del mapa) → mismo resultado', () => {
+      assert.equal(deriveTag(PROJ + '/src', { [UUID]: PROJ }), 'kodo');
+    });
+
+    it('clave UUID en MAYÚSCULAS → el reconocimiento es insensible a mayúsculas', () => {
+      const upper = UUID.toUpperCase();
+      assert.equal(deriveTag(PROJ, { [upper]: { default: PROJ } }), 'kodo');
+    });
+
+    it('ruta con barra final → el último segmento sigue siendo el nombre del proyecto', () => {
+      assert.equal(deriveTag(PROJ, { [UUID]: PROJ + '/' }), 'kodo');
+    });
+
+    it('clave UUID sin ruta por defecto utilizable → basename(cwd) y NUNCA lanza', () => {
+      // El match lo produce un path de `modules`, pero el tag identifica el PROYECTO: el extractor
+      // NO recorre la tabla de módulos, así que aquí no hay ruta utilizable → último recurso.
+      assert.equal(deriveTag(PROJ, { [UUID]: { modules: { DEV: PROJ } } }), 'kodo');
+      // Valores degradados de un hand-edit: ni siquiera casan, pero el carril es never-throws.
+      for (const bad of [null, 42, [1, 2], {}, { default: 7 }, { default: '' }]) {
+        assert.equal(deriveTag('/x/y/zzz', { [UUID]: /** @type {any} */ (bad) }), 'zzz');
+      }
+    });
+
+    it('una clave LEGIBLE se devuelve TAL CUAL: ninguna configuración que ya funcionaba cambia', () => {
+      // Decisión A — la proyección es CONDICIONAL. El comportamiento previo es correcto para todo
+      // mapa con claves legibles y no se reabre.
+      assert.equal(deriveTag('/x/y/kodo', { kodo: '/x/y/kodo' }), 'kodo');
+      assert.equal(deriveTag('/x/y/kodo/sub', { 'mi-proyecto': '/x/y/kodo' }), 'mi-proyecto');
+      assert.equal(deriveTag('/x/y/kodo', { 'mi-proyecto': { default: '/x/y/kodo' } }), 'mi-proyecto');
+    });
+
+    it('una clave que SE PARECE a un UUID pero no lo es NO se proyecta', () => {
+      /** @type {ReadonlyArray<[string, string]>} */
+      const nearMisses = [
+        ['7246e3fe-3dc4-4f24-9078-1911ad477e0', 'un grupo final corto (35 chars)'],
+        ['7246e3fe-3dc4-4f24-9078-1911ad477e0dd', 'un grupo final largo (37 chars)'],
+        ['7246e3fe3dc44f2490781911ad477e0d', 'sin guiones'],
+        ['7246e3fe-3dc44f24-9078-1911ad477e0d', 'guiones mal colocados'],
+        ['7246e3fg-3dc4-4f24-9078-1911ad477e0d', 'un carácter fuera del alfabeto hexadecimal'],
+        ['x7246e3fe-3dc4-4f24-9078-1911ad477e0d', 'con prefijo (el reconocedor va anclado)'],
+      ];
+      for (const [key, why] of nearMisses) {
+        assert.equal(deriveTag(PROJ, { [key]: PROJ }), key, `${why} → NO se proyecta`);
+      }
+    });
+
+    it('con clave UUID pero SIN match, ambiguo o con el mapa corrupto → basename(cwd)', () => {
+      assert.equal(deriveTag('/x/y/otro', REAL), 'otro');
+      const other = '9f1c0b2a-1111-4222-8333-444455556666';
+      assert.equal(deriveTag('/x/y/zzz', { [UUID]: '/x/y/zzz', [other]: '/x/y/zzz' }), 'zzz');
+      for (const corrupt of [null, 42, [1, 2], undefined]) {
+        assert.equal(deriveTag('/x/y/zzz', /** @type {any} */ (corrupt)), 'zzz');
+      }
+    });
+  });
+
   it('defaultInboxPaths se resuelve PEREZOSAMENTE (contrato 7 — sin fuga de HOME al module-load)', () => {
     const prev = process.env.HOME;
     try {
