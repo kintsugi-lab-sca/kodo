@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
-current_phase_name: Inbox foundation — captura + triage
+current_phase_name: inbox-foundation-captura-triage
 status: executing
-stopped_at: Completed 83-03-PLAN.md
-last_updated: "2026-07-25T12:59:02.717Z"
+stopped_at: Completed 83-04-PLAN.md
+last_updated: "2026-07-25T15:58:54.282Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 50
+  completed_phases: 1
+  total_plans: 9
+  completed_plans: 6
+  percent: 25
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 83 — Inbox foundation — captura + triage
+**Current focus:** Phase 83 — inbox-foundation-captura-triage
 
 ## Current Position
 
-Phase: 83 (Inbox foundation — captura + triage) — EXECUTING
-Plan: 3 of 3
+Phase: 83 (inbox-foundation-captura-triage) — EXECUTING
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 83 execution started
 
@@ -93,9 +93,12 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-02: el carril --json emite el texto VERBATIM (JSON.stringify ya escapa los bytes C0); el saneo agresivo vive solo en el render human, que es el que llega al terminal
 - [Phase ?]: 83-02: el listado del inbox nunca sale con código distinto de 0, ni siquiera si el render lanza (never-throws de cuerpo entero, D-18)
 - [Phase ?]: 83-02: los gates source-hygiene se anclan al PATRÓN DE IMPORT, no al nombre suelto del módulo — un comentario que documente la regla no puede poner roja la suite
-- [Phase ?]: 83-03: el riesgo residual de D-03 se materializó — con el presupuesto de lock por defecto (~160 ms) las 6 capturas concurrentes a un marcado hacían fail-open y el rename las borraba TODAS (0/6). Arreglo: CAPTURE_LOCK_RETRIES=50 × 20 ms ≈ 1000 ms en appendCapture, el fix que D-03 prescribía; el test NO se debilitó
-- [Phase ?]: 83-03: el presupuesto de lock de la captura es un TECHO, no una espera — coste cero en el camino feliz; el fail-open de D-03 no se elimina, solo se aleja (hace falta >1 s sosteniendo el lock para alcanzarlo)
+- [Phase ?]: 83-03: el riesgo residual de D-03 se materializó — con el presupuesto de lock por defecto (~160 ms) las 6 capturas concurrentes a un marcado hacían fail-open y el rename las borraba TODAS (0/6). Arreglo: CAPTURE_LOCK_RETRIES=50 × 20 ms ≈ 1000 ms en appendCapture, el fix que D-03 prescribía; el test NO se debilitó — **SUPERSEDED por 83-04: ese arreglo NO cerró el lost-update, solo movió el umbral (0/6 supervivientes de nuevo con un hold de 1500 ms); las dos constantes ya no existen**
+- [Phase ?]: 83-03: el presupuesto de lock de la captura es un TECHO, no una espera — coste cero en el camino feliz; el fail-open de D-03 no se elimina, solo se aleja (hace falta >1 s sosteniendo el lock para alcanzarlo) — **SUPERSEDED por 83-04: el presupuesto vuelve al default y el fail-open es deliberadamente alcanzable; mantenerlo lejos era enmascarar la carrera (DEBT-04)**
 - [Phase ?]: 83-03: el seam de enrutado queda documentado como delegación pura — README y skill del orquestador llevan el mismo bloque de tres pasos byte a byte y afirman que kodo no invoca, no importa y no reimplementa la lógica de destinos
+- [Phase ?]: 83-04: el lost-update del inbox se cierra con un guard compare-and-swap dentro del lock (bytes de la LECTURA + inodo del destino, comprobados justo antes del renameSync), NO con un presupuesto de reintentos — revierte la decisión central de 83-03
+- [Phase ?]: 83-04: CAPTURE_LOCK_RETRIES/BACKOFF eliminadas — appendCapture vuelve a los defaults de withFileLock y la rama fail-open vuelve a ser ALCANZABLE (una rama inalcanzable es una rama sin cobertura, DEBT-04)
+- [Phase ?]: 83-04: la publicación del marcado resuelve el destino real (realpathSync) y reaplica el modo con chmodSync antes del rename — el symlink y el chmod 0600 del operador sobreviven (WR-01)
 
 ### Open Blockers
 
@@ -124,13 +127,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T11:13:25.099Z
+**Last session:** 2026-07-25T15:58:32.746Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-03-PLAN.md
+- **Stopped at:** Completed 83-04-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -159,6 +162,7 @@ None
 | Phase 83 P01 | 41min | 3 tasks | 3 files |
 | Phase 83 P02 | 15min | 3 tasks | 4 files |
 | Phase 83 P03 | 8min | 3 tasks | 5 files |
+| Phase 83 P04 | 6min | 2 tasks | 2 files |
 
 ### Blockers
 
