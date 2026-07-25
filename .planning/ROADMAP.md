@@ -30,7 +30,7 @@
 **Granularidad:** `coarse` → 4 fases. **Cobertura:** 15/15 requirements mapeados.
 
 - [x] **Phase 82: Fix de la carrera de `stealLock`** - Cerrar con un fix real la ventana no-atómica move-aside→`O_EXCL` de `stealLock` y greenear `gsd-lock-race` — LOCK-01..03 (completed 2026-07-25)
-- [ ] **Phase 83: Inbox foundation — captura + triage** - Store + `kodo capture` (append atómico) + `kodo inbox` triage (list/mark sin borrar) + seam de enrutado a `gsd-capture` — CAPT-01, CAPT-03, CAPT-04, CAPT-06
+- [x] **Phase 83: Inbox foundation — captura + triage** - Store + `kodo capture` (append atómico) + `kodo inbox` triage (list/mark sin borrar) + seam de enrutado a `gsd-capture` — CAPT-01, CAPT-03, CAPT-04, CAPT-06 (completed 2026-07-25)
 - [ ] **Phase 84: Superficies de captura — skill, sync, conteo ambient** - `/kodo-capture` mid-session + `kodo skill sync` multi-skill + conteo de capturas sin enrutar en el dashboard — CAPT-02, CAPT-05, CAPT-07
 - [ ] **Phase 85: Saneo de deuda + Nyquist retroactivo** - Deuda doc de v0.18 (WR-01/WR-02, 80-REVIEW) + Nyquist retroactivo de 79/80/81 y 69/71/72 — DEBT-05..07, NYQ-01, NYQ-02
 

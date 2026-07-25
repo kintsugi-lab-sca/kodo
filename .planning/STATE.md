@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
-current_phase: 83
-current_phase_name: inbox-foundation-captura-triage
-status: executing
+current_phase: 84
+current_phase_name: Superficies de captura — skill, sync, conteo ambient
+status: planning
 stopped_at: Completed 83-07-PLAN.md
-last_updated: "2026-07-25T16:37:15.168Z"
+last_updated: "2026-07-25T16:47:48.615Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 83 execution started
+last_activity_desc: Phase 83 complete, transitioned to Phase 84
 progress:
   total_phases: 4
   completed_phases: 2
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 ## Current Position
 
-Phase: 83 (inbox-foundation-captura-triage) — EXECUTING
-Plan: 7 of 7
-Status: 7 de 7 planes completados (ciclo de cierre de gaps incluido) — pendiente de verificación
-Last activity: 2026-07-25 — 83-07 cierra GAP-3 (tag legible con la config real), WR-02, WR-08 e IN-02
+Phase: 84 — Superficies de captura — skill, sync, conteo ambient
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-25 — Phase 83 complete, transitioned to Phase 84
 
 ## Most recent shipped milestone
 
