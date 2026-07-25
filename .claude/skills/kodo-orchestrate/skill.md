@@ -384,7 +384,8 @@ de escritura directa.
 
 - **Cuándo mirarlo.** Al abrir una ronda de supervisión, o cuando el operador te
   pida vaciar/repasar el inbox. No lo consultes en cada pase: no es un trigger y
-  nada se degrada por quedarse ahí — el fichero es append-only y la traza es
+  nada se degrada por quedarse ahí — el fichero **solo crece** (cerrar una
+  captura es una transición de estado, nunca un borrado) y la traza es
   permanente.
 - **Cómo leerlo.** `kodo inbox` lista las **abiertas**; `kodo inbox --all` añade
   las ya cerradas con su estado. Si lo vas a procesar como datos, usa
@@ -407,7 +408,10 @@ Reglas duras:
 
 - **Nunca escribas `~/.kodo/inbox.md` directamente** (ni con Write, ni con Edit,
   ni con un `echo >>`). El único escritor es el CLI de kodo: escribir a mano se
-  salta el lock y puede pisar una captura concurrente.
+  salta el lock y puede pisar una captura concurrente. Que el fichero solo crezca
+  **no** significa que sea de solo-append: el marcado lo **reescribe entero** bajo
+  lock, así que asumir lo contrario te lleva a inferir garantías de concurrencia
+  que no existen.
 - **Nunca automatices el paso 2.** kodo no invoca, no importa y no reimplementa
   la lógica de destinos de `gsd-capture`: el «a dónde va» lo decide ese skill o
   el operador, y `--dest` es solo una ref opaca que kodo guarda sin validar. No
@@ -417,8 +421,16 @@ Reglas duras:
 - **El marcado sí puede fallar; la captura no.** `kodo capture` siempre escribe
   (ante lock ocupado hace fail-open). `kodo inbox route/discard`, en cambio, **no
   se aplica si el lock está ocupado**: sale con código 1 y el fichero queda
-  intacto — reintenta el comando. Un código 2 es distinto: el id no existe o la
-  captura ya estaba cerrada, y reintentar no arregla nada.
+  intacto — reintenta el comando. El marcado sale con código 1 **también cuando
+  una captura concurrente aterriza mientras se marcaba**: ahí el lock sí se
+  obtuvo, pero el comando se aborta para no destruir esa captura, el fichero
+  queda igualmente intacto y la acción es la misma, reintentar. Un código 2 es
+  distinto: el id no existe o la captura ya estaba cerrada, y reintentar no
+  arregla nada.
+- **Si shelleas `kodo capture`, antepón siempre `--` antes del texto**
+  (`kodo capture -- "<texto>"`). Un texto que empiece por guion —una línea de una
+  lista, una métrica negativa— sin ese separador se lee como una opción, aborta
+  la captura y la idea se pierde.
 
 ## Estado vivo de la tarea (novedades v0.17)
 

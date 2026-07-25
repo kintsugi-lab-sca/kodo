@@ -192,6 +192,9 @@ apetece y no cuando la idea te interrumpe.
 
 ```bash
 kodo capture "probar el nuevo resolver de estados antes de v0.19"
+
+# Si el texto empieza por guion, antepón el separador de argumentos:
+kodo capture -- "-3 % de conversión en el checkout tras el rediseño"
 ```
 
 Superficie completa:
@@ -202,7 +205,7 @@ Superficie completa:
 | `kodo inbox` | Lista las capturas abiertas con su `<id>` corto | `0` siempre — el lector nunca lanza |
 | `kodo inbox --all` | Incluye además las ya cerradas, con su estado | `0` siempre |
 | `kodo inbox --json` | El mismo listado como una sola línea JSON, determinista y sin color | `0` siempre |
-| `kodo inbox route <id>` | Marca la captura como **enrutada** | `0` ok · `1` error de fs o lock ocupado · `2` id inexistente o captura ya cerrada |
+| `kodo inbox route <id>` | Marca la captura como **enrutada** | `0` ok · `1` error de fs, lock ocupado o escritura concurrente · `2` id inexistente o captura ya cerrada |
 | `kodo inbox route <id> --dest <ref>` | Igual, añadiendo un puntero de traza a dónde acabó | idem |
 | `kodo inbox discard <id>` | Marca la captura como **descartada** | idem |
 

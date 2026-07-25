@@ -118,11 +118,16 @@ export function runCaptureCli(opts, deps = {}) {
 
   // 5. Los paths se resuelven en el CALL-SITE del handler (contrato 7): el store nunca los conoce
   //    por su cuenta, y así el carril unit puede inyectarlos sin tocar HOME (Pitfall 5).
+  //    El seam de salida de error viaja CON los paths (WR-08): el aviso del fail-open es la única
+  //    señal que el operador recibe cuando su captura se escribió sin coordinación, y desde que el
+  //    Plan 83-04 devolvió el presupuesto de reintentos al default de la primitiva esa rama vuelve
+  //    a ser alcanzable en producción — así que tiene que salir por el mismo canal inyectable que
+  //    el resto de la salida de error del handler, no escribiendo directo al stream del proceso.
   const { inboxPath, lockPath } = pathsFn();
   /** @type {{ ok: true, coordinated: boolean } | { ok: false, reason: string }} */
   let result;
   try {
-    result = appendFn(line, { inboxPath, lockPath });
+    result = appendFn(line, { inboxPath, lockPath, warnFn: err });
   } catch (e) {
     err(`Error: filesystem error: ${/** @type {Error} */ (e).message}\n`);
     return 1;

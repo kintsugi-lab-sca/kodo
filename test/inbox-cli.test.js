@@ -169,6 +169,27 @@ describe('runCaptureCli — ruta feliz y forma de la línea', () => {
     assert.equal(c.tag, 'proyecto-x');
   });
 
+  // WR-08 — el aviso del fail-open viaja por el SEAM del handler, no por el stream del proceso.
+  //
+  // Este caso es el que MUERDE: el de integración sobre el binario (más abajo) observa el mensaje
+  // igual con y sin la propagación, porque el default del store escribe al mismo `process.stderr`
+  // que el test lee. Lo que aquí se fija es que el canal sea INYECTABLE, que es lo que permite
+  // observarlo, redirigirlo o silenciarlo desde el handler como el resto de su salida de error.
+  it('el seam de salida de error se propaga al store junto con los paths (WR-08)', () => {
+    const append = spyAppend();
+    const err = collector();
+    const code = runCaptureCli({ text: 'idea' }, fixedDeps({ appendFn: append.fn, errFn: err.write }));
+    assert.equal(code, 0);
+
+    const { o } = append.calls[0];
+    assert.equal(typeof o.warnFn, 'function', 'el store recibe el canal de aviso del handler');
+
+    // Y lo que se emite por ese canal sale por el carril de error del handler, no por el del
+    // proceso: la rama del fail-open deja de ser observable solo con un espía del stream global.
+    o.warnFn('[kodo:inbox] lock-timeout — captura appendeada sin coordinación (fail-open)\n');
+    assert.match(err.get(), /^\[kodo:inbox\] lock-timeout/);
+  });
+
   it('la fecha sale de clockFn (D-07: fecha LOCAL inyectable)', () => {
     const append = spyAppend();
     runCaptureCli({ text: 'idea' }, fixedDeps({ appendFn: append.fn, clockFn: () => '1999-12-31' }));
@@ -1044,6 +1065,45 @@ describe('CLI `kodo capture` — proceso real (CAPT-01, D-19)', () => {
       `el tag no puede ser un identificador de 36 chars: ${JSON.stringify(c.tag)}`,
     );
     assert.equal(c.tag, 'kodo', 'el último segmento de la ruta del PROYECTO, no la del cwd');
+  });
+
+  // WR-08 — LA RAMA DEL FAIL-OPEN, OBSERVADA SOBRE EL BINARIO.
+  //
+  // Hasta este plan el aviso de D-03 se escribía DIRECTO al stream de error del proceso, saltándose
+  // el seam inyectable del handler: la única cobertura que existía era un unit que inyectaba el
+  // seam a mano, así que nadie había verificado nunca que el operador REAL vea ese mensaje. Y desde
+  // que el Plan 83-04 devolvió el presupuesto de reintentos al default de la primitiva, la rama
+  // vuelve a ser alcanzable en producción (una rama inalcanzable es una rama sin cobertura —
+  // DEBT-04).
+  //
+  // El lockfile se siembra con el contenido que la primitiva espera y con un PID VIVO (el del
+  // propio runner) y `acquired_at` reciente, para que no se considere robable ni por muerte del
+  // titular ni por TTL.
+  it('con el lock TOMADO por un proceso vivo: exit 0, la línea SÍ se escribe y avisa (D-03)', () => {
+    const lockPath = join(home, '.kodo', 'inbox.lock');
+    mkdirSync(join(home, '.kodo'), { recursive: true });
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: process.pid, acquired_at: Date.now(), token: 'test-holder' }),
+    );
+
+    try {
+      const r = kodo(home, ['capture', 'idea bajo lock ocupado']);
+
+      assert.equal(r.status, 0, `el fail-open NO cambia el exit code: ${r.status}\n${r.stderr}`);
+      const ls = inboxLines(home);
+      assert.equal(ls.length, 1, 'D-03: la idea NO se pierde aunque el lock esté ocupado');
+      const c = parseLine(ls[0]);
+      assert.ok(c, 'la línea escrita debe parsear');
+      assert.equal(c.text, 'idea bajo lock ocupado');
+      assert.match(
+        r.stderr,
+        /\[kodo:inbox\] lock-timeout/,
+        'el aviso del fail-open tiene que llegar al operador por el carril de error del binario',
+      );
+    } finally {
+      rmSync(lockPath, { force: true });
+    }
   });
 
   it('LIMITACIÓN CONOCIDA (no deseada): sin `--`, el mismo texto NO se captura y no toca el disco', () => {
