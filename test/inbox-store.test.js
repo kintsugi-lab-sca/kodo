@@ -21,7 +21,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, appendFileSync,
-  statSync, lstatSync, existsSync, readdirSync, chmodSync, renameSync,
+  statSync, lstatSync, existsSync, readdirSync, chmodSync, renameSync, symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -423,6 +423,27 @@ describe('appendCapture — fail-open ante lock-timeout (D-03, contrato 6)', () 
     appendCapture(encodeLine(BASE) + '\n', { inboxPath, lockPath });
     assert.equal(readdirSync(dir).some((f) => f.includes('.tmp.')), false);
     assert.equal(existsSync(inboxPath), true);
+  });
+
+  it('el presupuesto del lock es el DEFAULT de la primitiva, no el recalibrado de 83-03 (WR-03)', () => {
+    // El techo no cronometra la primitiva (8 × 20 ms ≈ 160 ms): es holgado a propósito para no
+    // crear un test sensible al scheduling. Lo que prueba es que el presupuesto ya NO es el de
+    // 83-03 (50 × 20 ms ≈ 1000 ms) — quien impide el lost-update es ahora el guard
+    // compare-and-swap del marcado, que es independiente del reloj.
+    const got = acquireLock(lockPath);
+    assert.notEqual(got, null);
+
+    const t0 = Date.now();
+    /** @type {any} */ let r;
+    try {
+      r = appendCapture(encodeLine(BASE) + '\n', { inboxPath, lockPath, warnFn: () => {} });
+    } finally {
+      releaseLock(lockPath, /** @type {{token:string}} */ (got).token);
+    }
+    const elapsed = Date.now() - t0;
+
+    assert.deepEqual(r, { ok: true, coordinated: false }, 'la rama fail-open sigue siendo ALCANZABLE');
+    assert.ok(elapsed < 700, `el fail-open tardó ${elapsed} ms; el presupuesto de 83-03 no se revirtió`);
   });
 });
 
@@ -844,5 +865,55 @@ describe('markCapture — devuelve la captura PERSISTIDA, no el objeto pre-saneo
     assert.equal(r.ok, true);
     assert.equal(r.capture?.text.length, MAX_TEXT_LEN);
     assert.deepEqual(r.capture, parseLine(readFileSync(inboxPath, 'utf-8').split('\n')[0]));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// markCapture — identidad de la publicación: inodo real y modo del operador (WR-01)
+// ---------------------------------------------------------------------------
+
+describe('markCapture — la publicación preserva la identidad del destino (WR-01)', () => {
+  it('un inbox SYMLINKEADO sigue siendo un symlink y el fichero real recibe la línea marcada', () => {
+    // Montaje plausible: el inbox se anuncia como markdown human-editable, así que enlazarlo a
+    // un dotfiles versionado es esperable. Sin resolver el destino, el primer marcado sustituye
+    // el enlace por un fichero regular y el destino del operador queda CONGELADO sin aviso.
+    const real = join(dir, 'dotfiles-inbox.md');
+    seedFixture(real, true);
+    symlinkSync(real, inboxPath);
+
+    const r = markCapture('a3f9k2', 'enrutada', { dest: 'SYM', inboxPath, lockPath });
+    assert.equal(r.ok, true);
+
+    assert.equal(lstatSync(inboxPath).isSymbolicLink(), true, 'el symlink SOBREVIVE al marcado');
+    const realLines = readFileSync(real, 'utf-8').split('\n');
+    assert.equal(parseLine(realLines[0])?.open, false, 'el fichero REAL recibió la línea marcada');
+    assert.equal(parseLine(realLines[0])?.dest, 'SYM');
+    assert.deepEqual(realLines.slice(1, FIXTURE_LINES.length), FIXTURE_LINES.slice(1), 'D-04 intacto');
+    assert.equal(hasTmpResidue(dir), false);
+  });
+
+  it('un inbox en 0600 conserva sus permisos tras marcar (decisión explícita del operador)', (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      t.skip('root ignora los bits de permiso');
+      return;
+    }
+    seedFixture(inboxPath, true);
+    chmodSync(inboxPath, 0o600);
+
+    const r = markCapture('a3f9k2', 'descartada', { inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    assert.equal(
+      statSync(inboxPath).mode & 0o777, 0o600,
+      'D-20 dice que el inbox no es un secreto, pero degradar en silencio un chmod explícito es otra cosa',
+    );
+  });
+
+  it('un inbox creado por el append (modo por umask, D-20) no ve su modo alterado por el marcado', () => {
+    appendCapture(encodeLine(BASE) + '\n', { inboxPath, lockPath });
+    const before = statSync(inboxPath).mode & 0o777;
+
+    const r = markCapture(BASE.id, 'enrutada', { dest: 'x', inboxPath, lockPath });
+    assert.equal(r.ok, true);
+    assert.equal(statSync(inboxPath).mode & 0o777, before, 'el marcado no reinterpreta el umask');
   });
 });
