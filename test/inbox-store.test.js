@@ -18,7 +18,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync,
-  statSync, existsSync, readdirSync, chmodSync,
+  statSync, lstatSync, existsSync, readdirSync, chmodSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,12 +41,17 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try {
-    chmodSync(dir, 0o700);
-    for (const e of readdirSync(dir)) {
-      try { chmodSync(join(dir, e), 0o600); } catch { /* best-effort */ }
-    }
-  } catch { /* el dir pudo no crearse */ }
+  // Restaurar permisos antes de borrar: el test de EACCES deja un fichero a 0o000 y `rmSync`
+  // no podría enlazarlo. Los DIRECTORIOS necesitan el bit de ejecución para ser recorridos, así
+  // que se discriminan por `lstatSync` (0o700 vs 0o600).
+  const restore = (/** @type {string} */ p) => {
+    try {
+      const st = lstatSync(p);
+      chmodSync(p, st.isDirectory() ? 0o700 : 0o600);
+      if (st.isDirectory()) for (const e of readdirSync(p)) restore(join(p, e));
+    } catch { /* best-effort */ }
+  };
+  restore(dir);
   rmSync(dir, { recursive: true, force: true });
 });
 

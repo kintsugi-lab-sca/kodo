@@ -34,11 +34,15 @@
 //   - Módulo de lógica: no emite eventos NDJSON ni hace `process.exit`; el caller (CLI) decide.
 
 import { randomBytes } from 'node:crypto';
+import {
+  appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { stripForKeystroke } from '../cli/format.js';
 import { resolveProjectId } from '../cli/dashboard/select.js';
+import { withFileLock } from '../session/state-lock.js';
 
 /**
  * Una captura del inbox, ya parseada.
@@ -310,4 +314,145 @@ export function parseLine(line) {
     estado: /** @type {'enrutada' | 'descartada' | null} */ (m[7] ?? null),
     dest: m[8] ?? null,
   };
+}
+
+/**
+ * Lista las capturas del inbox. **Leaf never-throws** (D-18): CUALQUIER error de lectura —
+ * ENOENT (primer run), EISDIR, EACCES, lo que sea — colapsa a listado vacío. El fichero ausente
+ * es el estado inicial normal, no una condición de error.
+ *
+ * Dualidad deliberada de una línea que NO parsea (D-18 + D-04): se **excluye** del listado
+ * estructurado (no es una captura válida) y se **preserva byte a byte** en disco (tampoco es
+ * basura que kodo pueda tirar — el fichero es human-editable por diseño). `unparsed` la cuenta
+ * para que el CLI pueda surfacearlo sin que el reader tenga que decidir nada. Las líneas VACÍAS
+ * no cuentan: son separadores legítimos de un markdown editado a mano.
+ *
+ * **Esta función JAMÁS escribe.** Ni normaliza, ni reordena, ni reescribe.
+ *
+ * @param {{ inboxPath: string }} o
+ * @returns {{ captures: Capture[], unparsed: number }}
+ */
+export function listCaptures({ inboxPath }) {
+  /** @type {string} */
+  let raw;
+  try {
+    raw = readFileSync(inboxPath, 'utf-8');
+  } catch {
+    return { captures: [], unparsed: 0 };
+  }
+
+  /** @type {Capture[]} */
+  const captures = [];
+  let unparsed = 0;
+  for (const line of raw.split('\n')) {
+    if (line.trim() === '') continue;
+    const c = parseLine(line);
+    if (c) captures.push(c);
+    else unparsed++;
+  }
+  return { captures, unparsed };
+}
+
+/**
+ * Escritura real del append. Privada: la comparten el carril coordinado y el fail-open de D-03.
+ *
+ * Si el fichero ya existe, tiene tamaño > 0 y su ÚLTIMO BYTE no es el newline, el payload lleva
+ * un newline por delante: una línea hand-editada sin terminador nunca puede quedar concatenada
+ * con la captura nueva. La sonda del último byte va en `try/catch` porque cualquier fallo suyo
+ * debe degradar a «no anteponer», jamás abortar la captura.
+ *
+ * Una línea = un `appendFileSync` = un `write(2)` bajo `O_APPEND` = un append atómico. Verificado
+ * empíricamente hasta 200 000 B con 12 escritores concurrentes (RESEARCH §Code Examples). ⚠ La
+ * garantía asume FILESYSTEM LOCAL (`~/.kodo`): `O_APPEND` NO es atómico sobre NFS.
+ *
+ * Degradación benigna conocida: si dos escritores concurrentes anteponen ambos el newline sobre
+ * un fichero sin terminador, aparece una línea vacía extra. `listCaptures` la ignora y
+ * `markCapture` la preserva byte a byte — no hay corrupción.
+ *
+ * @param {string} inboxPath
+ * @param {string} line — línea COMPLETA ya codificada y terminada en '\n'
+ * @returns {void}
+ */
+function appendLine(inboxPath, line) {
+  let needsNewline = false;
+  try {
+    const st = statSync(inboxPath);
+    if (st.isFile() && st.size > 0) {
+      const fd = openSync(inboxPath, 'r');
+      try {
+        const buf = Buffer.alloc(1);
+        readSync(fd, buf, 0, 1, st.size - 1);
+        needsNewline = buf[0] !== 0x0a;
+      } finally {
+        closeSync(fd);
+      }
+    }
+  } catch {
+    // Fichero ausente / ilegible / no regular → no anteponer. Si el append de abajo también
+    // falla, el caller lo mapea a `{ok:false, reason:'fs'}`.
+    needsNewline = false;
+  }
+  appendFileSync(inboxPath, needsNewline ? '\n' + line : line);
+}
+
+/**
+ * Appendea una captura ya codificada. `line` llega terminada en '\n' (el caller hace
+ * `encodeLine(c) + '\n'`).
+ *
+ * DOS capas independientes (D-02): el `O_APPEND` garantiza por sí solo que N capturas
+ * concurrentes producen N líneas aunque el lock no existiera; el lock protege ADEMÁS contra el
+ * RMW de `markCapture` (D-01). Jamás se reescribe el fichero completo.
+ *
+ * **Fail-open ante `lock-timeout` (D-03).** Agotado el presupuesto de `withFileLock` (8 × 20 ms
+ * ≈ 160 ms), la captura se appendea IGUAL y se emite un warn accionable. Principio GTD: una idea
+ * perdida es peor que una línea escrita sin coordinación. **Riesgo residual ACEPTADO y acotado:**
+ * la captura solo puede perderse si el timeout coincide además con la ventana lectura→rename de
+ * un marcado concurrente (orden de milisegundos, tras esos ~160 ms de reintentos). Si algún día
+ * se materializa en uso real, el arreglo es SUBIR el presupuesto de reintentos de la captura —
+ * nunca debilitar el test de concurrencia de D-21.
+ *
+ * Asimetría deliberada con `markCapture`, que NO hace fail-open: un marcado sin coordinación
+ * reintroduce exactamente el lost-update que D-01 cierra; una captura sin coordinación solo
+ * arriesga esa ventana residual de milisegundos.
+ *
+ * Contrato 6 — EXACTAMENTE UN warn: se inyecta `{ logger: { warn: () => {} } }` para silenciar el
+ * `console.warn('[kodo:lock] …')` propio de la primitiva (`state-lock.js:222`) y se emite un solo
+ * mensaje accionable con prefijo `[kodo:inbox]`.
+ *
+ * @param {string} line
+ * @param {{ inboxPath: string, lockPath: string, warnFn?: (s: string) => void }} o
+ * @returns {{ ok: true, coordinated: boolean } | { ok: false, reason: 'fs' }}
+ */
+export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
+  const warn = warnFn || ((/** @type {string} */ s) => process.stderr.write(s));
+
+  // El mkdir va FUERA de la sección crítica (patrón `session-end.js:325`): no necesita el lock, y
+  // en la rama fail-open el lock puede no haberse tomado nunca (Pitfall 9). `acquireLock` también
+  // crearía el directorio del lockfile hermano, pero ese regalo no cubre el camino fail-open.
+  try {
+    mkdirSync(dirname(inboxPath), { recursive: true });
+  } catch {
+    return { ok: false, reason: 'fs' };
+  }
+
+  /** @type {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }} */
+  let r;
+  try {
+    r = withFileLock(lockPath, () => appendLine(inboxPath, line), { logger: { warn: () => {} } });
+  } catch {
+    // `acquireLock` propaga los errores de fs que no son EEXIST, y el `fn()` bajo lock propaga los
+    // suyos. Ambos son fallos de filesystem, nunca de coordinación → NO se hace fail-open aquí:
+    // el lock se tomó (o el disco está roto) y reintentar a ciegas solo duplicaría el fallo.
+    return { ok: false, reason: 'fs' };
+  }
+
+  if (r.ok) return { ok: true, coordinated: true };
+
+  try {
+    appendLine(inboxPath, line);
+  } catch {
+    return { ok: false, reason: 'fs' };
+  }
+  warn('[kodo:inbox] lock-timeout — captura appendeada sin coordinación (fail-open)\n');
+  return { ok: true, coordinated: false };
 }
