@@ -79,7 +79,7 @@
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 83-02-PLAN.md — Superficie CLI: `kodo capture` + `kodo inbox` (listado human/`--json`, `route`, `discard`), registro commander e integración por proceso real (CAPT-01, CAPT-03, CAPT-04, CAPT-06) [wave 2]
-- [ ] 83-03-PLAN.md — Evidencia de concurrencia con procesos reales (D-21: N→N y captura durante el marcado) + documentación del seam de enrutado (CAPT-01, CAPT-03, CAPT-04) [wave 2]
+- [x] 83-03-PLAN.md — Evidencia de concurrencia con procesos reales (D-21: N→N y captura durante el marcado) + documentación del seam de enrutado (CAPT-01, CAPT-03, CAPT-04) [wave 2]
 
 ### Phase 84: Superficies de captura — skill, sync, conteo ambient
 

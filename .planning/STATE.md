@@ -4,17 +4,17 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: Inbox foundation — captura + triage
-status: executing
-stopped_at: Completed 83-02-PLAN.md
-last_updated: "2026-07-25T11:00:37.414Z"
+status: verifying
+stopped_at: Completed 83-03-PLAN.md
+last_updated: "2026-07-25T11:13:25.105Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 25
+  completed_plans: 5
+  percent: 50
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 Phase: 83 (Inbox foundation — captura + triage) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-25 — Phase 83 execution started
 
 ## Most recent shipped milestone
@@ -93,6 +93,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-02: el carril --json emite el texto VERBATIM (JSON.stringify ya escapa los bytes C0); el saneo agresivo vive solo en el render human, que es el que llega al terminal
 - [Phase ?]: 83-02: el listado del inbox nunca sale con código distinto de 0, ni siquiera si el render lanza (never-throws de cuerpo entero, D-18)
 - [Phase ?]: 83-02: los gates source-hygiene se anclan al PATRÓN DE IMPORT, no al nombre suelto del módulo — un comentario que documente la regla no puede poner roja la suite
+- [Phase ?]: 83-03: el riesgo residual de D-03 se materializó — con el presupuesto de lock por defecto (~160 ms) las 6 capturas concurrentes a un marcado hacían fail-open y el rename las borraba TODAS (0/6). Arreglo: CAPTURE_LOCK_RETRIES=50 × 20 ms ≈ 1000 ms en appendCapture, el fix que D-03 prescribía; el test NO se debilitó
+- [Phase ?]: 83-03: el presupuesto de lock de la captura es un TECHO, no una espera — coste cero en el camino feliz; el fail-open de D-03 no se elimina, solo se aleja (hace falta >1 s sosteniendo el lock para alcanzarlo)
+- [Phase ?]: 83-03: el seam de enrutado queda documentado como delegación pura — README y skill del orquestador llevan el mismo bloque de tres pasos byte a byte y afirman que kodo no invoca, no importa y no reimplementa la lógica de destinos
 
 ### Open Blockers
 
@@ -121,13 +124,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T11:00:37.408Z
+**Last session:** 2026-07-25T11:13:25.099Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-02-PLAN.md
+- **Stopped at:** Completed 83-03-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -155,6 +158,7 @@ None
 | Phase 82 P02 | 15min | 2 tasks | 2 files |
 | Phase 83 P01 | 41min | 3 tasks | 3 files |
 | Phase 83 P02 | 15min | 3 tasks | 4 files |
+| Phase 83 P03 | 8min | 3 tasks | 5 files |
 
 ### Blockers
 
