@@ -5,8 +5,8 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: Inbox foundation — captura + triage
 status: planning
-stopped_at: Completed 82-02-PLAN.md (LOCK-02/03 done, phase ready for verification)
-last_updated: "2026-07-24T22:36:50.571Z"
+stopped_at: Phase 83 context gathered
+last_updated: "2026-07-25T09:42:15.625Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 82 complete, transitioned to Phase 83
 progress:
@@ -113,13 +113,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-24T22:26:23.230Z
+**Last session:** 2026-07-25T09:42:15.617Z
 
 **Resume file:**
 
-None
+.planning/phases/83-inbox-foundation-captura-triage/83-CONTEXT.md
 
-- **Stopped at:** Completed 82-02-PLAN.md (LOCK-02/03 done, phase ready for verification)
+- **Stopped at:** Phase 83 context gathered
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
