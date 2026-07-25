@@ -598,6 +598,85 @@ daemon
     await runDaemon();
   });
 
+// --- kodo capture --- (Phase 83 / CAPT-01 / D-15, D-16, D-17)
+program
+  .command('capture')
+  .description('Capturar una idea al inbox (~/.kodo/inbox.md) sin salir de lo que estás haciendo')
+  .argument('<text>', 'Texto de la captura: se persiste VERBATIM, saneado a una sola línea')
+  .option(
+    '--origin <valor>',
+    'Origen de la captura — USO INTERNO (lo fija el skill de captura al shellear a este mismo writer); default: cli',
+    'cli',
+  )
+  .action(async (text, opts) => {
+    try {
+      // NOTE: NO `ensureConfig()` — el inbox es filesystem local (~/.kodo/inbox.md) y NO toca
+      // ningún provider. Mismo precedente que `skill sync`, `gsd doctor` y `sidebar doctor`.
+      const { runCaptureCli } = await import('./cli/capture.js');
+      process.exit(runCaptureCli({ text, origin: opts.origin }));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// --- kodo inbox [route|discard] --- (Phase 83 / CAPT-03, CAPT-06 / D-09..D-14)
+//
+// DESVIACIÓN DELIBERADA del molde de grupos de este fichero: a diferencia de `gsd`, `sidebar`,
+// `skill`, `polling` y `daemon`, el comando padre lleva ACCIÓN PROPIA además de subcomandos
+// (`kodo inbox` lista; `kodo inbox route|discard <id>` marcan). La forma quedó verificada
+// empíricamente sobre commander 13.1.0 en `83-RESEARCH.md` §Pattern 4: las 6 invocaciones
+// (`inbox`, `inbox --all`, `inbox --json`, `route <id>`, `route <id> --dest <ref>`,
+// `discard <id>`) resuelven al handler correcto sin conflicto.
+//
+// D-14: SIN `--project`, SIN `--open` y sin ningún otro filtro, ni en el padre ni en los
+// subcomandos. CAPT-F1 está DIFERIDO a v2 — la superficie no se adelanta.
+const inbox = program
+  .command('inbox')
+  .description('Triage del inbox de capturas (~/.kodo/inbox.md): lista, enruta y descarta')
+  .option('--all', 'Incluir también las capturas cerradas (la traza permanente)')
+  .option('--json', 'Emitir el listado como JSON (scriptable, byte-determinista)')
+  .action(async (opts) => {
+    try {
+      // NOTE: NO `ensureConfig()` — mismo precedente que `skill sync` / `gsd doctor`.
+      const { runInboxListCli } = await import('./cli/inbox.js');
+      process.exit(runInboxListCli({ all: opts.all || false, json: opts.json || false }));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+inbox
+  .command('route <id>')
+  .description('Marcar una captura como enrutada (nunca la borra: cerrar es una transición de estado)')
+  .option(
+    '--dest <ref>',
+    'Trace pointer al destino: ref OPACA best-effort — kodo no la valida, no la resuelve y no la interpreta',
+  )
+  .action(async (id, opts) => {
+    try {
+      const { runInboxMarkCli } = await import('./cli/inbox.js');
+      process.exit(runInboxMarkCli(id, 'enrutada', { dest: opts.dest }));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+inbox
+  .command('discard <id>')
+  .description('Marcar una captura como descartada (nunca la borra: la traza permanente es el feature)')
+  .action(async (id) => {
+    try {
+      const { runInboxMarkCli } = await import('./cli/inbox.js');
+      process.exit(runInboxMarkCli(id, 'descartada', {}));
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---

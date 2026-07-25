@@ -16,10 +16,14 @@
 // inyección se escriben SIEMPRE con notación de escape (`\u001b`, `\u009b`) — un byte de control
 // literal es ilegible en diff y dispara los detectores de inyección del pipeline.
 
-import { describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { createFormatter } from '../src/cli/format.js';
 import { parseLine, MAX_DEST_LEN, MAX_TEXT_LEN } from '../src/inbox/store.js';
@@ -704,14 +708,359 @@ describe('runInbox*Cli — source hygiene del handler', () => {
     assert.equal(typeof mod.runInboxMarkCli, 'function');
   });
 
-  it('nunca invoca el helper de salida del runtime y sanea el carril de render', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
+  it('nunca invoca el helper de salida del runtime y sanea el carril de render', () => {
     const src = readFileSync(join(REPO, 'src', 'cli', 'inbox.js'), 'utf-8');
     assert.ok(!/process\.exit/.test(src), 'el exit lo hace el registro de commander');
     assert.ok(
       /stripControlChars/.test(src),
       'el render human DEBE sanear el contenido del fichero (Pitfall 6 / T-83-09)',
+    );
+  });
+});
+
+// --- INTEGRATION: proceso real con HOME sandbox (Task 3) ------------------------------------
+
+const KODO_BIN = join(REPO, 'bin', 'kodo');
+
+/**
+ * Invoca el binario real. CADA spawn lleva su propio HOME sandbox: `~/.kodo` se resuelve al
+ * CARGAR el módulo de config (Pitfall 5), así que el aislamiento solo es fiable si el env está
+ * puesto ANTES de arrancar el proceso — que es exactamente lo que hace `spawnSync`.
+ *
+ * @param {string} home
+ * @param {string[]} args
+ * @param {Record<string, string>} [env]
+ */
+function kodo(home, args, env = {}) {
+  return spawnSync(process.execPath, [KODO_BIN, ...args], {
+    cwd: REPO,
+    encoding: 'utf-8',
+    timeout: 10_000, // WR-01 Phase 14 — fail-fast si el bin cuelga (higiene de CI)
+    env: { ...process.env, HOME: home, ...env },
+  });
+}
+
+/** @param {string} home */
+function inboxOf(home) {
+  return join(home, '.kodo', 'inbox.md');
+}
+
+/** Líneas NO vacías del inbox. @param {string} home */
+function inboxLines(home) {
+  return readFileSync(inboxOf(home), 'utf-8')
+    .split('\n')
+    .filter((l) => l !== '');
+}
+
+/** @param {string} p */
+function sha256(p) {
+  return createHash('sha256').update(readFileSync(p)).digest('hex');
+}
+
+/** Siembra un inbox con contenido literal. @param {string} home @param {string} content */
+function seedInbox(home, content) {
+  mkdirSync(join(home, '.kodo'), { recursive: true });
+  writeFileSync(inboxOf(home), content);
+}
+
+/** Id de la primera captura parseable del fichero. @param {string} home */
+function firstId(home) {
+  for (const l of inboxLines(home)) {
+    const c = parseLine(l);
+    if (c) return c.id;
+  }
+  throw new Error('el inbox sembrado no contiene ninguna captura parseable');
+}
+
+describe('CLI `kodo capture` — proceso real (CAPT-01, D-19)', () => {
+  /** @type {string} */
+  let home;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'kodo-inbox-cli-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('primer run sobre un HOME limpio: crea el fichero SIN cabecera y sale 0', () => {
+    const r = kodo(home, ['capture', 'una idea']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
+    assert.ok(existsSync(inboxOf(home)), '~/.kodo/inbox.md se crea on-demand (D-19)');
+    const ls = inboxLines(home);
+    assert.equal(ls.length, 1, 'exactamente una línea');
+    assert.equal(ls[0][0], '-', 'el fichero es una lista PURA: sin cabecera ni preámbulo (D-19)');
+    const c = parseLine(ls[0]);
+    assert.ok(c, 'la línea escrita debe parsear');
+    assert.equal(c.text, 'una idea');
+    assert.equal(c.open, true);
+  });
+
+  it('texto vacío y solo whitespace → exit 2 y NI SIQUIERA se crea el fichero', () => {
+    for (const text of ['', '   ']) {
+      const r = kodo(home, ['capture', text]);
+      assert.equal(r.status, 2, `texto ${JSON.stringify(text)} → status ${r.status}: ${r.stderr}`);
+      assert.equal(existsSync(inboxOf(home)), false, 'un gate que falla no puede tocar el disco');
+    }
+  });
+
+  it('--origin skill fija el último campo estructurado (D-16 — el contrato de Phase 84)', () => {
+    const r = kodo(home, ['capture', 'idea', '--origin', 'skill']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    const c = parseLine(inboxLines(home)[0]);
+    assert.ok(c);
+    assert.equal(c.origin, 'skill');
+  });
+
+  it('tres capturas seguidas → 3 líneas, en orden de invocación', () => {
+    for (const t of ['primera', 'segunda', 'tercera']) {
+      assert.equal(kodo(home, ['capture', t]).status, 0);
+    }
+    const texts = inboxLines(home).map((l) => parseLine(l)?.text);
+    assert.deepEqual(texts, ['primera', 'segunda', 'tercera']);
+  });
+});
+
+describe('CLI `kodo inbox` — listado (CAPT-03, D-12, D-18)', () => {
+  /** @type {string} */
+  let home;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'kodo-inbox-cli-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('sobre un HOME limpio sale 0 con la copy de inbox vacío (never-throws, D-18)', () => {
+    const r = kodo(home, ['inbox']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.match(r.stdout, /vac/i, 'un inbox inexistente NO es una condición de error');
+  });
+
+  it('tras 2 capturas lista 2 filas y sale 0', () => {
+    kodo(home, ['capture', 'idea uno']);
+    kodo(home, ['capture', 'idea dos']);
+    const r = kodo(home, ['inbox']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.match(r.stdout, /idea uno/);
+    assert.match(r.stdout, /idea dos/);
+  });
+
+  it('--json: UNA línea parseable, sin ANSI y byte-idéntica entre dos ejecuciones (DX-06)', () => {
+    kodo(home, ['capture', 'idea json']);
+    const a = kodo(home, ['inbox', '--json']);
+    const b = kodo(home, ['inbox', '--json']);
+    assert.equal(a.status, 0, `status ${a.status}\nstderr: ${a.stderr}`);
+    assert.equal(a.stdout, b.stdout, 'dos ejecuciones sobre el mismo estado → bytes idénticos');
+    assert.equal(a.stdout.indexOf('\n'), a.stdout.length - 1, 'una sola línea');
+    assert.ok(!/\u001b/.test(a.stdout), 'cero secuencias ANSI en el carril máquina');
+    const payload = JSON.parse(a.stdout);
+    assert.equal(payload.captures.length, 1);
+    assert.equal(payload.captures[0].text, 'idea json');
+  });
+
+  it('--json sigue sin ANSI aunque el color esté FORZADO (la rama no toca el formatter)', () => {
+    kodo(home, ['capture', 'idea color']);
+    const r = kodo(home, ['inbox', '--json'], { FORCE_COLOR: '1' });
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.ok(!/\u001b/.test(r.stdout), 'FORCE_COLOR no puede contaminar --json');
+    assert.doesNotThrow(() => JSON.parse(r.stdout));
+  });
+});
+
+describe('CLI `kodo inbox route|discard` — cierre sin borrado (CAPT-03, CAPT-06, D-13)', () => {
+  /** @type {string} */
+  let home;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'kodo-inbox-cli-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('route --dest: cierra con trace pointer, conserva la línea y desaparece del listado', () => {
+    kodo(home, ['capture', 'idea a enrutar']);
+    const id = firstId(home);
+    const before = inboxLines(home).length;
+
+    const r = kodo(home, ['inbox', 'route', id, '--dest', '.planning/todos/TODO-012.md']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.equal(inboxLines(home).length, before, 'cerrar NO borra: el conteo de líneas no cambia');
+
+    const c = parseLine(inboxLines(home)[0]);
+    assert.ok(c);
+    assert.equal(c.open, false);
+    assert.equal(c.estado, 'enrutada');
+    assert.equal(c.dest, '.planning/todos/TODO-012.md');
+    assert.equal(c.text, 'idea a enrutar', 'el texto sobrevive intacto al cierre');
+
+    assert.ok(!/idea a enrutar/.test(kodo(home, ['inbox']).stdout), 'ya no está entre las abiertas');
+    assert.match(kodo(home, ['inbox', '--all']).stdout, /idea a enrutar/, '--all conserva la traza');
+  });
+
+  it('route SIN --dest sale 0 y cierra sin destino (best-effort, CAPT-06)', () => {
+    kodo(home, ['capture', 'idea sin ref']);
+    const id = firstId(home);
+    const r = kodo(home, ['inbox', 'route', id]);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    const c = parseLine(inboxLines(home)[0]);
+    assert.ok(c);
+    assert.equal(c.estado, 'enrutada');
+    assert.equal(c.dest, null, 'sin ref no hay trace pointer, pero el cierre se aplica igual');
+  });
+
+  it('discard sale 0 y la línea SIGUE en el fichero con su sufijo', () => {
+    kodo(home, ['capture', 'idea a descartar']);
+    const id = firstId(home);
+    const r = kodo(home, ['inbox', 'discard', id]);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    const ls = inboxLines(home);
+    assert.equal(ls.length, 1, 'descartar NO borra (CAPT-03: la traza permanente es el feature)');
+    const c = parseLine(ls[0]);
+    assert.ok(c);
+    assert.equal(c.estado, 'descartada');
+    assert.equal(c.text, 'idea a descartar');
+  });
+
+  it('id inexistente y captura ya cerrada → exit 2, con el fichero BYTE-IDÉNTICO', () => {
+    kodo(home, ['capture', 'idea única']);
+    const id = firstId(home);
+
+    const hashBefore = sha256(inboxOf(home));
+    const missing = kodo(home, ['inbox', 'route', 'zzzzzz']);
+    assert.equal(missing.status, 2, `status ${missing.status}\nstderr: ${missing.stderr}`);
+    assert.equal(sha256(inboxOf(home)), hashBefore, 'un id inexistente no reescribe NADA');
+
+    assert.equal(kodo(home, ['inbox', 'route', id]).status, 0);
+    const hashClosed = sha256(inboxOf(home));
+    const again = kodo(home, ['inbox', 'route', id]);
+    assert.equal(again.status, 2, `re-cerrar debe salir 2: ${again.stderr}`);
+    assert.equal(sha256(inboxOf(home)), hashClosed, 'already-closed no reescribe NADA');
+  });
+
+  it('hand-edit `- [x]` SIN sufijo → route sale 2 y la línea no cambia (contrato 2)', () => {
+    seedInbox(home, '- [x] bbb222 · hand-edit · kodo · 2026-07-25 · cli\n');
+    const hashBefore = sha256(inboxOf(home));
+    const r = kodo(home, ['inbox', 'route', 'bbb222']);
+    assert.equal(r.status, 2, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.match(r.stderr, /already closed/i);
+    assert.equal(sha256(inboxOf(home)), hashBefore, 'el checkbox es la autoridad: no se reescribe');
+  });
+
+  it('las líneas ajenas (heading + nota a mano) sobreviven BYTE A BYTE a un route (D-04)', () => {
+    const heading = '# Notas sueltas del inbox';
+    const handwritten = 'esto lo escribí yo a mano y kodo no debe tocarlo';
+    seedInbox(
+      home,
+      `${heading}\n- [ ] aaa111 · idea sembrada · kodo · 2026-07-25 · cli\n${handwritten}\n`,
+    );
+
+    const list = kodo(home, ['inbox']);
+    assert.equal(list.status, 0, `status ${list.status}\nstderr: ${list.stderr}`);
+    assert.match(list.stdout, /idea sembrada/);
+    assert.ok(!new RegExp(heading).test(list.stdout), 'el heading NO es una captura');
+    assert.match(list.stdout, /2/, 'las 2 líneas no parseables se cuentan');
+    assert.match(list.stdout, /conserv/i, 'y se informa de que kodo NO las ha tocado');
+
+    assert.equal(kodo(home, ['inbox', 'route', 'aaa111']).status, 0);
+    const after = readFileSync(inboxOf(home), 'utf-8').split('\n');
+    assert.equal(after[0], heading, 'el heading sobrevive byte a byte');
+    assert.equal(after[2], handwritten, 'la nota a mano sobrevive byte a byte');
+  });
+});
+
+describe('CLI — superficie LOCKED: nada de más, nada de menos (D-12, D-14, D-17)', () => {
+  /** @type {string} */
+  let home;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'kodo-inbox-cli-'));
+  });
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('`inbox --help` sale 0 y anuncia route y discard', () => {
+    const r = kodo(home, ['inbox', '--help']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.match(r.stdout, /route/);
+    assert.match(r.stdout, /discard/);
+  });
+
+  it('`capture --help` sale 0 y NO expone --project (D-17: sin override del tag)', () => {
+    const r = kodo(home, ['capture', '--help']);
+    assert.equal(r.status, 0, `status ${r.status}\nstderr: ${r.stderr}`);
+    assert.ok(!/--project/.test(r.stdout), 'el tag se deriva SOLO del cwd (D-15)');
+  });
+
+  it('ni `inbox` ni sus subcomandos exponen --project o --open (D-14: CAPT-F1 diferido a v2)', () => {
+    for (const args of [
+      ['inbox', '--help'],
+      ['inbox', 'route', '--help'],
+      ['inbox', 'discard', '--help'],
+    ]) {
+      const r = kodo(home, args);
+      assert.equal(r.status, 0, `\`${args.join(' ')}\` → status ${r.status}: ${r.stderr}`);
+      assert.ok(
+        !/--project|--open/.test(r.stdout),
+        `\`${args.join(' ')}\` no puede adelantar superficie diferida:\n${r.stdout}`,
+      );
+    }
+  });
+});
+
+// --- SOURCE HYGIENE: los dos gates de la fase ----------------------------------------------
+
+describe('Gate CAPT-04 / D-09 — el seam de enrutado es DOCUMENTAL', () => {
+  // La aserción está anclada al PATRÓN DE IMPORT (a principio de línea, o a una llamada de
+  // `require`/`import()`), NUNCA al nombre suelto del módulo. Razón: la cabecera de
+  // `src/cli/inbox.js` DOCUMENTA en prosa por qué no existe acoplamiento con el skill de
+  // enrutado; un gate anclado al nombre pondría roja la suite por la propia documentación de la
+  // regla que el código respeta. Es el mismo fallo que ya mordió en 83-01 (deviación 2).
+  const CHILD_PROCESS_IMPORT_RE = new RegExp(
+    [
+      "^\\s*(?:import|export)\\b[^\\n]*from\\s*['\"](?:node:)?child_process['\"]",
+      "^\\s*import\\s*['\"](?:node:)?child_process['\"]",
+      "(?:require|import)\\(\\s*['\"](?:node:)?child_process['\"]\\s*\\)",
+    ].join('|'),
+    'm',
+  );
+
+  const SUBJECTS = Object.freeze([
+    join('src', 'inbox', 'store.js'),
+    join('src', 'cli', 'capture.js'),
+    join('src', 'cli', 'inbox.js'),
+  ]);
+
+  it('ningún módulo del inbox importa el módulo de procesos hijo de Node', () => {
+    for (const rel of SUBJECTS) {
+      const src = readFileSync(join(REPO, rel), 'utf-8');
+      assert.ok(
+        !CHILD_PROCESS_IMPORT_RE.test(src),
+        `${rel} importa node:child_process — el seam de enrutado es DOCUMENTAL (CAPT-04/D-09): ` +
+          `kodo nunca invoca ni shellea al skill de enrutado`,
+      );
+    }
+  });
+
+  it('el gate es significativo: el patrón SÍ detecta un import real', () => {
+    // Sanity check del propio gate — sin esto, un regex roto pasaría trivialmente.
+    assert.ok(CHILD_PROCESS_IMPORT_RE.test("import { spawnSync } from 'node:child_process';"));
+    assert.ok(CHILD_PROCESS_IMPORT_RE.test("import { spawn } from 'child_process';"));
+    assert.ok(
+      !CHILD_PROCESS_IMPORT_RE.test('// este módulo NO usa node:child_process — seam documental'),
+      'un comentario que explique la ausencia de acoplamiento no puede poner roja la suite',
+    );
+  });
+});
+
+describe('Gate cero-deps — invariante cross-milestone', () => {
+  it('package.json declara EXACTAMENTE 4 dependencias de producción', () => {
+    const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf-8'));
+    const keys = Object.keys(pkg.dependencies || {});
+    assert.equal(
+      keys.length,
+      4,
+      `INVARIANTE CROSS-MILESTONE ROTO: el inbox se construye con CERO dependencias npm nuevas. ` +
+        `package.json declara ${keys.length}: ${keys.join(', ')}`,
     );
   });
 });
