@@ -170,6 +170,8 @@ kodo up                  # arranca daemon + dashboard (comando principal)
 kodo stop                # para el daemon
 kodo status              # estado del daemon (running|stopped)
 kodo dashboard           # TUI de sesiones activas
+kodo capture "<texto>"   # captura una idea al inbox global (~/.kodo/inbox.md)
+kodo inbox               # triage del inbox (--all, --json, route <id>, discard <id>)
 kodo config              # wizard de configuración / --show / --set clave=valor
 kodo launch <REF>        # lanza una tarea manualmente (ej: KL-42)
 kodo check               # vigilante: revisa estado y lanza orquestador si hace falta (0 tokens)
@@ -180,6 +182,60 @@ kodo logs [session-id]   # inspecciona logs de sesión (dump, tail, filtro)
 kodo doctor              # diagnostica la alineación config.json ↔ projects.json (--states, --json)
 kodo install / uninstall # registra/elimina hooks de Claude Code
 ```
+
+### `kodo capture` / `kodo inbox` — el inbox de capturas
+
+Un **único buffer de captura global** en `~/.kodo/inbox.md`. La idea es separar dos actos que
+normalmente se mezclan y se estorban: **capturar es instantáneo y tonto** (una línea, cero
+preguntas, cero decisiones), y **triar es un paso deliberado y aparte**, que haces cuando te
+apetece y no cuando la idea te interrumpe.
+
+```bash
+kodo capture "probar el nuevo resolver de estados antes de v0.19"
+```
+
+Superficie completa:
+
+| Comando | Qué hace | Exit codes |
+|---|---|---|
+| `kodo capture "<texto>"` | Appendea una línea al inbox. El fichero se crea al vuelo en la primera captura | `0` ok · `1` error de fs · `2` texto vacío tras el saneo |
+| `kodo inbox` | Lista las capturas abiertas con su `<id>` corto | `0` siempre — el lector nunca lanza |
+| `kodo inbox --all` | Incluye además las ya cerradas, con su estado | `0` siempre |
+| `kodo inbox --json` | El mismo listado como una sola línea JSON, determinista y sin color | `0` siempre |
+| `kodo inbox route <id>` | Marca la captura como **enrutada** | `0` ok · `1` error de fs o lock ocupado · `2` id inexistente o captura ya cerrada |
+| `kodo inbox route <id> --dest <ref>` | Igual, añadiendo un puntero de traza a dónde acabó | idem |
+| `kodo inbox discard <id>` | Marca la captura como **descartada** | idem |
+
+#### El enrutado lo decide `gsd-capture`, no kodo
+
+kodo **no decide a dónde va una idea**. Ese trabajo es del skill `gsd-capture` de Claude Code, que
+es quien conoce los destinos reales (todos estructurados, notas, backlog, semillas). El flujo son
+tres pasos, y el del medio ocurre **fuera de kodo**:
+
+```
+1. kodo inbox                          → lista las abiertas con su <id>
+2. /gsd-capture …                      → enruta la idea (kodo NO participa)
+3. kodo inbox route <id> --dest <ref>  → marca enrutada + puntero de traza (si hay ref)
+```
+
+Esto es deliberado y es una frontera dura del diseño: **kodo no invoca, no importa y no
+reimplementa** la lógica de destinos. El «a dónde va» vive fuera, así que kodo no puede quedarse
+desfasado respecto a ella. Consecuencias prácticas:
+
+- `--dest` es **opcional y best-effort**. Es una ref opaca —`999.4`, `SEED-012`, un path
+  relativo, lo que sea— que kodo guarda tal cual sin validar que exista ni interpretar su forma.
+- Sin ref, `kodo inbox route <id>` cierra la captura igualmente. La falta de puntero **nunca**
+  bloquea el marcado.
+
+#### El fichero es tuyo
+
+`~/.kodo/inbox.md` es markdown plano y está pensado para que lo abras y lo edites a mano:
+
+- **kodo nunca borra una captura.** Cerrar es solo una transición de estado: la línea sigue ahí,
+  con su id, su texto y su fecha. La traza permanente es el objetivo, no un efecto secundario.
+- **Toda línea que kodo no reconoce se conserva intacta**, byte a byte —encabezados, notas
+  sueltas, líneas en blanco— y simplemente se omite del listado. El marcado de una captura no
+  reescribe ninguna otra línea del fichero.
 
 ### `kodo doctor` — alineación config ↔ projects
 
@@ -318,6 +374,8 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 ├── config.json        # provider, estados, servidor, claude
 ├── projects.json      # proyecto del provider → path local
 ├── state.json         # sesiones activas
+├── inbox.md           # capturas rápidas (markdown plano, editable a mano)
+├── inbox.lock         # lock advisory del inbox (efímero: se libera al terminar)
 ├── plans/             # planes de acción por tarea
 └── logs/              # logs NDJSON por sesión
 ```

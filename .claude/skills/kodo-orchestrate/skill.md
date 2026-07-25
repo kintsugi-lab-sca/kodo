@@ -376,6 +376,50 @@ orquestador) cure grupos a mano. El mecanismo tiene dos caras.
   grupo no existe o cmux no responde, la sesión se lanza igual, suelta (la
   sesión es la carga útil; el grupo es cosmético).
 
+## Triage del inbox de capturas
+
+`~/.kodo/inbox.md` es el buffer de captura global del operador: una línea por
+idea, capturada sin decidir nada. Tu papel aquí es de **triage asistido**, nunca
+de escritura directa.
+
+- **Cuándo mirarlo.** Al abrir una ronda de supervisión, o cuando el operador te
+  pida vaciar/repasar el inbox. No lo consultes en cada pase: no es un trigger y
+  nada se degrada por quedarse ahí — el fichero es append-only y la traza es
+  permanente.
+- **Cómo leerlo.** `kodo inbox` lista las **abiertas**; `kodo inbox --all` añade
+  las ya cerradas con su estado. Si lo vas a procesar como datos, usa
+  `kodo inbox --json` (una sola línea, determinista, sin color). El handle que
+  usarás después es el **`<id>` corto** de cada fila — no el número de fila, que
+  no es estable entre invocaciones porque el filtro por defecto cambia con cada
+  cierre.
+
+**El flujo son tres pasos, y el del medio NO es tuyo ni de kodo:**
+
+```
+1. kodo inbox                          → lista las abiertas con su <id>
+2. /gsd-capture …                      → enruta la idea (kodo NO participa)
+3. kodo inbox route <id> --dest <ref>  → marca enrutada + puntero de traza (si hay ref)
+   kodo inbox route <id>               → marca enrutada sin destino (best-effort)
+   kodo inbox discard <id>             → marca descartada
+```
+
+Reglas duras:
+
+- **Nunca escribas `~/.kodo/inbox.md` directamente** (ni con Write, ni con Edit,
+  ni con un `echo >>`). El único escritor es el CLI de kodo: escribir a mano se
+  salta el lock y puede pisar una captura concurrente.
+- **Nunca automatices el paso 2.** kodo no invoca, no importa y no reimplementa
+  la lógica de destinos de `gsd-capture`: el «a dónde va» lo decide ese skill o
+  el operador, y `--dest` es solo una ref opaca que kodo guarda sin validar. No
+  inventes un atajo que enrute desde kodo — esa frontera es deliberada.
+- **`--dest` es opcional.** Si el paso 2 no te deja una ref limpia, marca sin
+  destino: el marcado nunca se bloquea por falta de puntero.
+- **El marcado sí puede fallar; la captura no.** `kodo capture` siempre escribe
+  (ante lock ocupado hace fail-open). `kodo inbox route/discard`, en cambio, **no
+  se aplica si el lock está ocupado**: sale con código 1 y el fichero queda
+  intacto — reintenta el comando. Un código 2 es distinto: el id no existe o la
+  captura ya estaba cerrada, y reintentar no arregla nada.
+
 ## Estado vivo de la tarea (novedades v0.17)
 
 A partir de v0.17 cada tarea deja **estado vivo** que puedes consumir como
