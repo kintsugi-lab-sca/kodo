@@ -38,7 +38,8 @@ kodo gana su primer buffer de captura global, extremo a extremo **por CLI**:
   - *Descartada — marcado in-place posicional* (`pwrite` de un token de estado de ancho fijo, sin lock): sería elegante (regiones disjuntas → un `O_APPEND` concurrente nunca colisiona), pero **CAPT-06 la mata**: el trace pointer `→ destino` es de longitud **variable** y va en la propia línea, así que el marcado tiene que reescribir de todos modos. Añadiría fragilidad de offsets (UTF-8 multi-byte, edición manual del fichero) a cambio de nada.
 - **D-02:** la captura toma el lock **y** appendea con `appendFileSync` (flag `'a'` → `O_APPEND`), **nunca** `writeFileAtomic` (CAPT-01 literal). Son dos capas independientes: el lock protege contra el RMW del marcado; el `O_APPEND` garantiza por sí solo que N capturas concurrentes producen N líneas aunque el lock no estuviera. Patrón ya en producción en `src/logger.js:318` (sink NDJSON).
 - **D-03:** **fail-open de la captura ante `lock-timeout`.** `withFileLock` nunca lanza: devuelve `{ok:false, reason:'lock-timeout'}` tras agotar el presupuesto (default 8 retries × 20 ms). Agotado el presupuesto, `kodo capture` **appendea igual** y emite un warn a stderr. Principio GTD: una idea perdida es peor que una línea escrita sin coordinación. **Riesgo residual explícito y acotado:** la captura solo puede perderse si el timeout coincide además con la ventana read→rename de un marcado concurrente (orden de milisegundos, tras ~160 ms de reintentos). Se documenta como aceptado, no se enmascara.
-- **D-04 (invariante):** el marcado, **dentro del lock**, hace RMW con lectura fresca y escritura vía `writeFileAtomic` (temp+rename intra-fs, `src/config.js:135`). **Toda línea distinta de la marcada se preserva BYTE A BYTE** — incluidas las que no parsean. El fichero es human-editable: el marcado jamás destruye una edición manual ni normaliza contenido ajeno.
+- **D-04 (invariante):** el marcado, **dentro del lock**, hace RMW con lectura fresca y reemplazo atómico por **tmp de nombre ÚNICO + `renameSync`** (`<path>.tmp.<pid>.<randomUUID>`, patrón de `src/hooks/session-end.js:375` / `saveState:280`). **Toda línea distinta de la marcada se preserva BYTE A BYTE** — incluidas las que no parsean. El fichero es human-editable: el marcado jamás destruye una edición manual ni normaliza contenido ajeno.
+  - **Corrección post-research (2026-07-25):** una versión previa de D-04 nombraba `writeFileAtomic` (`src/config.js:135`). Es **incorrecto** y lo prohíbe `STATE.md:100` §Critical Invariants para paths del inbox: su tmp es de nombre **fijo** (`path + '.tmp'`), compartido entre escritores, y el lock es **robable** tras su TTL de 10 s (`state-lock.js:36`) — exactamente lo que el fix WR-02 corrigió en `session-end.js:369-379`. Segundo defecto: `writeFileAtomic` aplica el heurístico `/"[^"]*_secret"\s*:/` sobre el contenido, así que una captura cuyo texto contenga `"api_key_secret":` chmodearía el inbox a 0600, contra D-20. **La semántica de D-04 no cambia; el mecanismo sí.**
 
 ### Formato de línea e identidad de una captura
 
@@ -120,7 +121,9 @@ Longitud y alfabeto exactos del ID corto (p. ej. 4-6 chars base36 desde `randomB
 - `src/cli/format.js:114` — `stripForKeystroke`: colapsa `\n`/`\t` reales **y** las secuencias literales `\n`/`\r`/`\t` a espacio. Es el saneo de una línea que exige CAPT-01 (D-02, D-11).
 - `src/cli/dashboard/select.js:407` — `resolveProjectId(cwd, projects)`: reverse lookup cwd→projectId, nearest-ancestor, never-throws sobre `projects.json` corrupto (D-15).
 - `src/cli/adopt.js:43` — `resolveProjectPath(cwd, entry)`: la semántica hermana (path más largo que sea ancestro); referencia de estilo para D-15.
-- `src/config.js:135` — `writeFileAtomic` (temp+rename intra-fs) para el RMW del marcado (D-04); `:98` `ensureDir` (D-19); `:615` exports `KODO_DIR`.
+- `src/hooks/session-end.js:369-379` — el patrón **tmp de nombre único + rename** que usa el marcado (D-04), con el comentario que explica por qué NO se usa `writeFileAtomic`. `src/session/state.js:280` (`saveState`) es el otro ejemplar del mismo patrón.
+- `src/config.js:98` — `ensureDir` (D-19); `:615` exports `KODO_DIR`. **`writeFileAtomic` (`:135`) NO se usa en esta fase** — ver D-04 y `STATE.md:100`.
+- `.planning/STATE.md:100` §Critical Invariants — el invariante cross-milestone del lock del inbox: `withFileLock` (no `gsd/lock.js`), appends `O_APPEND`, rewrites con unique-tmp+rename, jamás `writeFileAtomic`.
 - `src/logger.js:318` — `appendFileSync` como sink append-only ya en producción: el patrón `O_APPEND` de D-02.
 
 ### Patrones de CLI a espejar
@@ -143,7 +146,7 @@ Longitud y alfabeto exactos del ID corto (p. ej. 4-6 chars base36 desde `randomB
 - `withFileLock` (`src/session/state-lock.js:215`): probada en v0.16 CONC-01 con una carrera de 10 procesos sin escrituras perdidas. Es la coordinación de D-01 tal cual, sin envoltorios.
 - `stripForKeystroke` (`src/cli/format.js:114`): el saneo a una línea de CAPT-01 ya existe y ya está probado — no escribir uno nuevo.
 - `resolveProjectId` (`src/cli/dashboard/select.js:407`): la derivación del tag-proyecto ya existe con la semántica correcta (nearest-ancestor + never-throws). Reutilizar, no duplicar.
-- `writeFileAtomic` (`src/config.js:135`): temp+rename intra-fs; el marcado escribe con esto dentro del lock.
+- Patrón **unique-tmp + rename** (`src/hooks/session-end.js:375`, `src/session/state.js:280`): el reemplazo atómico que usa el marcado dentro del lock. **No** `writeFileAtomic` — ver D-04.
 - `appendFileSync` (`src/logger.js:318`): precedente vivo de sink append-only en el repo.
 - `createFormatter` (`src/cli/format.js`): render human/JSON con color isolation obligatoria.
 
