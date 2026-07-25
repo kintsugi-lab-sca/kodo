@@ -70,7 +70,16 @@
   4. Una captura `enrutada` conserva un trace pointer `→ destino` en su línea cuando el flujo de enrutado aporta una ref barata; si `gsd-capture` no devuelve ref, la marca `enrutada` queda sin destino sin bloquear el enrutado (best-effort explícito). (CAPT-06)
   5. La documentación describe el seam de enrutado (`kodo inbox` → `/gsd-capture` → marcar `enrutada`) delegando el «a dónde va» en `gsd-capture`, sin import ni reimplementación de su lógica de destinos en kodo. (CAPT-04)
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 83-01-PLAN.md — `src/inbox/store.js`: codec, parser anclado a cola, reader never-throws, append `O_APPEND` con fail-open y marcado RMW bajo lock con unique-tmp + rename (CAPT-01, CAPT-03, CAPT-06) [wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 83-02-PLAN.md — Superficie CLI: `kodo capture` + `kodo inbox` (listado human/`--json`, `route`, `discard`), registro commander e integración por proceso real (CAPT-01, CAPT-03, CAPT-04, CAPT-06) [wave 2]
+- [ ] 83-03-PLAN.md — Evidencia de concurrencia con procesos reales (D-21: N→N y captura durante el marcado) + documentación del seam de enrutado (CAPT-01, CAPT-03, CAPT-04) [wave 2]
 
 ### Phase 84: Superficies de captura — skill, sync, conteo ambient
 
