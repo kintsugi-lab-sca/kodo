@@ -33,9 +33,10 @@
 //     vacías y la presencia/ausencia de newline final (D-04). El fichero es human-editable.
 //   - Módulo de lógica: no emite eventos NDJSON ni hace `process.exit`; el caller (CLI) decide.
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readSync, statSync,
+  appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync,
+  renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -455,4 +456,122 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
   }
   warn('[kodo:inbox] lock-timeout — captura appendeada sin coordinación (fail-open)\n');
   return { ok: true, coordinated: false };
+}
+
+/**
+ * Cierra una captura por ID: `enrutada` (con trace pointer opcional) o `descartada`.
+ *
+ * **Cerrar NO es borrar (CAPT-03).** La línea sigue en el fichero con su id, texto, tag, fecha y
+ * origen intactos; solo cambia el checkbox y se añade el sufijo de estado. No existe ninguna ruta
+ * de borrado en este módulo: la traza permanente ES el feature.
+ *
+ * Estructura (clona el template canónico del repo, `src/hooks/session-end.js:325-391`, fix WR-02):
+ *
+ *   1. TODO el cuerpo va dentro de `withFileLock`. El logger inyectado silencia el warn genérico
+ *      de la primitiva; el mensaje accionable lo emite el handler CLI a partir del `reason`.
+ *   2. Lectura FRESCA dentro del lock. Leer ANTES de entrar sería exactamente el lost-update que
+ *      D-01 cierra: una captura concurrente appendeada entre la lectura y el rename desaparecería.
+ *   3. Round-trip EXACTO `split('\n')` / `join('\n')`. Sin recorte previo del contenido y sin
+ *      descartar las líneas vacías: eso destruiría los separadores en blanco del markdown y el
+ *      newline final, violando D-04. El array se reconstruye tal cual llegó.
+ *   4. Localización POR ID recorriendo el array y parseando cada elemento — jamás por índice ni
+ *      por offset de bytes: el fichero es human-editable y las posiciones no son estables (D-06).
+ *      Ante ids duplicados gana la PRIMERA (contrato 5, sin reintento en la generación).
+ *   5. Se sustituye SOLO ese elemento del array. Ningún otro se toca, así que toda línea ajena
+ *      —incluidas las que NO parsean y las vacías— sobrevive BYTE A BYTE (D-04).
+ *   6. Publicación con tmp de nombre ÚNICO + `renameSync`.
+ *
+ * **`already-closed` cubre los DOS cierres** (contrato 2): la cerrada con sufijo y la hand-editada
+ * a `- [x]` sin sufijo. El checkbox es la autoridad. En ambos casos no se reescribe NADA.
+ *
+ * **Asimetría deliberada con `appendCapture` (contrato 3): el marcado NO hace fail-open.** Ante
+ * `lock-timeout` devuelve `{ok:false, reason:'lock-timeout'}` sin tocar el fichero. Un marcado sin
+ * coordinación reintroduce el lost-update que D-01 cierra; una captura sin coordinación solo
+ * arriesga una ventana residual de milisegundos ya documentada y aceptada (D-03).
+ *
+ * @param {string} id
+ * @param {'enrutada' | 'descartada'} estado
+ * @param {{
+ *   dest?: string | null,
+ *   inboxPath: string,
+ *   lockPath: string,
+ *   _afterReadFn?: () => void,
+ * }} o — `_afterReadFn` es el seam de inyección del test de concurrencia de D-21.2: permite
+ *   ensanchar la ventana lectura→rename de forma determinista SIN código de test en producción.
+ *   Se invoca dentro del lock, tras la lectura fresca y antes de publicar; default no-op.
+ * @returns {{ ok: true, capture: Capture }
+ *          | { ok: false, reason: 'not-found' | 'already-closed' | 'lock-timeout' | 'fs' }}
+ */
+export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _afterReadFn }) {
+  /** @type {{ ok: true, value: any } | { ok: false, reason: 'lock-timeout' }} */
+  let r;
+  try {
+    r = withFileLock(
+      lockPath,
+      () => {
+        if (!existsSync(inboxPath)) return { ok: false, reason: 'not-found' };
+
+        /** @type {string} */
+        let raw;
+        try {
+          raw = readFileSync(inboxPath, 'utf-8');
+        } catch {
+          return { ok: false, reason: 'fs' };
+        }
+
+        // Round-trip exacto: `join('\n')` reconstruye byte a byte, incluido el terminador.
+        const lines = raw.split('\n');
+
+        let idx = -1;
+        /** @type {Capture | null} */
+        let found = null;
+        for (let i = 0; i < lines.length; i++) {
+          const c = parseLine(lines[i]);
+          if (c && c.id === id) {
+            idx = i;
+            found = c;
+            break;
+          }
+        }
+
+        if (idx === -1 || !found) return { ok: false, reason: 'not-found' };
+        if (found.open === false) return { ok: false, reason: 'already-closed' };
+
+        /** @type {Capture} */
+        const updated = { ...found, open: false, estado, dest: dest ?? null };
+        lines[idx] = encodeLine(updated);
+        const out = lines.join('\n');
+
+        if (typeof _afterReadFn === 'function') _afterReadFn();
+
+        // tmp+rename con nombre ÚNICO por escritor — patrón de `session-end.js:374` /
+        // `state.js:280` (fix WR-02). NO se usa `writeFileAtomic` de `config.js`, ni siquiera bajo
+        // el lock: (a) su tmp es de nombre FIJO (`path + '.tmp'`), compartido entre escritores, y
+        // el lock es ROBABLE tras su TTL de 10 s (`state-lock.js:36`), así que dos marcados podrían
+        // pisarse bytes parciales (Pitfall 2); (b) su heurístico de secretos chmodearía el inbox a
+        // 0600 contra D-20. El invariante está en `.planning/STATE.md:100` §Critical Invariants —
+        // y aquí es inalcanzable por construcción: este módulo no importa `config.js`.
+        const tmp = inboxPath + '.tmp.' + process.pid + '.' + randomUUID();
+        try {
+          writeFileSync(tmp, out);
+          renameSync(tmp, inboxPath);
+        } catch {
+          rmSync(tmp, { force: true }); // sin residuo de tmp perdido
+          return { ok: false, reason: 'fs' };
+        }
+
+        return { ok: true, capture: updated };
+      },
+      { logger: { warn: () => {} } },
+    );
+  } catch {
+    // Error de filesystem propagado por `acquireLock` (código != EEXIST). Nunca es una condición
+    // de coordinación, así que no se reintenta.
+    return { ok: false, reason: 'fs' };
+  }
+
+  // Lock ocupado → SIN fail-open (contrato 3). El fichero queda intacto y el caller mapea el
+  // `reason` a su exit code (D-13).
+  if (!r.ok) return { ok: false, reason: 'lock-timeout' };
+  return r.value;
 }
