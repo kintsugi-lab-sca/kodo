@@ -43,7 +43,21 @@
 // depending on the random id generator. The lock-timeout warn is silenced with
 // an injected no-op `warnFn`: in this race the fail-open is an EXPECTED outcome
 // (D-03), not an error. Prints `written` (or `failed`) and never throws. Reads
-// --idx.
+// --idx and the optional --sandbox.
+//
+// `--kind capture` + `--sandbox` (Phase 83 Plan 06, WR-03): with the flag the
+// child ALSO appends ONE line to `<sandbox>/capture-branches.log` naming the
+// BRANCH its append took — `coordinated` (it held the lock) or `failopen` (the
+// lock-timeout fail-open of D-03). Same cross-process marker pattern the
+// `polling` and `dispatch` kinds already use (append is atomic at this size).
+// Why it exists: Plan 83-04 put the capture's lock budget back on the
+// primitive's defaults, and the suite must be able to PROVE the fail-open lane
+// is still being exercised instead of assuming it — with the recalibrated
+// budget of 83-03 all 18 children went down the coordinated lane and the mixed
+// scenario silently stopped covering the very code path that lost data. The
+// marker is a SIDE CHANNEL: the stdout contract below is unchanged, so the six
+// existing consumers of this harness are untouched, and a failure to write it
+// can never change this child's verdict.
 //
 // `--kind mark` (Phase 83 Plan 03, CAPT-03 crit 3 / D-21.2 — the scenario that
 // justifies D-01): dynamic-imports the same module and calls markCapture(--id,
@@ -62,7 +76,10 @@
 //   --idx    <n>                (writer/handoff/capture: this writer's index)
 //   --task   <taskId>           (dispatch/handoff: the task_id to write —
 //                                handoff defaults to `task-<idx>`)
-//   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox root)
+//   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox
+//                                root. capture, OPTIONAL: same root, used as the
+//                                destination of the `capture-branches.log`
+//                                branch marker — absent, no marker is written)
 //   --id     <captureId>        (mark: the short id of the capture to close)
 //   --dest   <ref>              (mark, optional: the opaque trace pointer — kodo
 //                                never validates nor interprets it, D-11)
@@ -191,6 +208,8 @@ async function main() {
   // Never throws — any error collapses to `failed`.
   if (args.kind === 'capture') {
     let written = false;
+    /** @type {'coordinated' | 'failopen' | null} */
+    let branch = null;
     try {
       const { appendCapture, defaultInboxPaths, encodeLine, todayLocal } = await import(
         '../../src/inbox/store.js'
@@ -211,8 +230,25 @@ async function main() {
       // outcome of this race, not an error. The parent asserts on the file.
       const res = appendCapture(line + '\n', { inboxPath, lockPath, warnFn: () => {} });
       written = res.ok === true;
+      // `coordinated` distingue las dos ramas del append: true = escribió bajo el lock,
+      // false = fail-open tras el lock-timeout (D-03). Un fallo de escritura NO deja marca:
+      // el veredicto por stdout ya cubre ese caso.
+      if (written) branch = res.coordinated === true ? 'coordinated' : 'failopen';
     } catch {
       written = false;
+      branch = null;
+    }
+    // Marcador cross-proceso de rama (Plan 83-06, WR-03). Canal LATERAL: va después del
+    // veredicto lógico, en su propio try/catch, y su fallo nunca cambia lo que este hijo
+    // imprime ni lo hace lanzar.
+    if (branch !== null && args.sandbox) {
+      try {
+        const { appendFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        appendFileSync(join(args.sandbox, 'capture-branches.log'), branch + '\n');
+      } catch {
+        /* el marcador es diagnóstico, jamás un veredicto */
+      }
     }
     process.stdout.write(written ? 'written' : 'failed');
     process.exit(0);
