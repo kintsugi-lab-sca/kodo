@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 83
 current_phase_name: Inbox foundation — captura + triage
 status: executing
-stopped_at: Completed 83-01-PLAN.md
-last_updated: "2026-07-25T10:44:43.899Z"
+stopped_at: Completed 83-02-PLAN.md
+last_updated: "2026-07-25T11:00:37.414Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 25
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 ## Current Position
 
 Phase: 83 (Inbox foundation — captura + triage) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 83 execution started
 
@@ -90,6 +90,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-01: el marcado NO hace fail-open ante lock-timeout — asimetría deliberada frente al fail-open de la captura (D-03); un marcado sin coordinación reintroduce el lost-update que D-01 cierra
 - [Phase ?]: 83-01: sin reintento ante colisión de ID corto (~0,023% a 1000 capturas); markCapture marca la PRIMERA línea que casa (contrato 5)
 - [Phase ?]: 83-01: los paths del inbox son un resolvedor PEREZOSO defaultInboxPaths(), nunca constante de módulo — la fuga de HOME de config.js:11 contamina los tests (contrato 7)
+- [Phase ?]: 83-02: el carril --json emite el texto VERBATIM (JSON.stringify ya escapa los bytes C0); el saneo agresivo vive solo en el render human, que es el que llega al terminal
+- [Phase ?]: 83-02: el listado del inbox nunca sale con código distinto de 0, ni siquiera si el render lanza (never-throws de cuerpo entero, D-18)
+- [Phase ?]: 83-02: los gates source-hygiene se anclan al PATRÓN DE IMPORT, no al nombre suelto del módulo — un comentario que documente la regla no puede poner roja la suite
 
 ### Open Blockers
 
@@ -118,13 +121,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-25T10:44:35.147Z
+**Last session:** 2026-07-25T11:00:37.408Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 83-01-PLAN.md
+- **Stopped at:** Completed 83-02-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -151,6 +154,7 @@ None
 | Phase 82 P01 | 20min | 2 tasks | 3 files |
 | Phase 82 P02 | 15min | 2 tasks | 2 files |
 | Phase 83 P01 | 41min | 3 tasks | 3 files |
+| Phase 83 P02 | 15min | 3 tasks | 4 files |
 
 ### Blockers
 
