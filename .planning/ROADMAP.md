@@ -70,7 +70,7 @@
   4. Una captura `enrutada` conserva un trace pointer `→ destino` en su línea cuando el flujo de enrutado aporta una ref barata; si `gsd-capture` no devuelve ref, la marca `enrutada` queda sin destino sin bloquear el enrutado (best-effort explícito). (CAPT-06)
   5. La documentación describe el seam de enrutado (`kodo inbox` → `/gsd-capture` → marcar `enrutada`) delegando el «a dónde va» en `gsd-capture`, sin import ni reimplementación de su lógica de destinos en kodo. (CAPT-04)
 
-**Plans**: 3 plans
+**Plans**: 7 plans (3 originales + 4 de cierre de gaps)
 
 **Wave 1**
 
@@ -80,6 +80,16 @@
 
 - [x] 83-02-PLAN.md — Superficie CLI: `kodo capture` + `kodo inbox` (listado human/`--json`, `route`, `discard`), registro commander e integración por proceso real (CAPT-01, CAPT-03, CAPT-04, CAPT-06) [wave 2]
 - [x] 83-03-PLAN.md — Evidencia de concurrencia con procesos reales (D-21: N→N y captura durante el marcado) + documentación del seam de enrutado (CAPT-01, CAPT-03, CAPT-04) [wave 2]
+
+**Wave 3** *(cierre de gaps de `83-VERIFICATION.md` — 3 blockers)*
+
+- [ ] 83-04-PLAN.md — GAP-1: guard compare-and-swap dentro del lock del marcado, reintento acotado del RMW, presupuesto de la captura de vuelta al default y publicación que preserva inodo y modo (CAPT-01, CAPT-03, CAPT-06) [wave 3]
+- [ ] 83-05-PLAN.md — GAP-2: los cuatro handlers del inbox drenan la salida estándar (fin del truncado de 64 KB en `--json`) + regresión con inbox >64 KB (CAPT-01, CAPT-03, CAPT-06) [wave 3]
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 83-06-PLAN.md — Evidencia de GAP-1: escenario de concurrencia con la ventana por encima de cualquier presupuesto + guard de cobertura de la rama fail-open (CAPT-01, CAPT-03) [wave 4]
+- [ ] 83-07-PLAN.md — GAP-3: tag legible con la forma real de `projects.json`, saneo del carril `--json`, mapeo del fallo por escritura concurrente y copy corregida del seam (CAPT-01, CAPT-03, CAPT-04, CAPT-06) [wave 4]
 
 ### Phase 84: Superficies de captura — skill, sync, conteo ambient
 
