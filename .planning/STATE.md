@@ -20,7 +20,7 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.19 «Inbox de capturas + fix stealLock + saneo de deuda»** — roadmap creado 2026-07-24 (Phases 82-85, 15/15 requirements mapeados, granularidad `coarse`). **Awaiting plan** de la Phase 82 (`/gsd-plan-phase 82`). Tres workstreams independientes: fix real de `stealLock` (Phase 82, R-81-01 resuelta = fix), inbox de capturas global (Phases 83-84), barrido de deuda doc/Nyquist (Phase 85).
+**Estado:** Milestone **v0.19 «Inbox de capturas + fix stealLock + saneo de deuda»** — roadmap creado 2026-07-24 (Phases 82-85, 15/15 requirements mapeados, granularidad `coarse`). **Phases 82 y 83 completas** (2026-07-25): carrera de `stealLock` cerrada con fix real (LOCK-01..03) y buffer de captura global operativo con su invariante de concurrencia cerrado por guard compare-and-swap tras un ciclo de gap-closure (CAPT-01/03/04/06). **Awaiting plan** de la Phase 84 (`/gsd-plan-phase 84`). Tres workstreams independientes: fix real de `stealLock` (Phase 82 ✓), inbox de capturas global (Phase 83 ✓ → Phase 84), barrido de deuda doc/Nyquist (Phase 85).
 
 ## Project Reference
 
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 83 — inbox-foundation-captura-triage
+**Current focus:** Phase 84 — Superficies de captura — skill, sync, conteo ambient
 
 ## Current Position
 
