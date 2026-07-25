@@ -77,6 +77,33 @@ export const MAX_TEXT_LEN = 1000;
 export const MAX_DEST_LEN = 200;
 
 /**
+ * Presupuesto de reintentos del lock para la CAPTURA (`appendCapture`), en reintentos y ms de
+ * backoff: 50 × 20 ms ≈ 1000 ms, frente al default de la primitiva (8 × 20 ms ≈ 160 ms).
+ *
+ * **Por qué NO vale el default (evidencia empírica, `test/inbox-concurrency.test.js`).** El
+ * riesgo residual de D-03 no es teórico: con el marcado sosteniendo su ventana lectura→rename
+ * durante 300 ms, las 6 capturas concurrentes agotaban los ~160 ms del default, entraban por la
+ * rama fail-open, appendeaban SIN coordinación y el `renameSync` del marcado —construido sobre
+ * una lectura anterior a esos appends— las borraba TODAS. Cero de 6 supervivientes. Ese es
+ * exactamente el lost-update que D-01 cierra y que CAPT-03 criterio 3 prohíbe.
+ *
+ * El arreglo es el que D-03 y `83-CONTEXT.md:184` dejan escrito de antemano: **subir el
+ * presupuesto de reintentos de la captura**, jamás debilitar el test de D-21.
+ *
+ * Coste en el camino feliz: **cero**. El presupuesto es un TECHO, no una espera: `acquireLock`
+ * devuelve en cuanto obtiene el lock, y la sección crítica del marcado real (leer, sustituir una
+ * línea, escribir el tmp, renombrar) es de sub-milisegundo. Solo se paga bajo contención real, y
+ * lo que se compra es que la captura NO se pierda.
+ *
+ * El fail-open sigue existiendo y sigue acotado (D-03): agotados los ~1000 ms, la captura se
+ * escribe igual. Una idea perdida sigue siendo peor que una línea sin coordinar; lo que cambia es
+ * que ahora hace falta un titular patológico (>1 s sosteniendo el lock) para llegar ahí, en vez
+ * de un marcado normal.
+ */
+const CAPTURE_LOCK_RETRIES = 50;
+const CAPTURE_LOCK_BACKOFF_MS = 20;
+
+/**
  * Separador de campos: espacio + U+00B7 (MIDDLE DOT) + espacio.
  * Los campos ESTRUCTURADOS (tag, origen) jamás lo contienen — el sanitizador lo sustituye por
  * guion (Pitfall 4). El texto y el `dest` sí pueden: el primero porque el parseo está anclado a la
@@ -404,13 +431,14 @@ function appendLine(inboxPath, line) {
  * concurrentes producen N líneas aunque el lock no existiera; el lock protege ADEMÁS contra el
  * RMW de `markCapture` (D-01). Jamás se reescribe el fichero completo.
  *
- * **Fail-open ante `lock-timeout` (D-03).** Agotado el presupuesto de `withFileLock` (8 × 20 ms
- * ≈ 160 ms), la captura se appendea IGUAL y se emite un warn accionable. Principio GTD: una idea
- * perdida es peor que una línea escrita sin coordinación. **Riesgo residual ACEPTADO y acotado:**
- * la captura solo puede perderse si el timeout coincide además con la ventana lectura→rename de
- * un marcado concurrente (orden de milisegundos, tras esos ~160 ms de reintentos). Si algún día
- * se materializa en uso real, el arreglo es SUBIR el presupuesto de reintentos de la captura —
- * nunca debilitar el test de concurrencia de D-21.
+ * **Fail-open ante `lock-timeout` (D-03).** Agotado el presupuesto (`CAPTURE_LOCK_RETRIES` ×
+ * `CAPTURE_LOCK_BACKOFF_MS` ≈ 1000 ms), la captura se appendea IGUAL y se emite un warn
+ * accionable. Principio GTD: una idea perdida es peor que una línea escrita sin coordinación.
+ * **Riesgo residual ACEPTADO y acotado:** la captura solo puede perderse si el timeout coincide
+ * además con la ventana lectura→rename de un marcado concurrente. Ese riesgo SE MATERIALIZÓ con
+ * el presupuesto por defecto (ver `CAPTURE_LOCK_RETRIES` y `test/inbox-concurrency.test.js`), y
+ * se cerró subiendo el presupuesto — que es el arreglo que D-03 prescribe. Nunca se debilita el
+ * test de concurrencia de D-21.
  *
  * Asimetría deliberada con `markCapture`, que NO hace fail-open: un marcado sin coordinación
  * reintroduce exactamente el lost-update que D-01 cierra; una captura sin coordinación solo
@@ -439,7 +467,11 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
   /** @type {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }} */
   let r;
   try {
-    r = withFileLock(lockPath, () => appendLine(inboxPath, line), { logger: { warn: () => {} } });
+    r = withFileLock(lockPath, () => appendLine(inboxPath, line), {
+      retries: CAPTURE_LOCK_RETRIES,
+      backoffMs: CAPTURE_LOCK_BACKOFF_MS,
+      logger: { warn: () => {} },
+    });
   } catch {
     // `acquireLock` propaga los errores de fs que no son EEXIST, y el `fn()` bajo lock propaga los
     // suyos. Ambos son fallos de filesystem, nunca de coordinación → NO se hace fail-open aquí:
