@@ -22,15 +22,29 @@
 // documentación. Por la misma razón NO existe aquí ningún gate negativo sobre el path del inbox:
 // el cuerpo lo menciona legítimamente al prohibir la escritura manual. El invariante D-10 se
 // comprueba en forma POSITIVA (unicidad + igualdad de argv), nunca por ausencia de una subcadena.
+//
+// ⚠ DISCIPLINA DE HOME — OBLIGATORIA, SIN EXCEPCIÓN ⚠
+//
+// TODO test de este fichero que ejercite la captura sandboxea su HOME (carril child) o INYECTA sus
+// paths (carril in-process) ANTES de invocar. Ninguno puede tocar el `~/.kodo/` real del operador:
+// durante la sesión de research de esta fase una sonda sin sandbox escribió una línea en el inbox
+// real y hubo que retirarla a mano. El tmpdir del carril child se limpia en el camino de salida de
+// cada test, incluido el de fallo (`finally` + `rmSync({recursive:true, force:true})`).
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runCaptureCli } from '../src/cli/capture.js';
+import { createFormatter } from '../src/cli/format.js';
+import { encodeLine, parseLine } from '../src/inbox/store.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
+const KODO_BIN = join(REPO, 'bin', 'kodo');
 
 /** El artefacto bajo contrato. `SKILL.md` en MAYÚSCULAS (D-08, convención de Claude Code). */
 const SKILL_MD = join(REPO, '.claude', 'skills', 'kodo-capture', 'SKILL.md');
@@ -64,6 +78,25 @@ const NAME_RE = /^name: kodo-capture$/m;
 const DESCRIPTION_RE = /^description: (\S.*)$/m;
 const ARGUMENT_HINT_RE = /^argument-hint: "<texto de la idea>"$/m;
 const ALLOWED_TOOLS_RE = /^allowed-tools: Bash\(kodo capture \*\)$/m;
+
+// --- Identidad inyectada, VERBATIM del golden de Phase 83 (`test/inbox-format-golden.test.js`) ---
+// No se re-deriva ninguna: el golden es la única fuente de verdad del formato.
+const ID = 'a3f9k2';
+const TEXT = 'el texto de la idea';
+const DATE = '2026-07-25';
+
+/**
+ * La forma 1 «abierta» del golden de Phase 83 con el ÚNICO campo que esta fase cambia: el origen.
+ * `cli` → `skill`. Si esta cadena se separa un byte del golden, la byte-identidad de CAPT-02 se
+ * rompió y el skill-path dejó de ser indistinguible del CLI-path.
+ */
+const LINEA_GOLDEN_SKILL = '- [ ] a3f9k2 · el texto de la idea · kodo · 2026-07-25 · skill';
+
+/**
+ * Texto que EMPIEZA POR GUION: el caso que hace observable la ausencia del separador `--`.
+ * Con separador → exit 0; sin él, commander lo lee como opción desconocida (§Pitfall 4).
+ */
+const TEXTO_ADVERSARIAL = '-3 % de conversión';
 
 /**
  * Tokenizador shell-like mínimo: respeta comillas dobles y las retira del token.
@@ -125,6 +158,59 @@ function invocacionDelMarkdown() {
   return { bin: tokens[0], argv: tokens.slice(1) };
 }
 
+/**
+ * Mapea el argv extraído del markdown a las opciones del handler.
+ *
+ * FALLA el test —en vez de tolerarlo— si el argv no lleva el separador o si aparece un flag
+ * después de él: un tokenizador laxo dejaría pasar un comando que commander rechaza, y el carril
+ * in-process no ejecuta commander, así que no lo detectaría por su cuenta.
+ *
+ * @param {string[]} argv  argv del markdown, SIN el nombre del binario.
+ * @param {string} text    el texto que sustituye al placeholder.
+ * @returns {{ text: string, origin: string }}
+ */
+function argvToCaptureOpts(argv, text) {
+  const sep = argv.indexOf('--');
+  assert.notEqual(sep, -1, 'el argv del SKILL.md no lleva el separador `--`: un texto con guion inicial abortaría');
+  const cabeza = argv.slice(0, sep);
+  const cola = argv.slice(sep + 1);
+  for (const token of cola) {
+    assert.equal(
+      token.startsWith('-'),
+      false,
+      `\`${token}\` va después del separador: commander lo leería como TEXTO, no como flag`,
+    );
+  }
+  assert.equal(cabeza[0], 'capture', 'la invocación debe ser del subcomando de captura');
+  assert.equal(cola.length, 1, 'el texto viaja como UN SOLO elemento de argv, nunca interpolado en una cadena de shell');
+  const i = cabeza.indexOf('--origin');
+  assert.notEqual(i, -1, '`--origin` es el vocabulario que D-16 de Phase 83 creó para esta fase');
+  const origin = cabeza[i + 1];
+  assert.ok(origin && !origin.startsWith('-'), '`--origin` debe llevar valor');
+  return { text, origin };
+}
+
+/**
+ * Ejecuta el binario real con HOME SANDBOX y sin color. `cwd: REPO` para que el tag derivado sea
+ * el del propio repo. Timeout de 10 s (mismo molde que `test/skill-sync.test.js`).
+ *
+ * @param {string[]} argv  argv completo tras el binario.
+ * @param {string} home    directorio temporal que hace de HOME.
+ */
+function runKodo(argv, home) {
+  return spawnSync(process.execPath, [KODO_BIN, ...argv], {
+    cwd: REPO,
+    env: { ...process.env, HOME: home, NO_COLOR: '1' },
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+}
+
+/** Crea el HOME sandbox del carril child. Su limpieza es responsabilidad del `finally` del test. */
+function sandboxHome() {
+  return mkdtempSync(join(tmpdir(), 'kodo-capture-skill-home-'));
+}
+
 // --- ESTÁTICOS: el contrato que vive en el markdown (D-11, D-14) ----------------------------
 
 describe('D-14 — la invocación del SKILL.md es única y está congelada', () => {
@@ -169,5 +255,98 @@ describe('D-14 — la invocación del SKILL.md es única y está congelada', () 
       ALLOWED_TOOLS_RE,
       '`allowed-tools` debe ser exactamente `Bash(kodo capture *)` — un comodín amplio pre-aprobaría ejecución arbitraria',
     );
+  });
+});
+
+// --- EJECUCIÓN: las dos vías (§Pattern 3 (iii)/(iv)) -----------------------------------------
+//
+// Ninguna finge determinismo donde no lo hay:
+//   - la vía IN-PROCESS es byte-determinista (id y reloj inyectados) pero NO demuestra que el argv
+//     funcione: el test lo mapea a opciones él mismo, sin pasar por commander;
+//   - la vía CHILD es el commander real (fidelidad total) pero no admite inyección de reloj.
+// Hacen falta las dos.
+
+describe('D-14 — el argv del markdown produce la línea del golden y sobrevive al commander real', () => {
+  it('vía in-process — byte-identidad con el golden de Phase 83, cambiando SOLO el origen', () => {
+    const { argv } = invocacionDelMarkdown();
+    const opts = argvToCaptureOpts(argv, TEXT);
+    assert.equal(opts.origin, 'skill', 'el origen del skill-path es el vocabulario `skill` (D-16 de Phase 83)');
+
+    /** @type {string[]} */
+    const escritas = [];
+    const code = runCaptureCli(opts, {
+      idFn: () => ID,
+      clockFn: () => DATE,
+      // Basename `kodo` → el tag del golden. El tag lo calcula el WRITER (D-12): ni la skill ni
+      // este test lo deciden.
+      cwdFn: () => '/x/kodo',
+      projectsFn: () => ({}),
+      // Paths INYECTADOS a un tmpdir que ni siquiera se crea: con `appendFn` capturando en memoria
+      // este carril no hace UN SOLO acceso al filesystem, y menos aún al HOME real.
+      pathsFn: () => ({
+        inboxPath: join(tmpdir(), 'kodo-capture-skill-inproc', 'inbox.md'),
+        lockPath: join(tmpdir(), 'kodo-capture-skill-inproc', 'inbox.lock'),
+      }),
+      appendFn: (line) => {
+        escritas.push(line);
+        return { ok: /** @type {true} */ (true), coordinated: true };
+      },
+      writeFn: () => {},
+      errFn: () => {},
+      formatterFn: () => createFormatter({ isTTY: false }, { NO_COLOR: '1' }),
+    });
+
+    assert.equal(code, 0, 'la captura del skill-path debe salir 0');
+    assert.deepEqual(
+      escritas,
+      [`${LINEA_GOLDEN_SKILL}\n`],
+      'la línea del skill-path debe ser byte-idéntica al golden de Phase 83 salvo el campo de origen',
+    );
+  });
+
+  it('vía child-process — commander real con un texto que empieza por guion (§Pitfall 4)', () => {
+    const home = sandboxHome();
+    try {
+      const { argv } = invocacionDelMarkdown();
+      const real = argv.map((t) => (t === PLACEHOLDER ? TEXTO_ADVERSARIAL : t));
+      const r = runKodo(real, home);
+      assert.equal(r.status, 0, `el argv del SKILL.md debe sobrevivir a commander. stderr: ${r.stderr}`);
+
+      const contenido = readFileSync(join(home, '.kodo', 'inbox.md'), 'utf-8');
+      const lineas = contenido.split('\n').filter((l) => l.trim() !== '');
+      assert.equal(lineas.length, 1, 'una invocación = exactamente una línea');
+
+      const captura = parseLine(lineas[0]);
+      assert.ok(captura, 'la línea del skill-path debe parsear con el codec de Phase 83');
+      assert.equal(captura.origin, 'skill');
+      assert.equal(captura.open, true, 'una captura NACE abierta');
+      assert.equal(captura.text, TEXTO_ADVERSARIAL, 'el texto llega VERBATIM, guion inicial incluido');
+      // La fecha se DERIVA de la línea producida y solo se asserta su FORMA. Este carril no admite
+      // inyección de reloj: comparar dos relojes distintos produce un rojo intermitente e
+      // irreproducible al cruzar la medianoche local (§Pitfall 10). La byte-identidad total la da
+      // la vía in-process, que es determinista por construcción.
+      assert.match(captura.date, /^\d{4}-\d{2}-\d{2}$/);
+      assert.equal(encodeLine(captura), lineas[0], 'round-trip byte-exacto contra el codec de Phase 83');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('mordida — el MISMO argv sin el separador `--` falla duro (el `--` es load-bearing)', () => {
+    const home = sandboxHome();
+    try {
+      const { argv } = invocacionDelMarkdown();
+      const sinSeparador = argv
+        .filter((t) => t !== '--')
+        .map((t) => (t === PLACEHOLDER ? TEXTO_ADVERSARIAL : t));
+      const r = runKodo(sinSeparador, home);
+      assert.notEqual(
+        r.status,
+        0,
+        'sin el separador, commander lee el texto como opción desconocida: quitarlo debe ser un fallo DURO, no un silencio',
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
