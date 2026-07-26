@@ -33,9 +33,15 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { EventEmitter } from 'node:events';
+import { render } from 'ink-testing-library';
+import { render as inkRender } from 'ink';
+import { createElement } from 'react';
 
 import { listCaptures } from '../src/inbox/store.js'; // el ORÁCULO, no la dependencia del leaf
 import { readOpenCaptureCount } from '../src/cli/dashboard/inbox-count.js';
+import App from '../src/cli/dashboard/App.js';
+import SessionTable from '../src/cli/dashboard/SessionTable.js';
 
 /** @type {string[]} */
 const tmpDirs = [];
@@ -257,5 +263,233 @@ describe('CAPT-07 · concurrencia y solo-lectura', () => {
     assert.equal(readFileSync(p, 'utf-8'), content, 'el fichero conserva su contenido byte a byte');
     assert.equal(after.mtimeMs, before.mtimeMs, 'el fichero conserva su mtime');
     assert.equal(after.size, before.size, 'el fichero conserva su tamaño');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RENDER (D-22 / D-23) — el conteo pintado en la cabecera de SessionTable.
+//
+// TODOS los tests de render inyectan `inboxCountFn` SIEMPRE. Sin esa inyección, `App` caería
+// al default real y leería el `~/.kodo/inbox.md` del desarrollador que ejecute la suite
+// (RESEARCH §Pitfall 8) — el test dejaría de ser hermético.
+//
+// Los siete ficheros de test de dashboard existentes NO se tocan (cambio quirúrgico): siguen
+// verdes porque sus asserts son de COINCIDENCIA PARCIAL (`assert.match`) y el default de la
+// prop `inboxOpen` en SessionTable es 0. Consecuencia conocida y aceptada: esos siete SÍ leen
+// el inbox real del desarrollador, sin efecto sobre sus asserts.
+// ---------------------------------------------------------------------------
+
+/**
+ * Fake clock determinista para el re-arme del tick de `usePoll` (molde de
+ * test/dashboard-status-line.test.js:39-80 — el repo no usa helpers cross-test).
+ */
+function makeFakeClock(startMs = 1_000_000) {
+  /** @type {Array<{ handle: number, fn: Function }>} */
+  let pending = [];
+  let nextHandle = 1;
+  let nowMs = startMs;
+  const schedule = (fn) => {
+    const handle = nextHandle++;
+    pending.push({ handle, fn });
+    return handle;
+  };
+  const cancel = (handle) => {
+    pending = pending.filter((p) => p.handle !== handle);
+  };
+  let nextTimeoutHandle = 10000;
+  return {
+    schedule,
+    cancel,
+    scheduleTimeout: () => nextTimeoutHandle++,
+    cancelTimeout: () => {},
+    flushTick: async () => {
+      const entry = pending.pop();
+      if (!entry) return false;
+      await entry.fn();
+      return true;
+    },
+    now: () => nowMs,
+    advance: (ms) => {
+      nowMs += ms;
+    },
+  };
+}
+
+/** Response-like mínimo (forma del fetch que consume client.js). */
+function okResponse(body) {
+  return { ok: true, status: 200, json: async () => body };
+}
+
+/** Drena la cola de microtasks (kick-off + setState/re-render que ink agenda). */
+async function drain() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * Props de inyección de `App`. `inboxCountFn` va SIEMPRE, con el conteo fijado por el test.
+ *
+ * @param {ReturnType<makeFakeClock>} clock
+ * @param {number} inboxOpen — lo que devuelve el leaf inyectado
+ */
+function injectProps(clock, inboxOpen) {
+  return {
+    baseUrl: 'http://localhost:9090',
+    fetchFn: async () => okResponse({ sessions: [{}, {}, {}], count: 3 }),
+    now: clock.now,
+    schedule: clock.schedule,
+    cancel: clock.cancel,
+    scheduleTimeout: clock.scheduleTimeout,
+    cancelTimeout: clock.cancelTimeout,
+    inboxCountFn: () => inboxOpen,
+  };
+}
+
+/**
+ * Renderiza `App` con el conteo inyectado y devuelve el último frame ya drenado.
+ *
+ * @param {number} inboxOpen
+ * @returns {Promise<string>}
+ */
+async function frameWithCount(inboxOpen) {
+  const clock = makeFakeClock();
+  const { lastFrame, unmount } = render(createElement(App, injectProps(clock, inboxOpen)));
+  try {
+    await drain();
+    return lastFrame() ?? '';
+  } finally {
+    unmount();
+  }
+}
+
+/** Props mínimas de un render DIRECTO de SessionTable (molde de dashboard-table.test.js:926-939). */
+const TABLE_BASE = {
+  rows: [],
+  selectedIndex: -1,
+  counts: { running: 3, review: 1, done: 0, error: 0, zombie: 0 },
+  connected: true,
+  lastGoodCount: 0,
+  lastGoodAt: 1,
+  lastAttemptAt: 1,
+  mode: 'list',
+};
+
+/**
+ * Primera línea (la cabecera) de un render DIRECTO de SessionTable.
+ *
+ * @param {Record<string, unknown>} extra
+ * @returns {string}
+ */
+function tableHeaderLine(extra) {
+  const { lastFrame, unmount } = render(createElement(SessionTable, { ...TABLE_BASE, ...extra }));
+  try {
+    return (lastFrame() ?? '').split('\n')[0];
+  } finally {
+    unmount();
+  }
+}
+
+describe('CAPT-07 · D-22: el conteo se pinta en la cabecera', () => {
+  it('poblado: con 4, el frame trae la copy Y el indicador sigue ANTES en la misma línea', async () => {
+    const frame = await frameWithCount(4);
+
+    assert.match(frame, /4 sin enrutar/, `debe pintarse el conteo\n${frame}`);
+    const headerLine = frame.split('\n').find((l) => l.includes('sin enrutar')) ?? '';
+    assert.ok(headerLine.includes('● live'), `el indicador debe ir en la misma línea\n${frame}`);
+    assert.ok(
+      headerLine.indexOf('● live') < headerLine.indexOf('sin enrutar'),
+      `el conteo va SIEMPRE el último, nunca antes del indicador\n${headerLine}`,
+    );
+  });
+
+  it('zero-one-many: con 1 la copy es la misma, sin ninguna rama de plural', async () => {
+    const frame = await frameWithCount(1);
+    assert.match(frame, /1 sin enrutar/, `\`sin enrutar\` es invariante en español\n${frame}`);
+    assert.doesNotMatch(frame, /1 sin enrutars|1 captura|1 pendiente/, 'cero variación de plural');
+  });
+
+  it('long-text: con 1500 el entero va CRUDO, sin separador de millares ni abreviación', async () => {
+    const frame = await frameWithCount(1500);
+    assert.match(frame, /1500 sin enrutar/, `entero decimal crudo\n${frame}`);
+    assert.doesNotMatch(frame, /1\.500|1,500|1,5k|1\.5k/, 'cero formateo dependiente de locale');
+  });
+});
+
+describe('CAPT-07 · D-23: con 0 no se emite nada', () => {
+  it('el frame de App no contiene la copy ni un 0 en esa posición', async () => {
+    const frame = await frameWithCount(0);
+    assert.ok(!frame.includes('sin enrutar'), `prohibido \`0 sin enrutar\`\n${frame}`);
+    assert.doesNotMatch(frame, /inbox vacío|inbox 0/, 'prohibido cualquier placeholder de vacío');
+  });
+
+  it('la cabecera con inboxOpen=0 es BYTE-IDÉNTICA a la cabecera sin la prop', () => {
+    // La ausencia se comprueba contra la CABECERA DE REFERENCIA, no solo por ausencia de
+    // subcadena: sin la prop, SessionTable cae a su default `inboxOpen = 0`, que es exactamente
+    // la cabecera de antes de esta fase. Si el ternario emitiera algo en 0 —un `<Text>` vacío,
+    // un espacio, un placeholder— estas dos líneas dejarían de coincidir byte a byte.
+    const referencia = tableHeaderLine({});
+    const conCero = tableHeaderLine({ inboxOpen: 0 });
+    assert.equal(conCero, referencia, 'la cabecera en 0 debe quedar sin un byte de más');
+    assert.ok(!referencia.includes('sin enrutar'), 'la cabecera de referencia no lleva la copy');
+
+    // Y con N > 0 la cabecera SÍ cambia — el guard contra una igualdad trivial por render vacío.
+    assert.notEqual(tableHeaderLine({ inboxOpen: 7 }), referencia);
+  });
+});
+
+describe('CAPT-07 · backstop de overflow (84-UI-SPEC §UI Considerations)', () => {
+  it('en terminal estrecho el indicador degradado conserva su posición y el conteo es lo que envuelve', () => {
+    // `ink-testing-library` fija `columns` en un getter de 100 y no admite override, así que el
+    // ancho se fija con un stdout propio pasado al `render` de ink (mismo contrato público).
+    // Rama DEGRADADA del indicador (`⚠ server caído …`, la más larga) + countsLabel + conteo, a
+    // 40 columnas: es el peor caso de la fila.
+    class NarrowStdout extends EventEmitter {
+      /** @param {number} cols */
+      constructor(cols) {
+        super();
+        this.cols = cols;
+        /** @type {string[]} */
+        this.frames = [];
+        this.write = (/** @type {string} */ frame) => {
+          this.frames.push(frame);
+        };
+      }
+      get columns() {
+        return this.cols;
+      }
+    }
+
+    const stdout = new NarrowStdout(40);
+    const instance = inkRender(
+      createElement(SessionTable, {
+        ...TABLE_BASE,
+        connected: false,
+        lastGoodCount: 12,
+        lastGoodAt: 1000,
+        lastAttemptAt: 46000,
+        inboxOpen: 4,
+      }),
+      // @ts-ignore — stdout de test, misma superficie que el WriteStream que ink consume
+      { stdout, debug: true, exitOnCtrlC: false, patchConsole: false },
+    );
+    instance.unmount();
+
+    const frame = stdout.frames[stdout.frames.length - 1] ?? '';
+    const lines = frame.split('\n');
+    assert.ok(
+      lines[0].startsWith('⚠ server caído'),
+      `el indicador conserva su posición al INICIO de la cabecera\n${frame}`,
+    );
+    // El conteo es el último hijo del <Box> de fila → es lo PRIMERO que ink ENVUELVE (word
+    // wrap: `4 sin` en la 1ª línea, `enrutar` en la 2ª, con las columnas hermanas intercaladas
+    // en medio). Envolver no es recortar: los dos fragmentos siguen enteros en el frame y no
+    // aparece ninguna elipsis de truncado del conteo. Cero aritmética de anchos en producción.
+    assert.ok(frame.includes('4 sin'), `el conteo no se recorta (1er fragmento)\n${frame}`);
+    assert.ok(frame.includes('enrutar'), `el conteo no se recorta (2º fragmento)\n${frame}`);
+    assert.ok(!frame.includes('4 sin…'), `el conteo nunca se trunca con elipsis\n${frame}`);
+    // Y el indicador degradado tampoco se recorta: su texto sobrevive entero al envolverse.
+    for (const fragmento of ['server caído', '12', 'sessions', 'retrying…']) {
+      assert.ok(frame.includes(fragmento), `el indicador no se recorta: falta '${fragmento}'\n${frame}`);
+    }
   });
 });

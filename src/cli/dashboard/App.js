@@ -74,6 +74,7 @@ import { stripControlChars } from '../format.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
 import { readTasks } from './tasks.js';
+import { readOpenCaptureCount } from './inbox-count.js';
 import { existsSync } from 'node:fs';
 import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
@@ -504,6 +505,10 @@ export default function App({
   // Phase 75 (LIVE-05): reader del bloque `tasks` de ~/.kodo/state.json. Default = readTasks real
   // (never-throws → {}); inyectable para aislar el HOME en tests (mismo patrón DI que fetchFn/loadConfigFn).
   readTasksFn = readTasks,
+  // Phase 84 (CAPT-07/D-17): conteo de capturas ABIERTAS de ~/.kodo/inbox.md. Default =
+  // readOpenCaptureCount real (leaf never-throws → 0); inyectable para aislar el HOME en tests
+  // (mismo patrón DI que readTasksFn — sin él, los tests leerían el inbox real del desarrollador).
+  inboxCountFn = readOpenCaptureCount,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -740,6 +745,14 @@ export default function App({
   // ese tick. never-throws → {} (Pitfall 1: readTasks NO importa loadState, no escribe .bak). El
   // NEXT: es dato de la TAREA (por task_id), no de la sesión; ausente → celda vacía.
   const tasks = readTasksFn({});
+  // Phase 84 (CAPT-07, D-21): conteo de capturas sin enrutar. Vive AQUÍ, junto a `tasks`, y no
+  // junto a los flags `anyGsd`/`anyProgress`/`anyNext`: el conteo NO se deriva del conjunto de
+  // sesiones sino del filesystem, así que no tiene el problema de parpadeo bajo filtro que
+  // obligó a derivar esos flags sobre el set SIN filtrar. De los `any*` hereda la política de
+  // COLAPSO en el render (0 → no se pinta, D-23), no el lugar del cálculo. Misma cadencia que
+  // `readTasksFn`: piggyback sobre el ciclo de render que el tick de usePoll ya redispara —
+  // cero timers nuevos, cero cambios en el scheduler. never-throws → 0 (D-20).
+  const inboxOpen = inboxCountFn({});
   const enriched = sorted.map((rawRow) => {
     // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
     // columna task_ref; summary usado en filtro/plan y como task.title) pasa por
@@ -2052,6 +2065,7 @@ export default function App({
         anyGsd, // TUI-18 D-08: flag estructural GSD (sobre `sorted`, no `filtered`) → drop columna phase/mode
         anyProgress, // PROG-03 D-06: flag estructural progreso (sobre `enriched` sin filtrar) → drop columna prog
         anyNext, // LIVE-05 Pitfall 4: flag estructural NEXT: (sobre `enriched` sin filtrar) → drop columna next
+        inboxOpen, // CAPT-07 D-22/D-23: capturas sin enrutar → 3er hijo del header; en 0 no se emite
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)

@@ -788,6 +788,13 @@ function renderModulesOverlay(snapshot, fieldCursor, mode, buffer, cursor, proje
  *   Cuando es `false` la columna `prog` (cabecera + toda celda) NO se emite y su ancho se recupera
  *   vía flex (sin aritmética de anchos). Reaparece sola cuando una sesión reporta progreso. Default
  *   `false` (retro-compat: oculta la columna si no se pasa, espejo invertido de anyGsd).
+ * @param {number} [props.inboxOpen] - Phase 84 D-22/D-23 (CAPT-07): capturas ABIERTAS de
+ *   `~/.kodo/inbox.md`, leídas en App.js por el leaf never-throws `readOpenCaptureCount`. Cuando
+ *   es `> 0` se pinta como TERCER hijo del header (la copy vive en el ternario, amarillo, con los
+ *   3 espacios de separación embebidos en el template string), después del
+ *   indicador de conexión y de `countsLabel`; cuando es `0` el `<Text>` NO se emite y la cabecera
+ *   queda byte-idéntica a la de antes de esta fase (mismo colapso estructural que anyGsd/
+ *   anyProgress). Default `0` (retro-compat: sin la prop no se pinta nada).
  * @param {'list'|'filter'|'overlay'|'confirm'|'deriving'} [props.mode] - modo de interacción. En
  *   `filter` se muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt
  *   persistente; en `deriving` (Phase 62) el spinner DERIVE_PROGRESS mientras onDerive corre.
@@ -832,6 +839,7 @@ export default function SessionTable({
   anyGsd = true,
   anyProgress = false,
   anyNext = false,
+  inboxOpen = 0,
   mode = 'list',
   query = '',
   focusError = null,
@@ -905,12 +913,29 @@ export default function SessionTable({
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt, unauthorized, unauthorizedMessage });
   const label = countsLabel(counts);
 
-  // Header: indicador live (D-10) + contadores (D-11, omitidos si todos en cero / lista vacía).
+  // Header: indicador live (D-10) + contadores (D-11, omitidos si todos en cero / lista vacía)
+  // + conteo de capturas pendientes de enrutar (Phase 84 CAPT-07 D-22/D-23, omitido en 0).
+  //
+  // El conteo es el TERCER hijo y va SIEMPRE el último: nunca se interpone entre el indicador y
+  // `countsLabel`, y se muestra en las CUATRO ramas del indicador sin excepción — la presión de
+  // triage no depende del estado del servidor. `LiveIndicator` NO se modifica: el conteo es su
+  // hermano, no una rama nueva de su cadena de precedencia. Los overlays hacen early-return antes
+  // de llegar aquí, así que el conteo no aparece en ellos (comportamiento heredado y deliberado).
+  //
+  // Forma contractual (84-UI-SPEC §Superficie C): los 3 espacios de separación van DENTRO del
+  // template string, igual que en el hijo de `label` — cero `width`, cero `marginLeft`, cero
+  // `paddingX`, ningún `<Box>` nuevo y ninguna aritmética de anchos (el conteo es lo último que
+  // ink envuelve en un terminal estrecho, así que el indicador conserva su posición). Sin `bold`
+  // y sin `dimColor`: es estado ambient. Sin rama de plural — la copy es invariante en español,
+  // y el literal aparece UNA sola vez en el fichero (un único punto de pintado, criterio de
+  // aceptación de 84-03). Entero decimal crudo, sin millares ni abreviación. Color SOLO por
+  // nombre ink `<Text color>` (color-isolation D-12 Phase 34, igual que el resto del fichero).
   const header = h(
     Box,
     { flexDirection: 'row' },
     indicator,
     label ? h(Text, null, `   ${label}`) : null,
+    inboxOpen > 0 ? h(Text, { color: 'yellow' }, `   ${inboxOpen} sin enrutar`) : null,
   );
 
   // Línea de filtro modal (D-13, UI-SPEC:191): prompt `/ <query>▏` al pie, SOLO cuando mode==='filter'.
