@@ -811,4 +811,33 @@ describe('registro multi-skill de skill sync (CAPT-05)', () => {
       'el registro no puede descubrirse por directorio — sería un control de acceso abierto',
     );
   });
+
+  it('D-08b source-hygiene: los consumidores single-skill NO importan el registro', () => {
+    // Los TRES consumidores que hardcodean `kodo-orchestrate` fuera de este
+    // handler quedan DELIBERADAMENTE fuera del boundary de CAPT-05 por D-08b:
+    //   1. src/orchestrator/launch.js — auto-sync fail-open del launch. Sincronizar
+    //      `kodo-capture` ahí es una decisión de producto que el CONTEXT no toma.
+    //   2. src/hooks/stop.js — auto-commit de learnings, con pathspec restringido a
+    //      `.claude/skills/kodo-orchestrate/`. `kodo-capture` no acumula aprendizaje
+    //      y meterla bajo un commit automático rompería el sujeto de su golden.
+    //   3. src/hooks/stop.js — la constante SKILL_PATH (hoy muerta).
+    // Consecuencia conocida y aceptada, registrada en el deferred-items.md de la
+    // fase: quien solo use `kodo orchestrate` y nunca ejecute `kodo skill sync` no
+    // recibirá `/kodo-capture`.
+    //
+    // El assert está anclado al PATRÓN DE IMPORT, nunca al identificador suelto: un
+    // comentario que documente la regla (como este) no puede poner roja la suite
+    // — lección explícita de 83-02 y 83-05.
+    const REGISTRY_IMPORT_RE =
+      /import\s*(?:\{[^}]*\bKODO_SKILLS\b[^}]*\}|\*\s+as\s+\w+)\s*from\s*['"][^'"]*skill-sync\.js['"]/;
+
+    for (const rel of [['src', 'orchestrator', 'launch.js'], ['src', 'hooks', 'stop.js']]) {
+      const stripped = stripComments(readFileSync(join(REPO, ...rel), 'utf-8'));
+      assert.equal(
+        REGISTRY_IMPORT_RE.test(stripped),
+        false,
+        `${rel.join('/')} no debe importar el registro de src/cli/skill-sync.js — sigue siendo single-skill por D-08b`,
+      );
+    }
+  });
 });

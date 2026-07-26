@@ -504,7 +504,7 @@ const skill = program.command('skill').description('Skill management subcommands
 
 skill
   .command('sync')
-  .description('Sync canonical skill <repo>/.claude/skills/kodo-orchestrate/ → ~/.claude/skills/kodo-orchestrate/')
+  .description('Sync kodo distributable skills (kodo-orchestrate, kodo-capture) from <repo>/.claude/skills/ → ~/.claude/skills/')
   .option('--prune', 'Remove foreign files in home that are not in repo (destructive; opt-in)')
   .option('--json', 'Emit structured result as JSON (scriptable)')
   .action(async (opts) => {
