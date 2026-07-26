@@ -102,7 +102,12 @@
   2. `kodo skill sync` distribuye tanto `kodo-orchestrate` como `kodo-capture` — el mecanismo hoy single-skill queda generalizado a multi-skill de forma explícita. (CAPT-05)
   3. El operador ve en el dashboard TUI el conteo de capturas sin enrutar, leído de `~/.kodo/inbox.md` (reader leaf never-throws, cero endpoints nuevos en `src/server.js`) — presión ambient contra el inbox rot. (CAPT-07)
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 84-01-PLAN.md — `kodo skill sync` multi-skill: allowlist explícita `KODO_SKILLS`, resiliencia por skill, `--json` aditivo y render de una línea por skill (CAPT-05) · wave 2
+- [ ] 84-02-PLAN.md — la skill `/kodo-capture` y el golden que congela su invocación canónica contra el writer único (CAPT-02) · wave 1
+- [ ] 84-03-PLAN.md — conteo ambient de capturas sin enrutar: leaf never-throws anclado a `listCaptures` + cabecera del dashboard (CAPT-07) · wave 1
 
 ### Phase 85: Saneo de deuda + Nyquist retroactivo
 

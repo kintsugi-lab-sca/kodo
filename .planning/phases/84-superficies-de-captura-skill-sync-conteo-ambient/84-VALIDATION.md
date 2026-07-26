@@ -41,28 +41,38 @@ created: 2026-07-26
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | 01 | 0 | CAPT-05 | — | `makeFixture()` siembra ambas skills antes de tocar el handler | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | El registro distribuye ambas skills | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | Resiliencia D-03: una skill rota no impide la otra | unit (DI `syncFn`) | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | Exit agregado 0/1; gate 2 y su **stderr byte-idéntico** intactos (D-02) | integración | `node --test test/skill-sync.test.js` | ✅ existe | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | `--json` aditivo con orden de claves fijo (D-04) | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | Render human: una línea por skill (D-05) | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 01 | 1 | CAPT-05 | — | Gate tolerante a `SKILL.md` / `skill.md` (D-07) | unit | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | CAPT-02 | — | **Exactamente una** invocación en el `SKILL.md` (corolario D-14) | unit estático | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | CAPT-02 | — | `deepEqual(argvExtraído, ARGV_CANONICO)` (D-11) | unit estático | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | CAPT-02 | — | Byte-identidad vs golden de Phase 83, reloj e ID inyectados (D-14) | unit in-process | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | CAPT-02 | — | El argv sobrevive al commander real con texto de guion inicial (`--` load-bearing) | integración `spawnSync` | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 02 | 1 | CAPT-02 | — | El `SKILL.md` no contiene ninguna escritura a `inbox.md` (D-10) | source-hygiene sobre el `.md` | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 03 | 0 | CAPT-07 | — | **Anti-drift leaf ↔ `listCaptures`** sobre fixture adversarial (D-18) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ **W0** | ⬜ pending |
-| TBD | 03 | 0 | CAPT-07 | — | Anti-drift sobre el fixture de 1 500 capturas (D-18) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ **W0** | ⬜ pending |
-| TBD | 03 | 1 | CAPT-07 | — | Never-throws: ausente / EACCES / directorio / binario → 0 (D-20) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 03 | 1 | CAPT-07 | — | Resolución perezosa del HOME (D-19) | unit (`kodoDir` inyectado) | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 03 | 1 | CAPT-07 | — | El header pinta el conteo si > 0 y lo **omite** en 0 (D-22, D-23) | render ink | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
-| TBD | 03 | 1 | CAPT-07 | — | El leaf no importa picocolors ni el store | source-hygiene | `node --test test/format-isolation.test.js` | ✅ automático | ⬜ pending |
-| TBD | — | 1 | — | — | Cero deps npm nuevas | source-hygiene | `node --test test/inbox-cli.test.js` | ✅ existe | ⬜ pending |
+| T-84-01-01 | 01 | 0 | CAPT-05 | — | `makeFixture()` siembra ambas skills antes de tocar el handler | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | T-84-01 | El registro distribuye ambas skills | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | T-84-04 | Resiliencia D-03: una skill rota no impide la otra | unit (DI `syncFn`) | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | T-84-05 | Exit agregado 0/1; gate 2 y su **stderr byte-idéntico** intactos (D-02) | integración | `node --test test/skill-sync.test.js` | ✅ existe | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | — | `--json` aditivo con orden de claves fijo (D-04) | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | — | Render human: una línea por skill (D-05) | integración | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | — | Gate tolerante a `SKILL.md` / `skill.md` (D-07) | unit | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-02 | 01 | 1 | CAPT-05 | T-84-01 | **[añadida en planning]** El registro es una allowlist literal y NO se descubre por directorio (D-01) | source-hygiene | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-01-03 | 01 | 1 | CAPT-05 | T-84-01 | **[añadida en planning]** `launch.js` y `stop.js` no importan el registro — los 3 consumidores single-skill de D-08b siguen fuera del boundary | source-hygiene | `node --test test/skill-sync.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-01 | 02 | 1 | CAPT-02 | T-84-07 | **Exactamente una** invocación en el `SKILL.md` (corolario D-14) | unit estático | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-01 | 02 | 1 | CAPT-02 | T-84-06 | `deepEqual(argvExtraído, ARGV_CANONICO)` (D-11) | unit estático | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-02 | 02 | 1 | CAPT-02 | — | Byte-identidad vs golden de Phase 83, reloj e ID inyectados (D-14) | unit in-process | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-02 | 02 | 1 | CAPT-02 | T-84-06 | El argv sobrevive al commander real con texto de guion inicial (`--` load-bearing) | integración `spawnSync` | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-01 | 02 | 1 | CAPT-02 | T-84-07 | El `SKILL.md` no contiene ninguna escritura a `inbox.md` (D-10) — comprobado en forma **positiva** (bloque cercado único + una sola línea de comando), nunca por ausencia de subcadena | source-hygiene sobre el `.md` | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-02-01 | 02 | 1 | CAPT-02 | T-84-08 | **[añadida en planning]** `allowed-tools` es exactamente `Bash(kodo capture *)`, nunca un comodín amplio | unit estático | `node --test test/kodo-capture-skill.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-01 | 03 | 0 | CAPT-07 | — | **Anti-drift leaf ↔ `listCaptures`** sobre fixture adversarial (D-18) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ **W0** | ⬜ pending |
+| T-84-03-01 | 03 | 0 | CAPT-07 | — | Anti-drift sobre el fixture de 1 500 capturas (D-18) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ **W0** | ⬜ pending |
+| T-84-03-01 | 03 | 1 | CAPT-07 | T-84-13 | Never-throws: ausente / EACCES / directorio / binario → 0 (D-20) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-01 | 03 | 1 | CAPT-07 | T-84-15 | Resolución perezosa del HOME (D-19) | unit (`kodoDir` inyectado) | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-01 | 03 | 1 | CAPT-07 | T-84-18 | **[añadida en planning]** Concurrencia: una lectura que cruza un `O_APPEND` observa una línea parcial que no casa la regex y no se cuenta; el leaf no lanza y no escribe (CAPT-07 / sonda de bordes) | unit | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-02 | 03 | 1 | CAPT-07 | T-84-12 | El header pinta el conteo si > 0 y lo **omite** en 0 (D-22, D-23) | render ink | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-02 | 03 | 1 | CAPT-07 | — | **[backstop, UI-SPEC]** En terminal estrecho el indicador de conexión conserva su posición; el conteo es el último hijo y es lo primero que envuelve | render ink | `node --test test/dashboard-inbox-count.test.js` | ❌ W0 | ⬜ pending |
+| T-84-03-01 | 03 | 1 | CAPT-07 | T-84-17 | El leaf no importa picocolors ni el store | source-hygiene | `node --test test/format-isolation.test.js` | ✅ automático | ⬜ pending |
+| todas | — | 1 | — | T-84-SC | Cero deps npm nuevas | source-hygiene | `node --test test/inbox-cli.test.js` | ✅ existe | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
-*Los Task ID se rellenan al escribir los PLAN.md — el mapa fija el comportamiento y su comando, no la numeración.*
+*Task ID = `T-<fase>-<plan>-<tarea>`. Rellenados al escribir los PLAN.md (2026-07-26); las filas marcadas **[añadida en planning]** amplían el mapa sin alterar ninguna de las originales. La columna Threat Ref referencia el `<threat_model>` del PLAN.md correspondiente.*
+
+**Nota sobre la columna Wave:** aquí `0`/`1` es la ordenación **dentro de un plan** (test primero,
+implementación después). El campo `wave` del frontmatter de cada PLAN.md es otro eje —la ordenación
+**entre planes**— y vale `1` para 84-02 y 84-03 y `2` para 84-01, que depende de que exista
+`.claude/skills/kodo-capture/` antes de entrar en la allowlist.
 
 ---
 
