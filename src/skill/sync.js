@@ -63,8 +63,16 @@ export function syncSkill(opts) {
   let symlinkReplaced = false;
 
   try {
-    // 1. Validar source: skill.md DEBE existir (D-07 traducción a 'error').
-    if (!existsSync(join(source, 'skill.md'))) {
+    // 1. Validar source: el entrypoint DEBE existir (D-07 traducción a 'error').
+    // Phase 84 (D-07): case-tolerante — `SKILL.md` (convención documentada de
+    // Claude Code, la que usa `kodo-capture`) o `skill.md` (histórico de
+    // `kodo-orchestrate`, cuyo rename difiere D-08). En macOS el filesystem es
+    // case-insensitive y la discrepancia es invisible; en Linux, sin esto,
+    // `kodo-capture/SKILL.md` pasaría el gate del handler y aquí devolvería
+    // `source skill not found`. NO cambia ni la firma ni el contrato de retorno
+    // de syncSkill: es una condición interna más permisiva, así que es
+    // compatible con D-06 leído literalmente (arbitraje explícito del planner).
+    if (!['SKILL.md', 'skill.md'].some((entry) => existsSync(join(source, entry)))) {
       return { status: 'error', files_changed: 0, error: 'source skill not found' };
     }
 

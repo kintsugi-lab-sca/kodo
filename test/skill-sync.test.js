@@ -512,26 +512,35 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     _tmpRepo = undefined;
   });
 
-  it('SKILL-04 #1: ok (first sync) → exit 0, stdout `Synced 2 files`', () => {
+  it('SKILL-04 #1: ok (first sync) → exit 0, una línea por skill con su prefijo', () => {
     ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-    assert.match(result.stdout, /Synced 2 files? to /);
+    // D-05: una línea por skill, prefijo `<nombre>: `, orden del registro.
+    assert.match(result.stdout, /^kodo-orchestrate: .*Synced 2 files to /m);
+    assert.match(result.stdout, /^kodo-capture: .*Synced 1 file to /m);
     const dest = destOf(_tmpHome);
     assert.equal(
       readFileSync(join(dest, 'skill.md'), 'utf-8'),
       '# kodo:orchestrate\n\nCanonical body v1.\n',
     );
     assert.equal(readFileSync(join(dest, 'subdir', 'extra.md'), 'utf-8'), 'extra content\n');
+    // La segunda skill del registro llegó a SU destino, con el entrypoint en
+    // mayúsculas intacto.
+    assert.equal(
+      readFileSync(join(destOf(_tmpHome, 'kodo-capture'), 'SKILL.md'), 'utf-8'),
+      '# kodo-capture\n\nCanonical capture body v1.\n',
+    );
   });
 
-  it('SKILL-04 #2: noop (segundo run sin drift) → exit 0, stdout `No drift`', () => {
+  it('SKILL-04 #2: noop (segundo run sin drift) → exit 0, `No drift` por skill', () => {
     ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
     const first = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(first.status, 0);
     const second = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(second.status, 0);
-    assert.match(second.stdout, /No drift/);
+    assert.match(second.stdout, /^kodo-orchestrate: .*No drift/m);
+    assert.match(second.stdout, /^kodo-capture: .*No drift/m);
   });
 
   it('SKILL-04 #3: fs error (dest file unreadable) → exit 1, stderr canonical', () => {
@@ -558,7 +567,16 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     // Restaurar también el archivo aquí para que afterEach pueda borrarlo.
     try { chmodSync(join(dest, 'skill.md'), 0o644); } catch {}
     assert.equal(result.status, 1, `stdout: ${result.stdout}, stderr: ${result.stderr}`);
+    // El prefijo literal se conserva ANCLADO a inicio de cadena — es el que dicta
+    // la forma del mensaje por skill (el nombre va DESPUÉS de los dos puntos).
     assert.match(result.stderr, /^Error: filesystem error: /);
+    assert.match(result.stderr, /^Error: filesystem error: \[kodo-orchestrate\] /);
+    // D-03 resiliencia observada end-to-end: pese al fallo de `kodo-orchestrate`,
+    // `kodo-capture` llegó a su destino.
+    assert.equal(
+      readFileSync(join(destOf(_tmpHome, 'kodo-capture'), 'SKILL.md'), 'utf-8'),
+      '# kodo-capture\n\nCanonical capture body v1.\n',
+    );
   });
 
   it('SKILL-04 #4: not a kodo repo → exit 2 + stderr canonical exacto', () => {
@@ -585,7 +603,7 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
 
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-    assert.match(result.stdout, /Legacy symlink replaced/);
+    assert.match(result.stdout, /^kodo-orchestrate: .*Legacy symlink replaced/m);
     assert.equal(lstatSync(dest).isSymbolicLink(), false);
     assert.equal(lstatSync(dest).isDirectory(), true);
   });
@@ -594,7 +612,14 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo, args: ['--json'] });
     assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-    assert.match(result.stdout, /^\{"status":"ok","files_changed":2\}\n$/);
+    // D-04: crecimiento ADITIVO. `status` y `files_changed` conservan su posición
+    // (el agregado), `skills[]` se añade después con el orden del registro y cada
+    // entrada con el orden fijo {name, status, files_changed}. Anclado a AMBOS
+    // extremos: el orden de claves ES el contrato (DX-06).
+    assert.match(
+      result.stdout,
+      /^\{"status":"ok","files_changed":3,"skills":\[\{"name":"kodo-orchestrate","status":"ok","files_changed":2\},\{"name":"kodo-capture","status":"ok","files_changed":1\}\]\}\n$/,
+    );
     // No ANSI escapes leak (LOG-12 + DX-06).
     assert.equal(/\x1b\[/.test(result.stdout), false);
   });
@@ -608,7 +633,9 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
 
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo, args: ['--prune'] });
     assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-    assert.match(result.stdout, /Pruned 1 foreign file/);
+    // El foráneo se sembró en el destino de `kodo-orchestrate` → su línea es la
+    // que reporta el prune.
+    assert.match(result.stdout, /^kodo-orchestrate: .*Pruned 1 foreign file/m);
     assert.match(result.stderr, /\[kodo skill sync --prune\] removing foreign: foreign\.md/);
     assert.equal(existsSync(join(destOf(_tmpHome), 'foreign.md')), false);
   });
@@ -628,5 +655,160 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     // El módulo sync.js tampoco importa picocolors.
     const syncMod = readFileSync(join(REPO, 'src', 'skill', 'sync.js'), 'utf-8');
     assert.equal(/picocolors/.test(stripComments(syncMod)), false);
+  });
+});
+
+// ─── Suite 3: registro multi-skill (Phase 84 CAPT-05 — D-01/D-03/D-07) ───────
+//
+// Los tests de resiliencia usan DI de `syncFn`: el stub no toca el filesystem,
+// así que el `dest` derivado de `homedir()` nunca se materializa. NINGÚN test de
+// esta suite puede escribir en el `~/.claude/skills/` real.
+
+// Formatter mínimo determinista para los tests in-process: replica los tres
+// helpers que usa `renderHuman` sin color (equivalente a NO_COLOR).
+const PLAIN_FMT = /** @type {any} */ ({
+  ok: (s) => `✓ ${s}`,
+  yellow: (s) => s,
+  dim: (s) => s,
+});
+
+describe('registro multi-skill de skill sync (CAPT-05)', () => {
+  let _tmpHome;
+  let _tmpRepo;
+
+  afterEach(() => {
+    if (_tmpHome) {
+      for (const name of FIXTURE_SKILLS) {
+        try { chmodSync(destOf(_tmpHome, name), 0o755); } catch {}
+      }
+      rmSync(_tmpHome, { recursive: true, force: true });
+    }
+    if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
+    _tmpHome = undefined;
+    _tmpRepo = undefined;
+  });
+
+  it('D-03 resiliencia: `status: error` en la primera skill NO aborta el bucle — exit agregado 1', async () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    /** @type {string[]} */
+    const calls = [];
+    /** @type {string[]} */
+    const out = [];
+    /** @type {string[]} */
+    const errs = [];
+
+    const code = await runSkillSyncCli({}, {
+      cwdFn: () => _tmpRepo,
+      writeFn: (s) => { out.push(s); },
+      errFn: (s) => { errs.push(s); },
+      formatterFn: () => PLAIN_FMT,
+      syncFn: /** @type {any} */ ((o) => {
+        calls.push(o.source);
+        return calls.length === 1
+          ? { status: 'error', files_changed: 0, error: 'boom' }
+          : { status: 'ok', files_changed: 1 };
+      }),
+    });
+
+    // El bucle recorrió LAS DOS entradas del registro, en su orden.
+    assert.equal(calls.length, 2, `el bucle no debe abortar en la primera skill; calls: ${JSON.stringify(calls)}`);
+    assert.match(calls[0], /kodo-orchestrate$/);
+    assert.match(calls[1], /kodo-capture$/);
+    // Exit agregado: 1 (no 2 — el 2 queda reservado al gate).
+    assert.equal(code, 1);
+    // La fallida nombra la skill culpable DESPUÉS del prefijo literal.
+    assert.equal(errs.join(''), 'Error: filesystem error: [kodo-orchestrate] boom\n');
+    // La OK imprime su línea en stdout; la fallida no imprime nada en stdout.
+    assert.match(out.join(''), /^kodo-capture: .*Synced 1 file to /m);
+    assert.equal(
+      /kodo-orchestrate:/.test(out.join('')),
+      false,
+      'la skill fallida no debe emitir línea de estado en stdout',
+    );
+  });
+
+  it('D-03 excepción: un `syncFn` que LANZA se normaliza a error y el bucle continúa igual', async () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    /** @type {string[]} */
+    const calls = [];
+    /** @type {string[]} */
+    const out = [];
+    /** @type {string[]} */
+    const errs = [];
+
+    const code = await runSkillSyncCli({}, {
+      cwdFn: () => _tmpRepo,
+      writeFn: (s) => { out.push(s); },
+      errFn: (s) => { errs.push(s); },
+      formatterFn: () => PLAIN_FMT,
+      syncFn: /** @type {any} */ ((o) => {
+        calls.push(o.source);
+        if (calls.length === 1) throw new Error('boom');
+        return { status: 'ok', files_changed: 1 };
+      }),
+    });
+
+    // Resultado IDÉNTICO al del test anterior: la excepción no propaga.
+    assert.equal(calls.length, 2, 'la excepción de la primera skill no debe abortar el bucle');
+    assert.equal(code, 1);
+    assert.equal(errs.join(''), 'Error: filesystem error: [kodo-orchestrate] boom\n');
+    assert.match(out.join(''), /^kodo-capture: .*Synced 1 file to /m);
+  });
+
+  it('D-07 case-tolerance: el entrypoint vale como `SKILL.md` o `skill.md` en los DOS gates', async () => {
+    // ⚠ En macOS este test pasa TRIVIALMENTE: el filesystem es case-insensitive,
+    // así que `existsSync(join(dir, 'skill.md'))` devuelve true aunque en disco
+    // solo exista `SKILL.md`. Su valor es morder el día que la CI corra en Linux:
+    // allí, sin D-07, `kodo-capture/SKILL.md` pasaría el gate del handler (que
+    // solo mira `kodo-orchestrate`) y después `syncSkill` devolvería
+    // `source skill not found`. Se mantiene por eso, no por lo que prueba hoy.
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+
+    // Invertir las grafías respecto al fixture por defecto: orchestrate pasa a
+    // MAYÚSCULAS y capture a minúsculas. Así ambas variantes quedan ejercitadas.
+    rmSync(join(sourceOf(_tmpRepo), 'skill.md'), { force: true });
+    writeFileSync(join(sourceOf(_tmpRepo), 'SKILL.md'), '# kodo:orchestrate\n\nupper\n', 'utf-8');
+    rmSync(join(sourceOf(_tmpRepo, 'kodo-capture'), 'SKILL.md'), { force: true });
+    writeFileSync(join(sourceOf(_tmpRepo, 'kodo-capture'), 'skill.md'), '# kodo-capture\n\nlower\n', 'utf-8');
+
+    // Gate 1 — el del handler: con solo `SKILL.md` en mayúsculas NO debe dar el
+    // exit 2 de "no es un repo kodo". syncFn stub → cero escrituras en el HOME.
+    const code = await runSkillSyncCli({}, {
+      cwdFn: () => _tmpRepo,
+      writeFn: () => {},
+      errFn: () => {},
+      formatterFn: () => PLAIN_FMT,
+      syncFn: /** @type {any} */ (() => ({ status: 'noop', files_changed: 0 })),
+    });
+    assert.notEqual(code, 2, 'el gate del handler debe aceptar `SKILL.md` en mayúsculas');
+
+    // Gate 2 — el interno de syncSkill, con dest SANDBOXED en el tmpHome.
+    const upper = syncSkill({ source: sourceOf(_tmpRepo), dest: destOf(_tmpHome) });
+    assert.notEqual(upper.status, 'error', `SKILL.md en mayúsculas: ${upper.error}`);
+    const lower = syncSkill({
+      source: sourceOf(_tmpRepo, 'kodo-capture'),
+      dest: destOf(_tmpHome, 'kodo-capture'),
+    });
+    assert.notEqual(lower.status, 'error', `skill.md en minúsculas: ${lower.error}`);
+  });
+
+  it('D-01 source-hygiene: el registro es una allowlist LITERAL y nunca se descubre por directorio', () => {
+    // Este test es el gate del control de acceso T-84-01: lo único que impide que
+    // una skill de trabajo local del repo (hoy `worktree-cleanup`) acabe copiada
+    // al HOME de todos los operadores es que el registro sea literal.
+    const cliHandler = readFileSync(join(REPO, 'src', 'cli', 'skill-sync.js'), 'utf-8');
+    const stripped = stripComments(cliHandler);
+
+    assert.match(
+      stripped,
+      /const KODO_SKILLS = Object\.freeze\(\['kodo-orchestrate', 'kodo-capture'\]\);/,
+      'KODO_SKILLS debe ser la allowlist literal congelada de las dos skills distribuibles',
+    );
+    // El registro JAMÁS se construye leyendo `.claude/skills/`.
+    assert.equal(
+      /readdirSync|globSync|\bglob\s*\(/.test(stripped),
+      false,
+      'el registro no puede descubrirse por directorio — sería un control de acceso abierto',
+    );
   });
 });
