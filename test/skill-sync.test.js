@@ -13,7 +13,20 @@
 //
 // Patrón: spawnSync child + HOME override + NO_COLOR=1 (canon Phase 999.1 D-16,
 // `test/skill-auto-commit.test.js`). makeFixture siembra DOS tmpdirs (HOME + repo
-// con skill canonical) y un afterEach común limpia ambos con chmod restore.
+// con skills canonical) y un afterEach común limpia ambos con chmod restore.
+//
+// Phase 84 (CAPT-05, D-01): `makeFixture` siembra las DOS skills del registro
+// `KODO_SKILLS` — `kodo-orchestrate` (2 ficheros, entrypoint `skill.md` en
+// minúsculas por D-08) y `kodo-capture` (1 fichero, entrypoint `SKILL.md` en
+// mayúsculas). El orden importa: el fixture se amplió ANTES de generalizar el
+// handler a multi-skill (84-RESEARCH §Pitfall 1). Sembrar la segunda skill en un
+// tmpRepo sintético no tiene efecto sobre un handler single-skill, así que la
+// suite sigue verde; lo que evita es descubrir en rojo, de uno en uno, los 6
+// asserts anclados al render y al payload single-skill.
+//
+// Corolario: el agregado de `files_changed` con las dos skills sincronizadas es
+// 3 (2 de orchestrate + 1 de capture) — literal del que depende el assert
+// byte-anclado de `--json`.
 
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,7 +46,8 @@ const REPO = resolve(__dirname, '..');
 const KODO_BIN = join(REPO, 'bin', 'kodo');
 
 /**
- * Crea DOS tmpdirs (HOME aislado + fake repo kodo con skill canonical sembrada).
+ * Crea DOS tmpdirs (HOME aislado + fake repo kodo con las DOS skills canonical
+ * sembradas: `kodo-orchestrate` con 2 ficheros y `kodo-capture` con 1).
  * NO requiere git init (skill sync no toca git).
  */
 function makeFixture() {
@@ -51,16 +65,33 @@ function makeFixture() {
   mkdirSync(join(skillDir, 'subdir'), { recursive: true });
   writeFileSync(join(skillDir, 'subdir', 'extra.md'), 'extra content\n', 'utf-8');
 
-  return { tmpHome, tmpRepo, skillDir };
+  // Phase 84 (D-01/D-07): segunda entrada del registro. Entrypoint en MAYÚSCULAS
+  // (`SKILL.md`), a diferencia de `kodo-orchestrate` — la asimetría es deliberada
+  // y es lo que ejercita el gate case-tolerante. UN SOLO fichero: el agregado de
+  // `files_changed` es 2 + 1 = 3, literal del assert byte-anclado de `--json`.
+  const captureSkillDir = join(tmpRepo, '.claude', 'skills', 'kodo-capture');
+  mkdirSync(captureSkillDir, { recursive: true });
+  writeFileSync(
+    join(captureSkillDir, 'SKILL.md'),
+    '# kodo-capture\n\nCanonical capture body v1.\n',
+    'utf-8',
+  );
+
+  return { tmpHome, tmpRepo, skillDir, captureSkillDir };
 }
 
-function destOf(tmpHome) {
-  return join(tmpHome, '.claude', 'skills', 'kodo-orchestrate');
+function destOf(tmpHome, name = 'kodo-orchestrate') {
+  return join(tmpHome, '.claude', 'skills', name);
 }
 
-function sourceOf(tmpRepo) {
-  return join(tmpRepo, '.claude', 'skills', 'kodo-orchestrate');
+function sourceOf(tmpRepo, name = 'kodo-orchestrate') {
+  return join(tmpRepo, '.claude', 'skills', name);
 }
+
+// Nombres de las skills que el fixture siembra — usado por los afterEach para
+// restaurar permisos de AMBOS destinos antes del rmSync (si un test deja el dest
+// de `kodo-capture` en 0o000, el borrado del tmpHome falla).
+const FIXTURE_SKILLS = ['kodo-orchestrate', 'kodo-capture'];
 
 /**
  * Spawn `bin/kodo skill sync [...args]` con HOME aislado + NO_COLOR=1.
@@ -469,7 +500,11 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
 
   afterEach(() => {
     if (_tmpHome) {
-      try { chmodSync(destOf(_tmpHome), 0o755); } catch {}
+      // chmod restore de LOS DOS destinos (Phase 84): el CLI escribe en ambos, y
+      // un test que deje cualquiera de ellos sin permisos impediría el rmSync.
+      for (const name of FIXTURE_SKILLS) {
+        try { chmodSync(destOf(_tmpHome, name), 0o755); } catch {}
+      }
       rmSync(_tmpHome, { recursive: true, force: true });
     }
     if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
