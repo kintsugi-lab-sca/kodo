@@ -1,25 +1,30 @@
 ---
 phase: 84-superficies-de-captura-skill-sync-conteo-ambient
 verified: 2026-07-26T09:43:10Z
-status: human_needed
+status: passed
 score: 4/5 must-haves verified
 behavior_unverified: 1 # CAPT-02 "UI · error" backstop — comportamiento de prompt, no unit-testeable por diseño
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "UI · error (CAPT-02, 84-02 must_haves, `verification: backstop`): si `kodo` no está en el PATH o `kodo capture` termina con código ≠ 0, el modelo reporta el stderr verbatim y se detiene, sin escribir el inbox a mano."
     test: "Invocar `/kodo-capture \"texto\"` en una sesión real de Claude Code con `kodo` fuera del PATH o forzando un exit ≠ 0 en `kodo capture`."
     expected: "El modelo pega el stderr tal cual en el chat y NO reintenta escribiendo `~/.kodo/inbox.md` a mano."
     why_human: "Un `SKILL.md` es un prompt. La mitad estructural (unicidad de la invocación + igualdad de argv, así que no hay un segundo camino de escritura) está blindada por `test/kodo-capture-skill.test.js`; que el modelo efectivamente obedezca la regla 7 del cuerpo del SKILL.md no es observable sin ejecutar el LLM."
 human_verification:
+
   - test: "Tras `kodo skill sync` con HOME real, abrir una sesión de Claude Code en un repo cualquiera e invocar `/kodo-capture \"prueba UAT 84\"`."
     expected: "`kodo inbox` muestra la línea con origen `skill` y el tag de proyecto correcto; el skill se cargó y `allowed-tools: Bash(kodo capture *)` no disparó un prompt de permiso adicional (assumption A2 de 84-RESEARCH.md)."
     why_human: "Verifica que Claude Code carga la skill de proyecto y que el patrón `allowed-tools` casa la invocación con separador `--`; ningún test automatizado ejecuta el LLM (D6 de 84-02-SUMMARY.md, coverage)."
+
   - test: "Igual que arriba pero con `kodo` fuera del PATH o forzando un exit ≠ 0 en `kodo capture` (ver `behavior_unverified_items` arriba)."
     expected: "El modelo reporta el stderr verbatim y se detiene, sin escribir el inbox a mano."
     why_human: "Backstop explícito marcado `verification: backstop` en 84-02-PLAN.md; comportamiento de prompt."
+
   - test: "`kodo capture \"x\"` tres veces, abrir el dashboard TUI y comprobar que `N sin enrutar` aparece junto al indicador de conexión; luego `kodo inbox discard <id>` las tres capturas y comprobar que el elemento DESAPARECE (no `0 sin enrutar`)."
     expected: "El conteo aparece con capturas abiertas y desaparece por completo al llegar a 0 — ninguna franja intermedia con placeholder."
     why_human: "Juicio perceptual sobre un TUI real con el inbox real del operador (D9 de 84-03-SUMMARY.md, coverage); ningún assert de frame cubre la sensación ambient del ciclo completo."
+
   - test: "Ejecutar la suite de `kodo-capture` y `skill-sync` en un filesystem case-sensitive (Linux, CI, o contenedor)."
     expected: "El test `D-07 case-tolerance` de `test/skill-sync.test.js` sigue en verde cuando el entrypoint real es `SKILL.md` en mayúsculas."
     why_human: "En macOS ese test pasa TRIVIALMENTE porque el filesystem es case-insensitive (`existsSync(join(dir,'skill.md'))` da `true` aunque solo exista `SKILL.md`). Su mordida real solo es observable en un filesystem case-sensitive, no disponible en este entorno de verificación. Documentado como tal en el propio test (`skill-sync.test.js:759`) y en `84-01-SUMMARY.md` (coverage D6, `human_judgment: true`)."

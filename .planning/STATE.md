@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
-current_phase: 84
-current_phase_name: superficies-de-captura-skill-sync-conteo-ambient
-status: awaiting_uat
-stopped_at: Phase 84 executed and verified (human_needed — UAT pendiente)
-last_updated: "2026-07-26T09:45:48.436Z"
+current_phase: 85
+current_phase_name: Saneo de deuda + Nyquist retroactivo
+status: planning
+stopped_at: Phase 84 complete (UAT 25/25 pass), ready to plan Phase 85
+last_updated: "2026-07-26T11:38:07.528Z"
 last_activity: 2026-07-26
-last_activity_desc: Phase 84 executed + verified (human_needed) — UAT pendiente
+last_activity_desc: Phase 84 complete, transitioned to Phase 85
 progress:
   total_phases: 4
   completed_phases: 3
@@ -20,22 +20,22 @@ progress:
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.19 «Inbox de capturas + fix stealLock + saneo de deuda»** — roadmap creado 2026-07-24 (Phases 82-85, 15/15 requirements mapeados, granularidad `coarse`). **Phases 82 y 83 completas** (2026-07-25): carrera de `stealLock` cerrada con fix real (LOCK-01..03) y buffer de captura global operativo con su invariante de concurrencia cerrado por guard compare-and-swap tras un ciclo de gap-closure (CAPT-01/03/04/06). **Awaiting plan** de la Phase 84 (`/gsd-plan-phase 84`). Tres workstreams independientes: fix real de `stealLock` (Phase 82 ✓), inbox de capturas global (Phase 83 ✓ → Phase 84), barrido de deuda doc/Nyquist (Phase 85).
+**Estado:** Milestone **v0.19 «Inbox de capturas + fix stealLock + saneo de deuda»** — roadmap creado 2026-07-24 (Phases 82-85, 15/15 requirements mapeados, granularidad `coarse`). **Phases 82, 83 y 84 completas**: carrera de `stealLock` cerrada con fix real (LOCK-01..03, 2026-07-25), buffer de captura global operativo con su invariante de concurrencia cerrado por guard compare-and-swap tras un ciclo de gap-closure (CAPT-01/03/04/06, 2026-07-25), y **superficies de captura completas** (CAPT-02/05/07, 2026-07-26): `/kodo-capture` mid-session, `kodo skill sync` multi-skill con allowlist congelada y conteo ambient de capturas sin enrutar en el dashboard — UAT 25/25 pass, suite 2586 verde. **Awaiting plan** de la Phase 85 (`/gsd-plan-phase 85`), última del milestone. Tres workstreams independientes: fix real de `stealLock` (Phase 82 ✓), inbox de capturas global (Phases 83 ✓ + 84 ✓), barrido de deuda doc/Nyquist (Phase 85).
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
+See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 84 — superficies-de-captura-skill-sync-conteo-ambient
+**Current focus:** Phase 85 — Saneo de deuda + Nyquist retroactivo (última del milestone v0.19)
 
 ## Current Position
 
-Phase: 84 (superficies-de-captura-skill-sync-conteo-ambient) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-07-26 — Phase 84 execution started
+Phase: 85 — Saneo de deuda + Nyquist retroactivo
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-26 — Phase 84 complete, transitioned to Phase 85
 
 ## Most recent shipped milestone
 
@@ -60,6 +60,8 @@ Baseline al cierre de v0.18 (2026-07-24). **Varios items quedan ahora programado
 | Nyquist | VALIDATION.md en draft (mapa por-task vacío) en Phases 69/71/72 — cobertura real de tests sí evidenciada en VERIFICATION | **Programado → v0.19 Phase 85** (NYQ-02) | v0.16 |
 | Nyquist | VALIDATION.md en draft (seeded, nunca reconciliado) en Phases 79/80/81 — cobertura real sí evidenciada en cada VERIFICATION (suite 2364) | **Programado → v0.19 Phase 85** (NYQ-01) | v0.18 |
 | Observabilidad | 3 warnings de 80-REVIEW.md (observabilidad/cobertura) — a resolver o re-aceptar individualmente | **Programado → v0.19 Phase 85** (DEBT-07) | v0.18 Phase 80 |
+| Distribución de skills | **D-08b** — el carril de auto-sync del orquestador (`src/orchestrator/launch.js`) sigue sincronizando SOLO `kodo-orchestrate`; un operador que use `kodo orchestrate` y nunca ejecute `kodo skill sync` **no recibirá** `/kodo-capture`. Blindado en la dirección contraria por el guard source-hygiene de `test/skill-sync.test.js` (impide "terminar el trabajo" por inercia). · **D-08** — rename `kodo-orchestrate/skill.md` → `SKILL.md`: cambia el path de distribución (fichero huérfano en el HOME de cada operador sin `--prune`) y rompe `SKILL_PATH` (`src/hooks/stop.js:21`). Riesgo A1 **no verificado**: es plausible que `skill.md` en minúsculas no cargue en filesystem case-sensitive (Linux/CI); esta fase mitigó su mitad (gate case-tolerante en los dos sitios, D-07) | Diferidos con trigger: D-08b → primer operador que reporte que `/kodo-capture` no le aparece; D-08 → próximo toque de esa skill o barrido con `--prune` documentado. Detalle en `84/deferred-items.md` | v0.19 Phase 84 |
+| Higiene de tests | **format-isolation transitivo** — el guard de color-isolation sigue imports directos, no transitivos; el walker (`walkImports`) ya existe en el fichero pero no se ha medido el radio de ficheros del dashboard que se pondrían rojos al activarlo · **D-24** tecla del dashboard para triar el inbox desde el conteo (CAPT-07 pide conteo, no navegación) · **D-13** `task_ref` en la línea de captura (exige abrir el formato congelado en Phase 83 y romper su golden) | Diferidos: format-isolation → **candidato natural de la Phase 85** (ya es la fase de saneo); D-24 → que el conteo demuestre presión real y el operador pida el atajo; D-13 → caso de uso que `deriveTag` no cubra | v0.19 Phase 84 |
 | Operación | El grupo cmux `SCP-CMRi` del operador no matchea el identifier derivado `SCP` — tareas SCP se lanzan sin grupo (fail-open correcto); renombrar el grupo a `SCP` para agruparlas | Acción de operador (fuera de scope) | v0.17 Phase 77 |
 | Riesgo aceptado | IN-07 / R-77-D10 (LOCKED D-10): el retry TOCTOU de `newWorkspaceWithGroupFallback` puede duplicar workspace ante timeout | Aceptado y documentado (78-SECURITY.md §Accepted Risks) | v0.17 Phase 77 |
 | Verificación empírica | CONC-09 — sign-off humano de la ubicación real de worktrees (`.bg-shell` vs `.claude/worktrees`); `doctor --fix` scan path sin cambiar hasta confirmarlo en sesión GSD viva | Diferido por diseño (D-15, precedente 50.1) | v0.16 Phase 70 |
@@ -150,16 +152,14 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T09:45:48.428Z
+**Last session:** 2026-07-26T11:38:07Z
 
-**Resume file:**
+**Resume file:** None
 
-.planning/phases/84-superficies-de-captura-skill-sync-conteo-ambient/84-VERIFICATION.md
-
-- **Stopped at:** Phase 84 executed and verified (human_needed — UAT pendiente)
-- **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
+- **Stopped at:** Phase 84 complete (UAT 25/25 pass, verification `passed`), ready to plan Phase 85
+- **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
-  - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
+  - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
   - `.planning/ROADMAP.md` (v0.19 activo Phases 82-85 + Phase Details; v0.18 colapsado; Backlog con 999.1 shipped + 999.2 promovida a 83-84 + 999.3 shipped)
   - `.planning/REQUIREMENTS.md` (15/15 requirements mapeados; traceability completa)
   - `.planning/research/SUMMARY.md` (research del inbox de capturas — decisión del modelo de estado flagged para discuss/plan de Phase 83)
@@ -167,9 +167,9 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Operator Next Steps
 
-- Planificar la Phase 82 con `/gsd-plan-phase 82` (fix de la carrera de `stealLock`)
-- En discuss/plan de la Phase 83: **decidir explícitamente el modelo de estado del inbox** (lock compartido `withFileLock` vs event-log append-only) — flagged por el research, no defaultear
-- `git push` (+ tag v0.18) sigue pendiente de decisión del operador — v0.18 es local
+- Planificar la Phase 85 con `/gsd-plan-phase 85` (saneo de deuda + Nyquist retroactivo) — última fase de v0.19
+- **R-82-01 sigue abierta:** decidir sobre la carrera de segundo orden de `stealLock` con holder VIVO (82-REVIEW CR-01) — fix con gate vs riesgo aceptado documentado
+- `git push` (+ tag v0.18) sigue pendiente de decisión del operador — v0.18 y todo v0.19 son locales
 
 ## Performance Metrics
 
