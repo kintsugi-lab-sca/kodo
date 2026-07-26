@@ -4,17 +4,17 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 84
 current_phase_name: superficies-de-captura-skill-sync-conteo-ambient
-status: executing
-stopped_at: Completed 84-03-PLAN.md
-last_updated: "2026-07-26T09:08:56.887Z"
+status: verifying
+stopped_at: Completed 84-01-PLAN.md
+last_updated: "2026-07-26T09:23:09.127Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 84 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 50
+  completed_plans: 12
+  percent: 75
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 Phase: 84 (superficies-de-captura-skill-sync-conteo-ambient) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-26 — Phase 84 execution started
 
 ## Most recent shipped milestone
@@ -119,6 +119,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase 84]: La regex del leaf de conteo es la especializacion a linea ABIERTA de LINE_RE, no un prefijo de checkbox — Medido sobre el fixture adversarial de D-18: el prefijo cuenta 7 y el oraculo listCaptures cuenta 2. Un "- [ ] comprar leche" escrito a mano basta para desalinear los dos lectores, y el inbox es human-editable por diseno.
 - [Phase 84]: El backstop de overflow del dashboard se cierra con un stdout propio pasado al render de ink — ink-testing-library fija columns en un getter de 100 sin override. El plan autorizaba dejar el backstop declarado sin cerrar; medir el wrap real a 40 columnas cuesta ~30 lineas de test y no toca produccion, asi que se cerro sin inventar aritmetica de ancho.
 - [Phase 84]: Los siete ficheros de test de dashboard existentes no se tocan: el default inboxOpen = 0 en SessionTable es lo que los mantiene verdes — Cambio quirurgico. Consecuencia conocida y aceptada: esos siete renderizan App sin sandboxear HOME, asi que leen el inbox real del desarrollador; sin efecto sobre sus asserts, que son de coincidencia parcial.
+- [Phase 84]: El registro de skills distribuibles es una allowlist literal congelada (KODO_SKILLS), nunca un listado de .claude/skills/ — es el control de acceso al HOME del operador — Un listado de directorio convertiría cualquier fichero caído en .claude/skills/ (hoy worktree-cleanup, una skill de trabajo local) en algo que se copia al HOME de todos los operadores. Con la allowlist, añadir una entrada es un acto deliberado y revisable en diff, asertado por un test source-hygiene.
+- [Phase 84]: El prefijo de error por skill lleva el nombre DESPUÉS de los dos puntos: Error: filesystem error: [skill] mensaje — La forma alternativa de 84-RESEARCH desplazaba los dos puntos y habría roto el assert anclado /^Error: filesystem error: / de test/skill-sync.test.js. Arbitraje de 84-PATTERNS a favor de 84-UI-SPEC.
+- [Phase 84]: D-07 se aplica en los DOS gates de entrypoint: el del handler y el interno de syncSkill (src/skill/sync.js:67) — Sin el gate case-tolerante dentro de syncSkill, en Linux kodo-capture/SKILL.md pasaría el gate del handler y syncSkill devolvería source skill not found. El cambio es una condición más permisiva: no toca firma ni contrato de retorno, así que es compatible con D-06 leído literalmente.
 
 ### Open Blockers
 
@@ -147,13 +150,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T09:08:56.880Z
+**Last session:** 2026-07-26T09:22:55.560Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 84-03-PLAN.md
+- **Stopped at:** Completed 84-01-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -188,6 +191,7 @@ None
 | Phase 83 P07 | 12min | 3 tasks | 7 files |
 | Phase 84 P02 | 41min | 2 tasks | 2 files |
 | Phase 84 P03 | 14 min | 2 tasks | 4 files |
+| Phase 84 P01 | 9 min | 3 tasks | 5 files |
 
 ### Blockers
 

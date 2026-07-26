@@ -19,7 +19,7 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 - [x] **CAPT-02**: `/kodo-capture` captura mid-session desde Claude Code con formato byte-idéntico al CLI — el skill deriva proyecto/tarea del contexto de sesión de forma determinista y shellea a `kodo capture` (un solo writer; jamás escribe el fichero directamente)
 - [x] **CAPT-03**: `kodo inbox` lista las capturas abiertas y marca cada una como `enrutada`/`descartada` al procesarla, sin borrar nunca una captura (traza permanente de qué se convirtió en qué); una captura concurrente durante el marcado nunca se pierde (modelo de estado decidido explícitamente en discuss-phase: lock compartido vs event-log append-only)
 - [x] **CAPT-04**: El enrutado de una captura a tarea/fase/config lo hace `gsd-capture` — kodo no reimplementa lógica de destinos (seam documental, sin import de código GSD)
-- [ ] **CAPT-05**: `kodo skill sync` distribuye también el skill `kodo-capture` (generalización multi-skill del mecanismo hoy single-skill de `kodo-orchestrate`)
+- [x] **CAPT-05**: `kodo skill sync` distribuye también el skill `kodo-capture` (generalización multi-skill del mecanismo hoy single-skill de `kodo-orchestrate`)
 - [x] **CAPT-06**: Una captura enrutada conserva un trace pointer `→ destino` en su línea cuando el flujo de enrutado aporta una ref utilizable; si `gsd-capture` no devuelve ref barata, la marca `enrutada` queda sin destino (best-effort explícito, nunca bloquea el enrutado)
 - [x] **CAPT-07**: El operador ve el conteo de capturas sin enrutar como superficie ambient (dashboard TUI, reader leaf never-throws sobre `~/.kodo/inbox.md`, cero endpoints nuevos) — presión de triage contra el inbox rot
 
@@ -73,7 +73,7 @@ Qué fases cubren qué requirements.
 | CAPT-02 | Phase 84 | Complete |
 | CAPT-03 | Phase 83 | Complete |
 | CAPT-04 | Phase 83 | Complete |
-| CAPT-05 | Phase 84 | Pending |
+| CAPT-05 | Phase 84 | Complete |
 | CAPT-06 | Phase 83 | Complete |
 | CAPT-07 | Phase 84 | Complete |
 | DEBT-05 | Phase 85 | Pending |

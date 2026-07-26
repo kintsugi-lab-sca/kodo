@@ -112,7 +112,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 84-01-PLAN.md — `kodo skill sync` multi-skill: allowlist explícita `KODO_SKILLS`, resiliencia por skill, `--json` aditivo y render de una línea por skill (CAPT-05) · wave 2
+- [x] 84-01-PLAN.md — `kodo skill sync` multi-skill: allowlist explícita `KODO_SKILLS`, resiliencia por skill, `--json` aditivo y render de una línea por skill (CAPT-05) · wave 2
 
 ### Phase 85: Saneo de deuda + Nyquist retroactivo
 
