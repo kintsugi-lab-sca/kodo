@@ -4,11 +4,11 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 84
 current_phase_name: superficies-de-captura-skill-sync-conteo-ambient
-status: verifying
-stopped_at: Completed 84-01-PLAN.md
-last_updated: "2026-07-26T09:23:09.127Z"
+status: awaiting_uat
+stopped_at: Phase 84 executed and verified (human_needed — UAT pendiente)
+last_updated: "2026-07-26T09:45:48.436Z"
 last_activity: 2026-07-26
-last_activity_desc: Phase 84 execution started
+last_activity_desc: Phase 84 executed + verified (human_needed) — UAT pendiente
 progress:
   total_phases: 4
   completed_phases: 3
@@ -150,13 +150,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T09:22:55.560Z
+**Last session:** 2026-07-26T09:45:48.428Z
 
 **Resume file:**
 
-None
+.planning/phases/84-superficies-de-captura-skill-sync-conteo-ambient/84-VERIFICATION.md
 
-- **Stopped at:** Completed 84-01-PLAN.md
+- **Stopped at:** Phase 84 executed and verified (human_needed — UAT pendiente)
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
