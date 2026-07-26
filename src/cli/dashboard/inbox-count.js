@@ -87,10 +87,15 @@ const OPEN_LINE_RE =
  */
 export function readOpenCaptureCount(deps = {}) {
   const readFileFn = deps.readFileFn || ((p) => readFileSync(p, 'utf-8'));
-  // PEREZOSO (D-19): `homedir()` se evalúa AQUÍ, jamás en el cuerpo del módulo. Un test que
-  // fije su directorio antes de INVOCAR obtiene su sandbox aunque el import sea estático.
-  const kodoDir = deps.kodoDir || join((deps.homedirFn || homedir)(), '.kodo');
   try {
+    // PEREZOSO (D-19): `homedir()` se evalúa AQUÍ, jamás en el cuerpo del módulo. Un test que
+    // fije su directorio antes de INVOCAR obtiene su sandbox aunque el import sea estático.
+    //
+    // DENTRO del try (84-REVIEW WR-01): la resolución del path también puede lanzar —
+    // `homedirFn` inyectado que falle, o un `kodoDir` que no sea string y haga estallar a
+    // `join`. Resolverla fuera dejaba una grieta en el never-throws de cuerpo entero (D-20)
+    // que este mismo JSDoc promete, y un throw aquí tumba el árbol de ink entero.
+    const kodoDir = deps.kodoDir || join((deps.homedirFn || homedir)(), '.kodo');
     const raw = readFileFn(join(kodoDir, 'inbox.md'));
     let n = 0;
     for (const line of raw.split('\n')) if (OPEN_LINE_RE.test(line)) n++;

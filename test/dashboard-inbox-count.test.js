@@ -186,6 +186,29 @@ describe('CAPT-07 · D-20: never-throws de cuerpo entero', () => {
     const bin = seed('\u0000\u0001\u0002- [ ] \u0000\u0000 basura binaria \u0000\uFFFD');
     assert.equal(readOpenCaptureCount({ kodoDir: dirname(bin) }), 0);
   });
+
+  // 84-REVIEW WR-01. La resolución del path vivía FUERA del `try`, así que un fallo al
+  // resolverlo escapaba del never-throws y tumbaba el árbol de ink entero — precisamente el
+  // fallo que D-20 existe para impedir, en el único punto donde el JSDoc prometía cubrirlo.
+  it('WR-01: un fallo al RESOLVER el path también degrada a 0, no lanza', () => {
+    assert.equal(
+      readOpenCaptureCount({
+        homedirFn: () => {
+          throw new Error('homedir() no disponible en este entorno');
+        },
+      }),
+      0,
+      'un `homedirFn` que lanza debe degradar a 0: está dentro del never-throws, no fuera',
+    );
+
+    assert.equal(
+      // `join` lanza `TypeError` ante un argumento que no sea string. Llega por DI, así que
+      // es alcanzable sin tocar el entorno.
+      readOpenCaptureCount({ kodoDir: /** @type {any} */ (42) }),
+      0,
+      'un `kodoDir` no-string hace estallar a `join`: también debe degradar a 0',
+    );
+  });
 });
 
 describe('CAPT-07 · D-19: resolución perezosa del path', () => {

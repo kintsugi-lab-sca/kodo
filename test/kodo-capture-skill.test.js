@@ -99,10 +99,28 @@ const LINEA_GOLDEN_SKILL = '- [ ] a3f9k2 · el texto de la idea · kodo · 2026-
 const TEXTO_ADVERSARIAL = '-3 % de conversión';
 
 /**
- * Tokenizador shell-like mínimo: respeta comillas dobles y las retira del token.
+ * Texto adversarial con METACARACTERES DE SHELL. Dentro de comillas dobles, `$(...)`, las
+ * comillas invertidas y `$VAR` se EXPANDEN: el shell ejecuta el comando y su salida acaba escrita
+ * en el inbox (84-REVIEW CR-01, reproducido). Dentro de comillas simples no se expande nada.
+ *
+ * **El discriminante es `$HOME`, no una palabra centinela.** Una centinela tipo `$(echo PWNED)`
+ * NO sirve: la cadena `PWNED` aparece también en el texto SIN expandir, así que buscarla no
+ * distingue los dos casos (primer intento de este test, rojo por construcción). La ruta del HOME
+ * sandbox, en cambio, no está en el literal por ningún lado: solo puede aparecer si el shell
+ * expandió. Los otros dos metacaracteres se verifican por igualdad con el literal completo.
+ */
+const TEXTO_INYECCION = 'coste: $(id -un) y `hostname` y $HOME';
+
+/**
+ * Tokenizador shell-like mínimo: respeta comillas SIMPLES y dobles y las retira del token.
  * No existe helper compartido en el repo (no hay utilidades de test comunes), así que vive aquí.
  * Lanza ante comillas sin cerrar: un tokenizador laxo dejaría pasar un comando que commander
  * rechaza, que es exactamente el fallo que este fichero existe para impedir.
+ *
+ * Reconoce los DOS estilos a propósito: así el test de igualdad de argv sigue siendo válido
+ * si alguien cambia el estilo de comillas, y es el test dedicado de CR-01 —no el tokenizador—
+ * el que falla y nombra el motivo. Un tokenizador que solo aceptara simples convertiría un
+ * fallo de seguridad legible en un críptico «comilla sin cerrar».
  *
  * @param {string} cadena
  * @returns {string[]}
@@ -111,15 +129,21 @@ function tokenize(cadena) {
   /** @type {string[]} */
   const tokens = [];
   let actual = '';
-  let enComillas = false;
+  /** @type {'"' | "'" | null} */
+  let comilla = null;
   let hayToken = false;
   for (const ch of cadena) {
-    if (ch === '"') {
-      enComillas = !enComillas;
+    if (comilla === null && (ch === '"' || ch === "'")) {
+      comilla = /** @type {'"' | "'"} */ (ch);
       hayToken = true;
       continue;
     }
-    if (!enComillas && /\s/.test(ch)) {
+    if (comilla !== null && ch === comilla) {
+      comilla = null;
+      hayToken = true;
+      continue;
+    }
+    if (comilla === null && /\s/.test(ch)) {
       if (hayToken) {
         tokens.push(actual);
         actual = '';
@@ -130,7 +154,7 @@ function tokenize(cadena) {
     actual += ch;
     hayToken = true;
   }
-  if (enComillas) throw new Error('comilla doble sin cerrar en la invocación del SKILL.md');
+  if (comilla !== null) throw new Error('comilla sin cerrar en la invocación del SKILL.md');
   if (hayToken) tokens.push(actual);
   return tokens;
 }
@@ -241,6 +265,29 @@ describe('D-14 — la invocación del SKILL.md es única y está congelada', () 
     );
   });
 
+  it('CR-01: el texto va entre comillas SIMPLES — las dobles dejarían expandir al shell', () => {
+    const contenido = contenidoDelBloque();
+    assert.ok(
+      contenido.includes(`'${PLACEHOLDER}'`),
+      `el placeholder debe ir entre comillas simples. Con dobles, un texto que contenga $(...) o ` +
+        'comillas invertidas se EJECUTA al construir la llamada a Bash (84-REVIEW CR-01, reproducido) ' +
+        `y su salida acaba escrita en el inbox. Encontrado: ${JSON.stringify(contenido)}`,
+    );
+    assert.ok(
+      !contenido.includes('"'),
+      'ninguna comilla doble en la invocación: es el metacarácter que abre la expansión',
+    );
+  });
+
+  it('CR-01: la regla de escape de comillas simples está documentada en el cuerpo', () => {
+    // Sin esta regla el modelo, ante un apóstrofo en el texto, «arreglaría» el comando
+    // volviendo a las dobles — reabriendo exactamente el agujero que la línea cierra.
+    assert.ok(
+      SKILL_SRC.includes(`'\\''`),
+      'el cuerpo debe enseñar la secuencia de escape `\'\\\'\'` para un texto con apóstrofo',
+    );
+  });
+
   it('frontmatter presente y `allowed-tools` con el patrón ESTRECHO (D-09, T-84-08)', () => {
     const fm = SKILL_SRC.match(FRONTMATTER_RE);
     assert.ok(fm, 'el SKILL.md debe abrir con un bloque de frontmatter (a diferencia de kodo-orchestrate/skill.md)');
@@ -327,6 +374,69 @@ describe('D-14 — el argv del markdown produce la línea del golden y sobrevive
       // la vía in-process, que es determinista por construcción.
       assert.match(captura.date, /^\d{4}-\d{2}-\d{2}$/);
       assert.equal(encodeLine(captura), lineas[0], 'round-trip byte-exacto contra el codec de Phase 83');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  // 84-REVIEW CR-01. Los dos carriles de arriba tokenizan la línea en JS y la pasan como argv,
+  // así que NUNCA ven un shell — y por eso no podían detectar la expansión. Este carril ejecuta
+  // la línea del markdown TAL CUAL por `bash -c`, que es lo que de facto ocurre cuando el modelo
+  // la manda a la tool `Bash`. Es el único que muerde el fallo real.
+  it('CR-01 — la línea del markdown, ejecutada POR SHELL, no expande `$(...)` ni backticks', () => {
+    const home = sandboxHome();
+    try {
+      const linea = contenidoDelBloque();
+      // Sustitución literal del placeholder, exactamente como la haría el modelo.
+      const comando = linea.replace(PLACEHOLDER, TEXTO_INYECCION).replace(/^kodo\b/, `"${process.execPath}" "${KODO_BIN}"`);
+      const r = spawnSync('bash', ['-c', comando], {
+        cwd: REPO,
+        env: { ...process.env, HOME: home, NO_COLOR: '1' },
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      assert.equal(r.status, 0, `la invocación debe salir 0 por shell. stderr: ${r.stderr}`);
+
+      const contenido = readFileSync(join(home, '.kodo', 'inbox.md'), 'utf-8');
+      const captura = parseLine(contenido.split('\n').filter((l) => l.trim() !== '')[0]);
+      assert.ok(captura, 'la línea debe parsear con el codec de Phase 83');
+      assert.ok(
+        !captura.text.includes(home),
+        `el shell EXPANDIÓ «$HOME»: la ruta del sandbox no se tecleó en ninguna parte, solo puede ` +
+          `estar ahí si hubo expansión. Eso es ejecución de comandos arbitrarios (84-REVIEW CR-01). ` +
+          `Texto guardado: ${JSON.stringify(captura.text)}`,
+      );
+      assert.equal(
+        captura.text,
+        TEXTO_INYECCION,
+        'el texto se guarda VERBATIM, con `$(...)`, backticks y `$VAR` intactos (regla 4 del SKILL.md)',
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('CR-01 mordida — la MISMA línea con comillas dobles sí expande (el test detecta el fallo)', () => {
+    // Sin esta mordida, el test de arriba pasaría igual aunque el shell no expandiera nada nunca
+    // —p. ej. si un cambio futuro dejara de pasar el texto por un shell— y dejaría de vigilar.
+    const home = sandboxHome();
+    try {
+      const vulnerable = `"${process.execPath}" "${KODO_BIN}" capture --origin skill -- "${TEXTO_INYECCION}"`;
+      const r = spawnSync('bash', ['-c', vulnerable], {
+        cwd: REPO,
+        env: { ...process.env, HOME: home, NO_COLOR: '1' },
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      assert.equal(r.status, 0, `stderr: ${r.stderr}`);
+      const contenido = readFileSync(join(home, '.kodo', 'inbox.md'), 'utf-8');
+      const captura = parseLine(contenido.split('\n').filter((l) => l.trim() !== '')[0]);
+      assert.ok(captura, 'la línea debe parsear');
+      assert.ok(
+        captura.text.includes(home) && !captura.text.includes('$(id -un)'),
+        'con comillas dobles el shell DEBE expandir — si esto deja de cumplirse, el test hermano ' +
+          `ya no vigila nada y hay que revisar por qué. Texto guardado: ${JSON.stringify(captura.text)}`,
+      );
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
