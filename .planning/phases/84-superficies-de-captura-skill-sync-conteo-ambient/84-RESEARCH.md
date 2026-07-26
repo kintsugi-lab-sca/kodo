@@ -991,19 +991,28 @@ it('D-20 never-throws: fichero ausente / directorio / ilegible / binario → 0',
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **¿Debe `src/orchestrator/launch.js` auto-sincronizar también `kodo-capture`?**
+> Las tres quedaron resueltas antes de planificar y sus resoluciones están trazadas en los planes.
+> **OQ1 → RESOLVED:** cerrada por **D-08b** en `84-CONTEXT.md` (no se generaliza el auto-sync; el hueco
+> se registra en `deferred-items.md` con su trigger) — plan `84-01` Task 3.
+> **OQ2 → RESOLVED:** diferida a Phase 85 (fase de saneo); D-17 ya cierra el riesgo concreto por
+> construcción, así que endurecer el guard a transitivo no es prerrequisito de nada aquí.
+> **OQ3 → RESOLVED:** el pattern-mapping lo verificó — el fixture está **inline**
+> (`seedLargeInbox` en `test/inbox-cli.test.js:944-960`), no extraído, así que se regenera en el test
+> nuevo — plan `84-03`.
+
+1. **¿Debe `src/orchestrator/launch.js` auto-sincronizar también `kodo-capture`?** — **RESOLVED** (ver arriba)
    - **Lo que sabemos:** `launch.js:164-166` hace un auto-sync fail-open de `kodo-orchestrate` antes del primer side-effect de cmux [VERIFIED]. El CONTEXT §Integration Points dice «`src/cli/skill-sync.js`: **único** fichero que cambia para CAPT-05», lo que excluye tocarlo.
    - **Lo que no está claro:** con el auto-sync intacto, un operador que solo use `kodo orchestrate` (y nunca `kodo skill sync`) nunca recibe `/kodo-capture` en su HOME. Si el `~/.claude/skills/kodo-capture/` no llega, CAPT-02 no se materializa para ese operador.
    - **Recomendación:** **no tocarlo en esta fase** (respeta el boundary literal y la Regla 3) y **registrar el hueco en `deferred-items.md`** como «distribución de `kodo-capture` por el carril de auto-sync del orquestador», con trigger «el primer operador que reporte que `/kodo-capture` no aparece». Si el operador prefiere cerrarlo aquí, es un cambio de ~4 líneas (bucle sobre `KODO_SKILLS` importado) — pero es una decisión suya, no del planner.
 
-2. **¿Endurecer `test/format-isolation.test.js` a imports transitivos?**
+2. **¿Endurecer `test/format-isolation.test.js` a imports transitivos?** — **RESOLVED** (ver arriba)
    - **Lo que sabemos:** el guard comprueba solo imports directos; el walker transitivo ya existe en el mismo fichero [VERIFIED].
    - **Lo que no está claro:** endurecerlo podría poner rojos ficheros del dashboard que hoy pasan. No se ha ejecutado la variante transitiva sobre todo `src/cli/dashboard/` para medir el radio.
    - **Recomendación:** **fuera del alcance de esta fase.** D-17 ya cierra el riesgo concreto por construcción. Registrarlo como candidato de deuda para Phase 85 (que ya es la fase de saneo DEBT-05/06/07), donde encaja naturalmente.
 
-3. **¿El fixture de 1 500 capturas de `83-05` es reutilizable tal cual?**
+3. **¿El fixture de 1 500 capturas de `83-05` es reutilizable tal cual?** — **RESOLVED** (ver arriba)
    - **Lo que sabemos:** D-18 lo nombra explícitamente. `test/inbox-concurrency.test.js` existe y la referencia viene de `83-05`.
    - **Lo que no está claro:** si el fixture está extraído como helper reutilizable o generado inline en ese test.
    - **Recomendación:** el ejecutor lo revisa al escribir el test; si está inline, **generarlo** en el test nuevo (12 líneas, coste cero) en vez de exportarlo desde el otro fichero — el repo no usa barrel files ni helpers cross-test.
