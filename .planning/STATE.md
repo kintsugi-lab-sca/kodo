@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 84
 current_phase_name: superficies-de-captura-skill-sync-conteo-ambient
 status: executing
-stopped_at: Completed 84-02-PLAN.md
-last_updated: "2026-07-26T08:54:33.045Z"
+stopped_at: Completed 84-03-PLAN.md
+last_updated: "2026-07-26T09:08:56.887Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 84 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 ## Current Position
 
 Phase: 84 (superficies-de-captura-skill-sync-conteo-ambient) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-26 — Phase 84 execution started
 
@@ -116,6 +116,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 84-02: la skill /kodo-capture usa el placeholder <texto> (literal LOCKED D-11), no $ARGUMENTS — el modelo sustituye y escapa, evitando el word-splitting de la sustitución cruda
 - [Phase ?]: 84-02: el contrato del SKILL.md se testea extrayendo el argv del markdown y congelándolo contra ARGV_CANONICO; la byte-identidad se hereda del writer único de Phase 83
 - [Phase ?]: 84-02: la fecha del carril child-process se deriva de la línea producida y solo se asserta su forma — nunca se recalcula con un segundo reloj (flake de medianoche)
+- [Phase 84]: La regex del leaf de conteo es la especializacion a linea ABIERTA de LINE_RE, no un prefijo de checkbox — Medido sobre el fixture adversarial de D-18: el prefijo cuenta 7 y el oraculo listCaptures cuenta 2. Un "- [ ] comprar leche" escrito a mano basta para desalinear los dos lectores, y el inbox es human-editable por diseno.
+- [Phase 84]: El backstop de overflow del dashboard se cierra con un stdout propio pasado al render de ink — ink-testing-library fija columns en un getter de 100 sin override. El plan autorizaba dejar el backstop declarado sin cerrar; medir el wrap real a 40 columnas cuesta ~30 lineas de test y no toca produccion, asi que se cerro sin inventar aritmetica de ancho.
+- [Phase 84]: Los siete ficheros de test de dashboard existentes no se tocan: el default inboxOpen = 0 en SessionTable es lo que los mantiene verdes — Cambio quirurgico. Consecuencia conocida y aceptada: esos siete renderizan App sin sandboxear HOME, asi que leen el inbox real del desarrollador; sin efecto sobre sus asserts, que son de coincidencia parcial.
 
 ### Open Blockers
 
@@ -144,13 +147,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T08:54:25.867Z
+**Last session:** 2026-07-26T09:08:56.880Z
 
 **Resume file:**
 
 None
 
-- **Stopped at:** Completed 84-02-PLAN.md
+- **Stopped at:** Completed 84-03-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -184,6 +187,7 @@ None
 | Phase 83 P06 | 8min | 2 tasks | 2 files |
 | Phase 83 P07 | 12min | 3 tasks | 7 files |
 | Phase 84 P02 | 41min | 2 tasks | 2 files |
+| Phase 84 P03 | 14 min | 2 tasks | 4 files |
 
 ### Blockers
 

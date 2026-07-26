@@ -21,7 +21,7 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 - [x] **CAPT-04**: El enrutado de una captura a tarea/fase/config lo hace `gsd-capture` — kodo no reimplementa lógica de destinos (seam documental, sin import de código GSD)
 - [ ] **CAPT-05**: `kodo skill sync` distribuye también el skill `kodo-capture` (generalización multi-skill del mecanismo hoy single-skill de `kodo-orchestrate`)
 - [x] **CAPT-06**: Una captura enrutada conserva un trace pointer `→ destino` en su línea cuando el flujo de enrutado aporta una ref utilizable; si `gsd-capture` no devuelve ref barata, la marca `enrutada` queda sin destino (best-effort explícito, nunca bloquea el enrutado)
-- [ ] **CAPT-07**: El operador ve el conteo de capturas sin enrutar como superficie ambient (dashboard TUI, reader leaf never-throws sobre `~/.kodo/inbox.md`, cero endpoints nuevos) — presión de triage contra el inbox rot
+- [x] **CAPT-07**: El operador ve el conteo de capturas sin enrutar como superficie ambient (dashboard TUI, reader leaf never-throws sobre `~/.kodo/inbox.md`, cero endpoints nuevos) — presión de triage contra el inbox rot
 
 ### Saneo de deuda (DEBT)
 
@@ -75,7 +75,7 @@ Qué fases cubren qué requirements.
 | CAPT-04 | Phase 83 | Complete |
 | CAPT-05 | Phase 84 | Pending |
 | CAPT-06 | Phase 83 | Complete |
-| CAPT-07 | Phase 84 | Pending |
+| CAPT-07 | Phase 84 | Complete |
 | DEBT-05 | Phase 85 | Pending |
 | DEBT-06 | Phase 85 | Pending |
 | DEBT-07 | Phase 85 | Pending |
