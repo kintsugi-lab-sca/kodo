@@ -4,9 +4,9 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 84
 current_phase_name: Superficies de captura — skill, sync, conteo ambient
-status: planning
+status: executing
 stopped_at: Phase 84 UI-SPEC approved
-last_updated: "2026-07-26T08:18:40.252Z"
+last_updated: "2026-07-26T08:45:30.443Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 83 complete, transitioned to Phase 84
 progress:
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 Phase: 84 — Superficies de captura — skill, sync, conteo ambient
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-25 — Phase 83 complete, transitioned to Phase 84
 
 ## Most recent shipped milestone

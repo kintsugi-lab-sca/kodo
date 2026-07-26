@@ -105,9 +105,14 @@
 **Plans**: 3 plans
 
 Plans:
-- [ ] 84-01-PLAN.md — `kodo skill sync` multi-skill: allowlist explícita `KODO_SKILLS`, resiliencia por skill, `--json` aditivo y render de una línea por skill (CAPT-05) · wave 2
+**Wave 1**
+
 - [ ] 84-02-PLAN.md — la skill `/kodo-capture` y el golden que congela su invocación canónica contra el writer único (CAPT-02) · wave 1
 - [ ] 84-03-PLAN.md — conteo ambient de capturas sin enrutar: leaf never-throws anclado a `listCaptures` + cabecera del dashboard (CAPT-07) · wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 84-01-PLAN.md — `kodo skill sync` multi-skill: allowlist explícita `KODO_SKILLS`, resiliencia por skill, `--json` aditivo y render de una línea por skill (CAPT-05) · wave 2
 
 ### Phase 85: Saneo de deuda + Nyquist retroactivo
 
