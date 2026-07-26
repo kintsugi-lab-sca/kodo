@@ -113,7 +113,7 @@ nombre de la skill se escribe entero (`kodo-orchestrate`, no `orchestrate`).
 | Secundario (~30%) — atenuado | `dimColor: true` (TUI) / `fmt.dim` (CLI) | Keybar del pie (existente), rama `waiting for server` (existente), **prefijo `<skill>:` del render human (nuevo)** |
 | Acento (~10%) | **`yellow`** — `color:'yellow'` (TUI) / `fmt.yellow` (CLI) | **Reservado en esta fase a exactamente dos elementos**, listados abajo |
 | Semántico OK | `green` vía `fmt.ok` (CLI) / `color:'green'` (TUI, rama `● live`) | Sin cambios. El conteo **jamás** es verde |
-| Destructivo | `red` / `fmt.fail` | **No aplica** — esta fase no tiene ninguna acción destructiva (ver §Copywriting Contract) |
+| Destructivo | `red` / `fmt.fail` | **Sin uso nuevo en esta fase.** La única acción con borrado es `--prune` de `skill sync`, que es **preexistente y no cambia**: reporta en `yellow` (aviso `⚠ … removing foreign`), nunca en rojo — ver §Copywriting Contract, Superficie A. El rojo queda reservado al fallo duro (`Error: filesystem error: …`), que ya existe y conserva su literal |
 | Reservado — no usar | `cyan` | Reservado en el dashboard al **prompt armado/accionable** (`SessionTable.js:938-941`). El conteo del inbox **no** puede tomarlo: no es un confirm armado, y tomarlo erosionaría esa reserva |
 
 **El acento amarillo está reservado, en esta fase, a:**
