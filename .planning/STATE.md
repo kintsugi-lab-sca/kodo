@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 84
-current_phase_name: Superficies de captura — skill, sync, conteo ambient
+current_phase_name: superficies-de-captura-skill-sync-conteo-ambient
 status: executing
-stopped_at: Phase 84 UI-SPEC approved
-last_updated: "2026-07-26T08:45:30.443Z"
-last_activity: 2026-07-25
-last_activity_desc: Phase 83 complete, transitioned to Phase 84
+stopped_at: Completed 84-02-PLAN.md
+last_updated: "2026-07-26T08:54:33.045Z"
+last_activity: 2026-07-26
+last_activity_desc: Phase 84 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 12
+  completed_plans: 10
   percent: 50
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-24 after v0.18).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 84 — Superficies de captura — skill, sync, conteo ambient
+**Current focus:** Phase 84 — superficies-de-captura-skill-sync-conteo-ambient
 
 ## Current Position
 
-Phase: 84 — Superficies de captura — skill, sync, conteo ambient
-Plan: Not started
+Phase: 84 (superficies-de-captura-skill-sync-conteo-ambient) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-25 — Phase 83 complete, transitioned to Phase 84
+Last activity: 2026-07-26 — Phase 84 execution started
 
 ## Most recent shipped milestone
 
@@ -113,6 +113,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 83-07 [REVIERTE 83-02]: es FALSO que el carril --json pueda ir verbatim porque JSON.stringify escapa los C0 — el serializador NO escapa DEL ni el bloque C1 y ambos salían íntegros. sanitizeJsonField los elimina en texto, tag, origen y dest
 - [Phase ?]: 83-07: concurrent-write gana rama propia (exit 1 reintentable) con copy que nombra la causa real — un guard que aborta para no destruir una captura concurrente, no contención de lock (D-13)
 - [Phase ?]: 83-07 [desviación]: el test de integración del fail-open sobre el binario NO muerde (el default del store escribe al mismo process.stderr que el test lee); se declara en el propio test y se añade un unit sobre la propagación del seam que sí muerde
+- [Phase ?]: 84-02: la skill /kodo-capture usa el placeholder <texto> (literal LOCKED D-11), no $ARGUMENTS — el modelo sustituye y escapa, evitando el word-splitting de la sustitución cruda
+- [Phase ?]: 84-02: el contrato del SKILL.md se testea extrayendo el argv del markdown y congelándolo contra ARGV_CANONICO; la byte-identidad se hereda del writer único de Phase 83
+- [Phase ?]: 84-02: la fecha del carril child-process se deriva de la línea producida y solo se asserta su forma — nunca se recalcula con un segundo reloj (flake de medianoche)
 
 ### Open Blockers
 
@@ -141,13 +144,13 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T08:18:40.244Z
+**Last session:** 2026-07-26T08:54:25.867Z
 
 **Resume file:**
 
-.planning/phases/84-superficies-de-captura-skill-sync-conteo-ambient/84-UI-SPEC.md
+None
 
-- **Stopped at:** Phase 84 UI-SPEC approved
+- **Stopped at:** Completed 84-02-PLAN.md
 - **Next action:** `/gsd-plan-phase 82` — planificar el fix de la carrera de `stealLock` (workstream independiente, primero por prioridad). Las Phases 83-85 son independientes entre sí salvo 84→83.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-24 after v0.18; milestone v0.19 declarado)
@@ -180,6 +183,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 83 P05 | 10min | 3 tasks | 2 files |
 | Phase 83 P06 | 8min | 2 tasks | 2 files |
 | Phase 83 P07 | 12min | 3 tasks | 7 files |
+| Phase 84 P02 | 41min | 2 tasks | 2 files |
 
 ### Blockers
 

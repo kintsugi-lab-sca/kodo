@@ -107,7 +107,7 @@
 Plans:
 **Wave 1**
 
-- [ ] 84-02-PLAN.md — la skill `/kodo-capture` y el golden que congela su invocación canónica contra el writer único (CAPT-02) · wave 1
+- [x] 84-02-PLAN.md — la skill `/kodo-capture` y el golden que congela su invocación canónica contra el writer único (CAPT-02) · wave 1
 - [ ] 84-03-PLAN.md — conteo ambient de capturas sin enrutar: leaf never-throws anclado a `listCaptures` + cabecera del dashboard (CAPT-07) · wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*

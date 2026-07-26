@@ -16,7 +16,7 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 ### Inbox de capturas (CAPT)
 
 - [x] **CAPT-01**: `kodo capture "idea"` desde cualquier proyecto appendea a `~/.kodo/inbox.md` una línea con `texto · tag-proyecto · fecha · origen`; el append es atómico bajo capturas concurrentes (N capturas concurrentes → N líneas, cero pérdidas) y el texto se sanea a una sola línea en escritura (`stripForKeystroke`, carril keystroke)
-- [ ] **CAPT-02**: `/kodo-capture` captura mid-session desde Claude Code con formato byte-idéntico al CLI — el skill deriva proyecto/tarea del contexto de sesión de forma determinista y shellea a `kodo capture` (un solo writer; jamás escribe el fichero directamente)
+- [x] **CAPT-02**: `/kodo-capture` captura mid-session desde Claude Code con formato byte-idéntico al CLI — el skill deriva proyecto/tarea del contexto de sesión de forma determinista y shellea a `kodo capture` (un solo writer; jamás escribe el fichero directamente)
 - [x] **CAPT-03**: `kodo inbox` lista las capturas abiertas y marca cada una como `enrutada`/`descartada` al procesarla, sin borrar nunca una captura (traza permanente de qué se convirtió en qué); una captura concurrente durante el marcado nunca se pierde (modelo de estado decidido explícitamente en discuss-phase: lock compartido vs event-log append-only)
 - [x] **CAPT-04**: El enrutado de una captura a tarea/fase/config lo hace `gsd-capture` — kodo no reimplementa lógica de destinos (seam documental, sin import de código GSD)
 - [ ] **CAPT-05**: `kodo skill sync` distribuye también el skill `kodo-capture` (generalización multi-skill del mecanismo hoy single-skill de `kodo-orchestrate`)
@@ -70,7 +70,7 @@ Qué fases cubren qué requirements.
 | LOCK-02 | Phase 82 | Complete |
 | LOCK-03 | Phase 82 | Complete |
 | CAPT-01 | Phase 83 | Complete |
-| CAPT-02 | Phase 84 | Pending |
+| CAPT-02 | Phase 84 | Complete |
 | CAPT-03 | Phase 83 | Complete |
 | CAPT-04 | Phase 83 | Complete |
 | CAPT-05 | Phase 84 | Pending |
