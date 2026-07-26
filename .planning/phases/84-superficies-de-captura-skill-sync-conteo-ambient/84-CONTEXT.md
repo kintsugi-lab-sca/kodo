@@ -156,7 +156,10 @@ Nombre y ubicación exactos de la constante del registro de skills (`KODO_SKILLS
 - **`--json` aditivo y byte-determinista** (DX-06): las claves nuevas no desplazan a las existentes → D-04.
 
 ### Integration Points
-- `src/cli/skill-sync.js`: **único** fichero que cambia para CAPT-05. `src/skill/sync.js` y su suite quedan intactos (D-06). El registro commander de `src/cli.js:502-517` solo necesita retoque si cambia el texto de `.description()`.
+- `src/cli/skill-sync.js`: donde vive **toda** la generalización multi-skill (el registro y el bucle) para CAPT-05.
+  - **Corrección post-pattern-mapping (2026-07-26):** una versión previa decía que era el **único** fichero que cambia. **Es falso:** D-07 (gate tolerante a `SKILL.md`/`skill.md`) obliga a tocar también `src/skill/sync.js:67`, donde `existsSync(join(source, 'skill.md'))` codifica el nombre en minúsculas. Sin ese cambio, `kodo-capture/SKILL.md` pasa el gate del handler y **falla dentro de `syncSkill` en Linux**. No hay contradicción con **D-06**, que congela la **firma y el contrato de retorno** de `syncSkill` — no prohíbe corregir un literal dentro de su cuerpo. La suite de `src/skill/sync.js` sigue verde sin tocarse.
+  - El registro commander de `src/cli.js:502-517` solo necesita retoque si cambia el texto de `.description()`.
+- **Arbitraje de conflicto (pattern-mapping):** para el prefijo del error por skill **manda la `84-UI-SPEC.md`** (`Error: filesystem error: [{skill}] {msg}`), no `84-RESEARCH.md` §Code Example 2 (`Error: filesystem error [{skill}]: {msg}`). Solo la forma de la UI-SPEC preserva el assert anclado `/^Error: filesystem error: /` de `test/skill-sync.test.js:526`.
 - `.claude/skills/kodo-capture/SKILL.md`: fichero nuevo. Al entrar en la allowlist de D-01 empieza a distribuirse en la siguiente `kodo skill sync`.
 - `src/cli/dashboard/inbox-count.js`: fichero nuevo (leaf). Se consume desde `App.js` (estado + prop) y se pinta en `SessionTable.js` (cabecera). `usePoll.js` **no se toca**.
 - `src/server.js`: **no se toca** (invariante cero endpoints nuevos, criterio 3 literal de CAPT-07).
