@@ -16,10 +16,10 @@ files_reviewed_list:
   - test/skill-sync.test.js
 findings:
   critical: 0
-  warning: 6
+  warning: 5
   info: 4
-  total: 10
-  resolved: 2
+  total: 9
+  resolved: 3
 status: issues_found
 resolution_commit: c91f4d2
 ---
@@ -29,7 +29,7 @@ resolution_commit: c91f4d2
 **Reviewed:** 2026-07-26T09:31:48Z
 **Depth:** standard
 **Files Reviewed:** 10
-**Status:** issues_found → **CR-01 y WR-01 CERRADOS** (commit `c91f4d2`); 6 warnings + 4 info abiertos
+**Status:** issues_found → **CR-01, WR-01 y WR-05 CERRADOS** (commit `c91f4d2`); 5 warnings + 4 info abiertos
 
 ## Resolución aplicada (2026-07-26, commit `c91f4d2`)
 
@@ -37,7 +37,8 @@ resolution_commit: c91f4d2
 |---|---|---|
 | **CR-01** (BLOCKER) | ✅ **Cerrado** | Comillas simples en la invocación congelada + regla de escape `'\''` documentada en el cuerpo. Se añadió el carril de test que faltaba: **ejecutar la línea del markdown por `bash -c`**, que es lo que ocurre cuando el modelo la manda a la tool `Bash` — los dos carriles previos tokenizaban en JS y nunca veían un shell, por eso no mordían. El discriminante es la ruta del HOME sandbox, no una palabra centinela (una centinela aparece también en el texto **sin** expandir y no distingue los casos: primer intento, rojo por construcción). |
 | **WR-01** (WARNING) | ✅ **Cerrado** | La resolución del path se movió DENTRO del `try` de `readOpenCaptureCount`, con test de un `homedirFn` que lanza y de un `kodoDir` no-string. |
-| WR-02..WR-07, IN-01..IN-04 | ⏳ Abiertos | Registrados abajo. WR-02 (exit 1 en checkouts sin `kodo-capture`) toca la semántica de agregación de **D-03**, que es una decisión LOCKED de `84-CONTEXT.md`: no se cambia sin decisión del mantenedor. |
+| **WR-05** (WARNING) | ✅ **Cerrado** | Lo pedía literalmente: «el carril child-process no pasa por ningún shell». El test de ejecución por `bash -c` que cerró CR-01 **es** ese carril — misma corrección, dos hallazgos. Detectado por el verificador de fase, no por el fixer. |
+| WR-02, WR-03, WR-04, WR-06, WR-07, IN-01..IN-04 | ⏳ Abiertos | Registrados abajo. WR-02 (exit 1 en checkouts sin `kodo-capture`) toca la semántica de agregación de **D-03**, que es una decisión LOCKED de `84-CONTEXT.md`: no se cambia sin decisión del mantenedor. |
 
 **Mordida verificada en ambos sentidos:** revertir CR-01 a mano pone rojos 2 tests (`el texto va entre comillas SIMPLES` y `ejecutada POR SHELL, no expande`); revertir WR-01 pone rojo el suyo. Restaurados: 25/25 verde. Suite completa **2 581 → 2 586, 0 fail**.
 
