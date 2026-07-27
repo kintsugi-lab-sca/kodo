@@ -11,9 +11,27 @@ const SRC = join(REPO, 'src');
 //   1. `import X from 'Y'` / `import { X } from 'Y'` / `export ... from 'Y'` (con binding)
 //   2. `import 'Y'` (side-effect import, sin binding) — hay que detectarlo porque es
 //      la forma más corta de colar un logger.js al grafo del vigilante.
-// No cubre `import()` dinámico — el repo no lo usa (verificado en 06-RESEARCH A3).
+// Estas dos regex cubren SOLO imports estáticos, a propósito. El repo SÍ usa `import()`
+// dinámico — `src/providers/registry.js:27,28,57,58` y `src/session/state.js:247` — así que
+// el walker de abajo tiene un punto ciego deliberado; lo cubre el guard de source-grep del
+// final de este fichero (Phase 85 / DEBT-07 WR-03).
 const IMPORT_FROM_RE = /^\s*(?:import|export)\s+[\s\S]*?from\s+['"]([^'"]+)['"]/gm;
 const IMPORT_BARE_RE = /^\s*import\s+['"]([^'"]+)['"]/gm;
+
+// stripComments verbatim de test/dispatcher-isolation.test.js:24-30 — filtra
+// comentarios para asserts source-hygiene sobre código (no documentación).
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+    .join('\n');
+}
+
+// Regex CONSTANTES (anti-ReDoS: jamás compiladas desde input). Clases `[^'"]*` que no
+// retroceden sobre sí mismas; operan solo sobre fuentes del propio repo.
+const DYNAMIC_LOGGER_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]*logger[^'"]*\.js)['"]/g;
+const LOGGER_ALLOWLIST_RE = /logger-events\.js$|logger-noop\.js$/;
 
 /**
  * Extrae todos los specifiers de import (con y sin binding) de un source string.
@@ -30,7 +48,15 @@ function extractImports(src) {
 /**
  * Walker transitivo de imports relativos (`./x.js`, `../y.js`).
  * Ignora specifiers bare (`node:fs`, `commander`) — fuera del grafo del proyecto.
- * No sigue dynamic `import()` (el repo no los usa — verificado por grep en 06-RESEARCH A3).
+ * No sigue dynamic `import()`, y eso ACOTA el alcance de los guards que lo usan: lo que
+ * describen es el grafo de MODULE-LOAD de `kodo check` (coste de arranque + la prohibición
+ * de logger.js), NO una afirmación de alcanzabilidad en runtime. `src/check.js:103` llama
+ * `initRegistry()`, que carga `providers/{plane,github}/provider.js` con `await import()`:
+ * esos ficheros SÍ se cargan en runtime pese a que su guard de prohibición sigue verde.
+ * El dato tranquilizador, verificado: ninguno de los dos alcanza `src/logger.js` por ningún
+ * camino, así que la invariante que de verdad importa (LOG-12) se sostiene también sobre la
+ * clausura dinámica. El punto ciego lo cubre el guard de source-grep del final de este
+ * fichero (Phase 85 / DEBT-07 WR-03).
  * También sigue `export ... from 'X'` (re-exports) porque ESM los resuelve como imports.
  *
  * @param {string} entry absolute path al archivo source
@@ -160,6 +186,44 @@ describe('LOG-12: vigilante isolation (import-graph)', () => {
       graph.has(doctorPath),
       `check.js must transitively import src/cmux/sidebar-doctor.js (converged orchestrator lane, ORCH-07).\n` +
         `Graph from check.js:\n  ${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+
+  // Phase 85 D-09 (WR-03 de 80-REVIEW): los 4 guards de prohibición de arriba caminan el
+  // grafo con `walkImports`, que solo sigue imports ESTÁTICOS. Eso los deja decorativos
+  // frente a LOG-12: un `await import('../logger.js')` en `config.js`, `manager.js`,
+  // `state.js` o `client.js` metería el logger prohibido en el proceso de `kodo check`
+  // con los 4 guards en VERDE, porque ninguno vería esa arista.
+  //
+  // Por qué es un grep aparte y no una mejora del walker: seguir aristas dinámicas dentro
+  // de `walkImports` mete `github/provider.js` y `github/normalize.js` en la clausura
+  // (vía `check.js:103 → initRegistry()`) y pone ROJOS dos guards vecinos — y la reacción
+  // natural a un rojo espurio es debilitarlos. El refuerzo se acota a un source-grep sobre
+  // la MISMA lista de ficheros que el walker ya devuelve, sin tocarlo.
+  //
+  // `stripComments` es obligatorio y va ANTES del match: sin él el guard sale rojo a HEAD
+  // con 13 falsos positivos, 5 apuntando literalmente a `../logger.js`, todos imports de
+  // TIPO en JSDoc que se borran en runtime. El assert está anclado al PATRÓN DE IMPORT,
+  // nunca al identificador suelto: prosa que mencione logger.js no puede poner roja la suite.
+  it('ningún fichero del grafo de check.js hace import() DINÁMICO de un logger prohibido (WR-03)', () => {
+    const graph = walkImports(join(SRC, 'check.js'));
+    const violations = [];
+    for (const file of graph) {
+      const stripped = stripComments(readFileSync(file, 'utf-8'));
+      for (const m of stripped.matchAll(DYNAMIC_LOGGER_IMPORT_RE)) {
+        const specifier = m[1];
+        // Allowlist explícita: logger-events.js (hoja de eventos) y logger-noop.js
+        // (el noop que LOG-12 obliga con deps = {}) sí son legítimos.
+        if (LOGGER_ALLOWLIST_RE.test(specifier)) continue;
+        violations.push(`${relative(REPO, file)} → import('${specifier}')`);
+      }
+    }
+    assert.deepEqual(
+      violations,
+      [],
+      `un fichero del grafo de check.js carga un logger prohibido por import() dinámico ` +
+        `(LOG-12 se rompería con los guards estáticos en verde) vía:\n  ${violations.join('\n  ')}\n` +
+        `Full graph from check.js:\n  ${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
     );
   });
 });
