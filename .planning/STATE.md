@@ -5,8 +5,8 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
 current_phase_name: Saneo de deuda + Nyquist retroactivo
 status: planning
-stopped_at: Phase 84 complete (UAT 25/25 pass), ready to plan Phase 85
-last_updated: "2026-07-26T11:38:07.528Z"
+stopped_at: Phase 85 context gathered
+last_updated: "2026-07-27T09:48:33.895Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 84 complete, transitioned to Phase 85
 progress:
@@ -152,11 +152,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-26T11:38:07Z
+**Last session:** 2026-07-27T09:48:33.885Z
 
-**Resume file:** None
+**Resume file:** .planning/phases/85-saneo-de-deuda-nyquist-retroactivo/85-CONTEXT.md
 
-- **Stopped at:** Phase 84 complete (UAT 25/25 pass, verification `passed`), ready to plan Phase 85
+- **Stopped at:** Phase 85 context gathered
 - **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
