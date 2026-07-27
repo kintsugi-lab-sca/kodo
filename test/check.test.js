@@ -437,4 +437,97 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
       'runCheck() no debe contener el piggyback (vive solo en runCheckAndAct)',
     );
   });
+
+  // Phase 85 D-08 (WR-01 + WR-02 de 80-REVIEW): ninguno de los 6 casos A/B/C/D/D2/E
+  // cruza `needsOrchestrator: true` con `hasAdvisories: true`, y los tres literales del
+  // piggyback no tenían un solo assert en toda la suite. Los dos `it` siguientes cierran
+  // ese hueco y fijan el canal de la línea de fallos.
+  //
+  // stdout y stderr se capturan en DOS arrays SEPARADOS y se aseveran por pertenencia
+  // dentro de cada uno: el orden RELATIVO entre canales NO es contractual (streams
+  // independientes), así que un assert de secuencia mezclada sería flaky por
+  // construcción (85-UI-SPEC §S-2, «Advertencia de contrato para el test»).
+  it('Test F: gate ON + advisories + fallos por-item — las 3 líneas salen por su canal (WR-01/WR-02)', async () => {
+    const logs = [];
+    const errs = [];
+    await runCheckAndAct({
+      runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+      // Report SUCIO inline (cleanReport() lo trae limpio): 1 advisory exacto.
+      scanFn: async () => ({
+        missing_group: [{ name: 'g', anchor: 'workspace:1', members: ['workspace:1'] }],
+        loose_workspace: [],
+        empty_group: [],
+        protected: { sessions: [] },
+        hasActions: true,
+        hasAdvisories: true,
+      }),
+      // `created: 0` es DELIBERADO: hace que el test detecte la regresión concreta que
+      // WR-02 nombra (calcular `applied` con `r.created` en vez de `r.added`). Los tres
+      // números son distintos por diseño — applied=3, failed=2, advisories=1 — para que
+      // ningún falso verde pase por coincidencia numérica.
+      executeFn: async () => ({
+        created: 0,
+        added: 2,
+        ungrouped: 1,
+        errors: [
+          { category: 'loose_workspace', target: 'workspace:2', reason: 'cmux no responde' },
+          { category: 'empty_group', target: 'workspace_group:3', reason: 'cmux no responde' },
+        ],
+      }),
+      launchFn: async () => {},
+      logFn: (m) => logs.push(m),
+      errorFn: (m) => errs.push(m),
+    });
+
+    assert.ok(
+      logs.includes('[kodo:check] Sidebar: 3 acción(es) aplicadas'),
+      `applied debe ser added + ungrouped (2 + 1 = 3), NUNCA created. logs: ${JSON.stringify(logs)}`,
+    );
+    assert.ok(
+      logs.includes('[kodo:check] Sidebar advisories: 1 (acción de operador)'),
+      `la rama hasAdvisories debe emitir el conteo de missing_group. logs: ${JSON.stringify(logs)}`,
+    );
+    assert.ok(
+      errs.some((m) => m.includes('2 acción(es) fallida(s)')),
+      `r.errors debe hacerse visible por errorFn (WR-01): hoy 0 aplicadas significa a la vez ` +
+        `«nada que arreglar» y «cmux caído». errs: ${JSON.stringify(errs)}`,
+    );
+    assert.ok(
+      !logs.some((m) => m.includes('fallida')),
+      `la línea de fallos NO puede salir por logFn: un fallo escrito en el canal del éxito sigue ` +
+        `siendo invisible en un pipe. Sin esta mitad, una regresión de canal pasaría en verde. ` +
+        `logs: ${JSON.stringify(logs)}`,
+    );
+  });
+
+  it('Test G: gate ON sin fallos — errors vacío o ausente NO emite ninguna línea por errorFn (WR-01)', async () => {
+    // (a) errors: [] ⇒ silencio. Hoy nadie asevera esta rama: los casos A/D pasan
+    // `errorFn: () => {}` y descartan el output.
+    const errsEmpty = [];
+    await runCheckAndAct({
+      runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+      scanFn: async () => cleanReport(),
+      executeFn: async () => emptyResult(),
+      launchFn: async () => {},
+      logFn: () => {},
+      errorFn: (m) => errsEmpty.push(m),
+    });
+    assert.deepEqual(errsEmpty, [], 'con errors: [] no se emite ninguna línea por errorFn');
+
+    // (b) objeto SIN campo `errors` ⇒ tampoco lanza (congela el guard `|| []` defensivo
+    // que la Task 2 escribe; sin él sería un TypeError tragado por el catch fail-open,
+    // que emitiría la línea «Sidebar doctor error» y falsearía el silencio).
+    const errsAbsent = [];
+    await assert.doesNotReject(
+      runCheckAndAct({
+        runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
+        scanFn: async () => cleanReport(),
+        executeFn: async () => ({ created: 0, added: 0, ungrouped: 0 }),
+        launchFn: async () => {},
+        logFn: () => {},
+        errorFn: (m) => errsAbsent.push(m),
+      }),
+    );
+    assert.deepEqual(errsAbsent, [], 'un result sin campo errors se trata como cero fallos, nunca como throw');
+  });
 });
