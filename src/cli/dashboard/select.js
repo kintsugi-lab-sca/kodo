@@ -27,6 +27,13 @@
 // Color-isolation (invariante D-12 Phase 34): este módulo NO importa `picocolors` ni
 // `src/cli/format.js`. test/format-isolation.test.js lo verifica vía walker automático.
 
+// Primer (y único) import de runtime del módulo, añadido por DEBT-06 (D-04). Es seguro:
+// `./format.js` es PURO — su único import es `node:path`, no arrastra la capa de color ni
+// `src/cli/format.js` — y está cubierto por el mismo guard §TUI-04 de
+// test/format-isolation.test.js, que comprueba cada fichero de src/cli/dashboard/ por
+// separado. Tampoco hay ciclo: `format.js` no importa `select.js`.
+import { nextCell } from './format.js';
+
 /**
  * @typedef {import('./format.js').EnrichedSession} EnrichedSession
  */
@@ -243,9 +250,17 @@ export function deriveAnyProgress(rows) {
 }
 
 /**
- * Flag ESTRUCTURAL de presencia de `NEXT:` por tarea (LIVE-05, D-03): ¿hay ALGUNA fila con un
- * `next` string no vacío? Pura, React-free, sin regex ni color. Espejo LITERAL de
- * deriveAnyProgress: el `next` lo mergea el enrich de App.js por task_id desde state.tasks.
+ * Flag ESTRUCTURAL de presencia de `NEXT:` por tarea (LIVE-05, D-03): ¿hay ALGUNA fila cuya
+ * celda `next` se pinte con algo? Pura, React-free, sin regex ni color propios. Espejo LITERAL
+ * de deriveAnyProgress: el `next` lo mergea el enrich de App.js por task_id desde state.tasks.
+ *
+ * Contrato (DEBT-06, D-04): la presencia se decide DELEGANDO en `nextCell` (format.js), única
+ * fuente de verdad del colapso de whitespace — un `next` que colapsa a cadena vacía (solo
+ * espacios, `\n`, `\t`, `\r`) NO enciende la columna. Antes el predicado medía la longitud del
+ * string CRUDO, así que un `next` de solo-whitespace encendía una columna que luego se
+ * renderizaba vacía (81-REVIEW WR-02): quien decide y quien pinta usaban reglas distintas.
+ * `nextCell` es never-throws para no-string, así que el contrato never-throws se preserva sin
+ * guard propio de `typeof`.
  *
  * CRÍTICO (RESEARCH Pitfall 4, espejo de deriveAnyProgress): el consumidor (App.js) la computa
  * sobre el set SIN filtrar (`enriched`), NO sobre `filtered`. La columna `next` es ESTRUCTURAL —
@@ -253,10 +268,10 @@ export function deriveAnyProgress(rows) {
  * operador teclea una query `/` que vacía temporalmente las filas con next del subconjunto visible.
  *
  * @param {Array<Partial<EnrichedSession> & { next?: string|null }>} rows — el set SIN filtrar (enriched).
- * @returns {boolean} true si alguna fila tiene `next` string de longitud > 0.
+ * @returns {boolean} true si alguna fila produce una celda `next` no vacía (post-colapso).
  */
 export function deriveAnyNext(rows) {
-  return rows.some((r) => typeof r.next === 'string' && r.next.length > 0);
+  return rows.some((r) => nextCell(r).length > 0);
 }
 
 /**
