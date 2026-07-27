@@ -25,8 +25,8 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 
 ### Saneo de deuda (DEBT)
 
-- [ ] **DEBT-05**: El typedef `TaskHandoff` (`src/session/state.js`) documenta la semántica post-DEBT-01 (contrato tres-estados del `next` por presencia) — cierra 81-REVIEW WR-01
-- [ ] **DEBT-06**: `deriveAnyNext` (`src/cli/dashboard/select.js`) colapsa whitespace al decidir la presencia de la columna `next` (coherente con el render de `nextCell`) — cierra 81-REVIEW WR-02 y con DEBT-05 salda R-81-02
+- [x] **DEBT-05**: El typedef `TaskHandoff` (`src/session/state.js`) documenta la semántica post-DEBT-01 (contrato tres-estados del `next` por presencia) — cierra 81-REVIEW WR-01
+- [x] **DEBT-06**: `deriveAnyNext` (`src/cli/dashboard/select.js`) colapsa whitespace al decidir la presencia de la columna `next` (coherente con el render de `nextCell`) — cierra 81-REVIEW WR-02 y con DEBT-05 salda R-81-02
 - [ ] **DEBT-07**: Los 3 warnings de 80-REVIEW.md (observabilidad/cobertura) quedan resueltos o re-aceptados individualmente con razón documentada
 
 ### Nyquist retroactivo (NYQ)
@@ -76,8 +76,8 @@ Qué fases cubren qué requirements.
 | CAPT-05 | Phase 84 | Complete |
 | CAPT-06 | Phase 83 | Complete |
 | CAPT-07 | Phase 84 | Complete |
-| DEBT-05 | Phase 85 | Pending |
-| DEBT-06 | Phase 85 | Pending |
+| DEBT-05 | Phase 85 | Complete |
+| DEBT-06 | Phase 85 | Complete |
 | DEBT-07 | Phase 85 | Pending |
 | NYQ-01 | Phase 85 | Pending |
 | NYQ-02 | Phase 85 | Pending |
