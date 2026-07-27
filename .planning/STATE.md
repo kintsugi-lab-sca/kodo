@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
 current_phase_name: saneo-de-deuda-nyquist-retroactivo
 status: executing
-stopped_at: Completed 85-03-PLAN.md
-last_updated: "2026-07-27T11:09:37.853Z"
+stopped_at: Completed 85-04-PLAN.md
+last_updated: "2026-07-27T11:21:01.030Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 85 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
   percent: 75
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 ## Current Position
 
 Phase: 85 (saneo-de-deuda-nyquist-retroactivo) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-27 — Phase 85 execution started
 
@@ -130,6 +130,10 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 85-02 D-09: el guard LOG-12 se refuerza con un source-grep sobre la salida de walkImports, sin modificar el walker
 - [Phase ?]: 85-03 (NYQ-01): backfill Nyquist de v0.18 citation-based — 79/80/81 pasan a validated + nyquist_compliant: true citando su VERIFICATION.md, sin generar tests ni re-ejecutar la suite (D-12)
 - [Phase ?]: 85-03: un behavior_unverified del VERIFICATION no es hueco de sampling — va a Manual-Only con razón y evidencia parcial (precedente 41-VALIDATION.md, nyquist-compliant CON fila manual-only)
+- [Phase ?]: 85-04 (NYQ-02): backfill Nyquist de v0.16 citation-based — 69/71/72 pasan a validated + flag en true citando su VERIFICATION.md; D-17 se resolvió por fase, con los 5 items no automatizables a Manual-Only
+- [Phase ?]: 85-04: los comentarios de lifecycle de 79/80/81 NO se anaden a 69/71/72 — son ficheros anteriores a esa convencion y homogeneizarlos reescribiria su historia
+- [Phase ?]: 85-04: requirement de ausencia (HYG-02/HYG-03) — la celda Automated Command es el guard real (CLI help / grep sobre el modulo), no un unit test inventado; inventarlo seria un true sin cita
+- [Phase ?]: 85-04: evidencia adversa citada sin redondeo — el skipped:1 del UAT de 71 (GitHub real) y el flake pre-existente gsd-lock-race de la corrida de 72 (2025 pass / 1 fail / 1 skip) aparecen tal cual; la fila de STATE de GitHub real sigue ABIERTA y este plan no la cierra
 
 ### Open Blockers
 
@@ -158,11 +162,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-27T11:09:29.618Z
+**Last session:** 2026-07-27T11:20:51.663Z
 
 **Resume file:** None
 
-- **Stopped at:** Completed 85-03-PLAN.md
+- **Stopped at:** Completed 85-04-PLAN.md
 - **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
@@ -201,6 +205,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 85 P01 | 8min | 3 tasks | 3 files |
 | Phase 85 P02 | 3min | 3 tasks | 3 files |
 | Phase 85 P03 | 24 | 3 tasks | 3 files |
+| Phase 85 P04 | 31 | 3 tasks | 3 files |
 
 ### Blockers
 
