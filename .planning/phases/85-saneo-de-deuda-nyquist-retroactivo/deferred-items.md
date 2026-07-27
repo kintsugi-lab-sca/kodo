@@ -1,0 +1,53 @@
+# Deferred items — Phase 85
+
+Ítems que esta fase **decide no cerrar**, cada uno con su razón y su trigger real. Un ítem sin
+trigger es una intención, no un diferido: por eso la columna nunca queda vacía.
+
+| Ítem | Qué se difiere | Por qué no aquí | Trigger |
+|---|---|---|---|
+| **`format-isolation` transitivo (D-18)** | Endurecer `test/format-isolation.test.js` para que el guard de color-isolation siga imports **transitivos** y no solo directos. El walker (`walkImports`) ya vive en el propio fichero, pero se usa para otra suite. | No es ninguno de los 5 requisitos de la fase (DEBT-05/06/07, NYQ-01/02) y el boundary del roadmap es fijo. Además **no se ha medido** el radio de ficheros de `src/cli/dashboard/**` que se pondrían rojos al activarlo, y una fase declarada «ligera y mecánica» no es el sitio para descubrirlo. **Nota de asimetría:** el plan `85-02` produjo un patrón de source-grep reutilizable (`stripComments` verbatim + regex CONSTANTE sobre la salida del walker, `test/check-isolation.test.js`) y **deliberadamente NO se aplicó aquí** — que compartan patrón no los hace el mismo trabajo. `git diff --exit-code test/format-isolation.test.js` sale 0 en los cuatro planes de la fase. | Medir primero el radio de ficheros del dashboard que se pondrían rojos, fuera de una fase declarada mecánica. Con esa medida en mano, abrir el endurecimiento **junto con la fila OQ-1 de abajo**. |
+| **OQ-1 — comentario de premisa falsa duplicado** | Corregir la misma frase que `85-02` retiró de `test/check-isolation.test.js:14,33`, que sigue viva **verbatim** en `test/format-isolation.test.js:14` (`// No cubre \`import()\` dinámico — el repo no lo usa (verificado en 06-RESEARCH A3).`) y en `test/format-isolation.test.js:33` (`* No sigue dynamic \`import()\` (el repo no los usa — verificado por grep en 06-RESEARCH A3).`). La premisa es **falsa hoy**: `src/providers/registry.js:27,28,57,58` y `src/session/state.js:247` hacen `await import()`. | D-18 declara ese fichero **no modificado** en esta fase. Y corregir **solo** el comentario dejaría un guard que sigue sin cubrir el caso que su comentario ya no niega — es decir, un fichero que declara su punto ciego y no lo tapa. Eso es peor que la situación actual, donde al menos el comentario y el guard son consistentes entre sí (ambos equivocados). | **El mismo trigger que la fila anterior**: se corrigen **juntos**, en la misma pasada. El comentario se reescribe cuando el guard transitivo (o el source-grep de `85-02`) se aplique a este fichero, no antes. |
+| **`IN-01` de 80-REVIEW (D-10)** | Reconciliar el doble `scan` por pase motivado del piggyback del doctor del sidebar: el conteo de advisories que se imprime proviene de **otro snapshot** que las acciones realmente ejecutadas, así que las dos líneas de salida pueden describir dos estados distintos del sidebar. | Está clasificado **info**, no warning, en el propio `80-REVIEW.md`, y el criterio literal de DEBT-07 dice «los **3 warnings**». El plan `85-02` resolvió WR-01/WR-02/WR-03 y lo dejó explícitamente fuera. Cerrar un *info* aquí sería ampliar el criterio por diligencia, que es la otra mitad del fallo que esta fase evita. | Que el conteo de advisories se contradiga con lo aplicado en un caso real de operación (una línea «N aplicadas» junto a un conteo de advisories que no cuadre con el sidebar resultante). |
+| **Refresco de `.planning/codebase/TESTING.md` (D-20)** | Actualizar el inventario del documento de patrones de test. Está desfasado desde **2026-04-07**: su árbol de `test/` (`:35-36`) lista **2 ficheros** (`state.test.js`, `labels.test.js`) y sus secciones de ejemplo (`:112`, `:119`) describen solo esos dos. La realidad a HEAD de esta fase son **181 ficheros `*.test.js`** y **2590 tests**. | No es ninguno de los 5 requisitos. Y el documento **sigue siendo correcto para lo que importa**: framework (`node:test` + `node:assert/strict`), inyección de dependencias, `beforeEach`/cleanup. Falla como **inventario**, no como guía. Refrescarlo bien exige recorrer 181 ficheros — es un barrido propio, no un apéndice de una fase de bookkeeping. Fence LOCKED en los cuatro planes: `git status --porcelain .planning/codebase/TESTING.md` → 0 líneas. | El próximo `/gsd-map-codebase` o `/gsd-docs-update`, **o** la apertura del siguiente milestone (v0.20), lo que ocurra antes. |
+| **Hallazgos del grep de auditoría D-02 fuera de `src/session/state.js`** | Corregir menciones supervivientes de la semántica PRE-DEBT-01 del campo `next` en documentación viva. | **La auditoría se cerró VACÍA y verificada — no hay nada que diferir.** El plan `85-01` ejecutó `grep -rn -- "<patrón>" src/ README.md .planning/codebase/ .claude/skills/` con los tres patrones de la advertencia retirada (`ausente/null`, `NO borra`, `no borra el previo`, case-sensitive) sobre los cuatro paths del alcance, todos existentes y recorridos. **Hits a HEAD pre-fix: 1**, y era exactamente `src/session/state.js:53` — el que DEBT-05 corrige. **Hits post-fix: 0** en los tres patrones. Cero one-liners corregidos al paso, cero entradas que pasen aquí. Fuera de alcance por decisión explícita (D-02): la prosa de `.planning/milestones/**`, que son snapshots históricos. | Ninguno pendiente: la fila se registra como **afirmación citable** (SUMMARY de `85-01` §Auditoría D-02), no como omisión. Si un futuro cambio de la semántica del `next` vuelve a duplicar la afirmación fuera de `state.js`, el mismo grep es el instrumento. |
+| **Higiene documental de dos `VERIFICATION.md` archivados (hallazgo de `85-04`)** | (a) `71-VERIFICATION.md` tiene `status: passed` en frontmatter y «Status: human_needed» en el cuerpo; (b) `72-VERIFICATION.md` cita `config-set-raw.test.js` sin su prefijo real `test/cli/`, apuntando a un fichero inexistente. | **D-15**: los artefactos archivados no se reescriben — son snapshots de lo que era cierto al cerrar su milestone. `85-04` hizo lo correcto: reconcilió (a) en la prosa del `71-VALIDATION.md` nuevo y citó la ruta real en el `72-VALIDATION.md` nuevo, sin tocar el `VERIFICATION`. La divergencia de (a) es además benigna: se escribió con el UAT pendiente y `71-UAT.md` cerró el ciclo el 2026-07-09. | Una relectura de v0.16 que necesite el `VERIFICATION` como fuente primaria (auditoría externa, post-mortem). Mientras el `VALIDATION.md` sea la puerta de entrada — que es lo que `audit-milestone §5.5` lee —, la corrección ya está donde se consulta. |
+
+---
+
+## Nota sobre las dos filas de `STATE.md` que esta fase deja ABIERTAS
+
+Además de lo tabulado arriba, hay dos filas de `.planning/STATE.md` §Deferred Items que la Phase 85
+**no cierra**, y conviene decir por qué aquí para que el próximo audit no las lea como olvido:
+
+- **«Higiene de tests» — `format-isolation` transitivo.** Su texto invita literalmente a cerrarla
+  («candidato natural de la Phase 85»). D-18 la deja fuera del boundary. La fila queda abierta y
+  apunta a este fichero; las filas 1 y 2 de la tabla son su registro con trigger.
+- **«Evidencia en vivo» — round-trip real de `kodo sidebar doctor --fix` (79/SDR-05) y convergencia
+  ≤1 pase del piggyback contra cmux vivo (80/ORCH-07).** Los planes `85-03` y `85-04` la
+  **contabilizaron** correctamente como manual-only en los `VALIDATION.md`, con evidencia de UAT más
+  fuerte de la prevista (`79-UAT.md` test 4 `pass`, round-trip completo vía el binario con deriva
+  real el 2026-07-23). **Contabilizar no es resolver**: la fila sigue abierta con su trigger
+  original — que aparezca deriva real, sin fabricar estado en el sidebar del operador.
+
+A esas dos se suma la fila de **UAT / backstop de GitHub real** (v0.16 Phase 71), que `85-04` dejó
+mejor contabilizada (`skipped` declarado con su fecha de reconocimiento y su cobertura
+compensatoria) pero **explícitamente no cerrada**: cerrarla exige el UAT contra un repo GitHub real.
+
+---
+
+## Ajenos por construcción — registrados en sus fases, no re-listados aquí
+
+- **R-82-01** — carrera de 2.º orden en `stealLock` con holder **VIVO** (`82-REVIEW.md` CR-01):
+  esta fase **no abre `src/gsd/lock.js`** (D-19). Sigue pendiente de decisión del mantenedor —
+  fix con gate vs. riesgo aceptado documentado — y su fila de `STATE.md` queda intacta.
+- **Formato de línea del inbox** — congelado en la Phase 83 con su golden
+  (`test/inbox-format-golden.test.js`); y **`src/server.js`** — invariante «cero endpoints nuevos
+  desde v0.10». Ninguno de los dos se abre aquí (D-19).
+- **D-08** (Phase 84) — rename `kodo-orchestrate/skill.md` → `SKILL.md`, con su nota de riesgo A1
+  no verificada. · **D-08b** (Phase 84) — el auto-sync del orquestador
+  (`src/orchestrator/launch.js`) sigue distribuyendo solo `kodo-orchestrate`. Ambos conservan sus
+  triggers en `.planning/phases/84-superficies-de-captura-skill-sync-conteo-ambient/deferred-items.md`.
+- **D-24 / D-13** (Phase 84) — tecla del dashboard para triar el inbox · `task_ref` en la línea de
+  captura. Triggers en `84/deferred-items.md`.
+- **83-05 · drenaje de stdout** en los comandos no-inbox: medido en Phase 84 tres órdenes de
+  magnitud por debajo del umbral de 64 KB. Trigger en `84/deferred-items.md`.
