@@ -157,6 +157,19 @@ export async function runCheckAndAct({
       const r = await executeFn(deps, { fix: true });
       const applied = (r.added || 0) + (r.ungrouped || 0);
       logFn(`[kodo:check] Sidebar: ${applied} acción(es) aplicadas`);
+      // Phase 85 D-07 (WR-01 de 80-REVIEW): sin esta línea, `0 acción(es) aplicadas`
+      // significa a la vez «no había nada que arreglar» y «cmux caído, N acciones
+      // fallidas», y con deps={} el logger es el noopLogger obligado por LOG-12, así que
+      // no hay rastro estructurado en ningún otro sitio. Sale por errorFn (stderr) y no
+      // por logFn: un fallo escrito en el canal del éxito sigue siendo invisible en un
+      // pipe. El fail-open NO cambia — informa, jamás bloquea el check ni el launch — y
+      // el resultado del doctor jamás re-entra a `reasons` ni al gate (D-04 de Phase 80).
+      // Solo el conteo: `target`/`reason` son refs de workspace del operador y este es un
+      // carril automático sobre cuyo destino no tenemos control.
+      const failed = (r.errors || []).length;
+      if (failed > 0) {
+        errorFn(`[kodo:check] Sidebar: ${failed} acción(es) fallida(s) (fail-open)`);
+      }
       // missing_group es advisory report-only (79-04): acción de operador, no se ejecuta.
       if (report && report.hasAdvisories) {
         logFn(`[kodo:check] Sidebar advisories: ${report.missing_group.length} (acción de operador)`);
