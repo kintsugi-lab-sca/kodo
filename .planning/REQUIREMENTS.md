@@ -31,7 +31,7 @@ Requirements de este milestone. Cada uno mapea a una fase del roadmap.
 
 ### Nyquist retroactivo (NYQ)
 
-- [ ] **NYQ-01**: Phases 79/80/81 tienen VALIDATION.md `nyquist_compliant: true` citation-based (`/gsd-validate-phase` retroactivo, evidencia de la suite existente sin re-derivar)
+- [x] **NYQ-01**: Phases 79/80/81 tienen VALIDATION.md `nyquist_compliant: true` citation-based (`/gsd-validate-phase` retroactivo, evidencia de la suite existente sin re-derivar)
 - [ ] **NYQ-02**: Phases 69/71/72 tienen VALIDATION.md `nyquist_compliant: true` citation-based — salda la columna Nyquist de v0.16 en Deferred Items
 
 ## v2 Requirements
@@ -79,7 +79,7 @@ Qué fases cubren qué requirements.
 | DEBT-05 | Phase 85 | Complete |
 | DEBT-06 | Phase 85 | Complete |
 | DEBT-07 | Phase 85 | Complete |
-| NYQ-01 | Phase 85 | Pending |
+| NYQ-01 | Phase 85 | Complete |
 | NYQ-02 | Phase 85 | Pending |
 
 **Coverage:**
