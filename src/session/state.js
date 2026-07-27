@@ -50,7 +50,7 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *
  * @typedef {{
  *   plan_path: string,      // Ruta al fichero de plan de la tarea (`~/.kodo/plans/<task_id>.md`).
- *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03). OJO al leerlo (WR-02): un `next` ausente/null NO borra el previo, así que este valor puede venir de un cierre ANTERIOR al `updated_at` de al lado; para pisarlo hay que escribir uno nuevo no nulo. null aquí significa «ninguna sesión de esta tarea ha dejado nunca un NEXT:», no «el último cierre no lo traía».
+ *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03). El merge de este campo es un contrato de TRES ESTADOS discriminado por la PRESENCIA del campo en el entry entrante, NO por truthiness (DEBT-01; tabla canónica en el docblock de `upsertTaskHandoff`, `:405-410`, que es la fuente de verdad): string no vacío → OVERWRITE (pisa el previo) · `null` explícito → CLEAR (borra el previo; cierre LLM sin `NEXT:`) · campo AUSENTE del entry → PRESERVE (conserva el previo; backstop mecánico). Los tres estados están congelados en test/state/handoff-state.test.js:265 (CLEAR), :288 (PRESERVE), :307 (OVERWRITE). null aquí significa «ninguna sesión de esta tarea ha dejado nunca un NEXT:», no «el último cierre no lo traía».
  *   updated_at: string,     // ISO 8601 del cierre que escribió la entrada. Fecha la ÚLTIMA escritura del puntero — no necesariamente el cierre que produjo el `next` de arriba.
  * }} TaskHandoff
  *
