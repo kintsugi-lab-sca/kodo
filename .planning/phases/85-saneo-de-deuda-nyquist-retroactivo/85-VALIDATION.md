@@ -80,6 +80,27 @@ created: 2026-07-27
 
 ---
 
+## Trazabilidad del edge probe (spec-less fallback)
+
+La fase **no tiene SPEC.md**, así que `## Edge Coverage` y `## Prohibitions` estaban ausentes y disparó el fallback determinista (`EDGE_ABSENT=1`, `PROHIB_ABSENT=1`, `workflow.specless_probe_fallback` activo). El motor `edge-probe.cjs` corrió sobre los 5 textos de requisito y devolvió **10 edges aplicables · 0 resueltos por el motor**. El orquestador los resolvió bajo las reglas `--auto` (auto-`covered` cuando existe criterio defendible; `unclassified` se queda `unresolved` y **nunca** se auto-backstopea). Igualdad sin-pérdidas: **10 = 8 autorados + 2 supuestos marcados**.
+
+| ID | Req | Categoría | Estado | Dónde aterriza |
+|----|-----|-----------|--------|----------------|
+| E1 | DEBT-05 | empty | covered | `85-01-PLAN.md` `must_haves.truths` — los 3 estados por presencia, trazables a `handoff-state.test.js:307/265/288` |
+| E2 | DEBT-05 | encoding | covered | `85-01-PLAN.md` — doc-only: sin regla nueva de longitud/igualdad; truncado a 200 de Phase 74 intacto |
+| E3 | DEBT-07 | adjacency | covered | `85-02-PLAN.md` — ambas líneas coexisten (`logFn`/stdout + `errorFn`/stderr); orden **entre** canales no contractual |
+| E4 | DEBT-07 | empty | covered | `85-02-PLAN.md` — `errors` vacío/ausente ⇒ ninguna línea `fallida`, nunca throw (rama de silencio con assert propio) |
+| E5 | DEBT-07 | ordering | covered | `85-02-PLAN.md` — la línea de fallos va tras `aplicadas` y antes de `hasAdvisories`; orden intra-canal determinista |
+| E6 | NYQ-02 | adjacency | covered | `85-04-PLAN.md` — veredicto por fase e independiente; ninguna hereda el de otra (D-17) |
+| E7 | NYQ-02 | empty | covered | `85-04-PLAN.md` — sin evidencia citable ⇒ manual-only o `false` con razón; nunca `true` sin cita |
+| E8 | NYQ-02 | ordering | covered | `85-04-PLAN.md` — orden 79→80→81→69→71→72 (D-16), resultado independiente del orden |
+| A1 | DEBT-06 | unclassified | **unresolved** | `85-01-PLAN.md` §Supuestos declarados del planner — revisión manual; la cobertura real la fija D-06 |
+| A2 | NYQ-01 | unclassified | **unresolved** | `85-03-PLAN.md` §Supuestos declarados del planner — requisito documental sin superficie ejecutable propia |
+
+*(Las etiquetas `E1`–`E8` / `A1`–`A2` las asigna esta tabla; el motor emite filas sin ID. `85-RESEARCH.md` numera sus hallazgos como «Sonda 1–6», eje distinto — no hay correspondencia 1:1 entre ambas numeraciones y no debe buscarse.)*
+
+---
+
 ## Wave 0 Requirements
 
 Existing infrastructure covers all phase requirements — `node:test` nativo, los 3 ficheros de test a extender ya existen, cero deps npm nuevas (constraint LOCKED).
