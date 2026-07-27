@@ -139,7 +139,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 85-05-PLAN.md — cierre documental: `deferred-items.md` de la fase + 4 filas de STATE.md + 5 checkboxes de REQUIREMENTS.md · wave 2
+- [x] 85-05-PLAN.md — cierre documental: `deferred-items.md` de la fase + 4 filas de STATE.md + 5 checkboxes de REQUIREMENTS.md · wave 2
 
 ## Phases
 

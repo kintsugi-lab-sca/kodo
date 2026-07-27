@@ -4,17 +4,17 @@ milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
 current_phase_name: saneo-de-deuda-nyquist-retroactivo
-status: executing
-stopped_at: Completed 85-04-PLAN.md
-last_updated: "2026-07-27T11:21:01.030Z"
+status: verifying
+stopped_at: Completed 85-05-PLAN.md
+last_updated: "2026-07-27T11:32:34.257Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 85 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 17
-  completed_plans: 16
-  percent: 75
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 
 Phase: 85 (saneo-de-deuda-nyquist-retroactivo) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-27 — Phase 85 execution started
 
 ## Most recent shipped milestone
@@ -136,6 +136,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 85-04: los comentarios de lifecycle de 79/80/81 NO se anaden a 69/71/72 — son ficheros anteriores a esa convencion y homogeneizarlos reescribiria su historia
 - [Phase ?]: 85-04: requirement de ausencia (HYG-02/HYG-03) — la celda Automated Command es el guard real (CLI help / grep sobre el modulo), no un unit test inventado; inventarlo seria un true sin cita
 - [Phase ?]: 85-04: evidencia adversa citada sin redondeo — el skipped:1 del UAT de 71 (GitHub real) y el flake pre-existente gsd-lock-race de la corrida de 72 (2025 pass / 1 fail / 1 skip) aparecen tal cual; la fila de STATE de GitHub real sigue ABIERTA y este plan no la cierra
+- [Phase ?]: 85-05: el §Deferred Items de STATE.md es una seccion CURADA del SDK (state-transition.cjs:1284, rebuildCore la preserva verbatim) y NO hay handler que direccione sus filas de 4 columnas — state.patch/state.update resuelven por tableRowPattern, que solo casa filas de 2 celdas (probado en copia aislada); la mutacion fue por Edit y state.validate sale valid:true sin drift
+- [Phase ?]: 85-05: la fila del format-isolation transitivo NO se cierra pese a que su propio texto invitaba a hacerlo (candidato natural de la Phase 85) — D-18; se reescribe a 'evaluado y DIFERIDO' con su trigger, enlazada con OQ-1 para corregirse a la vez
+- [Phase ?]: 85-05: contabilizar no es resolver — las filas de Evidencia en vivo y de backstop GitHub real quedaron mejor citadas por 85-03/85-04 y siguen ABIERTAS; la distincion se escribe en la propia celda para que el siguiente audit no la confunda con un cierre
 
 ### Open Blockers
 
@@ -164,11 +167,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-27T11:20:51.663Z
+**Last session:** 2026-07-27T11:32:20.532Z
 
 **Resume file:** None
 
-- **Stopped at:** Completed 85-04-PLAN.md
+- **Stopped at:** Completed 85-05-PLAN.md
 - **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
@@ -208,6 +211,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 85 P02 | 3min | 3 tasks | 3 files |
 | Phase 85 P03 | 24 | 3 tasks | 3 files |
 | Phase 85 P04 | 31 | 3 tasks | 3 files |
+| Phase 85 P05 | 9min | 2 tasks | 2 files |
 
 ### Blockers
 
