@@ -214,14 +214,16 @@ Applicable state considerations resolved: **5 covered, 0 backstop, 0 unresolved*
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS — literal S-2 anclado + estado vacío de S-1 + N/A justificados (sin CTA, sin destructivas)
-- [ ] Dimension 2 Visuals: PASS — ningún componente, pantalla ni layout nuevo; el delta es la presencia de una columna existente
-- [ ] Dimension 3 Color: PASS — N/A justificado; color-isolation preservada por construcción (import de módulo puro) y custodiada por §TUI-04
-- [ ] Dimension 4 Typography: PASS — N/A justificado; el proyecto no controla la fuente del terminal
-- [ ] Dimension 5 Spacing: PASS — N/A justificado; `COLS` intacto, cero `<Box>` nuevos
-- [ ] Dimension 6 Registry Safety: PASS — sin registries, cero deps npm nuevas (constraint LOCKED)
+- [x] Dimension 1 Copywriting: PASS — literal S-2 anclado + estado vacío de S-1 + N/A justificados (sin CTA, sin destructivas)
+- [x] Dimension 2 Visuals: PASS — ningún componente, pantalla ni layout nuevo; el delta es la presencia de una columna existente
+- [x] Dimension 3 Color: PASS — N/A justificado; color-isolation preservada por construcción (import de módulo puro) y custodiada por §TUI-04
+- [x] Dimension 4 Typography: PASS — N/A justificado; el proyecto no controla la fuente del terminal
+- [x] Dimension 5 Spacing: PASS — N/A justificado; `COLS` intacto, cero `<Box>` nuevos
+- [x] Dimension 6 Registry Safety: PASS — sin registries, cero deps npm nuevas (constraint LOCKED)
 
-**Approval:** pending
+**Approval:** approved 2026-07-27 (gsd-ui-checker, 6/6 dimensiones PASS, cero recomendaciones)
+
+**UI-Consideration probe (ui-phase §9.5):** no re-ejecutado. La sección `## UI Considerations` de arriba ya estaba resuelta al autorarse el contrato (5 covered · 0 backstop · 0 unresolved · 2 N/A), con cada truth anclado a fichero:línea y a su test. Bajo `--auto` el `autoResolve` del adapter es un **suelo** que convierte toda consideración aplicable en `backstop`: re-correrlo habría degradado cinco resoluciones concretas a backstops genéricos que en verify-time rutan a `human_needed`. Se conserva la resolución más fuerte.
 
 ---
 
