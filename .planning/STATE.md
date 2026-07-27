@@ -5,15 +5,15 @@ milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
 current_phase_name: saneo-de-deuda-nyquist-retroactivo
 status: executing
-stopped_at: Completed 85-01-PLAN.md
-last_updated: "2026-07-27T10:52:41.237Z"
+stopped_at: Completed 85-02-PLAN.md
+last_updated: "2026-07-27T10:58:46.241Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 85 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 17
-  completed_plans: 13
+  completed_plans: 14
   percent: 75
 ---
 
@@ -33,7 +33,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 ## Current Position
 
 Phase: 85 (saneo-de-deuda-nyquist-retroactivo) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-27 — Phase 85 execution started
 
@@ -126,6 +126,8 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase 84]: D-07 se aplica en los DOS gates de entrypoint: el del handler y el interno de syncSkill (src/skill/sync.js:67) — Sin el gate case-tolerante dentro de syncSkill, en Linux kodo-capture/SKILL.md pasaría el gate del handler y syncSkill devolvería source skill not found. El cambio es una condición más permisiva: no toca firma ni contrato de retorno, así que es compatible con D-06 leído literalmente.
 - [Phase ?]: 85-01: D-04: deriveAnyNext delega en nextCell — el que decide la presencia de la columna consume al que la pinta, en vez de duplicar su regla (DEBT-06, cierra 81-REVIEW WR-02)
 - [Phase ?]: 85-01: D-01/D-03: DEBT-05 se salda doc-only — cero comportamiento, cero tests nuevos; la evidencia del contrato es la cita a handoff-state.test.js:265/288/307 (cierra 81-REVIEW WR-01)
+- [Phase ?]: 85-02 D-07: la línea de fallos del piggyback sale por errorFn (stderr), nunca por logFn
+- [Phase ?]: 85-02 D-09: el guard LOG-12 se refuerza con un source-grep sobre la salida de walkImports, sin modificar el walker
 
 ### Open Blockers
 
@@ -154,11 +156,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-27T10:52:41.227Z
+**Last session:** 2026-07-27T10:58:46.227Z
 
 **Resume file:** None
 
-- **Stopped at:** Completed 85-01-PLAN.md
+- **Stopped at:** Completed 85-02-PLAN.md
 - **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
@@ -195,6 +197,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 84 P03 | 14 min | 2 tasks | 4 files |
 | Phase 84 P01 | 9 min | 3 tasks | 5 files |
 | Phase 85 P01 | 8min | 3 tasks | 3 files |
+| Phase 85 P02 | 3min | 3 tasks | 3 files |
 
 ### Blockers
 

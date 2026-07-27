@@ -133,7 +133,7 @@ Plans:
 **Wave 1**
 
 - [x] 85-01-PLAN.md — typedef `TaskHandoff` saneado + `deriveAnyNext` delegando en `nextCell` con su test RED previo (DEBT-05, DEBT-06) · wave 1
-- [ ] 85-02-PLAN.md — los 3 warnings de 80-REVIEW resueltos: línea de fallos por `errorFn`, cobertura del piggyback y guard LOG-12 con mordida real (DEBT-07) · wave 1
+- [x] 85-02-PLAN.md — los 3 warnings de 80-REVIEW resueltos: línea de fallos por `errorFn`, cobertura del piggyback y guard LOG-12 con mordida real (DEBT-07) · wave 1
 - [ ] 85-03-PLAN.md — backfill Nyquist citation-based de las Phases 79/80/81 (NYQ-01) · wave 1
 - [ ] 85-04-PLAN.md — backfill Nyquist citation-based de las Phases 69/71/72, con 72 presupuestada aparte (NYQ-02) · wave 1
 
