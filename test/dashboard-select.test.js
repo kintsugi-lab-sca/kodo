@@ -496,4 +496,12 @@ describe('LIVE-05 (D-03): deriveAnyNext flag estructural de presencia de NEXT:',
     assert.equal(deriveAnyNext(filtered), false, 'el filtro elimina la fila con next del subconjunto');
     assert.equal(deriveAnyNext(full), true, 'sobre el set completo sigue siendo true (columna estructural)');
   });
+
+  it('DEBT-06: un next de solo-whitespace NO enciende la columna (coherente con nextCell)', () => {
+    // RED a HEAD: hoy el predicado mide la longitud del string CRUDO (> 0) mientras `nextCell` colapsa `/\s+/g` + trim y devuelve '' — justo la incoherencia que denuncia el segundo warning de 81-REVIEW.
+    assert.equal(deriveAnyNext([{ next: '   ' }]), false);
+    assert.equal(deriveAnyNext([{ next: '\n\t' }]), false);
+    assert.equal(deriveAnyNext([{ next: ' \r\n ' }]), false);
+    assert.equal(deriveAnyNext([{ next: '   ' }, { next: 'algo' }]), true);
+  });
 });
