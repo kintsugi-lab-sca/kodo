@@ -127,7 +127,19 @@ Plans:
   4. Phases 79/80/81 tienen `VALIDATION.md` `nyquist_compliant: true` citation-based (`/gsd-validate-phase` retroactivo, evidencia de la suite existente sin re-derivar). (NYQ-01)
   5. Phases 69/71/72 tienen `VALIDATION.md` `nyquist_compliant: true` citation-based — salda la columna Nyquist de v0.16 en Deferred Items. (NYQ-02)
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 85-01-PLAN.md — typedef `TaskHandoff` saneado + `deriveAnyNext` delegando en `nextCell` con su test RED previo (DEBT-05, DEBT-06) · wave 1
+- [ ] 85-02-PLAN.md — los 3 warnings de 80-REVIEW resueltos: línea de fallos por `errorFn`, cobertura del piggyback y guard LOG-12 con mordida real (DEBT-07) · wave 1
+- [ ] 85-03-PLAN.md — backfill Nyquist citation-based de las Phases 79/80/81 (NYQ-01) · wave 1
+- [ ] 85-04-PLAN.md — backfill Nyquist citation-based de las Phases 69/71/72, con 72 presupuestada aparte (NYQ-02) · wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 85-05-PLAN.md — cierre documental: `deferred-items.md` de la fase + 4 filas de STATE.md + 5 checkboxes de REQUIREMENTS.md · wave 2
 
 ## Phases
 

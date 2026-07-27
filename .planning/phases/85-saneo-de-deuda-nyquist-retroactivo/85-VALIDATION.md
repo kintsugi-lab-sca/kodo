@@ -43,9 +43,29 @@ created: 2026-07-27
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| *(pendiente — el planner rellena esta tabla con los task IDs reales)* | | | | | | | | | ⬜ pending |
+| 85-01-01 | 85-01 | 1 | DEBT-05 | T-85-01-04 | El typedef describe el contrato vigente; cero cambio de comportamiento, cero fuga de dato del operador en el comentario | **CITATION** (D-03) + source-assert | `node --test test/state/handoff-state.test.js` + `grep -c 'ausente/null' src/session/state.js` = 0 | ✅ existe | ⬜ pending |
+| 85-01-02 | 85-01 | 1 | DEBT-06 | T-85-01-03 | El test RED se commitea ANTES del fix; ningún assert existente se toca para greenear | **unit NUEVO (RED)** | `if node --test test/dashboard-select.test.js; then exit 1; fi` (debe FALLAR) | ✅ existe — se extiende | ⬜ pending |
+| 85-01-03 | 85-01 | 1 | DEBT-06 | T-85-01-01, T-85-01-02 | Colapso de whitespace con fuente única (`nextCell`); el primer import de runtime no rompe color-isolation | **unit (GREEN)** + guard existente | `node --test test/dashboard-select.test.js test/dashboard-format.test.js test/format-isolation.test.js` | ✅ existe | ⬜ pending |
+| 85-02-01 | 85-02 | 1 | DEBT-07 (WR-01+WR-02) | T-85-02-02 | La línea de fallos sale por `errorFn` y NO por `logFn`; la rama de silencio tiene su propio assert | **unit NUEVO (RED)** | `if node --test test/check.test.js; then exit 1; fi` (Test F debe FALLAR) | ✅ existe — se extiende | ⬜ pending |
+| 85-02-02 | 85-02 | 1 | DEBT-07 (WR-01) | T-85-02-02, T-85-02-05 | Solo se emite el conteo entero (sin `reason`/`target`); fail-open y gate `needsOrchestrator` intactos | **unit (GREEN)** + source-assert de orden | `node --test test/check.test.js` + `awk` de orden `aplicadas < fallidas < hasAdvisories` sobre `src/check.js` | ✅ existe | ⬜ pending |
+| 85-02-03 | 85-02 | 1 | DEBT-07 (WR-03 b) | T-85-02-01, T-85-02-03, T-85-02-04 | Regex CONSTANTE anti-ReDoS; `stripComments` antes del match; `walkImports` intacto; el guard tiene mordida demostrada | **unit NUEVO (guard)** | `node --test test/check-isolation.test.js` + verificación de mordida (inyectar/revertir) | ✅ existe — se extiende | ⬜ pending |
+| 85-02-03 (a) | 85-02 | 1 | DEBT-07 (WR-03 a) | — | El comentario deja de afirmar la premisa falsa y declara el alcance MODULE-LOAD | **manual-only** (un comentario no es ejecutable) | `grep -c '06-RESEARCH A3' test/check-isolation.test.js` = 0 + inspección del diff en el SUMMARY | N/A | ⬜ pending |
+| 85-03-01 | 85-03 | 1 | NYQ-01 | T-85-03-01, T-85-03-03 | `nyquist_compliant: true` solo con cita concreta; cero tests generados | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../81-VALIDATION.md` = 1 + `git status --porcelain test/ \| grep -c '^??'` = 0 | ✅ existe | ⬜ pending |
+| 85-03-02 | 85-03 | 1 | NYQ-01 | T-85-03-01, T-85-03-02 | Ídem, con los `MILESTONE-AUDIT.md` archivados intactos | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../80-VALIDATION.md` = 1 + `git diff --exit-code .../v0.18-MILESTONE-AUDIT.md` | ✅ existe | ⬜ pending |
+| 85-03-03 | 85-03 | 1 | NYQ-01 | T-85-03-01 | Ídem; SDR-05 contabilizado como manual-only, no como gap | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../79-VALIDATION.md` = 1 + una fila por SDR-01..06 | ✅ existe | ⬜ pending |
+| 85-04-01 | 85-04 | 1 | NYQ-02 | T-85-04-01, T-85-04-02 | `nyquist_compliant: true` solo con cita; sin añadir estructura de frontmatter ajena al fichero | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../69-VALIDATION.md` = 1 + `grep -c '^# status lifecycle:'` = 0 | ✅ existe | ⬜ pending |
+| 85-04-02 | 85-04 | 1 | NYQ-02 | T-85-04-01, T-85-04-04 | El `skipped: 1` del UAT se declara tal cual, jamás como `pass` | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../71-VALIDATION.md` = 1 + `grep -c 'TBD'` = 0 | ✅ existe | ⬜ pending |
+| 85-04-03 | 85-04 | 1 | NYQ-02 | T-85-04-01, T-85-04-02, T-85-04-03 | La plantilla literal desaparece por completo; cero marcadores sin sustituir | **CITATION** (D-12) | `grep -c 'nyquist_compliant: true' .../72-VALIDATION.md` = 1 + `grep -c 'pytest'` = 0 + una fila por HYG-01..08 | ✅ existe | ⬜ pending |
+| 85-05-01 | 85-05 | 2 | DEBT-07, NYQ-01, NYQ-02 | T-85-05-04 | Ningún ítem diferido sin trigger; OQ-1 enlazado a format-isolation transitivo | **doc / source-assert** | `test -f .../deferred-items.md` + `grep -c 'Trigger'` ≠ 0 + `grep -c 'R-82-01'` ≠ 0 | ➕ se crea | ⬜ pending |
+| 85-05-02 | 85-05 | 2 | DEBT-05, DEBT-06, DEBT-07, NYQ-01, NYQ-02 | T-85-05-01, T-85-05-02, T-85-05-03 | Se cierra solo lo saldado; la fila de format-isolation transitivo sigue ABIERTA; mutación vía `gsd-tools` | **doc / source-assert** | `grep -c '\[x\] \*\*DEBT-05\*\*' .planning/REQUIREMENTS.md` = 1 + `grep -c 'format-isolation transitivo' .planning/STATE.md` ≠ 0 + `gsd-tools query state.validate` | ✅ existen | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+**Reparto CITATION vs NEW-test (fijado por CONTEXT.md + RESEARCH.md §Validation Architecture):**
+
+- **Cobertura automatizada NUEVA:** solo `85-01-02/03` (DEBT-06) y `85-02-01/02/03` (DEBT-07) — 4 `it()` nuevos repartidos en 3 ficheros de test **existentes** (`dashboard-select`, `check`, `check-isolation`). Cero ficheros de test nuevos.
+- **Cobertura por CITA a evidencia existente:** `85-01-01` (DEBT-05, D-03) y los seis backfills de `85-03`/`85-04` (NYQ-01/02, D-12).
+- **Manual-only:** la corrección del comentario de WR-03(a) y la verificación de mordida del guard de WR-03(b).
 
 **Reparto de cobertura fijado por CONTEXT.md + RESEARCH.md §Validation Architecture:**
 
