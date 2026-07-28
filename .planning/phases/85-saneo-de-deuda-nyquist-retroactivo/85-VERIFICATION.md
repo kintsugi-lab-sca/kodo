@@ -1,11 +1,12 @@
 ---
 phase: 85-saneo-de-deuda-nyquist-retroactivo
 verified: 2026-07-27T14:05:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Decidir la disposición de WR-01 (80-REVIEW) a la luz del hallazgo de 85-REVIEW: el fix implementado (línea de fallos por `errorFn` en `src/check.js:160-172`) solo cubre fallos de escritura por-item de `executeFn`. En el escenario que la propia advertencia usó como motivación — cmux caído — `parseRaw` (`src/cmux/sidebar-doctor.js:153-162`) traga el error y devuelve el fallback vacío; con `liveWorkspaceRefs` vacío, el bucle de sesiones vivas descarta todo, `missing_group`/`loose_workspace`/`empty_group` quedan vacíos, cero acciones se intentan, `errors: []`, y el silencio original persiste."
     expected: "Una decisión explícita del mantenedor: (a) aceptar el fix como suficiente para el alcance literal de DEBT-07 (\"resueltos o re-aceptados... con razón documentada\") y registrar esta limitación con su trigger en `85/deferred-items.md` — hoy NO está registrada ahí, porque 85-REVIEW.md (13:43:55Z) se completó DESPUÉS de que 85-05 cerrara el bookkeeping de la fase (13:32:15Z) — o (b) abrir un fix de seguimiento que propague la degradación del scan (el propio 85-REVIEW.md ya trae un snippet concreto: marcar `__degraded: true` en el fallback de `parseRaw` y comprobarlo en `check.js`)."
     why_human: "Es una decisión de alcance/prioridad, no un defecto verificable por grep: el código presente hace exactamente lo que el fix propuesto por 80-REVIEW especificaba (inspeccionar `r.errors`, emitir por `errorFn`), con test coverage real (Test F/Test G, verdes) y sin comportamiento incorrecto — el propio 85-REVIEW.md lo clasifica WARNING, no BLOCKER. Pero el objetivo operativo original de WR-01 (distinguir «nada que arreglar» de «cmux caído, N fallos») sigue sin resolverse para el escenario más probable, y ningún artefacto de la fase lo documenta todavía como aceptado."

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
-current_phase_name: saneo-de-deuda-nyquist-retroactivo
-status: verifying
-stopped_at: Completed 85-05-PLAN.md
-last_updated: "2026-07-27T11:32:34.257Z"
-last_activity: 2026-07-27
-last_activity_desc: Phase 85 execution started
+current_phase_name: última de v0.19
+status: milestone complete
+stopped_at: Phase 85 complete, milestone v0.19 al 100% — listo para archivar
+last_updated: "2026-07-28T10:40:35.607Z"
+last_activity: 2026-07-28
+last_activity_desc: Phase 85 complete; milestone v0.19 al 100% (4/4 fases, 17/17 planes)
 progress:
   total_phases: 4
   completed_phases: 4
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
 
-**Current focus:** Phase 85 — saneo-de-deuda-nyquist-retroactivo
+**Current focus:** Milestone v0.19 COMPLETO (4/4 fases) — listo para /gsd-complete-milestone v0.19
 
 ## Current Position
 
-Phase: 85 (saneo-de-deuda-nyquist-retroactivo) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-07-27 — Phase 85 execution started
+Phase: 85 — Saneo de deuda + Nyquist retroactivo (última de v0.19)
+Plan: Not started
+Status: milestone complete — listo para /gsd-complete-milestone v0.19
+Last activity: 2026-07-28 — Phase 85 complete; milestone v0.19 al 100% (4/4 fases, 17/17 planes)
 
 ## Most recent shipped milestone
 
@@ -167,11 +167,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-07-27T11:32:20.532Z
+**Last session:** 2026-07-28
 
 **Resume file:** None
 
-- **Stopped at:** Completed 85-05-PLAN.md
+- **Stopped at:** Phase 85 complete, milestone v0.19 al 100% — listo para archivar
 - **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
