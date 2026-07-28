@@ -608,6 +608,47 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 - Model mix: fable (orquestación, planning, ejecución y cierre) + subagentes GSD (reviewer/verifier/auditor/integration-checker). 3 días (2026-07-22 → 2026-07-24), 86 commits, ~8 min/plan de media.
 - Notable: el cierre más barato de los últimos tres milestones — audit único `tech_debt` al primer intento gracias a fases pre-verificadas (UAT + SECURITY + VERIFICATION cerrados por fase antes del cierre).
 
+## Milestone: v0.19 — Inbox de capturas + fix stealLock + saneo de deuda
+
+**Shipped:** 2026-07-28
+**Phases:** 4 (82-85) | **Plans:** 17
+
+### What Was Built
+- Carrera de `stealLock` cerrada por construcción (Phase 82): move-aside eliminado (la propiedad del lock pasa solo por `renameSync(tmp→lockPath)`) + steal-guard `O_EXCL` publicado atómicamente vía `linkSync`; harness CR-01 byte-idéntico 100/100 bajo carga 4× frente al ~48% del repro original. R-81-01 saldada = fix real (LOCK-01..03).
+- Buffer de captura global (Phase 83, 7 plans): `src/inbox/store.js` con codec byte-exacto, parser anclado a la cola, reader never-throws, append `O_APPEND` fail-open y marcado RMW bajo `withFileLock` con guard compare-and-swap; `kodo capture` + `kodo inbox route|discard` como thin handlers; enrutado delegado en `gsd-capture` (seam documental) (CAPT-01/03/04/06).
+- Superficies de captura (Phase 84): `/kodo-capture` mid-session con argv congelado contra un canónico, `kodo skill sync` multi-skill con allowlist literal como control de acceso, conteo ambient de capturas sin enrutar en la cabecera del dashboard (CAPT-02/05/07).
+- Saneo de deuda + Nyquist retroactivo (Phase 85): DEBT-05/06 (typedef `TaskHandoff` post-DEBT-01, `deriveAnyNext` delegando en `nextCell`), los 3 warnings de 80-REVIEW **resueltos sin re-aceptar ninguno** (DEBT-07), y 6 fases (79/80/81 + 69/71/72) retro-validadas citation-based con cero tests generados (NYQ-01/02).
+
+### What Worked
+- **El repro cuantificado como criterio de aceptación** (Phase 82): medir el flaky al ~48% antes de tocar nada convirtió «pasa/falla» en una escala — el primer fix bajó la tasa pero no la anuló, y eso bastó para rechazarlo y descubrir que `writeFileSync({flag:'wx'})` reabría la ventana *dentro del guard*.
+- **Un escenario adversarial que la fase no pedía** (D-21, plan 83-03): montar 6 capturas concurrentes contra un marcado con la ventana sostenida destapó que el riesgo residual de D-03 no era residual sino total (0 de 6 supervivientes). Sin ese escenario, el bug habría llegado a producción con la fase «verificada».
+- **Revertir el propio arreglo cuando resultó ser enmascaramiento**: subir el presupuesto de lock a ~1000 ms hacía pasar el escenario; se revirtió por ser exactamente lo que DEBT-04 prohíbe, y el reemplazo (guard CAS anclado al estado del fichero) es indiferente a la carga de la máquina.
+- **Escribir «contabilizar no es resolver» dentro de la propia celda** (plan 85-05): las filas de evidencia en vivo y del backstop GitHub quedaron mejor citadas por el backfill Nyquist, y la anotación explícita impide que el siguiente audit las lea como cierre.
+- **La allowlist como control de acceso, no como lista de conveniencia** (CAPT-05): `readdirSync` sobre `.claude/skills/` habría distribuido `worktree-cleanup` —skill de trabajo local— al HOME de cada operador; el guard source-hygiene lo hace imposible por construcción.
+
+### What Was Inefficient
+- **La Phase 83 necesitó 4 planes de cierre de gaps sobre 3 originales**: el criterio de concurrencia que da nombre al riesgo de la fase falló en la primera verificación. El modelo de estado del marcado estaba marcado como «decisión abierta a resolver en discuss/plan, no defaultear» — se resolvió, pero el escenario que lo falsaba llegó *después* de la implementación, no antes.
+- **Nyquist retroactivo por quinta vez**: 6 fases más pasaron a `validated` en un barrido posterior. El sign-off sigue desacoplado del flujo de ejecución, milestone tras milestone.
+- **Dos hallazgos de seguridad llegaron después del bookkeeping de cierre** (UF-01/UF-02, Phase 85): el orden de los pasos del pipeline dejó huérfano lo que apareció tarde y hubo que re-abrir la contabilidad.
+- **El milestone cerró sin `MILESTONE-AUDIT.md`**: las 4 fases estaban `passed` y la cobertura era 15/15, pero el cross-check de integración cross-phase no se corrió como paso propio (precedente v0.12/v0.14).
+
+### Patterns Established
+- **Por construcción > por probabilidad, con el test como notario**: un fix de carrera solo se acepta si elimina la ventana; el harness se mantiene byte-idéntico para que no exista la tentación de greenear ajustando el instrumento.
+- **Invariante anclado al estado, no al reloj**: baseline (bytes + `ino`) tomado de la lectura y comprobado justo antes de publicar — compare-and-swap dentro del lock, con la ventana residual *declarada* en vez de ocultada.
+- **Guard de cobertura cross-proceso**: un marcador real escrito por el hijo, leído por el test, que falla si la rama fail-open deja de ejercitarse — destapó que la colisión marcado↔captura dependía del scheduler y forzó una liberación en dos tiempos.
+- **Backfill retroactivo citation-based**: la cobertura ES la cita a evidencia ya en disco (fichero + sección + conteo), con cero tests generados y cero re-corridas de suite; los items no automatizables se contabilizan como Manual-Only con su razón, y un `skipped` se cita como skip, jamás doblado a pass.
+- **Writer único por construcción para un fichero compartido**: la skill shellea el CLI y jamás escribe el fichero; el argv se extrae del propio markdown y se congela contra un canónico, así que editar la skill pone rojo el test.
+
+### Key Lessons
+- **Un fix que reduce la tasa de fallo no es un fix**: el primer `stealLock` bajó la reproducción pero no la anuló, y solo el rework con `linkSync` cerró la ventana. La métrica de aceptación debe ser la garantía, no la mejora.
+- **El riesgo residual que una decisión declara «aceptable» merece un escenario que lo intente romper antes de cerrar la fase**: D-03 dejó el append fail-open fuera de coordinación y lo llamó residual; el escenario D-21 demostró que era total.
+- **Una fase declarada mecánica no es el sitio para descubrir el radio de un cambio**: el `format-isolation` transitivo se difirió explícitamente (D-18) porque activar el walker pondría rojo un número de ficheros del dashboard que nadie había medido.
+- **Contabilizar mejor una deuda no la salda**: el backfill citó evidencia más fuerte de la prevista para las filas de evidencia en vivo, y aun así siguen abiertas con su trigger original — la distinción hay que escribirla donde se leerá.
+
+### Cost Observations
+- Model mix: opus/fable (orquestación, planning, ejecución y cierre) + subagentes GSD (reviewer/verifier/auditor/security). 4 días (2026-07-24 → 2026-07-28), 137 commits, 17 plans.
+- Notable: la Phase 83 consumió 7 de los 17 planes del milestone (41%) por el ciclo de cierre de gaps de concurrencia — el coste real de un invariante que solo se falsa con un escenario adversarial construido a mano.
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -631,6 +672,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.16 | 18 | 4 | Milestone dirigido por auditoría adversarial (4 olas por causa raíz, orden risk-graded) + race-tests de procesos reales como gate para locks + estándar de alcanzabilidad end-to-end en verificación (2 BLOCKERs cazados) + retirar una fase entera (73) cuando eliminar la causa gana al fix estructural |
 | v0.17 | 17 | 5 | Arquitectura productor→consumidores del milestone (74→75 + 2 ortogonales paralelizables) + hechos empíricos del sistema externo pineados pre-planning («no re-derivar») + UAT en vivo caza gap de instalación (G-74-4) → detector permanente en doctor + fase dedicada de deuda de cierre (78) con review con teeth |
 | v0.18 | 9 | 3 | Eliminar la rama insegura > hacerla segura (G-79-1: `create`/`set-anchor` fuera de `execute()` por construcción) + diagnóstico gated de flaky como entregable (DEBT-04: carrera real hallada, test red-by-design) + re-fronterización explícita de invariante (GRP-04 → carril doctor) + cierre con fases pre-verificadas → audit único al primer intento |
+| v0.19 | 17 | 4 | Repro cuantificado como criterio de aceptación del fix (por construcción > por probabilidad, harness byte-idéntico) + escenario adversarial que falsa el riesgo declarado «residual» (D-21: 0/6 supervivientes) + revertir el propio arreglo al reconocerlo como enmascaramiento + backfill Nyquist citation-based sobre 6 fases de dos milestones + allowlist literal como control de acceso en distribución de skills |
 
 ### Cumulative Quality
 
@@ -653,6 +695,7 @@ El puente inverso `sesión → tarea`: una sesión Claude Code ad-hoc de cmux se
 | v0.16 | 2027 | ~28,300 | — |
 | v0.17 | 2309 | ~25,500 (wc -l `src/**/*.js`; el ~28,3k de v0.16 usó otro método) | ~47,200 |
 | v0.18 | 2364 | ~26,400 | ~48,300 |
+| v0.19 | 2590 | ~28,200 | ~53,300 |
 
 ### Top Lessons (Verified Across Milestones)
 
