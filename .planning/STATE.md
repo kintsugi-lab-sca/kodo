@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.19
 milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
 current_phase: 85
-current_phase_name: última de v0.19
+current_phase_name: Saneo de deuda + Nyquist retroactivo
 status: milestone complete
 stopped_at: Phase 85 complete, milestone v0.19 al 100% — listo para archivar
-last_updated: "2026-07-28T10:40:35.607Z"
+last_updated: "2026-07-28T10:41:00.607Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 85 complete; milestone v0.19 al 100% (4/4 fases, 17/17 planes)
 progress:
@@ -32,7 +32,7 @@ See: `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84).
 
 ## Current Position
 
-Phase: 85 — Saneo de deuda + Nyquist retroactivo (última de v0.19)
+Phase: 85 — Saneo de deuda + Nyquist retroactivo
 Plan: Not started
 Status: milestone complete — listo para /gsd-complete-milestone v0.19
 Last activity: 2026-07-28 — Phase 85 complete; milestone v0.19 al 100% (4/4 fases, 17/17 planes)
