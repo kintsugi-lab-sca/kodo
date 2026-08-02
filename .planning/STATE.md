@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.19
-milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
-status: Awaiting next milestone
-stopped_at: Milestone v0.19 archivado (2026-07-28) — sin milestone activo, siguiente fase 86
-last_updated: "2026-07-28T10:49:47.587Z"
-last_activity: 2026-07-28
-last_activity_desc: Milestone v0.19 completed and archived
+milestone: v0.20
+milestone_name: Cierre de deuda trazada
+status: planning
+last_updated: "2026-08-02T17:43:33.104Z"
+last_activity: 2026-08-02
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
-current_phase: 85
-current_phase_name: Saneo de deuda + Nyquist retroactivo
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -32,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-28 after v0.19 milestone).
 
 ## Current Position
 
-Phase: — (sin milestone activo; el siguiente empieza en la Phase 86)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-28 — Milestone v0.19 archivado (ROADMAP colapsado, REQUIREMENTS archivado, tag `v0.19`)
+Status: Defining requirements
+Last activity: 2026-08-02 — Milestone v0.20 started
 
 ## Most recent shipped milestone
 
