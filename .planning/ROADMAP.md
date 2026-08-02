@@ -20,8 +20,76 @@
 - ✅ **v0.17 Plan vivo por-tarea** — Phases 74-78 (shipped 2026-07-22)
 - ✅ **v0.18 Higiene del sidebar de cmux** — Phases 79-81 (shipped 2026-07-24)
 - ✅ **v0.19 Inbox de capturas + fix stealLock + saneo de deuda** — Phases 82-85 (shipped 2026-07-28)
+- 🚧 **v0.20 Cierre de deuda trazada** — Phases 86-88 (en curso desde 2026-08-02)
 
-> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74. La Phase 73 no vuelve a usarse — v0.18 continuó desde la Phase 79 (última shipped: Phase 78) y v0.19 continuó desde la Phase 82 (última shipped: Phase 81). El próximo milestone continúa desde la **Phase 86** (última shipped: Phase 85).
+> **Phase 73 quemada.** Se creó y se retiró por eliminación el 2026-07-14 (el nudge genérico que pretendía debouncear se borró entero, commit `f4df750`). El número NO se reutiliza: la numeración salta de 72 a 74. La Phase 73 no vuelve a usarse — v0.18 continuó desde la Phase 79 (última shipped: Phase 78), v0.19 continuó desde la Phase 82 (última shipped: Phase 81) y v0.20 continúa desde la **Phase 86** (última shipped: Phase 85).
+
+## Active Milestone: v0.20 Cierre de deuda trazada
+
+**Milestone Goal:** Cerrar los cuatro items de deuda que v0.19 dejó abiertos **con trigger explícito** — saneo puro, **sin feature nueva**. Los cuatro entran con causa raíz localizada en fichero y línea; ninguno es especulativo. Precedente: Phase 85 (v0.19) y Phase 81 (v0.18) hicieron lo mismo a menor escala.
+
+**Granularidad:** `coarse` → 3 fases. **Cobertura:** 12/12 requirements mapeados, cero orphans.
+
+**Orden por riesgo, no por dependencia:** los cuatro workstreams son **independientes entre sí** — no comparten ficheros ni tienen dependencias duras. La **Phase 86** va primera porque toca el primitivo de concurrencia que consumen dispatcher, orchestrator y polling. Las **Phases 87 y 88** son ortogonales entre sí y paralelizables.
+
+**Constraints LOCKED (heredados — no re-discutir):**
+
+- **DEBT-04:** ningún test se greenea enmascarando — ni debilitando asserts, ni subiendo timeouts, ni ampliando presupuestos de reintento. El harness de LOCK-05 debe ponerse **ROJO** con el CAS revertido a mano (LOCK-06).
+- **El rediseño del primitivo de lock está FUERA DE ALCANCE** (decisión del mantenedor 2026-08-02; LOCK-F1 → v2): el fix es el **CAS simétrico en la rama PRESENT**, análogo exacto del `O_EXCL`+re-check que la rama ABSENT ya hace. Serializar Case-1/release con el guard es un milestone propio.
+- **La ventana residual de 2 syscalls se DECLARA** — nunca se oculta ni se presenta como cierre por construcción (LOCK-07).
+- **El auto-sync consume la MISMA allowlist congelada** que `kodo skill sync` (fuente única), jamás una lista paralela.
+- **Cero deps npm nuevas · cero endpoints nuevos en `src/server.js`.**
+- **DOC-01 refresca el INVENTARIO, no la guía:** framework (`node:test` + `node:assert/strict`), inyección de dependencias y `beforeEach`/cleanup de `TESTING.md` son correctos y no se reescriben.
+
+- [ ] **Phase 86: CAS simétrico de `stealLock` — holder VIVO** - Re-validar identidad del `lockPath` antes del rename destructivo, harness que siembra holder vivo, mordida verificada y ventana residual declarada — LOCK-04..07
+- [ ] **Phase 87: Aislamiento de color transitivo en el TUI** - Guard transitivo con mordida + cierre de los 3 leaks medidos + pureza de `dashboard/format.js` congelada + fin del punto ciego declarado en falso — ISO-01..04
+- [ ] **Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests** - El auto-sync del launch consume la allowlist congelada completa (fuente única) y `TESTING.md` vuelve a describir el `test/` real — SYNC-01..03, DOC-01
+
+## Phase Details
+
+### Phase 86: CAS simétrico de `stealLock` — holder VIVO
+
+**Goal**: Con un holder stale pero **VIVO** que libera el lock en plena sección crítica del steal, el lock que queda en disco es el del creador Case-1 legítimo — el stealer que llega tarde aborta con un `reason` discriminado en vez de clobbearlo. Nunca dos owners.
+**Depends on**: Nada (workstream independiente). Cierra R-82-01, hallazgo de 2º orden de `82-REVIEW.md` CR-01 (interleaving de 5 pasos en `.planning/milestones/v0.19-phases/82-fix-de-la-carrera-de-steallock/82-REVIEW.md`). Decisión del mantenedor 2026-08-02: **CAS simétrico, no rediseño del primitivo**.
+**Requirements**: LOCK-04, LOCK-05, LOCK-06, LOCK-07
+**Success Criteria** (what must be TRUE):
+
+  1. Con un holder stale VIVO que hace `release` en plena sección crítica del steal y un creador Case-1 legítimo compitiendo, el lock que sobrevive en disco es el del creador: la rama PRESENT de `stealLock` (`src/gsd/lock.js:453-471`) re-valida `ino` + bytes del `lockPath` (baseline tomado de la lectura de su propia sección crítica) inmediatamente antes del `renameSync` destructivo y **aborta con un `reason` discriminado** en vez de sobrescribir. (LOCK-04)
+  2. El harness de carrera siembra un holder **VIVO** — no solo el dead-PID de `DEAD_PID`/`writeStaleDeadLock`, que es exactamente por qué esta carrera es hoy invisible — y demuestra **cardinalidad exacta**: con N≥2 procesos y un release concurrente, adquiere **uno solo**. (LOCK-05)
+  3. Revertir a mano el CAS del criterio 1 pone el harness **ROJO**, y la evidencia de esa mordida queda registrada. La verificación no debilita ningún assert, no sube timeouts y no amplía presupuestos de reintento (DEBT-04, LOCKED). (LOCK-06)
+  4. Quien lea el JSDoc de `stealLock` o el `STATE.md` encuentra **declarada** la ventana residual de 2 syscalls contiguos entre la comprobación de identidad y el `renameSync`, con su clase de riesgo nombrada — la misma clase que la ventana residual aceptada en el guard del inbox de Phase 83. Nunca presentada como cierre por construcción. (LOCK-07)
+  5. La suite completa sigue verde y los consumidores del lock (dispatcher, orchestrator, polling) no cambian de comportamiento — el camino caliente queda intacto y el rediseño del primitivo sigue fuera de alcance.
+
+**Plans**: TBD
+
+### Phase 87: Aislamiento de color transitivo en el TUI
+
+**Goal**: La invariante color-isolation vuelve a ser verdad **medible**: ningún fichero de `src/cli/dashboard/` alcanza `picocolors`, ni siquiera transitivamente, y el guard lo detecta. Hoy el guard directo está verde mientras el leak existe en 3 ficheros.
+**Depends on**: Nada (workstream independiente). Radio ya medido al abrir el milestone: importador directo de picocolors = solo `src/cli/format.js`; leaks transitivos reales = `src/cli/dashboard/App.js:73` y `src/cli/dashboard/markdown.js:27` (importan `stripControlChars` de `../format.js`), heredados por `src/cli/dashboard/SessionTable.js` por ambas vías. El walker `walkImports` ya existe en `test/format-isolation.test.js`.
+**Requirements**: ISO-01, ISO-02, ISO-03, ISO-04
+**Success Criteria** (what must be TRUE):
+
+  1. Un fichero del TUI que arrastre `picocolors` por una **cadena transitiva** de imports pone el guard rojo — no solo el import directo. La mordida se verifica reintroduciendo a mano uno de los leaks reales medidos. (ISO-01)
+  2. Los **3 leaks medidos están cerrados**: `App.js`, `markdown.js` y `SessionTable.js` dejan de alcanzar `src/cli/format.js`. El guard endurecido pasa verde **con el fix** y rojo sin él — el guard no se relaja para acomodar el estado actual. (ISO-02)
+  3. La pureza de `src/cli/dashboard/format.js` queda **congelada por un test**: es la premisa sobre la que descansa que `select.js` pueda importarlo sin arrastrar color, y hoy ningún test la asevera. Una regresión que la rompa falla. (ISO-03)
+  4. `test/format-isolation.test.js` no declara ningún punto ciego en falso: o el guard cubre `import()` dinámico, o el fichero declara **con honestidad** lo que no cubre. El comentario «el repo no lo usa» de `:14` y `:33` desaparece, porque es falso hoy (`src/providers/registry.js:27,28,57,58`, `src/session/state.js:247`). (ISO-04)
+  5. El dashboard sigue renderizando idéntico y `stripControlChars` sigue disponible para todo consumidor legítimo — cero regresión de comportamiento en el TUI, suite verde.
+
+**Plans**: TBD
+
+### Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests
+
+**Goal**: Un operador que **nunca** ejecuta `kodo skill sync` a mano recibe igualmente todas las skills de la allowlist congelada, y `.planning/codebase/TESTING.md` vuelve a describir el `test/` que existe de verdad.
+**Depends on**: Nada dura (workstreams independientes). Va **última a propósito**: el inventario de DOC-01 se recuenta cuando las Phases 86 y 87 ya han añadido/tocado sus ficheros de test, de modo que no nazca desfasado. Boundary conocido: `src/cli/skill-sync.js:43` tiene la allowlist congelada `KODO_SKILLS`; `src/orchestrator/launch.js:163-165` hardcodea `kodo-orchestrate`; el guard D-08b de `test/skill-sync.test.js:815` **asevera hoy lo contrario** de SYNC-02 (prohíbe que `launch.js` importe el registro) — hay que **invertirlo para `launch.js`, conservándolo para `src/hooks/stop.js`**, cuyo auto-commit con pathspec sigue deliberadamente single-skill.
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, DOC-01
+**Success Criteria** (what must be TRUE):
+
+  1. Un operador que solo usa `kodo orchestrate` y jamás ejecuta `kodo skill sync` termina con **todas** las skills de la allowlist congelada en su HOME — `/kodo-capture` (v0.19 Phase 84) incluida, que hoy no le llega nunca. (SYNC-01)
+  2. Añadir una skill futura a la allowlist congelada la distribuye por **ambos** carriles sin volver a tocar `launch.js`: la fuente única está aseverada por test, y el guard D-08b queda invertido para `launch.js` y conservado para `stop.js` con su razón escrita. (SYNC-02)
+  3. Con una skill que falla al sincronizar, las demás se sincronizan igual y **el orquestador arranca**: resiliencia por skill y fail-open respecto al launch, con el fallo observable por el evento existente (`skill.sync.auto.error`) en vez de silencioso. (SYNC-03)
+  4. `.planning/codebase/TESTING.md` describe el inventario **real** de `test/` — hoy lista 2 ficheros (congelado desde 2026-04-07) frente a 181 ficheros `*.test.js` / 2590 tests medidos al abrir el milestone; el documento cita el comando de recuento que lo produce, para que el próximo desfase sea comprobable en un shell. La guía (framework `node:test` + `node:assert/strict`, inyección de dependencias, `beforeEach`/cleanup) queda **intacta**: es correcta. (DOC-01)
+
+**Plans**: TBD
 
 ## Phases
 
@@ -174,6 +242,7 @@ Detalle completo de las fases 82-85: ver `milestones/v0.19-ROADMAP.md`.
 
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
+| v0.20 Cierre de deuda trazada | 86-88 | 0/TBD | In progress | - |
 | v0.19 Inbox de capturas + fix stealLock + saneo de deuda | 82-85 | 17/17 | Complete | 2026-07-28 |
 | v0.18 Higiene del sidebar de cmux | 79-81 | 9/9 | Complete | 2026-07-24 |
 | v0.17 Plan vivo por-tarea | 74-78 | 17/17 | Complete | 2026-07-22 |

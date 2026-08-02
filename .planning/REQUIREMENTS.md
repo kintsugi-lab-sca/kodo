@@ -66,24 +66,26 @@ Diferidos con su trigger real. No entran en este roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LOCK-04 | TBD | Pending |
-| LOCK-05 | TBD | Pending |
-| LOCK-06 | TBD | Pending |
-| LOCK-07 | TBD | Pending |
-| SYNC-01 | TBD | Pending |
-| SYNC-02 | TBD | Pending |
-| SYNC-03 | TBD | Pending |
-| ISO-01 | TBD | Pending |
-| ISO-02 | TBD | Pending |
-| ISO-03 | TBD | Pending |
-| ISO-04 | TBD | Pending |
-| DOC-01 | TBD | Pending |
+| LOCK-04 | Phase 86 | Pending |
+| LOCK-05 | Phase 86 | Pending |
+| LOCK-06 | Phase 86 | Pending |
+| LOCK-07 | Phase 86 | Pending |
+| ISO-01 | Phase 87 | Pending |
+| ISO-02 | Phase 87 | Pending |
+| ISO-03 | Phase 87 | Pending |
+| ISO-04 | Phase 87 | Pending |
+| SYNC-01 | Phase 88 | Pending |
+| SYNC-02 | Phase 88 | Pending |
+| SYNC-03 | Phase 88 | Pending |
+| DOC-01 | Phase 88 | Pending |
 
 **Coverage:**
 - v1 requirements: 12 total
-- Mapped to phases: 0 (pendiente de roadmap)
-- Unmapped: 12 ⚠️
+- Mapped to phases: 12 ✓ (Phase 86: 4 · Phase 87: 4 · Phase 88: 4)
+- Unmapped: 0 ✓
+- Duplicados: 0 — cada requirement mapea a exactamente una fase
 
 ---
 *Requirements defined: 2026-08-02*
+*Traceability mapeada: 2026-08-02 al crear el roadmap v0.20 (3 fases, granularidad `coarse`, 12/12 requirements, cero orphans).*
 *Last updated: 2026-08-02 al abrir el milestone v0.20 «Cierre de deuda trazada» — sin research (causa raíz localizada en código en los 4 items). Radio de D-18 medido antes de definir el scope: 3 ficheros del TUI arrastran picocolors transitivamente.*
