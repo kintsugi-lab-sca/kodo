@@ -661,12 +661,25 @@ function stealLock(lockPath, sessionInfo, reason, deps = {}) {
           if (fresh.content && !isStaleLock(fresh.content)) {
             // A live, fresh holder owns the path now: the legitimate Case-1 creator
             // keeps the lock and this late stealer withdraws cleanly, without
-            // spending more budget. Only `task_ref` is interpolated — never the raw
-            // lock body, which is hand-editable and would be a control-char vector
-            // towards the terminal.
+            // spending more budget.
+            //
+            // `task_ref` NO es un dato de confianza: es un campo del propio cuerpo
+            // del lock —editable a mano como el resto— y además llega del proveedor
+            // remoto (`src/triggers/dispatcher.js:198` → `task_ref: task.ref`).
+            // Interpolarlo crudo en un `console.error` lo entrega a la terminal del
+            // operador, donde una secuencia ANSI/CSI puede reposicionar el cursor,
+            // borrar líneas o falsificar salida previa. Se sanea AQUÍ, en el punto
+            // de emisión: fuera los controles C0/C1 y tope de longitud.
+            //
+            // Lo que esto NO mitiga, dicho sin adorno: el mismo patrón sin sanear
+            // sigue vivo en `:167` (`Stealing expired lock from ${existing.task_ref}`),
+            // pre-existente y fuera del alcance de esta fase.
+            const safeRef = String(fresh.content.task_ref ?? '')
+              .replace(/\p{Cc}/gu, '')
+              .slice(0, 64);
             console.error(
               `[kodo:lock] Steal aborted: lock replaced mid-steal by a live holder ` +
-                `(${fresh.content.task_ref})`,
+                `(${safeRef})`,
             );
             return {
               acquired: false,
