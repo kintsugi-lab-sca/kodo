@@ -532,13 +532,70 @@ function stealLock(lockPath, sessionInfo, reason, deps = {}) {
 
       if (existsSync(lockPath)) {
         // Present (stale or corrupt) → atomic in-place replacement. `lockPath` is
-        // never briefly-empty: rename swaps the inode atomically (POSIX). No fresh
-        // Case-1 creator can race here — its O_EXCL create fails EEXIST while any
-        // bytes are present, so the guard fully serializes us.
+        // never briefly-empty: rename swaps the inode atomically (POSIX).
+        //
+        // The rename is NOT unconditional (CR-01, second order). The steal-guard
+        // serializes STEALERS, not creators: the live-but-stale holder can call
+        // `releaseGsdLock` right here, and a fresh `acquireGsdLock` Case-1 creator
+        // — which bypasses the guard by design — lands its O_EXCL create in the gap
+        // the unlink just opened. Renaming blindly over that path clobbers a
+        // legitimate owner, and both processes believe they hold the lock. That is
+        // exactly what the compare-and-swap below detects: the lock identity is
+        // re-probed FRESH (raw bytes + inode) against the baseline read at the top
+        // of this critical section, immediately before the rename.
+        //
+        // ORDEN INAMOVIBLE, heredado de `src/inbox/store.js:787-789`: escribir el
+        // tmp → sonda FRESCA → comparar → renombrar. Comparar ANTES de escribir el
+        // tmp dejaría fuera de la ventana vigilada el propio coste de la escritura.
         const tmp = `${lockPath}.tmp.${process.pid}.${randomUUID()}`;
         try {
           writeFileSync(tmp, serializeLockContent(sessionInfo));
-          renameSync(tmp, lockPath);
+
+          const fresh = readLockIdentity(lockPath);
+          // Bytes AND inode: comparing only the inode would go blind to inode reuse
+          // after `unlink` + create, which is the very sequence of steps 3-4 above.
+          // Modification TIME stays OUT of the identity comparison on purpose
+          // (D-04): it is redundant against a full byte compare, and a bare `touch`
+          // would produce spurious aborts. Do not "complete" this later.
+          const changed =
+            fresh.raw === null || base.raw === null
+              ? true // conservador: si no se puede comprobar, NO se publica
+              : !fresh.raw.equals(base.raw) ||
+                (base.ino !== null && fresh.ino !== null && fresh.ino !== base.ino);
+
+          if (!changed) {
+            renameSync(tmp, lockPath);
+            return { acquired: true };
+          }
+
+          try {
+            unlinkSync(tmp);
+          } catch {
+            /* best-effort — sin residuo de tmp perdido */
+          }
+
+          if (fresh.content && !isStaleLock(fresh.content)) {
+            // A live, fresh holder owns the path now: the legitimate Case-1 creator
+            // keeps the lock and this late stealer withdraws cleanly, without
+            // spending more budget. Only `task_ref` is interpolated — never the raw
+            // lock body, which is hand-editable and would be a control-char vector
+            // towards the terminal.
+            console.error(
+              `[kodo:lock] Steal aborted: lock replaced mid-steal by a live holder ` +
+                `(${fresh.content.task_ref})`,
+            );
+            return {
+              acquired: false,
+              holder: fresh.content,
+              reason: 'lock-replaced-mid-steal',
+            };
+          }
+
+          // Unparseable, stale, or the probe failed → release the guard through the
+          // `finally` below and re-contend: the loop already resolves all three
+          // states the path can be in (fresh live creator / absent / stale
+          // reappeared). Consumes ONE attempt of the EXISTING budget.
+          continue;
         } catch (err) {
           try {
             unlinkSync(tmp);
@@ -547,7 +604,6 @@ function stealLock(lockPath, sessionInfo, reason, deps = {}) {
           }
           throw err;
         }
-        return { acquired: true };
       }
 
       // Absent (holder released mid-steal) → respect a fresh creator via O_EXCL
