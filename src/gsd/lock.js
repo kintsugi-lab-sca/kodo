@@ -63,11 +63,17 @@ const DEFAULT_TTL_HOURS = 4;
 // Bounded re-contention budget for the guarded steal (CR-01). Each iteration is
 // a full guard-acquire attempt; a pathological churn can never spin forever.
 const MAX_STEAL_ATTEMPTS = 8;
-// Age threshold past which an orphaned steal-guard is breakable (D-05). Orders
-// of magnitude larger than the ~1ms critical section (read+write+rename), so a
-// live stealer inside the guard is never broken by age (A2). Dead-PID is the
-// primary, always-safe break criterion; this age bound is the backstop for a
-// guard whose owner PID was recycled onto a live-but-unrelated process.
+// Age threshold past which an orphaned steal-guard is breakable (D-05). Dead-PID
+// is the primary, always-safe break criterion; this age bound is the backstop for
+// a guard whose owner PID was recycled onto a live-but-unrelated process.
+//
+// Es un PRESUPUESTO DE TIEMPO, no una garantía. La sección crítica real
+// (read + write + rename) es de ~1 ms, así que el margen es holgado en la
+// práctica — pero un stealer VIVO que pase de este umbral (swap, SIGSTOP, FS
+// lento, o el propio seam de test, que retiene el guard hasta 3 s en
+// `test/helpers/lock-race-child.mjs:406`, el mismo orden de magnitud) SÍ es
+// adelantado por edad, y entonces hay dos stealers dentro. Decir «un stealer vivo
+// nunca es roto por edad» afirmaría más de lo que el código sostiene (LOCK-07).
 const STEAL_GUARD_STALE_MS = 5_000;
 
 /**
@@ -471,12 +477,24 @@ function sleepShort(ms) {
 }
 
 /**
- * Replace an existing (stale/corrupt) lock with new ownership so that at most
- * ONE of N concurrent stealers wins (CR-01), closing the FIRST-order double-acquire
- * race — stealer against stealer — by construction (D-01/D-02). The second-order
- * race (stealer against a Case-1 creator that lands in the hole a mid-steal release
- * opens) is NOT closed by construction: see «Ventana residual» at the end of this
- * block for what the compare-and-swap of step 2 does and does not guarantee.
+ * Replace an existing (stale/corrupt) lock with new ownership so that at most ONE
+ * of N concurrent stealers wins (CR-01), acotando la carrera de PRIMER orden
+ * —stealer contra stealer— para toda sección crítica más corta que
+ * `STEAL_GUARD_STALE_MS` (D-01/D-02).
+ *
+ * **NO está cerrada «por construcción», y decirlo sería el mismo pecado que D-18
+ * retiró de este bloque** (LOCK-07): pasado ese umbral el guard es rompible por
+ * EDAD aunque su dueño esté vivo (`guardIsStale`), y el `finally` del bucle suelta
+ * el guard SIN comprobar de quién es — de modo que un stealer adelantado por edad
+ * puede borrar al despertar el guard de su sucesor. Dos stealers pueden coexistir
+ * en la sección crítica, y la línea de defensa que queda entonces es el
+ * compare-and-swap del paso 2, que detecta el cambio y aborta. Eso es
+ * serialización por PRESUPUESTO DE TIEMPO, no por construcción.
+ *
+ * La carrera de SEGUNDO orden (stealer contra un creador Case-1 que aterriza en el
+ * hueco que abre un release a media faena) tampoco está cerrada por construcción:
+ * ver «Ventana residual» al final de este bloque para lo que el compare-and-swap
+ * del paso 2 garantiza y lo que no.
  *
  * Ownership of the LOCK is conferred SOLELY by `renameSync(tmp → lockPath)` (or
  * an `O_EXCL` create over an absent path); ownership of the GUARD solely by an
