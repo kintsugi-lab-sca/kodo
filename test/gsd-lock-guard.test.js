@@ -25,6 +25,7 @@ import {
   readdirSync,
   existsSync,
   rmSync,
+  unlinkSync,
   utimesSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -235,5 +236,161 @@ describe('gsd lock — steal-guard states (via public API + seeding)', () => {
     const entries = planningEntries(tmpDir);
     assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
     assert.ok(!entries.includes(GUARD_BASENAME), `aged guard should be gone; got: ${entries}`);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 86 Plan 01 — CAS simétrico de la rama PRESENT de `stealLock` (LOCK-04).
+//
+// El interleaving que se cierra (82-REVIEW.md §CR-01), los 5 pasos:
+//   1. El stealer entra en la sección crítica guardada y lee un holder STALE pero
+//      VIVO (TTL expirado, PID vivo) → no rechaza.
+//   2. `existsSync(lockPath)` → true → rama PRESENT.
+//   3. El holder vivo hace `releaseGsdLock` → `unlinkSync(lockPath)`. Path ausente.
+//   4. Un `acquireGsdLock` Case-1 fresco y legítimo crea el lock con `O_EXCL` —
+//      NO pasa por el steal-guard, por diseño.
+//   5. El stealer, ciego, renombra encima → clobbea al creador. DOS OWNERS.
+//
+// Los pasos 3 y 4 se disparan desde `deps._afterCriticalReadFn`, el seam de test
+// de D-10/D-11: el escenario es DETERMINISTA in-process, sin sleeps ni N
+// iteraciones a ver si cae la carrera. El carril de procesos reales (LOCK-05) vive
+// en `test/gsd-lock-race.test.js` y llega en el plan 86-02.
+//
+// La siembra es TTL vencido con PID VIVO (molde literal de
+// test/gsd-lock.test.js:117-127), NUNCA el `DEAD_PID` de arriba: ese sesgo es
+// precisamente lo que hace la carrera invisible al harness actual y lo que esta
+// fase corrige.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('gsd lock — CAS simétrico de la rama PRESENT (holder VIVO, LOCK-04)', () => {
+  /** @type {string} */
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'kodo-lock-cas-'));
+  });
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Seed a lock that is STALE (TTL exceeded) but whose holder PID is ALIVE —
+   * Case 3 of `acquireGsdLock`. Mold of test/gsd-lock.test.js:117-127.
+   *
+   * @param {string} projectPath
+   * @param {string} sessionId
+   */
+  function writeStaleLiveLock(projectPath, sessionId) {
+    writeLockDirect(projectPath, {
+      session_id: sessionId,
+      task_id: 'uuid-live',
+      task_ref: 'KL-LIVE',
+      pid: process.pid, // alive
+      acquired_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+      ttl_hours: 4, // → 5h > 4h: stale by TTL, holder still alive
+    });
+  }
+
+  /**
+   * Steps 3+4 of the interleaving, executed from inside the stealer's critical
+   * section: the live holder releases and a legitimate fresh Case-1 creator lands
+   * in the gap with an `O_EXCL` create.
+   *
+   * @param {string} projectPath
+   */
+  function releaseThenFreshCreator(projectPath) {
+    const lockPath = join(projectPath, LOCK_FILE);
+    unlinkSync(lockPath); // paso 3: releaseGsdLock del holder vivo
+    writeFileSync(
+      lockPath,
+      JSON.stringify(
+        {
+          session_id: 'sess-creator',
+          task_id: 'uuid-creator',
+          task_ref: 'KL-CREATOR',
+          pid: process.pid, // alive
+          acquired_at: new Date().toISOString(), // fresh → NOT stale
+          ttl_hours: DEFAULT_TTL_HOURS,
+        },
+        null,
+        2,
+      ) + '\n',
+      { flag: 'wx' }, // paso 4: Case-1 O_EXCL, igual que `writeLockFile`
+    );
+  }
+
+  it('(g) el steal ABORTA cuando el lock es reemplazado por un creador VIVO en plena sección crítica', () => {
+    writeStaleLiveLock(tmpDir, 'sess-live-holder');
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-stealer' }), {
+      _afterCriticalReadFn: () => releaseThenFreshCreator(tmpDir),
+    });
+
+    assert.equal(
+      result.acquired,
+      false,
+      'el stealer NO puede adquirir un lock que un creador Case-1 vivo publicó ' +
+        'bajo sus pies: renombrar encima produce DOS OWNERS (82-REVIEW §CR-01)',
+    );
+    if (result.acquired === false) {
+      assert.equal(result.reason, 'lock-replaced-mid-steal');
+      assert.equal(result.holder.session_id, 'sess-creator');
+    }
+  });
+
+  it('(h) tras el abort, el lock del creador sobrevive en disco y no queda residuo', () => {
+    writeStaleLiveLock(tmpDir, 'sess-live-holder');
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-stealer' }), {
+      _afterCriticalReadFn: () => releaseThenFreshCreator(tmpDir),
+    });
+
+    assert.equal(result.acquired, false);
+
+    // El `renameSync` destructivo NO se ejecutó: el creador conserva su lock.
+    const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
+    assert.equal(lock.session_id, 'sess-creator', 'el renameSync destructivo no debe ejecutarse');
+
+    // Higiene del camino de abort: un único lock, sin tmp perdido y con el guard
+    // liberado por el `finally` de la sección crítica.
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.some((e) => e.includes('.tmp.')), `sin residuo de tmp; got: ${entries}`);
+    assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
+  });
+
+  it('(i) un lock corrupto sigue siendo robable con el CAS puesto (seam no-op)', () => {
+    // IN-01 no empeora: `content: null` NO puede convertirse en un bloqueo. El CAS
+    // decide sobre BYTES; el parse solo sirve para evaluar D-06 (holder vivo).
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    writeFileSync(join(tmpDir, '.planning', LOCK_BASENAME), '{not valid json');
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-corrupt-ok' }), {
+      _afterCriticalReadFn: () => {},
+    });
+
+    assert.equal(result.acquired, true);
+
+    const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
+    assert.equal(lock.session_id, 'sess-corrupt-ok');
+    assert.equal(lock.pid, process.pid);
+  });
+
+  it('(j) sin seam, cero cambio de comportamiento: el holder stale-pero-VIVO se roba como siempre', () => {
+    // El tercer parámetro es OPCIONAL y ADITIVO (D-11): la llamada de dos
+    // argumentos —la que usan los 23 call sites existentes— no cambia de conducta.
+    writeStaleLiveLock(tmpDir, 'sess-live-holder');
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-nodeps' }));
+
+    assert.equal(result.acquired, true);
+
+    const lock = JSON.parse(readFileSync(join(tmpDir, LOCK_FILE), 'utf-8'));
+    assert.equal(lock.session_id, 'sess-nodeps');
+    assert.equal(lock.pid, process.pid);
+
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
   });
 });
