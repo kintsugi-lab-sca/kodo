@@ -65,7 +65,7 @@
 Plans:
 **Wave 1**
 
-- [ ] 86-01-PLAN.md — CAS simétrico end-to-end en la rama PRESENT de `stealLock` (lector de una pasada, seam de test, typedef aditivo, premisa falsa retirada) + caso in-process determinista que lo muerde — LOCK-04
+- [x] 86-01-PLAN.md — CAS simétrico end-to-end en la rama PRESENT de `stealLock` (lector de una pasada, seam de test, typedef aditivo, premisa falsa retirada) + caso in-process determinista que lo muerde — LOCK-04
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
