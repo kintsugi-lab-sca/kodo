@@ -5,8 +5,8 @@ milestone_name: Cierre de deuda trazada
 current_phase: 87
 current_phase_name: Aislamiento de color transitivo en el TUI
 status: planning
-stopped_at: Completed 86-02-PLAN.md
-last_updated: "2026-08-05T09:41:30.488Z"
+stopped_at: Phase 87 context gathered
+last_updated: "2026-08-05T11:09:22.076Z"
 last_activity: 2026-08-05
 last_activity_desc: Phase 86 complete, transitioned to Phase 87
 progress:
@@ -182,11 +182,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-08-05T09:09:16.272Z
+**Last session:** 2026-08-05T11:09:22.061Z
 
-**Resume file:** None
+**Resume file:** .planning/phases/87-aislamiento-de-color-transitivo-en-el-tui/87-CONTEXT.md
 
-- **Stopped at:** Completed 86-02-PLAN.md
+- **Stopped at:** Phase 87 context gathered
 - **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
