@@ -254,6 +254,74 @@ function assertCasExercised(dir, ctx) {
 }
 
 /**
+ * LAS CINCO SEÑALES QUE LA ORQUESTACIÓN MIDE, ASERTADAS (86-REVIEW §WR-05).
+ *
+ * El harness calculaba `parkedMs` y las etapas `released` / `creatorLanded` /
+ * `reasons` y las TIRABA, asertando solo `seeded` y `parked`. Se aserta lo que ya
+ * se mide: no relaja ningún umbral ni añade ninguno nuevo (D-16 / DEBT-04), solo
+ * convierte en rojo explícito lo que antes era un escenario degradado en silencio.
+ *
+ * Cada aserción responde a un modo de fallo distinto:
+ *  - `released`: el ÚNICO indicio de que el `unlink` del holder ocurrió de verdad.
+ *    `holderVerdict === 'written'` NO lo prueba: `releaseGsdLock` es idempotente y
+ *    NO-OP cuando el `session_id` en disco no casa (`src/gsd/lock.js:203-206`), así
+ *    que `written` significa «la llamada no lanzó». Sin ese `unlink` no hay hueco,
+ *    y sin hueco el escenario mide otra cosa.
+ *  - `creatorLanded`: sin el `O_EXCL` del creador Case-1 no hay nada contra lo que
+ *    el CAS pueda morder.
+ *  - `reasons`: el marcador lateral llegó a escribirse; si no, `assertCasExercised`
+ *    fallaría por marcador AUSENTE y no por rama no recorrida — dos causas muy
+ *    distintas con el mismo rojo.
+ *  - `parkedMs`: §Pitfall 8 y el supuesto A1 lo declaran restricción DURA. El techo
+ *    real no lo pone el padre sino el `waitForBarrier(args.resume, 3000)` del hijo
+ *    (`test/helpers/lock-race-child.mjs:406`); si esa espera VENCE, el stealer
+ *    reanuda por su cuenta antes del release y el rojo resultante se leería como
+ *    «el CAS no muerde» en vez de «la barrera venció». Y por encima de
+ *    `STEAL_GUARD_STALE_MS = 5_000` el guard del aparcado sería rompible por edad,
+ *    con lo que el escenario degradaría a medir la carrera de PRIMER orden que la
+ *    Phase 82 ya cerró.
+ *
+ * @param {{ stages: Record<string, boolean>, holderVerdict: string, parkedMs: number }} r
+ * @param {string} ctx
+ */
+function assertScenarioStaged(r, ctx) {
+  // El escenario NO OCURRIÓ si el holder no llegó a sembrar o el stealer no llegó a
+  // aparcarse: sin eso, todo lo que venga después mide otra cosa.
+  assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
+  assert.ok(
+    r.stages.parked,
+    `el stealer no llegó a aparcarse dentro de la sección crítica. ${ctx}`,
+  );
+  // El vocabulario del holder es `written`/`failed` y nunca `acquired`, de modo que
+  // el conteo de cardinalidad sobre el agregado de TODOS los hijos sigue siendo
+  // seguro. Ojo con lo que prueba: solo que la llamada no lanzó.
+  assert.equal(
+    r.holderVerdict,
+    'written',
+    `la llamada a releaseGsdLock del holder no completó (verdicto ≠ written). ${ctx}`,
+  );
+  assert.ok(
+    r.stages.released,
+    `el holder no llegó a soltar el lock DE VERDAD: su session_id seguía en disco, ` +
+      `así que el unlink que abre el hueco no ocurrió. ${ctx}`,
+  );
+  assert.ok(
+    r.stages.creatorLanded,
+    `el creador Case-1 no llegó a aterrizar en el hueco. ${ctx}`,
+  );
+  assert.ok(
+    r.stages.reasons,
+    `el marcador lateral steal-reasons.log no llegó a escribirse. ${ctx}`,
+  );
+  assert.ok(
+    r.parkedMs < 3000,
+    `el aparcamiento venció la barrera del seam (${r.parkedMs} ms ≥ 3000 ms): el ` +
+      `stealer reanudó por su cuenta y lo que viene después ya no mide el CAS. ` +
+      `La reacción correcta es revisar la SECUENCIACIÓN, JAMÁS subir el techo. ${ctx}`,
+  );
+}
+
+/**
  * Orquestación de TRES TIEMPOS del interleaving de segundo orden.
  *
  * Dos tiempos no bastan (a diferencia del precedente del inbox,
@@ -346,7 +414,6 @@ async function raceGsdStealLiveHolder(extraStealers) {
   // t6 — sacar al stealer del seam: escribe su tmp, sonda fresca, CAS, aborta.
   writeFileSync(goResume, '1');
   const parkedMs = Date.now() - parkedAt;
-  // Sin assert aquí: el assert de cobertura es `assertCasExercised`.
   stages.reasons = await waitUntil(() => existsSync(join(sandbox, 'steal-reasons.log')), 5000);
 
   // t7 — cierre: los ganadores con `--hold-until` salen.
@@ -373,17 +440,7 @@ describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º 
       `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
       `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
 
-    // El escenario NO OCURRIÓ si el holder no llegó a sembrar o el stealer no llegó a
-    // aparcarse: sin eso, todo lo que venga después mide otra cosa.
-    assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
-    assert.ok(
-      r.stages.parked,
-      `el stealer no llegó a aparcarse dentro de la sección crítica. ${ctx}`,
-    );
-    // El holder demuestra que LIBERÓ de verdad. Su vocabulario es `written`/`failed`
-    // y nunca `acquired`, de modo que el conteo de cardinalidad de abajo sobre el
-    // agregado de TODOS los hijos sigue siendo seguro.
-    assert.equal(r.holderVerdict, 'written', `el holder no completó su release. ${ctx}`);
+    assertScenarioStaged(r, ctx);
 
     // LA ASERCIÓN CANÓNICA (D-14): cardinalidad sobre el AGREGADO, jamás sobre quién
     // gana. Con el CAS revertido esto vale 2 — el stealer clobbea al creador y ambos
@@ -412,12 +469,7 @@ describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º 
       `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
       `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
 
-    assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
-    assert.ok(
-      r.stages.parked,
-      `el stealer no llegó a aparcarse dentro de la sección crítica. ${ctx}`,
-    );
-    assert.equal(r.holderVerdict, 'written', `el holder no completó su release. ${ctx}`);
+    assertScenarioStaged(r, ctx);
 
     // Los dos extra son el kind `gsd` SIN seam. Entran por Case-3, pierden el
     // steal-guard contra el aparcado —vivo y en ventana, así que `guardIsStale` es
