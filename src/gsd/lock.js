@@ -453,8 +453,11 @@ function sleepShort(ms) {
 
 /**
  * Replace an existing (stale/corrupt) lock with new ownership so that at most
- * ONE of N concurrent stealers wins (CR-01), closing the double-acquire race by
- * construction (D-01/D-02).
+ * ONE of N concurrent stealers wins (CR-01), closing the FIRST-order double-acquire
+ * race — stealer against stealer — by construction (D-01/D-02). The second-order
+ * race (stealer against a Case-1 creator that lands in the hole a mid-steal release
+ * opens) is NOT closed by construction: see «Ventana residual» at the end of this
+ * block for what the compare-and-swap of step 2 does and does not guarantee.
  *
  * Ownership of the LOCK is conferred SOLELY by `renameSync(tmp → lockPath)` (or
  * an `O_EXCL` create over an absent path); ownership of the GUARD solely by an
@@ -468,19 +471,63 @@ function sleepShort(ms) {
  *     next wins the atomic publish. A live+in-window guard is never broken
  *     (Pitfall 1), and an unparseable guard is broken by file age only, never by
  *     parse failure alone.
- *  2. Inside the guarded critical section (serialized across stealers), re-read
- *     `lockPath`: a fresh live holder → reject; a present stale/corrupt holder →
- *     atomic in-place replacement via a uniquely-named `tmp` + `renameSync(tmp →
- *     lockPath)`, so `lockPath` is NEVER briefly-empty (D-01); an ABSENT holder
- *     → respect a fresh creator via `O_EXCL` create rather than clobbering it
- *     (Pitfall 2), since a fresh `acquireGsdLock` Case-1 create bypasses the
- *     guard.
+ *  2. Inside the guarded critical section (serialized across stealers), read the
+ *     baseline IDENTITY of `lockPath` (raw bytes + inode, one pass) and branch:
+ *     a fresh live holder → reject; a present stale/corrupt holder → write a
+ *     uniquely-named `tmp`, re-probe the identity FRESH, and publish with
+ *     `renameSync(tmp → lockPath)` ONLY IF the identity is unchanged — so
+ *     `lockPath` is never briefly-empty (D-01) AND the replacement is a
+ *     compare-and-swap, not an unconditional clobber; an ABSENT holder → respect
+ *     a fresh creator via `O_EXCL` create rather than clobbering it (Pitfall 2),
+ *     since a fresh `acquireGsdLock` Case-1 create bypasses the guard.
  *  3. Release the guard in a `finally` (happy + error paths).
+ *
+ * The compare-and-swap of step 2 is what closes the SECOND-order race
+ * (`82-REVIEW.md` §CR-01): the guard serializes STEALERS, not creators, so the
+ * live-but-stale holder can `releaseGsdLock` mid-steal and a Case-1 creator can
+ * land its `O_EXCL` create in the gap the `unlink` just opened. A changed identity
+ * with a live fresh holder aborts with `reason: 'lock-replaced-mid-steal'`; any
+ * other change re-contends within the EXISTING budget.
  *
  * The bounded budget (`MAX_STEAL_ATTEMPTS`) caps re-contention; on exhaustion it
  * rejects against the current holder or makes a final atomic `O_EXCL` acquire —
  * never by renaming the live lock away, never by creating over a path left
  * deliberately empty.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * **Ventana residual, declarada sin adornos (LOCK-07 / D-17).**
+ *
+ * **Qué es.** Entre la sonda de identidad FRESCA y el `renameSync` que publica
+ * quedan **dos syscalls contiguos**. Un creador Case-1 que aterrice justo en ese
+ * hueco —después de la sonda, antes del rename— sigue siendo clobbeable: la sonda
+ * ya pasó y el rename no admite condición.
+ *
+ * **Clase de riesgo, nombrada.** Es un **TOCTOU residual**, y no es cerrable sin
+ * soporte atómico del sistema de ficheros: el `rename` de POSIX no admite
+ * condición, y la variante condicional de Linux (`renameat2` con
+ * `RENAME_NOREPLACE`) no está expuesta por `node:fs`. Es **la misma clase** de
+ * ventana que el guard del inbox de la **Phase 83** acepta y declara
+ * (`src/inbox/store.js`), y se acepta aquí por la misma razón.
+ *
+ * **Qué cambia de verdad.** La MAGNITUD, no la existencia. Antes del
+ * compare-and-swap la ventana era toda la sección crítica del steal —que dura lo
+ * que dure el proceso vivo del holder, potencialmente segundos— y ahora es el hueco
+ * entre dos syscalls contiguos. Además deja de depender de ningún presupuesto de
+ * tiempo: ni ampliando `MAX_STEAL_ATTEMPTS` ni tocando `STEAL_GUARD_STALE_MS` se
+ * mueve un milímetro.
+ *
+ * **Qué NO es.** NO es cierre por construcción, y no debe leerse como si lo fuera.
+ * El cierre por construcción está registrado como `LOCK-F1` y diferido a v2 con su
+ * propio trigger. Quien lea este bloque buscando la garantía de que dos procesos no
+ * pueden creerse dueños a la vez: esa garantía no está aquí, y afirmarla sería el
+ * tipo de comentario que afirma más de lo que el código sostiene.
+ *
+ * **El residual del residual** (Pitfall 1): un contenido nuevo byte-idéntico al
+ * baseline **y** con reutilización de inodo cegaría a la comparación. Eso implica
+ * el mismo `session_id` y el mismo `acquired_at` al milisegundo entre dos procesos
+ * distintos, así que merece esta línea y no una defensa dedicada; el clobber
+ * resultante sería semánticamente un no-op.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
  * @param {string} lockPath
  * @param {SessionInfo} sessionInfo
