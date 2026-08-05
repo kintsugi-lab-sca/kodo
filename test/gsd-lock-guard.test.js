@@ -376,6 +376,41 @@ describe('gsd lock — CAS simétrico de la rama PRESENT (holder VIVO, LOCK-04)'
     assert.equal(lock.pid, process.pid);
   });
 
+  it('(i2) corrupto SUSTITUIDO por otro corrupto en la ventana → re-contiende y roba, sin reason', () => {
+    // LOCK-04 (d), la mitad que (i) no cubre: aquí el CAS SÍ detecta cambio
+    // (`changed === true`), pero el contenido nuevo tampoco parsea. Debe tomar el
+    // `continue` de D-05, no el corte de D-06: un contenido corrupto NO puede
+    // producir `reason`, porque D-06 exige un `content` parseado Y no-stale.
+    // La rama se asevera por su EFECTO OBSERVABLE (adquiere, sin reason), nunca
+    // inspeccionando estado interno.
+    const lockPath = join(tmpDir, LOCK_FILE);
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    writeFileSync(lockPath, '{not valid json');
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-corrupt-swap' }), {
+      _afterCriticalReadFn: () => {
+        // Otros bytes, igualmente incapaces de parsear. El seam solo dispara en el
+        // primer intento, así que la segunda vuelta converge.
+        unlinkSync(lockPath);
+        writeFileSync(lockPath, '{another invalid payload', { flag: 'wx' });
+      },
+    });
+
+    assert.equal(result.acquired, true, 'un lock corrupto sigue siendo robable con el CAS puesto');
+    assert.ok(
+      !('reason' in result),
+      `un contenido corrupto nunca puede producir reason; got: ${JSON.stringify(result)}`,
+    );
+
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    assert.equal(lock.session_id, 'sess-corrupt-swap');
+
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.some((e) => e.includes('.tmp.')), `sin residuo de tmp; got: ${entries}`);
+    assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
+  });
+
   it('(j) sin seam, cero cambio de comportamiento: el holder stale-pero-VIVO se roba como siempre', () => {
     // El tercer parámetro es OPCIONAL y ADITIVO (D-11): la llamada de dos
     // argumentos —la que usan los 23 call sites existentes— no cambia de conducta.
