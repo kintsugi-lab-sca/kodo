@@ -69,7 +69,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 86-02-PLAN.md — Harness de holder VIVO con orquestación de tres tiempos y guard de cobertura (N=3 y N=5), mordida registrada con evidencia citada, y ventana residual declarada en el JSDoc y en STATE.md — LOCK-05, LOCK-06, LOCK-07
+- [x] 86-02-PLAN.md — Harness de holder VIVO con orquestación de tres tiempos y guard de cobertura (N=3 y N=5), mordida registrada con evidencia citada, y ventana residual declarada en el JSDoc y en STATE.md — LOCK-05, LOCK-06, LOCK-07
 
 ### Phase 87: Aislamiento de color transitivo en el TUI
 

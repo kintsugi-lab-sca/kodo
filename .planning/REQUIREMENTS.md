@@ -10,9 +10,9 @@
 ### Concurrencia del lock GSD (R-82-01)
 
 - [x] **LOCK-04**: Con un holder stale pero **VIVO** que libera el lock en plena sección crítica del steal, un stealer NO puede sobrescribir el lock fresco de un creador Case-1 legítimo — la rama PRESENT de `stealLock` (`src/gsd/lock.js:453-471`) re-valida la identidad del `lockPath` (`ino` + bytes, baseline tomado de la lectura de la propia sección crítica) inmediatamente antes del `renameSync` destructivo y aborta con un `reason` discriminado si cambió, en vez de clobbear.
-- [ ] **LOCK-05**: El harness de carrera siembra un holder **VIVO** (hoy solo siembra dead-PID vía `DEAD_PID`/`writeStaleDeadLock`, que es exactamente por qué esta carrera es invisible) y demuestra cardinalidad exacta: con N≥2 procesos y un release concurrente, adquiere **uno solo**.
-- [ ] **LOCK-06**: El guard tiene **mordida verificada**: revertir a mano el CAS de LOCK-04 pone el harness ROJO. La verificación no debilita ningún assert, no sube timeouts y no amplía presupuestos de reintento — constraint DEBT-04 heredado, LOCKED.
-- [ ] **LOCK-07**: La ventana residual del CAS (2 syscalls contiguos entre la comprobación de identidad y el `renameSync`) queda **declarada** en el JSDoc de `stealLock` y en `STATE.md`, con su clase de riesgo nombrada — misma clase que la ventana residual aceptada en el guard del inbox de Phase 83. Nunca presentada como cierre por construcción.
+- [x] **LOCK-05**: El harness de carrera siembra un holder **VIVO** (hoy solo siembra dead-PID vía `DEAD_PID`/`writeStaleDeadLock`, que es exactamente por qué esta carrera es invisible) y demuestra cardinalidad exacta: con N≥2 procesos y un release concurrente, adquiere **uno solo**.
+- [x] **LOCK-06**: El guard tiene **mordida verificada**: revertir a mano el CAS de LOCK-04 pone el harness ROJO. La verificación no debilita ningún assert, no sube timeouts y no amplía presupuestos de reintento — constraint DEBT-04 heredado, LOCKED.
+- [x] **LOCK-07**: La ventana residual del CAS (2 syscalls contiguos entre la comprobación de identidad y el `renameSync`) queda **declarada** en el JSDoc de `stealLock` y en `STATE.md`, con su clase de riesgo nombrada — misma clase que la ventana residual aceptada en el guard del inbox de Phase 83. Nunca presentada como cierre por construcción.
 
 ### Distribución de skills (D-08b)
 
@@ -67,9 +67,9 @@ Diferidos con su trigger real. No entran en este roadmap.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | LOCK-04 | Phase 86 | Complete |
-| LOCK-05 | Phase 86 | Pending |
-| LOCK-06 | Phase 86 | Pending |
-| LOCK-07 | Phase 86 | Pending |
+| LOCK-05 | Phase 86 | Complete |
+| LOCK-06 | Phase 86 | Complete |
+| LOCK-07 | Phase 86 | Complete |
 | ISO-01 | Phase 87 | Pending |
 | ISO-02 | Phase 87 | Pending |
 | ISO-03 | Phase 87 | Pending |

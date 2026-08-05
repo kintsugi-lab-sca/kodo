@@ -4,17 +4,17 @@ milestone: v0.20
 milestone_name: Cierre de deuda trazada
 current_phase: 86
 current_phase_name: CAS simétrico de `stealLock` — holder VIVO
-status: executing
-stopped_at: Completed 86-01-PLAN.md
-last_updated: "2026-08-05T08:53:01.934Z"
+status: verifying
+stopped_at: Completed 86-02-PLAN.md
+last_updated: "2026-08-05T09:09:16.283Z"
 last_activity: 2026-08-05
 last_activity_desc: Phase 86 execution started
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 33
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
 Phase: 86 (CAS simétrico de `stealLock` — holder VIVO) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-05 — Phase 86 execution started
 
 ## Most recent shipped milestone
@@ -145,6 +145,13 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 86-01: la deteccion es por Buffer.equals sobre bytes crudos + ino, no por size — el lock se reemplaza entero y dos contenidos distintos caben en el mismo tamano (D-02, divergencia deliberada del analogo del inbox)
 - [Phase ?]: 86-01: detectar cambio NO retorna — borra el tmp, suelta el guard por el finally y hace continue; solo el holder VIVO y fresco corta con reason lock-replaced-mid-steal (D-05/D-06). MAX_STEAL_ATTEMPTS sigue en 8 (D-07)
 - [Phase ?]: 86-01: el criterio grep -c 'mtimeMs' = 3 mide el TOKEN, no la semantica — se cumplio reformulando un comentario a 'modification TIME', no eliminando la documentacion de D-04; declarado como hallazgo, no silenciado
+- [Phase ?]: 86-02: el holder se siembra desde un hijo DEDICADO con pid: process.pid — un holder muerto no puede LIBERAR, y sin ese unlink la carrera de 2o orden es invisible (D-12)
+- [Phase ?]: 86-02: el seam espera una BARRERA, no un sleepSync calibrado — el escenario deja de depender de cualquier presupuesto de tiempo (D-16/DEBT-04)
+- [Phase ?]: 86-02: los stealers extra se sueltan SOLO tras observar stealer-parked; soltarlos antes permitiria que uno ganase el guard en su intento 0 y el seam no se disparara jamas
+- [Phase ?]: 86-02: la identidad en disco se asevera en N=3 (roles asimetricos por construccion) y NO en N=5 — medido: en 3 de 3 corridas el hueco lo gano un extra, no el creador (D-14)
+- [Phase ?]: 86-02: el JSDoc de stealLock se CORRIGE ademas de ampliarse — su paso 2 describia la sustitucion in-place incondicional sin mencionar el CAS (deuda que 86-01 dejo a este plan, D-17)
+- [Phase ?]: 86-02: el criterio grep -c waitUntil >= 8 es aritmeticamente inconsistente con la secuencia de 12 pasos del propio plan (solo prescribe 5 esperas); valor real 7, declarado en vez de rellenar el fichero con llamadas de adorno
+- [Phase ?]: 86-02: mordida canonica registrada — CAS revertido a mano (const changed = false) pone rojos N=3 (2 !== 1) y N=5 (3 !== 1) mas los 2 casos in-process de 86-01; restaurado, verde. Cero umbrales tocados (LOCK-06/D-15)
 
 ### Open Blockers
 
@@ -175,11 +182,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-08-05T08:52:53.680Z
+**Last session:** 2026-08-05T09:09:16.272Z
 
 **Resume file:** None
 
-- **Stopped at:** Completed 86-01-PLAN.md
+- **Stopped at:** Completed 86-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
@@ -219,6 +226,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 85 P04 | 31 | 3 tasks | 3 files |
 | Phase 85 P05 | 9min | 2 tasks | 2 files |
 | Phase 86 P01 | 12min | 2 tasks | 2 files |
+| Phase 86 P02 | 11min | 3 tasks | 4 files |
 
 ### Blockers
 
