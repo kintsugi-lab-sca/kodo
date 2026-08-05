@@ -49,7 +49,13 @@ import { randomUUID } from 'node:crypto';
  *   task_ref: string,
  * }} SessionInfo
  *
- * @typedef {{ acquired: true } | { acquired: false, holder: LockContent }} AcquireResult
+ * @typedef {{ acquired: true }
+ *          | { acquired: false, holder: LockContent, reason?: string }} AcquireResult
+ *   `reason` is OPTIONAL and ADDITIVE (D-08): it discriminates WHY the acquire was
+ *   rejected without changing the shape any existing consumer reads. Its only value
+ *   today is `'lock-replaced-mid-steal'` (D-09) — no reason taxonomy is invented here.
+ *   The sole consumer of the rejected variant, `src/triggers/dispatcher.js:202`, reads
+ *   `.holder` only, so it needs no change.
  */
 
 const LOCK_FILE = '.planning/.kodo.lock';
@@ -111,9 +117,19 @@ export function readLock(projectPath) {
  *
  * @param {string} projectPath - Absolute path to the target repository.
  * @param {SessionInfo} sessionInfo - Identity of the session requesting the lock.
+ * @param {{ _afterCriticalReadFn?: () => void }} [deps] - Optional dependency seam,
+ *   propagated to `stealLock`. `_afterCriticalReadFn` is the CONCURRENCY-TEST
+ *   INJECTION SEAM (D-10/D-11), NOT a feature: it widens the baseline-read →
+ *   rename window deterministically without test code in production. It is invoked
+ *   INSIDE the guarded critical section, right after the baseline identity read,
+ *   and ONLY on the FIRST attempt — if it fired on every turn the test's hold would
+ *   be multiplied by `MAX_STEAL_ATTEMPTS` and each turn would hold the steal-guard
+ *   closer to `STEAL_GUARD_STALE_MS`, so the scenario would stop converging.
+ *   Default no-op; NO production call site passes it. Precedent: `_afterReadFn` in
+ *   `src/inbox/store.js:698-703`.
  * @returns {AcquireResult}
  */
-export function acquireGsdLock(projectPath, sessionInfo) {
+export function acquireGsdLock(projectPath, sessionInfo, deps = {}) {
   const lockPath = lockPathFor(projectPath);
 
   // Case 1: atomic create + acquire (CONC-02, D-07). `writeLockFile` now uses
@@ -134,12 +150,12 @@ export function acquireGsdLock(projectPath, sessionInfo) {
   try {
     existing = /** @type {LockContent} */ (JSON.parse(readFileSync(lockPath, 'utf-8')));
   } catch {
-    return stealLock(lockPath, sessionInfo, 'corrupt lock file');
+    return stealLock(lockPath, sessionInfo, 'corrupt lock file', deps);
   }
 
   // Case 2: holder PID is dead — steal silently.
   if (!isPidAlive(existing.pid)) {
-    return stealLock(lockPath, sessionInfo, `PID ${existing.pid} dead`);
+    return stealLock(lockPath, sessionInfo, `PID ${existing.pid} dead`, deps);
   }
 
   // Case 3: PID alive but TTL expired — steal + warn.
@@ -151,7 +167,7 @@ export function acquireGsdLock(projectPath, sessionInfo) {
       `[kodo:lock] Stealing expired lock from ${existing.task_ref} ` +
         `(acquired ${existing.acquired_at}, TTL ${ttlHours}h exceeded)`,
     );
-    return stealLock(lockPath, sessionInfo, 'TTL expired');
+    return stealLock(lockPath, sessionInfo, 'TTL expired', deps);
   }
 
   // Case 4: PID alive, TTL OK — reject.
@@ -247,6 +263,56 @@ function readLockContent(path) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the IDENTITY of the lock at `path` in a SINGLE pass: raw bytes, parsed
+ * content and inode. Additive neighbour of `readLockContent`, which is kept intact
+ * for every other call site.
+ *
+ * **Orden crítico, heredado del precedente** (`src/inbox/store.js:662-665`): los
+ * bytes salen de **la lectura**, jamás de un `statSync` tomado por separado. Un
+ * cambio que aterrice entre el `readFileSync` y ese stat entraría en el baseline y
+ * dejaría el guard **ciego justo ante el caso que debe detectar**. El `ino` se toma
+ * **inmediatamente después** de la lectura y degrada a `null` si el stat falla
+ * (molde de `src/inbox/store.js:740-744`): sin componente de inodo, la comparación
+ * de bytes sigue vigente.
+ *
+ * `raw` es un `Buffer` — `readFileSync` **sin encoding** a propósito: leer con
+ * `'utf-8'` colapsaría bytes inválidos a U+FFFD y dos contenidos distintos
+ * compararían iguales. `content` es el parse, o `null` si el JSON es corrupto, al
+ * mismo nivel de validación que `readLockContent`: un lock corrupto sigue siendo
+ * robable.
+ *
+ * @param {string} path
+ * @returns {{ raw: Buffer | null, content: LockContent | null, ino: number | null }}
+ */
+function readLockIdentity(path) {
+  /** @type {Buffer} */
+  let raw;
+  try {
+    raw = readFileSync(path);
+  } catch {
+    return { raw: null, content: null, ino: null };
+  }
+
+  /** @type {number | null} */
+  let ino = null;
+  try {
+    ino = statSync(path).ino;
+  } catch {
+    ino = null; // sin componente de inodo; el de bytes sigue vigente
+  }
+
+  /** @type {LockContent | null} */
+  let content = null;
+  try {
+    content = /** @type {LockContent} */ (JSON.parse(raw.toString('utf-8')));
+  } catch {
+    content = null; // corrupto → robable, como en `readLockContent`
+  }
+
+  return { raw, content, ino };
 }
 
 /**
@@ -419,9 +485,12 @@ function sleepShort(ms) {
  * @param {string} lockPath
  * @param {SessionInfo} sessionInfo
  * @param {string} reason
+ * @param {{ _afterCriticalReadFn?: () => void }} [deps] - See the `acquireGsdLock`
+ *   JSDoc: `_afterCriticalReadFn` is a concurrency-test injection seam, default
+ *   no-op, fired on the FIRST attempt only.
  * @returns {AcquireResult}
  */
-function stealLock(lockPath, sessionInfo, reason) {
+function stealLock(lockPath, sessionInfo, reason, deps = {}) {
   console.error(`[kodo:lock] Lock stolen: ${reason}`);
   mkdirSync(dirname(lockPath), { recursive: true });
   const guardPath = `${lockPath}.steal-guard`;
@@ -445,7 +514,18 @@ function stealLock(lockPath, sessionInfo, reason) {
 
     // ── Critical section, serialized by the guard ──
     try {
-      const current = readLockContent(lockPath);
+      // Baseline identity of the lock (bytes + inode), read ONCE. The freshness
+      // gate below reads its `content`; the compare-and-swap in the PRESENT branch
+      // compares its `raw`/`ino` against a fresh probe taken just before the rename.
+      const base = readLockIdentity(lockPath);
+
+      // Concurrency-test injection seam (D-10/D-11): default no-op, FIRST attempt
+      // only. See the `acquireGsdLock` JSDoc — this is test surface, not a feature.
+      if (attempt === 0 && typeof deps._afterCriticalReadFn === 'function') {
+        deps._afterCriticalReadFn();
+      }
+
+      const current = base.content;
 
       // A fresh live holder appeared between the caller's read and here → reject.
       if (current && !isStaleLock(current)) return { acquired: false, holder: current };
