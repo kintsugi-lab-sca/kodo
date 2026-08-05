@@ -63,7 +63,12 @@
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 86-01-PLAN.md — CAS simétrico end-to-end en la rama PRESENT de `stealLock` (lector de una pasada, seam de test, typedef aditivo, premisa falsa retirada) + caso in-process determinista que lo muerde — LOCK-04
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 86-02-PLAN.md — Harness de holder VIVO con orquestación de tres tiempos y guard de cobertura (N=3 y N=5), mordida registrada con evidencia citada, y ventana residual declarada en el JSDoc y en STATE.md — LOCK-05, LOCK-06, LOCK-07
 
 ### Phase 87: Aislamiento de color transitivo en el TUI

@@ -6,13 +6,13 @@ current_phase: 86
 current_phase_name: CAS simétrico de `stealLock`   · not started
 status: planning
 stopped_at: Phase 86 context gathered
-last_updated: "2026-08-05T07:47:19.562Z"
+last_updated: "2026-08-05T08:41:39.241Z"
 last_activity: 2026-08-02
 last_activity_desc: Roadmap v0.20 creado (3 fases, 12/12 requirements mapeados)
 progress:
   total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---

@@ -804,21 +804,26 @@ function assertCasExercised(dir, ctx) {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+Las tres quedaron resueltas por los planes `86-01` y `86-02`. Cada una lleva su marca `RESOLVED:` con el plan y la tarea que la cierran.
 
 1. **¿Un plan o dos?** (`86-CONTEXT.md` lo deja a discreción del planner.)
    - Lo que se sabe: la restricción es que el harness pueda ponerse rojo con el CAS revertido.
    - Lo que no está claro: si el harness sin CAS es escribible de forma útil antes de que exista el seam — **no lo es**: el seam vive en producción (D-10/D-11) y sin él no hay determinismo. Un «harness-primero» estricto exigiría el seam primero.
    - Recomendación: **un solo plan con tres tareas ordenadas** — (T1) seam + lector interno + typedef, sin CAS; (T2) harness completo, que debe salir **ROJO** contra T1 (es la mordida, capturada en el momento en que es natural capturarla); (T3) CAS + JSDoc + `STATE.md`, que pone T2 verde. Así LOCK-06 se documenta sin una reversión artificial posterior — aunque D-15 exige igualmente la reversión manual a HEAD final como evidencia canónica. Alternativa igualmente válida: dos planes con la mordida al final del segundo.
+   - **RESOLVED: dos planes** — se adoptó la alternativa explícitamente contemplada arriba. La mordida se captura **dos veces**: el RED intermedio del ciclo TDD en `86-01` Tarea 1 (test in-process escrito antes del CAS, con el mensaje del assert registrado en el SUMMARY) y la reversión manual canónica sobre el HEAD final en `86-02` Tarea 3 (c), que es la que D-15 exige. El corte por planes respeta el presupuesto de contexto: `86-01` es el tracer sobre producción (2 tareas) y `86-02` la expansión al harness de procesos reales y la declaración honesta (3 tareas).
 
 2. **¿Qué composición exacta para el caso N=5 de D-14?**
    - Lo que se sabe: `acquired === 1` sobre el agregado; los roles asimétricos son 1 holder + 1 creador + M stealers.
    - Lo que no está claro: si los stealers extra deben ir todos con seam (aparcados) o solo el primero.
    - Recomendación: **un solo stealer con seam**; los demás sin seam, que contenderán por el guard y saldrán `blocked` por presupuesto. Que varios se aparquen a la vez es imposible por construcción (el guard los serializa) y multiplicaría el riesgo de A1.
+   - **RESOLVED: se adopta la recomendación** en `86-02` Tarea 2 — `raceGsdStealLiveHolder(2)`, con **exactamente un** stealer con seam (kind `gsd-seam`) y los 2 extra como kind `gsd` sin seam. El plan documenta ahí por qué varios aparcados a la vez son imposibles por construcción y por qué la aserción de identidad en disco **no** se replica en N=5 (D-14).
 
 3. **¿Se añade un unit determinista in-process además del test de procesos reales?**
    - Lo que se sabe: `test/gsd-lock-guard.test.js:11-16` declara que los casos in-process son deterministas por diseño y que la propiedad concurrente **no** se cubre ahí.
    - Recomendación: opcional y de bajo coste — con el seam se puede escribir un unit in-process donde el propio callback del seam hace `unlinkSync(lockPath)` + `writeFileSync(lockPath, <lock fresco de otro>)`, y assertar `{acquired:false, reason:'lock-replaced-mid-steal'}` sin ningún proceso hijo. Sería el test **más rápido y más determinista** de toda la fase, y muerde igual de bien. **No sustituye** al de procesos reales que LOCK-05 exige literalmente («harness … con N≥2 procesos»), pero lo complementa muy barato. Fichero natural: `test/gsd-lock-guard.test.js` — salvo que D-13 se lea como exclusivo, en cuyo caso va al `describe` nuevo de `gsd-lock-race.test.js`.
+   - **RESOLVED: sí, y además es el tracer de la fase.** El unit in-process determinista es la Tarea 1 de `86-01`, en `test/gsd-lock-guard.test.js` (D-13 se leyó como no exclusivo). Es el carril donde se captura el RED del ciclo TDD, y **no** sustituye al harness de procesos reales que LOCK-05 exige literalmente: ése es `86-02` Tareas 1 y 2 (casos N=3 y N=5).
 
 ---
 
