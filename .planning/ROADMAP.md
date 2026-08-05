@@ -41,7 +41,7 @@
 - **Cero deps npm nuevas · cero endpoints nuevos en `src/server.js`.**
 - **DOC-01 refresca el INVENTARIO, no la guía:** framework (`node:test` + `node:assert/strict`), inyección de dependencias y `beforeEach`/cleanup de `TESTING.md` son correctos y no se reescriben.
 
-- [ ] **Phase 86: CAS simétrico de `stealLock` — holder VIVO** - Re-validar identidad del `lockPath` antes del rename destructivo, harness que siembra holder vivo, mordida verificada y ventana residual declarada — LOCK-04..07
+- [x] **Phase 86: CAS simétrico de `stealLock` — holder VIVO** - Re-validar identidad del `lockPath` antes del rename destructivo, harness que siembra holder vivo, mordida verificada y ventana residual declarada — LOCK-04..07 (completed 2026-08-05)
 - [ ] **Phase 87: Aislamiento de color transitivo en el TUI** - Guard transitivo con mordida + cierre de los 3 leaks medidos + pureza de `dashboard/format.js` congelada + fin del punto ciego declarado en falso — ISO-01..04
 - [ ] **Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests** - El auto-sync del launch consume la allowlist congelada completa (fuente única) y `TESTING.md` vuelve a describir el `test/` real — SYNC-01..03, DOC-01
 

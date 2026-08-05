@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.20
 milestone_name: Cierre de deuda trazada
-current_phase: 86
-current_phase_name: CAS simétrico de `stealLock` — holder VIVO
-status: verifying
+current_phase: 87
+current_phase_name: Aislamiento de color transitivo en el TUI
+status: planning
 stopped_at: Completed 86-02-PLAN.md
-last_updated: "2026-08-05T09:09:16.283Z"
+last_updated: "2026-08-05T09:41:30.488Z"
 last_activity: 2026-08-05
-last_activity_desc: Phase 86 execution started
+last_activity_desc: Phase 86 complete, transitioned to Phase 87
 progress:
   total_phases: 3
   completed_phases: 1
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
 ## Current Position
 
-Phase: 86 (CAS simétrico de `stealLock` — holder VIVO) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-08-05 — Phase 86 execution started
+Phase: 87 — Aislamiento de color transitivo en el TUI
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-05 — Phase 86 complete, transitioned to Phase 87
 
 ## Most recent shipped milestone
 
