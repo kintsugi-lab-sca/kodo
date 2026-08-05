@@ -40,7 +40,9 @@ Devolver a la invariante **color-isolation** su condición de verdad **medible**
 ### Cierre de los leaks (ISO-02)
 
 - **D-01:** Los saneadores **puros de texto** salen de `src/cli/format.js` a un **módulo nuevo sin color**: `stripControlChars` (`format.js:80-97`) y `stripForKeystroke` (`format.js:114-125`, que llama a la primera) se mueven **juntos y byte a byte**, sin reescribir sus regex. El módulo nuevo es una **hoja**: cero imports, cero `picocolors`. Es el mismo movimiento que ya hicieron `src/session/handoff.js` y `src/tasks/pending.js` — módulos-contrato con cero imports para que un leaf del dashboard pueda importarlos sin arrastrar grafo (`test/check-isolation.test.js:231-258, 260-285`). — **Reversibility:** costly — mover una función exportada toca 5 call sites; deshacerlo los toca otra vez.
-  - **Call sites a actualizar (medidos, son 5):** `src/cli/dashboard/App.js:73` · `src/cli/dashboard/markdown.js:27` · `src/cli/inbox.js:36` · `src/session/manager.js:12` · `test/dashboard-format.test.js` (importa **las dos** funciones desde `../src/cli/format.js`).
+  - **Call sites a actualizar — CORREGIDO POR `87-RESEARCH.md` §Hallazgo 2: son 8, no 5.** El discuss contó solo los de `stripControlChars` y se dejó tres de `stripForKeystroke`. La lista vinculante es la del RESEARCH:
+    `src/cli/dashboard/App.js:73` · `src/cli/dashboard/markdown.js:27` · `src/cli/inbox.js:36` · `src/session/manager.js:12` · `test/dashboard-format.test.js` · **`src/cli/capture.js:38`** · **`src/hooks/stop.js:16`** · **`src/inbox/store.js:46`**.
+    Sin shim (D-02), los tres omitidos **fallan en tiempo de carga** en carriles vivos (captura CLI, hook de Stop, escritura del inbox). Dos de los ocho (`inbox.js`, `capture.js`) importan `createFormatter` en la misma línea: ahí el edit **parte el import en dos**, no sustituye el path.
 
 - **D-02:** **Sin shim de re-export** en `format.js`. Un `export { stripControlChars } from './sanitize.js'` mantendría viva y legítima la arista `dashboard → format.js`: el guard endurecido la seguiría cazando, pero el objetivo de la fase es que el camino correcto sea el **único** disponible, no que exista un atajo que dispare la alarma. Son 5 líneas de import; el coste de la limpieza es menor que el de la ambigüedad. — **Reversibility:** reversible.
 
@@ -92,6 +94,7 @@ Devolver a la invariante **color-isolation** su condición de verdad **medible**
 ### Cero regresión de comportamiento (criterio 5)
 
 - **D-17:** El movimiento de D-01 es **puro**: misma función, mismo cuerpo, mismos consumidores. Los goldens y tests de render existentes deben pasar **sin tocarse** — `test/dashboard-markdown.test.js:92` (T-75-02: cada línea pasa por `stripControlChars`), `test/inbox-format-golden.test.js`, `test/format.test.js`, `test/stop.test.js:347-439` (carril de keystroke). **Si un golden cambia, el movimiento dejó de ser puro** y hay que revisarlo, no actualizar el golden.
+  - **COMPLETADO POR `87-RESEARCH.md` §Hallazgo 4:** la promesa se cumple para los ficheros nombrados arriba (verificado corriendo la suite entera sobre una simulación del movimiento: conteos idénticos al baseline). Pero **hay 2 asserts que sí se rompen y viven en un fichero que este CONTEXT no nombró**: `test/manager.test.js:835` y `:867`, dos guards source-grep anclados literalmente a `from '../cli/format.js'`. Actualizar su path **no viola DEBT-04**: el assert sigue exigiendo el import canónico, solo cambia cuál es el carril canónico. Son otra categoría (guard source-grep), no goldens ni tests de render.
 
 - **D-18:** Baseline verde registrado antes de tocar nada: `node --test test/format-isolation.test.js` → **8 tests / 5 suites / 0 fail** (2026-08-05). El guard endurecido añade tests; ninguno de los 8 existentes puede quedar rojo.
 
