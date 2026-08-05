@@ -281,19 +281,36 @@ function readLockContent(path) {
  * `raw` es un `Buffer` — `readFileSync` **sin encoding** a propósito: leer con
  * `'utf-8'` colapsaría bytes inválidos a U+FFFD y dos contenidos distintos
  * compararían iguales. `content` es el parse, o `null` si el JSON es corrupto, al
- * mismo nivel de validación que `readLockContent`: un lock corrupto sigue siendo
- * robable.
+ * mismo nivel de validación que `readLockContent`: un lock que no parsea sigue
+ * siendo robable.
+ *
+ * **`missing` distingue las DOS subclases de «no hay bytes»**, y esa distinción es
+ * carga útil, no adorno. `ENOENT` significa *no está*; cualquier otro errno
+ * (`EACCES`, `EISDIR`, `ELOOP`, `EMFILE`) significa *está, pero no se puede leer* —
+ * que es la otra mitad del Caso 5 (`:30`) y sigue siendo un lock ROBABLE, no un
+ * motivo para no publicar jamás. Colapsar ambas en el mismo `{raw:null}` dejaba al
+ * compare-and-swap sin salida ante un fallo de lectura PERSISTENTE: `changed` valía
+ * `true` en cada vuelta, se agotaba el presupuesto y el epílogo terminaba lanzando
+ * `EEXIST` al llamante — con `stealLock` como único mecanismo de recuperación, eso
+ * era un bloqueo permanente sin vía de salida desde el producto.
+ *
+ * Por eso el `statSync` se toma **también cuando la lectura falla**: en `EACCES` el
+ * stat sigue siendo válido, y su `ino` es lo único que permite comparar la identidad
+ * de un lock ilegible en vez de degradar a «no se publica nunca».
  *
  * @param {string} path
- * @returns {{ raw: Buffer | null, content: LockContent | null, ino: number | null }}
+ * @returns {{ raw: Buffer | null, content: LockContent | null, ino: number | null,
+ *             missing: boolean }}
  */
 function readLockIdentity(path) {
-  /** @type {Buffer} */
-  let raw;
+  /** @type {Buffer | null} */
+  let raw = null;
+  /** @type {boolean} */
+  let missing = false;
   try {
     raw = readFileSync(path);
-  } catch {
-    return { raw: null, content: null, ino: null };
+  } catch (e) {
+    missing = /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT';
   }
 
   /** @type {number | null} */
@@ -306,13 +323,15 @@ function readLockIdentity(path) {
 
   /** @type {LockContent | null} */
   let content = null;
-  try {
-    content = /** @type {LockContent} */ (JSON.parse(raw.toString('utf-8')));
-  } catch {
-    content = null; // corrupto → robable, como en `readLockContent`
+  if (raw !== null) {
+    try {
+      content = /** @type {LockContent} */ (JSON.parse(raw.toString('utf-8')));
+    } catch {
+      content = null; // corrupto → robable, como en `readLockContent`
+    }
   }
 
-  return { raw, content, ino };
+  return { raw, content, ino, missing };
 }
 
 /**
@@ -604,9 +623,27 @@ function stealLock(lockPath, sessionInfo, reason, deps = {}) {
           // Modification TIME stays OUT of the identity comparison on purpose
           // (D-04): it is redundant against a full byte compare, and a bare `touch`
           // would produce spurious aborts. Do not "complete" this later.
-          const changed =
-            fresh.raw === null || base.raw === null
-              ? true // conservador: si no se puede comprobar, NO se publica
+          //
+          // «PRESENTE pero ILEGIBLE» (EACCES, EISDIR, ELOOP, EMFILE) no es «no se
+          // puede comprobar»: es un estado observable y COMPARABLE por inodo. Si el
+          // lock ya era ilegible en el baseline y lo sigue siendo AHORA con el mismo
+          // inodo, la identidad NO cambió y el robo debe proceder — es el Caso 5
+          // (`:30`), y `stealLock` es el ÚNICO mecanismo de recuperación que el
+          // producto ofrece ante un `.kodo.lock` ilegible. Degradar aquí a
+          // `changed = true` volvía ese lock INROBABLE para siempre.
+          const sameUnreadableFile =
+            base.raw === null &&
+            fresh.raw === null &&
+            !base.missing &&
+            !fresh.missing &&
+            base.ino !== null &&
+            fresh.ino !== null &&
+            fresh.ino === base.ino;
+
+          const changed = sameUnreadableFile
+            ? false
+            : fresh.raw === null || base.raw === null
+              ? true // conservador: si no se puede comparar, NO se publica
               : !fresh.raw.equals(base.raw) ||
                 (base.ino !== null && fresh.ino !== null && fresh.ino !== base.ino);
 
