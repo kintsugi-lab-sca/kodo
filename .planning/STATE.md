@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.20
 milestone_name: Cierre de deuda trazada
+current_phase: 86
+current_phase_name: CAS simétrico de `stealLock`   · not started
 status: planning
-last_updated: "2026-08-02T17:51:39.000Z"
+stopped_at: Phase 86 context gathered
+last_updated: "2026-08-05T07:47:19.562Z"
 last_activity: 2026-08-02
+last_activity_desc: Roadmap v0.20 creado (3 fases, 12/12 requirements mapeados)
 progress:
   total_phases: 3
   completed_phases: 0
@@ -166,11 +170,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-08-02
+**Last session:** 2026-08-05T07:47:19.549Z
 
-**Resume file:** None
+**Resume file:** .planning/phases/86-cas-sim-trico-de-steallock-holder-vivo/86-CONTEXT.md
 
-- **Stopped at:** Roadmap v0.20 creado — 3 fases (86-88), 12/12 requirements mapeados, cero orphans. Ninguna fase discutida ni planificada.
+- **Stopped at:** Phase 86 context gathered
 - **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
