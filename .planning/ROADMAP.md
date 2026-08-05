@@ -60,7 +60,11 @@
   4. Quien lea el JSDoc de `stealLock` o el `STATE.md` encuentra **declarada** la ventana residual de 2 syscalls contiguos entre la comprobación de identidad y el `renameSync`, con su clase de riesgo nombrada — la misma clase que la ventana residual aceptada en el guard del inbox de Phase 83. Nunca presentada como cierre por construcción. (LOCK-07)
   5. La suite completa sigue verde y los consumidores del lock (dispatcher, orchestrator, polling) no cambian de comportamiento — el camino caliente queda intacto y el rediseño del primitivo sigue fuera de alcance.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 86-01-PLAN.md — CAS simétrico end-to-end en la rama PRESENT de `stealLock` (lector de una pasada, seam de test, typedef aditivo, premisa falsa retirada) + caso in-process determinista que lo muerde — LOCK-04
+- [ ] 86-02-PLAN.md — Harness de holder VIVO con orquestación de tres tiempos y guard de cobertura (N=3 y N=5), mordida registrada con evidencia citada, y ventana residual declarada en el JSDoc y en STATE.md — LOCK-05, LOCK-06, LOCK-07
 
 ### Phase 87: Aislamiento de color transitivo en el TUI
 
