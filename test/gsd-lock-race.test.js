@@ -405,4 +405,49 @@ describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º 
       `el lock que sobrevive debe ser el del creador Case-1, no el del stealer; ${ctx}`,
     );
   });
+
+  it('N=5 (dos stealers extra en presión real) → exactamente uno adquiere', async () => {
+    const r = await raceGsdStealLiveHolder(2);
+    const ctx =
+      `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
+      `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
+
+    assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
+    assert.ok(
+      r.stages.parked,
+      `el stealer no llegó a aparcarse dentro de la sección crítica. ${ctx}`,
+    );
+    assert.equal(r.holderVerdict, 'written', `el holder no completó su release. ${ctx}`);
+
+    // Los dos extra son el kind `gsd` SIN seam. Entran por Case-3, pierden el
+    // steal-guard contra el aparcado —vivo y en ventana, así que `guardIsStale` es
+    // falso—, agotan su presupuesto acotado (`sleepShort(2·(attempt+1))` × 8 ≈ 72 ms,
+    // `src/gsd/lock.js:498-513`) y llegan al epílogo, donde o rechazan contra el
+    // holder que encuentren o hacen un `O_EXCL` create legítimo si el hueco sigue
+    // abierto. En AMBOS desenlaces la cardinalidad se mantiene en uno: si un extra
+    // ocupa el hueco, el creador encuentra EEXIST sobre un holder vivo y fresco —el
+    // extra espera el teardown por `--hold-until`— y sale `blocked`.
+    const acquired = r.verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(acquired, 1, `exactamente un proceso debe adquirir; ${ctx}`);
+
+    assertCasExercised(sandbox, ctx);
+
+    // NO se asevera la identidad del superviviente en disco, a diferencia del caso
+    // N=3. Con contendientes extra sueltos, QUIÉN ocupa el hueco entre el `unlink`
+    // del holder y el create del creador SÍ depende del scheduler, y afirmar la
+    // identidad del superviviente sería exactamente asertar sobre quién gana la
+    // carrera — lo que D-14 prohíbe. Que un extra gane ese hueco no es un defecto:
+    // es el comportamiento correcto del `O_EXCL` sobre un path ausente, y el CAS
+    // sigue mordiendo igual porque el nuevo holder es vivo y fresco en los dos casos.
+  });
 });
+
+// ⚠ REGLA DE REACCIÓN ANTE UN ROJO de los dos casos de arriba (DEBT-04, D-16). Si
+// alguno se pone rojo, la causa a investigar es la SECUENCIACIÓN de las etapas o el
+// propio invariante en producción (`src/gsd/lock.js`, el compare-and-swap de la rama
+// PRESENT de `stealLock`). Subir `STEAL_GUARD_STALE_MS` para que el escenario quepa,
+// o ampliar `MAX_STEAL_ATTEMPTS` para que los extra lleguen a otro sitio, están
+// PROHIBIDOS: es literalmente «subir un timeout para que el test pase», el
+// enmascaramiento que DEBT-04 cierra por nombre y por el que este repo ya revirtió
+// una vez en la Phase 83. Relajar la cardinalidad, borrar `assertCasExercised` o
+// reducir el número de hijos son la misma jugada con otro nombre.
