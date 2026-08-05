@@ -27,6 +27,7 @@ import {
   rmSync,
   unlinkSync,
   utimesSync,
+  chmodSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -407,6 +408,127 @@ describe('gsd lock — CAS simétrico de la rama PRESENT (holder VIVO, LOCK-04)'
 
     const entries = planningEntries(tmpDir);
     assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.some((e) => e.includes('.tmp.')), `sin residuo de tmp; got: ${entries}`);
+    assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
+  });
+
+  /**
+   * ¿Puede este proceso leer un fichero con permisos `0o000`? root sí puede, y
+   * entonces el escenario read-failure deja de medir su rama y queda verde
+   * trivialmente. Se declara como PRECONDICIÓN y se salta el caso, jamás se
+   * relaja la aserción (DEBT-04).
+   *
+   * @param {string} path
+   * @returns {boolean}
+   */
+  function isUnreadable(path) {
+    try {
+      readFileSync(path);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // La subclase READ-FAILURE de «lock corrupto» (86-REVIEW §WR-06).
+  //
+  // (i) e (i2) de arriba solo ejercitan la subclase PARSE-FAILURE: bytes que
+  // `readFileSync` SÍ devuelve y que `JSON.parse` rechaza. La otra mitad del
+  // Caso 5 (`src/gsd/lock.js:30`) es el fichero que EXISTE y cuyo `readFileSync`
+  // LANZA — EACCES por permisos, un `.kodo.lock` de otro usuario en un repo
+  // compartido, EMFILE transitorio bajo carga. Ahí es donde la afirmación
+  // general «un lock corrupto sigue siendo robable» era FALSA: sin distinguir
+  // «ausente» de «ilegible», el baseline y la sonda fresca degradaban ambos a
+  // `changed = true` para siempre, se quemaban los 8 intentos y el epílogo salía
+  // por `throw EEXIST` — y el propio `stealLock` era el mecanismo de
+  // recuperación, así que no quedaba salida desde el producto.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('(i3) un lock PRESENTE pero ILEGIBLE sigue siendo robable (Caso 5, src/gsd/lock.js:30)', (t) => {
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    const lockPath = join(tmpDir, LOCK_FILE);
+    writeFileSync(lockPath, JSON.stringify({ pid: DEAD_PID }));
+    chmodSync(lockPath, 0o000); // readFileSync → EACCES, NO ENOENT
+
+    if (!isUnreadable(lockPath)) {
+      t.skip('este proceso lee ficheros 0o000 (root): la rama read-failure no se puede sembrar');
+      return;
+    }
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-unreadable' }));
+
+    assert.equal(
+      result.acquired,
+      true,
+      'un lock presente pero ILEGIBLE no puede volverse INROBABLE: `stealLock` es el ' +
+        'único mecanismo de recuperación y el Caso 5 lo declara robable',
+    );
+
+    // El robo se consumó de verdad, no solo «no lanzó».
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    assert.equal(lock.session_id, 'sess-unreadable');
+    assert.equal(lock.pid, process.pid);
+
+    // Higiene: un único lock, sin los 8 tmp que el bucle escribía y borraba.
+    const entries = planningEntries(tmpDir);
+    assert.equal(entries.filter((e) => e === LOCK_BASENAME).length, 1);
+    assert.ok(!entries.some((e) => e.includes('.tmp.')), `sin residuo de tmp; got: ${entries}`);
+    assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
+  });
+
+  it('(i4) ILEGIBLE sustituido por un creador VIVO en la ventana → el CAS sigue mordiendo', (t) => {
+    // La mitad simétrica de (i3), y la que impide «arreglar» (i3) publicando a
+    // ciegas: que el lock fuese ilegible en el baseline NO autoriza a clobbear
+    // lo que haya al final de la ventana. Aquí la identidad SÍ cambió —bytes
+    // legibles e inodo nuevo— y el corte de D-06 debe seguir cortando.
+    mkdirSync(join(tmpDir, '.planning'), { recursive: true });
+    const lockPath = join(tmpDir, LOCK_FILE);
+    writeFileSync(lockPath, JSON.stringify({ pid: DEAD_PID }));
+    chmodSync(lockPath, 0o000);
+
+    if (!isUnreadable(lockPath)) {
+      t.skip('este proceso lee ficheros 0o000 (root): la rama read-failure no se puede sembrar');
+      return;
+    }
+
+    const result = acquireGsdLock(tmpDir, makeSessionInfo({ session_id: 'sess-unreadable-swap' }), {
+      _afterCriticalReadFn: () => {
+        chmodSync(lockPath, 0o600);
+        unlinkSync(lockPath); // el ilegible desaparece…
+        writeFileSync(
+          lockPath,
+          JSON.stringify(
+            {
+              session_id: 'sess-creator',
+              task_id: 'uuid-creator',
+              task_ref: 'KL-CREATOR',
+              pid: process.pid, // vivo
+              acquired_at: new Date().toISOString(), // fresco → NO stale
+              ttl_hours: DEFAULT_TTL_HOURS,
+            },
+            null,
+            2,
+          ) + '\n',
+          { flag: 'wx' }, // …y un creador Case-1 legítimo ocupa el hueco
+        );
+      },
+    });
+
+    assert.equal(
+      result.acquired,
+      false,
+      'un baseline ilegible no autoriza a clobbear al creador vivo que ocupó el path',
+    );
+    if (result.acquired === false) {
+      assert.equal(result.reason, 'lock-replaced-mid-steal');
+      assert.equal(result.holder.session_id, 'sess-creator');
+    }
+
+    const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+    assert.equal(lock.session_id, 'sess-creator', 'el renameSync destructivo no debe ejecutarse');
+
+    const entries = planningEntries(tmpDir);
     assert.ok(!entries.some((e) => e.includes('.tmp.')), `sin residuo de tmp; got: ${entries}`);
     assert.ok(!entries.includes(GUARD_BASENAME), `guard liberado; got: ${entries}`);
   });
