@@ -783,6 +783,29 @@ describe('manager.js source hygiene', () => {
     );
   });
 
+  it('marca kodo (sidebar 2026-08): launchWorkItem fija description "⬢ <ref> · <título>" fail-open tras el setColor', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // El canal description es el marcador machine-readable de sesión kodo. Va por
+    // host._legacy (walker cmux-isolation) y DENTRO de try/catch: es cosmético y
+    // no debe abortar el dispatch si el cmux instalado no soporta set-description.
+    assert.ok(
+      /try\s*\{\s*await host\._legacy\.setDescription\(\{/.test(source),
+      'launchWorkItem debe llamar host._legacy.setDescription dentro de try/catch (fail-open)',
+    );
+    // El contenido lleva el marcador ⬢ + task.ref y sanea el título con el mismo
+    // saneador RENDER que workspaceName (contenido no confiable → arg CLI).
+    assert.ok(
+      /description:\s*`⬢ \$\{task\.ref\} · \$\{truncate\(stripControlChars\(task\.title\),\s*60\)\}`/.test(source),
+      'la description debe ser `⬢ ${task.ref} · ${truncate(stripControlChars(task.title), 60)}`',
+    );
+    // Orden: después del setColor running (el color conserva su semántica previa;
+    // la marca es aditiva).
+    const colorIdx = source.indexOf("setColor({ workspace: workspaceRef, color: colorForStatus('running') })");
+    const descIdx = source.indexOf('host._legacy.setDescription({');
+    assert.ok(colorIdx > 0, 'el setColor running debe seguir presente');
+    assert.ok(descIdx > colorIdx, 'setDescription debe ir tras el setColor running');
+  });
+
   it('Phase 77 (GRP-01/GRP-03): launchWorkItem resuelve el grupo vía host._legacy.listWorkspaceGroups en try/catch (capa 1 fail-open)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     // La resolución pasa SIEMPRE por host._legacy (nunca cmux/client.js — walker).

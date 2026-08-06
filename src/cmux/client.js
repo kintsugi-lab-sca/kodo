@@ -80,6 +80,13 @@ export async function setColor(opts) {
 }
 
 /**
+ * @param {{ workspace: string, description: string }} opts
+ */
+export async function setDescription(opts) {
+  return run(['workspace-action', '--action', 'set-description', '--workspace', opts.workspace, '--description', opts.description]);
+}
+
+/**
  * @param {{ workspace: string, title: string }} opts
  */
 export async function rename(opts) {

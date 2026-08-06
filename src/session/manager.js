@@ -442,6 +442,19 @@ export async function launchWorkItem(identifier, opts = {}) {
   // Set color to "running"
   await host._legacy.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
+  // Marca kodo del workspace: description "⬢ <ref> · <título>". Es el marcador
+  // machine-readable de "sesión gestionada por kodo" (el título es heurístico y
+  // editable por el usuario) y aparece como línea secundaria/tooltip en el sidebar
+  // nativo de cmux. COSMÉTICO fail-open: un cmux sin `set-description` o un fallo
+  // del socket NO aborta el dispatch — a diferencia del setColor de arriba, que
+  // conserva su semántica pre-existente. Mismo saneado RENDER que workspaceName.
+  try {
+    await host._legacy.setDescription({
+      workspace: workspaceRef,
+      description: `⬢ ${task.ref} · ${truncate(stripControlChars(task.title), 60)}`,
+    });
+  } catch { /* sin description si falla — cosmético */ }
+
   // Build Claude command — prefer opts overrides, fall back to label parsing.
   // CR-01 fix: accept opts.sessionId so the GSD dispatcher can thread the same
   // UUID it stamped into the lock file — acquire, persist and release share
