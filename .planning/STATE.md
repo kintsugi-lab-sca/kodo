@@ -4,15 +4,15 @@ milestone: v0.20
 milestone_name: Cierre de deuda trazada
 current_phase: 87
 current_phase_name: Aislamiento de color transitivo en el TUI
-status: planning
+status: executing
 stopped_at: Phase 87 context gathered
-last_updated: "2026-08-05T11:09:22.076Z"
+last_updated: "2026-08-09T22:07:15.196Z"
 last_activity: 2026-08-05
 last_activity_desc: Phase 86 complete, transitioned to Phase 87
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 2
+  total_plans: 4
   completed_plans: 2
   percent: 33
 ---
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
 Phase: 87 — Aislamiento de color transitivo en el TUI
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-05 — Phase 86 complete, transitioned to Phase 87
 
 ## Most recent shipped milestone

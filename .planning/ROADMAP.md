@@ -87,7 +87,12 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 87-01-PLAN.md — Tracer: guard transitivo con cadena (ISO-01/ISO-04) + hoja `src/cli/sanitize.js` y los 8 call sites (ISO-02), cerrando con las dos mordidas registradas
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 87-02-PLAN.md — Congelar la pureza de `dashboard/format.js` + convergencia `select.js` (ISO-03) y la declaración honesta de la cabecera (ISO-04)
 
 ### Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests
