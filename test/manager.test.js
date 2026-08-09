@@ -853,13 +853,17 @@ describe('manager.js source hygiene', () => {
 
   it('Phase 78 (WR-01/WR-02): el nudge de "Nueva sesión lanzada" al orquestador sanea task.ref/task.title/projectPath vía stripForKeystroke', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // El helper de saneo debe estar importado desde el carril canónico (cli/format.js),
+    // El helper de saneo debe estar importado desde el carril canónico (cli/sanitize.js),
     // el MISMO que usa buildStopNudgeText en stop.js. NO se importa cmux/client.js
     // (invariante cmux-isolation — verificado por su walker). WR-02: el carril de
     // keystroke usa stripForKeystroke (no stripControlChars), que además neutraliza `\n`.
+    // Phase 87 (ISO-02): el carril canónico dejó de ser `cli/format.js` — los saneadores
+    // se movieron VERBATIM a `cli/sanitize.js`, una hoja de cero imports, para que el TUI
+    // deje de arrastrar picocolors por vía transitiva. El assert conserva TODAS sus
+    // condiciones; lo único que cambia es a qué carril se ancla.
     assert.ok(
-      /import\s*\{[^}]*\bstripForKeystroke\b[^}]*\}\s*from\s*['"]\.\.\/cli\/format\.js['"]/.test(source),
-      'manager.js debe importar stripForKeystroke desde ../cli/format.js (carril de keystroke, WR-02)',
+      /import\s*\{[^}]*\bstripForKeystroke\b[^}]*\}\s*from\s*['"]\.\.\/cli\/sanitize\.js['"]/.test(source),
+      'manager.js debe importar stripForKeystroke desde ../cli/sanitize.js (carril de keystroke, WR-02)',
     );
     // Los tres campos derivados de provider (no confiable) que se interpolan en el
     // texto enviado al terminal del orquestador vía host._legacy.send DEBEN pasar por
@@ -887,11 +891,13 @@ describe('manager.js source hygiene', () => {
 
   it('Phase 78 (IN-04): los carriles NO-keystroke (nombre de workspace y body de notify) sanean task.title con stripControlChars', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // stripControlChars debe estar importado desde el carril canónico (cli/format.js),
+    // stripControlChars debe estar importado desde el carril canónico (cli/sanitize.js),
     // junto a stripForKeystroke. NO se importa cmux/client.js (invariante cmux-isolation).
+    // Phase 87 (ISO-02): mismo cambio de carril que el caso de arriba — el saneador se
+    // movió verbatim a la hoja `cli/sanitize.js`. El assert no pierde ni una condición.
     assert.ok(
-      /import\s*\{[^}]*\bstripControlChars\b[^}]*\}\s*from\s*['"]\.\.\/cli\/format\.js['"]/.test(source),
-      'manager.js debe importar stripControlChars desde ../cli/format.js (carril de render, IN-04)',
+      /import\s*\{[^}]*\bstripControlChars\b[^}]*\}\s*from\s*['"]\.\.\/cli\/sanitize\.js['"]/.test(source),
+      'manager.js debe importar stripControlChars desde ../cli/sanitize.js (carril de render, IN-04)',
     );
     // El nombre del workspace (arg CLI de newWorkspace) sanea task.title ANTES de truncar.
     assert.ok(
