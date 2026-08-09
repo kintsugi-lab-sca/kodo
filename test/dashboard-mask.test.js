@@ -29,6 +29,7 @@ import App, {
   API_KEY_SAVED_RESTART,
 } from '../src/cli/dashboard/App.js';
 import SessionTable from '../src/cli/dashboard/SessionTable.js';
+import { getEditableFields } from '../src/config-validate.js';
 
 // Snapshot de config con valores conocidos + api_key_env del provider activo (mold DEFAULT_CONFIG).
 // Ningún secreto vive aquí (api_key_env es el NOMBRE de la env var, no el valor).
@@ -43,12 +44,14 @@ const CONFIG_FIXTURE = {
     },
   },
   cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
-  claude: { default_model: 'opus', max_parallel: 3 },
+  claude: { default_model: 'opus', orchestrator_model: 'fable', max_parallel: 3 },
   server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
 };
 
-// getEditableFields devuelve 11 campos → el renglón de API key es el índice 11 (APPEND).
-const API_KEY_ROW_INDEX = 11;
+// El renglón de API key es el APPEND tras los campos de getEditableFields (índice = length).
+// DERIVADO, no hardcodeado: añadir un campo editable (KODO-12 añadió el 12º) no debe
+// desincronizar el fixture del src — el índice se recalcula solo.
+const API_KEY_ROW_INDEX = getEditableFields(CONFIG_FIXTURE).length;
 
 // ── (A) Render DIRECTO de SessionTable ───────────────────────────────────────
 // SessionTable es presentacional: se le pasan props y se lee el frame. Evita la coreografía de
@@ -252,7 +255,7 @@ function makeRouter() {
   };
 }
 
-// Abre config y navega hasta el renglón de API key (11 ↓ desde el índice 0).
+// Abre config y navega hasta el renglón de API key (API_KEY_ROW_INDEX ↓ desde el índice 0).
 async function openApiKeyRow(stdin) {
   stdin.write('e');
   await drain();
