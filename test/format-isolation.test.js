@@ -700,22 +700,68 @@ describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pur
 // Por eso el caso ata el helper al sujeto concreto: si alguien revierte el orden, este número
 // cae a 0 y la suite lo DICE, en vez de quedarse verde.
 describe('ISO-04 (Phase 87): stripComments no ciega al guard', () => {
-  it('stripComments recupera los 4 imports estáticos de src/cli/dashboard/markdown.js', () => {
+  /**
+   * El orden del molde hermano (`test/check-isolation.test.js:23-29`): borra los bloques
+   * PRIMERO y filtra las líneas de comentario después. Es el orden que abre un bloque falso
+   * desde un comentario DE LÍNEA que contenga la secuencia de apertura de bloque. Se
+   * implementa aquí, dentro del caso, para comparar los dos órdenes sobre el mismo fuente en
+   * vez de congelar una constante.
+   *
+   * @param {string} src
+   * @returns {string}
+   */
+  function stripCommentsVerbatim(src) {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+      .join('\n');
+  }
+
+  it('stripComments recupera los imports de markdown.js que el orden hermano ciega', () => {
     const markdownPath = join(SRC, 'cli', 'dashboard', 'markdown.js');
     assert.equal(
       existsSync(markdownPath),
       true,
       'src/cli/dashboard/markdown.js must exist — otherwise this meta-test passes trivially',
     );
-    const stripped = stripComments(readFileSync(markdownPath, 'utf-8'));
-    const imports = extractImports(stripped);
-    assert.equal(
-      imports.length,
-      4,
-      `stripComments debe conservar los 4 imports estáticos de markdown.js. Si este número es ` +
-        `0, el orden del helper se ha revertido al del molde hermano y el guard dinámico está ` +
-        `CIEGO sobre este fichero (D-09/D-10). Recuperados (${imports.length}): ` +
-        `${imports.join(', ')}`,
+    const src = readFileSync(markdownPath, 'utf-8');
+
+    // PRECONDICIÓN, aseverada y no supuesta (Phase 87 / WR-04). El disparador de toda la
+    // divergencia es que `markdown.js` conserve la glob `src/cli/dashboard/**` DENTRO de un
+    // comentario de LÍNEA: eso es lo que abre el bloque falso con el orden hermano. Si alguien
+    // reescribe ese comentario (p. ej. a `src/cli/dashboard/`), los dos órdenes pasan a dar el
+    // MISMO resultado y este meta-test se vuelve verde-y-vacío en silencio — el guard del
+    // guard dejaría de guardar sin decirlo, que es justo la vacuidad que ISO-01/ISO-03
+    // persiguen.
+    assert.ok(
+      src.includes('src/cli/dashboard/**'),
+      'markdown.js debe conservar la glob `src/cli/dashboard/**` en un comentario de LÍNEA: es ' +
+        'el disparador que hace MEDIBLE la divergencia de orden de stripComments. Sin ella, ' +
+        'este meta-test pasa con AMBOS órdenes y deja de guardar nada. Si el comentario ha ' +
+        'cambiado, busca otro fichero disparador (enrich.js, session-lookup.js) y reapunta el ' +
+        'caso — no borres el assert.',
+    );
+
+    // Comparación relativa, no una constante congelada: el contrato de ISO-04 es «este orden
+    // recupera lo que el otro ciega», no «markdown.js tiene exactamente N imports». Con
+    // `assert.equal(imports.length, 4)` un quinto import legítimo en markdown.js ponía rojo un
+    // meta-test sobre `stripComments`, con el mensaje apuntando al helper equivocado.
+    const conEsteOrden = extractImports(stripComments(src));
+    const conOrdenHermano = extractImports(stripCommentsVerbatim(src));
+    assert.deepEqual(
+      conOrdenHermano,
+      [],
+      `el orden del molde hermano debería CEGAR markdown.js al 100 % (es la premisa de ` +
+        `D-09/D-10). Si recupera algo, el disparador del bloque falso ha cambiado y esta ` +
+        `comparación ya no mide la divergencia. Recuperados: ${conOrdenHermano.join(', ')}`,
+    );
+    assert.ok(
+      conEsteOrden.length > 0,
+      `stripComments debe conservar los imports estáticos de markdown.js. Si esta lista queda ` +
+        `VACÍA, el orden del helper se ha revertido al del molde hermano y el guard dinámico ` +
+        `está CIEGO sobre este fichero (D-09/D-10) — verde justo sobre el leak que la Phase 87 ` +
+        `existe para cerrar. Recuperados (${conEsteOrden.length}): ${conEsteOrden.join(', ')}`,
     );
   });
 });
