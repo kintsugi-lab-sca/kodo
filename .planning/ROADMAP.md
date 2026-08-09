@@ -89,7 +89,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 87-01-PLAN.md — Tracer: guard transitivo con cadena (ISO-01/ISO-04) + hoja `src/cli/sanitize.js` y los 8 call sites (ISO-02), cerrando con las dos mordidas registradas
+- [x] 87-01-PLAN.md — Tracer: guard transitivo con cadena (ISO-01/ISO-04) + hoja `src/cli/sanitize.js` y los 8 call sites (ISO-02), cerrando con las dos mordidas registradas
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

@@ -5,15 +5,15 @@ milestone_name: Cierre de deuda trazada
 current_phase: 87
 current_phase_name: Aislamiento de color transitivo en el TUI
 status: executing
-stopped_at: Phase 87 context gathered
-last_updated: "2026-08-09T22:07:15.196Z"
-last_activity: 2026-08-05
-last_activity_desc: Phase 86 complete, transitioned to Phase 87
+stopped_at: Completed 87-01-PLAN.md
+last_updated: "2026-08-09T22:17:37.940Z"
+last_activity: 2026-08-10
+last_activity_desc: Phase 87 execution started
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 33
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
 **Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18; **v0.20 cierra los cuatro items de deuda que v0.19 dejó abiertos con trigger explícito** — saneo puro, sin feature nueva.
 
-**Current focus:** Phase 86 — CAS simétrico de `stealLock` — holder VIVO
+**Current focus:** Phase 87 — Aislamiento de color transitivo en el TUI
 
 ## Current Position
 
-Phase: 87 — Aislamiento de color transitivo en el TUI
-Plan: Not started
+Phase: 87 (Aislamiento de color transitivo en el TUI) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-05 — Phase 86 complete, transitioned to Phase 87
+Last activity: 2026-08-10 — Phase 87 execution started
 
 ## Most recent shipped milestone
 
@@ -152,6 +152,8 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 86-02: el JSDoc de stealLock se CORRIGE ademas de ampliarse — su paso 2 describia la sustitucion in-place incondicional sin mencionar el CAS (deuda que 86-01 dejo a este plan, D-17)
 - [Phase ?]: 86-02: el criterio grep -c waitUntil >= 8 es aritmeticamente inconsistente con la secuencia de 12 pasos del propio plan (solo prescribe 5 esperas); valor real 7, declarado en vez de rellenar el fichero con llamadas de adorno
 - [Phase ?]: 86-02: mordida canonica registrada — CAS revertido a mano (const changed = false) pone rojos N=3 (2 !== 1) y N=5 (3 !== 1) mas los 2 casos in-process de 86-01; restaurado, verde. Cero umbrales tocados (LOCK-06/D-15)
+- [Phase 87]: Los saneadores puros (stripControlChars/stripForKeystroke) viven en src/cli/sanitize.js, hoja de cero imports, no en src/cli/format.js — format.js es el unico importador de picocolors; tener los saneadores ahi hacia que el TUI arrastrase el paquete de color por via transitiva con el guard directo en verde. Sin shim de re-export (D-02): los 8 call sites se actualizan
+- [Phase 87]: El guard de color-isolation se ancla al PAQUETE picocolors y mide alcanzabilidad transitiva, imprimiendo la cadena de imports — Un ancla al fichero src/cli/format.js dejaria escapar un segundo importador futuro; el mensaje de cadena nombra la arista que hay que cortar, el de conjunto no
 
 ### Open Blockers
 
@@ -182,11 +184,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-08-05T11:09:22.061Z
+**Last session:** 2026-08-09T22:17:37.927Z
 
-**Resume file:** .planning/phases/87-aislamiento-de-color-transitivo-en-el-tui/87-CONTEXT.md
+**Resume file:** None
 
-- **Stopped at:** Phase 87 context gathered
+- **Stopped at:** Completed 87-01-PLAN.md
 - **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
@@ -227,6 +229,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 85 P05 | 9min | 2 tasks | 2 files |
 | Phase 86 P01 | 12min | 2 tasks | 2 files |
 | Phase 86 P02 | 11min | 3 tasks | 4 files |
+| Phase 87 P01 | 16 min | 3 tasks | 12 files |
 
 ### Blockers
 
