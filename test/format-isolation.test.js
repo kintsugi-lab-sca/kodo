@@ -420,3 +420,80 @@ describe('ISO-02 (Phase 87): src/cli/sanitize.js es una HOJA de cero imports', (
     );
   });
 });
+
+// ISO-03 (Phase 87 / UF-02): `src/cli/dashboard/format.js` es la capa de presentación PURA
+// del dashboard (React-free, ink-free), y su pureza es la PREMISA sobre la que descansa que
+// `select.js` pueda importarlo sin arrastrar la capa de color. DEBT-06 cableó ese import en
+// la Phase 85; el comentario de `select.js:30-34` afirma literalmente que `./format.js` es
+// puro y no arrastra color — y hasta esta fase NINGÚN test lo aseveraba. Una premisa que
+// nadie mide es disciplina, no invariante.
+//
+// Molde de redacción: los guards de hoja de `src/session/handoff.js`
+// (test/check-isolation.test.js:241-258) y `src/tasks/pending.js` (:269-285).
+//
+// DIVERGENCIA ÚNICA respecto de ese molde, documentada CON SU MEDICIÓN: aquéllos exigen cero
+// imports INCLUIDOS los builtins; éste admite una allowlist de UN elemento, `node:path`,
+// porque `src/cli/dashboard/format.js:25` importa `basename` para derivar el repo. Razón
+// medida, no preferencia: `node:path` es un builtin sin efectos de módulo y no arrastra nada
+// — la clausura transitiva del sujeto es exactamente 1 (él mismo), y el tercer assert de
+// abajo lo comprueba en vez de suponerlo. D-16: ésta es la ÚNICA allowlist admitida en toda
+// la fase; ninguna otra excepción entra «para que pase».
+describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pura', () => {
+  // Congelada LITERALMENTE, jamás derivada del fichero sujeto: una allowlist calculada a
+  // partir de lo que el sujeto importa no asevera nada — siempre saldría verde.
+  /** @type {readonly string[]} */
+  const ALLOWED_BUILTINS = Object.freeze(['node:path']);
+
+  it('cero imports relativos; builtins solo los de la allowlist; clausura de 1', () => {
+    const formatPath = join(SRC, 'cli', 'dashboard', 'format.js');
+    assert.equal(
+      existsSync(formatPath),
+      true,
+      'src/cli/dashboard/format.js must exist — otherwise this isolation test passes trivially',
+    );
+    const imports = extractImports(readFileSync(formatPath, 'utf-8'));
+    const relatives = imports.filter((s) => s.startsWith('.'));
+    assert.deepEqual(
+      relatives,
+      [],
+      `dashboard/format.js debe ser una HOJA: cero imports RELATIVOS, para que select.js lo ` +
+        `importe sin arrastrar grafo ni color (ISO-03 / UF-02). found: ${relatives.join(', ')}`,
+    );
+    const outsiders = imports.filter((s) => !ALLOWED_BUILTINS.includes(s));
+    assert.deepEqual(
+      outsiders,
+      [],
+      `dashboard/format.js solo puede importar builtins de la allowlist ` +
+        `[${ALLOWED_BUILTINS.join(', ')}] (D-13, la única de la fase). ` +
+        `Fuera de la allowlist: ${outsiders.join(', ')}. Imports del fichero: ${imports.join(', ')}`,
+    );
+    // El assert que de verdad MUERDE: los dos de arriba son de FORMA y sobrevivirían a una
+    // sintaxis de import que las dos regex no vieran; éste es de ALCANZABILIDAD y no.
+    const closure = walkImports(formatPath);
+    assert.equal(
+      closure.size,
+      1,
+      `la CLAUSURA transitiva de dashboard/format.js debe ser exactamente 1 (él mismo): es lo ` +
+        `que hace que node:path no cuente como grafo. Clausura medida (${closure.size}):\n  ` +
+        `${[...closure].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+
+  // D-14 — CONVERGENCIA (espejo literal de ORCH-05, test/check-isolation.test.js:287-300).
+  // Los asserts de prohibición de arriba prueban que `format.js` no arrastra nada; éste
+  // prueba que alguien lo consume de verdad. Sin él, la premisa que ISO-03 protege se puede
+  // regresar EN SILENCIO moviendo `nextCell` a otro sitio: el guard de pureza seguiría verde
+  // sobre un módulo huérfano. Un guard de prohibición sobre un módulo que no usa nadie es
+  // verde y vacío.
+  it('select.js consume ./format.js (convergencia, D-14)', () => {
+    const graph = walkImports(join(SRC, 'cli', 'dashboard', 'select.js'));
+    const formatPath = join(SRC, 'cli', 'dashboard', 'format.js');
+    assert.ok(
+      graph.has(formatPath),
+      `select.js debe importar transitivamente ./format.js (DEBT-06 / D-04 de la Phase 85: ` +
+        `deriveAnyNext delega en nextCell). Sin este consumidor, ISO-03 congela un módulo que ` +
+        `no usa nadie.\nGrafo desde select.js:\n  ` +
+        `${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+});
