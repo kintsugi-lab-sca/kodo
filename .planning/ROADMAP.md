@@ -84,7 +84,11 @@ Plans:
   4. `test/format-isolation.test.js` no declara ningún punto ciego en falso: o el guard cubre `import()` dinámico, o el fichero declara **con honestidad** lo que no cubre. El comentario «el repo no lo usa» de `:14` y `:33` desaparece, porque es falso hoy (`src/providers/registry.js:27,28,57,58`, `src/session/state.js:247`). (ISO-04)
   5. El dashboard sigue renderizando idéntico y `stripControlChars` sigue disponible para todo consumidor legítimo — cero regresión de comportamiento en el TUI, suite verde.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 87-01-PLAN.md — Tracer: guard transitivo con cadena (ISO-01/ISO-04) + hoja `src/cli/sanitize.js` y los 8 call sites (ISO-02), cerrando con las dos mordidas registradas
+- [ ] 87-02-PLAN.md — Congelar la pureza de `dashboard/format.js` + convergencia `select.js` (ISO-03) y la declaración honesta de la cabecera (ISO-04)
 
 ### Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests
 
