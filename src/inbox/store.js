@@ -43,7 +43,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { stripForKeystroke } from '../cli/format.js';
+import { stripForKeystroke } from '../cli/sanitize.js';
 import { resolveProjectId } from '../cli/dashboard/select.js';
 import { withFileLock } from '../session/state-lock.js';
 

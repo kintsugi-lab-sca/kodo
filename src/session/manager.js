@@ -9,7 +9,7 @@ import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
-import { stripForKeystroke, stripControlChars } from '../cli/format.js';
+import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.

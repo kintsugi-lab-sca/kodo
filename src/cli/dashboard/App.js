@@ -70,7 +70,7 @@ import {
   resolveProjectId,
 } from './select.js';
 import { deriveRepo } from './format.js';
-import { stripControlChars } from '../format.js';
+import { stripControlChars } from '../sanitize.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
 import { readTasks } from './tasks.js';

@@ -33,7 +33,8 @@
 // `gsd doctor` y `sidebar doctor` (ver `src/cli.js`).
 
 import { defaultInboxPaths, listCaptures, markCapture } from '../inbox/store.js';
-import { createFormatter, stripControlChars } from './format.js';
+import { createFormatter } from './format.js';
+import { stripControlChars } from './sanitize.js';
 
 /**
  * Opciones del listado.
