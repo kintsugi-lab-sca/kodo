@@ -28,6 +28,7 @@ import {
   buildHandoffBlock,
   findSessionBlock,
   extractNext,
+  sanitizeInline,
 } from '../session/handoff.js';
 // Único símbolo de config.js: la raíz de ~/.kodo, para construir la ruta del plan
 // byte-idéntica a la del productor (session-start.js:94) y la del consumidor
@@ -144,8 +145,13 @@ export async function runSessionEndHook(input, deps = {}) {
     // try/catch estructural se conserva íntegro: un fallo del threading colapsa
     // handoffNext a null (nudge genérico) y JAMÁS aborta el cierre (never-throws, SC5).
     let handoffNext = null;
+    // KODO-11: además del `next` para el nudge, retenemos la RUTA del plan para que el
+    // comentario del backstop pueda apuntar al handoff (ver buildBackstopComment).
+    let handoffPlanPath = null;
     try {
-      handoffNext = writeHandoff({ session, input, log }, deps)?.next ?? null;
+      const handoffResult = writeHandoff({ session, input, log }, deps);
+      handoffNext = handoffResult?.next ?? null;
+      handoffPlanPath = handoffResult?.planPath ?? null;
     } catch (err) {
       console.error(`[kodo:session-end] Handoff error: ${/** @type {Error} */ (err).message}`);
     }
@@ -178,7 +184,16 @@ export async function runSessionEndHook(input, deps = {}) {
           if (provider === undefined) provider = null;
         }
       }
-      await runReviewBackstop({ session, input, provider, config, log });
+      await runReviewBackstop({
+        session,
+        input,
+        provider,
+        config,
+        log,
+        // KODO-11: el handoff que acaba de aterrizar (dos bloques más arriba) es lo
+        // único que kodo sabe del trabajo hecho cuando el LLM no comentó nada.
+        handoff: { next: handoffNext, planPath: handoffPlanPath },
+      });
     } catch (err) {
       console.error(`[kodo:session-end] Review backstop error: ${/** @type {Error} */ (err).message}`);
     }
@@ -460,10 +475,41 @@ export function isTerminalReviewState(reviewState, providerCfg) {
 }
 
 /**
+ * Texto del comentario del backstop (KODO-11). PURO.
+ *
+ * El texto anterior era la cadena literal `'cierre automático'`: dejaba rastro de que
+ * kodo movió la tarea, pero cero información sobre el trabajo — el humano que abría la
+ * tarea seguía sin saber qué se había hecho, que es medio síntoma del bug. Ahora
+ * incorpora el handoff que `writeHandoff` acaba de escribir (el `NEXT:` del LLM cuando
+ * lo hubo, y siempre la ruta del fichero completo).
+ *
+ * Etiqueta explícitamente el comentario como NO escrito por el agente: un resumen
+ * mecánico presentado como si fuera del agente sería peor que no tenerlo.
+ *
+ * @param {{ next?: string|null, planPath?: string|null }} [handoff]
+ * @returns {string}
+ */
+export function buildBackstopComment(handoff) {
+  const lines = [
+    '🤖 Cierre automático de kodo: la sesión terminó sin postear su comentario final, así que kodo ha movido la tarea a revisión.',
+  ];
+  const next = handoff && typeof handoff.next === 'string' ? handoff.next.trim() : '';
+  if (next) {
+    lines.push('', `**NEXT:** ${sanitizeInline(next, 200)}`);
+  }
+  const planPath = handoff && typeof handoff.planPath === 'string' ? handoff.planPath.trim() : '';
+  if (planPath) {
+    lines.push('', `Handoff completo: ${sanitizeInline(planPath, 200)}`);
+  }
+  lines.push('', 'Revisa el handoff antes de aprobar: este resumen NO lo escribió el agente.');
+  return lines.join('\n');
+}
+
+/**
  * Backstop mecánico de «In Review» (DELIV-04, D-10..D-14). Si al cierre real de
  * la sesión la tarea sigue viva en `in_progress` (verificado con `getTaskState`,
  * NO con `session.status` local) y la sesión terminó limpia, transiciona la tarea
- * al estado review y comenta «cierre automático», emitiendo un evento NDJSON
+ * al estado review y comenta el cierre automático (buildBackstopComment), emitiendo un evento NDJSON
  * tipado. La transición del LLM pasa a ser optimización, no única vía (cierra la
  * causa raíz T5). Capability-gated por `typeof`, gated por estado no-terminal
  * (GitHub SÍ implementa las 3 capacidades — su `states.review:'closed'` es
@@ -476,10 +522,14 @@ export function isTerminalReviewState(reviewState, providerCfg) {
  *   provider: any,
  *   config: any,
  *   log: any,
+ *   handoff?: { next?: string|null, planPath?: string|null },
  * }} args
+ *   `handoff` (KODO-11, opcional): el resultado de `writeHandoff` de esta misma
+ *   sesión. Solo alimenta el TEXTO del comentario; su ausencia no cambia ninguna
+ *   decisión del backstop.
  * @returns {Promise<void>}
  */
-export async function runReviewBackstop({ session, input, provider, config, log }) {
+export async function runReviewBackstop({ session, input, provider, config, log, handoff }) {
   // 1. Capability gate (D-13): guard null-first para que el `typeof` no lance;
   //    un provider sin los 3 métodos degrada a no-op silencioso. (GitHub SÍ los
   //    implementa: su no-op proviene del gate de estado no-terminal en el paso 5b.)
@@ -554,7 +604,7 @@ export async function runReviewBackstop({ session, input, provider, config, log 
   // 7. Comentario fail-open: un fallo NO impide el evento (usar addComment —
   //    contrato del provider — NO createComment, que es del cliente).
   try {
-    await provider.addComment(task, 'cierre automático');
+    await provider.addComment(task, buildBackstopComment(handoff));
   } catch (err) {
     log.warn('session.backstop.comment_failed', { error: /** @type {Error} */ (err).message });
   }
