@@ -24,7 +24,10 @@ const SRC = join(REPO, 'src');
 //
 // CUBRE:
 //   - imports ESTÁTICOS: `import … from`, `import 'x'` sin binding, y re-exports
-//     `export … from` (ESM los resuelve como imports, y el walker los sigue).
+//     `export … from` (ESM los resuelve como imports, y el walker los sigue), CON O SIN
+//     whitespace alrededor del keyword y del `from` — `import{x}from'./y.js'` cuenta igual
+//     que `import { x } from './y.js'`. La suite ISO-05 lo ata forma por forma; hasta la
+//     corrección de CR-01 esta línea afirmaba una cobertura que el sustrato no daba.
 //   - `import()` dinámico con specifier LITERAL, fuera de comentarios: lo cubre el guard de
 //     source-grep de la suite ISO-01 sobre la unión de las clausuras del TUI, con
 //     `stripComments` aplicado ANTES del match (ver la cabecera de ese helper).
@@ -44,8 +47,33 @@ const SRC = join(REPO, 'src');
 // literales el 2026-08-05 y cinco días después son 129 — la cifra caduca, y por eso va
 // fechada y por eso no se hereda de otro documento sin volver a medirla. El día que aparezca
 // el primer specifier computado, este fichero no lo verá y seguirá verde.
-const IMPORT_FROM_RE = /^\s*(?:import|export)\s+[\s\S]*?from\s+['"]([^'"]+)['"]/gm;
-const IMPORT_BARE_RE = /^\s*import\s+['"]([^'"]+)['"]/gm;
+//
+// EL WHITESPACE NO ES OBLIGATORIO EN ESM (Phase 87 / CR-01 / ISO-05). Hasta esta corrección
+// ambas regex exigían `\s+` («import<espacio>», «from<espacio>»), y ESM no lo requiere: cuatro
+// formas perfectamente válidas eran INVISIBLES para el sustrato del que dependen TODOS los
+// guards de este fichero (`import pc from"picocolors"`, `import"picocolors"`,
+// `import{x}from'./b.js'`, `export{a}from'./b.js'`). Un `import{createColors}from'picocolors'`
+// en cualquier hoja dejaba la lista vacía y todos los asserts VERDES sobre la invariante rota
+// — el fallo que este fichero define como el peor posible. La suite ISO-05 de abajo ata las
+// seis formas para que no se pueda volver a estrechar sin ponerse roja.
+//
+// Dos precisiones que NO son cosmética, cada una atrapando un falso positivo MEDIDO al relajar:
+//   - `(?=[\s{*'"])` en vez de `\b`: con `\b` a secas, `import(` a principio de línea entra en
+//     el barrido perezoso y puede capturar un `from '…'` posterior como arista FANTASMA. El
+//     lookahead admite las seis formas (`import x`, `import{`, `import*`, `import'`, `import"`,
+//     `export{`) y excluye `import(` e `import.meta`.
+//   - `[^'"]*?` en vez de `[\s\S]*?` entre el keyword y el `from`: con `\s*` tras `from`, el
+//     barrido cruzaba comillas y `src/cmux/client.js:155` (`export async function
+//     createWorkspaceGroup({ name, from })`) alcanzaba el `'--from', from.join(` de `:158` y
+//     producía la arista fantasma `, from.join(`. Prohibir la comilla dentro del barrido lo
+//     corta de raíz, y sigue permitiendo el import multilínea (que no contiene comillas entre
+//     el keyword y su `from`). Clase que no retrocede sobre sí misma, como el resto del fichero.
+//
+// MEDIDO al aplicar el cambio: sobre los 284 ficheros .js de `src/` + `test/`, la lista de
+// specifiers extraídos es IDÉNTICA a la de las regex antiguas — cero aristas nuevas, cero
+// fantasmas. El ensanchamiento es exclusivamente sobre formas que hoy el repo no escribe.
+const IMPORT_FROM_RE = /^\s*(?:import|export)(?=[\s{*'"])[^'"]*?from\s*['"]([^'"]+)['"]/gm;
+const IMPORT_BARE_RE = /^\s*import(?=[\s'"])\s*['"]([^'"]+)['"]/gm;
 
 // Regex CONSTANTE (anti-ReDoS: jamás compilada desde input). Clases `[^'"]*` que no
 // retroceden sobre sí mismas; opera solo sobre fuentes del propio repo. Molde:
@@ -548,6 +576,63 @@ describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pur
 //
 // Por eso el caso ata el helper al sujeto concreto: si alguien revierte el orden, este número
 // cae a 0 y la suite lo DICE, en vez de quedarse verde.
+// ISO-05 (Phase 87 / CR-01): el guard del SUSTRATO. `extractImports` es la base de la que
+// dependen TODOS los guards de este fichero — ISO-01 (estático y dinámico), ISO-02, ISO-03 y
+// el single-source de D-07 llaman al mismo helper. Un agujero aquí no rompe un caso: los
+// vuelve a todos verdes-y-ciegos a la vez.
+//
+// El agujero real que este caso cierra: ambas regex exigían whitespace obligatorio, así que
+// `import{createColors}from'picocolors'` en `src/cli/sanitize.js` dejaba `imports` vacío y
+// `assert.deepEqual(imports, [])` de ISO-02 PASABA sobre la única regresión que ese guard
+// existe para ver. Molde de redacción: ISO-04, el guard del helper `stripComments`.
+describe('ISO-05 (Phase 87): extractImports ve las formas ESM sin whitespace', () => {
+  it('las seis formas de import/export estático, compactas y espaciadas', () => {
+    /** @type {ReadonlyArray<readonly [string, string[]]>} */
+    const FORMAS = Object.freeze([
+      ['import pc from"picocolors";', ['picocolors']],
+      ["import pc from 'picocolors';", ['picocolors']],
+      ['import"picocolors";', ['picocolors']],
+      ["import{x}from'./b.js';", ['./b.js']],
+      ["export{a}from'./b.js';", ['./b.js']],
+      ["export*from'./c.js';", ['./c.js']],
+      ["import a,{b}from'./d.js';", ['./d.js']],
+      ["import {\n  a,\n  b,\n} from './multi.js';", ['./multi.js']],
+    ]);
+    for (const [src, esperado] of FORMAS) {
+      assert.deepEqual(
+        extractImports(src),
+        esperado,
+        `extractImports es CIEGO a ${JSON.stringify(src)}. Con este agujero, TODOS los guards ` +
+          `de este fichero (ISO-01/02/03 y D-07) se pueden burlar escribiendo el import en esa ` +
+          `forma: se quedan VERDES con la invariante rota. No estreches las regex sin ` +
+          `re-medir aquí.`,
+      );
+    }
+  });
+
+  it('no confunde identificadores ni `import(` con imports estáticos', () => {
+    /** @type {readonly string[]} */
+    const NO_SON_IMPORTS = Object.freeze([
+      'exportFoo from "nope";',
+      "importar from 'nope';",
+      // `export async function f({ name, from }) { … args.push('--from', from.join(',')) }`
+      // es el patrón REAL de `src/cmux/client.js:155-158`: relajar el whitespace tras `from`
+      // sin prohibir la comilla dentro del barrido lo convertía en la arista fantasma
+      // `, from.join(`.
+      "export async function f({ name, from }) {\n  args.push('--from', from.join(','));\n}",
+    ]);
+    for (const src of NO_SON_IMPORTS) {
+      assert.deepEqual(
+        extractImports(src),
+        [],
+        `extractImports inventa una arista FANTASMA sobre ${JSON.stringify(src)}. Un falso ` +
+          `positivo pone rojos guards vecinos por motivos espurios, y la reacción natural a un ` +
+          `rojo espurio es debilitarlos (D-06).`,
+      );
+    }
+  });
+});
+
 describe('ISO-04 (Phase 87): stripComments no ciega al guard', () => {
   it('stripComments recupera los 4 imports estáticos de src/cli/dashboard/markdown.js', () => {
     const markdownPath = join(SRC, 'cli', 'dashboard', 'markdown.js');
