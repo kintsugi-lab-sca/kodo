@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { loadConfig, isReportToProviderEnabled } from '../config.js';
+import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
 import { listSessions } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
 import { getSessionMode } from '../labels.js';
@@ -249,6 +249,7 @@ export async function launchOrchestrator(opts = {}) {
   // Las sesiones de TRABAJO (launchWorkItem) sí van con --worktree (Plan 02
   // WT-01 + D-06b universal). Solo el orchestrator queda exento.
   // ─────────────────────────────────────────────────────────────────────
+  const agent = getAgentDef(config);
   const claudeCmd = [
     // HYG-01 (D-07): prefijo de entorno del shell que marca esta sesión como la
     // orquestadora. Se une con ' ' y se envía como texto por cmux.send (NO hay
@@ -256,9 +257,11 @@ export async function launchOrchestrator(opts = {}) {
     // sus hijos (los hooks Stop/SessionEnd). El gate de stop.js lo lee para
     // habilitar el auto-commit de aprendizajes de la skill.
     'KODO_ORCHESTRATOR=1',
-    'claude',
-    '--model', config.claude.default_model,
-    '--session-id', sessionId,
+    // Mecánica del registro de agentes (config.agents, getAgentDef) — para
+    // 'claude-code' produce exactamente `claude --model <m> --session-id <sid>`.
+    agent.binary,
+    agent.model_flag, config.claude.default_model,
+    agent.session_id_flag, sessionId,
     ...config.claude.flags,
     `'${escapedPrompt}'`,
   ].join(' ');

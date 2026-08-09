@@ -1,7 +1,7 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { loadConfig, loadProjects } from '../config.js';
+import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost } from '../host/interface.js';
@@ -588,8 +588,12 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
   // (último arg) — añadir `--worktree` en el header NO muta los offsets relativos
   // de las tags. Phase 20 (HOOK-01) opera sobre buildSessionContext/buildGsdContext.
+  // Mecánica de invocación desde el registro de agentes (config.agents) — un solo
+  // punto de cambio para multi-agente. Para 'claude-code' el header resultante es
+  // byte-idéntico al literal previo (golden-bytes QUICK-07 intactos).
+  const agent = getAgentDef(config);
   const worktreeFlag = isGitRepo ? `--worktree ${sessionId}` : '';
-  const header = `claude --model ${model} --session-id ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+  const header = `${agent.binary} ${agent.model_flag} ${model} ${agent.session_id_flag} ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
 
   // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
   // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como

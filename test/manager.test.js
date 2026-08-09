@@ -724,11 +724,14 @@ describe('manager.js source hygiene', () => {
       /isGitRepo\s*\?\s*`--worktree \$\{sessionId\}`\s*:\s*''/.test(source),
       'el --worktree debe estar gobernado por `isGitRepo ? `--worktree ${sessionId}` : \'\'` (KODO-9)',
     );
-    // Order check (runtime): --session-id precede al worktreeFlag en el header
-    // (golden-bytes QUICK-07 preservado — con isGitRepo=true el orden es idéntico).
+    // Order check (runtime): el flag de session-id precede al worktreeFlag en el
+    // header (golden-bytes QUICK-07 preservado — con isGitRepo=true el orden es
+    // idéntico). Post config.agents: el flag sale del registro de agentes
+    // (`agent.session_id_flag`, que para claude-code ES `--session-id`), así que
+    // la plantilla lo interpola en vez de llevar el literal.
     assert.ok(
-      /--session-id\s+\$\{sessionId\}\s+\$\{worktreeFlag\}/.test(source),
-      '--session-id ${sessionId} must precede ${worktreeFlag} in the header template',
+      /\$\{agent\.session_id_flag\}\s+\$\{sessionId\}\s+\$\{worktreeFlag\}/.test(source),
+      '${agent.session_id_flag} ${sessionId} must precede ${worktreeFlag} in the header template',
     );
   });
 
