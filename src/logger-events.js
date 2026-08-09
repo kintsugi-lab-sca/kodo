@@ -64,6 +64,7 @@ import { join } from 'node:path';
  *   SIDEBAR_DOCTOR_FIX_ERROR: 'sidebar.doctor.fix.error',
  *   SESSION_DISMISSED: 'session.dismissed',
  *   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
+ *   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -100,6 +101,7 @@ export const EVENTS = Object.freeze({
   SIDEBAR_DOCTOR_FIX_ERROR: 'sidebar.doctor.fix.error',
   SESSION_DISMISSED:       'session.dismissed',
   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
+  SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
 });
 
 /**
@@ -902,5 +904,28 @@ export function sessionBackstopReview(logger, fields) {
     task_id: fields.task_id,
     from: fields.from,
     to: fields.to,
+  });
+}
+
+/**
+ * Emite `session.orphan.detected` (info) cuando el barrido de KODO-11
+ * (`session/orphan-sweep.js`) encuentra una sesión muerta cuya tarea sigue viva en el
+ * provider y postea la señal de cierre incompleto. `state` es el estado LEÍDO del
+ * provider que gatilló la señal (siempre `'in_progress'` hoy; el campo queda explícito
+ * para no tener que releer el código para interpretar la línea).
+ *
+ * Mismo guardrail T-25-02 que su hermano `sessionBackstopReview`: whitelist EXPLÍCITO
+ * field-by-field, NUNCA spread. El texto del comentario (que sí lleva el `NEXT:` del
+ * LLM) viaja al provider, JAMÁS al sink NDJSON.
+ *
+ * @param {Logger} logger
+ * @param {{ session_id: string, task_id: string | null, state: string }} fields
+ */
+export function sessionOrphanDetected(logger, fields) {
+  logger.info(EVENTS.SESSION_ORPHAN_DETECTED, {
+    event: EVENTS.SESSION_ORPHAN_DETECTED,
+    session_id: fields.session_id,
+    task_id: fields.task_id,
+    state: fields.state,
   });
 }

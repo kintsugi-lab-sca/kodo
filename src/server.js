@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
-import { listSessions, listHistory, removeSession, loadState, saveState, runUnderStateLock } from './session/state.js';
+import { listSessions, listHistory, removeSession, loadState, saveState, updateSession, runUnderStateLock } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createPendingResolver, buildPendingStatusFields } from './tasks/pending.js';
@@ -909,15 +909,44 @@ export async function startServer(opts = {}) {
     logger: reconcileLogger,
   });
 
+  // KODO-11: barrido de sesiones huérfanas. Consume justo lo que produce el loop de
+  // arriba (la transición a `dead`) y le añade lo que ese loop no puede hacer por ser
+  // puro: avisar al provider. Cubre el ~15% de sesiones que mueren sin disparar
+  // `SessionEnd` — y por tanto sin el backstop de review — dejando la tarea en «In
+  // Progress» sin un solo comentario. Loop propio (cadencia de minutos, no de 2.5 s)
+  // en vez de un paso dentro de `reconcileTick`: ese tick es PURO y sin I/O de red por
+  // contrato, y el sweep es exclusivamente I/O de red.
+  const { startOrphanSweepLoop } = await import('./session/orphan-sweep.js');
+  const orphanSweepLogger = createLogger({
+    sessionId: 'reconcile',
+    minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+  }).child({ component: 'orphan-sweep' });
+  const stopOrphanSweep = startOrphanSweepLoop({
+    loadStateFn: loadState,
+    // `updateSession` ya serializa por `withStateLock` internamente — el sweep escribe
+    // solo su marca de idempotencia, jamás campos del ciclo de vida (`alive`/`state`
+    // siguen siendo propiedad exclusiva de reconcileTick, D-04).
+    updateSessionFn: updateSession,
+    provider,
+    logger: orphanSweepLogger,
+  });
+
+  // Teardown ÚNICO de ambos loops bajo la clave `stopReconcile` que run.js ya compone
+  // (Point 4/D-05: un solo dueño del exit). Renombrar la clave rompería ese contrato.
+  const stopLoops = () => {
+    try { stopReconcile(); } catch {}
+    try { stopOrphanSweep(); } catch {}
+  };
+
   // Point 4 (D-05): managed installs NO self SIGTERM/SIGINT handlers and does NOT
   // own the exit. run.js is the single owner — it composes { server, stopReconcile }
   // into its own teardown. Two owners = double teardown / race (Pitfall 4).
   if (opts.managed) {
-    return { server, stopReconcile };
+    return { server, stopReconcile: stopLoops };
   }
 
   const cleanup = () => {
-    try { stopReconcile(); } catch {}
+    try { stopLoops(); } catch {}
     try { unlinkSync(PID_PATH); } catch {}
     process.exit(0);
   };
