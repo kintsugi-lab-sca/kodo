@@ -7,13 +7,23 @@
 // Molde de la regex como constante de módulo: `progress.js:28-44`.
 //
 // PROHIBIDO importar `src/inbox/store.js`. Sería la opción obvia (cero duplicación del
-// formato), pero `store.js:46` importa `stripForKeystroke` de `../cli/format.js`, que
-// importa picocolors: un leaf del dashboard que importe el store mete el paquete de color
-// en el grafo del TUI por la puerta de atrás. `test/format-isolation.test.js` NO lo
-// detectaría — su walker de dashboard comprueba imports DIRECTOS, no transitivos (cadena
-// verificada: `src/inbox/store.js` → `src/cli/format.js` → `picocolors`), así que el
-// invariante de color-isolation se erosionaría EN SILENCIO. Arrastraría además
-// `withFileLock` y `resolveProjectId` a un módulo que solo tiene que contar líneas.
+// formato), y su argumento ORIGINAL (Phase 84) era el color: `store.js` traía
+// `stripForKeystroke` de `../cli/format.js`, único importador de picocolors, así que un leaf
+// del dashboard que importase el store metía el paquete de color en el grafo del TUI por vía
+// transitiva — y el guard de entonces, que solo miraba los imports de primer nivel de cada
+// fichero del dashboard, se habría quedado en VERDE mientras la invariante se erosionaba.
+//
+// Ese argumento ya NO se sostiene, y aquí se deja constancia en vez de arrastrarlo: la
+// Phase 87 cortó la arista —los saneadores viven en `src/cli/sanitize.js`, hoja sin color, y
+// la clausura de `store.js` ya no alcanza picocolors por ningún camino (medido)— y el guard
+// de `test/format-isolation.test.js` dejó de limitarse al primer nivel: su suite ISO-01
+// recorre la clausura TRANSITIVA de cada fichero del TUI e imprime la cadena que alcanza el
+// paquete.
+//
+// La prohibición SE MANTIENE, por la parte de su argumento que sigue siendo cierta:
+// importar el store arrastraría `withFileLock` y `resolveProjectId` a un módulo que solo
+// tiene que contar líneas. Una prohibición puede sobrevivir a que se evapore su premisa
+// principal; lo que no puede es seguir apoyándose en ella.
 //
 // PROHIBIDO importar `src/config.js`: evalúa `homedir()` en el cuerpo del módulo
 // (`config.js:11`) y esa fuga contamina los tests (lección de 83-01).

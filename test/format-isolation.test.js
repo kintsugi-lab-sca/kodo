@@ -11,7 +11,39 @@ const SRC = join(REPO, 'src');
 //   1. `import X from 'Y'` / `import { X } from 'Y'` / `export ... from 'Y'` (con binding)
 //   2. `import 'Y'` (side-effect import, sin binding) — hay que detectarlo porque es
 //      la forma más corta de colar un logger.js al grafo del helper de formato.
-// No cubre `import()` dinámico — el repo no lo usa (verificado en 06-RESEARCH A3).
+//
+// ── Qué CUBRE este fichero y qué no (Phase 87 / ISO-04) ─────────────────────────────────
+//
+// Hasta esta fase, aquí y en el JSDoc de `walkImports` había una línea que descartaba el
+// punto ciego de la carga dinámica apoyándose en una afirmación sobre cuánto usa el repo
+// `import()`. Esa afirmación era FALSA ya cuando se escribió: `src/providers/registry.js`
+// (`:27`, `:28`, `:57`, `:58`) y `src/session/state.js:247` hacen `await import()` desde
+// antes. Un fichero no puede declarar un punto ciego apoyándose en una premisa que no se
+// sostiene: induce a no verificar justo donde hay que verificar. La premisa se retira; en su
+// lugar va esta declaración.
+//
+// CUBRE:
+//   - imports ESTÁTICOS: `import … from`, `import 'x'` sin binding, y re-exports
+//     `export … from` (ESM los resuelve como imports, y el walker los sigue).
+//   - `import()` dinámico con specifier LITERAL, fuera de comentarios: lo cubre el guard de
+//     source-grep de la suite ISO-01 sobre la unión de las clausuras del TUI, con
+//     `stripComments` aplicado ANTES del match (ver la cabecera de ese helper).
+//
+// NO CUBRE — punto ciego RESIDUAL, nombrado y NO cerrado:
+//   - `import()` con specifier COMPUTADO (una variable, una concatenación, un template con
+//     interpolación). Ningún regex lo resuelve sin ejecutar el módulo, y ejecutar módulos
+//     dentro de un guard de test es justo lo que D-06 evita. No está mitigado ni acotado:
+//     simplemente no se ve.
+//
+// MEDICIÓN FECHADA, NO GARANTÍA (2026-08-10, re-medida en la sesión que escribe esto, sobre
+// los 99 ficheros .js de `src/`, con el `stripComments` de abajo aplicado al fuente):
+//   - 129 `import()` con specifier literal, repartidos en 26 ficheros.
+//   - 0 `import()` con specifier computado.
+// Es una FOTO del árbol de hoy, no una promesa sobre el de mañana: el `0` de arriba dice que
+// hoy no hay ninguno, NO que no pueda haberlo. La investigación de esta fase contó 128
+// literales el 2026-08-05 y cinco días después son 129 — la cifra caduca, y por eso va
+// fechada y por eso no se hereda de otro documento sin volver a medirla. El día que aparezca
+// el primer specifier computado, este fichero no lo verá y seguirá verde.
 const IMPORT_FROM_RE = /^\s*(?:import|export)\s+[\s\S]*?from\s+['"]([^'"]+)['"]/gm;
 const IMPORT_BARE_RE = /^\s*import\s+['"]([^'"]+)['"]/gm;
 
@@ -75,7 +107,11 @@ function stripComments(src) {
 /**
  * Walker transitivo de imports relativos (`./x.js`, `../y.js`).
  * Ignora specifiers bare (`node:fs`, `commander`, `picocolors`) — fuera del grafo del proyecto.
- * No sigue dynamic `import()` (el repo no los usa — verificado por grep en 06-RESEARCH A3).
+ * NO sigue `import()` dinámico, y es A PROPÓSITO (D-06, precedente locked de la Phase 85 /
+ * WR-03): seguir aristas dinámicas aquí ensancharía la clausura y pondría rojos guards
+ * vecinos por motivos espurios — y la reacción natural a un rojo espurio es debilitarlos. El
+ * punto ciego lo cubre el source-grep sobre esta MISMA clausura (suite ISO-01); el residual
+ * —specifier computado— queda declarado en la cabecera de este fichero, sin cerrar.
  * También sigue `export ... from 'X'` (re-exports) porque ESM los resuelve como imports.
  *
  * @param {string} entry absolute path al archivo source
@@ -494,6 +530,41 @@ describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pur
         `deriveAnyNext delega en nextCell). Sin este consumidor, ISO-03 congela un módulo que ` +
         `no usa nadie.\nGrafo desde select.js:\n  ` +
         `${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+});
+
+// ISO-04 (Phase 87): el guard del GUARD. `stripComments` de este fichero diverge a propósito
+// del helper de `test/check-isolation.test.js:23-29` (líneas `//` primero, bloques después),
+// y esa divergencia parece un descuido cuando se lee al lado del hermano — la tentación de
+// «arreglarla» alineándola con el molde es exactamente lo que devuelve el bug.
+//
+// El sujeto del caso no es arbitrario: `src/cli/dashboard/markdown.js` es a la vez uno de los
+// TRES ficheros que el orden verbatim ciega al 100 % (su `:14` contiene la glob
+// `src/cli/dashboard/**`, que abre un bloque de comentario falso que se traga el fichero) Y
+// un leaker primario de esta fase. Con el orden del molde, `stripComments` devuelve un fuente
+// sin ninguno de sus imports y el guard dinámico da 0 hits sobre él: verde y ciego, justo
+// sobre el leak que la Phase 87 existe para cerrar.
+//
+// Por eso el caso ata el helper al sujeto concreto: si alguien revierte el orden, este número
+// cae a 0 y la suite lo DICE, en vez de quedarse verde.
+describe('ISO-04 (Phase 87): stripComments no ciega al guard', () => {
+  it('stripComments recupera los 4 imports estáticos de src/cli/dashboard/markdown.js', () => {
+    const markdownPath = join(SRC, 'cli', 'dashboard', 'markdown.js');
+    assert.equal(
+      existsSync(markdownPath),
+      true,
+      'src/cli/dashboard/markdown.js must exist — otherwise this meta-test passes trivially',
+    );
+    const stripped = stripComments(readFileSync(markdownPath, 'utf-8'));
+    const imports = extractImports(stripped);
+    assert.equal(
+      imports.length,
+      4,
+      `stripComments debe conservar los 4 imports estáticos de markdown.js. Si este número es ` +
+        `0, el orden del helper se ha revertido al del molde hermano y el guard dinámico está ` +
+        `CIEGO sobre este fichero (D-09/D-10). Recuperados (${imports.length}): ` +
+        `${imports.join(', ')}`,
     );
   });
 });
