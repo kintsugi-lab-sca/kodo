@@ -93,7 +93,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 87-02-PLAN.md — Congelar la pureza de `dashboard/format.js` + convergencia `select.js` (ISO-03) y la declaración honesta de la cabecera (ISO-04)
+- [x] 87-02-PLAN.md — Congelar la pureza de `dashboard/format.js` + convergencia `select.js` (ISO-03) y la declaración honesta de la cabecera (ISO-04)
 
 ### Phase 88: Distribución de skills por el orquestador + verdad del inventario de tests
 

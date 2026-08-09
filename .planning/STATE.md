@@ -4,17 +4,17 @@ milestone: v0.20
 milestone_name: Cierre de deuda trazada
 current_phase: 87
 current_phase_name: Aislamiento de color transitivo en el TUI
-status: executing
-stopped_at: Completed 87-01-PLAN.md
-last_updated: "2026-08-09T22:17:37.940Z"
+status: verifying
+stopped_at: Completed 87-02-PLAN.md
+last_updated: "2026-08-09T22:27:54.434Z"
 last_activity: 2026-08-10
 last_activity_desc: Phase 87 execution started
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 33
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
 Phase: 87 (Aislamiento de color transitivo en el TUI) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-10 — Phase 87 execution started
 
 ## Most recent shipped milestone
@@ -154,6 +154,9 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 86-02: mordida canonica registrada — CAS revertido a mano (const changed = false) pone rojos N=3 (2 !== 1) y N=5 (3 !== 1) mas los 2 casos in-process de 86-01; restaurado, verde. Cero umbrales tocados (LOCK-06/D-15)
 - [Phase 87]: Los saneadores puros (stripControlChars/stripForKeystroke) viven en src/cli/sanitize.js, hoja de cero imports, no en src/cli/format.js — format.js es el unico importador de picocolors; tener los saneadores ahi hacia que el TUI arrastrase el paquete de color por via transitiva con el guard directo en verde. Sin shim de re-export (D-02): los 8 call sites se actualizan
 - [Phase 87]: El guard de color-isolation se ancla al PAQUETE picocolors y mide alcanzabilidad transitiva, imprimiendo la cadena de imports — Un ancla al fichero src/cli/format.js dejaria escapar un segundo importador futuro; el mensaje de cadena nombra la arista que hay que cortar, el de conjunto no
+- [Phase ?]: La premisa retirada de un guard se describe por su CONTENIDO, jamás se cita: citarla la reintroduce en el fichero y el criterio de fuente vuelve a contarla (87-02, ISO-04)
+- [Phase ?]: Las cifras de una declaración honesta se RE-MIDEN en la sesión que las escribe y van fechadas: 128→129 literales en cinco días demuestra que una cifra heredada es otra premisa no verificada (87-02)
+- [Phase ?]: Un guard de hoja necesita el assert de ALCANZABILIDAD (clausura) junto a los de forma, y un aserto POSITIVO de convergencia: sin consumidor, un guard de prohibición es verde y vacío (87-02, D-13/D-14)
 
 ### Open Blockers
 
@@ -184,11 +187,11 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ## Session Continuity
 
-**Last session:** 2026-08-09T22:17:37.927Z
+**Last session:** 2026-08-09T22:27:54.422Z
 
 **Resume file:** None
 
-- **Stopped at:** Completed 87-01-PLAN.md
+- **Stopped at:** Completed 87-02-PLAN.md
 - **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
   - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
@@ -230,6 +233,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 86 P01 | 12min | 2 tasks | 2 files |
 | Phase 86 P02 | 11min | 3 tasks | 4 files |
 | Phase 87 P01 | 16 min | 3 tasks | 12 files |
+| Phase 87 P02 | 21 min | 2 tasks | 3 files |
 
 ### Blockers
 

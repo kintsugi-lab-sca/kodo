@@ -24,8 +24,8 @@
 
 - [x] **ISO-01**: El guard de color-isolation detecta el arrastre **transitivo** de picocolors al grafo del TUI, no solo el import directo. Hoy el guard directo está verde mientras el leak existe.
 - [x] **ISO-02**: Los **3 leaks reales medidos** quedan cerrados: `src/cli/dashboard/App.js:73` y `src/cli/dashboard/markdown.js:27` dejan de alcanzar `src/cli/format.js` (hoy vía `stripControlChars`), y `src/cli/dashboard/SessionTable.js` deja de heredarlo por ambas vías.
-- [ ] **ISO-03**: La pureza de `src/cli/dashboard/format.js` queda **congelada por un test** (UF-02): es la premisa sobre la que descansa que `select.js` pueda importarlo sin arrastrar color, y hoy ningún test la asevera.
-- [ ] **ISO-04**: El guard cubre `import()` dinámico **o** declara con honestidad lo que no cubre — el comentario de premisa falsa de `test/format-isolation.test.js:14` y `:33` («el repo no lo usa») desaparece, porque es falso hoy (`src/providers/registry.js:27,28,57,58`, `src/session/state.js:247`). Un fichero no puede quedar declarando un punto ciego que no tapa.
+- [x] **ISO-03**: La pureza de `src/cli/dashboard/format.js` queda **congelada por un test** (UF-02): es la premisa sobre la que descansa que `select.js` pueda importarlo sin arrastrar color, y hoy ningún test la asevera.
+- [x] **ISO-04**: El guard cubre `import()` dinámico **o** declara con honestidad lo que no cubre — el comentario de premisa falsa de `test/format-isolation.test.js:14` y `:33` («el repo no lo usa») desaparece, porque es falso hoy (`src/providers/registry.js:27,28,57,58`, `src/session/state.js:247`). Un fichero no puede quedar declarando un punto ciego que no tapa.
 
 ### Verdad documental (D-20)
 
@@ -72,8 +72,8 @@ Diferidos con su trigger real. No entran en este roadmap.
 | LOCK-07 | Phase 86 | Complete |
 | ISO-01 | Phase 87 | Complete |
 | ISO-02 | Phase 87 | Complete |
-| ISO-03 | Phase 87 | Pending |
-| ISO-04 | Phase 87 | Pending |
+| ISO-03 | Phase 87 | Complete |
+| ISO-04 | Phase 87 | Complete |
 | SYNC-01 | Phase 88 | Pending |
 | SYNC-02 | Phase 88 | Pending |
 | SYNC-03 | Phase 88 | Pending |
