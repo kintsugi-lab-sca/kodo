@@ -15,15 +15,18 @@
 //
 // Ese argumento ya NO se sostiene, y aquí se deja constancia en vez de arrastrarlo: la
 // Phase 87 cortó la arista —los saneadores viven en `src/cli/sanitize.js`, hoja sin color, y
-// la clausura de `store.js` ya no alcanza picocolors por ningún camino (medido)— y el guard
-// de `test/format-isolation.test.js` dejó de limitarse al primer nivel: su suite ISO-01
-// recorre la clausura TRANSITIVA de cada fichero del TUI e imprime la cadena que alcanza el
-// paquete.
+// la clausura de `store.js` ya no alcanza picocolors por ningún camino (medido)—.
 //
 // La prohibición SE MANTIENE, por la parte de su argumento que sigue siendo cierta:
 // importar el store arrastraría `withFileLock` y `resolveProjectId` a un módulo que solo
 // tiene que contar líneas. Una prohibición puede sobrevivir a que se evapore su premisa
 // principal; lo que no puede es seguir apoyándose en ella.
+//
+// Quién la MIDE ahora: la suite ISO-06 de `test/format-isolation.test.js`, que asevera que la
+// clausura de este fichero no contiene `src/inbox/store.js`. NO la cubre ISO-01: ISO-01 solo
+// mide alcanzabilidad a `picocolors`, y `store.js` ya no lo alcanza — al cortar esa arista,
+// esta fase le quitó de rebote a D-17 el único mecanismo que la detectaba, y ISO-06 es su
+// reemplazo explícito. Una premisa que nadie mide es disciplina, no invariante.
 //
 // PROHIBIDO importar `src/config.js`: evalúa `homedir()` en el cuerpo del módulo
 // (`config.js:11`) y esa fuga contamina los tests (lección de 83-01).

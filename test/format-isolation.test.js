@@ -589,6 +589,47 @@ describe('ISO-02 (Phase 87): src/cli/sanitize.js es una HOJA de cero imports', (
   });
 });
 
+// ISO-06 (Phase 87 / WR-06): la prohibición D-17 de `src/cli/dashboard/inbox-count.js:9-26`
+// —«PROHIBIDO importar src/inbox/store.js»— se queda SIN NINGÚN mecanismo automático tras esta
+// fase, y hay que devolvérselo aquí.
+//
+// Qué pasó: hasta la Phase 87, el único mecanismo que HABRÍA detectado la arista
+// `inbox-count.js → store.js` era la alcanzabilidad transitiva a `picocolors` (el store traía
+// `stripForKeystroke` de `format.js`, único importador del paquete). Esta fase eliminó esa
+// alcanzabilidad A PROPÓSITO: los saneadores se fueron a `src/cli/sanitize.js` y la clausura
+// de `store.js` ya no llega a `picocolors` por ningún camino. Efecto colateral: ISO-01 ya no
+// puede ver esta prohibición ni por accidente. El comentario del leaf invocaba ISO-01 en el
+// mismo bloque «PROHIBIDO», lo que inducía a leer una cobertura que no existe.
+//
+// La razón VIVA de la prohibición no es el color: importar el store arrastraría `withFileLock`
+// y `resolveProjectId` a un módulo que solo cuenta líneas. Por eso el guard se ancla al
+// FICHERO prohibido y no a `picocolors`.
+//
+// Vive en este fichero y no junto a su sujeto (`test/dashboard-inbox-count.test.js`) porque
+// `walkImports` ya está aquí: reutilizarlo hace el guard TRANSITIVO —la prohibición dice «ni
+// por vía indirecta»— en cuatro líneas, en vez de un source-grep de primer nivel que se burla
+// interponiendo un módulo puente. Molde: ISO-02 / ISO-03.
+describe('ISO-06 (Phase 87 / D-17): inbox-count.js no alcanza src/inbox/store.js', () => {
+  it('ni directa ni transitivamente', () => {
+    const leafPath = join(SRC, 'cli', 'dashboard', 'inbox-count.js');
+    assert.equal(
+      existsSync(leafPath),
+      true,
+      'src/cli/dashboard/inbox-count.js must exist — otherwise this guard passes trivially',
+    );
+    const storePath = join(SRC, 'inbox', 'store.js');
+    const graph = walkImports(leafPath);
+    assert.ok(
+      !graph.has(storePath),
+      `inbox-count.js alcanza src/inbox/store.js (D-17). Importar el store arrastra ` +
+        `withFileLock y resolveProjectId a un leaf que solo cuenta líneas de un fichero. ` +
+        `Desde la Phase 87 esta prohibición NO la cubre ningún otro guard: la alcanzabilidad a ` +
+        `picocolors que la detectaba de rebote se cortó a propósito.\nGrafo desde ` +
+        `inbox-count.js:\n  ${[...graph].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+  });
+});
+
 // ISO-03 (Phase 87 / UF-02): `src/cli/dashboard/format.js` es la capa de presentación PURA
 // del dashboard (React-free, ink-free), y su pureza es la PREMISA sobre la que descansa que
 // `select.js` pueda importarlo sin arrastrar la capa de color. DEBT-06 cableó ese import en
