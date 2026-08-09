@@ -30,7 +30,12 @@ const SRC = join(REPO, 'src');
 //     corrección de CR-01 esta línea afirmaba una cobertura que el sustrato no daba.
 //   - `import()` dinámico con specifier LITERAL, fuera de comentarios: lo cubre el guard de
 //     source-grep de la suite ISO-01 sobre la unión de las clausuras del TUI, con
-//     `stripComments` aplicado ANTES del match (ver la cabecera de ese helper).
+//     `stripComments` aplicado ANTES del match (ver la cabecera de ese helper). Esa unión se
+//     SIEMBRA con los destinos literales de `import()`, INCLUIDOS los que salen del directorio
+//     del TUI y los que ellos mismos encadenan (`unionClausurasTui`, Phase 87 / WR-02). Hasta
+//     esa corrección esta línea era falsa para las aristas dinámicas hacia fuera: tres
+//     destinos de `src/cli/dashboard/index.js` no entraban en la unión por ninguna vía
+//     estática y ningún guard llegaba a leerlos.
 //
 // NO CUBRE — punto ciego RESIDUAL, nombrado y NO cerrado:
 //   - `import()` con specifier COMPUTADO (una variable, una concatenación, un template con
@@ -405,15 +410,75 @@ function assertTuiNoVacio(dashFiles) {
   );
 }
 
+// Regex CONSTANTE (mismo criterio anti-ReDoS que DYNAMIC_PICOCOLORS_RE). Captura el specifier
+// LITERAL y RELATIVO de un `import()` dinámico: los bare (`import('picocolors')`) no son
+// aristas del grafo de ficheros del proyecto y ya los cubre DYNAMIC_PICOCOLORS_RE.
+const DYNAMIC_REL_SPEC_RE = /\bimport\s*\(\s*['"](\.[^'"]*)['"]\s*\)/g;
+
+/**
+ * Unión de las clausuras del TUI, SEMBRADA con los destinos literales de `import()` (Phase 87
+ * / WR-02).
+ *
+ * El agujero que cierra: hasta esta corrección la unión se construía solo con `walkImports`
+ * (estático), y la cabecera declaraba que el `import()` con specifier LITERAL «lo cubre el
+ * guard de source-grep sobre la unión de las clausuras del TUI». Eso era cierto únicamente
+ * para las aristas dinámicas INTRA-directorio: `src/cli/dashboard/index.js` tiene cuatro
+ * aristas dinámicas literales hacia FUERA, y tres de sus destinos (`src/host/interface.js`,
+ * `src/providers/registry.js`, `src/providers/plane/client.js`) no entraban en la unión por
+ * ninguna vía estática, así que NINGÚN guard del fichero llegaba a leerlos. `registry.js`
+ * encadena además sus propios `await import()`, y todo ese subárbol era invisible.
+ *
+ * La justificación D-05 («CADA fichero es entry point, por eso no hace falta seguir aristas
+ * dinámicas») solo se sostiene para aristas INTRA-directorio: un destino de fuera no es entry
+ * de nadie. Se corrige sembrando, no relajando.
+ *
+ * D-06 SIGUE INTACTO: `walkImports` no se toca y sigue sin seguir aristas dinámicas. La
+ * siembra vive AQUÍ, en el guard, que es donde el precedente locked (Phase 85 D-09) la pone.
+ * El punto fijo es necesario porque los destinos encadenan sus propias aristas dinámicas.
+ *
+ * MEDIDO (2026-08-10): 16 ficheros de TUI → 32 ficheros por clausura estática → 42 con la
+ * siembra, siguiendo 5 aristas dinámicas literales (`index.js` → `host/interface.js`,
+ * `providers/registry.js`, `providers/plane/client.js`; `registry.js` → `plane/provider.js`,
+ * `github/provider.js`). Los 10 ficheros nuevos NO alcanzan `picocolors` por ninguna vía: el
+ * guard se ensancha en VERDE, no se estrecha la invariante para que pase.
+ *
+ * @param {string[]} dashFiles entry points del TUI
+ * @returns {Set<string>} unión de clausuras, con las aristas dinámicas literales seguidas
+ */
+function unionClausurasTui(dashFiles) {
+  const graph = new Set();
+  for (const file of dashFiles) walkImports(file, graph);
+  let creció = true;
+  while (creció) {
+    creció = false;
+    for (const file of [...graph]) {
+      // `stripComments` ANTES del match, igual que en el source-grep: un `@type {import('…')}`
+      // es un import de TIPO borrado en runtime, no una arista (D-11).
+      const stripped = stripComments(readFileSync(file, 'utf-8'));
+      for (const m of stripped.matchAll(DYNAMIC_REL_SPEC_RE)) {
+        const destino = resolve(dirname(file), m[1]);
+        if (graph.has(destino) || !existsSync(destino)) continue;
+        walkImports(destino, graph);
+        creció = true;
+      }
+    }
+  }
+  return graph;
+}
+
 describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/', () => {
   it('ningún fichero del TUI alcanza picocolors por ninguna cadena de imports estáticos', () => {
     const dashFiles = listJsFiles(SRC).filter((f) => f.includes('/cli/dashboard/'));
     assertTuiNoVacio(dashFiles);
     const chains = [];
     for (const file of dashFiles) {
-      // D-05: CADA fichero es entry point. Iterarlos todos es lo que hace innecesario
-      // seguir aristas dinámicas dentro del walker: `index.js` carga `./App.js` con
-      // `import()`, pero `App.js` también es entry y saldría rojo por sí mismo.
+      // D-05: CADA fichero es entry point. Iterarlos todos es lo que hace innecesario seguir
+      // aristas dinámicas dentro del walker MIENTRAS EL DESTINO CAIGA DENTRO del directorio:
+      // `index.js` carga `./App.js` con `import()`, pero `App.js` también es entry y saldría
+      // rojo por sí mismo. Para los destinos de FUERA el argumento no se sostiene —no son
+      // entry de nadie— y por eso el caso dinámico de abajo siembra la unión con ellos
+      // (WR-02). Este caso sigue siendo estrictamente estático a propósito: es el que
+      // reconstruye la CADENA, y `findChainToPicocolors` solo sabe nombrar aristas estáticas.
       if (![...walkImports(file)].some(importsPicocolors)) continue;
       const chain = findChainToPicocolors(file);
       chains.push(chain ? chain.join('\n     → ') : relative(REPO, file));
@@ -430,9 +495,10 @@ describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/'
 
   // D-06 (precedente locked: Phase 85 D-09 / WR-03, test/check-isolation.test.js:192-228):
   // `walkImports` sigue siendo ESTÁTICO y las aristas dinámicas se cubren con un source-grep
-  // sobre la MISMA lista que el walker devuelve. Seguir aristas dinámicas DENTRO del walker
-  // ensancharía la clausura y pondría rojos guards vecinos por motivos espurios — y la
-  // reacción natural a un rojo espurio es debilitarlos.
+  // sobre la lista que el walker devuelve, SEMBRADA con los destinos literales de `import()`
+  // (ver `unionClausurasTui`, WR-02). Seguir aristas dinámicas DENTRO del walker ensancharía
+  // la clausura de TODOS sus llamantes y pondría rojos guards vecinos por motivos espurios —
+  // y la reacción natural a un rojo espurio es debilitarlos. Por eso la siembra vive aquí.
   //
   // `stripComments` es obligatorio y va ANTES del match: sin él se cuelan aristas fantasma de
   // `@type {import('…')}`, que son imports de TIPO borrados en runtime, no aristas. Medido
@@ -445,8 +511,7 @@ describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/'
   it('ningún fichero del grafo del TUI hace import() DINÁMICO de picocolors (ISO-01/ISO-04)', () => {
     const dashFiles = listJsFiles(SRC).filter((f) => f.includes('/cli/dashboard/'));
     assertTuiNoVacio(dashFiles);
-    const graph = new Set();
-    for (const file of dashFiles) walkImports(file, graph); // unión de las clausuras
+    const graph = unionClausurasTui(dashFiles); // clausuras + aristas dinámicas literales
     const violations = [];
     for (const file of graph) {
       // Dos mecanismos, ambos exigidos por D-11. Medido el 2026-08-05: dan EXACTAMENTE el
@@ -473,6 +538,22 @@ describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/'
       [],
       `un fichero del grafo del TUI carga picocolors por import() dinámico (la invariante de ` +
         `color-isolation se rompería con el guard estático en VERDE) vía:\n  ${violations.join('\n  ')}`,
+    );
+
+    // Simetría (WR-02): ahora que la siembra mete en la unión los destinos de las aristas
+    // dinámicas que SALEN del directorio del TUI, sería incoherente leer esos ficheros y
+    // buscar solo la forma dinámica. Un `import pc from 'picocolors'` en
+    // `src/providers/registry.js` mete color en el grafo del TUI exactamente igual que un
+    // `import('picocolors')`, y el caso estático de arriba no lo ve porque su walker no cruza
+    // la arista dinámica que lleva hasta ahí.
+    const estaticos = [...graph].filter(importsPicocolors).map((p) => relative(REPO, p));
+    assert.deepEqual(
+      estaticos,
+      [],
+      `un fichero alcanzable desde el TUI (siguiendo también las aristas dinámicas LITERALES) ` +
+        `importa picocolors de forma estática:\n  ${estaticos.join('\n  ')}\n` +
+        `Es el mismo leak que ISO-01 cierra, escondido detrás de un import() — el caso ` +
+        `estático no lo ve porque su walker no cruza aristas dinámicas (D-06).`,
     );
   });
 });
