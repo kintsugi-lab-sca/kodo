@@ -325,19 +325,17 @@ correr `kodo gsd verify`" con los exit codes deterministas. **Nunca dupliques
 el comentario manual al provider**: el CLI hace `addComment` +
 `updateTaskState` atómicamente y el doble comentario rompe la trazabilidad.
 
-### 5. Sidebar desalineado (grupos vacíos / workspaces sueltos)
+### 5. Sidebar desalineado (grupos faltantes / vacíos / workspaces sueltos)
 
 Síntoma: la sidebar de cmux tiene workspaces sueltos que deberían estar en un
-grupo, o grupos vacíos que quedaron tras cerrarse sus miembros.
+grupo, grupos que aún no existen, o grupos vacíos que quedaron tras cerrarse sus
+miembros.
 
 1. `kodo sidebar doctor` (dry-run, **sin** `--fix`) para diagnosticar sin mutar
-   nada — lista las acciones auto-arreglables y los advisories.
-2. Interpreta la salida: las acciones **auto-arreglables** son `loose → add`
-   (workspace suelto con grupo esperado → se añade) y `empty → ungroup` (grupo
-   vacío → se disuelve). Los **advisories** (`missing_group`) son **acción del
-   operador**: el doctor NO crea ni ancla grupos en una sesión viva (anclar un
-   grupo le robaría su fila a la sesión), así que el operador crea el grupo una
-   vez, conscientemente, eligiendo su anchor.
+   nada — lista las acciones que el carril aplicaría.
+2. Interpreta la salida: las tres acciones son `missing → create` (proyecto sin
+   grupo → se crea con las sesiones dentro), `loose → add` (workspace suelto con
+   grupo esperado → se añade) y `empty → ungroup` (grupo vacío → se disuelve).
 3. Recuerda que el **carril automático** de `kodo check` ya converge las acciones
    auto-arreglables en cada pase motivado (ver §"Higiene del sidebar") — el
    dry-run del doctor es solo diagnóstico bajo demanda, no hace falta correr
@@ -363,12 +361,14 @@ orquestador) cure grupos a mano. El mecanismo tiene dos caras.
   la herramienta para **inspeccionar sin mutar**: lista qué haría el carril. Es
   read-only; úsala cuando quieras ver el estado sin esperar al próximo pase.
 - **Allowlist no-destructivo.** Las únicas acciones auto-arreglables son
-  `loose → add` y `empty → ungroup`. `workspace-group delete` **no se cablea**
-  (cerraría todos los workspaces del grupo): no existe como acción del doctor.
-- **`missing_group` es advisory (acción del operador).** El doctor **no crea ni
-  ancla grupos** en una sesión viva — solo reporta que faltan. El operador los
-  crea conscientemente (eligiendo el anchor). Nunca describas `missing_group`
-  como algo que el doctor ejecuta.
+  `missing → create`, `loose → add` y `empty → ungroup`. `workspace-group delete`
+  **no se cablea** (cerraría todos los workspaces del grupo): no existe como
+  acción del doctor.
+- **`missing_group` se auto-arregla, pero el doctor NUNCA ancla.** El grupo se
+  crea con `workspace-group create --from <miembros>`, que levanta su **propio
+  workspace-shell** como ancla y deja las sesiones como miembros. `set-anchor`
+  no se cablea: anclar en una sesión viva le robaría su fila sidebar (el header
+  del grupo ES la fila del ancla) y el grupo se disolvería al cerrarla.
 - **El launch path queda byte-idéntico.** La gestión de grupos vive
   exclusivamente en el carril doctor; `launchOrchestrator` no cambia. La
   agrupación de workspaces al lanzar (`--group`, Phase 77) solo aplica el grupo
