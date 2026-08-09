@@ -699,6 +699,27 @@ describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pur
 //
 // Por eso el caso ata el helper al sujeto concreto: si alguien revierte el orden, este número
 // cae a 0 y la suite lo DICE, en vez de quedarse verde.
+describe('ISO-04 (Phase 87): stripComments no ciega al guard', () => {
+  it('stripComments recupera los 4 imports estáticos de src/cli/dashboard/markdown.js', () => {
+    const markdownPath = join(SRC, 'cli', 'dashboard', 'markdown.js');
+    assert.equal(
+      existsSync(markdownPath),
+      true,
+      'src/cli/dashboard/markdown.js must exist — otherwise this meta-test passes trivially',
+    );
+    const stripped = stripComments(readFileSync(markdownPath, 'utf-8'));
+    const imports = extractImports(stripped);
+    assert.equal(
+      imports.length,
+      4,
+      `stripComments debe conservar los 4 imports estáticos de markdown.js. Si este número es ` +
+        `0, el orden del helper se ha revertido al del molde hermano y el guard dinámico está ` +
+        `CIEGO sobre este fichero (D-09/D-10). Recuperados (${imports.length}): ` +
+        `${imports.join(', ')}`,
+    );
+  });
+});
+
 // ISO-05 (Phase 87 / CR-01): el guard del SUSTRATO. `extractImports` es la base de la que
 // dependen TODOS los guards de este fichero — ISO-01 (estático y dinámico), ISO-02, ISO-03 y
 // el single-source de D-07 llaman al mismo helper. Un agujero aquí no rompe un caso: los
@@ -753,26 +774,5 @@ describe('ISO-05 (Phase 87): extractImports ve las formas ESM sin whitespace', (
           `rojo espurio es debilitarlos (D-06).`,
       );
     }
-  });
-});
-
-describe('ISO-04 (Phase 87): stripComments no ciega al guard', () => {
-  it('stripComments recupera los 4 imports estáticos de src/cli/dashboard/markdown.js', () => {
-    const markdownPath = join(SRC, 'cli', 'dashboard', 'markdown.js');
-    assert.equal(
-      existsSync(markdownPath),
-      true,
-      'src/cli/dashboard/markdown.js must exist — otherwise this meta-test passes trivially',
-    );
-    const stripped = stripComments(readFileSync(markdownPath, 'utf-8'));
-    const imports = extractImports(stripped);
-    assert.equal(
-      imports.length,
-      4,
-      `stripComments debe conservar los 4 imports estáticos de markdown.js. Si este número es ` +
-        `0, el orden del helper se ha revertido al del molde hermano y el guard dinámico está ` +
-        `CIEGO sobre este fichero (D-09/D-10). Recuperados (${imports.length}): ` +
-        `${imports.join(', ')}`,
-    );
   });
 });
