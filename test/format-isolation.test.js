@@ -603,16 +603,17 @@ describe('ISO-02 (Phase 87): src/cli/sanitize.js es una HOJA de cero imports', (
 // imports INCLUIDOS los builtins; éste admite una allowlist de UN elemento, `node:path`,
 // porque `src/cli/dashboard/format.js:25` importa `basename` para derivar el repo. Razón
 // medida, no preferencia: `node:path` es un builtin sin efectos de módulo y no arrastra nada
-// — la clausura transitiva del sujeto es exactamente 1 (él mismo), y el tercer assert de
-// abajo lo comprueba en vez de suponerlo. D-16: ésta es la ÚNICA allowlist admitida en toda
-// la fase; ninguna otra excepción entra «para que pase».
+// — la clausura transitiva del sujeto es exactamente él mismo, y el tercer assert de abajo lo
+// comprueba en vez de suponerlo (redundante por construcción con el primero, y así lo dice su
+// comentario: WR-03). D-16: ésta es la ÚNICA allowlist admitida en toda la fase; ninguna otra
+// excepción entra «para que pase».
 describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pura', () => {
   // Congelada LITERALMENTE, jamás derivada del fichero sujeto: una allowlist calculada a
   // partir de lo que el sujeto importa no asevera nada — siempre saldría verde.
   /** @type {readonly string[]} */
   const ALLOWED_BUILTINS = Object.freeze(['node:path']);
 
-  it('cero imports relativos; builtins solo los de la allowlist; clausura de 1', () => {
+  it('cero imports relativos; builtins solo los de la allowlist; clausura = él mismo, sin color', () => {
     const formatPath = join(SRC, 'cli', 'dashboard', 'format.js');
     assert.equal(
       existsSync(formatPath),
@@ -635,15 +636,33 @@ describe('ISO-03 (Phase 87 / UF-02): src/cli/dashboard/format.js es una HOJA pur
         `[${ALLOWED_BUILTINS.join(', ')}] (D-13, la única de la fase). ` +
         `Fuera de la allowlist: ${outsiders.join(', ')}. Imports del fichero: ${imports.join(', ')}`,
     );
-    // El assert que de verdad MUERDE: los dos de arriba son de FORMA y sobrevivirían a una
-    // sintaxis de import que las dos regex no vieran; éste es de ALCANZABILIDAD y no.
+    // NO es «el assert que muerde» (Phase 87 / WR-03). Hasta esta corrección aquí había un
+    // `closure.size === 1` con un comentario que lo vendía como el fuerte —de ALCANZABILIDAD,
+    // superviviente a una sintaxis de import que las regex no vieran— y era FALSO en los dos
+    // sentidos: `walkImports` calcula la clausura llamando a `extractImports`, la MISMA llamada
+    // de la que sale `relatives` cinco líneas arriba, así que si `relatives` es `[]` la
+    // clausura es necesariamente `{formatPath}` y `size === 1` no puede fallar por su cuenta.
+    // La jerarquía estaba invertida: los TRES asserts de este caso son de FORMA sobre el mismo
+    // fuente, y quien los protege de una sintaxis invisible es la suite ISO-05, no éste.
+    //
+    // Se conserva —reforzado de `size` a CONTENIDO— porque documenta de forma medible lo que
+    // la allowlist afirma: que `node:path` no aporta grafo. Es redundancia DECLARADA, no un
+    // assert que finge independencia.
     const closure = walkImports(formatPath);
-    assert.equal(
-      closure.size,
-      1,
-      `la CLAUSURA transitiva de dashboard/format.js debe ser exactamente 1 (él mismo): es lo ` +
-        `que hace que node:path no cuente como grafo. Clausura medida (${closure.size}):\n  ` +
+    assert.deepEqual(
+      [...closure].map((p) => relative(REPO, p)),
+      ['src/cli/dashboard/format.js'],
+      `la CLAUSURA transitiva de dashboard/format.js debe ser exactamente él mismo: es lo que ` +
+        `hace que node:path no cuente como grafo. Clausura medida (${closure.size}):\n  ` +
         `${[...closure].map((p) => relative(REPO, p)).join('\n  ')}`,
+    );
+    const conColor = [...closure].filter(importsPicocolors).map((p) => relative(REPO, p));
+    assert.deepEqual(
+      conColor,
+      [],
+      `ningún miembro de la clausura de dashboard/format.js puede importar picocolors — es la ` +
+        `premisa literal que select.js:30-34 da por buena. Miembros con color:\n  ` +
+        `${conColor.join('\n  ')}`,
     );
   });
 
