@@ -384,9 +384,31 @@ describe('TUI-04 (D-13): cero picocolors bajo src/cli/dashboard/', () => {
 // El ancla es el PAQUETE `picocolors`, no `src/cli/format.js` (D-07). Hoy son equivalentes
 // —la suite de single-source de arriba asevera que format.js es su único importador— pero un
 // segundo importador futuro escaparía a un ancla al fichero.
+/**
+ * Anti-vacuidad de ISO-01 (Phase 87 / WR-01). Los dos casos de ISO-01 derivan su universo de
+ * un `filter` sobre el árbol: si `src/cli/dashboard/` se renombra, se mueve o desaparece, la
+ * lista queda `[]`, `chains`/`violations` quedan `[]` y AMBOS `deepEqual(…, [])` pasan sobre
+ * cero ficheros. Las tres suites hermanas (ISO-02 `existsSync`, ISO-03 `existsSync`, ISO-04
+ * `existsSync`) ya se blindan contra esto con el mismo argumento; ISO-01 era la única que no,
+ * y es la que más muerde. Se asevera la lista y no `existsSync` del directorio porque lo que
+ * ISO-01 recorre es la lista, no el directorio.
+ *
+ * @param {string[]} dashFiles
+ * @returns {void}
+ */
+function assertTuiNoVacio(dashFiles) {
+  assert.ok(
+    dashFiles.length > 0,
+    'src/cli/dashboard/ no contiene ficheros .js — el guard ISO-01 estaría pasando en VACÍO ' +
+      '(¿se ha renombrado o movido el directorio del TUI?). Un guard que recorre cero ficheros ' +
+      'es verde y vacío: apunta el filtro al directorio nuevo en vez de dejarlo pasar.',
+  );
+}
+
 describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/', () => {
   it('ningún fichero del TUI alcanza picocolors por ninguna cadena de imports estáticos', () => {
     const dashFiles = listJsFiles(SRC).filter((f) => f.includes('/cli/dashboard/'));
+    assertTuiNoVacio(dashFiles);
     const chains = [];
     for (const file of dashFiles) {
       // D-05: CADA fichero es entry point. Iterarlos todos es lo que hace innecesario
@@ -422,6 +444,7 @@ describe('ISO-01 (Phase 87): cero picocolors TRANSITIVO bajo src/cli/dashboard/'
   // SIN allowlist: aquí no hay equivalente legítimo de `logger-noop.js` (D-16).
   it('ningún fichero del grafo del TUI hace import() DINÁMICO de picocolors (ISO-01/ISO-04)', () => {
     const dashFiles = listJsFiles(SRC).filter((f) => f.includes('/cli/dashboard/'));
+    assertTuiNoVacio(dashFiles);
     const graph = new Set();
     for (const file of dashFiles) walkImports(file, graph); // unión de las clausuras
     const violations = [];
