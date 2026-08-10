@@ -482,4 +482,30 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
-_(añadir entradas al cerrar sesiones)_
+- [2026-07-27] Plane Community Edition **no soporta `list_work_items`
+  workspace-wide**: sin `project_id` devuelve `HTTP 404: Page not found`. Para
+  barrer el estado de todos los proyectos, itera sobre los ids de
+  `~/.kodo/config.json` (`providers.plane.projects[].id`) y llama una vez por
+  proyecto.
+- [2026-07-27] `create_work_item_comment` espera **HTML crudo** en
+  `comment_html`. Si escapas las entidades (`&lt;p&gt;` en vez de `<p>`), Plane
+  las almacena literales y el comentario se renderiza mostrando las etiquetas.
+  Se corrige con `update_work_item_comment` sobre el mismo `comment_id`, pasando
+  el HTML sin escapar — no hace falta borrar y recrear.
+- [2026-07-31] **`missing_group`: el bloqueo G-79-1 es más estrecho de lo que
+  parece.** Lo que roba la fila sidebar a una sesión viva es el `set-anchor`, no
+  el `create`. Verificado: `cmux workspace-group create --name X --from
+  <ws-de-sesión-viva>` crea un ancla **nueva** (un shell) y mete la sesión como
+  *miembro* — `create --from` nunca reutiliza un workspace existente como ancla.
+  Por eso, cuando el doctor reporte un `missing_group`, puedes crear el grupo tú
+  con `create --from <ws>` sin dañar la sesión; lo que nunca debes hacer es
+  `set-anchor` sobre ella. **Ancla siempre estable**: si el grupo queda anclado en
+  una sesión de tarea, se disuelve al cerrarse esa tarea (ocurrió con LIKEN-*).
+  Verifica el resultado con `workspace-group list --json` y comprueba que
+  `anchor_workspace_ref` no es el ref de la sesión.
+- [2026-07-27] **Una tarea puede completarse después de que muera su sesión.**
+  ITCLIP-43 escribió su handoff con el PR abierto y el merge llegó dos minutos
+  más tarde. Al revisar Review, contrasta el estado real del trabajo
+  (`gh pr list --state all --json number,state,mergedAt`, `git branch -r
+  --contains <sha>`) en vez de fiarte solo del `NEXT:` o del último handoff:
+  ambos son fotos del instante en que la sesión murió, no del estado actual.
