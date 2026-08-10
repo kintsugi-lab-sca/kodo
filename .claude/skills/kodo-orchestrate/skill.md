@@ -509,3 +509,11 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   (`gh pr list --state all --json number,state,mergedAt`, `git branch -r
   --contains <sha>`) en vez de fiarte solo del `NEXT:` o del último handoff:
   ambos son fotos del instante en que la sesión murió, no del estado actual.
+- [2026-08-10] **El `worktree_path` de `state.json` puede ser fantasma; el
+  trabajo real vive en `.claude/worktrees/<session-id>`.** KODO-15 y KODO-16
+  registraron `worktree_path=.bg-shell/<sid>` (inexistente) mientras el worktree
+  real era `.claude/worktrees/<sid>` — el hook Stop loopeaba
+  `worktree.cleanup.error` contra el path fantasma. Al hacer post-mortem de una
+  sesión muerta, contrasta con `git worktree list` antes de dar el trabajo por
+  perdido: KODO-15 tenía 287 líneas implementadas sin commitear ahí (preservadas
+  en `1da0c56`, rama `worktree-6aae9155-…`). Bug capturado en el inbox (`1yx98p`).
