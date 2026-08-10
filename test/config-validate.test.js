@@ -57,8 +57,9 @@ describe('CFG-01/CFG-03 — validatePositiveInt (entero positivo, never-throws)'
   });
 });
 
-describe('CFG-01 — validateModel (set estricto {opus,sonnet,haiku})', () => {
-  it('acepta opus/sonnet/haiku', () => {
+describe('CFG-01 — validateModel (set estricto {fable,opus,sonnet,haiku})', () => {
+  it('acepta fable/opus/sonnet/haiku', () => {
+    assert.deepEqual(validateModel('fable'), { ok: true, value: 'fable' });
     assert.deepEqual(validateModel('opus'), { ok: true, value: 'opus' });
     assert.deepEqual(validateModel('sonnet'), { ok: true, value: 'sonnet' });
     assert.deepEqual(validateModel('haiku'), { ok: true, value: 'haiku' });
@@ -200,8 +201,8 @@ describe('getByPath / setByPath — dot-walk puro', () => {
 describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () => {
   const fields = getEditableFields(DEFAULT_CONFIG);
 
-  it('devuelve EXACTAMENTE 11 descriptores', () => {
-    assert.equal(fields.length, 11);
+  it('devuelve EXACTAMENTE 12 descriptores', () => {
+    assert.equal(fields.length, 12);
   });
 
   it('cada descriptor tiene {path,label,kind}', () => {
@@ -230,6 +231,7 @@ describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () 
     const paths = fields.map((f) => f.path);
     for (const expected of [
       'claude.default_model',
+      'claude.orchestrator_model',
       'claude.max_parallel',
       'server.idle_threshold_min',
       'server.stuck_threshold_min',
@@ -248,7 +250,9 @@ describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () 
     }
   });
 
-  it('MODELS contiene exactamente opus/sonnet/haiku', () => {
-    assert.deepEqual([...MODELS].sort(), ['haiku', 'opus', 'sonnet']);
+  // KODO-12: `fable` entra al set porque es el default de `claude.orchestrator_model`
+  // (alias válido de `claude --model`, verificado contra el binario).
+  it('MODELS contiene exactamente fable/opus/sonnet/haiku', () => {
+    assert.deepEqual([...MODELS].sort(), ['fable', 'haiku', 'opus', 'sonnet']);
   });
 });

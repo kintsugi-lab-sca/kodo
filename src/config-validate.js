@@ -26,7 +26,11 @@
 // a `claude --model` (launch.js:198, manager.js:310). NOTA (Pitfall 6/A2): el binario
 // `claude` también acepta ids completos (`claude-opus-4-x`), pero v1 fija el set corto
 // por simetría con CONTEXT D-07 — un id completo manual se rechazaría conscientemente.
-const MODELS = new Set(['opus', 'sonnet', 'haiku']);
+//
+// KODO-12: `fable` entra al set porque es el default de `claude.orchestrator_model`.
+// VERIFICADO contra el binario: `claude --help` lo documenta como alias de `--model`
+// ("Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')").
+const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
 
 // Set de los 16 colores nombrados de cmux (VERIFIED contra el binario real,
 // `cmux workspace-action --help`). v1 acepta SOLO los nombrados (no hex `#RRGGBB`),
@@ -56,7 +60,7 @@ export function validatePositiveInt(raw) {
 }
 
 /**
- * Valida que el modelo pertenezca al set estricto `{opus, sonnet, haiku}` (CFG-01, D-07).
+ * Valida que el modelo pertenezca al set estricto `{fable, opus, sonnet, haiku}` (CFG-01, D-07).
  *
  * LÍMITE CONOCIDO (Pitfall 6/A2): un id completo `claude-*` válido para el binario
  * `claude --model` se rechaza en v1. Es una decisión de diseño aceptada por simetría
@@ -159,7 +163,7 @@ export function setByPath(obj, dotted, value) {
 }
 
 /**
- * Devuelve el REGISTRO de los 11 campos editables del editor de config (D-11/PERSIST-04).
+ * Devuelve el REGISTRO de los 12 campos editables del editor de config (D-11/PERSIST-04).
  *
  * La lista está restringida EXPLÍCITAMENTE por construcción: NUNCA incluye descriptores
  * de `api_key_env`, `base_url`, `workspace_slug` ni `provider` (esas keys viven solo en
@@ -167,12 +171,14 @@ export function setByPath(obj, dotted, value) {
  * provider ACTIVO (`config.provider`) — solo el activo (discreción A3).
  *
  * @param {{ provider: string }} config - snapshot de config (se usa solo `config.provider`).
- * @returns {EditableField[]} exactamente 11 descriptores `{path,label,kind}`.
+ * @returns {EditableField[]} exactamente 12 descriptores `{path,label,kind}`.
  */
 export function getEditableFields(config) {
   const provider = config?.provider ?? 'plane';
   return [
     { path: 'claude.default_model', label: 'Modelo por defecto', kind: 'model' },
+    // KODO-12: modelo del ORQUESTADOR, independiente del de las sesiones de trabajo.
+    { path: 'claude.orchestrator_model', label: 'Modelo del orquestador', kind: 'model' },
     { path: 'claude.max_parallel', label: 'Máximo en paralelo', kind: 'positiveInt' },
     { path: `providers.${provider}.states.trigger`, label: 'Estado: trigger', kind: 'nonEmpty' },
     { path: `providers.${provider}.states.review`, label: 'Estado: review', kind: 'nonEmpty' },

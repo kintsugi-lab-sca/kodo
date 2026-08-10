@@ -115,6 +115,45 @@ export function applyReportingGate(prompt, enabled) {
 }
 
 /**
+ * Construye el comando `claude` del ORQUESTADOR. Función PURA (sin I/O) — espejo de
+ * `buildClaudeCommand` (session/manager.js) para el otro carril.
+ *
+ * KODO-12 — el modelo sale de `claude.orchestrator_model` (default `fable`), NO de
+ * `claude.default_model`: el orquestador supervisa y despacha (lee `state.json`, hace
+ * `read-screen`, manda nudges), mientras que `default_model` rige las sesiones de TRABAJO
+ * que sí implementan. El `??` cubre un config parcial inyectado por un caller — `loadConfig`
+ * rellena la clave por deep-merge, pero esta función no asume haber pasado por ahí.
+ *
+ * El prompt se recibe CRUDO y se envuelve en comillas simples tras escapar las que
+ * contenga (`'` → `'\''`): el comando se teclea por `cmux.send`, así que las simples son
+ * las únicas que neutralizan `$`, backtick y `$(...)` del texto del prompt.
+ *
+ * @param {ReturnType<import('../config.js').loadConfig>} config
+ * @param {string} sessionId
+ * @param {string} prompt - prompt del orquestador SIN escapar.
+ * @returns {string} línea de comando lista para `cmux.send`.
+ */
+export function buildOrchestratorCommand(config, sessionId, prompt) {
+  const escapedPrompt = String(prompt).replace(/'/g, "'\\''");
+  const agent = getAgentDef(config);
+  return [
+    // HYG-01 (D-07): prefijo de entorno del shell que marca esta sesión como la
+    // orquestadora. Se une con ' ' y se envía como texto por cmux.send (NO hay
+    // spawn), así que el shell del workspace lo exporta al proceso `claude` y a
+    // sus hijos (los hooks Stop/SessionEnd). El gate de stop.js lo lee para
+    // habilitar el auto-commit de aprendizajes de la skill.
+    'KODO_ORCHESTRATOR=1',
+    // Mecánica del registro de agentes (config.agents, getAgentDef) — para
+    // 'claude-code' produce exactamente `claude --model <m> --session-id <sid>`.
+    agent.binary,
+    agent.model_flag, config.claude.orchestrator_model ?? config.claude.default_model,
+    agent.session_id_flag, sessionId,
+    ...(config.claude.flags ?? []),
+    `'${escapedPrompt}'`,
+  ].join(' ');
+}
+
+/**
  * Launch the orchestrator Claude session in a dedicated cmux workspace.
  *
  * ADVISORY-03 / Plan 31-03 — Opción A "Lifecycle Simulator Hook".
@@ -228,7 +267,6 @@ export async function launchOrchestrator(opts = {}) {
   // Build Claude command with orchestrator prompt + context
   const sessionId = randomUUID();
   const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
-  const escapedPrompt = prompt.replace(/'/g, "'\\''");
 
   // ─────────────────────────────────────────────────────────────────────
   // Phase 18 D-06: launchOrchestrator EXCLUIDO de --worktree.
@@ -249,22 +287,7 @@ export async function launchOrchestrator(opts = {}) {
   // Las sesiones de TRABAJO (launchWorkItem) sí van con --worktree (Plan 02
   // WT-01 + D-06b universal). Solo el orchestrator queda exento.
   // ─────────────────────────────────────────────────────────────────────
-  const agent = getAgentDef(config);
-  const claudeCmd = [
-    // HYG-01 (D-07): prefijo de entorno del shell que marca esta sesión como la
-    // orquestadora. Se une con ' ' y se envía como texto por cmux.send (NO hay
-    // spawn), así que el shell del workspace lo exporta al proceso `claude` y a
-    // sus hijos (los hooks Stop/SessionEnd). El gate de stop.js lo lee para
-    // habilitar el auto-commit de aprendizajes de la skill.
-    'KODO_ORCHESTRATOR=1',
-    // Mecánica del registro de agentes (config.agents, getAgentDef) — para
-    // 'claude-code' produce exactamente `claude --model <m> --session-id <sid>`.
-    agent.binary,
-    agent.model_flag, config.claude.default_model,
-    agent.session_id_flag, sessionId,
-    ...config.claude.flags,
-    `'${escapedPrompt}'`,
-  ].join(' ');
+  const claudeCmd = buildOrchestratorCommand(config, sessionId, prompt);
 
   await cmux.send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
 

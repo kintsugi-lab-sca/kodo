@@ -320,7 +320,7 @@ function renderAdoptPicker(adoptable, cursor) {
 /**
  * Render del overlay del EDITOR de config (Phase 63 Plan 02, UX-01/02 / D-01/D-03/D-11/D-12). Molde
  * de renderAdoptPicker (lista con cursor seleccionable, gutter `› ` + bold sobre la fila activa).
- * Lista los 11 campos de `getEditableFields(snapshot)` con su valor actual (read-only); el campo en
+ * Lista los 12 campos de `getEditableFields(snapshot)` con su valor actual (read-only); el campo en
  * `fieldCursor` se resalta. En `mode==='config-edit'` la fila activa renderiza el text-input con el
  * carácter bajo el cursor invertido (`<Text inverse>` — color-isolation intacta, NO picocolors;
  * Pitfall 5: el inverse se serializa como ANSI, los tests asseren por contenido). El footer pinta el
@@ -375,7 +375,7 @@ function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, config
   });
 
   // Phase 67 Plan 02 (SETUP-03/04, D-05/D-06/D-07/D-09): renglón DEDICADO de la API key, APPEND tras
-  // los 11 campos de getEditableFields (índice = fields.length). Deliberadamente FUERA de
+  // los 12 campos de getEditableFields (índice = fields.length). Deliberadamente FUERA de
   // getEditableFields → el secreto NUNCA entra a config.json ni a la lista editable (PERSIST-04). Tres
   // pinturas del valor, en precedencia:
   //   (1) non-TTY (rawModeSupported === false, Pitfall 16): mensaje de degradación (dim), never-edita.

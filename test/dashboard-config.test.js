@@ -32,6 +32,7 @@ import App, {
   CONFIG_SAVED_RESTART,
   CONFIG_SAVE_FAILED,
 } from '../src/cli/dashboard/App.js';
+import { getEditableFields } from '../src/config-validate.js';
 
 // ── Fake clock (idéntico a dashboard-overlay.test.js) ────────────────────────
 function makeFakeClock(startMs = 1_000_000) {
@@ -87,7 +88,7 @@ const CONFIG_FIXTURE = {
     },
   },
   cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
-  claude: { default_model: 'opus', max_parallel: 3 },
+  claude: { default_model: 'opus', orchestrator_model: 'fable', max_parallel: 3 },
   server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
 };
 
@@ -137,6 +138,20 @@ async function drain() {
 
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
+}
+
+// Abre el overlay de config y deja el cursor sobre `path`. El número de ↓ se DERIVA de
+// getEditableFields (no se hardcodea): añadir o reordenar un campo editable —KODO-12 insertó
+// `claude.orchestrator_model` en el índice 1— no debe romper los tests de otros campos.
+async function openFieldRow(stdin, path) {
+  const index = getEditableFields(CONFIG_FIXTURE).findIndex((f) => f.path === path);
+  assert.notEqual(index, -1, `path no editable: ${path}`);
+  stdin.write('e'); // abre config (fieldCursor=0)
+  await drain();
+  for (let i = 0; i < index; i++) {
+    stdin.write('\x1b[B'); // ↓
+    await drain();
+  }
 }
 
 // Fixture de /status: KL-1 (task_id 'a') es la fila seleccionada inicial (newest, arriba).
@@ -252,10 +267,7 @@ describe('CFG-05-UI: valor inválido → footer rojo, NO escribe, sigue en confi
     );
     try {
       await drain();
-      stdin.write('e'); // config
-      await drain();
-      stdin.write('\x1b[B'); // ↓ a max_parallel (fieldCursor=1)
-      await drain();
+      await openFieldRow(stdin, 'claude.max_parallel');
       stdin.write('\r'); // config-edit de max_parallel (precarga '3')
       await drain();
       stdin.write('\x7f'); // backspace → ''
@@ -288,10 +300,7 @@ describe('PERSIST-03/D-10: valor válido → guarda y muestra el aviso de reinic
     );
     try {
       await drain();
-      stdin.write('e');
-      await drain();
-      stdin.write('\x1b[B'); // ↓ a max_parallel
-      await drain();
+      await openFieldRow(stdin, 'claude.max_parallel');
       stdin.write('\r'); // config-edit (precarga '3')
       await drain();
       stdin.write('\x7f'); // ''
@@ -339,10 +348,7 @@ describe('UX-04/D-12: escritura fallida deja el panel montado y el footer rojo',
     );
     try {
       await drain();
-      stdin.write('e');
-      await drain();
-      stdin.write('\x1b[B'); // ↓ a max_parallel
-      await drain();
+      await openFieldRow(stdin, 'claude.max_parallel');
       stdin.write('\r'); // config-edit
       await drain();
       stdin.write('\x7f'); // ''

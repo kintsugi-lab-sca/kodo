@@ -82,6 +82,12 @@ const DEFAULT_CONFIG = {
   },
   claude: {
     default_model: 'opus',
+    // KODO-12: el ORQUESTADOR va SIEMPRE con `fable` — su trabajo es supervisión y
+    // despacho (leer state.json, read-screen, nudges), no implementación, así que no
+    // necesita el modelo caro que sí quieren las sesiones de trabajo (`default_model`).
+    // Clave SEPARADA a propósito: un config v0.x sin ella la recibe vía deep-merge
+    // (CFG-02 zero-breaking-change) y el operador puede volver a Opus editándola.
+    orchestrator_model: 'fable',
     max_parallel: 3,
     flags: [],
   },

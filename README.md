@@ -274,7 +274,8 @@ Configura `provider: "github"` vía `kodo config`. El trigger son issues con el 
 ```bash
 kodo config --show                                  # ver configuración actual
 kodo config --set claude.max_parallel=5             # sesiones simultáneas (default 3)
-kodo config --set claude.default_model=opus         # modelo por defecto
+kodo config --set claude.default_model=opus         # modelo de las sesiones de trabajo
+kodo config --set claude.orchestrator_model=fable   # modelo del orquestador (default fable)
 kodo config --set server.idle_threshold_min=5       # minutos para considerar idle
 kodo config --set server.stuck_threshold_min=30     # minutos para considerar stuck
 ```
@@ -338,6 +339,12 @@ Sesión de Claude Code supervisora: lee los screens de las sesiones activas vía
 cmux, evalúa tareas en "In Review" y decide si pasan a "Done", desbloquea
 sesiones stuck, lanza nuevas tareas si hay slots, y documenta sus decisiones en
 Plane. Desde el dashboard se enfoca con la tecla `O`.
+
+Arranca **siempre con `fable`** (`claude.orchestrator_model`), independiente del
+modelo de las sesiones de trabajo (`claude.default_model`, Opus por defecto): su
+trabajo es supervisar y despachar, no implementar. Se cambia con
+`kodo config --set claude.orchestrator_model=opus` o desde el editor del
+dashboard (`e` → "Modelo del orquestador").
 
 Su skill (`.claude/skills/kodo-orchestrate/`) acumula conocimiento entre
 sesiones: quirks de la API, mapeos descubiertos, procesos validados. Antes de
