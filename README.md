@@ -352,7 +352,8 @@ arrastrar otros cambios staged.
 Todo queda documentado en Plane como comentarios, sin abrir cmux:
 
 - **Durante la sesión** — Claude comenta su plan al empezar, hitos intermedios y un resumen final.
-- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta «cierre automático» (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
+- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta el cierre automático junto con el handoff de la sesión (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
+- **Si la sesión muere sin cerrar** — cerrar la tab, un kill o un reinicio no disparan `SessionEnd`, así que el backstop no llega a correr. El barrido de huérfanas del server detecta la sesión muerta y, si la tarea sigue en "In Progress", comenta el cierre incompleto con el último handoff conocido. **No** cambia el estado: kodo no puede saber si el trabajo quedó completo. Una tarea nunca se queda en curso sin rastro — o cierra, o queda marcada como incompleta.
 - **Con el orquestador activo** — rondas de supervisión que documentan el estado observado.
 
 ## Arquitectura
@@ -364,7 +365,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | `src/triggers/` | Dispatch de eventos: webhook (Plane), polling (GitHub) |
 | `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
 | `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
-| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación |
+| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación, barrido de sesiones huérfanas |
 | `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/nudge al cierre real) |
 | `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
 | `src/cli/dashboard/` | Dashboard TUI (Ink/React) |

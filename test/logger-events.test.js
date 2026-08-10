@@ -54,7 +54,7 @@ function logPathFor(sessionId) {
 }
 
 describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
-  it('EVENTS is frozen and contains the 34 canonical types (Phase 79 grew 31 → 34: sidebar.doctor.scan/fix/fix.error)', () => {
+  it('EVENTS is frozen and contains the 35 canonical types (KODO-11 grew 34 → 35: session.orphan.detected)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -81,6 +81,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'session.backstop.review',
       'session.dismissed',
       'session.end',
+      'session.orphan.detected',
       'session.start',
       'sidebar.doctor.fix',
       'sidebar.doctor.fix.error',
@@ -93,7 +94,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
-    assert.equal(Object.keys(EVENTS).length, 34, 'EVENTS key count must equal 34 post-Phase-79');
+    assert.equal(Object.keys(EVENTS).length, 35, 'EVENTS key count must equal 35 post-KODO-11');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
