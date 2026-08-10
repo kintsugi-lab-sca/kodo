@@ -7,6 +7,7 @@ import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
+import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
 import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
@@ -533,16 +534,17 @@ export async function launchWorkItem(identifier, opts = {}) {
     workspace: workspaceRef,
   });
 
-  // Notify orchestrator if running
+  // Notify orchestrator if running.
+  // KODO-16: el destinatario sale de `resolveOrchestratorTargets` — ref registrado
+  // primero, título después. El match por título solo no bastaba: es mutable y
+  // window-scoped, así que tras un reinicio del daemon este aviso se perdía en silencio.
   try {
-    const workspaces = await host._legacy.listWorkspaces();
-    const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
-    if (orchMatch) {
-      await host._legacy.send({
-        workspace: orchMatch[1],
-        text: `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
-      });
-    }
+    const workspaces = await host._legacy.listWorkspaces().catch(() => '');
+    await sendToOrchestrator(
+      (opts) => host._legacy.send(opts),
+      resolveOrchestratorTargets(workspaces),
+      `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
+    );
   } catch {}
 
   return session;

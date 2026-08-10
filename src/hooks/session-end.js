@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as nodeFs from 'node:fs';
 import { findSession, removeSession, upsertTaskHandoff } from '../session/state.js';
+import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { performTerminalCleanup } from './terminal-cleanup.js';
 // Phase 74 (D-07/D-13): el handoff acumulativo. El FORMATO entero vive en
 // session/handoff.js (hoja pura, cero imports); aquí solo hay I/O + orquestación.
@@ -260,19 +261,20 @@ export async function runSessionEndHook(input, deps = {}) {
       });
     } catch {}
 
-    // 3. Nudge al orquestador si está corriendo (mismo match que el código
-    //    original de stop.js). buildStopNudgeText importado desde stop.js.
+    // 3. Nudge al orquestador si está corriendo. buildStopNudgeText importado desde
+    //    stop.js. KODO-16: el destinatario ya no sale solo del match por título del
+    //    código original de stop.js — se prefiere el ref registrado en state.json. Este
+    //    es el ÚNICO nudge por-evento que sobrevivió a la Phase 73, y era el que se
+    //    perdía en silencio cuando un reinicio del daemon renombraba la tab.
     try {
-      const workspaces = await cmuxClient.listWorkspaces();
-      const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
-      if (orchMatch) {
-        await cmuxClient.send({
-          workspace: orchMatch[1],
-          // Phase 75 LIVE-07: threadeamos el NEXT: efectivo capturado del handoff.
-          // Con next → línea concreta; sin next → texto byte-idéntico al genérico (D-09).
-          text: buildStopNudgeText(session, handoffNext),
-        });
-      }
+      const workspaces = await cmuxClient.listWorkspaces().catch(() => '');
+      await sendToOrchestrator(
+        (opts) => cmuxClient.send(opts),
+        resolveOrchestratorTargets(workspaces),
+        // Phase 75 LIVE-07: threadeamos el NEXT: efectivo capturado del handoff.
+        // Con next → línea concreta; sin next → texto byte-idéntico al genérico (D-09).
+        buildStopNudgeText(session, handoffNext),
+      );
     } catch {}
   } catch (err) {
     console.error(`[kodo] SessionEnd hook error: ${/** @type {Error} */ (err).message}`);

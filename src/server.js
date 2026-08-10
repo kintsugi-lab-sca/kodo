@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
-import { listSessions, listHistory, removeSession, loadState, saveState, updateSession, runUnderStateLock } from './session/state.js';
+import { listSessions, listHistory, removeSession, loadState, saveState, updateSession, runUnderStateLock, getOrchestrator } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createPendingResolver, buildPendingStatusFields } from './tasks/pending.js';
@@ -458,6 +458,63 @@ function readBody(req) {
 }
 
 /**
+ * ¿Puede el daemon marcar como suyo el workspace del que arranca?
+ *
+ * Puro / never-throws. Responde `false` SOLO cuando hay evidencia de que ese workspace
+ * es el del orquestador. Sin `workspaceId` no hay nada que marcar; sin registro (o con
+ * un registro sin UUID) no hay evidencia y se permite marcar.
+ *
+ * KODO-16 — el motivo de existir de este guard: el branding renombra el workspace a
+ * `心動 kodo service`. Cuando el daemon se reinicia DESDE la tab del orquestador
+ * (`kodo stop && kodo up` lanzado ahí dentro), ese rename le borraba el nombre
+ * `kodo-orchestrator` y lo dejaba huérfano: el siguiente `kodo check` no lo reconocía y
+ * lanzaba un duplicado. El registro en state.json ya blinda la DETECCIÓN, pero pisar el
+ * nombre del supervisor sigue siendo mentira en el sidebar y rompe el fallback por
+ * título — así que no se hace.
+ *
+ * Segundo guard, `underTest`: la suite arranca servers de verdad (server-bind,
+ * server-managed…) y esos procesos HEREDAN el CMUX_WORKSPACE_ID del shell del
+ * operador. Sin este guard, `npm test` renombra el workspace real desde el que se
+ * lanza — verificado en vivo mientras se arreglaba KODO-16: la tab de la propia
+ * sesión de trabajo acabó titulada `心動 kodo service`. Un test no puede tener ese
+ * efecto sobre el entorno de quien lo corre, y para el orquestador es justo el
+ * accidente que lo huerfanizaba.
+ *
+ * @param {string|undefined|null} workspaceId - CMUX_WORKSPACE_ID del proceso (UUID).
+ * @param {{ workspace_ref?: string, workspace_id?: string|null }|null|undefined} orchestrator
+ *   Registro del orquestador (state.json `.orchestrator`), o null si no consta.
+ * @param {boolean} [underTest] - true bajo el test runner de Node (`NODE_TEST_CONTEXT`).
+ * @returns {boolean}
+ */
+export function shouldBrandWorkspace(workspaceId, orchestrator, underTest = false) {
+  if (!workspaceId) return false;
+  if (underTest) return false;
+  if (!orchestrator) return true;
+  // Se comparan AMBOS campos: CMUX_WORKSPACE_ID es hoy el UUID, pero comparar también
+  // el ref cuesta nada y cubre un host que exportara `workspace:N` en su lugar.
+  if (orchestrator.workspace_id && orchestrator.workspace_id === workspaceId) return false;
+  if (orchestrator.workspace_ref && orchestrator.workspace_ref === workspaceId) return false;
+  return true;
+}
+
+/**
+ * Marca el workspace del daemon (rename + color) si el guard lo permite.
+ * never-throws — el branding es cosmético y jamás debe tumbar el arranque del server.
+ */
+function brandServiceWorkspace() {
+  const workspaceId = process.env.CMUX_WORKSPACE_ID;
+  let orchestrator = null;
+  try {
+    orchestrator = getOrchestrator();
+  } catch {
+    /* fail-open: sin registro legible, el guard decide con lo que hay */
+  }
+  if (!shouldBrandWorkspace(workspaceId, orchestrator, Boolean(process.env.NODE_TEST_CONTEXT))) return;
+  cmux.rename({ workspace: workspaceId, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
+  cmux.setColor({ workspace: workspaceId, color: 'Indigo' }).catch(() => {});
+}
+
+/**
  * Start the webhook server.
  *
  * Two modes gated by `opts.managed` (default falsy = legacy `kodo start`, byte-identical):
@@ -855,10 +912,7 @@ export async function startServer(opts = {}) {
 
         // Point 3: managed skips its own server.pid (daemon owns kodo.pid).
 
-        if (process.env.CMUX_WORKSPACE_ID) {
-          cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
-          cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
-        }
+        brandServiceWorkspace(); // KODO-16: no pisa el workspace del orquestador
         resolveListen(undefined);
       });
     });
@@ -870,10 +924,7 @@ export async function startServer(opts = {}) {
 
       writeFileSync(PID_PATH, String(process.pid));
 
-      if (process.env.CMUX_WORKSPACE_ID) {
-        cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
-        cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
-      }
+      brandServiceWorkspace(); // KODO-16: no pisa el workspace del orquestador
     });
   }
 

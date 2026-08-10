@@ -384,7 +384,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
 ├── config.json        # provider, estados, servidor, claude
 ├── projects.json      # proyecto del provider → path local
-├── state.json         # sesiones activas
+├── state.json         # sesiones activas + registro del orquestador (`.orchestrator`)
 ├── inbox.md           # capturas rápidas (markdown plano, editable a mano)
 ├── inbox.lock         # lock advisory del inbox (efímero: se libera al terminar)
 ├── plans/             # planes de acción por tarea

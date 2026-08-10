@@ -104,6 +104,28 @@ export async function listWorkspaces() {
 }
 
 /**
+ * Passthrough read-only de `cmux tree --all --json`. Devuelve el stdout crudo
+ * (JSON sin parsear) — el parseo defensivo vive en el caller.
+ *
+ * A DIFERENCIA de `listWorkspaces()`/`listWorkspacesJson()` (:95/:129), esta vista
+ * es CROSS-WINDOW: `workspace list` solo enumera el window del caller (limitación
+ * P-4, el JSON lo delata con su `window_ref`), mientras que `tree --all` devuelve
+ * `windows[].workspaces[]` de TODOS los windows y, además, el `id` (UUID) de cada
+ * workspace — la única identidad estable que expone cmux, porque los refs
+ * `workspace:N` se RECICLAN al cerrar y crear tabs.
+ *
+ * Esas dos propiedades son exactamente las que necesita la revalidación del
+ * orquestador (`verifyRegisteredOrchestrator`, orchestrator/launch.js): comprobar
+ * si el workspace registrado sigue vivo sin depender de en qué window corra el
+ * check ni de que su título siga siendo `kodo-orchestrator`.
+ *
+ * @returns {Promise<string>} JSON crudo de `cmux tree --all --json`
+ */
+export async function listTree() {
+  return run(['tree', '--all', '--json']);
+}
+
+/**
  * Passthrough read-only de `workspace-group list --json`. Devuelve el stdout
  * crudo (JSON sin parsear): el parseo defensivo vive en la función pura de la
  * Plan 02, NO aquí (D-05). Un fallo de `run()` (cmux viejo sin el subcomando,
