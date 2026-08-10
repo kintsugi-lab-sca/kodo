@@ -46,6 +46,7 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *   last_seen_alive?: string|null,  // Phase 38 D-04/D-11: ISO 8601 del último tick donde tab_alive fue true, o null. Default null en migrate puro.
  *   alive?: boolean,           // Phase 38 D-11: booleano agregado de compat (= state ∈ {running, idle, needs-input}). Poblado por migrateStateV2toV3; consumers que ya lo leen siguen funcionando.
  *   dead_since?: string,       // Phase 38 D-07: ISO 8601 del tick donde la session transicionó a 'dead'. Lo fija reconcileTick; se usa para sellar a 'closed' tras 30 días.
+ *   process_dead_since?: string|null,  // KODO-15: ISO 8601 del tick donde se OBSERVÓ morir el proceso claude (transición process_alive true→false), o null si el proceso está vivo / nunca se le vio vivo. Lo fija y limpia runReconcileTick; deriveTarget lo usa para mandar a 'dead' una sesión zombi (proceso muerto sostenido con la tab aún abierta). Aditivo opcional, sin bump de schema_version.
  * }} Session
  *
  * @typedef {{

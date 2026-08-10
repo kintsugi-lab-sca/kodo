@@ -20,8 +20,16 @@
 // El target del tick se deriva de (tab viva?, proceso vivo?, needs_input?):
 //   - !tab            → 'dead'
 //   - tab + proceso   → 'running'
+//   - tab + !proceso SOSTENIDO (KODO-15, ver abajo) → 'dead'
 //   - tab + !proceso + needs_input → 'needs-input'
 //   - tab + !proceso + !needs_input → 'idle'
+//
+// KODO-15 (sesión zombi): hasta esta fase el target salía SOLO de la vitalidad de
+// la tab, así que un proceso claude muerto dentro de una tab que el operador deja
+// abierta (kill, OOM, crash) se estancaba en `idle` para siempre: nunca se fijaba
+// `dead_since` y el barrido de huérfanas (orphan-sweep.js, que consume ese campo)
+// no la veía — la tarea se quedaba en «In Progress» sin sesión real detrás. El
+// brazo nuevo cierra ese hueco con un reloj persistido, `process_dead_since`.
 //
 // LOG-12: NO importa logger.js (se inyecta). El único import es execFileSync,
 // usado SOLO en isSessionProcessAlive (derivación de process_alive vía pgrep).
@@ -36,6 +44,17 @@ const RESCUE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Ticks consecutivos con el mismo target antes de aplicar la transición (R-2). */
 const DEBOUNCE_TICKS = 2;
+
+/**
+ * Cuánto tiempo debe llevar muerto el proceso claude, con la tab AÚN VIVA, antes de
+ * dar la sesión por muerta (KODO-15). Espeja `ORPHAN_GRACE_MS` del sweep: un kill
+ * tarda ~2 min en llegar a `dead` y otros ~2 min en producir el comentario.
+ *
+ * La ventana existe para absorber un `pgrep` que falla puntualmente (timeout de 3 s
+ * bajo carga): el reloj se reinicia en cuanto el proceso vuelve a verse, y el
+ * debouncing 2-tick actúa además ENCIMA de la ventana. Un tick suelto no mata nada.
+ */
+export const PROCESS_DEAD_GRACE_MS = 2 * 60 * 1000;
 
 /**
  * @typedef {import('./state.js').Session} Session
@@ -91,14 +110,45 @@ function liveForSession(live, session) {
 }
 
 /**
+ * ¿El proceso claude de esta sesión lleva muerto MÁS que la ventana de gracia?
+ * (KODO-15). PURA, never-throws.
+ *
+ * El reloj `process_dead_since` NO es «process_alive es false»: lo fija
+ * `runReconcileTick` únicamente cuando OBSERVA la transición `true → false`, y lo
+ * limpia cuando el proceso revive. Esa distinción es la guarda contra el falso
+ * positivo estructural de la detección: `isSessionProcessAlive` casa
+ * `pgrep -f "session-id <id>"`, y hay sesiones VIVAS que nunca casan ese patrón —
+ * una reanudada (`claude --resume <uuid>`) o una adoptada por `adopt.js` no llevan
+ * `--session-id` en su cmdline. Esas viven con `process_alive:false` permanente; sin
+ * el reloj acabarían en `dead` con un comentario de cierre incompleto falso. Al
+ * exigir una muerte OBSERVADA, solo barremos sesiones cuya detección demostró
+ * funcionar al menos una vez.
+ *
+ * @param {Session & { process_dead_since?: string|null }} session
+ * @param {number} now - timestamp ms (inyectado).
+ * @returns {boolean}
+ */
+export function isProcessDeadBeyondGrace(session, now) {
+  if (!session || session.process_alive) return false;
+  const deadMs = session.process_dead_since ? Date.parse(session.process_dead_since) : NaN;
+  if (!Number.isFinite(deadMs)) return false;
+  return now - deadMs >= PROCESS_DEAD_GRACE_MS;
+}
+
+/**
  * Deriva el estado objetivo de una session dada su presencia en el host (D-04).
  * @param {Session} session
  * @param {LiveRef|undefined} live
+ * @param {number} now - timestamp ms (para la ventana de proceso muerto, KODO-15).
  * @returns {'running'|'idle'|'needs-input'|'dead'}
  */
-function deriveTarget(session, live) {
+function deriveTarget(session, live, now) {
   if (!live || !live.alive) return 'dead';
   if (session.process_alive) return 'running';
+  // KODO-15: proceso muerto SOSTENIDO con la tab aún viva → zombi. Va ANTES de
+  // needs_input a propósito: si el proceso ya no existe, la notificación pendiente
+  // que el host expone es un residuo — no hay nadie que pueda recibir ese input.
+  if (isProcessDeadBeyondGrace(session, now)) return 'dead';
   if (live.needs_input) return 'needs-input';
   return 'idle';
 }
@@ -141,7 +191,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     // Identidad-verificada: si el ref fue reciclado a otra sesión, `live` es undefined
     // → deriveTarget → 'dead' (cmux reusa workspace:N — ver liveForSession).
     const live = liveForSession(liveByRef.get(session.workspace_ref), session);
-    const target = deriveTarget(session, live);
+    const target = deriveTarget(session, live, now);
 
     // Sellado a closed (D-07 step 4): dead con dead_since > 30 días → history.
     if (session.state === 'dead' && session.dead_since) {
@@ -212,6 +262,11 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
         ...rest,
         state: rescuedState,
         process_alive: false,
+        // KODO-15: el reloj de proceso muerto se reinicia al rescatar. Si la entry
+        // arrastrase el `process_dead_since` con el que murió, la sesión revivida
+        // volvería a `dead` en el tick siguiente — el rescate no puede regresar por
+        // un reloj heredado. Vuelve a arrancar solo si se OBSERVA otra muerte.
+        process_dead_since: null,
         tab_alive: true,
         needs_input: !!live.needs_input,
         last_seen_alive: new Date(now).toISOString(),
@@ -380,14 +435,25 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
     // (preserva la optimización de no-write).
     if (liveRefs !== null) {
       let changed = false;
+      const at = now();
       /** @type {Record<string, Session>} */
       const sessions = {};
       for (const [taskId, s] of Object.entries(state.sessions)) {
         const aliveNow = s.session_id && aliveBySessionId.has(s.session_id)
           ? /** @type {boolean} */ (aliveBySessionId.get(s.session_id))
           : !!s.process_alive;
-        if (aliveNow !== s.process_alive) {
-          sessions[taskId] = { ...s, process_alive: aliveNow };
+
+        // KODO-15: reloj de proceso muerto. Arranca SOLO en la transición OBSERVADA
+        // `true → false` (`s.process_alive === true` estricto, no falsy): una sesión
+        // cuyo proceso NUNCA se detectó vivo — adoptada, o reanudada con `--resume`,
+        // cuya cmdline no lleva `--session-id` y por tanto no casa el pgrep — tiene
+        // un `process_alive:false` que es un falso negativo de la detección, no una
+        // muerte, y no debe recibir reloj. Se limpia en cuanto el proceso reaparece.
+        const prevDeadSince = /** @type {any} */ (s).process_dead_since ?? null;
+        const deadSince = aliveNow ? null : (s.process_alive === true ? new Date(at).toISOString() : prevDeadSince);
+
+        if (aliveNow !== s.process_alive || deadSince !== prevDeadSince) {
+          sessions[taskId] = { ...s, process_alive: aliveNow, process_dead_since: deadSince };
           changed = true;
         } else {
           sessions[taskId] = s;
