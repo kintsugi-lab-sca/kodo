@@ -116,7 +116,8 @@ export function sanitizeAdoptionData({ cwd, title, description }, homedirFn = ho
  * Pure SessionRecord builder mirroring `buildSessionFromTask` (manager.js:37-49)
  * field-for-field, but OMITTING:
  *   - reconcile-owned (invariant — reconcileTick is the sole writer):
- *     dead_since, last_seen_alive, alive, tab_alive, process_alive, needs_input, state
+ *     dead_since, process_dead_since, last_seen_alive, alive, tab_alive, process_alive,
+ *     needs_input, state
  *   - GSD-only (adoption takes no flags/phaseId/brief):
  *     gsd, gsd_mode, phase_id, brief, worktree_path
  *
