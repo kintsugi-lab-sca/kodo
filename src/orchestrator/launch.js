@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { loadConfig, isReportToProviderEnabled } from '../config.js';
-import { listSessions } from '../session/state.js';
+import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
 import { getSessionMode } from '../labels.js';
 import { syncSkill } from '../skill/sync.js';
@@ -69,6 +69,122 @@ export function findOrchestratorRef(workspaceListText) {
   const match = workspaceListText.match(/(workspace:\d+)\s+kodo-orchestrator/);
   return match ? match[1] : null;
 }
+
+// ── Revalidación por identidad (KODO-16) ──────────────────────────────────────
+// `findOrchestratorRef` de arriba pregunta «¿hay una tab TITULADA kodo-orchestrator
+// en MI window?». Las dos mitades de esa pregunta fallan:
+//   · el título es mutable — `startServer` renombra a `心動 kodo service` el workspace
+//     del que hereda CMUX_WORKSPACE_ID (server.js:859), así que reiniciar el daemon
+//     desde la tab del orquestador le borra el nombre;
+//   · `workspace list` es window-scoped (P-4) — un check desde otro window no la ve.
+// En ambos casos el orquestador vivo se vuelve invisible y `kodo check` lanza un
+// segundo supervisor sobre el mismo state.json y la misma cola.
+// El carril de abajo pregunta en cambio «¿sigue vivo el workspace que REGISTRAMOS?»,
+// contra `tree --all --json` (cross-window) y por UUID (inmune al rename Y al
+// reciclaje de refs). `findOrchestratorRef` se conserva como fallback de migración
+// para el orquestador que ya estuviera corriendo sin registro.
+
+/**
+ * Busca un workspace en el árbol de `cmux tree --all --json` recorriendo TODOS los
+ * windows. Puro / never-throws: un shape inesperado devuelve `null`, no lanza.
+ *
+ * Precedencia de identidad DELIBERADA: si se pasa `id`, el match es SOLO por `id`.
+ * NO cae a `ref` cuando el `id` no aparece — cmux recicla los `workspace:N`, así que
+ * ese fallback confundiría «mi workspace murió y otro heredó su número» con «mi
+ * workspace sigue vivo», que es precisamente el falso positivo que hay que evitar.
+ * El match por `ref` queda reservado para registros sin UUID (degradado).
+ *
+ * @param {any} treeJson - salida YA PARSEADA de `cmux tree --all --json`.
+ * @param {{ id?: string|null, ref?: string|null }} identity
+ * @returns {{ ref: string, id: string|null, title: string|null }|null}
+ */
+export function findWorkspaceInTree(treeJson, identity = {}) {
+  const wantId = typeof identity.id === 'string' && identity.id ? identity.id : null;
+  const wantRef = typeof identity.ref === 'string' && identity.ref ? identity.ref : null;
+  if (!wantId && !wantRef) return null;
+
+  const windows = Array.isArray(treeJson?.windows) ? treeJson.windows : [];
+  for (const win of windows) {
+    const workspaces = Array.isArray(win?.workspaces) ? win.workspaces : [];
+    for (const ws of workspaces) {
+      if (!ws || typeof ws !== 'object') continue;
+      const id = typeof ws.id === 'string' ? ws.id : null;
+      const ref = typeof ws.ref === 'string' ? ws.ref : null;
+      const hit = wantId ? id === wantId : ref === wantRef;
+      if (!hit) continue;
+      // El ref del árbol GANA al registrado: es el que cmux reconoce ahora mismo.
+      return { ref: ref || wantRef || '', id, title: typeof ws.title === 'string' ? ws.title : null };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resuelve el UUID de un `workspace:N` consultando el árbol cross-window.
+ * never-throws → `null` si cmux falla, el JSON no parsea o el ref no está.
+ *
+ * @param {string} ref - `workspace:N`.
+ * @param {{ listTreeFn?: () => Promise<string> }} [deps]
+ * @returns {Promise<string|null>}
+ */
+export async function resolveWorkspaceId(ref, deps = {}) {
+  const listTreeFn = deps.listTreeFn || cmux.listTree;
+  try {
+    const hit = findWorkspaceInTree(JSON.parse(await listTreeFn()), { ref });
+    return hit ? hit.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Revalida el registro del orquestador contra el host. Es el gate que decide si
+ * `launchOrchestrator` puede crear un workspace nuevo.
+ *
+ * Veredictos:
+ *   - `none`         — no hay registro. El caller sigue a su fallback y, si tampoco
+ *                      encuentra nada, lanza.
+ *   - `alive`        — el workspace registrado existe en algún window. NO lanzar.
+ *   - `dead`         — el host respondió y el workspace NO está. Registro huérfano:
+ *                      el caller lo limpia y lanza (criterio 3: la cola nunca se
+ *                      queda sin supervisor).
+ *   - `unverifiable` — hay registro pero el host no contestó (cmux caído, timeout,
+ *                      JSON corrupto). NO lanzar.
+ *
+ * El caso `unverifiable` es la única decisión no obvia, y va deliberadamente en
+ * contra del fail-open habitual del repo. La asimetría de coste lo justifica: dos
+ * orquestadores vivos comparten state.json y la cola — despachan la misma tarea dos
+ * veces, se pisan los nudges y duplican comentarios en el provider, y hace falta un
+ * humano para deshacerlo. No lanzar en cambio solo pierde UN pase: el siguiente check
+ * reintenta a los pocos minutos, y si cmux está de verdad caído el launch tampoco
+ * habría funcionado (`newWorkspace` habla con el mismo binario). «Muerto» exige
+ * evidencia POSITIVA — silencio del host no es evidencia.
+ *
+ * @param {{
+ *   listTreeFn?: () => Promise<string>,
+ *   getOrchestratorFn?: () => import('../session/state.js').OrchestratorRegistration|null,
+ * }} [deps]
+ * @returns {Promise<{ status: 'none' } | { status: 'alive'|'dead'|'unverifiable', ref: string }>}
+ */
+export async function verifyRegisteredOrchestrator(deps = {}) {
+  const listTreeFn = deps.listTreeFn || cmux.listTree;
+  const getOrchestratorFn = deps.getOrchestratorFn || getOrchestrator;
+
+  const reg = getOrchestratorFn();
+  if (!reg) return { status: 'none' };
+
+  let tree;
+  try {
+    tree = JSON.parse(await listTreeFn());
+  } catch {
+    return { status: 'unverifiable', ref: reg.workspace_ref };
+  }
+
+  const hit = findWorkspaceInTree(tree, { id: reg.workspace_id, ref: reg.workspace_ref });
+  if (!hit) return { status: 'dead', ref: reg.workspace_ref };
+  return { status: 'alive', ref: hit.ref || reg.workspace_ref };
+}
+
 // Phase 21 D-08 + Pattern C: KODO_ROOT override aditivo para test isolation
 // (mismo patrón que src/hooks/stop.js:20; permite spawnSync con env.KODO_ROOT=tmpRepo).
 const KODO_ROOT_FOR_SKILL = process.env.KODO_ROOT || process.cwd();
@@ -128,6 +244,14 @@ export function applyReportingGate(prompt, enabled) {
  * con event=session.start + transcript_path populated) sin requerir claude
  * ni cmux reales.
  *
+ * KODO-16 — dos gates ANTES de crear nada, en este orden:
+ *   1. `verifyRegisteredOrchestrator()`: revalida el registro de state.json contra el
+ *      host (cross-window, por UUID). alive/unverifiable → return sin lanzar; dead →
+ *      limpia el registro huérfano y sigue.
+ *   2. `findOrchestratorRef()`: el check legacy por título (window-scoped), como
+ *      fallback de migración. Si acierta, adopta ese workspace en el registro.
+ * Idempotencia: en el camino nuevo, el workspace queda registrado antes del `cmux.send`.
+ *
  * @param {{
  *   logger?: import('../logger.js').Logger,
  *   spawnFn?: (ctx: {
@@ -138,6 +262,9 @@ export function applyReportingGate(prompt, enabled) {
  *     taskRef: string,
  *   }) => Promise<void> | void,
  * }} [opts]
+ * @returns {Promise<{ workspace: string, existing: boolean, verified?: boolean }>}
+ *   `verified:false` marca el único caso en que `existing:true` NO significa «lo he
+ *   visto vivo», sino «hay uno registrado y no he podido comprobarlo, así que no lanzo».
  */
 export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
@@ -185,7 +312,40 @@ export async function launchOrchestrator(opts = {}) {
   }
   // ────────────────────────────────────────────────────────────────────────
 
-  // Check if orchestrator is already running
+  // ─── Gate 1 (KODO-16): revalidar el orquestador REGISTRADO contra el host ────
+  // Primero por identidad persistida, porque es el único check que sobrevive tanto a
+  // un rename de la tab como a correr desde otro window. Solo si este carril no
+  // resuelve nada se consulta la detección por título de abajo.
+  const verdict = await verifyRegisteredOrchestrator();
+  if (verdict.status === 'alive') {
+    // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
+    // Phase 73): el orquestador ya se auto-pacea con sus rondas de supervisión, y cualquier
+    // disparador repetido (kodo check/orchestrate con needsOrchestrator legítimamente true)
+    // re-inyectaba el mismo texto en CADA llamada quemando tokens. El nudge útil por-evento
+    // (cierre de sesión) vive en session-end.js vía buildStopNudgeText — ese se conserva.
+    console.log('[kodo] Orchestrator workspace already exists');
+    persistOrchestratorRef(verdict.ref); // refresca el ref persistido (daemon/tecla O)
+    return { workspace: verdict.ref, existing: true };
+  }
+  if (verdict.status === 'unverifiable') {
+    // Hay registro pero el host no contesta. Abortamos SIN lanzar: ver la asimetría de
+    // coste documentada en verifyRegisteredOrchestrator. El siguiente check reintenta.
+    console.log(
+      `[kodo] Orchestrator registrado en ${verdict.ref} pero cmux no responde — no se lanza otro`,
+    );
+    return { workspace: verdict.ref, existing: true, verified: false };
+  }
+  if (verdict.status === 'dead') {
+    // Evidencia positiva de muerte: el host respondió y el workspace no está. Se limpia
+    // el registro para que la cola no quede sin supervisor y se sigue al launch.
+    console.log(`[kodo] Orchestrator registrado en ${verdict.ref} ya no existe — se relanza`);
+    clearOrchestrator();
+  }
+
+  // ─── Gate 2 (legacy): detección por título, window-scoped ────────────────────
+  // Cubre el orquestador que ya estuviera corriendo cuando no existía el registro.
+  // Si lo encuentra, lo ADOPTA (resuelve su UUID y lo registra) para que a partir de
+  // aquí sobreviva a renames y a un check desde otro window.
   let workspaceList;
   try {
     workspaceList = await cmux.listWorkspaces();
@@ -195,13 +355,17 @@ export async function launchOrchestrator(opts = {}) {
 
   const existingRef = findOrchestratorRef(workspaceList);
   if (existingRef) {
-    // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
-    // Phase 73): el orquestador ya se auto-pacea con sus rondas de supervisión, y cualquier
-    // disparador repetido (kodo check/orchestrate con needsOrchestrator legítimamente true)
-    // re-inyectaba el mismo texto en CADA llamada quemando tokens. El nudge útil por-evento
-    // (cierre de sesión) vive en session-end.js vía buildStopNudgeText — ese se conserva.
     console.log('[kodo] Orchestrator workspace already exists');
-    persistOrchestratorRef(existingRef); // refresca el ref persistido (daemon/tecla O)
+    persistOrchestratorRef(existingRef);
+    setOrchestrator({
+      workspace_ref: existingRef,
+      workspace_id: await resolveWorkspaceId(existingRef),
+      // Adopción: el session-id real lo eligió el launch original, que no dejó rastro.
+      // El campo es informativo (no participa de la revalidación), así que vacío es
+      // honesto — mejor que inventar un UUID que no corresponde a ninguna sesión.
+      session_id: '',
+      started_at: new Date().toISOString(),
+    });
     return { workspace: existingRef, existing: true };
   }
 
@@ -227,6 +391,18 @@ export async function launchOrchestrator(opts = {}) {
 
   // Build Claude command with orchestrator prompt + context
   const sessionId = randomUUID();
+
+  // KODO-16: registrar la identidad AQUÍ, con la tab ya creada y ANTES del `cmux.send`.
+  // El orden importa: si el send fallara, el workspace ya existe, y sin registro previo
+  // el siguiente check crearía otro encima. Registrado, la revalidación lo ve vivo y no
+  // duplica (el operador arregla la tab a medias; kodo no la multiplica).
+  setOrchestrator({
+    workspace_ref: workspaceRef,
+    workspace_id: await resolveWorkspaceId(workspaceRef),
+    session_id: sessionId,
+    started_at: new Date().toISOString(),
+  });
+
   const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
   const escapedPrompt = prompt.replace(/'/g, "'\\''");
 

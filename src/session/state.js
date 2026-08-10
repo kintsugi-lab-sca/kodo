@@ -55,10 +55,18 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  * }} TaskHandoff
  *
  * @typedef {{
+ *   workspace_ref: string,        // `workspace:N` del orquestador. RECICLABLE: cmux reusa los refs al cerrar/crear tabs, así que NO es la identidad — es una pista de conveniencia (focus, logs). La identidad es workspace_id.
+ *   workspace_id: string|null,    // UUID del workspace en cmux (`tree --all --json`.windows[].workspaces[].id, == CMUX_WORKSPACE_ID dentro de la tab). IDENTIDAD ESTABLE del orquestador. null cuando el host no pudo resolverlo al registrar (fail-open) — entonces la revalidación degrada al match por workspace_ref.
+ *   session_id: string,           // session-id de Claude con el que arrancó el orquestador.
+ *   started_at: string,           // ISO 8601 del lanzamiento.
+ * }} OrchestratorRegistration
+ *
+ * @typedef {{
  *   schema_version: number,
  *   sessions: Record<string, Session>,
  *   history?: Array<Session & { ended_at: string }>,  // Phase 30 (D-09 cleanup): aditivo opcional. Mantenido por removeSession (FIFO 50-slot cap). Legacy state.json files sin history se leen como ausente — callers usan `Array.isArray(state.history) ? state.history : []` defensive guard.
  *   tasks?: Record<string, TaskHandoff>  // Phase 74 (D-05): aditivo opcional, mantenido por upsertTaskHandoff. El handoff es dato de la TAREA, no de la sesión: `removeSession` archiva la sesión a `history` (FIFO 50) y borra la fila de `sessions`, así que un `NEXT:` guardado ahí no sobreviviría al cierre que lo produjo. State files sin `tasks` se leen como ausente — callers usan el guard defensivo `state.tasks || {}`. NO bump de schema_version.
+ *   orchestrator?: OrchestratorRegistration|null  // KODO-16: aditivo opcional, mantenido por setOrchestrator/clearOrchestrator. Registra QUÉ workspace es el del orquestador para que su identidad sobreviva a un reinicio del daemon (antes solo existía como el título `kodo-orchestrator` de una tab, y arrancar el daemon desde esa tab lo renombraba). El orquestador NO es una sesión de trabajo: no tiene task_id ni entra en `sessions` (nada de dispatch, health ni conteos de slots), por eso va en su propia clave top-level. State files sin `orchestrator` se leen como ausente → getOrchestrator devuelve null. NO bump de schema_version.
  * }} State
  */
 
@@ -495,6 +503,94 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
 export function listHistory() {
   const state = loadState();
   return Array.isArray(state.history) ? state.history : [];
+}
+
+// ── Registro del orquestador (KODO-16) ────────────────────────────────────────
+// Antes de esto la respuesta a «¿ya hay un orquestador?» era una consulta en vivo a
+// cmux buscando una tab TITULADA `kodo-orchestrator`. Dos cosas la rompían: el título
+// es mutable (arrancar el daemon desde esa tab la renombra a `心動 kodo service`,
+// server.js:859) y `workspace list` es window-scoped (un check desde otro window no la
+// ve). Cuando la detección fallaba, `kodo check` lanzaba un SEGUNDO orquestador sobre
+// el mismo state.json y la misma cola. Estos tres helpers dan a la identidad un sitio
+// donde sobrevivir; la revalidación contra el host vive en orchestrator/launch.js.
+
+/**
+ * Lee el registro del orquestador. never-throws → `null` si no hay ninguno registrado
+ * o si la shape en disco es inválida (state.json editado a mano, versión previa).
+ *
+ * Devolver `null` es SIEMPRE seguro por diseño: significa «no consta orquestador», y el
+ * caller cae a su fallback de detección en vivo. Un registro corrupto NO debe poder
+ * bloquear el lanzamiento de un supervisor para la cola.
+ *
+ * @returns {import('./state.js').OrchestratorRegistration|null}
+ */
+export function getOrchestrator() {
+  try {
+    const reg = loadState().orchestrator;
+    if (!reg || typeof reg !== 'object') return null;
+    if (typeof reg.workspace_ref !== 'string' || !reg.workspace_ref) return null;
+    return {
+      workspace_ref: reg.workspace_ref,
+      // El UUID es opcional en el registro (el resolve contra el host puede haber
+      // fallado al registrar): normalizamos cualquier no-string a null para que la
+      // revalidación tenga UN solo caso degradado que tratar.
+      workspace_id: typeof reg.workspace_id === 'string' && reg.workspace_id ? reg.workspace_id : null,
+      session_id: typeof reg.session_id === 'string' ? reg.session_id : '',
+      started_at: typeof reg.started_at === 'string' ? reg.started_at : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Registra (o re-registra) el orquestador activo. Idempotente: sobrescribe el registro
+ * previo entero — no hay merge, porque un orquestador nuevo invalida por completo al
+ * anterior.
+ *
+ * @param {import('./state.js').OrchestratorRegistration} reg
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function setOrchestrator(reg, logger = noopLogger) {
+  const r = withStateLock((state) => {
+    state.orchestrator = {
+      workspace_ref: reg.workspace_ref,
+      workspace_id: reg.workspace_id ?? null,
+      session_id: reg.session_id,
+      started_at: reg.started_at,
+    };
+  });
+  if (!r.ok) {
+    // WR-01 (patrón addSession): en lock-timeout el registro NO se persistió. No lo
+    // damos por bueno — el caller sigue adelante con el launch (fail-open: mejor un
+    // orquestador sin registrar que ningún supervisor), pero queda la traza de por qué
+    // el siguiente check podría no reconocerlo.
+    logger.warn('state.orchestrator.register_failed', { workspace_ref: reg.workspace_ref, reason: r.reason });
+    return r;
+  }
+  logger.info('state.orchestrator.registered', { workspace_ref: reg.workspace_ref });
+  return r;
+}
+
+/**
+ * Borra el registro del orquestador. Lo llama la revalidación cuando el host confirma
+ * que el workspace registrado YA NO EXISTE — sin esto, un registro huérfano dejaría la
+ * cola sin supervisor para siempre (criterio de éxito 3 de KODO-16).
+ *
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function clearOrchestrator(logger = noopLogger) {
+  const r = withStateLock((state) => {
+    delete state.orchestrator;
+  });
+  if (!r.ok) {
+    logger.warn('state.orchestrator.clear_failed', { reason: r.reason });
+    return r;
+  }
+  logger.info('state.orchestrator.cleared', {});
+  return r;
 }
 
 /**
