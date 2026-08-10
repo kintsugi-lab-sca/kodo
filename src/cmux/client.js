@@ -112,12 +112,13 @@ export async function listWorkspaces() {
  *
  * RE-FRONTERIZACIÓN GRP-04 (v0.18, Phase 79 · D-12): la gestión de
  * workspace-group deja de estar totalmente fuera del código. Se permite un
- * allowlist NO-DESTRUCTIVO —`create`, `add`, `set-anchor`, `ungroup`— usado
- * EXCLUSIVAMENTE por el carril doctor del sidebar (`kodo sidebar doctor`); ver
- * los passthroughs más abajo. El launch path (manager.js) sigue consumiendo SOLO
- * `list` (read-only). Fuera del código quedan LOCKED: el verbo destructivo
- * `delete` (cierra todos los workspaces del grupo), `remove` y `rename` — el
- * guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
+ * allowlist NO-DESTRUCTIVO —`create`, `add`, `ungroup`— usado EXCLUSIVAMENTE por
+ * el carril doctor del sidebar (`kodo sidebar doctor`); ver los passthroughs más
+ * abajo. El launch path (manager.js) sigue consumiendo SOLO `list` (read-only).
+ * Fuera del código quedan LOCKED: el verbo destructivo `delete` (cierra todos los
+ * workspaces del grupo), `remove`, `rename` y —desde KODO-14— `set-anchor`: es el
+ * verbo que roba la fila sidebar de una sesión viva (G-79-1 en su forma estrecha).
+ * El guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
  * ellos se cablea.
  * @returns {Promise<string>} JSON crudo de `workspace-group list`
  */
@@ -138,12 +139,13 @@ export async function listWorkspacesJson() {
 }
 
 // ── Allowlist NO-DESTRUCTIVO de workspace-group (D-12, re-fronterización GRP-04) ──
-// Los 4 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
+// Los 3 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
 // `run()` (execFile, timeout 15s, sin shell) con un argv PLANO de strings: el ref del
 // grupo (`workspace_group:N` o UUID) y el del workspace (`workspace:N`) viajan como
 // elementos de array, jamás interpolados en un string — cero superficie de inyección,
 // espejo de buildNewWorkspaceArgs (:38, V5/Tampering, T-79-01). Sintaxis verificada en
-// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`: el guard lo verifica.
+// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`/`set-anchor`: el guard lo
+// verifica.
 
 /**
  * `workspace-group create [--name <name>] [--from <ref>,<ref>...]`. Devuelve el
@@ -166,16 +168,6 @@ export async function createWorkspaceGroup({ name, from }) {
  */
 export async function addToWorkspaceGroup({ group, workspace }) {
   return run(['workspace-group', 'add', '--group', group, '--workspace', workspace]);
-}
-
-/**
- * `workspace-group set-anchor --group <group> --workspace <ws>` (D-08: el ancla es
- * el miembro más longevo).
- * @param {{ group: string, workspace: string }} opts
- * @returns {Promise<string>} stdout crudo
- */
-export async function setGroupAnchor({ group, workspace }) {
-  return run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);
 }
 
 /**

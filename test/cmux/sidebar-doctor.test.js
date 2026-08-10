@@ -45,7 +45,7 @@ function session(over = {}) {
 }
 
 describe('sidebar-doctor scan()', () => {
-  test('D-08 (G-79-1): 2 sesiones vivas mismo expectedName sin grupo → 1 missing_group ADVISORY (hasActions=false, hasAdvisories=true), members/anchor informativos', async () => {
+  test('D-08 (KODO-14): 2 sesiones vivas mismo expectedName sin grupo → 1 missing_group ACCIONABLE (hasActions=true), members oldest-first y SIN campo anchor', async () => {
     const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
     const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
     const report = await scan(readDeps({
@@ -55,13 +55,12 @@ describe('sidebar-doctor scan()', () => {
     }));
     assert.equal(report.missing_group.length, 1);
     const g = report.missing_group[0];
-    assert.equal(g.name, 'KODO');
-    assert.deepEqual(g.members, ['workspace:3', 'workspace:4']); // oldest primero (informativo)
-    assert.equal(g.anchor, 'workspace:3');
-    assert.equal(g.anchor, g.members[0]);
-    // G-79-1: missing_group ya NO es una acción del doctor → advisory, no acción.
-    assert.equal(report.hasActions, false);
-    assert.equal(report.hasAdvisories, true);
+    assert.deepEqual(g, { name: 'KODO', members: ['workspace:3', 'workspace:4'] });
+    // El item NO lleva `anchor`: el doctor jamás elige ancla (`create --from` levanta la
+    // suya). Un `anchor` reaparecido sería la señal de que G-79-1 se está re-abriendo.
+    assert.equal('anchor' in g, false, 'MissingGroupItem no debe reintroducir `anchor` (G-79-1)');
+    // KODO-14: missing_group vuelve a ser una acción del doctor (create --from).
+    assert.equal(report.hasActions, true);
   });
 
   test('SDR-05: sesión cuyo workspace_ref ∉ member_workspace_refs del grupo existente → loose_workspace', async () => {
@@ -183,7 +182,13 @@ describe('sidebar-doctor scan()', () => {
   });
 });
 
-/** Deps mutantes con spy de argv sobre los 4 verbos del allowlist. */
+/**
+ * Deps mutantes con spy de argv sobre los 3 verbos del allowlist (create/add/ungroup).
+ *
+ * `setGroupAnchor` se sigue inyectando A PROPÓSITO aunque el motor ya no lo resuelva:
+ * es el canario de G-79-1. Si alguien re-cablea el anclaje, el spy lo registra y los
+ * asserts `!verbs.includes('set-anchor')` pasan de trivialmente verdes a rojos.
+ */
 function spyDeps({ state, projects, groupsState, workspaces, throwOn } = {}) {
   const calls = [];
   const errors = [];
@@ -215,26 +220,60 @@ describe('sidebar-doctor execute()', () => {
     assert.equal(calls.length, 0);
   });
 
-  test('G-79-1: missing_group (2 members) → execute NO emite create ni set-anchor; ninguna sesión viva anclada; created===0', async () => {
+  test('KODO-14 (G-79-1 estrecho): missing_group (2 members) → execute emite create --from con TODOS los miembros y JAMÁS set-anchor', async () => {
     const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
     const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
     const { deps, calls } = spyDeps({
       state: { sessions: { a: sA, b: sB } },
       projects: { P1: '/repo/kodo' },
-      groupsState: { groups: [] }, // grupo inexistente → sería missing_group (ahora advisory)
+      groupsState: { groups: [] }, // grupo inexistente → missing_group auto-arreglable
       workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
     });
 
     const result = await execute(deps, { fix: true });
 
     const verbs = calls.map((c) => c[0]);
-    // El doctor ya NO ancla grupos en sesiones vivas: cero create/set-anchor (root cause de G-79-1).
-    assert.ok(!verbs.includes('create'), 'execute NO debe emitir create ante missing_group');
-    assert.ok(!verbs.includes('set-anchor'), 'execute NO debe emitir set-anchor ante missing_group');
-    assert.equal(result.created, 0, 'result.created siempre 0: el doctor no crea grupos');
-    // ninguna sesión viva fue anclada: el fixture solo tenía missing_group → cero acciones.
-    assert.equal(calls.length, 0, 'un estado con solo missing_group no emite ningún verbo del allowlist');
+    // El create SÍ: es inocuo (cmux levanta su propio shell de ancla con `--from`).
+    assert.deepEqual(calls, [['create', { name: 'KODO', from: ['workspace:3', 'workspace:4'] }]]);
+    assert.equal(result.created, 1);
+    // El set-anchor NUNCA: es el verbo que roba la fila sidebar de una sesión viva.
+    // Regresión de G-79-1: ninguna sesión de tarea puede acabar como ancla/header.
+    assert.ok(!verbs.includes('set-anchor'), 'execute JAMÁS debe emitir set-anchor (G-79-1)');
+    // Sin `add` redundante: `--from` ya deja dentro a los dos miembros.
+    assert.ok(!verbs.includes('add'), 'create --from ya mete a los miembros: no hace falta add');
     for (const [verb] of calls) assert.ok(!DESTRUCTIVE.has(verb), `verbo destructivo emitido: ${verb}`);
+  });
+
+  test('KODO-14: create que rechaza → error registrado (categoría create) y el pase sigue con add/ungroup (fail-open per item)', async () => {
+    const { deps, calls, errors } = spyDeps({
+      state: {
+        sessions: {
+          // sin grupo → missing_group (create, que fallará)
+          nuevo: session({ session_id: 'nuevo', task_ref: 'ROMAN-1', project_id: 'P2', project_path: '/repo/roman', workspace_ref: 'workspace:5' }),
+          // con grupo existente pero suelta → add
+          suelta: session({ session_id: 'suelta', workspace_ref: 'workspace:4' }),
+        },
+      },
+      projects: { P1: '/repo/kodo', P2: '/repo/roman' },
+      groupsState: {
+        groups: [
+          { name: 'Kodo', ref: 'workspace_group:1', member_count: 1, member_workspace_refs: ['workspace:3'] },
+          { name: 'Vacio', ref: 'workspace_group:9', member_count: 0, member_workspace_refs: [] },
+        ],
+      },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }, { ref: 'workspace:5' }] },
+      throwOn: 'create',
+    });
+
+    const result = await execute(deps, { fix: true });
+
+    const verbs = calls.map((c) => c[0]);
+    assert.deepEqual(verbs, ['create', 'add', 'ungroup'], 'orden D-09: create → add → ungroup');
+    assert.equal(result.created, 0);
+    assert.equal(result.added, 1, 'el add corre pese al fallo del create');
+    assert.equal(result.ungrouped, 1);
+    assert.deepEqual(result.errors, [{ category: 'create', target: 'ROMAN', reason: 'cmux rejected create' }]);
+    assert.ok(errors.length >= 1, 'emitió sidebarDoctorFixError');
   });
 
   test('SDR-02 TOCTOU: el grupo ya existe entre scan externo e interno → 0 creaciones (re-detecta)', async () => {
