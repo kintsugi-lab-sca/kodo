@@ -16,13 +16,19 @@ import { parseKodoLabels } from '../../labels.js';
 /**
  * Strip HTML tags and collapse whitespace to produce plain text.
  *
+ * KODO-13: los tags se sustituyen por un ESPACIO, no por vacío. Plane no deja whitespace
+ * entre bloques (`<p>uno</p><p>dos</p>`), así que borrarlos a secas pegaba la última
+ * palabra de un párrafo con la primera del siguiente ("…clipping (roman)Contexto y rol…")
+ * y convertía el brief de arranque en un muro ilegible. El colapso de whitespace posterior
+ * absorbe los espacios sobrantes, así que el resto de la salida no cambia.
+ *
  * @param {string|null|undefined} html
  * @returns {string}
  */
 export function stripHtml(html) {
   if (!html) return '';
   return html
-    .replace(/<[^>]+>/g, '')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
