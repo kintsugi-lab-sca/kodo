@@ -499,9 +499,27 @@ export async function launchWorkItem(identifier, opts = {}) {
   // (D-05 fail-fast canonical error en el dispatcher, fuera de launchWorkItem).
   // KODO-9: solo para proyectos git. En no-git no hay worktree que materializar,
   // así que worktree_path queda sin persistir (buildSessionFromTask lo omite vía
-  // spread condicional) y session-end no intenta un cleanup fantasma. KODO-18: lo
-  // mismo cuando el aislamiento lo pone el host.
-  const worktreePath = isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null;
+  // spread condicional) y session-end no intenta un cleanup fantasma.
+  //
+  // KODO-18: cuando el aislamiento lo pone el HOST, el campo NO se deja vacío — se
+  // rellena con el checkout que el host creó. `worktree_path` significa «dónde vive el
+  // código de esta sesión», y es lo que consume `worktree_path ?? project_path` en
+  // dashboard/plan.js: con el campo vacío, el overlay de progreso GSD leería el
+  // `.planning/` del repo PRINCIPAL en vez del de la sesión. Lo que NO debe hacerse con
+  // un worktree del host es borrarlo al cerrar — eso lo corta la guarda de
+  // `performTerminalCleanup`, que es donde vive esa decisión.
+  //
+  // `workspaceCwd` es OPCIONAL y typeof-detected (solo lo tienen los hosts que crean
+  // checkout). Fail-open: si falta o falla, el campo queda vacío y el comportamiento es
+  // el de antes de este arreglo — se pierde precisión en el overlay, nunca la sesión.
+  let worktreePath = isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null;
+  if (hostOwnsWorktree && typeof host._legacy?.workspaceCwd === 'function') {
+    try {
+      worktreePath = (await host._legacy.workspaceCwd(workspaceRef)) || null;
+    } catch {
+      /* fail-open: sin path, el overlay cae a project_path (comportamiento previo) */
+    }
+  }
   const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude);
   // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
   if (!gitBacked) {

@@ -301,8 +301,14 @@ las instalaciones existentes siguen en cmux sin tocar nada.
 | Nombre | título libre | rama git → se slugifica; el título humano va a `--display-name` |
 
 Con Orca, kodo **no** emite `claude --worktree`: el aislamiento ya lo pone el propio
-Orca al crear el worktree, y anidar otro dejaría `worktree_path` apuntando a un
-directorio que nadie crea. Lo verás en el log como `worktree_skipped_host`.
+Orca al crear el worktree. Lo verás en el log como `worktree_skipped_host`.
+
+**Los worktrees de Orca no se borran solos.** Con cmux, kodo crea
+`<repo>/.bg-shell/<id>` y lo limpia al cerrar la sesión. Con Orca el checkout es *tu*
+workspace —tiene su tarjeta en el tablero y su rama— así que kodo no lo toca: es donde
+revisas el trabajo cuando el agente termina. Lo cierras tú, desde la app o con
+`orca worktree rm`. Ninguna ruta de kodo ejecuta ese comando, y hay un test que falla
+si alguien lo cablea.
 
 Las columnas del tablero se ajustan igual que los colores de cmux:
 

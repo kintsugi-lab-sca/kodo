@@ -297,6 +297,24 @@ export function createOrcaHost(opts = {}) {
     async setStatus(opts) {
       return (await import('../orca/client.js')).setStatus(opts);
     },
+    /**
+     * Path del checkout que Orca materializó para este workspace (KODO-18).
+     *
+     * OPCIONAL: solo lo expone un host que cree su propio worktree (ver
+     * `HOSTS_WITH_OWN_WORKTREE`). El host cmux NO lo implementa —abre una tab sobre el
+     * `cwd` que le pasas, no hay checkout suyo que señalar— y el caller lo detecta por
+     * `typeof`, mismo idiom que `listAgentSurfaces`.
+     *
+     * `session/manager.js` lo usa para rellenar `worktree_path`, que es lo que hace que
+     * el overlay de progreso del dashboard lea el `.planning/` de la sesión y no el del
+     * repo principal.
+     *
+     * @param {string} ref
+     * @returns {Promise<string|null>}
+     */
+    async workspaceCwd(ref) {
+      return (await import('../orca/client.js')).workspacePathFromRef(ref);
+    },
     /** @param {{ workspace: string, description: string }} opts */
     async setDescription(opts) {
       return (await import('../orca/client.js')).setDescription(opts);

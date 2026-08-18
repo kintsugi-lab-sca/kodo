@@ -106,6 +106,31 @@ export function worktreeSelector(ref) {
 }
 
 /**
+ * Extrae el path del checkout de un `workspace_ref` de Orca. PURA.
+ *
+ * El ref es `<repoId>::<absPath>` y el repoId es un UUID, así que el PRIMER `::` es
+ * siempre el separador — un path que contuviera `::` no rompe el split.
+ *
+ * Existe porque `worktree_path` de `state.json` tiene DOS consumidores con necesidades
+ * opuestas: el cleanup destructivo (que NO debe correr sobre un worktree de Orca — lo
+ * creó Orca, es el workspace del operador) y la resolución de «dónde vive el código de
+ * esta sesión» (dashboard/plan.js: `worktree_path ?? project_path`), que SÍ tiene que
+ * apuntar al checkout real o el overlay de progreso GSD lee el `.planning/` del repo
+ * principal en vez del de la sesión. Dejar el campo vacío satisfacía al primero y rompía
+ * al segundo; se rellena, y el cleanup se cierra con su propia guarda por host.
+ *
+ * @param {string} ref
+ * @returns {string|null} path absoluto, o null si el ref no tiene el shape esperado.
+ */
+export function workspacePathFromRef(ref) {
+  const s = String(ref ?? '');
+  const i = s.indexOf('::');
+  if (i === -1) return null;
+  const path = s.slice(i + 2);
+  return path.startsWith('/') ? path : null;
+}
+
+/**
  * Convierte un nombre humano de workspace kodo (`"KODO-18: Añadir Orca …"`) en un
  * `--name` válido para `orca worktree create`. PURA.
  *

@@ -21,6 +21,7 @@ import {
   statusForState,
   stripTrailingNewlineEscape,
   buildTreeFromPs,
+  workspacePathFromRef,
 } from '../../src/orca/client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -260,6 +261,31 @@ describe('buildTreeFromPs — `worktree ps` traducido al shape de árbol de cmux
     for (const bad of [undefined, null, {}, { worktrees: 'x' }, { worktrees: [null] }]) {
       assert.doesNotThrow(() => buildTreeFromPs(bad));
       assert.deepEqual(buildTreeFromPs(bad).windows[0].workspaces, []);
+    }
+  });
+});
+
+describe('workspacePathFromRef — dónde vive el código de la sesión', () => {
+  test('extrae el path del checkout desde el ref', () => {
+    assert.equal(
+      workspacePathFromRef('f56c198a::/Users/alex/orca/workspaces/kodo/kodo-23'),
+      '/Users/alex/orca/workspaces/kodo/kodo-23',
+    );
+  });
+
+  test('el PRIMER `::` es el separador: un path con `::` no rompe el split', () => {
+    assert.equal(workspacePathFromRef('repo-a::/tmp/raro::dir'), '/tmp/raro::dir');
+  });
+
+  test('exige path ABSOLUTO — un ref malformado no produce una ruta relativa', () => {
+    // Un path relativo acabaría resolviéndose contra el cwd del daemon: mejor null.
+    assert.equal(workspacePathFromRef('repo-a::relativo/x'), null);
+  });
+
+  test('null ante un ref sin separador o degenerado (never-throws)', () => {
+    for (const bad of ['workspace:3', '', undefined, null, 42, {}]) {
+      assert.doesNotThrow(() => workspacePathFromRef(bad));
+      assert.equal(workspacePathFromRef(bad), null);
     }
   });
 });

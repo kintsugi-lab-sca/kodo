@@ -37,8 +37,22 @@ import { removePromptFile } from '../session/prompt-file.js';
  * @returns {Promise<void>}
  */
 export async function performTerminalCleanup({ id, session, gitFn, loggerFactory, removeSessionFn = removeSession }) {
+  // KODO-18 — el worktree del HOST no se toca. `worktree_path` ahora también se rellena
+  // cuando el checkout lo creó el host (Orca), porque el dashboard necesita saber dónde
+  // vive el código de la sesión. Pero ese directorio NO es de kodo: es el workspace del
+  // operador, con su tarjeta y su rama, y `cleanupWorktree` haría `git worktree remove`
+  // + `branch -D` sobre él en cuanto el agente cierre — destruyendo el sitio donde el
+  // humano iba a revisar el trabajo.
+  //
+  // Se consulta el host de LA SESIÓN (`session.host`), no el activo: una sesión lanzada
+  // bajo Orca no debe limpiarse jamás, aunque el operador haya vuelto a cmux desde
+  // entonces. Una sesión legacy sin `host` no matchea y conserva el comportamiento
+  // previo (el suyo era cmux, que sí crea `.bg-shell/<id>` y sí hay que limpiar).
+  const { hostIsolatesWorktree } = await import('../host/interface.js');
+  const hostOwnsWorktree = hostIsolatesWorktree(session.host);
+
   // worktree (fail-open) — saneo del worktree de la sesión.
-  if (session.worktree_path) {
+  if (session.worktree_path && !hostOwnsWorktree) {
     try {
       const { cleanupWorktree } = await import('./worktree-cleanup.js');
       const cleanupLog = loggerFactory
