@@ -247,6 +247,41 @@ describe('shouldBrandWorkspace — el daemon no pisa el nombre del orquestador',
     assert.equal(shouldBrandWorkspace(OTHER_UUID, registration(), true), false);
   });
 
+  it('false cuando el workspace es el de una SESIÓN DE TAREA viva', () => {
+    // Mismo accidente que KODO-16 pero sobre una sesión: `kodo up` desde su tab la
+    // renombraba a `心動 kodo service`. Evidencia de que pasó: la tarea KODO-8 se
+    // llama literalmente así (se adoptó una sesión ya rebautizada).
+    const sessions = [{ workspace_ref: 'workspace:10' }, { workspace_ref: 'workspace:11' }];
+    assert.equal(shouldBrandWorkspace('workspace:10', null, false, sessions), false);
+    assert.equal(shouldBrandWorkspace('workspace:11', registration(), false, sessions), false);
+  });
+
+  it('false también por workspace_id cuando la sesión lo trae', () => {
+    assert.equal(
+      shouldBrandWorkspace(OTHER_UUID, null, false, [{ workspace_ref: 'workspace:10', workspace_id: OTHER_UUID }]),
+      false,
+    );
+  });
+
+  it('true cuando ninguna sesión reclama ese workspace', () => {
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null, false, [{ workspace_ref: 'workspace:10' }]), true);
+  });
+
+  it('sesiones ausentes/vacías/corruptas no bloquean (fail-open, comportamiento previo)', () => {
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null), true);
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null, false, []), true);
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null, false, null), true);
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null, false, [null, {}, { workspace_ref: '' }]), true);
+  });
+
+  it('las sesiones llegan al guard desde el callsite', () => {
+    // Source-hygiene, mismo patrón que el guard de NODE_TEST_CONTEXT: brandServiceWorkspace
+    // no es exportable, así que se blinda que el 4º argumento sigue cableado.
+    const source = readFileSync(join(REPO, 'src', 'server.js'), 'utf-8');
+    assert.match(source, /shouldBrandWorkspace\([^;]*sessions\)/);
+    assert.match(source, /sessions = listSessions\(\)/);
+  });
+
   it('el guard de test está cableado a NODE_TEST_CONTEXT en el callsite', () => {
     // El flag se pasa desde `brandServiceWorkspace`, que no es exportable; se blinda por
     // source-hygiene para que un refactor no lo deje suelto.

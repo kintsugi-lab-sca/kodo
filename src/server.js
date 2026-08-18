@@ -480,20 +480,32 @@ function readBody(req) {
  * efecto sobre el entorno de quien lo corre, y para el orquestador es justo el
  * accidente que lo huerfanizaba.
  *
+ * Tercer guard, `sessions`: el mismo accidente que huerfanizaba al orquestador le ocurre
+ * a una sesión de tarea cuando el daemon arranca desde SU tab (`kodo up` tecleado ahí
+ * dentro). La tab acaba titulada `心動 kodo service` y la sesión pierde su identidad en
+ * el sidebar — y si luego se adopta, la tarea nace con ese título (ocurrió: KODO-8 se
+ * llama literalmente `心動 kodo service`). Una sesión viva nunca es el workspace del
+ * servicio, así que su ref/id bloquea el branding igual que el del orquestador.
+ *
  * @param {string|undefined|null} workspaceId - CMUX_WORKSPACE_ID del proceso (UUID).
  * @param {{ workspace_ref?: string, workspace_id?: string|null }|null|undefined} orchestrator
  *   Registro del orquestador (state.json `.orchestrator`), o null si no consta.
  * @param {boolean} [underTest] - true bajo el test runner de Node (`NODE_TEST_CONTEXT`).
+ * @param {Array<{ workspace_ref?: string, workspace_id?: string|null }>} [sessions]
+ *   Sesiones activas (state.json `.sessions`). Vacío/ausente = no hay evidencia y no bloquea.
  * @returns {boolean}
  */
-export function shouldBrandWorkspace(workspaceId, orchestrator, underTest = false) {
+export function shouldBrandWorkspace(workspaceId, orchestrator, underTest = false, sessions = []) {
   if (!workspaceId) return false;
   if (underTest) return false;
-  if (!orchestrator) return true;
   // Se comparan AMBOS campos: CMUX_WORKSPACE_ID es hoy el UUID, pero comparar también
   // el ref cuesta nada y cubre un host que exportara `workspace:N` en su lugar.
-  if (orchestrator.workspace_id && orchestrator.workspace_id === workspaceId) return false;
-  if (orchestrator.workspace_ref && orchestrator.workspace_ref === workspaceId) return false;
+  const claims = (rec) =>
+    Boolean(rec) &&
+    ((rec.workspace_id && rec.workspace_id === workspaceId) ||
+      (rec.workspace_ref && rec.workspace_ref === workspaceId));
+  if (claims(orchestrator)) return false;
+  if (Array.isArray(sessions) && sessions.some(claims)) return false;
   return true;
 }
 
@@ -504,12 +516,18 @@ export function shouldBrandWorkspace(workspaceId, orchestrator, underTest = fals
 function brandServiceWorkspace() {
   const workspaceId = process.env.CMUX_WORKSPACE_ID;
   let orchestrator = null;
+  let sessions = [];
   try {
     orchestrator = getOrchestrator();
   } catch {
     /* fail-open: sin registro legible, el guard decide con lo que hay */
   }
-  if (!shouldBrandWorkspace(workspaceId, orchestrator, Boolean(process.env.NODE_TEST_CONTEXT))) return;
+  try {
+    sessions = listSessions();
+  } catch {
+    /* fail-open: idem — sin sesiones legibles el guard degrada al comportamiento previo */
+  }
+  if (!shouldBrandWorkspace(workspaceId, orchestrator, Boolean(process.env.NODE_TEST_CONTEXT), sessions)) return;
   cmux.rename({ workspace: workspaceId, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
   cmux.setColor({ workspace: workspaceId, color: 'Indigo' }).catch(() => {});
 }
