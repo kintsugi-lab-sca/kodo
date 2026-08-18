@@ -75,10 +75,16 @@ async function readStdin() {
  *   fs?: typeof nodeFs,
  *   stateWriterFn?: typeof upsertTaskHandoff,
  *   now?: () => Date,
+ *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
  * }} [deps]
  *   `plansDir`/`fs`/`stateWriterFn`/`now` (Phase 74) fluyen tal cual hasta
  *   `writeHandoff`. Sin ellos, la suite de tests escribiría en el `~/.kodo` REAL del
  *   operador en cada `npm test` (T-74-15).
+ *   `getOrchestratorFn` (KODO-20) es la MISMA clase de seam, un escalón más abajo: desde
+ *   KODO-16 el destinatario del nudge sale del registro `state.orchestrator`, así que sin
+ *   inyectarlo el hook LEE el `~/.kodo/state.json` real y el resultado de la suite pasa a
+ *   depender de si la máquina tiene un orquestador vivo. Fluye tal cual hasta
+ *   `resolveOrchestratorTargets`; sin él, el default es el `getOrchestrator` real.
  * @returns {Promise<void>}
  */
 export async function runSessionEndHook(input, deps = {}) {
@@ -266,11 +272,16 @@ export async function runSessionEndHook(input, deps = {}) {
     //    código original de stop.js — se prefiere el ref registrado en state.json. Este
     //    es el ÚNICO nudge por-evento que sobrevivió a la Phase 73, y era el que se
     //    perdía en silencio cuando un reinicio del daemon renombraba la tab.
+    //    KODO-20: `deps.getOrchestratorFn` se threadea explícitamente. Sin él,
+    //    `resolveOrchestratorTargets` cae a su default (el `getOrchestrator` real) y el
+    //    hook LEE el state.json del operador — con un orquestador vivo, el stub de
+    //    `listWorkspaces` de los tests pierde frente al registro y la suite se vuelve
+    //    dependiente de la máquina. Mismo motivo que `plansDir`/`stateWriterFn`.
     try {
       const workspaces = await cmuxClient.listWorkspaces().catch(() => '');
       await sendToOrchestrator(
         (opts) => cmuxClient.send(opts),
-        resolveOrchestratorTargets(workspaces),
+        resolveOrchestratorTargets(workspaces, { getOrchestratorFn: deps.getOrchestratorFn }),
         // Phase 75 LIVE-07: threadeamos el NEXT: efectivo capturado del handoff.
         // Con next → línea concreta; sin next → texto byte-idéntico al genérico (D-09).
         buildStopNudgeText(session, handoffNext),

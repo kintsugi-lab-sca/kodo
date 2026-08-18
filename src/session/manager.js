@@ -538,11 +538,20 @@ export async function launchWorkItem(identifier, opts = {}) {
   // KODO-16: el destinatario sale de `resolveOrchestratorTargets` — ref registrado
   // primero, título después. El match por título solo no bastaba: es mutable y
   // window-scoped, así que tras un reinicio del daemon este aviso se perdía en silencio.
+  // KODO-20: `opts.getOrchestratorFn` es el seam de aislamiento, gemelo del de
+  // `session-end.js`. Sin él, resolver el destinatario LEE el `~/.kodo/state.json` real:
+  // hoy nadie ejecuta `launchWorkItem` en la suite (solo hay tests de source-hygiene), así
+  // que la fuga es LATENTE, pero el primer test de ejecución que se escriba heredaría
+  // exactamente el fallo no determinista que KODO-20 arregló en el hook. Ausente → default
+  // al `getOrchestrator` real, comportamiento en producción idéntico.
+  // Capturado FUERA del try: dentro, el `(opts) => host._legacy.send(opts)` shadowa el
+  // `opts` de la función, y leer el seam desde ahí sería un bug silencioso.
+  const getOrchestratorFn = opts.getOrchestratorFn;
   try {
     const workspaces = await host._legacy.listWorkspaces().catch(() => '');
     await sendToOrchestrator(
       (opts) => host._legacy.send(opts),
-      resolveOrchestratorTargets(workspaces),
+      resolveOrchestratorTargets(workspaces, { getOrchestratorFn }),
       `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
     );
   } catch {}

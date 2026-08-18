@@ -564,6 +564,14 @@ function makeHookDeps({ session, calls, plansDir: dir, logger, writer, fs }) {
     config: {},
     plansDir: dir,
     stateWriterFn: writer.fn,
+    // KODO-20: cierra la última vía por la que este fichero seguía leyendo el HOME real.
+    // El nudge de cierre resuelve al orquestador por el registro `state.orchestrator`
+    // (KODO-16) y solo cae al título de `workspace list` como fallback; sin este stub, el
+    // ref registrado en el `~/.kodo/state.json` de la máquina GANA al del stub de cmux y
+    // el caso LIVE-07 falla con `actual: 'workspace:12'` en cualquier equipo con un
+    // orquestador vivo. Va aquí, en las deps BASE, por la misma razón que `plansDir`: la
+    // hermeticidad no se decide caso a caso.
+    getOrchestratorFn: () => null,
     now: () => FIXED_NOW,
     ...(fs ? { fs } : {}),
   };
