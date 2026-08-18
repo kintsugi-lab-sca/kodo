@@ -503,6 +503,15 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   una sesión de tarea, se disuelve al cerrarse esa tarea (ocurrió con LIKEN-*).
   Verifica el resultado con `workspace-group list --json` y comprueba que
   `anchor_workspace_ref` no es el ref de la sesión.
+- [2026-08-10] **Transición al registro de orquestador (KODO-16): el primer
+  check post-fix con un orquestador vivo pre-fix lanza un duplicado una única
+  vez.** El orquestador pre-fix nunca fue registrado en `state.json`
+  (`.orchestrator`), así que la revalidación no tiene a quién reconocer y el
+  check lanza+registra uno nuevo — transición esperada, no fallo del fix.
+  Resolución: el **registrado** asume la supervisión (verifica con
+  `jq .orchestrator ~/.kodo/state.json` contra tu `CMUX_WORKSPACE_ID`) y el
+  pre-fix recibe nudge de cierre con handoff. A partir de ahí los reinicios
+  revalidan contra el registro y no duplican.
 - [2026-07-27] **Una tarea puede completarse después de que muera su sesión.**
   ITCLIP-43 escribió su handoff con el PR abierto y el merge llegó dos minutos
   más tarde. Al revisar Review, contrasta el estado real del trabajo
@@ -517,3 +526,12 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   sesión muerta, contrasta con `git worktree list` antes de dar el trabajo por
   perdido: KODO-15 tenía 287 líneas implementadas sin commitear ahí (preservadas
   en `1da0c56`, rama `worktree-6aae9155-…`). Bug capturado en el inbox (`1yx98p`).
+- [2026-08-10] **Diagnóstico de "orquestadores duplicados": dos trampas.** (1) En
+  macOS, `ps` muestra los forks efímeros de un claude vivo con el cmdline COMPLETO
+  del padre (incluido el prompt de orquestador): tandas de 3-4 pids que nacen y
+  mueren en segundos con ppid = tu propia sesión NO son duplicados — verifica
+  `ppid` antes de concluir que algo sigue spawneando. Los duplicados reales se
+  cuentan en `cmux tree --all --json` (workspaces), no en `ps`. (2) El conteo
+  `pending` del check incluye tareas que el dispatcher luego filtra
+  (`kodo:adopted`, sin label `kodo`) → un pending que "nunca baja" puede motivar
+  checks eternos sin que haya nada despachable (capturado como `0gr9sl`).
