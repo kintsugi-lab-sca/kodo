@@ -854,3 +854,158 @@ describe('updateTaskState — resolución case-insensitive de nombres de estado'
     }
   });
 });
+
+// ── KODO-13: el identifier lo manda Plane, no el cache de config.json ──────────
+//
+// Repro del bug: el proyecto 7a552604 quedó cacheado como ITROMAN/"IT roman" en
+// ~/.kodo/config.json y luego se renombró a ITCLIP/"Clipping" en Plane. `init()` solo
+// resolvía contra la API cuando `config.projects` traía UUID strings sueltos, así que el
+// identifier obsoleto sobrevivía para siempre → refs `ITROMAN-1` que NO existen en Plane.
+describe('project identifier refresh (KODO-13)', () => {
+  /**
+   * Stub fetch con tabla de rutas; `/projects/` (listado del workspace) se distingue de
+   * `/projects/<id>/...` por el sufijo del path.
+   * @param {{ projects?: () => any, projectsStatus?: number, workItems?: () => any }} opts
+   */
+  function stubApi(opts = {}) {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/projects/')) {
+        if (opts.projectsStatus && opts.projectsStatus >= 400) {
+          return new Response('boom', { status: opts.projectsStatus });
+        }
+        return new Response(JSON.stringify({ results: (opts.projects || (() => []))() }), { status: 200 });
+      }
+      if (path.endsWith('/work-items/')) {
+        return new Response(JSON.stringify({ results: (opts.workItems || (() => []))() }), { status: 200 });
+      }
+      if (path.endsWith('/states/')) {
+        return new Response(JSON.stringify({ results: [{ id: 's1', name: 'In Progress' }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    };
+    return { restore: () => { globalThis.fetch = original; } };
+  }
+
+  /** Config propio por test (el provider resuelve los proyectos en su propio estado). */
+  function cfg(projects) {
+    return {
+      baseUrl: 'https://test.example.com',
+      apiKey: 'test-key',
+      workspaceSlug: 'test',
+      projects,
+      states: { trigger: 'In Progress', review: 'In review', done: 'Done' },
+    };
+  }
+
+  const WORK_ITEM = () => [{ id: 'wi-1', sequence_id: 1, name: 'Planificación', state: 's1', project: 'p-uuid' }];
+
+  it('init sobrescribe el identifier cacheado con el que devuelve Plane', async () => {
+    const stub = stubApi({
+      projects: () => [{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }],
+      workItems: WORK_ITEM,
+    });
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITROMAN', name: 'IT roman' }]));
+      await provider.init();
+
+      const tasks = await provider.listPendingTasks();
+      assert.equal(tasks[0].ref, 'ITCLIP-1', 'el ref se construye con el identifier real, no con el cacheado');
+      assert.ok(tasks[0].url.endsWith('/browse/ITCLIP-1'), 'la url apunta al ref real');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('init resuelve entradas UUID string y marca UNKNOWN las que la API no conoce', async () => {
+    const stub = stubApi({
+      projects: () => [{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }],
+      workItems: WORK_ITEM,
+    });
+    try {
+      const provider = createPlaneProvider(cfg(['p-uuid', 'p-fantasma']));
+      await provider.init();
+
+      const refs = (await provider.listPendingTasks()).map((t) => t.ref);
+      assert.deepEqual(refs, ['ITCLIP-1', 'UNKNOWN-1'], 'el UUID conocido se resuelve; el fantasma cae a UNKNOWN');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('FAIL-OPEN: si /projects/ falla, conserva el identifier cacheado y no lanza', async () => {
+    const stub = stubApi({ projectsStatus: 500, workItems: WORK_ITEM });
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }]));
+      await provider.init();
+
+      const tasks = await provider.listPendingTasks();
+      assert.equal(tasks[0].ref, 'ITCLIP-1', 'un fallo de red NO degrada un identifier que funciona');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('FAIL-OPEN: un proyecto ausente de la respuesta conserva su entrada cacheada', async () => {
+    const stub = stubApi({
+      projects: () => [{ id: 'otro-uuid', identifier: 'OTRO', name: 'Otro' }],
+      workItems: WORK_ITEM,
+    });
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }]));
+      await provider.init();
+
+      const tasks = await provider.listPendingTasks();
+      assert.equal(tasks[0].ref, 'ITCLIP-1', 'el proyecto no listado conserva su identifier, no cae a UNKNOWN');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('avisa por el logger cuando el identifier cacheado diverge del real', async () => {
+    const stub = stubApi({ projects: () => [{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }] });
+    const warnings = [];
+    const fakeLogger = {
+      child: () => fakeLogger,
+      warn: (msg, ctx) => warnings.push({ msg, ctx }),
+      info: () => {}, debug: () => {}, error: () => {},
+    };
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITROMAN', name: 'IT roman' }]), {
+        logger: /** @type {any} */ (fakeLogger),
+      });
+      await provider.init();
+
+      assert.equal(warnings.length, 1, 'exactamente un aviso de divergencia');
+      assert.match(warnings[0].msg, /ITROMAN/);
+      assert.match(warnings[0].msg, /ITCLIP/);
+      assert.deepEqual(warnings[0].ctx, {
+        project_id: 'p-uuid',
+        cached_identifier: 'ITROMAN',
+        provider_identifier: 'ITCLIP',
+      });
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('no avisa cuando el identifier cacheado ya coincide', async () => {
+    const stub = stubApi({ projects: () => [{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }] });
+    const warnings = [];
+    const fakeLogger = {
+      child: () => fakeLogger,
+      warn: (msg) => warnings.push(msg),
+      info: () => {}, debug: () => {}, error: () => {},
+    };
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }]), {
+        logger: /** @type {any} */ (fakeLogger),
+      });
+      await provider.init();
+      assert.deepEqual(warnings, []);
+    } finally {
+      stub.restore();
+    }
+  });
+});

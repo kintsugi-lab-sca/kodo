@@ -409,11 +409,16 @@ program
   .command('doctor')
   .description('Diagnose config.json ↔ projects.json alignment (dispatch-enabled vs mapped-only); --states also checks trigger/review/done per project')
   .option('--states', 'Also verify each configured project has the required states (trigger/review/done) — hits the provider API')
+  .option('--identifiers', 'Also verify each configured project identifier still matches the provider (stale cache → phantom refs) — hits the provider API')
   .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
   .action(async (opts) => {
     try {
       const { runDoctor } = await import('./cli/doctor.js');
-      const code = await runDoctor({ states: opts.states || false, json: opts.json || false });
+      const code = await runDoctor({
+        states: opts.states || false,
+        identifiers: opts.identifiers || false,
+        json: opts.json || false,
+      });
       process.exit(code);
     } catch (err) {
       console.error(`Error: ${err.message}`);

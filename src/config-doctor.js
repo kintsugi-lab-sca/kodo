@@ -14,6 +14,11 @@
 //   - dispatched_unknown_identifier: entry en config con identifier "UNKNOWN" (WARN).
 //   - duplicate_path: dos ids mapeados a la misma ruta (WARN — ruido de config).
 //
+// `checkProjectIdentifiers` es la mitad PURA del check de identifiers (`--identifiers`, KODO-13):
+// recibe los proyectos que devuelve el provider y detecta el identifier cacheado que ya no existe
+// allí — la divergencia que hacía nacer refs fantasma (`ITROMAN-1` para un proyecto que Plane
+// llama `ITCLIP`).
+//
 // `checkStates` es la mitad PURA del check de estados (`--states`): recibe los nombres de estado
 // YA obtenidos por red (el CLI hace la llamada al provider) y verifica trigger/review/done
 // case-insensitive — espejo EXACTO de `updateTaskState` (stateByName con claves lowercase),
@@ -161,6 +166,64 @@ export function scanConfigAlignment({ config, projects, provider } = /** @type {
   }
 
   return { provider: providerName, findings, hasIssues: findings.length > 0 };
+}
+
+/**
+ * Verificación PURA de la divergencia `identifier` cacheado ↔ identifier real del provider
+ * (KODO-13). El CLI obtiene `remoteProjects` por red (listProjects) y los inyecta aquí.
+ *
+ * El identifier cacheado en `config.json` es el que se usaba para construir el ref
+ * `PROJECT-N`; renombrar el proyecto en Plane (ITROMAN → ITCLIP) lo dejaba obsoleto y kodo
+ * emitía refs que no existen en el provider. El provider ya se realinea solo en cada
+ * `init()`; este check existe para que la divergencia PERSISTIDA en disco sea visible y
+ * corregible en vez de silenciosa.
+ *
+ * Never-throws. Un proyecto configurado que el provider no conoce se reporta como
+ * `unknown_remote_project` (id inválido, proyecto borrado o sin permisos).
+ *
+ * @param {{ configProjects: Array<any>|null|undefined, remoteProjects: Array<any>|null|undefined }} params
+ * @returns {{ checked: number, problems: Array<{ code: 'stale_identifier'|'unknown_remote_project', projectId: string, cached: string|null, actual: string|null, cachedName?: string|null, actualName?: string|null }> }}
+ */
+export function checkProjectIdentifiers({ configProjects, remoteProjects } = /** @type {any} */ ({})) {
+  const list = Array.isArray(configProjects) ? configProjects : [];
+  const byId = new Map(
+    (Array.isArray(remoteProjects) ? remoteProjects : [])
+      .filter((p) => p && p.id)
+      .map((p) => [p.id, p]),
+  );
+
+  /** @type {Array<{ code: 'stale_identifier'|'unknown_remote_project', projectId: string, cached: string|null, actual: string|null, cachedName?: string|null, actualName?: string|null }>} */
+  const problems = [];
+  let checked = 0;
+
+  for (const entry of list) {
+    const isString = typeof entry === 'string';
+    const projectId = isString ? entry : entry?.id;
+    if (!projectId) continue;
+    checked++;
+
+    const cached = isString ? null : (entry?.identifier ?? null);
+    const remote = byId.get(projectId);
+
+    if (!remote) {
+      problems.push({ code: 'unknown_remote_project', projectId, cached, actual: null });
+      continue;
+    }
+    // Sin identifier cacheado (entrada UUID string) no hay divergencia que reportar:
+    // `init` lo resuelve contra la API en el arranque.
+    if (cached && cached !== remote.identifier) {
+      problems.push({
+        code: 'stale_identifier',
+        projectId,
+        cached,
+        actual: remote.identifier ?? null,
+        cachedName: isString ? null : (entry?.name ?? null),
+        actualName: remote.name ?? null,
+      });
+    }
+  }
+
+  return { checked, problems };
 }
 
 /**

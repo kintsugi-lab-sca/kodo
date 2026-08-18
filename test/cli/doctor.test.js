@@ -232,3 +232,105 @@ describe('runDoctor: sección hooks (deriva instalación↔settings, G-74-4)', (
     assert.equal(payload.hooks.readable, false);
   });
 });
+
+// ── --identifiers: divergencia config ↔ provider (KODO-13) ───────────────────
+//
+// El check nace del bug real: el proyecto quedó cacheado como ITROMAN en config.json,
+// Plane lo llama ITCLIP, y kodo emitía refs `ITROMAN-1` inexistentes en el provider.
+describe('runDoctor --identifiers', () => {
+  const STALE_CONFIG = {
+    provider: 'plane',
+    providers: { plane: {
+      projects: [{ id: 'p1', identifier: 'ITROMAN', name: 'IT roman' }],
+      states: { trigger: 'In Progress', review: 'In review', done: 'Done' },
+    } },
+  };
+  const REMOTE = [{ id: 'p1', identifier: 'ITCLIP', name: 'Clipping' }];
+
+  it('identifier obsoleto → exit 1 y reporta cacheado vs real con remedio', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ identifiers: true }, {
+      loadRawConfigFn: () => STALE_CONFIG,
+      loadProjectsFn: () => ({ p1: '/tmp/clipping' }),
+      listProjectsFn: async () => REMOTE,
+      ...sink,
+    });
+    assert.equal(code, 1);
+    assert.match(sink.out.s, /identifier obsoleto/);
+    assert.match(sink.out.s, /ITROMAN/);
+    assert.match(sink.out.s, /ITCLIP/);
+    assert.match(sink.out.s, /kodo config/);
+  });
+
+  it('identifiers alineados → exit 0 y clean', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ identifiers: true }, {
+      loadRawConfigFn: () => ({
+        provider: 'plane',
+        providers: { plane: { projects: [{ id: 'p1', identifier: 'ITCLIP', name: 'Clipping' }] } },
+      }),
+      loadProjectsFn: () => ({ p1: '/tmp/clipping' }),
+      listProjectsFn: async () => REMOTE,
+      ...sink,
+    });
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /identifiers \(--identifiers\)/);
+    assert.match(sink.out.s, /identifier real del provider/);
+  });
+
+  it('provider inalcanzable → exit 1, nunca lanza', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ identifiers: true }, {
+      loadRawConfigFn: () => STALE_CONFIG,
+      loadProjectsFn: () => ({ p1: '/tmp/clipping' }),
+      listProjectsFn: async () => { throw new Error('Plane API 500'); },
+      ...sink,
+    });
+    assert.equal(code, 1);
+    assert.match(sink.out.s, /no se pudo listar los proyectos del provider: Plane API 500/);
+  });
+
+  it('sin el flag no se toca la red ni se emite la sección', async () => {
+    const sink = makeSink();
+    let called = 0;
+    const code = await runDoctor({}, {
+      loadRawConfigFn: () => STALE_CONFIG,
+      loadProjectsFn: () => ({ p1: '/tmp/clipping' }),
+      listProjectsFn: async () => { called++; return REMOTE; },
+      ...sink,
+    });
+    assert.equal(called, 0, 'el check remoto es opt-in');
+    assert.equal(code, 0);
+    assert.ok(!sink.out.s.includes('--identifiers'));
+  });
+
+  it('--json incluye la sección identifiers con el problema estructurado', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ identifiers: true, json: true }, {
+      loadRawConfigFn: () => STALE_CONFIG,
+      loadProjectsFn: () => ({ p1: '/tmp/clipping' }),
+      listProjectsFn: async () => REMOTE,
+      ...sink,
+    });
+    assert.equal(code, 1);
+    const payload = JSON.parse(sink.out.s);
+    assert.equal(payload.identifiers.checked, 1);
+    assert.equal(payload.identifiers.problems[0].code, 'stale_identifier');
+    assert.equal(payload.identifiers.problems[0].cached, 'ITROMAN');
+    assert.equal(payload.identifiers.problems[0].actual, 'ITCLIP');
+  });
+
+  it('provider no-plane → n/a sin red y sin exit 1', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ identifiers: true }, {
+      loadRawConfigFn: () => ({
+        provider: 'github',
+        providers: { github: { projects: [{ id: 'r1', identifier: 'org/repo', name: 'org/repo' }] } },
+      }),
+      loadProjectsFn: () => ({ r1: '/tmp/repo' }),
+      ...sink,
+    });
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /solo aplica al provider plane/);
+  });
+});

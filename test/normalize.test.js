@@ -37,6 +37,14 @@ describe('stripHtml', () => {
     const result = stripHtml('<p>  lots   of   space  </p>');
     assert.equal(result, 'lots of space');
   });
+
+  // KODO-13: Plane serializa los párrafos SIN whitespace entre ellos; borrar el tag a
+  // secas pegaba las palabras de bloques contiguos y hacía ilegible el brief.
+  it('no pega palabras de bloques contiguos', () => {
+    assert.equal(stripHtml('<p>informes de clipping</p><p>Contexto y rol</p>'), 'informes de clipping Contexto y rol');
+    assert.equal(stripHtml('<li>uno</li><li>dos</li>'), 'uno dos');
+    assert.equal(stripHtml('linea<br>siguiente'), 'linea siguiente');
+  });
 });
 
 describe('resolveWorkItemLabels', () => {
