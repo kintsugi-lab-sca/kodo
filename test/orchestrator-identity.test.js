@@ -282,6 +282,75 @@ describe('shouldBrandWorkspace — el daemon no pisa el nombre del orquestador',
     assert.match(source, /sessions = listSessions\(\)/);
   });
 
+  // ── KODO-22: el eslabón que faltaba ────────────────────────────────────────
+  // Los casos de arriba prueban el guard con registros ESCRITOS A MANO. El agujero
+  // real era otro: el SessionRecord que kodo persiste no llevaba `workspace_id`, así
+  // que el brazo UUID del guard comparaba un UUID contra "workspace:N" y no casaba
+  // NUNCA. Estos dos tests congelan la cadena completa —árbol del host →
+  // resolveWorkspaceId → buildSessionFromTask → shouldBrandWorkspace— para que el
+  // guard no vuelva a quedarse en el aire si alguien suelta el campo del record.
+  it('KODO-22: una sesión lanzada bloquea el branding por su UUID REAL, no solo por ref', async () => {
+    const { buildSessionFromTask } = await import('../src/session/manager.js');
+    const task = {
+      id: 'uuid-task', ref: 'KODO-8', title: 'una tarea', description: '',
+      labels: [], projectId: 'proj', projectName: 'kodo', groups: [],
+      url: '', priority: 'medium',
+    };
+    // El workspace:32 del fixture vive en OTRO window y ya está renombrado — las dos
+    // condiciones bajo las que el match por título/ref se rompía.
+    const workspaceId = await resolveWorkspaceId('workspace:32', {
+      listTreeFn: async () => JSON.stringify(treeFixture()),
+    });
+    assert.equal(workspaceId, ORCH_UUID, 'precondición: el host resuelve el UUID del ref');
+
+    const session = buildSessionFromTask({
+      task: /** @type {any} */ (task),
+      providerName: 'plane',
+      projectPath: '/tmp/proj',
+      workspaceRef: 'workspace:32',
+      sessionId: 'sess-1',
+      workspaceId,
+    });
+    assert.equal(session.workspace_id, ORCH_UUID, 'el record debe sellar el UUID');
+
+    // Lo que ve el daemon dentro de esa tab es el UUID (CMUX_WORKSPACE_ID), no el ref.
+    assert.equal(shouldBrandWorkspace(ORCH_UUID, null, false, [session]), false);
+    // Y el ref sigue cubierto (host que exportara workspace:N).
+    assert.equal(shouldBrandWorkspace('workspace:32', null, false, [session]), false);
+    // Un workspace ajeno no queda protegido de rebote.
+    assert.equal(shouldBrandWorkspace(OTHER_UUID, null, false, [session]), true);
+  });
+
+  it('KODO-22: si el host no resuelve el UUID, el record queda con null y nada revienta', async () => {
+    const { buildSessionFromTask } = await import('../src/session/manager.js');
+    // cmux caído / JSON corrupto / ref ausente → null, never-throws.
+    const workspaceId = await resolveWorkspaceId('workspace:32', {
+      listTreeFn: async () => { throw new Error('cmux caído'); },
+    });
+    assert.equal(workspaceId, null);
+
+    const session = buildSessionFromTask({
+      task: /** @type {any} */ ({
+        id: 'uuid-task', ref: 'KODO-8', title: 'una tarea', description: '',
+        labels: [], projectId: 'proj', projectName: 'kodo', groups: [],
+        url: '', priority: 'medium',
+      }),
+      providerName: 'plane',
+      projectPath: '/tmp/proj',
+      workspaceRef: 'workspace:32',
+      sessionId: 'sess-1',
+      workspaceId,
+    });
+    // La sesión es la carga útil: se persiste entera, solo sin identidad de host.
+    assert.equal(session.workspace_id, null);
+    assert.equal(session.status, 'running');
+    assert.equal(session.session_id, 'sess-1');
+
+    // El guard degrada al match por ref (comportamiento previo), sin lanzar por el null.
+    assert.equal(shouldBrandWorkspace('workspace:32', null, false, [session]), false);
+    assert.equal(shouldBrandWorkspace(ORCH_UUID, null, false, [session]), true);
+  });
+
   it('el guard de test está cableado a NODE_TEST_CONTEXT en el callsite', () => {
     // El flag se pasa desde `brandServiceWorkspace`, que no es exportable; se blinda por
     // source-hygiene para que un refactor no lo deje suelto.

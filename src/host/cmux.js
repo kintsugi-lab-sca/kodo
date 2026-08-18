@@ -400,6 +400,17 @@ export function createCmuxHost(opts = {}) {
     async listWorkspaceGroups() {
       return (await import('../cmux/client.js')).listWorkspaceGroups();
     },
+    /**
+     * KODO-22: JSON crudo de `cmux tree --all --json`. Es la ÚNICA vista que expone
+     * el UUID de cada workspace (la identidad estable — los `workspace:N` se reciclan)
+     * y además es cross-window, a diferencia de `listWorkspaces()`. La consume
+     * `session/manager.js` vía `resolveWorkspaceId` para sellar el `workspace_id` del
+     * SessionRecord sin importar `cmux/client.js` (invariante cmux-isolation SC#5).
+     * @returns {Promise<string>}
+     */
+    async listTree() {
+      return (await import('../cmux/client.js')).listTree();
+    },
   };
 
   return { listWorkspaces, selectWorkspace, isAlive, needsInput, listAgentSurfaces, _legacy };

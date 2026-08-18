@@ -5,6 +5,7 @@ import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost } from '../host/interface.js';
+import { resolveWorkspaceId } from '../host/workspace-id.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
@@ -22,6 +23,8 @@ import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
  *   projectPath: string,
  *   workspaceRef: string,
  *   sessionId: string,
+ *   workspaceId?: string|null, // KODO-22: UUID del workspace resuelto contra el árbol del host.
+ *                              //          `null` explícito cuando el host no lo resolvió (fail-open).
  *   flags?: string[],
  *   phaseId?: string,      // Phase 9 D-03: resolved phase id threaded from dispatcher (action === 'phase').
  *   brief?: string,        // Phase 9 D-09: bootstrap brief (only set when resolver returned 'bootstrap').
@@ -33,13 +36,26 @@ import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief, worktreePath }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, workspaceId, flags, phaseId, brief, worktreePath }) {
   // Phase 11 (D-03): GSD execution mode derived locally from flags. Single source
   // of truth: `flags`. The signature does NOT grow — gsdMode is a local derivation,
   // mirroring the dispatcher pattern at src/triggers/dispatcher.js:74.
   const gsdMode = getGsdMode(flags);
   return {
     workspace_ref: workspaceRef,
+    // KODO-22: identidad ESTABLE del workspace. `workspace_ref` se recicla (cmux reusa
+    // los `workspace:N` al cerrar y crear tabs) y no es lo que el host exporta dentro de
+    // la tab: ahí vive este UUID, como `CMUX_WORKSPACE_ID`. Sin él, el guard de branding
+    // (shouldBrandWorkspace, server.js) comparaba un UUID contra `workspace:N` y no
+    // casaba nunca, así que `kodo up` desde la tab de una sesión viva la rebautizaba
+    // `心動 kodo service` (el síntoma que dejó la tarea KODO-8 con ese nombre).
+    //
+    // A DIFERENCIA de los campos aditivos de arriba (worktree_path, gsd_mode…), este NO
+    // usa spread condicional: se persiste SIEMPRE, con `null` explícito cuando el host no
+    // lo resolvió. `null` y campo ausente significan cosas distintas — "esta sesión se
+    // lanzó y el host no contestó" vs "sesión legacy anterior a KODO-22" — y el guard
+    // degrada al match por ref en ambos casos. Sin bump de schema_version.
+    workspace_id: workspaceId ?? null,
     session_id: sessionId,
     task_id: task.id,
     task_ref: task.ref,
@@ -456,6 +472,26 @@ export async function launchWorkItem(identifier, opts = {}) {
     });
   } catch { /* sin description si falla — cosmético */ }
 
+  // KODO-22: sella la identidad ESTABLE del workspace recién creado. `workspace_ref`
+  // no vale: cmux recicla los `workspace:N`, y dentro de la tab el host exporta el UUID
+  // (`CMUX_WORKSPACE_ID`) — que es contra lo que compara el guard de branding del daemon
+  // (shouldBrandWorkspace, server.js). Mismo carril que ya usa launchOrchestrator al
+  // registrarse (orchestrator/launch.js).
+  //
+  // AQUÍ y no después: `addSession` corre PRE-spawn a propósito (Phase 18 D-03 / WR-01),
+  // y resolverlo luego con un `updateSession` abriría una ventana en la que la sesión ya
+  // existe y el guard todavía no ve su UUID — justo el hueco que esta tarea cierra. El
+  // coste medido de `cmux tree --all --json` es ~50ms, sobre los ≥4 round-trips a cmux
+  // que este launch ya hace antes de este punto: no mueve la aguja del arranque.
+  //
+  // Fail-open TOTAL: `resolveWorkspaceId` es never-throws y devuelve `null` si cmux no
+  // contesta, el JSON no parsea o el ref no está en el árbol. La sesión es la carga útil;
+  // el UUID es identidad de conveniencia — NUNCA aborta el lanzamiento (misma postura que
+  // --group, Phase 77). Va por `host._legacy` para no tocar `cmux/client.js` (SC#5); un host
+  // que no exponga árbol (NullHost) degrada a `null` SIN caer al cliente cmux por detrás.
+  const listTreeFn = host._legacy?.listTree;
+  const workspaceId = listTreeFn ? await resolveWorkspaceId(workspaceRef, { listTreeFn }) : null;
+
   // Build Claude command — prefer opts overrides, fall back to label parsing.
   // CR-01 fix: accept opts.sessionId so the GSD dispatcher can thread the same
   // UUID it stamped into the lock file — acquire, persist and release share
@@ -490,6 +526,9 @@ export async function launchWorkItem(identifier, opts = {}) {
     projectPath,
     workspaceRef,
     sessionId,
+    // KODO-22: UUID resuelto arriba (o null si el host no contestó). Persistido en el
+    // MISMO addSession PRE-spawn — sin updateSession posterior, sin ventana ciega.
+    workspaceId,
     flags: combinedFlags,
     // Phase 9: resolver outputs threaded by dispatcher via opts. Conditional
     // spread in buildSessionFromTask omits the fields when undefined — keeps
