@@ -49,7 +49,13 @@ import { randomUUID } from 'node:crypto';
  *   task_ref: string,
  * }} SessionInfo
  *
- * @typedef {{ acquired: true } | { acquired: false, holder: LockContent }} AcquireResult
+ * @typedef {{ acquired: true }
+ *          | { acquired: false, holder: LockContent, reason?: string }} AcquireResult
+ *   `reason` is OPTIONAL and ADDITIVE (D-08): it discriminates WHY the acquire was
+ *   rejected without changing the shape any existing consumer reads. Its only value
+ *   today is `'lock-replaced-mid-steal'` (D-09) — no reason taxonomy is invented here.
+ *   The sole consumer of the rejected variant, `src/triggers/dispatcher.js:202`, reads
+ *   `.holder` only, so it needs no change.
  */
 
 const LOCK_FILE = '.planning/.kodo.lock';
@@ -57,11 +63,17 @@ const DEFAULT_TTL_HOURS = 4;
 // Bounded re-contention budget for the guarded steal (CR-01). Each iteration is
 // a full guard-acquire attempt; a pathological churn can never spin forever.
 const MAX_STEAL_ATTEMPTS = 8;
-// Age threshold past which an orphaned steal-guard is breakable (D-05). Orders
-// of magnitude larger than the ~1ms critical section (read+write+rename), so a
-// live stealer inside the guard is never broken by age (A2). Dead-PID is the
-// primary, always-safe break criterion; this age bound is the backstop for a
-// guard whose owner PID was recycled onto a live-but-unrelated process.
+// Age threshold past which an orphaned steal-guard is breakable (D-05). Dead-PID
+// is the primary, always-safe break criterion; this age bound is the backstop for
+// a guard whose owner PID was recycled onto a live-but-unrelated process.
+//
+// Es un PRESUPUESTO DE TIEMPO, no una garantía. La sección crítica real
+// (read + write + rename) es de ~1 ms, así que el margen es holgado en la
+// práctica — pero un stealer VIVO que pase de este umbral (swap, SIGSTOP, FS
+// lento, o el propio seam de test, que retiene el guard hasta 3 s en
+// `test/helpers/lock-race-child.mjs:406`, el mismo orden de magnitud) SÍ es
+// adelantado por edad, y entonces hay dos stealers dentro. Decir «un stealer vivo
+// nunca es roto por edad» afirmaría más de lo que el código sostiene (LOCK-07).
 const STEAL_GUARD_STALE_MS = 5_000;
 
 /**
@@ -111,9 +123,19 @@ export function readLock(projectPath) {
  *
  * @param {string} projectPath - Absolute path to the target repository.
  * @param {SessionInfo} sessionInfo - Identity of the session requesting the lock.
+ * @param {{ _afterCriticalReadFn?: () => void }} [deps] - Optional dependency seam,
+ *   propagated to `stealLock`. `_afterCriticalReadFn` is the CONCURRENCY-TEST
+ *   INJECTION SEAM (D-10/D-11), NOT a feature: it widens the baseline-read →
+ *   rename window deterministically without test code in production. It is invoked
+ *   INSIDE the guarded critical section, right after the baseline identity read,
+ *   and ONLY on the FIRST attempt — if it fired on every turn the test's hold would
+ *   be multiplied by `MAX_STEAL_ATTEMPTS` and each turn would hold the steal-guard
+ *   closer to `STEAL_GUARD_STALE_MS`, so the scenario would stop converging.
+ *   Default no-op; NO production call site passes it. Precedent: `_afterReadFn` in
+ *   `src/inbox/store.js:698-703`.
  * @returns {AcquireResult}
  */
-export function acquireGsdLock(projectPath, sessionInfo) {
+export function acquireGsdLock(projectPath, sessionInfo, deps = {}) {
   const lockPath = lockPathFor(projectPath);
 
   // Case 1: atomic create + acquire (CONC-02, D-07). `writeLockFile` now uses
@@ -134,12 +156,12 @@ export function acquireGsdLock(projectPath, sessionInfo) {
   try {
     existing = /** @type {LockContent} */ (JSON.parse(readFileSync(lockPath, 'utf-8')));
   } catch {
-    return stealLock(lockPath, sessionInfo, 'corrupt lock file');
+    return stealLock(lockPath, sessionInfo, 'corrupt lock file', deps);
   }
 
   // Case 2: holder PID is dead — steal silently.
   if (!isPidAlive(existing.pid)) {
-    return stealLock(lockPath, sessionInfo, `PID ${existing.pid} dead`);
+    return stealLock(lockPath, sessionInfo, `PID ${existing.pid} dead`, deps);
   }
 
   // Case 3: PID alive but TTL expired — steal + warn.
@@ -151,7 +173,7 @@ export function acquireGsdLock(projectPath, sessionInfo) {
       `[kodo:lock] Stealing expired lock from ${existing.task_ref} ` +
         `(acquired ${existing.acquired_at}, TTL ${ttlHours}h exceeded)`,
     );
-    return stealLock(lockPath, sessionInfo, 'TTL expired');
+    return stealLock(lockPath, sessionInfo, 'TTL expired', deps);
   }
 
   // Case 4: PID alive, TTL OK — reject.
@@ -247,6 +269,75 @@ function readLockContent(path) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the IDENTITY of the lock at `path` in a SINGLE pass: raw bytes, parsed
+ * content and inode. Additive neighbour of `readLockContent`, which is kept intact
+ * for every other call site.
+ *
+ * **Orden crítico, heredado del precedente** (`src/inbox/store.js:662-665`): los
+ * bytes salen de **la lectura**, jamás de un `statSync` tomado por separado. Un
+ * cambio que aterrice entre el `readFileSync` y ese stat entraría en el baseline y
+ * dejaría el guard **ciego justo ante el caso que debe detectar**. El `ino` se toma
+ * **inmediatamente después** de la lectura y degrada a `null` si el stat falla
+ * (molde de `src/inbox/store.js:740-744`): sin componente de inodo, la comparación
+ * de bytes sigue vigente.
+ *
+ * `raw` es un `Buffer` — `readFileSync` **sin encoding** a propósito: leer con
+ * `'utf-8'` colapsaría bytes inválidos a U+FFFD y dos contenidos distintos
+ * compararían iguales. `content` es el parse, o `null` si el JSON es corrupto, al
+ * mismo nivel de validación que `readLockContent`: un lock que no parsea sigue
+ * siendo robable.
+ *
+ * **`missing` distingue las DOS subclases de «no hay bytes»**, y esa distinción es
+ * carga útil, no adorno. `ENOENT` significa *no está*; cualquier otro errno
+ * (`EACCES`, `EISDIR`, `ELOOP`, `EMFILE`) significa *está, pero no se puede leer* —
+ * que es la otra mitad del Caso 5 (`:30`) y sigue siendo un lock ROBABLE, no un
+ * motivo para no publicar jamás. Colapsar ambas en el mismo `{raw:null}` dejaba al
+ * compare-and-swap sin salida ante un fallo de lectura PERSISTENTE: `changed` valía
+ * `true` en cada vuelta, se agotaba el presupuesto y el epílogo terminaba lanzando
+ * `EEXIST` al llamante — con `stealLock` como único mecanismo de recuperación, eso
+ * era un bloqueo permanente sin vía de salida desde el producto.
+ *
+ * Por eso el `statSync` se toma **también cuando la lectura falla**: en `EACCES` el
+ * stat sigue siendo válido, y su `ino` es lo único que permite comparar la identidad
+ * de un lock ilegible en vez de degradar a «no se publica nunca».
+ *
+ * @param {string} path
+ * @returns {{ raw: Buffer | null, content: LockContent | null, ino: number | null,
+ *             missing: boolean }}
+ */
+function readLockIdentity(path) {
+  /** @type {Buffer | null} */
+  let raw = null;
+  /** @type {boolean} */
+  let missing = false;
+  try {
+    raw = readFileSync(path);
+  } catch (e) {
+    missing = /** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT';
+  }
+
+  /** @type {number | null} */
+  let ino = null;
+  try {
+    ino = statSync(path).ino;
+  } catch {
+    ino = null; // sin componente de inodo; el de bytes sigue vigente
+  }
+
+  /** @type {LockContent | null} */
+  let content = null;
+  if (raw !== null) {
+    try {
+      content = /** @type {LockContent} */ (JSON.parse(raw.toString('utf-8')));
+    } catch {
+      content = null; // corrupto → robable, como en `readLockContent`
+    }
+  }
+
+  return { raw, content, ino, missing };
 }
 
 /**
@@ -386,9 +477,24 @@ function sleepShort(ms) {
 }
 
 /**
- * Replace an existing (stale/corrupt) lock with new ownership so that at most
- * ONE of N concurrent stealers wins (CR-01), closing the double-acquire race by
- * construction (D-01/D-02).
+ * Replace an existing (stale/corrupt) lock with new ownership so that at most ONE
+ * of N concurrent stealers wins (CR-01), acotando la carrera de PRIMER orden
+ * —stealer contra stealer— para toda sección crítica más corta que
+ * `STEAL_GUARD_STALE_MS` (D-01/D-02).
+ *
+ * **NO está cerrada «por construcción», y decirlo sería el mismo pecado que D-18
+ * retiró de este bloque** (LOCK-07): pasado ese umbral el guard es rompible por
+ * EDAD aunque su dueño esté vivo (`guardIsStale`), y el `finally` del bucle suelta
+ * el guard SIN comprobar de quién es — de modo que un stealer adelantado por edad
+ * puede borrar al despertar el guard de su sucesor. Dos stealers pueden coexistir
+ * en la sección crítica, y la línea de defensa que queda entonces es el
+ * compare-and-swap del paso 2, que detecta el cambio y aborta. Eso es
+ * serialización por PRESUPUESTO DE TIEMPO, no por construcción.
+ *
+ * La carrera de SEGUNDO orden (stealer contra un creador Case-1 que aterriza en el
+ * hueco que abre un release a media faena) tampoco está cerrada por construcción:
+ * ver «Ventana residual» al final de este bloque para lo que el compare-and-swap
+ * del paso 2 garantiza y lo que no.
  *
  * Ownership of the LOCK is conferred SOLELY by `renameSync(tmp → lockPath)` (or
  * an `O_EXCL` create over an absent path); ownership of the GUARD solely by an
@@ -402,26 +508,73 @@ function sleepShort(ms) {
  *     next wins the atomic publish. A live+in-window guard is never broken
  *     (Pitfall 1), and an unparseable guard is broken by file age only, never by
  *     parse failure alone.
- *  2. Inside the guarded critical section (serialized across stealers), re-read
- *     `lockPath`: a fresh live holder → reject; a present stale/corrupt holder →
- *     atomic in-place replacement via a uniquely-named `tmp` + `renameSync(tmp →
- *     lockPath)`, so `lockPath` is NEVER briefly-empty (D-01); an ABSENT holder
- *     → respect a fresh creator via `O_EXCL` create rather than clobbering it
- *     (Pitfall 2), since a fresh `acquireGsdLock` Case-1 create bypasses the
- *     guard.
+ *  2. Inside the guarded critical section (serialized across stealers), read the
+ *     baseline IDENTITY of `lockPath` (raw bytes + inode, one pass) and branch:
+ *     a fresh live holder → reject; a present stale/corrupt holder → write a
+ *     uniquely-named `tmp`, re-probe the identity FRESH, and publish with
+ *     `renameSync(tmp → lockPath)` ONLY IF the identity is unchanged — so
+ *     `lockPath` is never briefly-empty (D-01) AND the replacement is a
+ *     compare-and-swap, not an unconditional clobber; an ABSENT holder → respect
+ *     a fresh creator via `O_EXCL` create rather than clobbering it (Pitfall 2),
+ *     since a fresh `acquireGsdLock` Case-1 create bypasses the guard.
  *  3. Release the guard in a `finally` (happy + error paths).
+ *
+ * The compare-and-swap of step 2 is what closes the SECOND-order race
+ * (`82-REVIEW.md` §CR-01): the guard serializes STEALERS, not creators, so the
+ * live-but-stale holder can `releaseGsdLock` mid-steal and a Case-1 creator can
+ * land its `O_EXCL` create in the gap the `unlink` just opened. A changed identity
+ * with a live fresh holder aborts with `reason: 'lock-replaced-mid-steal'`; any
+ * other change re-contends within the EXISTING budget.
  *
  * The bounded budget (`MAX_STEAL_ATTEMPTS`) caps re-contention; on exhaustion it
  * rejects against the current holder or makes a final atomic `O_EXCL` acquire —
  * never by renaming the live lock away, never by creating over a path left
  * deliberately empty.
  *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * **Ventana residual, declarada sin adornos (LOCK-07 / D-17).**
+ *
+ * **Qué es.** Entre la sonda de identidad FRESCA y el `renameSync` que publica
+ * quedan **dos syscalls contiguos**. Un creador Case-1 que aterrice justo en ese
+ * hueco —después de la sonda, antes del rename— sigue siendo clobbeable: la sonda
+ * ya pasó y el rename no admite condición.
+ *
+ * **Clase de riesgo, nombrada.** Es un **TOCTOU residual**, y no es cerrable sin
+ * soporte atómico del sistema de ficheros: el `rename` de POSIX no admite
+ * condición, y la variante condicional de Linux (`renameat2` con
+ * `RENAME_NOREPLACE`) no está expuesta por `node:fs`. Es **la misma clase** de
+ * ventana que el guard del inbox de la **Phase 83** acepta y declara
+ * (`src/inbox/store.js`), y se acepta aquí por la misma razón.
+ *
+ * **Qué cambia de verdad.** La MAGNITUD, no la existencia. Antes del
+ * compare-and-swap la ventana era toda la sección crítica del steal —que dura lo
+ * que dure el proceso vivo del holder, potencialmente segundos— y ahora es el hueco
+ * entre dos syscalls contiguos. Además deja de depender de ningún presupuesto de
+ * tiempo: ni ampliando `MAX_STEAL_ATTEMPTS` ni tocando `STEAL_GUARD_STALE_MS` se
+ * mueve un milímetro.
+ *
+ * **Qué NO es.** NO es cierre por construcción, y no debe leerse como si lo fuera.
+ * El cierre por construcción está registrado como `LOCK-F1` y diferido a v2 con su
+ * propio trigger. Quien lea este bloque buscando la garantía de que dos procesos no
+ * pueden creerse dueños a la vez: esa garantía no está aquí, y afirmarla sería el
+ * tipo de comentario que afirma más de lo que el código sostiene.
+ *
+ * **El residual del residual** (Pitfall 1): un contenido nuevo byte-idéntico al
+ * baseline **y** con reutilización de inodo cegaría a la comparación. Eso implica
+ * el mismo `session_id` y el mismo `acquired_at` al milisegundo entre dos procesos
+ * distintos, así que merece esta línea y no una defensa dedicada; el clobber
+ * resultante sería semánticamente un no-op.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
  * @param {string} lockPath
  * @param {SessionInfo} sessionInfo
  * @param {string} reason
+ * @param {{ _afterCriticalReadFn?: () => void }} [deps] - See the `acquireGsdLock`
+ *   JSDoc: `_afterCriticalReadFn` is a concurrency-test injection seam, default
+ *   no-op, fired on the FIRST attempt only.
  * @returns {AcquireResult}
  */
-function stealLock(lockPath, sessionInfo, reason) {
+function stealLock(lockPath, sessionInfo, reason, deps = {}) {
   console.error(`[kodo:lock] Lock stolen: ${reason}`);
   mkdirSync(dirname(lockPath), { recursive: true });
   const guardPath = `${lockPath}.steal-guard`;
@@ -445,20 +598,119 @@ function stealLock(lockPath, sessionInfo, reason) {
 
     // ── Critical section, serialized by the guard ──
     try {
-      const current = readLockContent(lockPath);
+      // Baseline identity of the lock (bytes + inode), read ONCE. The freshness
+      // gate below reads its `content`; the compare-and-swap in the PRESENT branch
+      // compares its `raw`/`ino` against a fresh probe taken just before the rename.
+      const base = readLockIdentity(lockPath);
+
+      // Concurrency-test injection seam (D-10/D-11): default no-op, FIRST attempt
+      // only. See the `acquireGsdLock` JSDoc — this is test surface, not a feature.
+      if (attempt === 0 && typeof deps._afterCriticalReadFn === 'function') {
+        deps._afterCriticalReadFn();
+      }
+
+      const current = base.content;
 
       // A fresh live holder appeared between the caller's read and here → reject.
       if (current && !isStaleLock(current)) return { acquired: false, holder: current };
 
       if (existsSync(lockPath)) {
         // Present (stale or corrupt) → atomic in-place replacement. `lockPath` is
-        // never briefly-empty: rename swaps the inode atomically (POSIX). No fresh
-        // Case-1 creator can race here — its O_EXCL create fails EEXIST while any
-        // bytes are present, so the guard fully serializes us.
+        // never briefly-empty: rename swaps the inode atomically (POSIX).
+        //
+        // The rename is NOT unconditional (CR-01, second order). The steal-guard
+        // serializes STEALERS, not creators: the live-but-stale holder can call
+        // `releaseGsdLock` right here, and a fresh `acquireGsdLock` Case-1 creator
+        // — which bypasses the guard by design — lands its O_EXCL create in the gap
+        // the unlink just opened. Renaming blindly over that path clobbers a
+        // legitimate owner, and both processes believe they hold the lock. That is
+        // exactly what the compare-and-swap below detects: the lock identity is
+        // re-probed FRESH (raw bytes + inode) against the baseline read at the top
+        // of this critical section, immediately before the rename.
+        //
+        // ORDEN INAMOVIBLE, heredado de `src/inbox/store.js:787-789`: escribir el
+        // tmp → sonda FRESCA → comparar → renombrar. Comparar ANTES de escribir el
+        // tmp dejaría fuera de la ventana vigilada el propio coste de la escritura.
         const tmp = `${lockPath}.tmp.${process.pid}.${randomUUID()}`;
         try {
           writeFileSync(tmp, serializeLockContent(sessionInfo));
-          renameSync(tmp, lockPath);
+
+          const fresh = readLockIdentity(lockPath);
+          // Bytes AND inode: comparing only the inode would go blind to inode reuse
+          // after `unlink` + create, which is the very sequence of steps 3-4 above.
+          // Modification TIME stays OUT of the identity comparison on purpose
+          // (D-04): it is redundant against a full byte compare, and a bare `touch`
+          // would produce spurious aborts. Do not "complete" this later.
+          //
+          // «PRESENTE pero ILEGIBLE» (EACCES, EISDIR, ELOOP, EMFILE) no es «no se
+          // puede comprobar»: es un estado observable y COMPARABLE por inodo. Si el
+          // lock ya era ilegible en el baseline y lo sigue siendo AHORA con el mismo
+          // inodo, la identidad NO cambió y el robo debe proceder — es el Caso 5
+          // (`:30`), y `stealLock` es el ÚNICO mecanismo de recuperación que el
+          // producto ofrece ante un `.kodo.lock` ilegible. Degradar aquí a
+          // `changed = true` volvía ese lock INROBABLE para siempre.
+          const sameUnreadableFile =
+            base.raw === null &&
+            fresh.raw === null &&
+            !base.missing &&
+            !fresh.missing &&
+            base.ino !== null &&
+            fresh.ino !== null &&
+            fresh.ino === base.ino;
+
+          const changed = sameUnreadableFile
+            ? false
+            : fresh.raw === null || base.raw === null
+              ? true // conservador: si no se puede comparar, NO se publica
+              : !fresh.raw.equals(base.raw) ||
+                (base.ino !== null && fresh.ino !== null && fresh.ino !== base.ino);
+
+          if (!changed) {
+            renameSync(tmp, lockPath);
+            return { acquired: true };
+          }
+
+          try {
+            unlinkSync(tmp);
+          } catch {
+            /* best-effort — sin residuo de tmp perdido */
+          }
+
+          if (fresh.content && !isStaleLock(fresh.content)) {
+            // A live, fresh holder owns the path now: the legitimate Case-1 creator
+            // keeps the lock and this late stealer withdraws cleanly, without
+            // spending more budget.
+            //
+            // `task_ref` NO es un dato de confianza: es un campo del propio cuerpo
+            // del lock —editable a mano como el resto— y además llega del proveedor
+            // remoto (`src/triggers/dispatcher.js:198` → `task_ref: task.ref`).
+            // Interpolarlo crudo en un `console.error` lo entrega a la terminal del
+            // operador, donde una secuencia ANSI/CSI puede reposicionar el cursor,
+            // borrar líneas o falsificar salida previa. Se sanea AQUÍ, en el punto
+            // de emisión: fuera los controles C0/C1 y tope de longitud.
+            //
+            // Lo que esto NO mitiga, dicho sin adorno: el mismo patrón sin sanear
+            // sigue vivo en `:167` (`Stealing expired lock from ${existing.task_ref}`),
+            // pre-existente y fuera del alcance de esta fase.
+            const safeRef = String(fresh.content.task_ref ?? '')
+              .replace(/\p{Cc}/gu, '')
+              .slice(0, 64);
+            console.error(
+              `[kodo:lock] Steal aborted: lock replaced mid-steal by a live holder ` +
+                `(${safeRef})`,
+            );
+            return {
+              acquired: false,
+              holder: fresh.content,
+              reason: 'lock-replaced-mid-steal',
+            };
+          }
+
+          // Unparseable, stale, or the probe failed → release the guard through the
+          // `finally` below and re-contend: the loop already resolves all three
+          // states the path can be in (fresh live creator / absent / stale
+          // reappeared). Consumes ONE attempt of the EXISTING budget.
+          continue;
         } catch (err) {
           try {
             unlinkSync(tmp);
@@ -467,7 +719,6 @@ function stealLock(lockPath, sessionInfo, reason) {
           }
           throw err;
         }
-        return { acquired: true };
       }
 
       // Absent (holder released mid-steal) → respect a fresh creator via O_EXCL

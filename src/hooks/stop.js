@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
 import { getSessionMode } from '../labels.js';
-import { stripForKeystroke } from '../cli/format.js';
+import { stripForKeystroke } from '../cli/sanitize.js';
 import * as cmux from '../cmux/client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

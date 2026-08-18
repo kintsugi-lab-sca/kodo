@@ -95,11 +95,11 @@ export async function runSidebarDoctor(opts, deps = {}) {
  * Render humano: las categorías del sidebar + resumen de sesiones protegidas.
  * Bajo --fix, añade lo realmente convergido.
  *
- * Mapeo por item:
- *   - missing_group:   ADVISORY — acción del OPERADOR (crear el grupo). El doctor
- *                      NO lo ejecuta (G-79-1): no ancla grupos en sesiones vivas.
- *   - loose_workspace: `add`     — acción del doctor (orden D-09).
- *   - empty_group:     `ungroup` — acción del doctor (orden D-09).
+ * Mapeo por item (orden D-09):
+ *   - missing_group:   `create`  — `create --from <miembros>` (KODO-14). Sin
+ *                      `set-anchor`: cmux levanta su propio shell de ancla (G-79-1).
+ *   - loose_workspace: `add`     — acción del doctor.
+ *   - empty_group:     `ungroup` — acción del doctor.
  *
  * @private
  * @param {{
@@ -114,10 +114,12 @@ export async function runSidebarDoctor(opts, deps = {}) {
 function renderHuman({ report, result, fix, write, err, fmt }) {
   write(`kodo sidebar doctor${fix ? ' --fix' : ' (dry-run)'}\n\n`);
 
-  // missing_group es ADVISORY (G-79-1): el doctor NO lo ejecuta. Se pinta como
-  // acción del OPERADOR, nunca con la etiqueta ejecutable create/add/set-anchor.
-  renderAdvisory(write, fmt, report.missing_group);
-  // Acciones reales del doctor (orden D-09): loose → empty.
+  // Acciones del doctor en orden D-09: missing → loose → empty.
+  renderCategory(
+    write, fmt, 'Grupos faltantes', report.missing_group,
+    () => 'create',
+    (item) => `${item.name} ← ${item.members.join(', ')}`,
+  );
   renderCategory(
     write, fmt, 'Workspaces sueltos', report.loose_workspace,
     () => 'add',
@@ -132,13 +134,10 @@ function renderHuman({ report, result, fix, write, err, fmt }) {
   // Resumen de sesiones ya bien agrupadas (protected) — NO afecta el exit code.
   write(`\nprotected: ${report.protected.sessions.length} sesiones ya agrupadas\n`);
 
-  // Verdict de scan. hasActions (auto-arreglable) tiene prioridad; si no hay
-  // acciones pero sí advisories, es un estado que requiere acción del operador
-  // (exit 0, nada auto-arreglado); si no, convergido.
+  // Verdict de scan: las 3 categorías son auto-arreglables (KODO-14), así que
+  // hasActions decide entre deriva y convergido.
   if (report.hasActions) {
     write(`\n${fmt.yellow('drift found')} — ${fix ? 'converged below' : 'run with --fix to converge'}\n`);
-  } else if (report.hasAdvisories) {
-    write(`\n${fmt.yellow('advisory')} — requiere acción del operador (nada auto-arreglado)\n`);
   } else {
     write(`\n${fmt.ok('clean')} — sidebar converged\n`);
   }
@@ -179,29 +178,5 @@ function renderCategory(write, fmt, title, items, actionOf, descOf) {
   write(`${title} (${items.length}):\n`);
   for (const item of items) {
     write(`  ${fmt.yellow(actionOf(item))} — ${descOf(item)}\n`);
-  }
-}
-
-/**
- * Renderiza los grupos faltantes como ADVISORY (G-79-1): NO son acciones del
- * doctor sino del operador. Nunca usa la etiqueta ejecutable create/add/set-anchor
- * — anclar un grupo en una sesión viva le robaría su fila sidebar (cmux 0.64.20:
- * el header ES la representación del anchor). El operador crea el grupo una vez
- * (eligiendo su anchor conscientemente) y el doctor lo mantiene poblado vía add.
- *
- * @private
- * @param {(s: string) => void} write
- * @param {import('./format.js').Formatter} fmt
- * @param {import('../cmux/sidebar-doctor.js').SidebarReport['missing_group']} items
- */
-function renderAdvisory(write, fmt, items) {
-  const title = 'Grupos faltantes (advisory — el operador debe crearlos)';
-  if (items.length === 0) {
-    write(`${title}: ${fmt.dim('none')}\n`);
-    return;
-  }
-  write(`${title} (${items.length}):\n`);
-  for (const item of items) {
-    write(`  ${fmt.dim('advisory')} — crear grupo '${item.name}' para ${item.members.length} sesión(es) — kodo no ancla en una sesión viva\n`);
   }
 }

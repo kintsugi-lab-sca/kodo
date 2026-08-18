@@ -43,7 +43,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { stripForKeystroke } from '../cli/format.js';
+import { stripForKeystroke } from '../cli/sanitize.js';
 import { resolveProjectId } from '../cli/dashboard/select.js';
 import { withFileLock } from '../session/state-lock.js';
 
@@ -298,8 +298,11 @@ export function deriveTag(cwd, projects) {
  *
  * `stripForKeystroke` colapsa a espacio los `\n`/`\r`/`\t` REALES **y** sus formas de escape
  * LITERAL, además de eliminar todo control C0/C1/DEL/CSI. Encima de eso neutralizamos U+2028 y
- * U+2029, que SOBREVIVEN a `stripForKeystroke` (Pitfall 10) — se hace aquí y no en `format.js`,
- * que es compartido con el carril keystroke y tiene goldens byte-idénticos que no toca mover.
+ * U+2029, que SOBREVIVEN a `stripForKeystroke` (Pitfall 10) — se hace aquí y no en
+ * `sanitize.js`, que es la hoja compartida por los dos carriles y tiene goldens byte-idénticos
+ * que no toca mover. (Antes de la Phase 87 esta línea decía `format.js`: los saneadores vivían
+ * ahí, junto al único importador de `picocolors`. Ya no queda ningún saneador en `format.js`;
+ * quien los busque siguiendo esta referencia debe ir a `src/cli/sanitize.js`.)
  *
  * El whitespace INTERIOR no se colapsa: el texto se persiste lo más verbatim posible (CAPT-01
  * prohíbe reinterpretarlo). Solo se recortan los bordes y se aplica la cota de Pitfall 1.

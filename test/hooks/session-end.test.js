@@ -359,7 +359,11 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     assert.equal(calls.updateTaskState[0].task.id, session.task_id, 'TaskItem mínimo reconstruido con task_id');
     assert.equal(calls.updateTaskState[0].task.projectId, session.project_id, 'TaskItem con projectId');
     assert.equal(calls.addComment.length, 1, 'addComment llamado una vez');
-    assert.equal(calls.addComment[0].text, 'cierre automático', 'comentario «cierre automático»');
+    // KODO-11: el texto pasó del literal 'cierre automático' a buildBackstopComment
+    // (cierre automático + handoff). Lo invariante es que se identifique como
+    // automático y NO se presente como un resumen del agente.
+    assert.match(calls.addComment[0].text, /Cierre automático de kodo/, 'comentario de cierre automático');
+    assert.match(calls.addComment[0].text, /NO lo escribió el agente/, 'se etiqueta como no escrito por el agente');
     const ev = events.find((e) => e.fields?.event === 'session.backstop.review');
     assert.ok(ev, 'emite session.backstop.review');
     assert.equal(ev.fields.from, 'in_progress');
@@ -555,8 +559,8 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     );
     assert.equal(calls.updateTaskState.length, 1, 'transiciona (estado no-terminal)');
     assert.equal(calls.updateTaskState[0].stateName, 'In review', 'con el reviewState resuelto');
-    assert.equal(calls.addComment.length, 1, 'comenta «cierre automático»');
-    assert.equal(calls.addComment[0].text, 'cierre automático');
+    assert.equal(calls.addComment.length, 1, 'comenta el cierre automático');
+    assert.match(calls.addComment[0].text, /Cierre automático de kodo/);
     assert.ok(
       events.find((e) => e.fields?.event === 'session.backstop.review'),
       'emite el evento NDJSON del backstop',

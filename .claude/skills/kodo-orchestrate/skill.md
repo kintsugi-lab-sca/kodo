@@ -325,19 +325,17 @@ correr `kodo gsd verify`" con los exit codes deterministas. **Nunca dupliques
 el comentario manual al provider**: el CLI hace `addComment` +
 `updateTaskState` atómicamente y el doble comentario rompe la trazabilidad.
 
-### 5. Sidebar desalineado (grupos vacíos / workspaces sueltos)
+### 5. Sidebar desalineado (grupos faltantes / vacíos / workspaces sueltos)
 
 Síntoma: la sidebar de cmux tiene workspaces sueltos que deberían estar en un
-grupo, o grupos vacíos que quedaron tras cerrarse sus miembros.
+grupo, grupos que aún no existen, o grupos vacíos que quedaron tras cerrarse sus
+miembros.
 
 1. `kodo sidebar doctor` (dry-run, **sin** `--fix`) para diagnosticar sin mutar
-   nada — lista las acciones auto-arreglables y los advisories.
-2. Interpreta la salida: las acciones **auto-arreglables** son `loose → add`
-   (workspace suelto con grupo esperado → se añade) y `empty → ungroup` (grupo
-   vacío → se disuelve). Los **advisories** (`missing_group`) son **acción del
-   operador**: el doctor NO crea ni ancla grupos en una sesión viva (anclar un
-   grupo le robaría su fila a la sesión), así que el operador crea el grupo una
-   vez, conscientemente, eligiendo su anchor.
+   nada — lista las acciones que el carril aplicaría.
+2. Interpreta la salida: las tres acciones son `missing → create` (proyecto sin
+   grupo → se crea con las sesiones dentro), `loose → add` (workspace suelto con
+   grupo esperado → se añade) y `empty → ungroup` (grupo vacío → se disuelve).
 3. Recuerda que el **carril automático** de `kodo check` ya converge las acciones
    auto-arreglables en cada pase motivado (ver §"Higiene del sidebar") — el
    dry-run del doctor es solo diagnóstico bajo demanda, no hace falta correr
@@ -363,12 +361,14 @@ orquestador) cure grupos a mano. El mecanismo tiene dos caras.
   la herramienta para **inspeccionar sin mutar**: lista qué haría el carril. Es
   read-only; úsala cuando quieras ver el estado sin esperar al próximo pase.
 - **Allowlist no-destructivo.** Las únicas acciones auto-arreglables son
-  `loose → add` y `empty → ungroup`. `workspace-group delete` **no se cablea**
-  (cerraría todos los workspaces del grupo): no existe como acción del doctor.
-- **`missing_group` es advisory (acción del operador).** El doctor **no crea ni
-  ancla grupos** en una sesión viva — solo reporta que faltan. El operador los
-  crea conscientemente (eligiendo el anchor). Nunca describas `missing_group`
-  como algo que el doctor ejecuta.
+  `missing → create`, `loose → add` y `empty → ungroup`. `workspace-group delete`
+  **no se cablea** (cerraría todos los workspaces del grupo): no existe como
+  acción del doctor.
+- **`missing_group` se auto-arregla, pero el doctor NUNCA ancla.** El grupo se
+  crea con `workspace-group create --from <miembros>`, que levanta su **propio
+  workspace-shell** como ancla y deja las sesiones como miembros. `set-anchor`
+  no se cablea: anclar en una sesión viva le robaría su fila sidebar (el header
+  del grupo ES la fila del ancla) y el grupo se disolvería al cerrarla.
 - **El launch path queda byte-idéntico.** La gestión de grupos vive
   exclusivamente en el carril doctor; `launchOrchestrator` no cambia. La
   agrupación de workspaces al lanzar (`--group`, Phase 77) solo aplica el grupo
@@ -482,4 +482,38 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
-_(añadir entradas al cerrar sesiones)_
+- [2026-07-27] Plane Community Edition **no soporta `list_work_items`
+  workspace-wide**: sin `project_id` devuelve `HTTP 404: Page not found`. Para
+  barrer el estado de todos los proyectos, itera sobre los ids de
+  `~/.kodo/config.json` (`providers.plane.projects[].id`) y llama una vez por
+  proyecto.
+- [2026-07-27] `create_work_item_comment` espera **HTML crudo** en
+  `comment_html`. Si escapas las entidades (`&lt;p&gt;` en vez de `<p>`), Plane
+  las almacena literales y el comentario se renderiza mostrando las etiquetas.
+  Se corrige con `update_work_item_comment` sobre el mismo `comment_id`, pasando
+  el HTML sin escapar — no hace falta borrar y recrear.
+- [2026-07-31] **`missing_group`: el bloqueo G-79-1 es más estrecho de lo que
+  parece.** Lo que roba la fila sidebar a una sesión viva es el `set-anchor`, no
+  el `create`. Verificado: `cmux workspace-group create --name X --from
+  <ws-de-sesión-viva>` crea un ancla **nueva** (un shell) y mete la sesión como
+  *miembro* — `create --from` nunca reutiliza un workspace existente como ancla.
+  Por eso, cuando el doctor reporte un `missing_group`, puedes crear el grupo tú
+  con `create --from <ws>` sin dañar la sesión; lo que nunca debes hacer es
+  `set-anchor` sobre ella. **Ancla siempre estable**: si el grupo queda anclado en
+  una sesión de tarea, se disuelve al cerrarse esa tarea (ocurrió con LIKEN-*).
+  Verifica el resultado con `workspace-group list --json` y comprueba que
+  `anchor_workspace_ref` no es el ref de la sesión.
+- [2026-07-27] **Una tarea puede completarse después de que muera su sesión.**
+  ITCLIP-43 escribió su handoff con el PR abierto y el merge llegó dos minutos
+  más tarde. Al revisar Review, contrasta el estado real del trabajo
+  (`gh pr list --state all --json number,state,mergedAt`, `git branch -r
+  --contains <sha>`) en vez de fiarte solo del `NEXT:` o del último handoff:
+  ambos son fotos del instante en que la sesión murió, no del estado actual.
+- [2026-08-10] **El `worktree_path` de `state.json` puede ser fantasma; el
+  trabajo real vive en `.claude/worktrees/<session-id>`.** KODO-15 y KODO-16
+  registraron `worktree_path=.bg-shell/<sid>` (inexistente) mientras el worktree
+  real era `.claude/worktrees/<sid>` — el hook Stop loopeaba
+  `worktree.cleanup.error` contra el path fantasma. Al hacer post-mortem de una
+  sesión muerta, contrasta con `git worktree list` antes de dar el trabajo por
+  perdido: KODO-15 tenía 287 líneas implementadas sin commitear ahí (preservadas
+  en `1da0c56`, rama `worktree-6aae9155-…`). Bug capturado en el inbox (`1yx98p`).

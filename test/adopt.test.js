@@ -600,7 +600,7 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
     assert.equal(s.summary, fakeTaskItem.title);
     // Reconcile-owned fields MUST be absent siempre; GSD fields ausentes cuando NO es proyecto GSD.
     for (const k of [
-      'dead_since', 'last_seen_alive', 'alive', 'tab_alive', 'process_alive',
+      'dead_since', 'process_dead_since', 'last_seen_alive', 'alive', 'tab_alive', 'process_alive',
       'needs_input', 'state', 'gsd', 'gsd_mode', 'phase_id', 'brief', 'worktree_path',
     ]) {
       assert.equal(s[k], undefined, `buildSessionFromAdoption must omit ${k}`);

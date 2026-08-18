@@ -4,7 +4,8 @@
 // Criterion 1) and the state-writers concurrency test (Phase 70 Plan 02).
 // Invoked by:
 //   - test/state/state-lock-concurrency.test.js    (--kind state)
-//   - test/gsd-lock-race.test.js                   (--kind gsd)
+//   - test/gsd-lock-race.test.js                   (--kind gsd, --kind gsd-holder,
+//                                                   --kind gsd-seam)
 //   - test/state/state-writers-concurrency.test.js (--kind writer)
 //   - test/daemon/polling-start-race.test.js       (--kind polling)
 //   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
@@ -69,17 +70,52 @@
 // does not mask it. Prints `written` (or `failed`) and never throws. Reads --id,
 // --hold and the optional --dest.
 //
+// `--kind gsd-holder` (Phase 86 Plan 02, LOCK-05 a / D-12): el holder
+// STALE PERO VIVO que esta fase necesita y que el repo no sabía sembrar. Escribe
+// `<repo>/.planning/.kodo.lock` con el PID de ESTE proceso —vivo mientras dura la
+// carrera— y `acquired_at` retrodatado 5 h sobre un `ttl_hours` de 4, que es
+// exactamente el Case-3 de `acquireGsdLock` (`src/gsd/lock.js:161-171`). JAMÁS un
+// PID muerto: ese sesgo (`DEAD_PID = 99999999` de `test/gsd-lock-guard.test.js`) es
+// precisamente lo que mantiene invisible la carrera de SEGUNDO orden, porque un
+// holder muerto no puede LIBERAR en plena sección crítica del stealer. Tras sembrar
+// deja el marcador `holder-seeded` en `--sandbox`, espera la barrera `--release` y
+// ejecuta `releaseGsdLock(repo, 'sess-live-holder')` — el `unlink` que abre el hueco
+// donde aterriza el creador Case-1. NO espera `--barrier`: siembra nada más bootear.
+// Veredicto `written`/`failed`, NUNCA `acquired`: el holder no adquiere nada y el
+// padre cuenta los `acquired` sobre TODOS los hijos. Never-throws.
+//
+// `--kind gsd-seam` (Phase 86 Plan 02, LOCK-05 b): el stealer que se APARCA dentro
+// de la sección crítica del steal. Llama a `acquireGsdLock` con el tercer parámetro
+// de deps de 86-01 y le pasa por `_afterCriticalReadFn` un callback que escribe el
+// marcador `stealer-parked` en `--sandbox` y espera la barrera `--resume`. BARRERA,
+// no `sleepSync`: a diferencia del precedente del inbox, aquí el padre PUEDE
+// observar en disco que el lock desapareció y reapareció, así que el interleaving es
+// determinista POR CONSTRUCCIÓN y no por anchura de ventana. El techo de la espera
+// (3000 ms) es un fallo ruidoso deliberadamente por debajo de
+// `STEAL_GUARD_STALE_MS = 5_000`: mientras está aparcado RETIENE el steal-guard, y
+// si el aparcamiento superase ese umbral un stealer extra lo rompería por edad y
+// entrarían DOS a la sección crítica — el escenario pasaría a medir la carrera de
+// PRIMER orden que la Phase 82 ya cerró. Veredicto `acquired`/`blocked`. Después del
+// veredicto lógico y en su propio try/catch, apenda su `reason` a `steal-reasons.log`
+// en `--sandbox` — canal LATERAL, molde del marcador de `capture`: su fallo nunca
+// cambia lo que este hijo imprime ni lo hace lanzar. Es lo que permite al padre
+// PROBAR que la rama del CAS se ejerció, en vez de suponerlo. Never-throws.
+//
 // argv:
-//   --kind   state|gsd|writer|polling|dispatch|handoff|capture|mark  (required)
+//   --kind   state|gsd|gsd-holder|gsd-seam|writer|polling|dispatch|handoff|capture|mark
+//                                (required)
 //   --lock   <path>             (state: the lockfile path)
-//   --repo   <path>             (gsd: the fake repo dir)
+//   --repo   <path>             (gsd/gsd-holder/gsd-seam: the fake repo dir)
 //   --idx    <n>                (writer/handoff/capture: this writer's index)
 //   --task   <taskId>           (dispatch/handoff: the task_id to write —
 //                                handoff defaults to `task-<idx>`)
 //   --sandbox <dir>             (polling/dispatch: the isolated ~/.kodo sandbox
 //                                root. capture, OPTIONAL: same root, used as the
 //                                destination of the `capture-branches.log`
-//                                branch marker — absent, no marker is written)
+//                                branch marker — absent, no marker is written.
+//                                gsd-holder: destino del marcador `holder-seeded`.
+//                                gsd-seam: destino de `stealer-parked` y del
+//                                marcador lateral `steal-reasons.log`)
 //   --id     <captureId>        (mark: the short id of the capture to close)
 //   --dest   <ref>              (mark, optional: the opaque trace pointer — kodo
 //                                never validates nor interprets it, D-11)
@@ -92,8 +128,23 @@
 //                                lock the winner abandoned by exiting.
 //                                `--kind mark` reuses it as the width of the
 //                                read→rename window, held inside the lock)
+//   --release <goFile>          (gsd-holder: barrera tras la cual el holder
+//                                ejecuta `releaseGsdLock` y sale)
+//   --resume <goFile>           (gsd-seam: barrera que saca al stealer del seam,
+//                                de vuelta al tmp + CAS + rename)
+//   --hold-until <goFile>       (gsd/state, opcional: en vez de dormir `--hold` ms,
+//                                el GANADOR espera esta barrera antes de salir, así
+//                                el padre decide cuándo termina el escenario sin
+//                                calibrar ninguna duración. Extensión ADITIVA: tiene
+//                                prioridad sobre `--hold` cuando ambos están
+//                                presentes, y ningún consumidor existente la pasa)
 
 import { existsSync } from 'node:fs';
+
+/** El `session_id` que siembra el kind `gsd-holder`. Constante conocida para que su
+ *  propio `releaseGsdLock` pueda casarla y para que el padre distinga en disco el
+ *  lock del holder del de cualquier otro contendiente. */
+const HOLDER_SESSION_ID = 'sess-live-holder';
 
 /** Parse `--flag value` pairs from argv into a plain object. */
 function parseArgs(argv) {
@@ -281,6 +332,105 @@ async function main() {
     process.exit(0);
   }
 
+  // GSD live-holder mode (Phase 86 Plan 02, LOCK-05 a / D-12): siembra un lock
+  // STALE PERO VIVO —TTL vencido con el PID de este proceso, que sigue corriendo— y
+  // lo libera bajo barrera, en plena sección crítica del stealer aparcado. Ver el
+  // párrafo del bloque de cabecera. El import se mantiene DINÁMICO aunque aquí la
+  // fuga de HOME no aplique (`gsd/lock.js` opera sobre `--repo`): es la norma del
+  // fichero y romperla invita a copiarla mal en el siguiente kind.
+  // Never-throws — cualquier error colapsa a `failed`.
+  if (args.kind === 'gsd-holder') {
+    let written = false;
+    try {
+      const { mkdirSync, writeFileSync, realpathSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      // realpathSync obligatorio: `lockPathFor` resuelve el projectPath y en macOS
+      // `mkdtempSync` entrega rutas bajo un symlink (/tmp → /private/tmp, Pitfall 4).
+      const planning = join(realpathSync(args.repo), '.planning');
+      mkdirSync(planning, { recursive: true });
+      writeFileSync(
+        join(planning, '.kodo.lock'),
+        JSON.stringify(
+          {
+            session_id: HOLDER_SESSION_ID,
+            task_id: 'uuid-live-holder',
+            task_ref: 'KL-live',
+            pid: process.pid, // VIVO: sin esto el holder no podría LIBERAR de verdad
+            acquired_at: new Date(Date.now() - 5 * 3600_000).toISOString(), // > ttl
+            ttl_hours: 4,
+          },
+          null,
+          2,
+        ) + '\n', // misma serialización que `serializeLockContent`
+      );
+      writeFileSync(join(args.sandbox, 'holder-seeded'), String(process.pid));
+      waitForBarrier(args.release, 3000);
+      const { releaseGsdLock } = await import('../../src/gsd/lock.js');
+      releaseGsdLock(args.repo, HOLDER_SESSION_ID);
+      written = true;
+    } catch {
+      written = false;
+    }
+    process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // GSD seam-stealer mode (Phase 86 Plan 02, LOCK-05 b): el stealer que se aparca
+  // DENTRO de la sección crítica del steal usando el seam `_afterCriticalReadFn` de
+  // 86-01, y espera una BARRERA en vez de dormir una anchura calibrada. Ver el
+  // párrafo del bloque de cabecera. Never-throws.
+  if (args.kind === 'gsd-seam') {
+    let acquired = false;
+    /** @type {string | null} */
+    let reason = null;
+    try {
+      const { acquireGsdLock } = await import('../../src/gsd/lock.js');
+      const { writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const result = /** @type {any} */ (
+        acquireGsdLock(
+          args.repo,
+          {
+            session_id: 'sess-' + process.pid,
+            task_id: 'task-' + process.pid,
+            task_ref: 'KL-' + process.pid,
+          },
+          {
+            _afterCriticalReadFn: () => {
+              // Marcador escrito DESDE DENTRO del seam: indicador estrictamente más
+              // fuerte que la existencia del `.steal-guard`, que podría venir de un
+              // intento anterior.
+              writeFileSync(join(args.sandbox, 'stealer-parked'), String(process.pid));
+              // Techo de fallo ruidoso, claramente por debajo de
+              // STEAL_GUARD_STALE_MS: mientras esperamos RETENEMOS el steal-guard.
+              waitForBarrier(args.resume, 3000);
+            },
+          },
+        )
+      );
+      acquired = result.acquired === true;
+      reason = result.reason ?? 'no-reason';
+    } catch {
+      acquired = false;
+      reason = null; // sin llamada no hay rama que registrar; el veredicto ya lo cubre
+    }
+    // Marcador cross-proceso del `reason` (LOCK-05 c). Canal LATERAL, molde literal
+    // del marcador de rama del kind `capture`: va después del veredicto lógico, en su
+    // propio try/catch, y su fallo nunca cambia lo que este hijo imprime ni lo hace
+    // lanzar.
+    if (reason !== null && args.sandbox) {
+      try {
+        const { appendFileSync } = await import('node:fs');
+        const { join } = await import('node:path');
+        appendFileSync(join(args.sandbox, 'steal-reasons.log'), reason + '\n');
+      } catch {
+        /* el marcador es diagnóstico, jamás un veredicto */
+      }
+    }
+    process.stdout.write(acquired ? 'acquired' : 'blocked');
+    process.exit(0);
+  }
+
   // Polling-start mode (Plan 04, CONC-06/D-12): each child calls startDaemon
   // against an isolated HOME (the parent spawns it with HOME=sandbox so
   // ~/.kodo resolves inside the sandbox — the start-lock AND the PID file both
@@ -414,7 +564,14 @@ async function main() {
 
   // Hold the lock (stay alive) for the winner so concurrent siblings observe a
   // LIVE owner and are blocked, rather than stealing a lock abandoned by exit.
-  if (acquired && args.hold) {
+  //
+  // `--hold-until` (Phase 86 Plan 02) es la variante POR BARRERA del mismo hold: el
+  // ganador espera a que el padre dé por cerrado el escenario en vez de dormir una
+  // duración calibrada. Extensión ADITIVA — los kinds existentes y sus seis
+  // consumidores siguen pasando `--hold`, con comportamiento idéntico.
+  if (acquired && args['hold-until']) {
+    waitForBarrier(args['hold-until'], 3000);
+  } else if (acquired && args.hold) {
     const sab = new Int32Array(new SharedArrayBuffer(4));
     Atomics.wait(sab, 0, 0, Number(args.hold));
   }

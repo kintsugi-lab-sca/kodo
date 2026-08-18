@@ -41,7 +41,6 @@ function cleanReport() {
     empty_group: [],
     protected: { sessions: [] },
     hasActions: false,
-    hasAdvisories: false,
   };
 }
 
@@ -49,7 +48,7 @@ function cleanReport() {
 function driftReport() {
   return {
     missing_group: [
-      { name: 'ACME/Auth', anchor: 'workspace:1', members: ['workspace:1', 'workspace:2'] },
+      { name: 'ACME/Auth', members: ['workspace:1', 'workspace:2'] },
     ],
     loose_workspace: [
       { group: 'workspace_group:5', workspace_ref: 'workspace:3', name: 'ACME/Api' },
@@ -58,8 +57,7 @@ function driftReport() {
       { ref: 'workspace_group:9', name: 'ACME/Old' },
     ],
     protected: { sessions: [{ ref: 'workspace:7', group: 'workspace_group:2', name: 'ACME/Web' }] },
-    hasActions: true,
-    hasAdvisories: true, // el missing_group es un advisory (G-79-1)
+    hasActions: true, // las 3 categorías son acciones del doctor (KODO-14)
   };
 }
 
@@ -91,9 +89,9 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     });
     assert.equal(code, 1);
     const out = stdout.get();
-    assert.match(out, /Grupos faltantes \(advisory — el operador debe crearlos\) \(1\)/, 'missing_group advisory header');
-    assert.match(out, /crear grupo 'ACME\/Auth' para 2 sesión\(es\)/, 'advisory text describes operator action, not executable label');
-    assert.doesNotMatch(out, /create \+ add \+ set-anchor/, 'missing_group must NOT show the executable action label (G-79-1)');
+    assert.match(out, /Grupos faltantes \(1\)/, 'missing_group category header');
+    assert.match(out, /create — ACME\/Auth ← workspace:1, workspace:2/, 'exact missing action per item (create --from)');
+    assert.doesNotMatch(out, /set-anchor/, 'el render nunca ofrece set-anchor (G-79-1)');
     assert.match(out, /Workspaces sueltos \(1\)/, 'loose_workspace category header');
     assert.match(out, /add — workspace:3/, 'exact loose action per item');
     assert.match(out, /Grupos vacíos \(1\)/, 'empty_group category header');
@@ -116,17 +114,16 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     assert.match(stdout.get(), /protected: 1/, 'protected summary rendered');
   });
 
-  it('advisory-only (missing_group, no actions) → returns 0 and renders advisory verdict (G-79-1)', async () => {
+  it('missing_group solo → returns 1 and renders the create action (KODO-14: ya no es advisory)', async () => {
     const stdout = makeStdoutStub();
     const report = {
       missing_group: [
-        { name: 'ACME/Auth', anchor: 'workspace:1', members: ['workspace:1', 'workspace:2'] },
+        { name: 'ACME/Auth', members: ['workspace:1', 'workspace:2'] },
       ],
       loose_workspace: [],
       empty_group: [],
       protected: { sessions: [] },
-      hasActions: false,   // missing_group ya no cuenta como acción (advisory)
-      hasAdvisories: true,
+      hasActions: true,   // el grupo faltante es auto-arreglable con create --from
     };
     const code = await runSidebarDoctor({}, {
       scanFn: () => report,
@@ -134,12 +131,11 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
       errFn: () => {},
       formatterFn: nocolorFormatter,
     });
-    assert.equal(code, 0, 'advisory-only state must exit 0 (converges on a 2nd --fix pass)');
+    assert.equal(code, 1, 'un grupo faltante es deriva auto-arreglable: exit 1 hasta que --fix converge');
     const out = stdout.get();
-    assert.match(out, /advisory — requiere acción del operador/, 'advisory verdict rendered');
-    assert.match(out, /crear grupo 'ACME\/Auth'/, 'operator action described');
-    assert.doesNotMatch(out, /drift found/, 'must NOT render drift-found verdict for advisory-only');
-    assert.doesNotMatch(out, /create \+ add \+ set-anchor/, 'no executable action label for missing_group');
+    assert.match(out, /drift found/, 'drift verdict rendered');
+    assert.match(out, /create — ACME\/Auth/, 'create action described');
+    assert.doesNotMatch(out, /advisory/, 'ya no existe la categoría advisory');
   });
 });
 
@@ -216,8 +212,9 @@ describe('runSidebarDoctor — --json byte-determinism (SDR-06)', () => {
     assert.equal(code, 1);
     const parsed = JSON.parse(stdout.get());
     assert.equal(parsed.hasActions, true);
-    assert.equal(parsed.hasAdvisories, true, 'hasAdvisories surfaced in --json (G-79-1)');
+    assert.equal(parsed.hasAdvisories, undefined, 'hasAdvisories retirado del contrato --json (KODO-14)');
     assert.equal(parsed.missing_group[0].name, 'ACME/Auth');
+    assert.equal(parsed.missing_group[0].anchor, undefined, 'el item ya no lleva anchor (G-79-1)');
     assert.equal(parsed.loose_workspace[0].workspace_ref, 'workspace:3');
     assert.equal(parsed.empty_group[0].ref, 'workspace_group:9');
     assert.doesNotMatch(stdout.get(), /Grupos faltantes/, 'no human render in JSON mode');

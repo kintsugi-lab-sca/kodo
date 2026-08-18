@@ -24,7 +24,7 @@
 import { Text } from 'ink';
 import { createElement as h } from 'react';
 import { stripHandoffMarker } from '../../session/handoff.js';
-import { stripControlChars } from '../format.js';
+import { stripControlChars } from '../sanitize.js';
 
 /** Delimitador de code fence (triple comilla invertida). */
 const FENCE = '```';

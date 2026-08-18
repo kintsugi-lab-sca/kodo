@@ -70,7 +70,7 @@ import {
   resolveProjectId,
 } from './select.js';
 import { deriveRepo } from './format.js';
-import { stripControlChars } from '../format.js';
+import { stripControlChars } from '../sanitize.js';
 import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
 import { readTasks } from './tasks.js';
@@ -271,7 +271,7 @@ export const CONFIG_SAVE_FAILED = '[!] no se pudo guardar la config — el archi
 // Phase 67 Plan 02 (SETUP-03/04 — masked API-key field, D-05/D-06/D-07/D-09). Copy literal-estable
 // EXPORTADA para que tests y SessionTable.js la importen y asseren equality sin duplicar strings
 // (mismo patrón CONFIG_*/PROJECTS_*). La API key vive en un renglón DEDICADO del overlay de config
-// (append tras los 11 campos de getEditableFields — los secretos NUNCA entran a config.json ni a
+// (append tras los 12 campos de getEditableFields — los secretos NUNCA entran a config.json ni a
 // getEditableFields; PERSIST-04 intacto). El renglón enruta el save a `onSaveApiKey` → `writeEnvVar`.
 //   - API_KEY_LABEL: etiqueta del renglón (NUNCA el nombre de la env var ni el valor — Pitfall 11).
 //   - API_KEY_CONFIGURED / API_KEY_UNSET: indicador de PRESENCIA (D-09) — jamás el valor.
@@ -359,13 +359,13 @@ export const PROJECTS_MAPPED_ONLY_TAG = '⚠ solo-mapeado';
 
 // Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
 // de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
-// getEditableFields (provider + los 11 paths editables) — sin secretos. NO es la fuente de verdad de
+// getEditableFields (provider + los 12 paths editables) — sin secretos. NO es la fuente de verdad de
 // runtime, solo evita un crash si App se renderiza sin la prop.
 const DEFAULT_EDITOR_CONFIG = {
   provider: 'plane',
   providers: { plane: { states: { trigger: 'In Progress', review: 'In review', done: 'Done' } } },
   cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
-  claude: { default_model: 'opus', max_parallel: 3 },
+  claude: { default_model: 'opus', orchestrator_model: 'fable', max_parallel: 3 },
   server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
 };
 

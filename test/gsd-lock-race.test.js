@@ -10,7 +10,15 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,3 +168,338 @@ describe('gsd lock steal race — concurrent dead-holder steal (CR-01)', () => {
     );
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Phase 86 Plan 02 (LOCK-05) — holder stale-pero-VIVO que LIBERA en plena sección
+// crítica del steal. La carrera de SEGUNDO orden de `82-REVIEW.md` §CR-01, con
+// procesos reales.
+//
+// Por qué el sesgo dead-PID de arriba no basta: un holder muerto no puede llamar a
+// `releaseGsdLock`. Y sin ese `unlink` no se abre el hueco donde un creador Case-1
+// —que salta el steal-guard por diseño— aterriza su `O_EXCL` create bajo los pies
+// del stealer. Ésa es exactamente la ventana que el CAS de 86-01 vigila, y con un
+// holder muerto es INVISIBLE.
+//
+// El `session_id` que el kind `gsd-holder` del harness siembra. Literal PAREADO con
+// `test/helpers/lock-race-child.mjs`: el harness es un script que ejecuta `main()`
+// al importarse, así que la constante no se puede importar sin lanzar un hijo.
+const HOLDER_SESSION_ID = 'sess-live-holder';
+
+/**
+ * Espera acotada, no bloqueante, hasta que `pred()` sea cierto. Devuelve si llegó a
+ * serlo. Copiado de `test/inbox-concurrency.test.js:133-140`.
+ */
+async function waitUntil(pred, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (pred()) return true;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  return pred();
+}
+
+/** El `session_id` del lock que hay AHORA en disco, o `null` si no hay lock legible. */
+function readLockSession() {
+  try {
+    const raw = readFileSync(join(realpathSync(repoDir), '.planning', '.kodo.lock'), 'utf-8');
+    return JSON.parse(raw).session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Los `reason` que los stealers dejaron en el marcador lateral del sandbox
+ * (`steal-reasons.log`, una línea por stealer con seam).
+ *
+ * NEVER-THROWS: si el fichero falta devuelve `[]`, y entonces el guard de cobertura
+ * falla con su mensaje — que es la reacción correcta, porque un marcador ausente
+ * significa que el escenario dejó de medir la rama. Molde de `readBranchCounts`
+ * (`test/inbox-concurrency.test.js:210-224`).
+ */
+function readStealReasons(dir) {
+  let raw = '';
+  try {
+    raw = readFileSync(join(dir, 'steal-reasons.log'), 'utf-8');
+  } catch {
+    return [];
+  }
+  return raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/**
+ * GUARD DE COBERTURA DE LA RAMA DEL CAS (LOCK-05 c) — molde literal de
+ * `assertFailopenExercised` (`test/inbox-concurrency.test.js:226-253`), con el
+ * precedente MEDIDO de 83-06: sin un guard así, una edición futura de la
+ * secuenciación deja el escenario verde mientras deja de recorrer el código que
+ * produce el defecto. Perder la cobertura pasa a ser un fallo, no un silencio.
+ */
+function assertCasExercised(dir, ctx) {
+  const reasons = readStealReasons(dir);
+  const hits = reasons.filter((r) => r === 'lock-replaced-mid-steal').length;
+  assert.ok(
+    hits >= 1,
+    'COBERTURA PERDIDA: ningún stealer de esta iteración recorrió la rama del ' +
+      `compare-and-swap (reasons=[${reasons.join(',')}]). ` +
+      'Este escenario existe para ejercitar el camino donde el rename destructivo ' +
+      'clobbeaba a un creador Case-1 legítimo: si el stealer nunca entra ahí, sigue ' +
+      'verde sin probar nada. La reacción CORRECTA es revisar la SECUENCIACIÓN de los ' +
+      'tres tiempos (holder sembrado → stealer aparcado → extras → release → creador → ' +
+      'resume), JAMÁS borrar ni relajar esta aserción, ni subir ningún umbral.\n' +
+      ctx,
+  );
+}
+
+/**
+ * LAS CINCO SEÑALES QUE LA ORQUESTACIÓN MIDE, ASERTADAS (86-REVIEW §WR-05).
+ *
+ * El harness calculaba `parkedMs` y las etapas `released` / `creatorLanded` /
+ * `reasons` y las TIRABA, asertando solo `seeded` y `parked`. Se aserta lo que ya
+ * se mide: no relaja ningún umbral ni añade ninguno nuevo (D-16 / DEBT-04), solo
+ * convierte en rojo explícito lo que antes era un escenario degradado en silencio.
+ *
+ * Cada aserción responde a un modo de fallo distinto:
+ *  - `released`: el ÚNICO indicio de que el `unlink` del holder ocurrió de verdad.
+ *    `holderVerdict === 'written'` NO lo prueba: `releaseGsdLock` es idempotente y
+ *    NO-OP cuando el `session_id` en disco no casa (`src/gsd/lock.js:203-206`), así
+ *    que `written` significa «la llamada no lanzó». Sin ese `unlink` no hay hueco,
+ *    y sin hueco el escenario mide otra cosa.
+ *  - `creatorLanded`: sin el `O_EXCL` del creador Case-1 no hay nada contra lo que
+ *    el CAS pueda morder.
+ *  - `reasons`: el marcador lateral llegó a escribirse; si no, `assertCasExercised`
+ *    fallaría por marcador AUSENTE y no por rama no recorrida — dos causas muy
+ *    distintas con el mismo rojo.
+ *  - `parkedMs`: §Pitfall 8 y el supuesto A1 lo declaran restricción DURA. El techo
+ *    real no lo pone el padre sino el `waitForBarrier(args.resume, 3000)` del hijo
+ *    (`test/helpers/lock-race-child.mjs:406`); si esa espera VENCE, el stealer
+ *    reanuda por su cuenta antes del release y el rojo resultante se leería como
+ *    «el CAS no muerde» en vez de «la barrera venció». Y por encima de
+ *    `STEAL_GUARD_STALE_MS = 5_000` el guard del aparcado sería rompible por edad,
+ *    con lo que el escenario degradaría a medir la carrera de PRIMER orden que la
+ *    Phase 82 ya cerró.
+ *
+ * @param {{ stages: Record<string, boolean>, holderVerdict: string, parkedMs: number }} r
+ * @param {string} ctx
+ */
+function assertScenarioStaged(r, ctx) {
+  // El escenario NO OCURRIÓ si el holder no llegó a sembrar o el stealer no llegó a
+  // aparcarse: sin eso, todo lo que venga después mide otra cosa.
+  assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
+  assert.ok(
+    r.stages.parked,
+    `el stealer no llegó a aparcarse dentro de la sección crítica. ${ctx}`,
+  );
+  // El vocabulario del holder es `written`/`failed` y nunca `acquired`, de modo que
+  // el conteo de cardinalidad sobre el agregado de TODOS los hijos sigue siendo
+  // seguro. Ojo con lo que prueba: solo que la llamada no lanzó.
+  assert.equal(
+    r.holderVerdict,
+    'written',
+    `la llamada a releaseGsdLock del holder no completó (verdicto ≠ written). ${ctx}`,
+  );
+  assert.ok(
+    r.stages.released,
+    `el holder no llegó a soltar el lock DE VERDAD: su session_id seguía en disco, ` +
+      `así que el unlink que abre el hueco no ocurrió. ${ctx}`,
+  );
+  assert.ok(
+    r.stages.creatorLanded,
+    `el creador Case-1 no llegó a aterrizar en el hueco. ${ctx}`,
+  );
+  assert.ok(
+    r.stages.reasons,
+    `el marcador lateral steal-reasons.log no llegó a escribirse. ${ctx}`,
+  );
+  assert.ok(
+    r.parkedMs < 3000,
+    `el aparcamiento venció la barrera del seam (${r.parkedMs} ms ≥ 3000 ms): el ` +
+      `stealer reanudó por su cuenta y lo que viene después ya no mide el CAS. ` +
+      `La reacción correcta es revisar la SECUENCIACIÓN, JAMÁS subir el techo. ${ctx}`,
+  );
+}
+
+/**
+ * Orquestación de TRES TIEMPOS del interleaving de segundo orden.
+ *
+ * Dos tiempos no bastan (a diferencia del precedente del inbox,
+ * `test/inbox-concurrency.test.js:142-192`): el creador Case-1 NO puede arrancar
+ * antes de que el holder haya liberado. Si lo hiciera encontraría el lock presente,
+ * vería un holder con TTL vencido y entraría ÉL MISMO en `stealLock`, donde perdería
+ * el guard contra el stealer aparcado, agotaría su presupuesto y saldría `blocked`.
+ * `acquired === 1` seguiría cumpliéndose —nadie adquiere— el test seguiría verde y
+ * el CAS no se habría ejercitado jamás. Es el mismo modo de fallo silencioso que
+ * 83-06 destapó, y por eso `assertCasExercised` existe.
+ *
+ * TODOS los hijos se spawnean ANTES de la primera liberación: así el `spawn` queda
+ * fuera de la ventana de aparcamiento y dentro solo queda el trabajo real (un
+ * `unlink` y un `O_EXCL` create). Cada etapa tiene su PROPIO go-file, nunca uno
+ * compartido, y cada transición espera sobre ESTADO DE DISCO con `waitUntil`, nunca
+ * sobre una duración fija. Al vencer un margen se continúa igualmente: dejar hijos
+ * colgados enmascararía el fallo (misma disciplina que `raceChildren:159-160`).
+ *
+ * @param {number} extraStealers — contendientes adicionales SIN seam (el caso N=5)
+ */
+async function raceGsdStealLiveHolder(extraStealers) {
+  mkdirSync(repoDir, { recursive: true });
+  const go = (name) => join(sandbox, name);
+  const goStealer = go('go-stealer');
+  const goExtras = go('go-extras');
+  const goRelease = go('go-release');
+  const goCreator = go('go-creator');
+  const goResume = go('go-resume');
+  const goTeardown = go('go-teardown');
+
+  // El holder NO recibe `--barrier`: siembra nada más bootear.
+  const argvs = [
+    ['--kind', 'gsd-holder', '--repo', repoDir, '--sandbox', sandbox, '--release', goRelease],
+    // EXACTAMENTE UNO lleva el seam (D-14/A1): que varios se aparquen a la vez es
+    // imposible por construcción —el steal-guard los serializa— y multiplicaría el
+    // riesgo de acercar el aparcamiento al umbral de edad del guard.
+    ['--kind', 'gsd-seam', '--repo', repoDir, '--sandbox', sandbox, '--barrier', goStealer,
+      '--resume', goResume],
+    // El creador es el kind `gsd` EXISTENTE, sin modificar. Su `session_id` es
+    // `sess-<pid>`, así que el padre lo identifica por el pid del hijo que spawneó.
+    ['--kind', 'gsd', '--repo', repoDir, '--barrier', goCreator, '--hold-until', goTeardown],
+  ];
+  for (let i = 0; i < extraStealers; i++) {
+    argvs.push(['--kind', 'gsd', '--repo', repoDir, '--barrier', goExtras,
+      '--hold-until', goTeardown]);
+  }
+
+  const outputs = new Array(argvs.length).fill('');
+  const children = argvs.map((argv, i) => {
+    const child = spawn(process.execPath, [CHILD, ...argv], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    child.stdout.on('data', (d) => {
+      outputs[i] += d.toString();
+    });
+    return child;
+  });
+  const done = Promise.all(children.map((c) => new Promise((resolve) => c.on('close', resolve))));
+
+  const stages = {};
+
+  // t1 — el holder siembra el lock stale-pero-VIVO.
+  stages.seeded = await waitUntil(() => existsSync(join(sandbox, 'holder-seeded')), 5000);
+
+  // t2 — soltar el stealer con seam, y esperar a que esté DENTRO de la sección
+  // crítica. El marcador se escribe desde dentro del propio seam.
+  writeFileSync(goStealer, '1');
+  stages.parked = await waitUntil(() => existsSync(join(sandbox, 'stealer-parked')), 5000);
+  const parkedAt = Date.now();
+
+  // t3 — SOLO AHORA los stealers extra, y nunca antes. Soltados junto al stealer con
+  // seam, uno de ellos podría ganar el steal-guard en su primer intento y robar
+  // legítimamente el lock del holder; entonces el stealer con seam no entraría en la
+  // sección crítica en su intento 0 y el seam NO SE DISPARARÍA JAMÁS.
+  if (extraStealers > 0) writeFileSync(goExtras, '1');
+
+  // t4 — release del holder: el `unlink` que abre el hueco. El predicado es
+  // deliberadamente más laxo que «el fichero no existe»: con stealers extra sueltos,
+  // uno podría ocupar el hueco antes de que el padre llegue a observarlo.
+  writeFileSync(goRelease, '1');
+  stages.released = await waitUntil(() => readLockSession() !== HOLDER_SESSION_ID, 5000);
+
+  // t5 — el creador Case-1 aterriza en el hueco con un `O_EXCL` create.
+  writeFileSync(goCreator, '1');
+  stages.creatorLanded = await waitUntil(() => {
+    const s = readLockSession();
+    return s !== null && s !== HOLDER_SESSION_ID;
+  }, 5000);
+
+  // t6 — sacar al stealer del seam: escribe su tmp, sonda fresca, CAS, aborta.
+  writeFileSync(goResume, '1');
+  const parkedMs = Date.now() - parkedAt;
+  stages.reasons = await waitUntil(() => existsSync(join(sandbox, 'steal-reasons.log')), 5000);
+
+  // t7 — cierre: los ganadores con `--hold-until` salen.
+  writeFileSync(goTeardown, '1');
+
+  await done;
+  const verdicts = outputs.map((o) => o.trim());
+  return {
+    verdicts,
+    holderVerdict: verdicts[0],
+    seamVerdict: verdicts[1],
+    creatorSession: 'sess-' + children[2].pid,
+    finalSession: readLockSession(),
+    reasons: readStealReasons(sandbox),
+    parkedMs,
+    stages,
+  };
+}
+
+describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º orden)', () => {
+  it('N=3 (holder vivo + creador Case-1 + stealer aparcado) → exactamente uno adquiere', async () => {
+    const r = await raceGsdStealLiveHolder(0);
+    const ctx =
+      `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
+      `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
+
+    assertScenarioStaged(r, ctx);
+
+    // LA ASERCIÓN CANÓNICA (D-14): cardinalidad sobre el AGREGADO, jamás sobre quién
+    // gana. Con el CAS revertido esto vale 2 — el stealer clobbea al creador y ambos
+    // se creen dueños.
+    const acquired = r.verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(acquired, 1, `exactamente un proceso debe adquirir; ${ctx}`);
+
+    assertCasExercised(sandbox, ctx);
+
+    // Identidad en disco. Esto NO viola D-14 («no asertar sobre quién gana») porque
+    // aquí los roles son asimétricos POR CONSTRUCCIÓN, no por suerte del scheduler:
+    // el stealer está aparcado en una barrera que controla el padre, y con N=3 no hay
+    // ningún otro contendiente suelto que pueda ocupar el hueco entre el `unlink` del
+    // holder y el create del creador. El superviviente es determinista. (En el caso
+    // N=5 de abajo deja de serlo, y por eso allí esta aserción NO se replica.)
+    assert.equal(
+      r.finalSession,
+      r.creatorSession,
+      `el lock que sobrevive debe ser el del creador Case-1, no el del stealer; ${ctx}`,
+    );
+  });
+
+  it('N=5 (dos stealers extra en presión real) → exactamente uno adquiere', async () => {
+    const r = await raceGsdStealLiveHolder(2);
+    const ctx =
+      `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
+      `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
+
+    assertScenarioStaged(r, ctx);
+
+    // Los dos extra son el kind `gsd` SIN seam. Entran por Case-3, pierden el
+    // steal-guard contra el aparcado —vivo y en ventana, así que `guardIsStale` es
+    // falso—, agotan su presupuesto acotado (`sleepShort(2·(attempt+1))` × 8 ≈ 72 ms,
+    // `src/gsd/lock.js:498-513`) y llegan al epílogo, donde o rechazan contra el
+    // holder que encuentren o hacen un `O_EXCL` create legítimo si el hueco sigue
+    // abierto. En AMBOS desenlaces la cardinalidad se mantiene en uno: si un extra
+    // ocupa el hueco, el creador encuentra EEXIST sobre un holder vivo y fresco —el
+    // extra espera el teardown por `--hold-until`— y sale `blocked`.
+    const acquired = r.verdicts.filter((v) => v === 'acquired').length;
+    assert.equal(acquired, 1, `exactamente un proceso debe adquirir; ${ctx}`);
+
+    assertCasExercised(sandbox, ctx);
+
+    // NO se asevera la identidad del superviviente en disco, a diferencia del caso
+    // N=3. Con contendientes extra sueltos, QUIÉN ocupa el hueco entre el `unlink`
+    // del holder y el create del creador SÍ depende del scheduler, y afirmar la
+    // identidad del superviviente sería exactamente asertar sobre quién gana la
+    // carrera — lo que D-14 prohíbe. Que un extra gane ese hueco no es un defecto:
+    // es el comportamiento correcto del `O_EXCL` sobre un path ausente, y el CAS
+    // sigue mordiendo igual porque el nuevo holder es vivo y fresco en los dos casos.
+  });
+});
+
+// ⚠ REGLA DE REACCIÓN ANTE UN ROJO de los dos casos de arriba (DEBT-04, D-16). Si
+// alguno se pone rojo, la causa a investigar es la SECUENCIACIÓN de las etapas o el
+// propio invariante en producción (`src/gsd/lock.js`, el compare-and-swap de la rama
+// PRESENT de `stealLock`). Subir `STEAL_GUARD_STALE_MS` para que el escenario quepa,
+// o ampliar `MAX_STEAL_ATTEMPTS` para que los extra lleguen a otro sitio, están
+// PROHIBIDOS: es literalmente «subir un timeout para que el test pase», el
+// enmascaramiento que DEBT-04 cierra por nombre y por el que este repo ya revirtió
+// una vez en la Phase 83. Relajar la cardinalidad, borrar `assertCasExercised` o
+// reducir el número de hijos son la misma jugada con otro nombre.

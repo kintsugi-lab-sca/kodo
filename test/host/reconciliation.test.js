@@ -20,7 +20,15 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { reconcileTick, runReconcileTick, isSessionProcessAlive, titleIdentifiesSession } from '../../src/session/reconcile.js';
+import {
+  reconcileTick,
+  runReconcileTick,
+  isSessionProcessAlive,
+  titleIdentifiesSession,
+  isProcessDeadBeyondGrace,
+  PROCESS_DEAD_GRACE_MS,
+} from '../../src/session/reconcile.js';
+import { isOrphanCandidate, ORPHAN_GRACE_MS } from '../../src/session/orphan-sweep.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-05-31T12:00:00.000Z');
@@ -337,6 +345,210 @@ describe('runReconcileTick — deriva process_alive del proceso real (cierra gap
     assert.equal(cur.sessions.t1.state, 'idle', 'proceso muerto + tab viva → idle (la sesión NO se pierde)');
     assert.equal(cur.sessions.t1.process_alive, false, 'process_alive derivado a false');
     assert.equal(cur.sessions.t1.tab_alive, true, 'tab sigue viva');
+  });
+});
+
+describe('sesión zombi: proceso muerto sostenido + tab viva → dead (KODO-15)', () => {
+  const beyond = new Date(NOW - PROCESS_DEAD_GRACE_MS - 1000).toISOString();
+  const within = new Date(NOW - 30 * 1000).toISOString();
+  const liveTab = [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }];
+
+  it('isProcessDeadBeyondGrace: solo true con reloj parseable y vencido', () => {
+    assert.equal(isProcessDeadBeyondGrace({ process_alive: false, process_dead_since: beyond }, NOW), true);
+    assert.equal(isProcessDeadBeyondGrace({ process_alive: false, process_dead_since: within }, NOW), false);
+    assert.equal(isProcessDeadBeyondGrace({ process_alive: false, process_dead_since: null }, NOW), false);
+    assert.equal(isProcessDeadBeyondGrace({ process_alive: false, process_dead_since: 'basura' }, NOW), false);
+    // Proceso vivo: el reloj (stale) no manda.
+    assert.equal(isProcessDeadBeyondGrace({ process_alive: true, process_dead_since: beyond }, NOW), false);
+  });
+
+  it('reloj vencido + tab viva → dead al 2º tick, con dead_since y tab_alive:true', () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ state: 'idle', process_alive: false, process_dead_since: beyond }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+
+    const r1 = reconcileTick(state, liveTab, { debounceStore, tick: 1, now: NOW });
+    assert.equal(r1.state.sessions.t1.state, 'idle', 'tick 1: aún idle (debouncing hacia dead)');
+
+    const r2 = reconcileTick(r1.state, liveTab, { debounceStore, tick: 2, now: NOW });
+    const s = r2.state.sessions.t1;
+    assert.equal(s.state, 'dead', 'tick 2: zombi → dead aunque la tab siga abierta');
+    assert.ok(s.dead_since, 'dead_since fijado — es lo que consume el orphan sweep');
+    assert.equal(s.tab_alive, true, 'la tab sigue viva: el hecho no se falsea');
+    assert.equal(s.alive, false, 'el agregado de compat refleja la muerte');
+  });
+
+  it('dentro de la ventana de gracia → sigue idle (un tick suelto de pgrep no mata nada)', () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ state: 'idle', process_alive: false, process_dead_since: within }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+    const r1 = reconcileTick(state, liveTab, { debounceStore, tick: 1, now: NOW });
+    const r2 = reconcileTick(r1.state, liveTab, { debounceStore, tick: 2, now: NOW });
+    assert.equal(r2.state.sessions.t1.state, 'idle', 'la gracia protege del flapping de la detección');
+  });
+
+  it('SIN reloj (proceso nunca observado vivo: adoptada / reanudada con --resume) → idle indefinido', () => {
+    // Su `process_alive:false` es un falso negativo del pgrep (la cmdline no lleva
+    // `--session-id`), NO una muerte. Matarla generaría un comentario de cierre
+    // incompleto sobre una sesión que está trabajando.
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ state: 'idle', process_alive: false }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+    let cur = state;
+    for (let t = 1; t <= 6; t++) {
+      cur = reconcileTick(cur, liveTab, { debounceStore, tick: t, now: NOW + t * 60 * 60 * 1000 }).state;
+    }
+    assert.equal(cur.sessions.t1.state, 'idle', 'sin muerte observada no hay transición a dead');
+  });
+
+  it('el reloj vencido gana a needs_input (una notificación sin proceso detrás es residuo)', () => {
+    const state = {
+      schema_version: 3,
+      sessions: { t1: session({ state: 'idle', process_alive: false, process_dead_since: beyond }) },
+      history: [],
+    };
+    const liveRefs = [{ workspace_ref: 'workspace:1', alive: true, needs_input: true }];
+    const debounceStore = new Map();
+    const r1 = reconcileTick(state, liveRefs, { debounceStore, tick: 1, now: NOW });
+    const r2 = reconcileTick(r1.state, liveRefs, { debounceStore, tick: 2, now: NOW });
+    assert.equal(r2.state.sessions.t1.state, 'dead', 'dead, no needs-input');
+  });
+
+  it('el rescate desde history limpia el reloj heredado (no regresa a dead al tick siguiente)', () => {
+    const state = {
+      schema_version: 3,
+      sessions: {},
+      history: [
+        {
+          ...session({ task_id: 'h1', task_ref: 'KL-5', workspace_ref: 'workspace:1', state: 'dead', process_alive: false, process_dead_since: beyond }),
+          ended_at: new Date(NOW - 1000).toISOString(),
+        },
+      ],
+    };
+    const debounceStore = new Map();
+    const r1 = reconcileTick(state, liveTab, { debounceStore, tick: 1, now: NOW });
+    assert.equal(r1.state.sessions.h1.state, 'idle', 'rescatada');
+    assert.equal(r1.state.sessions.h1.process_dead_since, null, 'reloj reiniciado al revivir');
+
+    const r2 = reconcileTick(r1.state, liveTab, { debounceStore, tick: 2, now: NOW });
+    const r3 = reconcileTick(r2.state, liveTab, { debounceStore, tick: 3, now: NOW });
+    assert.equal(r3.state.sessions.h1.state, 'idle', 'sigue viva: el rescate no regresa');
+  });
+});
+
+describe('runReconcileTick — reloj process_dead_since (KODO-15)', () => {
+  const host = { listWorkspaces: async () => [{ workspace_ref: 'workspace:1', alive: true, needs_input: false }] };
+
+  // NOTA sobre los 2 ticks: el refresco de `process_alive` (y con él el sello del
+  // reloj) solo llega a disco en el tick que ADEMÁS persiste algo — la optimización
+  // de no-write descarta el clon del tick que se queda en debounce y lo recalcula al
+  // siguiente. El desfase es de un tick (~2.5 s) frente a una gracia de 2 min.
+
+  it('fija el reloj en la transición OBSERVADA vivo→muerto y no lo re-arranca en cada tick', async () => {
+    let cur = {
+      schema_version: 3,
+      sessions: { t1: session({ session_id: 'sess-kill', state: 'running', process_alive: true }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+    let clock = NOW;
+    const run = (t) => runReconcileTick({
+      host, loadState: () => cur, saveState: (s) => { cur = s; }, debounceStore, tick: t, now: () => clock, pgrep: () => '',
+    });
+
+    await run(1);
+    await run(2);
+    const stamped = cur.sessions.t1.process_dead_since;
+    assert.ok(stamped, 'muerte observada → reloj sellado');
+    assert.equal(cur.sessions.t1.process_alive, false);
+
+    clock += 60 * 1000; // el reloj NO puede reiniciarse solo porque el proceso siga muerto
+    await run(3);
+    assert.equal(cur.sessions.t1.process_dead_since, stamped, 'el reloj corre, no se re-sella');
+  });
+
+  it('el proceso reaparece → limpia el reloj (nada de muerte diferida)', async () => {
+    let cur = {
+      schema_version: 3,
+      sessions: { t1: session({ session_id: 'sess-flap', state: 'running', process_alive: true }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+    let procAlive = false;
+    const run = (t) => runReconcileTick({
+      host, loadState: () => cur, saveState: (s) => { cur = s; }, debounceStore, tick: t, now: () => NOW, pgrep: () => (procAlive ? '4321\n' : ''),
+    });
+
+    await run(1);
+    await run(2);
+    assert.ok(cur.sessions.t1.process_dead_since, 'pgrep dejó de ver el proceso → reloj sellado');
+
+    procAlive = true;
+    await run(3);
+    await run(4);
+    assert.equal(cur.sessions.t1.process_dead_since, null, 'proceso de vuelta → reloj limpio');
+    assert.equal(cur.sessions.t1.process_alive, true);
+    assert.equal(cur.sessions.t1.state, 'running', 'y la sesión vuelve a running');
+  });
+
+  it('sesión cuyo proceso NUNCA se observó vivo → no se le sella reloj', async () => {
+    let cur = {
+      schema_version: 3,
+      // Nace sin `process_alive` (buildSessionFromTask / buildSessionFromAdoption lo omiten:
+      // es campo reconcile-owned) y el pgrep no la encuentra nunca.
+      sessions: { t1: { ...session({ session_id: 'sess-adoptada', state: 'running' }), process_alive: undefined } },
+      history: [],
+    };
+    const debounceStore = new Map();
+    const run = (t) => runReconcileTick({
+      host, loadState: () => cur, saveState: (s) => { cur = s; }, debounceStore, tick: t, now: () => NOW, pgrep: () => '',
+    });
+
+    await run(1);
+    await run(2);
+    assert.equal(cur.sessions.t1.process_dead_since ?? null, null, 'sin muerte observada, sin reloj');
+    assert.equal(cur.sessions.t1.state, 'idle', 'degrada a idle como siempre, nunca a dead');
+  });
+
+  it('E2E: kill -9 con la tab abierta → dead → el orphan sweep la ve como candidata', async () => {
+    let cur = {
+      schema_version: 3,
+      sessions: { t1: session({ session_id: 'sess-zombi', task_id: 't1', state: 'running', process_alive: true }) },
+      history: [],
+    };
+    const debounceStore = new Map();
+    let clock = NOW;
+    let procAlive = true;
+    const run = (t) => runReconcileTick({
+      host, loadState: () => cur, saveState: (s) => { cur = s; }, debounceStore, tick: t, now: () => clock, pgrep: () => (procAlive ? '777\n' : ''),
+    });
+
+    await run(1);
+    assert.equal(cur.sessions.t1.state, 'running', 'sesión sana');
+
+    procAlive = false; // kill -9, la tab de cmux sigue abierta
+    await run(2);
+    await run(3);
+    assert.equal(cur.sessions.t1.state, 'idle', 'primero degrada a idle (dentro de la gracia)');
+
+    clock += PROCESS_DEAD_GRACE_MS + 1000;
+    await run(4);
+    await run(5);
+    assert.equal(cur.sessions.t1.state, 'dead', 'gracia vencida → dead pese a la tab viva');
+    assert.ok(cur.sessions.t1.dead_since, 'dead_since: la señal que consume el sweep');
+
+    // El barrido de huérfanas (KODO-11) la recoge igual que en el caso de tab cerrada.
+    assert.equal(isOrphanCandidate(cur.sessions.t1, clock), false, 'aún dentro de la gracia del sweep');
+    assert.equal(isOrphanCandidate(cur.sessions.t1, clock + ORPHAN_GRACE_MS + 1000), true, 'pasada su gracia, es candidata');
   });
 });
 

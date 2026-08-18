@@ -80,6 +80,13 @@ export async function setColor(opts) {
 }
 
 /**
+ * @param {{ workspace: string, description: string }} opts
+ */
+export async function setDescription(opts) {
+  return run(['workspace-action', '--action', 'set-description', '--workspace', opts.workspace, '--description', opts.description]);
+}
+
+/**
  * @param {{ workspace: string, title: string }} opts
  */
 export async function rename(opts) {
@@ -97,6 +104,28 @@ export async function listWorkspaces() {
 }
 
 /**
+ * Passthrough read-only de `cmux tree --all --json`. Devuelve el stdout crudo
+ * (JSON sin parsear) — el parseo defensivo vive en el caller.
+ *
+ * A DIFERENCIA de `listWorkspaces()`/`listWorkspacesJson()` (:95/:129), esta vista
+ * es CROSS-WINDOW: `workspace list` solo enumera el window del caller (limitación
+ * P-4, el JSON lo delata con su `window_ref`), mientras que `tree --all` devuelve
+ * `windows[].workspaces[]` de TODOS los windows y, además, el `id` (UUID) de cada
+ * workspace — la única identidad estable que expone cmux, porque los refs
+ * `workspace:N` se RECICLAN al cerrar y crear tabs.
+ *
+ * Esas dos propiedades son exactamente las que necesita la revalidación del
+ * orquestador (`verifyRegisteredOrchestrator`, orchestrator/launch.js): comprobar
+ * si el workspace registrado sigue vivo sin depender de en qué window corra el
+ * check ni de que su título siga siendo `kodo-orchestrator`.
+ *
+ * @returns {Promise<string>} JSON crudo de `cmux tree --all --json`
+ */
+export async function listTree() {
+  return run(['tree', '--all', '--json']);
+}
+
+/**
  * Passthrough read-only de `workspace-group list --json`. Devuelve el stdout
  * crudo (JSON sin parsear): el parseo defensivo vive en la función pura de la
  * Plan 02, NO aquí (D-05). Un fallo de `run()` (cmux viejo sin el subcomando,
@@ -105,12 +134,13 @@ export async function listWorkspaces() {
  *
  * RE-FRONTERIZACIÓN GRP-04 (v0.18, Phase 79 · D-12): la gestión de
  * workspace-group deja de estar totalmente fuera del código. Se permite un
- * allowlist NO-DESTRUCTIVO —`create`, `add`, `set-anchor`, `ungroup`— usado
- * EXCLUSIVAMENTE por el carril doctor del sidebar (`kodo sidebar doctor`); ver
- * los passthroughs más abajo. El launch path (manager.js) sigue consumiendo SOLO
- * `list` (read-only). Fuera del código quedan LOCKED: el verbo destructivo
- * `delete` (cierra todos los workspaces del grupo), `remove` y `rename` — el
- * guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
+ * allowlist NO-DESTRUCTIVO —`create`, `add`, `ungroup`— usado EXCLUSIVAMENTE por
+ * el carril doctor del sidebar (`kodo sidebar doctor`); ver los passthroughs más
+ * abajo. El launch path (manager.js) sigue consumiendo SOLO `list` (read-only).
+ * Fuera del código quedan LOCKED: el verbo destructivo `delete` (cierra todos los
+ * workspaces del grupo), `remove`, `rename` y —desde KODO-14— `set-anchor`: es el
+ * verbo que roba la fila sidebar de una sesión viva (G-79-1 en su forma estrecha).
+ * El guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
  * ellos se cablea.
  * @returns {Promise<string>} JSON crudo de `workspace-group list`
  */
@@ -131,12 +161,13 @@ export async function listWorkspacesJson() {
 }
 
 // ── Allowlist NO-DESTRUCTIVO de workspace-group (D-12, re-fronterización GRP-04) ──
-// Los 4 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
+// Los 3 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
 // `run()` (execFile, timeout 15s, sin shell) con un argv PLANO de strings: el ref del
 // grupo (`workspace_group:N` o UUID) y el del workspace (`workspace:N`) viajan como
 // elementos de array, jamás interpolados en un string — cero superficie de inyección,
 // espejo de buildNewWorkspaceArgs (:38, V5/Tampering, T-79-01). Sintaxis verificada en
-// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`: el guard lo verifica.
+// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`/`set-anchor`: el guard lo
+// verifica.
 
 /**
  * `workspace-group create [--name <name>] [--from <ref>,<ref>...]`. Devuelve el
@@ -159,16 +190,6 @@ export async function createWorkspaceGroup({ name, from }) {
  */
 export async function addToWorkspaceGroup({ group, workspace }) {
   return run(['workspace-group', 'add', '--group', group, '--workspace', workspace]);
-}
-
-/**
- * `workspace-group set-anchor --group <group> --workspace <ws>` (D-08: el ancla es
- * el miembro más longevo).
- * @param {{ group: string, workspace: string }} opts
- * @returns {Promise<string>} stdout crudo
- */
-export async function setGroupAnchor({ group, workspace }) {
-  return run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);
 }
 
 /**

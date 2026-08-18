@@ -35,7 +35,8 @@ import {
   newCaptureId,
   todayLocal,
 } from '../inbox/store.js';
-import { createFormatter, stripForKeystroke } from './format.js';
+import { createFormatter } from './format.js';
+import { stripForKeystroke } from './sanitize.js';
 
 /**
  * Opciones de invocación (lo que commander normaliza desde argv).

@@ -6,10 +6,14 @@
 // Phase 79:
 //
 //   SDR-02: la gestión de workspace-group vive SOLO en el allowlist NO-destructivo
-//   (create/add/set-anchor/ungroup). El verbo destructivo `delete` —"Delete a group
-//   AND close every workspace inside it" (cmux 0.64.20 --help)— NI SE CABLEA (LOCKED),
-//   igual que `remove`/`rename`. Este guard escanea todo src/ y FALLA si alguien lo
-//   enchufa (tokens argv adyacentes o un export de gestión con ese verbo).
+//   (create/add/ungroup). El verbo destructivo `delete` —"Delete a group AND close
+//   every workspace inside it" (cmux 0.64.20 --help)— NI SE CABLEA (LOCKED), igual que
+//   `remove`/`rename`. KODO-14 añade `set-anchor` a la familia LOCKED: es la forma
+//   ESTRECHA de G-79-1 — anclar un grupo en una sesión viva le roba su fila sidebar
+//   (el header del grupo ES la fila del anchor). `create` NO está prohibido: `create
+//   --from` levanta siempre su propio workspace-shell de ancla (verificado 2026-07-31).
+//   Este guard escanea todo src/ y FALLA si alguien enchufa uno de los verbos LOCKED
+//   (tokens argv adyacentes o un export de gestión con ese verbo).
 //
 //   SDR-04: el launch path (manager.js:400-440, newWorkspaceWithGroupFallback,
 //   buildNewWorkspaceArgs) queda byte-idéntico — los nuevos exports de client.js son
@@ -62,9 +66,11 @@ function listJsFiles(dir) {
 
 // ── El verbo destructivo del grupo + la familia LOCKED (fuera del código) ───────────
 // `delete` cierra todos los workspaces del grupo (el destructivo real); `remove`/`rename`
-// también quedan fuera del allowlist. El allowlist permitido es create/add/set-anchor/
+// también quedan fuera del allowlist. `set-anchor` se suma en KODO-14: es el verbo que
+// ROBA la fila sidebar de una sesión viva (G-79-1 en su forma estrecha — el header del
+// grupo ES la fila del anchor en cmux 0.64.20). El allowlist permitido es create/add/
 // ungroup — NINGUNO de estos aparece abajo, así que la fuente limpia reporta 0.
-const DESTRUCTIVE = String.raw`(?:delete|remove|rename)`;
+const DESTRUCTIVE = String.raw`(?:delete|remove|rename|set-anchor)`;
 
 // (a) Adyacencia argv: los literales string `'workspace-group'` y el verbo destructivo
 //     como elementos de array contiguos — p.ej. `run(['workspace-group', 'delete', ref])`.
@@ -76,9 +82,15 @@ const ADJACENCY = String.raw`['"]workspace-group['"]\s*,\s*['"]` + DESTRUCTIVE +
 //     p.ej. `export async function deleteWorkspaceGroup(...)` o `removeFromWorkspaceGroup`.
 const EXPORT_MGMT = String.raw`export\s+(?:async\s+)?(?:function\s+)?\w*` + DESTRUCTIVE + String.raw`\w*group\w*`;
 
+// (c) KODO-14: el export de `set-anchor` no lleva el verbo con guion en el identificador
+//     (`setGroupAnchor`), así que (b) no lo alcanza. Patrón propio, anclado a la pareja
+//     anchor+group para no marcar un `anchor` cualquiera (regex/URL/DOM).
+const EXPORT_ANCHOR = String.raw`export\s+(?:async\s+)?(?:function\s+)?\w*(?:set\w*anchor|anchor\w*group|group\w*anchor)\w*`;
+
 const PATTERNS = {
   'workspace-group + verbo destructivo (argv adyacente)': ADJACENCY,
   'export de gestión con verbo destructivo': EXPORT_MGMT,
+  'export de gestión del anchor del grupo (G-79-1)': EXPORT_ANCHOR,
 };
 
 /**
@@ -100,7 +112,7 @@ function scanDestructiveGroupWiring(text) {
 }
 
 describe('SDR-02 — guard source-hygiene: el verbo destructivo de workspace-group NI SE CABLEA (D-14)', () => {
-  it('ningún src/**/*.js cablea `workspace-group delete/remove/rename` (argv ni export)', () => {
+  it('ningún src/**/*.js cablea `workspace-group delete/remove/rename/set-anchor` (argv ni export)', () => {
     const files = listJsFiles(SRC);
     const violations = [];
     for (const file of files) {
@@ -112,9 +124,11 @@ describe('SDR-02 — guard source-hygiene: el verbo destructivo de workspace-gro
     assert.deepEqual(
       violations,
       [],
-      'Verbo destructivo de workspace-group cableado:\n  ' + violations.join('\n  ') +
-        '\nEl allowlist doctor es EXCLUSIVAMENTE create/add/set-anchor/ungroup (LOCKED). ' +
-        '`delete` cierra todos los workspaces del grupo — usa `ungroup` (preserva miembros).',
+      'Verbo prohibido de workspace-group cableado:\n  ' + violations.join('\n  ') +
+        '\nEl allowlist doctor es EXCLUSIVAMENTE create/add/ungroup (LOCKED). ' +
+        '`delete` cierra todos los workspaces del grupo — usa `ungroup` (preserva miembros). ' +
+        '`set-anchor` sobre una sesión viva le roba su fila sidebar (G-79-1) — `create --from` ' +
+        'levanta su propio shell de ancla y no necesita anclar nada.',
     );
   });
 });
@@ -130,11 +144,20 @@ describe('SDR-02 — el detector NO es trivial (prueba positiva y negativa, espe
     assert.ok(kinds.has('export de gestión con verbo destructivo'), 'debe marcar el export de gestión');
   });
 
-  it('NO marca el allowlist limpio (create/add/set-anchor/ungroup) ni el `workspace rename` legítimo', () => {
+  it('KODO-14 (G-79-1): marca el re-cableado de `set-anchor` (argv adyacente + export setGroupAnchor)', () => {
+    const leaky = [
+      `run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);`,
+      `export async function setGroupAnchor({ group, workspace }) { return run(args); }`,
+    ].join('\n');
+    const kinds = new Set(scanDestructiveGroupWiring(leaky).map((v) => v.kind));
+    assert.ok(kinds.has('workspace-group + verbo destructivo (argv adyacente)'), 'debe marcar el argv `set-anchor`');
+    assert.ok(kinds.has('export de gestión del anchor del grupo (G-79-1)'), 'debe marcar el export setGroupAnchor');
+  });
+
+  it('NO marca el allowlist limpio (create/add/ungroup) ni el `workspace rename` legítimo', () => {
     const clean = [
       `run(['workspace-group', 'create', '--name', name, '--from', from.join(',')]);`,
       `run(['workspace-group', 'add', '--group', group, '--workspace', workspace]);`,
-      `run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);`,
       `export async function ungroupWorkspaceGroup({ group }) { return run(['workspace-group', 'ungroup', group]); }`,
       `run(['workspace', 'rename', opts.workspace, '--title', opts.title]);`, // renombra un WORKSPACE, no un grupo
     ].join('\n');

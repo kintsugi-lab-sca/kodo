@@ -3,9 +3,14 @@
 // test/dashboard-inbox-count.test.js — Phase 84 Plan 03 (CAPT-07; D-16..D-24).
 //
 // Este fichero es LA MITAD DE D-17 QUE IMPIDE LA DERIVA. D-17 aísla el contador del
-// dashboard del store del inbox (importar `src/inbox/store.js` metería picocolors en el
-// grafo del TUI por vía transitiva — `store.js:46` → `../cli/format.js` → picocolors — y
-// `test/format-isolation.test.js` NO lo detectaría porque solo mira imports DIRECTOS).
+// dashboard del store del inbox. Su motivo ORIGINAL era el color —`store.js` alcanzaba
+// picocolors vía `../cli/format.js`, y el guard de entonces, limitado al primer nivel, no lo
+// habría visto—, pero ese motivo se evaporó en la Phase 87: los saneadores viven ahora en
+// `src/cli/sanitize.js` (hoja sin color), la clausura de `store.js` ya no alcanza el paquete
+// de color, y la suite ISO-01 de `test/format-isolation.test.js` recorre la clausura
+// TRANSITIVA de cada fichero del TUI. Lo que MANTIENE la separación es el resto del
+// argumento, intacto: el store arrastraría `withFileLock` y `resolveProjectId` a un módulo
+// que solo cuenta líneas.
 // Ese aislamiento cuesta una duplicación de la gramática de la línea; D-18 es la
 // contrapartida obligatoria: sobre el MISMO fixture, el conteo del leaf debe ser
 // EXACTAMENTE igual al de `listCaptures(...).captures.filter(c => c.open).length`.

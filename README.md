@@ -280,7 +280,8 @@ Configura `provider: "github"` vía `kodo config`. El trigger son issues con el 
 ```bash
 kodo config --show                                  # ver configuración actual
 kodo config --set claude.max_parallel=5             # sesiones simultáneas (default 3)
-kodo config --set claude.default_model=opus         # modelo por defecto
+kodo config --set claude.default_model=opus         # modelo de las sesiones de trabajo
+kodo config --set claude.orchestrator_model=fable   # modelo del orquestador (default fable)
 kodo config --set server.idle_threshold_min=5       # minutos para considerar idle
 kodo config --set server.stuck_threshold_min=30     # minutos para considerar stuck
 ```
@@ -345,6 +346,12 @@ cmux, evalúa tareas en "In Review" y decide si pasan a "Done", desbloquea
 sesiones stuck, lanza nuevas tareas si hay slots, y documenta sus decisiones en
 Plane. Desde el dashboard se enfoca con la tecla `O`.
 
+Arranca **siempre con `fable`** (`claude.orchestrator_model`), independiente del
+modelo de las sesiones de trabajo (`claude.default_model`, Opus por defecto): su
+trabajo es supervisar y despachar, no implementar. Se cambia con
+`kodo config --set claude.orchestrator_model=opus` o desde el editor del
+dashboard (`e` → "Modelo del orquestador").
+
 Su skill (`.claude/skills/kodo-orchestrate/`) acumula conocimiento entre
 sesiones: quirks de la API, mapeos descubiertos, procesos validados. Antes de
 cerrar, el orquestador actualiza la skill y el stop hook auto-commitea los
@@ -358,7 +365,8 @@ arrastrar otros cambios staged.
 Todo queda documentado en Plane como comentarios, sin abrir cmux:
 
 - **Durante la sesión** — Claude comenta su plan al empezar, hitos intermedios y un resumen final.
-- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta «cierre automático» (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
+- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta el cierre automático junto con el handoff de la sesión (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
+- **Si la sesión muere sin cerrar** — cerrar la tab, un kill o un reinicio no disparan `SessionEnd`, así que el backstop no llega a correr. El barrido de huérfanas del server detecta la sesión muerta y, si la tarea sigue en "In Progress", comenta el cierre incompleto con el último handoff conocido. **No** cambia el estado: kodo no puede saber si el trabajo quedó completo. Una tarea nunca se queda en curso sin rastro — o cierra, o queda marcada como incompleta.
 - **Con el orquestador activo** — rondas de supervisión que documentan el estado observado.
 
 ## Arquitectura
@@ -370,7 +378,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | `src/triggers/` | Dispatch de eventos: webhook (Plane), polling (GitHub) |
 | `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
 | `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
-| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación |
+| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación, barrido de sesiones huérfanas |
 | `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/nudge al cierre real) |
 | `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
 | `src/cli/dashboard/` | Dashboard TUI (Ink/React) |
@@ -382,7 +390,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
 ├── config.json        # provider, estados, servidor, claude
 ├── projects.json      # proyecto del provider → path local
-├── state.json         # sesiones activas
+├── state.json         # sesiones activas + registro del orquestador (`.orchestrator`)
 ├── inbox.md           # capturas rápidas (markdown plano, editable a mano)
 ├── inbox.lock         # lock advisory del inbox (efímero: se libera al terminar)
 ├── plans/             # planes de acción por tarea

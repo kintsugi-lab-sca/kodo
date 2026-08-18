@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, KODO_DIR } from './config.js';
 import { initRegistry, getProvider } from './providers/registry.js';
-import { listSessions, listHistory, removeSession, loadState, saveState, runUnderStateLock } from './session/state.js';
+import { listSessions, listHistory, removeSession, loadState, saveState, updateSession, runUnderStateLock, getOrchestrator } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
 import { createPendingResolver, buildPendingStatusFields } from './tasks/pending.js';
@@ -458,6 +458,63 @@ function readBody(req) {
 }
 
 /**
+ * ¿Puede el daemon marcar como suyo el workspace del que arranca?
+ *
+ * Puro / never-throws. Responde `false` SOLO cuando hay evidencia de que ese workspace
+ * es el del orquestador. Sin `workspaceId` no hay nada que marcar; sin registro (o con
+ * un registro sin UUID) no hay evidencia y se permite marcar.
+ *
+ * KODO-16 — el motivo de existir de este guard: el branding renombra el workspace a
+ * `心動 kodo service`. Cuando el daemon se reinicia DESDE la tab del orquestador
+ * (`kodo stop && kodo up` lanzado ahí dentro), ese rename le borraba el nombre
+ * `kodo-orchestrator` y lo dejaba huérfano: el siguiente `kodo check` no lo reconocía y
+ * lanzaba un duplicado. El registro en state.json ya blinda la DETECCIÓN, pero pisar el
+ * nombre del supervisor sigue siendo mentira en el sidebar y rompe el fallback por
+ * título — así que no se hace.
+ *
+ * Segundo guard, `underTest`: la suite arranca servers de verdad (server-bind,
+ * server-managed…) y esos procesos HEREDAN el CMUX_WORKSPACE_ID del shell del
+ * operador. Sin este guard, `npm test` renombra el workspace real desde el que se
+ * lanza — verificado en vivo mientras se arreglaba KODO-16: la tab de la propia
+ * sesión de trabajo acabó titulada `心動 kodo service`. Un test no puede tener ese
+ * efecto sobre el entorno de quien lo corre, y para el orquestador es justo el
+ * accidente que lo huerfanizaba.
+ *
+ * @param {string|undefined|null} workspaceId - CMUX_WORKSPACE_ID del proceso (UUID).
+ * @param {{ workspace_ref?: string, workspace_id?: string|null }|null|undefined} orchestrator
+ *   Registro del orquestador (state.json `.orchestrator`), o null si no consta.
+ * @param {boolean} [underTest] - true bajo el test runner de Node (`NODE_TEST_CONTEXT`).
+ * @returns {boolean}
+ */
+export function shouldBrandWorkspace(workspaceId, orchestrator, underTest = false) {
+  if (!workspaceId) return false;
+  if (underTest) return false;
+  if (!orchestrator) return true;
+  // Se comparan AMBOS campos: CMUX_WORKSPACE_ID es hoy el UUID, pero comparar también
+  // el ref cuesta nada y cubre un host que exportara `workspace:N` en su lugar.
+  if (orchestrator.workspace_id && orchestrator.workspace_id === workspaceId) return false;
+  if (orchestrator.workspace_ref && orchestrator.workspace_ref === workspaceId) return false;
+  return true;
+}
+
+/**
+ * Marca el workspace del daemon (rename + color) si el guard lo permite.
+ * never-throws — el branding es cosmético y jamás debe tumbar el arranque del server.
+ */
+function brandServiceWorkspace() {
+  const workspaceId = process.env.CMUX_WORKSPACE_ID;
+  let orchestrator = null;
+  try {
+    orchestrator = getOrchestrator();
+  } catch {
+    /* fail-open: sin registro legible, el guard decide con lo que hay */
+  }
+  if (!shouldBrandWorkspace(workspaceId, orchestrator, Boolean(process.env.NODE_TEST_CONTEXT))) return;
+  cmux.rename({ workspace: workspaceId, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
+  cmux.setColor({ workspace: workspaceId, color: 'Indigo' }).catch(() => {});
+}
+
+/**
  * Start the webhook server.
  *
  * Two modes gated by `opts.managed` (default falsy = legacy `kodo start`, byte-identical):
@@ -855,10 +912,7 @@ export async function startServer(opts = {}) {
 
         // Point 3: managed skips its own server.pid (daemon owns kodo.pid).
 
-        if (process.env.CMUX_WORKSPACE_ID) {
-          cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
-          cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
-        }
+        brandServiceWorkspace(); // KODO-16: no pisa el workspace del orquestador
         resolveListen(undefined);
       });
     });
@@ -870,10 +924,7 @@ export async function startServer(opts = {}) {
 
       writeFileSync(PID_PATH, String(process.pid));
 
-      if (process.env.CMUX_WORKSPACE_ID) {
-        cmux.rename({ workspace: process.env.CMUX_WORKSPACE_ID, title: '\u5FC3\u52D5 kodo service' }).catch(() => {});
-        cmux.setColor({ workspace: process.env.CMUX_WORKSPACE_ID, color: 'Indigo' }).catch(() => {});
-      }
+      brandServiceWorkspace(); // KODO-16: no pisa el workspace del orquestador
     });
   }
 
@@ -909,15 +960,44 @@ export async function startServer(opts = {}) {
     logger: reconcileLogger,
   });
 
+  // KODO-11: barrido de sesiones huérfanas. Consume justo lo que produce el loop de
+  // arriba (la transición a `dead`) y le añade lo que ese loop no puede hacer por ser
+  // puro: avisar al provider. Cubre el ~15% de sesiones que mueren sin disparar
+  // `SessionEnd` — y por tanto sin el backstop de review — dejando la tarea en «In
+  // Progress» sin un solo comentario. Loop propio (cadencia de minutos, no de 2.5 s)
+  // en vez de un paso dentro de `reconcileTick`: ese tick es PURO y sin I/O de red por
+  // contrato, y el sweep es exclusivamente I/O de red.
+  const { startOrphanSweepLoop } = await import('./session/orphan-sweep.js');
+  const orphanSweepLogger = createLogger({
+    sessionId: 'reconcile',
+    minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+  }).child({ component: 'orphan-sweep' });
+  const stopOrphanSweep = startOrphanSweepLoop({
+    loadStateFn: loadState,
+    // `updateSession` ya serializa por `withStateLock` internamente — el sweep escribe
+    // solo su marca de idempotencia, jamás campos del ciclo de vida (`alive`/`state`
+    // siguen siendo propiedad exclusiva de reconcileTick, D-04).
+    updateSessionFn: updateSession,
+    provider,
+    logger: orphanSweepLogger,
+  });
+
+  // Teardown ÚNICO de ambos loops bajo la clave `stopReconcile` que run.js ya compone
+  // (Point 4/D-05: un solo dueño del exit). Renombrar la clave rompería ese contrato.
+  const stopLoops = () => {
+    try { stopReconcile(); } catch {}
+    try { stopOrphanSweep(); } catch {}
+  };
+
   // Point 4 (D-05): managed installs NO self SIGTERM/SIGINT handlers and does NOT
   // own the exit. run.js is the single owner — it composes { server, stopReconcile }
   // into its own teardown. Two owners = double teardown / race (Pitfall 4).
   if (opts.managed) {
-    return { server, stopReconcile };
+    return { server, stopReconcile: stopLoops };
   }
 
   const cleanup = () => {
-    try { stopReconcile(); } catch {}
+    try { stopLoops(); } catch {}
     try { unlinkSync(PID_PATH); } catch {}
     process.exit(0);
   };

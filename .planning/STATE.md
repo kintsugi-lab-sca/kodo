@@ -1,41 +1,41 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.19
-milestone_name: Inbox de capturas + fix stealLock + saneo de deuda
-status: Awaiting next milestone
-stopped_at: Milestone v0.19 archivado (2026-07-28) — sin milestone activo, siguiente fase 86
-last_updated: "2026-07-28T10:49:47.587Z"
-last_activity: 2026-07-28
-last_activity_desc: Milestone v0.19 completed and archived
+milestone: v0.20
+milestone_name: Cierre de deuda trazada
+current_phase: 87
+current_phase_name: Aislamiento de color transitivo en el TUI
+status: verifying
+stopped_at: Completed 87-02-PLAN.md
+last_updated: "2026-08-09T22:27:54.434Z"
+last_activity: 2026-08-10
+last_activity_desc: Phase 87 execution started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
-current_phase: 85
-current_phase_name: Saneo de deuda + Nyquist retroactivo
+  total_phases: 3
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
 
 **Project:** kodo
-**Estado:** Milestone **v0.19 «Inbox de capturas + fix stealLock + saneo de deuda» SHIPPED** (2026-07-28) — 4/4 fases (82-85), 17/17 planes, 15/15 requirements Complete, 137 commits en 4 días, suite 2364 → 2590 (2589 pass · 0 fail · 1 skip). Cierre **verificado**: las 4 fases con `phase_complete: true` + `verification_status: passed`, audit de artefactos abiertos limpio. Sin milestone activo — el siguiente se define con `/gsd-new-milestone` y la numeración de fases **continúa desde la Phase 86**. Decisión de mantenedor pendiente que debería entrar en él: **R-82-01** (carrera de 2º orden en `stealLock` con holder VIVO — fix con gate vs riesgo aceptado, sin parche apresurado).
+**Estado:** Milestone **v0.20 «Cierre de deuda trazada» ACTIVO** (abierto 2026-08-02) — roadmap creado: **3 fases (86-88)**, 12/12 requirements mapeados, cero orphans, granularidad `coarse`. Saneo puro, **sin feature nueva**: los cuatro items entran con causa raíz localizada en fichero y línea. **Phase 86** CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07, cierra R-82-01 — decisión del mantenedor 2026-08-02: CAS, **no** rediseño del primitivo); **Phase 87** aislamiento de color transitivo en el TUI (ISO-01..04, cierra D-18 + OQ-1 + UF-02 con los 3 leaks ya medidos); **Phase 88** distribución de skills por el orquestador + verdad del inventario de tests (SYNC-01..03 cierra D-08b, DOC-01 cierra D-20). Ninguna fase planificada aún. (Anterior: v0.19 SHIPPED 2026-07-28 — 4/4 fases 82-85, 17/17 planes, 15/15 requirements, suite 2590.)
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-28 after v0.19 milestone).
+See: `.planning/PROJECT.md` (updated 2026-08-02 al abrir el milestone v0.20).
 
-**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18.
+**Core value:** Cualquier sistema de tareas puede ser el motor de kodo — cambiar de proveedor no requiere reescribir la lógica de sesiones, health checks ni orquestación. **Empíricamente validado en v0.7** (cross-provider contract matrix Plane + GitHub). v0.9-v0.14 profundizaron el dashboard (observabilidad → gestión → ventana al plan → puente inverso → configuración); v0.15 unificó el arranque (`kodo up`) y el onboarding dashboard-first; **v0.16 endureció** red, concurrencia, entrega e higiene; **v0.17 hizo del plan por-tarea estado vivo** (handoff acumulativo + `NEXT:` → dashboard y nudge) + convergencia de `pending` + agrupación de workspaces cmux; **v0.18 quitó al humano la carga de mantener el sidebar de cmux** — un doctor determinista lo cura, el orquestador lo invoca de piggyback, y la deuda menor de v0.17 quedó saldada. **v0.19 da a kodo su primer buffer de captura global** + cierra la carrera de `stealLock` diagnosticada en v0.18 + salda la deuda doc/Nyquist de v0.16+v0.18; **v0.20 cierra los cuatro items de deuda que v0.19 dejó abiertos con trigger explícito** — saneo puro, sin feature nueva.
 
-**Current focus:** Sin milestone activo — v0.19 archivado. Siguiente: `/gsd-new-milestone` (questioning → research → requirements → roadmap desde la Phase 86).
+**Current focus:** Phase 87 — Aislamiento de color transitivo en el TUI
 
 ## Current Position
 
-Phase: — (sin milestone activo; el siguiente empieza en la Phase 86)
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-28 — Milestone v0.19 archivado (ROADMAP colapsado, REQUIREMENTS archivado, tag `v0.19`)
+Phase: 87 (Aislamiento de color transitivo en el TUI) — EXECUTING
+Plan: 2 of 2
+Status: Phase complete — ready for verification
+Last activity: 2026-08-10 — Phase 87 execution started
 
 ## Most recent shipped milestone
 
@@ -53,6 +53,8 @@ Last activity: 2026-07-28 — Milestone v0.19 archivado (ROADMAP colapsado, REQU
 Baseline al cierre de **v0.19 (2026-07-28)**. **Los items programados en el roadmap v0.19 quedaron cerrados:** la carrera de `stealLock` — fix real shippeado en **Phase 82** (commit `16d60b6`); 81-REVIEW WR-01/WR-02 (R-81-02) → **Phase 85 / DEBT-05/06** (plan `85-01`); los 3 warnings de 80-REVIEW → **Phase 85 / DEBT-07** (plan `85-02`); Nyquist draft de 79/80/81 → **Phase 85 / NYQ-01** (plan `85-03`) y de 69/71/72 → **Phase 85 / NYQ-02** (plan `85-04`). El resto sigue diferido con su trigger real.
 
 **Lo que la Phase 85 evaluó y decidió NO cerrar** — razón y trigger en `.planning/milestones/v0.19-phases/85-saneo-de-deuda-nyquist-retroactivo/deferred-items.md`: el **`format-isolation` transitivo** (D-18, pese a estar anotado como «candidato natural de la Phase 85») junto con **OQ-1** (el mismo comentario de premisa falsa que `85-02` retiró de `check-isolation.test.js` sigue verbatim en `test/format-isolation.test.js:14,33`) — se corrigen **juntos**; **`IN-01` de 80-REVIEW** (es *info*, no warning — D-10); el refresco de **`.planning/codebase/TESTING.md`** (D-20); y **R-82-01** (D-19: la fase no abre `src/gsd/lock.js`). Las filas de **«Evidencia en vivo»** y de **UAT / backstop GitHub real** quedaron mejor **contabilizadas** por `85-03`/`85-04` (manual-only con su evidencia citada), lo cual **no es resolverlas**: siguen abiertas con su trigger original.
+
+**Programado en el roadmap v0.20 (2026-08-02) — 4 de estas filas dejan de estar solo diferidas y pasan a tener fase:** **R-82-01** (carrera de 2º orden con holder VIVO) → **Phase 86** / LOCK-04..07, con la decisión del mantenedor tomada (**CAS simétrico en la rama PRESENT, NO rediseño del primitivo** — LOCK-F1 va a v2 con su trigger). · **format-isolation transitivo + OQ-1 + UF-02** → **Phase 87** / ISO-01..04, ahora con el radio **medido** (3 leaks reales: `App.js:73`, `markdown.js:27`, `SessionTable.js` por herencia), que es justo lo que faltaba para programarla. · **D-08b** (auto-sync single-skill) → **Phase 88** / SYNC-01..03. · **D-20** (`.planning/codebase/TESTING.md` desfasado) → **Phase 88** / DOC-01. **Siguen ABIERTAS y NO programadas** (requieren estado externo no fabricable o son acción de operador): UAT del backstop GitHub real · evidencia en vivo del round-trip `--fix` 79/80 · CONC-09 sign-off · grupo `SCP-CMRi`≠`SCP` · D-08 (rename `skill.md`→`SKILL.md`) · D-24 · D-13 · IN-01 de 80-REVIEW · B12b · M7-M9 · M21. **Programar no es cerrar** — estas filas se marcan cerradas cuando su fase lo demuestre, no ahora.
 
 | Categoría | Item | Estado | Diferido en |
 |-----------|------|--------|-------------|
@@ -139,6 +141,22 @@ Log completo en `PROJECT.md` §Key Decisions — v0.18 añadió 5 filas (`missin
 - [Phase ?]: 85-05: el §Deferred Items de STATE.md es una seccion CURADA del SDK (state-transition.cjs:1284, rebuildCore la preserva verbatim) y NO hay handler que direccione sus filas de 4 columnas — state.patch/state.update resuelven por tableRowPattern, que solo casa filas de 2 celdas (probado en copia aislada); la mutacion fue por Edit y state.validate sale valid:true sin drift
 - [Phase ?]: 85-05: la fila del format-isolation transitivo NO se cierra pese a que su propio texto invitaba a hacerlo (candidato natural de la Phase 85) — D-18; se reescribe a 'evaluado y DIFERIDO' con su trigger, enlazada con OQ-1 para corregirse a la vez
 - [Phase ?]: 85-05: contabilizar no es resolver — las filas de Evidencia en vivo y de backstop GitHub real quedaron mejor citadas por 85-03/85-04 y siguen ABIERTAS; la distincion se escribe en la propia celda para que el siguiente audit no la confunda con un cierre
+- [Phase ?]: 86-01: el baseline del CAS sale de readLockIdentity dentro de la seccion critica — una sola pasada, bytes de LA LECTURA y jamas de un statSync separado (D-01)
+- [Phase ?]: 86-01: la deteccion es por Buffer.equals sobre bytes crudos + ino, no por size — el lock se reemplaza entero y dos contenidos distintos caben en el mismo tamano (D-02, divergencia deliberada del analogo del inbox)
+- [Phase ?]: 86-01: detectar cambio NO retorna — borra el tmp, suelta el guard por el finally y hace continue; solo el holder VIVO y fresco corta con reason lock-replaced-mid-steal (D-05/D-06). MAX_STEAL_ATTEMPTS sigue en 8 (D-07)
+- [Phase ?]: 86-01: el criterio grep -c 'mtimeMs' = 3 mide el TOKEN, no la semantica — se cumplio reformulando un comentario a 'modification TIME', no eliminando la documentacion de D-04; declarado como hallazgo, no silenciado
+- [Phase ?]: 86-02: el holder se siembra desde un hijo DEDICADO con pid: process.pid — un holder muerto no puede LIBERAR, y sin ese unlink la carrera de 2o orden es invisible (D-12)
+- [Phase ?]: 86-02: el seam espera una BARRERA, no un sleepSync calibrado — el escenario deja de depender de cualquier presupuesto de tiempo (D-16/DEBT-04)
+- [Phase ?]: 86-02: los stealers extra se sueltan SOLO tras observar stealer-parked; soltarlos antes permitiria que uno ganase el guard en su intento 0 y el seam no se disparara jamas
+- [Phase ?]: 86-02: la identidad en disco se asevera en N=3 (roles asimetricos por construccion) y NO en N=5 — medido: en 3 de 3 corridas el hueco lo gano un extra, no el creador (D-14)
+- [Phase ?]: 86-02: el JSDoc de stealLock se CORRIGE ademas de ampliarse — su paso 2 describia la sustitucion in-place incondicional sin mencionar el CAS (deuda que 86-01 dejo a este plan, D-17)
+- [Phase ?]: 86-02: el criterio grep -c waitUntil >= 8 es aritmeticamente inconsistente con la secuencia de 12 pasos del propio plan (solo prescribe 5 esperas); valor real 7, declarado en vez de rellenar el fichero con llamadas de adorno
+- [Phase ?]: 86-02: mordida canonica registrada — CAS revertido a mano (const changed = false) pone rojos N=3 (2 !== 1) y N=5 (3 !== 1) mas los 2 casos in-process de 86-01; restaurado, verde. Cero umbrales tocados (LOCK-06/D-15)
+- [Phase 87]: Los saneadores puros (stripControlChars/stripForKeystroke) viven en src/cli/sanitize.js, hoja de cero imports, no en src/cli/format.js — format.js es el unico importador de picocolors; tener los saneadores ahi hacia que el TUI arrastrase el paquete de color por via transitiva con el guard directo en verde. Sin shim de re-export (D-02): los 8 call sites se actualizan
+- [Phase 87]: El guard de color-isolation se ancla al PAQUETE picocolors y mide alcanzabilidad transitiva, imprimiendo la cadena de imports — Un ancla al fichero src/cli/format.js dejaria escapar un segundo importador futuro; el mensaje de cadena nombra la arista que hay que cortar, el de conjunto no
+- [Phase ?]: La premisa retirada de un guard se describe por su CONTENIDO, jamás se cita: citarla la reintroduce en el fichero y el criterio de fuente vuelve a contarla (87-02, ISO-04)
+- [Phase ?]: Las cifras de una declaración honesta se RE-MIDEN en la sesión que las escribe y van fechadas: 128→129 literales en cinco días demuestra que una cifra heredada es otra premisa no verificada (87-02)
+- [Phase ?]: Un guard de hoja necesita el assert de ALCANZABILIDAD (clausura) junto a los de forma, y un aserto POSITIVO de convergencia: sin consumidor, un guard de prohibición es verde y vacío (87-02, D-13/D-14)
 
 ### Open Blockers
 
@@ -152,6 +170,7 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 - **Modelo daemon PERSISTENTE:** solo `kodo stop` lo tumba; PID ownership de v0.16 (CONC-04/05) no puede regresionar esto.
 - **Escrituras de `state.json` bajo `withStateLock`** — cualquier escritor nuevo DEBE pasar por la primitiva (`src/session/state.js`); `reconcileTick` sigue siendo el único escritor de `alive`.
 - **Lock del inbox (v0.19):** la primitiva es `withFileLock` (`src/session/state-lock.js:215`), NUNCA `src/gsd/lock.js`; los appends usan `O_APPEND`, cualquier rewrite usa unique-tmp-name + rename — jamás `writeFileAtomic` (fixed tmp) para paths del inbox.
+- **Ventana residual del steal del lock GSD (v0.20, LOCK-07):** el compare-and-swap de `stealLock` (`src/gsd/lock.js`) NO cierra la carrera de segundo orden por construcción y no debe leerse como si lo hiciera. Entre la sonda de identidad fresca y el `renameSync` quedan **dos syscalls contiguos**: un creador Case-1 que aterrice ahí sigue siendo clobbeable. Clase de riesgo: **TOCTOU residual**, no cerrable sin soporte atómico del FS (`rename` POSIX no admite condición; `renameat2(RENAME_NOREPLACE)` es Linux-only y `node:fs` no lo expone) — **la misma clase** que la ventana residual aceptada en el guard del inbox de la Phase 83. Lo que cambia es la MAGNITUD: deja de ser toda la sección crítica del steal (lo que dure el proceso vivo del holder) y pasa a ser el hueco entre dos syscalls, sin depender de ningún presupuesto de tiempo. El cierre por construcción es `LOCK-F1`, diferido a v2 con su trigger propio.
 - **D-02 (v0.11 Phase 46):** `readPlan` da prioridad a GSD; el plan ligero (y el handoff) solo se surface en la rama `phaseId == null`. El handoff se escribe en disco para TODA sesión, pero no se pinta en el overlay GSD.
 - **El handoff se escribe ANTES del cleanup terminal destructivo de `SessionEnd`** (`removeSession` + worktree + promptFile) — v0.17 Phase 74.
 - **Contenido LLM hacia terminal/keystroke SIEMPRE saneado** (`stripControlChars` en composición, `stripForKeystroke` en el carril keystroke) — v0.17 Phase 78; simetría con HYG-07. Aplica al texto capturado del inbox (CAPT-01).
@@ -162,27 +181,28 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 
 ### Roadmap Evolution
 
+- 2026-08-02 — Roadmap v0.20 creado: 4 workstreams independientes → **3 fases** (granularidad `coarse`). **Phase 86** CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07, cierra R-82-01; va primera por riesgo — es el primitivo de concurrencia de dispatcher/orchestrator/polling); **Phase 87** aislamiento de color transitivo en el TUI (ISO-01..04 — guard, fix de los 3 leaks, congelado de `dashboard/format.js` y comentario de premisa falsa van **juntos**: endurecer el guard sin arreglar los leaks pone la suite roja); **Phase 88** distribución de skills + verdad del inventario de tests (SYNC-01..03 + DOC-01). **DOC-01 se pliega a la Phase 88 en vez de tener fase propia**: es un requirement doc-only Tier 1 y una fase de uno sería exactamente la fase-mantenimiento fina que la calibración `coarse` desaconseja; además va **última a propósito**, para que el recuento del inventario se haga cuando 86 y 87 ya han tocado sus ficheros de test y no nazca desfasado. 12/12 requirements mapeados, cero orphans, cero duplicados. Sin research: los 4 items entran con causa raíz localizada en fichero y línea.
 - 2026-07-24 — Roadmap v0.19 creado: 3 workstreams independientes → 4 fases (granularidad `coarse`). **Phase 82** fix de la carrera de `stealLock` (LOCK-01..03, promueve el hallazgo DEBT-04/R-81-01); **Phase 83** inbox foundation — `kodo capture` + `kodo inbox` triage + seam `gsd-capture` (CAPT-01/03/04/06, candidata backlog 999.2 promovida y ampliada); **Phase 84** superficies de captura — `/kodo-capture` + skill-sync multi-skill + conteo ambient (CAPT-02/05/07, depende de 83); **Phase 85** saneo de deuda + Nyquist retroactivo (DEBT-05/06/07 + NYQ-01/02). 15/15 requirements mapeados, cero orphans. Backlog 999.2 renumerado a Phases 83-84; la candidata trazaba CAPT-01..04, el milestone amplió con CAPT-05/06/07.
 - 2026-07-22 — Roadmap v0.18 creado: candidata backlog 999.3 promovida a Phases 79-80; los 4 items de deuda menor del audit v0.17 absorbidos como Phase 81 (DEBT-01..04). Granularidad `coarse` → 3 fases. 12/12 requirements mapeados.
 
 ## Session Continuity
 
-**Last session:** 2026-07-28
+**Last session:** 2026-08-09T22:27:54.422Z
 
 **Resume file:** None
 
-- **Stopped at:** Phase 85 complete, milestone v0.19 al 100% — listo para archivar
-- **Next action:** `/gsd-plan-phase 85` — planificar el saneo de deuda + Nyquist retroactivo (última fase de v0.19).
+- **Stopped at:** Completed 87-02-PLAN.md
+- **Next action:** `/gsd-discuss-phase 86` — el CAS simétrico de `stealLock` con holder VIVO (LOCK-04..07). Es la fase más delicada del milestone: toca el primitivo de concurrencia del que cuelgan dispatcher, orchestrator y polling.
 - **Files of record:**
-  - `.planning/PROJECT.md` (updated 2026-07-26 after Phase 84; milestone v0.19 en curso)
-  - `.planning/ROADMAP.md` (v0.19 activo Phases 82-85 + Phase Details; v0.18 colapsado; Backlog con 999.1 shipped + 999.2 promovida a 83-84 + 999.3 shipped)
-  - `.planning/REQUIREMENTS.md` (15/15 requirements mapeados; traceability completa)
-  - `.planning/research/SUMMARY.md` (research del inbox de capturas — decisión del modelo de estado flagged para discuss/plan de Phase 83)
-  - `.planning/MILESTONES.md` (entrada v0.18 completa; v0.19 en curso)
+  - `.planning/PROJECT.md` (updated 2026-08-02 al abrir v0.20; §Current Milestone con los 4 items y sus constraints)
+  - `.planning/ROADMAP.md` (v0.20 activo Phases 86-88 + Phase Details; v0.19 y anteriores colapsados; Backlog con 999.1/999.2/999.3 shipped)
+  - `.planning/REQUIREMENTS.md` (12/12 requirements mapeados; traceability completa — 86: LOCK-04..07 · 87: ISO-01..04 · 88: SYNC-01..03 + DOC-01)
+  - `.planning/MILESTONES.md` (entrada v0.19 completa; v0.20 en curso)
+  - **Sin `research/SUMMARY.md` para v0.20** — research saltado a propósito: los 4 items tienen causa raíz localizada en fichero y línea (no buscarlo ni esperarlo).
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Discutir y planificar la Phase 86 con `/gsd-discuss-phase 86`
 
 ## Performance Metrics
 
@@ -210,6 +230,10 @@ Ninguno. v0.18 cerró con audit `tech_debt` sin blockers (verified closeout).
 | Phase 85 P03 | 24 | 3 tasks | 3 files |
 | Phase 85 P04 | 31 | 3 tasks | 3 files |
 | Phase 85 P05 | 9min | 2 tasks | 2 files |
+| Phase 86 P01 | 12min | 2 tasks | 2 files |
+| Phase 86 P02 | 11min | 3 tasks | 4 files |
+| Phase 87 P01 | 16 min | 3 tasks | 12 files |
+| Phase 87 P02 | 21 min | 2 tasks | 3 files |
 
 ### Blockers
 

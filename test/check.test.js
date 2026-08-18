@@ -319,17 +319,6 @@ describe('check.js — source invariants', () => {
 // doctor IN-PROCESS de piggyback en `runCheckAndAct`, gated por `needsOrchestrator`,
 // ANTES de `launchOrchestrator`, fail-open, y sin alimentar jamás el gate (D-03/04/05).
 describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () => {
-  /** SidebarReport limpio (sin acciones ni advisories). */
-  function cleanReport() {
-    return {
-      missing_group: [],
-      loose_workspace: [],
-      empty_group: [],
-      protected: { sessions: [] },
-      hasActions: false,
-      hasAdvisories: false,
-    };
-  }
   /** SidebarResult vacío (0 acciones). */
   function emptyResult() {
     return { created: 0, added: 0, ungrouped: 0, errors: [] };
@@ -340,7 +329,6 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     let execArgs = null;
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-      scanFn: async () => { order.push('scan'); return cleanReport(); },
       executeFn: async (_deps, opts) => { order.push('execute'); execArgs = opts; return emptyResult(); },
       launchFn: async () => { order.push('launch'); },
       logFn: () => {},
@@ -354,11 +342,10 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     );
   });
 
-  it('Test B: gate OFF (All clear) — cero llamadas a scan/execute/launch (edge a, D-03)', async () => {
+  it('Test B: gate OFF (All clear) — cero llamadas a execute/launch (edge a, D-03)', async () => {
     const calls = [];
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: false, reasons: [], summary: 's' }),
-      scanFn: async () => { calls.push('scan'); return cleanReport(); },
       executeFn: async () => { calls.push('execute'); return emptyResult(); },
       launchFn: async () => { calls.push('launch'); },
       logFn: () => {},
@@ -370,21 +357,10 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
 
   it('Test C: invariante D-04 (edge c) — un sidebar sucio con check limpio NO dispara el carril', async () => {
     const calls = [];
-    const dirtyScan = async () => {
-      calls.push('scan');
-      return {
-        missing_group: [{ name: 'g', anchor: 'workspace:1', members: ['workspace:1'] }],
-        loose_workspace: [{ group: 'workspace_group:1', workspace_ref: 'workspace:2', name: 'g' }],
-        empty_group: [{ ref: 'workspace_group:2', name: 'e' }],
-        protected: { sessions: [] },
-        hasActions: true,
-        hasAdvisories: true,
-      };
-    };
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: false, reasons: [], summary: 's' }),
-      scanFn: dirtyScan,
-      executeFn: async () => { calls.push('execute'); return emptyResult(); },
+      // El doctor CONVERGERÍA 3 categorías si corriera; con el gate cerrado ni se le llama.
+      executeFn: async () => { calls.push('execute'); return { created: 1, added: 1, ungrouped: 1, errors: [] }; },
       launchFn: async () => { calls.push('launch'); },
       logFn: () => {},
       errorFn: () => {},
@@ -399,7 +375,6 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     await assert.doesNotReject(
       runCheckAndAct({
         runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-        scanFn: async () => cleanReport(),
         executeFn: async () => { throw new Error('boom'); },
         launchFn: async () => { order.push('launch'); },
         logFn: () => {},
@@ -407,22 +382,6 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
       }),
     );
     assert.deepEqual(order, ['launch'], 'launch corre pese al throw de execute (fail-open)');
-  });
-
-  it('Test D2: fail-open (edge b) — scanFn que lanza NO bloquea el launch', async () => {
-    const order = [];
-    await assert.doesNotReject(
-      runCheckAndAct({
-        runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-        scanFn: async () => { throw new Error('scan boom'); },
-        executeFn: async () => { order.push('execute'); return emptyResult(); },
-        launchFn: async () => { order.push('launch'); },
-        logFn: () => {},
-        errorFn: () => {},
-      }),
-    );
-    assert.ok(order.includes('launch'), 'launch corre aunque scan lance (fail-open)');
-    assert.ok(!order.includes('execute'), 'execute no corre si scan lanzó (mismo try/catch)');
   });
 
   it('Test E: runCheck() byte-idéntico — su cuerpo NO contiene líneas Sidebar (Pitfall 4)', () => {
@@ -438,37 +397,27 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     );
   });
 
-  // Phase 85 D-08 (WR-01 + WR-02 de 80-REVIEW): ninguno de los 6 casos A/B/C/D/D2/E
-  // cruza `needsOrchestrator: true` con `hasAdvisories: true`, y los tres literales del
-  // piggyback no tenían un solo assert en toda la suite. Los dos `it` siguientes cierran
-  // ese hueco y fijan el canal de la línea de fallos.
+  // Phase 85 D-08 (WR-01 de 80-REVIEW): los literales del piggyback no tenían un solo
+  // assert en toda la suite. Los dos `it` siguientes cierran ese hueco y fijan el canal
+  // de la línea de fallos.
   //
   // stdout y stderr se capturan en DOS arrays SEPARADOS y se aseveran por pertenencia
   // dentro de cada uno: el orden RELATIVO entre canales NO es contractual (streams
   // independientes), así que un assert de secuencia mezclada sería flaky por
   // construcción (85-UI-SPEC §S-2, «Advertencia de contrato para el test»).
-  it('Test F: gate ON + advisories + fallos por-item — las 3 líneas salen por su canal (WR-01/WR-02)', async () => {
+  it('Test F: gate ON + fallos por-item — las 2 líneas salen por su canal (WR-01)', async () => {
     const logs = [];
     const errs = [];
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-      // Report SUCIO inline (cleanReport() lo trae limpio): 1 advisory exacto.
-      scanFn: async () => ({
-        missing_group: [{ name: 'g', anchor: 'workspace:1', members: ['workspace:1'] }],
-        loose_workspace: [],
-        empty_group: [],
-        protected: { sessions: [] },
-        hasActions: true,
-        hasAdvisories: true,
-      }),
-      // `created: 0` es DELIBERADO: hace que el test detecte la regresión concreta que
-      // WR-02 nombra (calcular `applied` con `r.created` en vez de `r.added`). Los tres
-      // números son distintos por diseño — applied=3, failed=2, advisories=1 — para que
+      // KODO-14: `created` cuenta en `applied` — el doctor vuelve a crear grupos
+      // (`create --from`), así que omitirlo escondería una categoría entera del conteo.
+      // Los tres sumandos son DISTINTOS por diseño (1/2/3 → applied=6, failed=2) para que
       // ningún falso verde pase por coincidencia numérica.
       executeFn: async () => ({
-        created: 0,
+        created: 1,
         added: 2,
-        ungrouped: 1,
+        ungrouped: 3,
         errors: [
           { category: 'loose_workspace', target: 'workspace:2', reason: 'cmux no responde' },
           { category: 'empty_group', target: 'workspace_group:3', reason: 'cmux no responde' },
@@ -480,12 +429,8 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     });
 
     assert.ok(
-      logs.includes('[kodo:check] Sidebar: 3 acción(es) aplicadas'),
-      `applied debe ser added + ungrouped (2 + 1 = 3), NUNCA created. logs: ${JSON.stringify(logs)}`,
-    );
-    assert.ok(
-      logs.includes('[kodo:check] Sidebar advisories: 1 (acción de operador)'),
-      `la rama hasAdvisories debe emitir el conteo de missing_group. logs: ${JSON.stringify(logs)}`,
+      logs.includes('[kodo:check] Sidebar: 6 acción(es) aplicadas'),
+      `applied debe sumar created + added + ungrouped (1 + 2 + 3 = 6). logs: ${JSON.stringify(logs)}`,
     );
     assert.ok(
       errs.some((m) => m.includes('2 acción(es) fallida(s)')),
@@ -506,7 +451,6 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     const errsEmpty = [];
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-      scanFn: async () => cleanReport(),
       executeFn: async () => emptyResult(),
       launchFn: async () => {},
       logFn: () => {},
@@ -521,7 +465,6 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     await assert.doesNotReject(
       runCheckAndAct({
         runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-        scanFn: async () => cleanReport(),
         executeFn: async () => ({ created: 0, added: 0, ungrouped: 0 }),
         launchFn: async () => {},
         logFn: () => {},

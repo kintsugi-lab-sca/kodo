@@ -1,15 +1,16 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { loadConfig, loadProjects } from '../config.js';
+import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
+import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
-import { stripForKeystroke, stripControlChars } from '../cli/format.js';
+import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.
@@ -442,6 +443,19 @@ export async function launchWorkItem(identifier, opts = {}) {
   // Set color to "running"
   await host._legacy.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
 
+  // Marca kodo del workspace: description "⬢ <ref> · <título>". Es el marcador
+  // machine-readable de "sesión gestionada por kodo" (el título es heurístico y
+  // editable por el usuario) y aparece como línea secundaria/tooltip en el sidebar
+  // nativo de cmux. COSMÉTICO fail-open: un cmux sin `set-description` o un fallo
+  // del socket NO aborta el dispatch — a diferencia del setColor de arriba, que
+  // conserva su semántica pre-existente. Mismo saneado RENDER que workspaceName.
+  try {
+    await host._legacy.setDescription({
+      workspace: workspaceRef,
+      description: `⬢ ${task.ref} · ${truncate(stripControlChars(task.title), 60)}`,
+    });
+  } catch { /* sin description si falla — cosmético */ }
+
   // Build Claude command — prefer opts overrides, fall back to label parsing.
   // CR-01 fix: accept opts.sessionId so the GSD dispatcher can thread the same
   // UUID it stamped into the lock file — acquire, persist and release share
@@ -520,16 +534,17 @@ export async function launchWorkItem(identifier, opts = {}) {
     workspace: workspaceRef,
   });
 
-  // Notify orchestrator if running
+  // Notify orchestrator if running.
+  // KODO-16: el destinatario sale de `resolveOrchestratorTargets` — ref registrado
+  // primero, título después. El match por título solo no bastaba: es mutable y
+  // window-scoped, así que tras un reinicio del daemon este aviso se perdía en silencio.
   try {
-    const workspaces = await host._legacy.listWorkspaces();
-    const orchMatch = workspaces.match(/(workspace:\d+)\s+kodo-orchestrator/);
-    if (orchMatch) {
-      await host._legacy.send({
-        workspace: orchMatch[1],
-        text: `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
-      });
-    }
+    const workspaces = await host._legacy.listWorkspaces().catch(() => '');
+    await sendToOrchestrator(
+      (opts) => host._legacy.send(opts),
+      resolveOrchestratorTargets(workspaces),
+      `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
+    );
   } catch {}
 
   return session;
@@ -575,8 +590,12 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
   // (último arg) — añadir `--worktree` en el header NO muta los offsets relativos
   // de las tags. Phase 20 (HOOK-01) opera sobre buildSessionContext/buildGsdContext.
+  // Mecánica de invocación desde el registro de agentes (config.agents) — un solo
+  // punto de cambio para multi-agente. Para 'claude-code' el header resultante es
+  // byte-idéntico al literal previo (golden-bytes QUICK-07 intactos).
+  const agent = getAgentDef(config);
   const worktreeFlag = isGitRepo ? `--worktree ${sessionId}` : '';
-  const header = `claude --model ${model} --session-id ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+  const header = `${agent.binary} ${agent.model_flag} ${model} ${agent.session_id_flag} ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
 
   // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
   // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como

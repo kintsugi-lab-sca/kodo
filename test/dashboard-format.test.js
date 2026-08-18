@@ -24,7 +24,7 @@ import {
   nextCell,
   STATE_BADGES,
 } from '../src/cli/dashboard/format.js';
-import { stripControlChars, stripForKeystroke } from '../src/cli/format.js';
+import { stripControlChars, stripForKeystroke } from '../src/cli/sanitize.js';
 
 describe('TUI-07 (D-03): deriveRepo — project_name | basename(project_path) | —', () => {
   it('project_name presente gana', () => {

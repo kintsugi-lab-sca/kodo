@@ -81,10 +81,36 @@ const DEFAULT_CONFIG = {
     },
   },
   claude: {
-    binary: '/Applications/cmux.app/Contents/Resources/bin/claude',
     default_model: 'opus',
+    // KODO-12: el ORQUESTADOR va SIEMPRE con `fable` — su trabajo es supervisión y
+    // despacho (leer state.json, read-screen, nudges), no implementación, así que no
+    // necesita el modelo caro que sí quieren las sesiones de trabajo (`default_model`).
+    // Clave SEPARADA a propósito: un config v0.x sin ella la recibe vía deep-merge
+    // (CFG-02 zero-breaking-change) y el operador puede volver a Opus editándola.
+    orchestrator_model: 'fable',
     max_parallel: 3,
     flags: [],
+  },
+  // Registro de agentes (inspirado en los agent manifests de diri): describe la
+  // MECÁNICA de invocación de cada agente CLI — binario, flags de identidad de
+  // sesión, cómo se reanuda, y de dónde sale su estado (`status_authority`):
+  //   - 'hooks':   los hooks del agente escriben NDJSON (Claude Code) — fuente rica.
+  //   - 'screen':  solo inspección de pantalla (regex frágiles) — degradado.
+  //   - 'process': solo vivo/muerto — honesto para agentes sin hooks ni TUI estable.
+  // Los knobs de OPERADOR (default_model, max_parallel, flags) siguen en `claude.*`
+  // — separación mecánica-vs-preferencias. `resume` aún no tiene consumidor: queda
+  // declarado para que el dispatch multi-agente no lo redescubra por prueba y error.
+  agents: {
+    default: 'claude-code',
+    registry: {
+      'claude-code': {
+        binary: 'claude', // por PATH (D-15): NUNCA un path absoluto a un binario embebido
+        model_flag: '--model',
+        session_id_flag: '--session-id',
+        resume: { style: 'flag', token: '--resume' },
+        status_authority: 'hooks',
+      },
+    },
   },
   server: {
     port: 9090,
@@ -435,6 +461,28 @@ export function needsSetup(
     if (!p?.base_url || !p?.workspace_slug) return true;
   }
   return false;
+}
+
+/**
+ * Resuelve la definición mecánica de un agente del registro `config.agents`.
+ *
+ * Never-throws con fallback en cadena: agente pedido → `agents.default` →
+ * `'claude-code'` de `DEFAULT_CONFIG` (que siempre existe). Un nombre desconocido
+ * NO es error: cae al default — el caller que necesite distinguir "no existe"
+ * puede comparar `getAgentDef(config, name) === getAgentDef(config)`.
+ *
+ * Los consumers de construcción de comando (`buildClaudeCommand`,
+ * `launchOrchestrator`) DEBEN leer binario/flags de aquí, no literales inline —
+ * único punto de cambio para el futuro dispatch multi-agente.
+ *
+ * @param {object} config - config ya cargada (loadConfig).
+ * @param {string} [name] - id del agente. Default `config.agents.default`.
+ * @returns {typeof DEFAULT_CONFIG.agents.registry['claude-code']}
+ */
+export function getAgentDef(config, name) {
+  const agents = config?.agents || DEFAULT_CONFIG.agents;
+  const key = name || agents.default || 'claude-code';
+  return agents.registry?.[key] || DEFAULT_CONFIG.agents.registry['claude-code'];
 }
 
 /**

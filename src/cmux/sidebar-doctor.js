@@ -46,7 +46,6 @@ import {
   listWorkspacesJson,
   createWorkspaceGroup,
   addToWorkspaceGroup,
-  setGroupAnchor,
   ungroupWorkspaceGroup,
 } from './client.js';
 // LOG-12: noopLogger es el stub zero-import whitelisted — NUNCA logger.js.
@@ -56,7 +55,7 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
 /**
  * @typedef {import('../session/state.js').Session} Session
  *
- * @typedef {{ name: string, anchor: string, members: string[] }} MissingGroupItem
+ * @typedef {{ name: string, members: string[] }} MissingGroupItem
  * @typedef {{ group: string, workspace_ref: string, name: string }} LooseWorkspaceItem
  * @typedef {{ ref: string, name: string }} EmptyGroupItem
  * @typedef {{ ref: string, group: string, name: string }} ProtectedItem
@@ -67,7 +66,6 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
  *   empty_group: EmptyGroupItem[],
  *   protected: { sessions: ProtectedItem[] },
  *   hasActions: boolean,
- *   hasAdvisories: boolean,
  * }} SidebarReport
  *
  * @typedef {{
@@ -77,7 +75,6 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
  *   listWorkspacesRaw?: () => Promise<string> | string,
  *   createWorkspaceGroup?: (opts: { name?: string, from?: string[] }) => Promise<string>,
  *   addToWorkspaceGroup?: (opts: { group: string, workspace: string }) => Promise<string>,
- *   setGroupAnchor?: (opts: { group: string, workspace: string }) => Promise<string>,
  *   ungroupWorkspaceGroup?: (opts: { group: string }) => Promise<string>,
  *   now?: () => number,
  *   logger?: { info: Function, warn: Function, error: Function },
@@ -98,7 +95,6 @@ function resolveDeps(deps = {}) {
     // Allowlist NO-destructivo (solo lo consume execute; jamás delete/remove/rename).
     createWorkspaceGroup: deps.createWorkspaceGroup || createWorkspaceGroup,
     addToWorkspaceGroup: deps.addToWorkspaceGroup || addToWorkspaceGroup,
-    setGroupAnchor: deps.setGroupAnchor || setGroupAnchor,
     ungroupWorkspaceGroup: deps.ungroupWorkspaceGroup || ungroupWorkspaceGroup,
     now: deps.now || (() => Date.now()),
     // logger default seguro: sidebarDoctorScan invoca logger.info; un undefined
@@ -261,11 +257,13 @@ export async function scan(deps = {}) {
   for (const [expected, sessions] of byExpected) {
     const groupRef = resolveWorkspaceGroup(groupsJson, expected);
     if (!groupRef) {
-      // grupo faltante O disuelto (D-07): mismo remedio create+add+set-anchor
+      // grupo faltante O disuelto (D-07): mismo remedio `create --from <miembros>`.
+      // El orden oldest-first NO elige ancla (KODO-14: `create --from` jamás reutiliza
+      // un workspace existente como ancla, siempre levanta un shell nuevo) — solo hace
+      // el argv determinista y el report idempotente.
       const ordered = sortByOldest(sessions);
       missing_group.push({
         name: expected,
-        anchor: ordered[0].workspace_ref,
         members: ordered.map((s) => s.workspace_ref),
       });
     } else {
@@ -294,14 +292,11 @@ export async function scan(deps = {}) {
       && !looseGroupRefs.has(g.ref))
     .map((g) => ({ ref: g.ref, name: typeof g.name === 'string' ? g.name : '' }));
 
-  // hasActions cuenta SOLO lo que execute() ejecuta (loose→add, empty→ungroup).
-  // missing_group quedó EXCLUIDO (G-79-1): el doctor ya no auto-crea grupos porque
-  // anclar en una sesión viva la convierte en el header del grupo (cmux 0.64.20).
-  // Un grupo faltante es ahora un ADVISORY: requiere acción del operador, no cuenta
-  // para el exit code → un 2º pase --fix converge (exit 0) y el piggyback de Phase 80
-  // no entra en bucle sobre advisories no auto-arreglables.
-  const hasActions = loose_workspace.length + empty_group.length > 0;
-  const hasAdvisories = missing_group.length > 0;
+  // hasActions cuenta las 3 categorías: TODAS son ejecutables (KODO-14 — missing_group
+  // volvió al carril automático vía `create --from`, sin `set-anchor`). Un 2º pase --fix
+  // sobre un sidebar ya convergido da exit 0, así que el piggyback de Phase 80 no entra
+  // en bucle.
+  const hasActions = missing_group.length + loose_workspace.length + empty_group.length > 0;
 
   sidebarDoctorScan(/** @type {any} */ (d.logger), {
     mode: 'dry-run',
@@ -316,7 +311,6 @@ export async function scan(deps = {}) {
     empty_group,
     protected: { sessions: protectedSessions },
     hasActions,
-    hasAdvisories,
   };
 }
 
@@ -344,7 +338,7 @@ function pushError(result, log, category, target, reason) {
 
 /**
  * Sanea el sidebar emitiendo EXCLUSIVAMENTE el allowlist NO-destructivo
- * (create/add/set-anchor/ungroup) en orden D-09. RE-detecta llamando `scan(deps)`
+ * (create/add/ungroup) en orden D-09. RE-detecta llamando `scan(deps)`
  * FRESCO (D-06 TOCTOU — NO consume un report externo: un grupo pudo crearse o
  * disolverse entre el scan del dry-run y este pase). Cada acción va en su
  * try/catch → pushError + continúa (fail-open per item); never-throws top-level.
@@ -366,11 +360,21 @@ export async function execute(deps = {}, opts = {}) {
     // RE-detección fresca (D-06). scan es never-throws → no puede tumbar execute.
     const report = await scan(deps);
 
-    // ── missing_group: NO se ejecuta (G-79-1). El doctor NO ancla grupos en sesiones
-    //    vivas — en cmux 0.64.20 el header del grupo ES la fila sidebar del anchor, así
-    //    que crear+anclar en una sesión viva le roba su título. missing_group es un
-    //    ADVISORY (report.hasAdvisories): el operador crea el grupo conscientemente y el
-    //    doctor lo mantiene poblado vía add. result.created queda siempre en 0. ──
+    // ── missing_group: `create --name <expected> --from <miembros>` (KODO-14) ──
+    //    G-79-1 en su forma ESTRECHA: lo que roba la fila sidebar de una sesión viva es
+    //    `set-anchor` sobre ella, NO el `create`. Verificado en vivo (2026-07-31, cmux
+    //    0.64.20): `create --from workspace:22` (sesión viva) devolvió anchor=workspace:23
+    //    — un shell NUEVO — con la sesión como MIEMBRO. `create --from` nunca reutiliza un
+    //    workspace existente como ancla, así que el grupo sobrevive al cierre de la sesión.
+    //    Sin `add` posterior: `--from` ya mete a todos los miembros de una.
+    for (const m of report.missing_group) {
+      try {
+        await d.createWorkspaceGroup({ name: m.name, from: m.members });
+        result.created++;
+      } catch (e) {
+        pushError(result, log, 'create', m.name, errMsg(e));
+      }
+    }
 
     // ── loose_workspace: add al grupo existente (SDR-05) ──
     for (const l of report.loose_workspace) {
