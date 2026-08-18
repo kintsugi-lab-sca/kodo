@@ -184,6 +184,26 @@ export async function resolveWorkspaceId(ref, deps = {}) {
  *                      queda sin supervisor).
  *   - `unverifiable` — hay registro pero el host no contestó (cmux caído, timeout,
  *                      JSON corrupto). NO lanzar.
+ *   - `foreign-host` — hay registro pero se creó bajo OTRO cliente (KODO-18). NO lanzar
+ *                      sin `--force`.
+ *
+ * `foreign-host` NO es `dead` (aunque el ref no aparezca) ni `unverifiable` (aunque no
+ * se pueda comprobar), y merecía su propio veredicto en vez de colarse en cualquiera de
+ * los dos:
+ *
+ *   · NO es `dead`, que exige «el host respondió y el workspace NO está». Aquí el host
+ *     respondió sobre OTRO universo: la ausencia de un `workspace:N` en el árbol de Orca
+ *     es ESTRUCTURAL, no evidencia de muerte. Tratarlo como dead limpiaba el registro y
+ *     arrancaba un segundo supervisor mientras el primero seguía vivo — el escenario que
+ *     el párrafo de abajo describe como «hace falta un humano para deshacerlo».
+ *   · NO es `unverifiable`, cuya justificación entera es «el siguiente check reintenta a
+ *     los pocos minutos». Aquí reintentar no resuelve NADA: la ceguera es permanente
+ *     mientras no se vuelva al otro cliente, así que devolverlo dejaría la cola sin
+ *     supervisor para siempre — violando el criterio 3.
+ *
+ * Por eso el veredicto propio: no se lanza solo, pero el mensaje dice exactamente qué
+ * hacer y `--force` es la salida explícita. La decisión es del operador, que es el único
+ * que puede mirar el otro cliente.
  *
  * El caso `unverifiable` es la única decisión no obvia, y va deliberadamente en
  * contra del fail-open habitual del repo. La asimetría de coste lo justifica: dos
@@ -197,15 +217,27 @@ export async function resolveWorkspaceId(ref, deps = {}) {
  * @param {{
  *   listTreeFn?: () => Promise<string>,
  *   getOrchestratorFn?: () => import('../session/state.js').OrchestratorRegistration|null,
+ *   hostName?: string,
  * }} [deps]
- * @returns {Promise<{ status: 'none' } | { status: 'alive'|'dead'|'unverifiable', ref: string }>}
+ * @returns {Promise<{ status: 'none' }
+ *   | { status: 'alive'|'dead'|'unverifiable', ref: string }
+ *   | { status: 'foreign-host', ref: string, host: string }>}
  */
 export async function verifyRegisteredOrchestrator(deps = {}) {
   const listTreeFn = deps.listTreeFn || (() => hostLegacy().listTree());
   const getOrchestratorFn = deps.getOrchestratorFn || getOrchestrator;
+  const hostName = deps.hostName ?? resolveHostName();
 
   const reg = getOrchestratorFn();
   if (!reg) return { status: 'none' };
+
+  // KODO-18: registro de otro cliente. Se decide ANTES de tocar el árbol — preguntarle a
+  // un host por el ref de otro no puede dar información, solo la ilusión de haberla
+  // buscado (y una llamada de I/O de más). Exige evidencia POSITIVA de discrepancia:
+  // un registro legacy sin `host` cae al camino de siempre.
+  if (reg.host && hostName && reg.host !== hostName) {
+    return { status: 'foreign-host', ref: reg.workspace_ref, host: reg.host };
+  }
 
   let tree;
   try {
@@ -327,6 +359,7 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
  *
  * @param {{
  *   logger?: import('../logger.js').Logger,
+ *   force?: boolean,
  *   spawnFn?: (ctx: {
  *     workspaceRef: string,
  *     sessionId: string,
@@ -335,9 +368,10 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
  *     taskRef: string,
  *   }) => Promise<void> | void,
  * }} [opts]
- * @returns {Promise<{ workspace: string, existing: boolean, verified?: boolean }>}
- *   `verified:false` marca el único caso en que `existing:true` NO significa «lo he
- *   visto vivo», sino «hay uno registrado y no he podido comprobarlo, así que no lanzo».
+ * @returns {Promise<{ workspace: string, existing: boolean, verified?: boolean, foreignHost?: string }>}
+ *   `verified:false` marca los casos en que `existing:true` NO significa «lo he visto
+ *   vivo», sino «hay uno registrado y no he podido comprobarlo, así que no lanzo»:
+ *   el host no contesta, o el registro es de otro cliente (`foreignHost`, KODO-18).
  */
 export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
@@ -392,7 +426,7 @@ export async function launchOrchestrator(opts = {}) {
   // KODO-18: el host activo se resuelve UNA vez por launch y se sella en el registro,
   // para que un `kodo orchestrate` posterior sepa bajo qué host se creó.
   const hostName = resolveHostName();
-  const verdict = await verifyRegisteredOrchestrator();
+  const verdict = await verifyRegisteredOrchestrator({ hostName });
   if (verdict.status === 'alive') {
     // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
     // Phase 73): el orquestador ya se auto-pacea con sus rondas de supervisión, y cualquier
@@ -411,27 +445,34 @@ export async function launchOrchestrator(opts = {}) {
     );
     return { workspace: verdict.ref, existing: true, verified: false };
   }
+  if (verdict.status === 'foreign-host') {
+    // KODO-18 — el registro es de OTRO cliente, así que este host no puede decir nada
+    // sobre él: su ausencia del árbol es estructural, no evidencia de muerte. Lanzar
+    // igualmente arrancaría un segundo supervisor mientras el primero quizá sigue vivo,
+    // y dos supervisores sobre el mismo state.json duplican comentarios en el provider y
+    // despachan la misma tarea dos veces. Bloquear para siempre tampoco vale: reintentar
+    // no resuelve nada mientras no se vuelva al otro cliente.
+    //
+    // Así que la decisión es del OPERADOR — el único que puede mirar el otro cliente — y
+    // el mensaje dice exactamente qué hacer. `--force` es la salida explícita.
+    if (!opts.force) {
+      console.log(
+        `[kodo] Orchestrator registrado en ${verdict.ref} pertenece al host '${verdict.host}' ` +
+          `y el host activo es '${hostName}' — NO se lanza otro.\n` +
+          `[kodo]   Desde '${hostName}' no puedo ver si sigue vivo. Si el orquestador de ` +
+          `'${verdict.host}' está abierto, ciérralo; después: kodo orchestrate --force`,
+      );
+      return { workspace: verdict.ref, existing: true, verified: false, foreignHost: verdict.host };
+    }
+    console.log(
+      `[kodo] --force: se descarta el registro del host '${verdict.host}' y se lanza en '${hostName}'`,
+    );
+    clearOrchestrator();
+  }
   if (verdict.status === 'dead') {
     // Evidencia positiva de muerte: el host respondió y el workspace no está. Se limpia
     // el registro para que la cola no quede sin supervisor y se sigue al launch.
-    //
-    // KODO-18 — distinguir «murió» de «cambiaste de host». Desde que `config.host` es
-    // conmutable, un registro hecho bajo cmux es INVISIBLE desde orca (y viceversa): el
-    // veredicto `dead` es literalmente cierto y relanzar es correcto, pero el
-    // orquestador del host anterior puede seguir vivo, y dos supervisores sobre el mismo
-    // state.json se pisan los nudges y duplican comentarios en el provider. No se puede
-    // verificar el otro host desde aquí, así que se AVISA — que es lo único honesto.
-    const previous = getOrchestrator();
-    if (previous?.host && previous.host !== hostName) {
-      console.log(
-        `[kodo] AVISO: el orquestador registrado en ${verdict.ref} pertenece al host ` +
-          `'${previous.host}' y el host activo ahora es '${hostName}'. Se relanza en ` +
-          `'${hostName}', pero CIERRA a mano el orquestador de '${previous.host}' si sigue ` +
-          'abierto — dos supervisores comparten state.json y la cola.',
-      );
-    } else {
-      console.log(`[kodo] Orchestrator registrado en ${verdict.ref} ya no existe — se relanza`);
-    }
+    console.log(`[kodo] Orchestrator registrado en ${verdict.ref} ya no existe — se relanza`);
     clearOrchestrator();
   }
 

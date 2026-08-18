@@ -189,6 +189,67 @@ describe('verifyRegisteredOrchestrator — el gate anti-duplicado', () => {
   });
 });
 
+describe('verifyRegisteredOrchestrator — veredicto foreign-host (KODO-18)', () => {
+  const reg = (host) => ({
+    workspace_ref: 'workspace:32',
+    workspace_id: ORCH_UUID,
+    session_id: 's',
+    started_at: '2026-08-18T09:00:00Z',
+    ...(host ? { host } : {}),
+  });
+
+  it('un registro de OTRO host da `foreign-host`, no `dead`', async () => {
+    // `dead` exige «el host respondió y el workspace NO está». Aquí el host respondió
+    // sobre otro universo: la ausencia es estructural. Confundirlos limpiaba el registro
+    // y arrancaba un segundo supervisor.
+    const v = await verifyRegisteredOrchestrator({
+      getOrchestratorFn: () => reg('orca'),
+      listTreeFn: async () => JSON.stringify({ windows: [] }),
+      hostName: 'cmux',
+    });
+    assert.equal(v.status, 'foreign-host');
+    assert.equal(v.host, 'orca', 'nombra el host del registro para que el caller pueda avisar');
+    assert.equal(v.ref, 'workspace:32');
+  });
+
+  it('NO consulta el árbol: preguntarle a un host por el ref de otro no informa de nada', async () => {
+    let consultado = false;
+    await verifyRegisteredOrchestrator({
+      getOrchestratorFn: () => reg('orca'),
+      listTreeFn: async () => { consultado = true; return '{}'; },
+      hostName: 'cmux',
+    });
+    assert.equal(consultado, false, 'se decide antes de gastar la llamada');
+  });
+
+  it('mismo host → sigue el camino normal (la guarda no es un pase libre)', async () => {
+    const v = await verifyRegisteredOrchestrator({
+      getOrchestratorFn: () => reg('cmux'),
+      listTreeFn: async () => JSON.stringify({ windows: [] }),
+      hostName: 'cmux',
+    });
+    assert.equal(v.status, 'dead', 'el host respondió y no está: eso SÍ es evidencia');
+  });
+
+  it('registro legacy sin `host` → camino previo intacto (cero regresión)', async () => {
+    const v = await verifyRegisteredOrchestrator({
+      getOrchestratorFn: () => reg(null),
+      listTreeFn: async () => JSON.stringify({ windows: [] }),
+      hostName: 'orca',
+    });
+    assert.equal(v.status, 'dead');
+  });
+
+  it('sin registro sigue devolviendo `none` aunque haya hostName', async () => {
+    const v = await verifyRegisteredOrchestrator({
+      getOrchestratorFn: () => null,
+      listTreeFn: async () => { throw new Error('no debería consultarse'); },
+      hostName: 'orca',
+    });
+    assert.equal(v.status, 'none');
+  });
+});
+
 describe('resolveWorkspaceId — UUID de un workspace:N', () => {
   it('resuelve el UUID desde el árbol', async () => {
     const id = await resolveWorkspaceId('workspace:32', {

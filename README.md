@@ -329,19 +329,20 @@ Las sesiones lanzadas antes de v0.19 no llevan el sello y sí se evalúan como a
 ### Cambiar de cliente con un orquestador vivo
 
 Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador del
-cliente anterior queda **fuera del alcance** del nuevo: su workspace no existe ahí,
-así que kodo lo da por muerto y lanza otro. El registro guarda bajo qué host se creó,
-así que en ese caso verás un aviso explícito:
+cliente anterior queda **fuera del alcance** del nuevo: su workspace no aparece ahí, y
+esa ausencia es *estructural* — no significa que haya muerto. kodo **no lanza otro por
+su cuenta**: dos supervisores sobre el mismo `state.json` despachan la misma tarea dos
+veces, se pisan los nudges y duplican comentarios en el provider.
 
 ```
-[kodo] AVISO: el orquestador registrado en … pertenece al host 'cmux' y el host
-activo ahora es 'orca'. Se relanza en 'orca', pero CIERRA a mano el orquestador de
-'cmux' si sigue abierto — dos supervisores comparten state.json y la cola.
+[kodo] Orchestrator registrado en … pertenece al host 'cmux' y el host activo es
+'orca' — NO se lanza otro.
+[kodo]   Desde 'orca' no puedo ver si sigue vivo. Si el orquestador de 'cmux' está
+abierto, ciérralo; después: kodo orchestrate --force
 ```
 
-Cierra el anterior a mano. kodo no puede comprobar el otro cliente desde dentro, y
-dos supervisores sobre el mismo `state.json` se pisan los nudges y duplican
-comentarios en el provider.
+La decisión es tuya porque eres el único que puede mirar el otro cliente. Comprueba que
+el anterior está cerrado y lanza el nuevo con `--force`.
 
 ### Límites conocidos (v0.19)
 

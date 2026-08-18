@@ -145,12 +145,12 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
   }
 
   /** Corre launchOrchestrator en subprocess y devuelve su resultado + el log de cmux. */
-  async function runLaunch() {
+  async function runLaunch(launchOpts = {}) {
     const launchUrl = pathToFileURL(join(REPO, 'src', 'orchestrator', 'launch.js')).href;
     const script = [
       `process.env.HOME = ${JSON.stringify(tmpHome)};`,
       `const { launchOrchestrator } = await import(${JSON.stringify(launchUrl)});`,
-      'const result = await launchOrchestrator();',
+      `const result = await launchOrchestrator(${JSON.stringify(launchOpts)});`,
       "process.stdout.write('__RECEIPT__' + JSON.stringify(result) + '\\n');",
       'process.exit(0);',
     ].join('\n');
@@ -298,11 +298,7 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
     assert.ok(lastTree < sendIdx, 'la identidad se registra antes de arrancar claude');
   });
 
-  it('KODO-18: un registro de OTRO host se relanza CON aviso explícito de doble supervisor', async () => {
-    // Desde que `config.host` es conmutable, un registro hecho bajo orca es invisible
-    // desde cmux: el veredicto `dead` es literalmente cierto y relanzar es correcto,
-    // pero el orquestador de orca puede seguir vivo. kodo no puede comprobarlo desde
-    // aquí, así que lo mínimo honesto es avisar en vez de callar.
+  function seedForeignRegistration() {
     seedState({
       workspace_ref: 'repo-x::/orca/workspaces/kodo/kodo-orchestrator',
       workspace_id: 'repo-x::/orca/workspaces/kodo/kodo-orchestrator',
@@ -314,13 +310,41 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
       tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: NEW_REF, id: NEW_UUID }] }] },
       workspaceList: '',
     });
-    const { calls, stdout } = await runLaunch();
-    assert.ok(createdWorkspace(calls), 'la cola no puede quedarse sin supervisor: se relanza');
-    assert.match(stdout, /AVISO/, 'debe avisar del cambio de host');
-    assert.match(stdout, /'orca'/, 'nombra el host del registro huérfano');
+  }
+
+  it('KODO-18: un registro de OTRO host NO se relanza solo — la decisión es del operador', async () => {
+    // Un registro de orca es invisible desde cmux, pero esa ausencia es ESTRUCTURAL, no
+    // evidencia de muerte: el orquestador de orca puede seguir perfectamente vivo. Lanzar
+    // igualmente arrancaría un segundo supervisor sobre el mismo state.json, que es justo
+    // lo que este carril existe para impedir.
+    seedForeignRegistration();
+    const { calls, stdout, result } = await runLaunch();
+    assert.ok(!createdWorkspace(calls), 'NO se crea un segundo workspace');
+    assert.equal(result.verified, false, 'existing:true pero sin haberlo visto vivo');
+    assert.equal(result.foreignHost, 'orca');
+    // El registro NO se limpia: sigue siendo la única pista de que hay algo en orca.
+    assert.equal(readState().orchestrator.host, 'orca', 'el registro se conserva');
+  });
+
+  it('KODO-18: el mensaje dice qué hacer, no solo qué pasa', async () => {
+    // Un aviso que no es accionable es ruido: el operador tiene que saber que debe mirar
+    // el otro cliente y cuál es la salida.
+    seedForeignRegistration();
+    const { stdout } = await runLaunch();
+    assert.match(stdout, /'orca'/, 'nombra el host del registro');
     assert.match(stdout, /'cmux'/, 'nombra el host activo');
-    // El registro nuevo queda sellado con el host ACTIVO, no con el anterior.
-    assert.equal(readState().orchestrator.host, 'cmux');
+    assert.match(stdout, /ciérralo/i, 'dice qué hacer con el orquestador anterior');
+    assert.match(stdout, /kodo orchestrate --force/, 'da la salida explícita');
+  });
+
+  it('KODO-18: --force descarta el registro ajeno y lanza en el host activo', async () => {
+    // La cola no puede quedarse sin supervisor para siempre: reintentar no resuelve nada
+    // mientras no se vuelva al otro cliente, así que hace falta una salida explícita.
+    seedForeignRegistration();
+    const { calls, stdout } = await runLaunch({ force: true });
+    assert.ok(createdWorkspace(calls), 'con --force sí se lanza');
+    assert.match(stdout, /--force/);
+    assert.equal(readState().orchestrator.host, 'cmux', 'el registro nuevo lleva el host activo');
   });
 
   it('KODO-18: un registro del MISMO host muerto NO dispara el aviso cross-host', async () => {
