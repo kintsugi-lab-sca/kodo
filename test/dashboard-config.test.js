@@ -236,8 +236,9 @@ describe('UX-02/D-01: text-input con cursor, backspace, ←, inserción en medio
     const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
     try {
       await drain();
-      stdin.write('e'); // abre config (fieldCursor=0 → default_model='opus')
-      await drain();
+      // KODO-18: la fila se localiza por PATH (openFieldRow), no por el índice 0 — ese
+      // índice pasó a ser `host` cuando el selector de cliente entró al editor.
+      await openFieldRow(stdin, 'claude.default_model');
       stdin.write('\r'); // entra a config-edit, precarga 'opus' con el cursor al final
       await drain();
       stdin.write('8'); // 'opus8'

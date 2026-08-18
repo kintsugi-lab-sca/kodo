@@ -372,6 +372,22 @@ export function createCmuxHost(opts = {}) {
     async setColor(opts) {
       return (await import('../cmux/client.js')).setColor(opts);
     },
+    /**
+     * Refleja el estado semántico de la sesión en el host (KODO-18). Verbo
+     * HOST-AGNÓSTICO: recibe el estado de kodo (`running`/`done`/`error`/`review`),
+     * NO un color ya resuelto — cada host decide su canal (color de tab en cmux,
+     * columna del tablero en orca). Esto saca `colorForStatus` del launch path y deja
+     * el vocabulario de colores confinado a este módulo, que es lo que permitió que
+     * `session/manager.js` deje de importar `cmux/colors.js`.
+     * @param {{ workspace: string, status: 'running'|'done'|'error'|'review' }} opts
+     */
+    async setStatus(opts) {
+      const [{ setColor }, { colorForStatus }] = await Promise.all([
+        import('../cmux/client.js'),
+        import('../cmux/colors.js'),
+      ]);
+      return setColor({ workspace: opts.workspace, color: colorForStatus(opts.status) });
+    },
     /** @param {{ workspace: string, description: string }} opts */
     async setDescription(opts) {
       return (await import('../cmux/client.js')).setDescription(opts);

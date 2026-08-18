@@ -4,8 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
-import { getHost } from '../host/interface.js';
-import { colorForStatus } from '../cmux/colors.js';
+import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { writePromptFile } from './prompt-file.js';
@@ -392,11 +391,13 @@ export async function launchWorkItem(identifier, opts = {}) {
     console.error(`[kodo] Error moving to In Progress: ${err.message}`);
   }
 
-  // Phase 38 SC#5: cmux confinado a src/host/. Los métodos de lifecycle no-contract
-  // (newWorkspace/setColor/send/notify) se consumen vía host._legacy — passthrough
-  // fiel de cmux/client.js (CONTEXT.md D-09). Comportamiento idéntico al previo
-  // `import * as cmux`; solo cambia el punto de entrada (walker cmux-isolation verde).
-  const host = getHost('cmux');
+  // Phase 38 SC#5: el cliente del host queda confinado a src/host/. Los métodos de
+  // lifecycle no-contract (newWorkspace/setStatus/send/notify) se consumen vía
+  // host._legacy — passthrough fiel del cliente (CONTEXT.md D-09).
+  // KODO-18: el host ya no es el literal 'cmux' sino el ACTIVO (`config.host`). Todo lo
+  // que sigue en esta función habla el vocabulario del contrato, no el de cmux.
+  const hostName = resolveHostName();
+  const host = getHost(hostName);
 
   // Phase 77 (GRP-01/02/03 · D-09/D-12): resolver el grupo cmux del path resuelto EN
   // FRESCO por lanzamiento. Capa 1 fail-open englobante — cualquier fallo de list /
@@ -440,8 +441,12 @@ export async function launchWorkItem(identifier, opts = {}) {
     groupRef,
   );
 
-  // Set color to "running"
-  await host._legacy.setColor({ workspace: workspaceRef, color: colorForStatus('running') });
+  // Marca el estado inicial de la sesión en el host. KODO-18: verbo HOST-AGNÓSTICO
+  // (`setStatus`) en vez del `setColor` de vocabulario cmux — cada host elige su canal:
+  // color de tab en cmux, columna del tablero en orca. La resolución del color vive
+  // ahora dentro de host/cmux.js, que es lo que permite que este módulo deje de
+  // importar `cmux/colors.js`.
+  await host._legacy.setStatus({ workspace: workspaceRef, status: 'running' });
 
   // Marca kodo del workspace: description "⬢ <ref> · <título>". Es el marcador
   // machine-readable de "sesión gestionada por kodo" (el título es heurístico y
@@ -468,6 +473,14 @@ export async function launchWorkItem(identifier, opts = {}) {
   // running/alive en state.json. Detectamos el cwd ANTES de montar el comando:
   // git → aislamiento por worktree (Phase 18 intacto); no-git → sin --worktree.
   const gitBacked = isGitRepo(projectPath);
+  // KODO-18: hay hosts que YA aíslan por su cuenta. `orca worktree create` materializa
+  // un checkout git propio en `~/orca/workspaces/<repo>/<slug>`, así que pedir ADEMÁS
+  // `claude --worktree` anidaría un segundo worktree y —lo grave— dejaría el
+  // `worktree_path` de state.json apuntando a `<projectPath>/.bg-shell/<sessionId>`, un
+  // path que nadie crea: session-end intentaría un cleanup fantasma. Con cmux esto es
+  // `false` y TODO el comportamiento previo queda intacto.
+  const hostOwnsWorktree = hostIsolatesWorktree(hostName);
+  const isolateWithClaude = gitBacked && !hostOwnsWorktree;
   // Phase 18 (D-01, D-02, D-03): compute deterministic worktree path PRE-spawn.
   // Single source of truth: computeWorktreePath de session/state.js (Plan 01).
   // El path NO se crea aquí — `claude --worktree <sessionId>` lo materializa al
@@ -475,12 +488,17 @@ export async function launchWorkItem(identifier, opts = {}) {
   // (D-05 fail-fast canonical error en el dispatcher, fuera de launchWorkItem).
   // KODO-9: solo para proyectos git. En no-git no hay worktree que materializar,
   // así que worktree_path queda sin persistir (buildSessionFromTask lo omite vía
-  // spread condicional) y session-end no intenta un cleanup fantasma.
-  const worktreePath = gitBacked ? computeWorktreePath(projectPath, sessionId) : null;
-  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, gitBacked);
+  // spread condicional) y session-end no intenta un cleanup fantasma. KODO-18: lo
+  // mismo cuando el aislamiento lo pone el host.
+  const worktreePath = isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null;
+  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude);
   // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
   if (!gitBacked) {
     console.log(`[kodo] worktree_skipped_nongit — ${task.ref}: ${projectPath} no es un repositorio git; se lanza sin --worktree`);
+  } else if (hostOwnsWorktree) {
+    // KODO-18: traza hermana, greppable, para no confundir la ausencia de --worktree
+    // con el caso no-git de arriba.
+    console.log(`[kodo] worktree_skipped_host — ${task.ref}: el host '${hostName}' ya aísla por worktree; se lanza sin --worktree`);
   }
 
   // Track session in state with generic task fields

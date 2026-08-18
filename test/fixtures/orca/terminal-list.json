@@ -1,0 +1,47 @@
+{
+  "_comment": "Golden fixture de `orca terminal list --worktree <sel> --json` (KODO-18). Shape copiado verbatim de orca 1.4.184 (2026-08-18), anonimizado. Las 3 filas cubren la preferencia de pickTerminalHandle: huérfano primero (debe perder), luego el conectado+escribible (debe ganar), luego uno sin handle utilizable.",
+  "id": "fixture-terminal-list",
+  "ok": true,
+  "result": {
+    "terminals": [
+      {
+        "handle": "term_huerfano",
+        "worktreeId": "repo-b::/orca/workspaces/beta/kodo-42",
+        "worktreePath": "/orca/workspaces/beta/kodo-42",
+        "orphaned": true,
+        "title": null,
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": null,
+        "preview": ""
+      },
+      {
+        "handle": "term_kodo42",
+        "worktreeId": "repo-b::/orca/workspaces/beta/kodo-42",
+        "worktreePath": "/orca/workspaces/beta/kodo-42",
+        "orphaned": false,
+        "title": "Terminal 1",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1778599000000,
+        "preview": "❯"
+      },
+      {
+        "handle": "term_desconectado",
+        "worktreeId": "repo-b::/orca/workspaces/beta/kodo-42",
+        "worktreePath": "/orca/workspaces/beta/kodo-42",
+        "orphaned": false,
+        "title": null,
+        "connected": false,
+        "writable": false,
+        "lastOutputAt": null,
+        "preview": ""
+      }
+    ],
+    "totalCount": 3,
+    "truncated": false
+  },
+  "_meta": {
+    "runtimeId": "fixture"
+  }
+}

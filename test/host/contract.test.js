@@ -1,17 +1,32 @@
 // test/host/contract.test.js
 // Phase 38 SC#1 (TUI-17) — WorkspaceHost contract matrix.
 // Espejo de test/providers/contract.test.js: itera implementations × asserts core.
-// IMPLS = ['cmux', 'null']. Todos los it() viven DENTRO del describe del loop
+// IMPLS = ['cmux', 'orca', 'null']. Todos los it() viven DENTRO del describe del loop
 // (pitfall #3 de Phase 27 — asserts por implementación).
+//
+// KODO-18: 'orca' entra a la matriz. Que un host NUEVO pase los mismos asserts del
+// contrato sin tocarlos es justamente lo que la matriz existe para demostrar.
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HOST_METHODS, getHost, validateHost } from '../../src/host/interface.js';
+import {
+  HOST_METHODS,
+  HOST_NAMES,
+  getHost,
+  validateHost,
+  resolveHostName,
+  hostIsolatesWorktree,
+} from '../../src/host/interface.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(__dirname, '..', 'fixtures', 'cmux');
+const ORCA_FIXTURES = join(__dirname, '..', 'fixtures', 'orca');
+
+// KODO-18 — golden fixtures de orca 1.4.184 (shape verbatim, paths anonimizados).
+const ORCA_PS_FIXTURE = readFileSync(join(ORCA_FIXTURES, 'worktree-ps.json'), 'utf-8');
+const ORCA_TERMINALS_FIXTURE = readFileSync(join(ORCA_FIXTURES, 'terminal-list.json'), 'utf-8');
 
 const LIST_FIXTURE = readFileSync(join(FIXTURES, 'list-workspaces.json'), 'utf-8');
 const NOTIF_FIXTURE = readFileSync(join(FIXTURES, 'notification-list.json'), 'utf-8');
@@ -31,7 +46,7 @@ function surfaceShowFor(argv) {
   return entry ? JSON.stringify(entry) : '';
 }
 
-const IMPLS = ['cmux', 'null'];
+const IMPLS = ['cmux', 'orca', 'null'];
 
 /**
  * Leak-guard exec: stub loud-on-call si la impl olvidó usar el inyectable.
@@ -85,6 +100,21 @@ function assertWorkspaceInfoShape(item, label) {
  * Para 'null' instancia directa sin DI.
  */
 function instantiateHost(name, runOverride) {
+  if (name === 'orca') {
+    // El host orca habla SOLO por `run` (no usa `exec`): una única llamada
+    // `worktree ps --json` alimenta listWorkspaces/isAlive/needsInput.
+    return getHost('orca', {
+      run:
+        runOverride ||
+        (async (args) => {
+          const argv = (args || []).join(' ');
+          if (argv.includes('worktree ps')) return ORCA_PS_FIXTURE;
+          if (argv.includes('terminal list')) return ORCA_TERMINALS_FIXTURE;
+          return '';
+        }),
+      binary: '/fake/orca',
+    });
+  }
   if (name === 'cmux') {
     return getHost('cmux', {
       exec: fakeExecFromFixtures(),
@@ -433,6 +463,135 @@ describe('WorkspaceHost contract matrix', () => {
     });
   });
 
+  // KODO-18 — el selector de host: la pieza que hace a Orca *elegible*.
+  describe('selector de host (KODO-18)', () => {
+    test('getHost instancia todos los HOST_NAMES sin lanzar', () => {
+      for (const name of HOST_NAMES) {
+        assert.doesNotThrow(() => validateHost(getHost(name)), `getHost('${name}') debe cumplir el contrato`);
+      }
+    });
+
+    test('un host desconocido sigue lanzando (no se instancia silenciosamente un cmux)', () => {
+      assert.throws(() => getHost('tmux'), /Unknown host/);
+    });
+
+    test('resolveHostName SIEMPRE devuelve un host elegible (fail-safe, never-throws)', () => {
+      // Lee ~/.kodo/config.json real: el test no fija el valor, fija el INVARIANTE —
+      // pase lo que pase con el fichero, el daemon arranca con un host instanciable.
+      let name;
+      assert.doesNotThrow(() => {
+        name = resolveHostName();
+      });
+      assert.ok(HOST_NAMES.includes(name), `resolveHostName devolvió '${name}'`);
+      assert.doesNotThrow(() => getHost(name));
+    });
+
+    test('hostIsolatesWorktree: solo orca trae su propio checkout', () => {
+      // De este booleano depende que kodo emita o no `claude --worktree`. Si cmux
+      // devolviera true, TODAS las sesiones de cmux perderían su aislamiento.
+      assert.equal(hostIsolatesWorktree('cmux'), false);
+      assert.equal(hostIsolatesWorktree('orca'), true);
+      assert.equal(hostIsolatesWorktree('desconocido'), false, 'ante la duda, NO se omite el aislamiento');
+    });
+  });
+
+  // KODO-18 — asserts golden de OrcaHost contra worktree-ps.json (orca 1.4.184).
+  // Los cuatro casos que este host debe distinguir y que cmux resuelve de otra forma.
+  describe('OrcaHost — derivación de WorkspaceInfo desde `worktree ps`', () => {
+    let host;
+    before(() => {
+      host = instantiateHost('orca');
+    });
+
+    test('workspace_ref ← worktreeId y title ← displayName', async () => {
+      const items = await host.listWorkspaces();
+      const kodo42 = items.find((w) => w.workspace_ref === 'repo-b::/orca/workspaces/beta/kodo-42');
+      assert.ok(kodo42, 'la fila kodo-42 está presente por su worktreeId');
+      assert.equal(kodo42.title, 'KODO-42: arreglar el login');
+    });
+
+    test('alive: `status:active` sí, `status:inactive` no, archivado NUNCA', async () => {
+      const items = await host.listWorkspaces();
+      const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
+      assert.equal(byRef.get('repo-a::/repos/alpha').alive, true, 'status active → alive');
+      assert.equal(
+        byRef.get('repo-a::/orca/workspaces/alpha/dormido').alive,
+        false,
+        'PRESENCIA ≠ VIDA en Orca: un worktree sin terminales sigue listado pero no está vivo',
+      );
+      assert.equal(
+        byRef.get('repo-b::/orca/workspaces/beta/archivado').alive,
+        false,
+        'isArchived gana sobre status:active',
+      );
+    });
+
+    test('needs_input SOLO desde agents[].state — `unread` NO es proxy', async () => {
+      await host.listWorkspaces(); // puebla el snapshot 1-tick
+      assert.equal(
+        await host.needsInput('repo-b::/orca/workspaces/beta/kodo-42'),
+        true,
+        'agents[0].state === "waiting" → needs_input',
+      );
+      // La fila `dormido` tiene unread:true y agents:[] — si `unread` se usara como
+      // proxy, casi toda sesión en marcha entraría en needs-input (falsos positivos).
+      assert.equal(
+        await host.needsInput('repo-a::/orca/workspaces/alpha/dormido'),
+        false,
+        'unread:true con agents[] vacío NO debe marcar needs_input',
+      );
+    });
+
+    test('last_activity: epoch ms → ISO, con lastOutputAt ganando a lastActivityAt', async () => {
+      const items = await host.listWorkspaces();
+      const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
+      assert.equal(
+        byRef.get('repo-b::/orca/workspaces/beta/kodo-42').last_activity,
+        new Date(1778599000000).toISOString(),
+        'lastOutputAt (más preciso) gana cuando existe',
+      );
+      assert.equal(
+        byRef.get('repo-a::/repos/alpha').last_activity,
+        new Date(1778598551705).toISOString(),
+        'sin lastOutputAt cae a lastActivityAt',
+      );
+    });
+
+    test('un sobre con ok:false NO se confunde con «lista vacía» (never-throws → [])', async () => {
+      const down = async () =>
+        JSON.stringify({ id: 'x', ok: false, error: { code: 'runtime_unavailable', message: 'app cerrada' } });
+      const h = instantiateHost('orca', down);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.deepEqual(items, [], 'runtime caído → [] sin lanzar');
+    });
+
+    test('filas null / sin worktreeId se filtran fila-a-fila (never-throws)', async () => {
+      const malformed = async () =>
+        JSON.stringify({
+          id: 'x',
+          ok: true,
+          result: { worktrees: [null, { displayName: 'sin id' }, { worktreeId: 'repo-a::/x', status: 'active' }] },
+        });
+      const h = instantiateHost('orca', malformed);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.equal(items.length, 1, 'solo sobrevive la fila con worktreeId string');
+      assert.equal(items[0].workspace_ref, 'repo-a::/x');
+    });
+
+    test('NO implementa listAgentSurfaces (Orca no publica el session_id de Claude)', () => {
+      // Decisión explícita, no un olvido: sin `checkpoint_id` no hay forma honesta de
+      // reconstruir la identidad de una sesión ad-hoc, así que el método OPCIONAL se
+      // deja AUSENTE y el descubrimiento de adopción degrada a [] por el typeof.
+      assert.notEqual(typeof instantiateHost('orca').listAgentSurfaces, 'function');
+    });
+  });
+
   // Phase 59 (liveness gap-fix) — _legacy.rename para que `kodo adopt` renombre el
   // workspace y su título lleve el task_ref (→ titleIdentifiesSession pasa en reconcile).
   describe('_legacy.rename (Phase 59 liveness)', () => {
@@ -449,6 +608,11 @@ describe('WorkspaceHost contract matrix', () => {
         const r = await host._legacy.rename({ workspace: 'workspace:1', title: 'X' });
         assert.equal(r, undefined);
       });
+    });
+
+    test('orca host expone _legacy.rename como función', () => {
+      const host = instantiateHost('orca');
+      assert.equal(typeof host?._legacy?.rename, 'function', 'orca _legacy.rename presente');
     });
 
     test('cmux/client.js rename emite argv canónico `workspace rename <ws> --title <t>`', () => {

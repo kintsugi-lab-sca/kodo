@@ -10,10 +10,12 @@ import {
   getByPath,
   setByPath,
   getEditableFields,
+  validateHostName,
   MODELS,
   CMUX_COLORS,
+  HOST_NAMES,
 } from '../src/config-validate.js';
-import { DEFAULT_CONFIG } from '../src/config.js';
+import { DEFAULT_CONFIG, mergeAndValidateConfig } from '../src/config.js';
 
 describe('CFG-01/CFG-03 — validatePositiveInt (entero positivo, never-throws)', () => {
   it('acepta un entero positivo en string', () => {
@@ -201,8 +203,11 @@ describe('getByPath / setByPath — dot-walk puro', () => {
 describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () => {
   const fields = getEditableFields(DEFAULT_CONFIG);
 
-  it('devuelve EXACTAMENTE 12 descriptores', () => {
-    assert.equal(fields.length, 12);
+  it('devuelve EXACTAMENTE 13 descriptores', () => {
+    // KODO-18: 12 → 13. El +1 es `host` (el selector de cliente). Los 4 campos de
+    // presentación por estado NO suman: se resuelven contra el host ACTIVO (4 colores
+    // de cmux O 4 columnas de Orca, nunca los 8) — el editor no crece por host nuevo.
+    assert.equal(fields.length, 13);
   });
 
   it('cada descriptor tiene {path,label,kind}', () => {
@@ -254,5 +259,104 @@ describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () 
   // (alias válido de `claude --model`, verificado contra el binario).
   it('MODELS contiene exactamente fable/opus/sonnet/haiku', () => {
     assert.deepEqual([...MODELS].sort(), ['fable', 'haiku', 'opus', 'sonnet']);
+  });
+});
+
+describe('KODO-18 — validateHostName (selector de cliente)', () => {
+  it('acepta los hosts elegibles', () => {
+    assert.deepEqual(validateHostName('cmux'), { ok: true, value: 'cmux' });
+    assert.deepEqual(validateHostName('orca'), { ok: true, value: 'orca' });
+  });
+
+  it('recorta espacios alrededor del valor', () => {
+    assert.deepEqual(validateHostName('  orca '), { ok: true, value: 'orca' });
+  });
+
+  it('rechaza `null` — es un host mock-only del contract test, no una elección', () => {
+    assert.equal(validateHostName('null').ok, false);
+  });
+
+  it('rechaza un host desconocido con un mensaje que lista los válidos', () => {
+    const res = validateHostName('tmux');
+    assert.equal(res.ok, false);
+    assert.match(res.error, /cmux, orca/);
+  });
+
+  it('es case-sensitive (se compara por igualdad en getHost)', () => {
+    assert.equal(validateHostName('Orca').ok, false);
+  });
+
+  it('never-throws ante cualquier tipo', () => {
+    for (const raw of [undefined, null, 42, {}, []]) {
+      assert.doesNotThrow(() => validateHostName(raw));
+      assert.equal(validateHostName(raw).ok, false);
+    }
+  });
+
+  it('HOST_NAMES es la fuente única: exactamente cmux y orca', () => {
+    assert.deepEqual([...HOST_NAMES], ['cmux', 'orca']);
+  });
+});
+
+describe('KODO-18 — `host` en el config: default, merge y fallback', () => {
+  it("DEFAULT_CONFIG.host es 'cmux' (cero regresión para instalaciones existentes)", () => {
+    assert.equal(DEFAULT_CONFIG.host, 'cmux');
+  });
+
+  it('un config SIN la clave `host` la recibe por deep-merge — no hace falta migración', () => {
+    // Este es el argumento entero de por qué KODO-18 no añade un migrateConfig:
+    // loadConfig ya mergea sobre los defaults.
+    const merged = mergeAndValidateConfig({ provider: 'plane', providers: { plane: {} } });
+    assert.equal(merged.host, 'cmux');
+    assert.equal(typeof merged.orca?.binary, 'string');
+    assert.equal(merged.orca.statuses.review, 'in-review');
+  });
+
+  it('un `host` escrito a mano e inválido cae al default en vez de reventar el daemon', () => {
+    // Sin este fallback, getHost() lanzaría `Unknown host` al arrancar el server.
+    const merged = mergeAndValidateConfig({ host: 'tmux', providers: { plane: {} } });
+    assert.equal(merged.host, 'cmux');
+  });
+
+  it("host:'orca' sobrevive al merge y arrastra su bloque", () => {
+    const merged = mergeAndValidateConfig({ host: 'orca', providers: { plane: {} } });
+    assert.equal(merged.host, 'orca');
+    assert.equal(merged.orca.statuses.running, 'in-progress');
+  });
+});
+
+describe('KODO-18 — getEditableFields resuelve la presentación contra el host ACTIVO', () => {
+  it('con host cmux muestra los 4 colores y NINGÚN estado de Orca', () => {
+    const paths = getEditableFields({ provider: 'plane', host: 'cmux' }).map((f) => f.path);
+    assert.ok(paths.includes('cmux.colors.running'));
+    assert.ok(!paths.some((p) => p.startsWith('orca.')), 'un usuario de cmux no ve campos de Orca');
+  });
+
+  it('con host orca muestra las 4 columnas y NINGÚN color de cmux', () => {
+    const paths = getEditableFields({ provider: 'plane', host: 'orca' }).map((f) => f.path);
+    assert.ok(paths.includes('orca.statuses.review'));
+    assert.ok(!paths.some((p) => p.startsWith('cmux.')), 'un usuario de Orca no ve colores de cmux');
+  });
+
+  it('el total NO crece con el host: 13 en ambos casos', () => {
+    assert.equal(getEditableFields({ host: 'cmux' }).length, 13);
+    assert.equal(getEditableFields({ host: 'orca' }).length, 13);
+  });
+
+  it('`host` es editable y su kind es hostName', () => {
+    const field = getEditableFields(DEFAULT_CONFIG).find((f) => f.path === 'host');
+    assert.ok(field, 'el selector de cliente debe ser editable desde el TUI');
+    assert.equal(field.kind, 'hostName');
+  });
+
+  it('un host desconocido en el snapshot degrada a la vista de cmux (never-throws)', () => {
+    const paths = getEditableFields({ host: 'tmux' }).map((f) => f.path);
+    assert.ok(paths.includes('cmux.colors.running'));
+  });
+
+  it('cada path editable del host orca resuelve en DEFAULT_CONFIG', () => {
+    for (const f of getEditableFields({ provider: 'plane', host: 'orca' })) {
+      assert.notEqual(getByPath(DEFAULT_CONFIG, f.path), undefined, `path sin valor: ${f.path}`);
+    }
   });
 });

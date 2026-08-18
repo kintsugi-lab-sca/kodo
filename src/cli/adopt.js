@@ -223,7 +223,7 @@ export async function runAdoptCli(opts, deps = {}) {
 
 /**
  * Default `renameWorkspaceFn` — renombra el workspace cmux vía el contrato WorkspaceHost
- * (`getHost('cmux')._legacy.rename`). Lazy-import para no acoplar el host al import del
+ * (`getHost(resolveHostName())._legacy.rename`). Lazy-import para no acoplar el host al import del
  * módulo CLI ni traer child_process salvo que se use. La regla transversal LOCKED exige
  * que TODA llamada a cmux pase por `src/host/` (getHost) — nunca desde adopt.js/reconcile.
  *
@@ -235,8 +235,8 @@ export async function runAdoptCli(opts, deps = {}) {
  * @returns {Promise<void>}
  */
 async function defaultRenameWorkspace({ workspaceRef, title }) {
-  const { getHost } = await import('../host/interface.js');
-  const host = getHost('cmux');
+  const { getHost, resolveHostName } = await import('../host/interface.js');
+  const host = getHost(resolveHostName()); // KODO-18: host activo, no el literal 'cmux'
   if (host && host._legacy && typeof host._legacy.rename === 'function') {
     await host._legacy.rename({ workspace: workspaceRef, title });
   }

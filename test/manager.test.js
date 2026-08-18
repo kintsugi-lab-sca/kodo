@@ -742,15 +742,28 @@ describe('manager.js source hygiene', () => {
       /gitBacked\s*=\s*isGitRepo\(\s*projectPath\s*\)/.test(source),
       'launchWorkItem must compute `gitBacked = isGitRepo(projectPath)`',
     );
+    // KODO-18: el 8º arg de buildClaudeCommand ya NO es `gitBacked` a secas sino
+    // `isolateWithClaude` = gitBacked && !hostOwnsWorktree. El invariante KODO-9 sigue
+    // vivo (un proyecto no-git nunca emite --worktree) porque gitBacked es un factor del
+    // AND; lo que se añade es el segundo motivo para omitirlo: que el host ya aísle.
+    assert.ok(
+      /isolateWithClaude\s*=\s*gitBacked\s*&&\s*!hostOwnsWorktree/.test(source),
+      'launchWorkItem debe derivar `isolateWithClaude = gitBacked && !hostOwnsWorktree`',
+    );
+    assert.ok(
+      /hostOwnsWorktree\s*=\s*hostIsolatesWorktree\(\s*hostName\s*\)/.test(source),
+      'hostOwnsWorktree debe salir de hostIsolatesWorktree(hostName) — no de un literal por host',
+    );
     // ...y pasarlo como 8º arg a buildClaudeCommand.
     assert.ok(
-      /buildClaudeCommand\([^)]*,\s*gitBacked\s*\)/.test(source),
-      'buildClaudeCommand debe recibir gitBacked como último argumento',
+      /buildClaudeCommand\([^)]*,\s*isolateWithClaude\s*\)/.test(source),
+      'buildClaudeCommand debe recibir isolateWithClaude como último argumento',
     );
-    // Y worktreePath solo se computa para proyectos git (no cleanup fantasma en no-git).
+    // Y worktreePath solo se computa cuando el aislamiento lo pone claude (no cleanup
+    // fantasma ni en no-git ni cuando el worktree lo crea el host).
     assert.ok(
-      /gitBacked\s*\?\s*computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)\s*:\s*null/.test(source),
-      'worktreePath debe ser `gitBacked ? computeWorktreePath(projectPath, sessionId) : null`',
+      /isolateWithClaude\s*\?\s*computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)\s*:\s*null/.test(source),
+      'worktreePath debe ser `isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null`',
     );
   });
 
@@ -786,7 +799,7 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('marca kodo (sidebar 2026-08): launchWorkItem fija description "⬢ <ref> · <título>" fail-open tras el setColor', () => {
+  it('marca kodo (sidebar 2026-08): launchWorkItem fija description "⬢ <ref> · <título>" fail-open tras el setStatus', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     // El canal description es el marcador machine-readable de sesión kodo. Va por
     // host._legacy (walker cmux-isolation) y DENTRO de try/catch: es cosmético y
@@ -801,12 +814,20 @@ describe('manager.js source hygiene', () => {
       /description:\s*`⬢ \$\{task\.ref\} · \$\{truncate\(stripControlChars\(task\.title\),\s*60\)\}`/.test(source),
       'la description debe ser `⬢ ${task.ref} · ${truncate(stripControlChars(task.title), 60)}`',
     );
-    // Orden: después del setColor running (el color conserva su semántica previa;
-    // la marca es aditiva).
-    const colorIdx = source.indexOf("setColor({ workspace: workspaceRef, color: colorForStatus('running') })");
+    // Orden: después del marcado de estado 'running' (que conserva su semántica previa;
+    // la marca es aditiva). KODO-18: ese marcado dejó de ser `setColor(colorForStatus(…))`
+    // —vocabulario cmux— y pasó a `setStatus({status:'running'})`, host-agnóstico: cmux
+    // lo resuelve a color, orca a columna de tablero.
+    const statusIdx = source.indexOf("setStatus({ workspace: workspaceRef, status: 'running' })");
     const descIdx = source.indexOf('host._legacy.setDescription({');
-    assert.ok(colorIdx > 0, 'el setColor running debe seguir presente');
-    assert.ok(descIdx > colorIdx, 'setDescription debe ir tras el setColor running');
+    assert.ok(statusIdx > 0, 'el setStatus running debe seguir presente');
+    assert.ok(descIdx > statusIdx, 'setDescription debe ir tras el setStatus running');
+    // El launch path NO debe volver a hablar el vocabulario de colores de cmux: si
+    // `colorForStatus` reaparece aquí, el host orca se queda sin su canal de estado.
+    assert.ok(
+      !source.includes('colorForStatus'),
+      'manager.js no debe importar ni usar colorForStatus (vocabulario cmux) — usa setStatus',
+    );
   });
 
   it('Phase 77 (GRP-01/GRP-03): launchWorkItem resuelve el grupo vía host._legacy.listWorkspaceGroups en try/catch (capa 1 fail-open)', () => {

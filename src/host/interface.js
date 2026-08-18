@@ -8,6 +8,9 @@
 // walker) — el logger se inyecta por el caller vía opts. El impl cmux se carga
 // vía createRequire (lazy) para no traer child_process salvo que se use.
 import { createRequire } from 'node:module';
+// KODO-18: `config-validate.js` es PURO (0 imports, 0 side-effects) — importarlo
+// estáticamente NO rompe el invariante de este módulo ni crea ciclo con config.js.
+import { HOST_NAMES } from '../config-validate.js';
 
 const require = createRequire(import.meta.url);
 
@@ -90,16 +93,83 @@ function createNullHost() {
     // _legacy.rename no-op (Phase 59): un host non-cmux/null degrada fail-open al
     // renombrar para liveness. El CLI también protege con `typeof host?._legacy?.rename
     // === 'function'`; este no-op documenta la rama de degradación explícitamente.
-    _legacy: { rename: async () => {} },
+    // `setStatus` (KODO-18) sigue el mismo criterio: es el verbo host-agnóstico que
+    // `session/manager.js` usa para reflejar el estado de la sesión (color en cmux,
+    // columna del tablero en orca).
+    _legacy: { rename: async () => {}, setStatus: async () => {} },
   };
 }
 
 /**
+ * Los hosts de RUNTIME elegibles desde `~/.kodo/config.json` → `host` (KODO-18).
+ * `'null'` NO entra: es mock-only para el contract test, nunca una elección del operador.
+ *
+ * Se RE-EXPORTA desde `src/config-validate.js` en vez de duplicarse: allí vive el
+ * validador `hostName` que `loadConfig` aplica al arrancar, y ese módulo es puro (0
+ * imports) — importarlo aquí no rompe el invariante «cero side-effects al cargar» de
+ * este archivo ni crea ciclo (config-validate NO importa a nadie).
+ * @type {readonly string[]}
+ */
+export { HOST_NAMES };
+
+/**
+ * Hosts que YA materializan un checkout git aislado por sesión (KODO-18).
+ *
+ * cmux abre una tab sobre el `cwd` que le pases y el aislamiento lo pone kodo con
+ * `claude --worktree <sessionId>` (→ `.bg-shell/<sessionId>`). Orca, en cambio, crea
+ * su propio worktree en `~/orca/workspaces/<repo>/<slug>` al crear el workspace: pedir
+ * ADEMÁS `claude --worktree` anidaría un segundo worktree y, peor, dejaría el
+ * `worktree_path` de `state.json` apuntando a un path que nadie ha creado (cleanup
+ * fantasma en session-end).
+ *
+ * `session/manager.js` consulta este set para decidir si emite el flag.
+ * @type {ReadonlySet<string>}
+ */
+export const HOSTS_WITH_OWN_WORKTREE = Object.freeze(new Set(['orca']));
+
+/**
+ * ¿El host activo aporta ya su propio aislamiento por worktree? PURA.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function hostIsolatesWorktree(name) {
+  return HOSTS_WITH_OWN_WORKTREE.has(name);
+}
+
+/**
+ * Resuelve el nombre del host ACTIVO desde `~/.kodo/config.json` → `host` (KODO-18).
+ *
+ * Punto único de lectura: los call sites (`server.js`, `session/manager.js`,
+ * `session/health.js`, `cli/adopt.js`, `cli/dashboard/index.js`) pasaron de
+ * `getHost('cmux')` literal a `getHost(resolveHostName())`.
+ *
+ * FAIL-SAFE a `'cmux'`: un config ausente, ilegible o con un `host` desconocido cae al
+ * comportamiento previo a KODO-18 en vez de romper el arranque del daemon. `loadConfig`
+ * ya valida y hace fallback del campo (config-validate `hostName`), así que esta guarda
+ * es la segunda capa, no la única.
+ *
+ * `loadConfig` se importa LAZY (createRequire) para preservar el invariante de este
+ * módulo: cero side-effects al cargar.
+ *
+ * @returns {string} `'cmux'` | `'orca'`
+ */
+export function resolveHostName() {
+  try {
+    const { loadConfig } = require('../config.js');
+    const name = loadConfig()?.host;
+    return HOST_NAMES.includes(name) ? name : 'cmux';
+  } catch {
+    return 'cmux';
+  }
+}
+
+/**
  * Factory de WorkspaceHost.
- * @param {string} name - 'cmux' | 'null'.
+ * @param {string} name - 'cmux' | 'orca' | 'null'.
  * @param {Object} [opts] - DI opcional (exec, run, binary, logger). Usado por tests
  *   y por el wiring del dashboard. Para 'cmux', si se omite binary se resuelve
- *   desde loadConfig().cmux.binary (lo hace createCmuxHost).
+ *   desde loadConfig().cmux.binary (lo hace createCmuxHost); para 'orca', desde
+ *   loadConfig().orca.binary (createOrcaHost).
  * @returns {Object} host con los 4 métodos de HOST_METHODS.
  * @throws {Error} si name no es reconocido.
  */
@@ -108,6 +178,10 @@ export function getHost(name, opts = {}) {
   if (name === 'cmux') {
     const { createCmuxHost } = require('./cmux.js');
     return createCmuxHost(opts);
+  }
+  if (name === 'orca') {
+    const { createOrcaHost } = require('./orca.js');
+    return createOrcaHost(opts);
   }
   throw new Error(`Unknown host: ${name}`);
 }

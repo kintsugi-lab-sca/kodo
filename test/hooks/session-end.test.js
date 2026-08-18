@@ -230,6 +230,62 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió');
   });
 
+  it('KODO-18: prefiere setStatus(review) cuando el host lo expone (host-agnóstico)', async () => {
+    // Los dos hosts reales (cmux y orca) implementan `_legacy.setStatus`. Este test fija
+    // la PREFERENCIA: con setStatus disponible, el hook NO debe caer al setColor de
+    // vocabulario cmux — si lo hiciera, la tarjeta de Orca se quedaría en `in-progress`
+    // al cerrar la sesión.
+    const session = makeSession();
+    const calls = [];
+    const hostStub = {
+      setStatus: async (args) => { calls.push({ fn: 'setStatus', args }); },
+      setColor: async (args) => { calls.push({ fn: 'setColor', args }); },
+      notify: async () => {},
+      listWorkspaces: async () => '',
+      send: async () => {},
+    };
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => makeLogger().logger,
+        cmux: hostStub,
+      },
+    );
+    const setStatus = calls.find((c) => c.fn === 'setStatus');
+    assert.ok(setStatus, 'invoca setStatus cuando el cliente del host lo expone');
+    assert.equal(setStatus.args.status, 'review');
+    assert.equal(setStatus.args.workspace, session.workspace_ref);
+    assert.ok(!calls.some((c) => c.fn === 'setColor'), 'NO debe llamar además a setColor');
+  });
+
+  it('KODO-18: sin setStatus, cae a setColor(review) — degradación typeof, cero regresión', async () => {
+    // La rama de compatibilidad: un cliente cmux-shaped (como los stubs históricos de
+    // esta suite) sigue funcionando exactamente igual que antes de KODO-18.
+    const session = makeSession();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    assert.equal(typeof cmuxStub.setStatus, 'undefined', 'el stub NO expone setStatus');
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => makeLogger().logger,
+        cmux: cmuxStub,
+      },
+    );
+    const setColor = calls.find((c) => c.fn === 'setColor');
+    assert.ok(setColor, 'cae a setColor cuando no hay setStatus');
+    assert.equal(setColor.args.workspace, session.workspace_ref);
+  });
+
   it('los efectos van DESPUÉS del backstop (session.backstop.review precede a setColor)', async () => {
     const session = makeSession();
     const seq = [];

@@ -19,7 +19,7 @@
  */
 
 /**
- * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'nonEmpty'|'cmuxColor' }} EditableField
+ * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'nonEmpty'|'cmuxColor'|'hostName' }} EditableField
  */
 
 // Set estricto de modelos soportados por kodo (D-07). kodo pasa este valor literal
@@ -40,6 +40,13 @@ const CMUX_COLORS = new Set([
   'Red', 'Crimson', 'Orange', 'Amber', 'Olive', 'Green', 'Teal', 'Aqua',
   'Blue', 'Navy', 'Indigo', 'Purple', 'Magenta', 'Rose', 'Brown', 'Charcoal',
 ]);
+
+// KODO-18: hosts (WorkspaceHost) elegibles desde `config.host`. FUENTE ÚNICA DE VERDAD
+// — `src/host/interface.js` la IMPORTA de aquí en vez de duplicarla, y este módulo es
+// el destino correcto de la constante por ser el puro (0 imports → sin ciclo con
+// config.js, que sí importa a este). `'null'` NO está: es un host mock-only del
+// contract test, jamás una elección del operador.
+const HOST_NAMES = Object.freeze(['cmux', 'orca']);
 
 /**
  * Valida un entero estrictamente positivo (>= 1). Cubre `max_parallel`,
@@ -105,6 +112,25 @@ export function validateCmuxColor(raw) {
 }
 
 /**
+ * Valida el host (cliente) activo contra el set `{cmux, orca}` (KODO-18). Case-sensitive
+ * y sin alias: el valor se compara luego por igualdad en `resolveHostName()` y en la
+ * factory `getHost()`.
+ *
+ * Consecuencia deseada de estar en `getEditableFields`: `mergeAndValidateConfig` lo
+ * valida al CARGAR, así que un `"host": "tmux"` escrito a mano cae al default `'cmux'`
+ * con un warn NDJSON en vez de reventar el arranque del daemon con `Unknown host`.
+ *
+ * @param {any} raw
+ * @returns {ValidationResult}
+ */
+export function validateHostName(raw) {
+  const s = String(raw).trim();
+  return HOST_NAMES.includes(s)
+    ? { ok: true, value: s }
+    : { ok: false, error: `host debe ser uno de: ${HOST_NAMES.join(', ')}` };
+}
+
+/**
  * Despacha la validación según `field.kind`. Never-throws ante field/raw arbitrarios.
  *
  * @param {EditableField} field
@@ -117,6 +143,7 @@ export function validateField(field, raw) {
     case 'model':       return validateModel(raw);
     case 'nonEmpty':    return validateNonEmpty(raw);
     case 'cmuxColor':   return validateCmuxColor(raw);
+    case 'hostName':    return validateHostName(raw);
     default:            return { ok: false, error: 'campo no editable' };
   }
 }
@@ -163,19 +190,43 @@ export function setByPath(obj, dotted, value) {
 }
 
 /**
- * Devuelve el REGISTRO de los 12 campos editables del editor de config (D-11/PERSIST-04).
+ * Devuelve el REGISTRO de los 13 campos editables del editor de config (D-11/PERSIST-04).
  *
  * La lista está restringida EXPLÍCITAMENTE por construcción: NUNCA incluye descriptores
  * de `api_key_env`, `base_url`, `workspace_slug` ni `provider` (esas keys viven solo en
  * `~/.kodo/.env` o no son editables). Los paths de `states.*` se resuelven contra el
  * provider ACTIVO (`config.provider`) — solo el activo (discreción A3).
  *
- * @param {{ provider: string }} config - snapshot de config (se usa solo `config.provider`).
- * @returns {EditableField[]} exactamente 12 descriptores `{path,label,kind}`.
+ * KODO-18: `host` sí es editable (es el selector de cliente), y los 4 campos de
+ * presentación por estado se resuelven contra el host ACTIVO — misma discreción A3 que
+ * `states.*` con el provider. Un usuario de cmux ve sus 4 colores; uno de Orca, sus 4
+ * columnas de tablero. El total se mantiene en 13 en ambos casos: el editor no crece
+ * con cada host nuevo.
+ *
+ * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
+ *   `config.provider` y `config.host`).
+ * @returns {EditableField[]} exactamente 13 descriptores `{path,label,kind}`.
  */
 export function getEditableFields(config) {
   const provider = config?.provider ?? 'plane';
+  const host = HOST_NAMES.includes(config?.host) ? config.host : 'cmux';
+  // Presentación por estado del host ACTIVO: mismo eje semántico, distinto canal.
+  /** @type {EditableField[]} */
+  const stateFields = host === 'orca'
+    ? [
+        { path: 'orca.statuses.running', label: 'Estado Orca: running', kind: 'nonEmpty' },
+        { path: 'orca.statuses.done', label: 'Estado Orca: done', kind: 'nonEmpty' },
+        { path: 'orca.statuses.error', label: 'Estado Orca: error', kind: 'nonEmpty' },
+        { path: 'orca.statuses.review', label: 'Estado Orca: review', kind: 'nonEmpty' },
+      ]
+    : [
+        { path: 'cmux.colors.running', label: 'Color: running', kind: 'cmuxColor' },
+        { path: 'cmux.colors.done', label: 'Color: done', kind: 'cmuxColor' },
+        { path: 'cmux.colors.error', label: 'Color: error', kind: 'cmuxColor' },
+        { path: 'cmux.colors.review', label: 'Color: review', kind: 'cmuxColor' },
+      ];
   return [
+    { path: 'host', label: 'Cliente (host)', kind: 'hostName' },
     { path: 'claude.default_model', label: 'Modelo por defecto', kind: 'model' },
     // KODO-12: modelo del ORQUESTADOR, independiente del de las sesiones de trabajo.
     { path: 'claude.orchestrator_model', label: 'Modelo del orquestador', kind: 'model' },
@@ -185,11 +236,8 @@ export function getEditableFields(config) {
     { path: `providers.${provider}.states.done`, label: 'Estado: done', kind: 'nonEmpty' },
     { path: 'server.idle_threshold_min', label: 'Umbral idle (min)', kind: 'positiveInt' },
     { path: 'server.stuck_threshold_min', label: 'Umbral stuck (min)', kind: 'positiveInt' },
-    { path: 'cmux.colors.running', label: 'Color: running', kind: 'cmuxColor' },
-    { path: 'cmux.colors.done', label: 'Color: done', kind: 'cmuxColor' },
-    { path: 'cmux.colors.error', label: 'Color: error', kind: 'cmuxColor' },
-    { path: 'cmux.colors.review', label: 'Color: review', kind: 'cmuxColor' },
+    ...stateFields,
   ];
 }
 
-export { MODELS, CMUX_COLORS };
+export { MODELS, CMUX_COLORS, HOST_NAMES };
