@@ -310,6 +310,16 @@ Las columnas del tablero se ajustan igual que los colores de cmux:
 kodo config --set orca.statuses.review=in-review
 ```
 
+### Cambiar de cliente con sesiones vivas
+
+Cada sesión guarda bajo qué cliente se lanzó. Es lo que permite que conmutar `host`
+**no toque** las sesiones del cliente anterior: sus workspaces no aparecen en el
+snapshot del nuevo, y sin ese sello kodo las leería como «tab desaparecida» y las
+degradaría a idle/dead estando perfectamente vivas. Ausencia de evidencia no es
+evidencia de muerte: se quedan intactas hasta que vuelvas a su cliente.
+
+Las sesiones lanzadas antes de v0.19 no llevan el sello y sí se evalúan como antes.
+
 ### Cambiar de cliente con un orquestador vivo
 
 Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador del
@@ -342,7 +352,8 @@ todas ellas — nada aborta un lanzamiento:
 - **Marca del propio daemon**: `kodo server` renombra y colorea su tab partiendo de
   `CMUX_WORKSPACE_ID`, que solo existe dentro de cmux. Con Orca el bloque se salta —
   es cosmética del daemon, no del ciclo de vida de las sesiones.
-- **`needs-input`**: se deriva de los hooks de agente de Orca. Actívalos con
+- **`needs-input`**: se deriva de `agents[].state` de Orca (`done` = el agente
+  terminó su turno y espera). Requiere los hooks de agente: actívalos con
   `orca agent hooks on`; sin ellos las sesiones nunca se marcan como «esperando».
 
 ## Configuración

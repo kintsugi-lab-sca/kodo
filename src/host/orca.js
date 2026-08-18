@@ -32,15 +32,21 @@ import { loadConfig } from '../config.js';
 const TIMEOUT_MS = 20_000;
 
 /**
- * Estados de agente que kodo interpreta como «la sesión espera al humano». Se comparan
- * ya normalizados (lowercase, `_`→`-`).
+ * Estados de `worktree ps`.`agents[].state` que kodo interpreta como «la sesión espera
+ * al humano». Se comparan ya normalizados (lowercase, `_`→`-`).
  *
- * ASSUMPTION (espejo de la R-7 del host cmux): estos literales son el vocabulario que
- * Orca publica en `worktree ps`.`agents[].state` cuando los hooks de agente están
- * activos (`orca agent hooks on`). Si Orca los renombra, este host necesita
- * actualización — el test de contrato con fixture real lo detectará.
+ * `'done'` es el VERIFICADO en vivo (UAT KODO-18, orca 1.4.184): cuando Claude termina
+ * su turno y se queda en el prompt, Orca publica `state: 'done'` —no `'waiting'`, que
+ * es lo que este set asumía por analogía con el literal `Waiting` de cmux—. La primera
+ * versión de esta constante no tenía `'done'` y NINGUNA sesión llegaba a marcarse como
+ * needs-input: el bug solo salió al correr una sesión real.
+ *
+ * El resto son sinónimos TOLERADOS, no observados: si Orca renombra el literal, kodo
+ * degrada a «no espera input» (conservador) en vez de a un falso positivo.
+ *
+ * Enum observado de `agents[].state`: `working` (ejecutando) · `done` (turno terminado).
  */
-const WAITING_STATES = new Set(['waiting', 'needs-input', 'awaiting-input', 'blocked', 'idle-waiting']);
+const WAITING_STATES = new Set(['done', 'waiting', 'needs-input', 'awaiting-input', 'blocked']);
 
 /**
  * Ejecuta un comando orca y retorna stdout. Síncrono por simetría con el host cmux
@@ -67,16 +73,32 @@ function makeRun(execSync, binary) {
  *
  * En cmux la mera presencia en `workspace list` implica tab viva. En Orca NO: un
  * worktree persiste en el listado aunque no tenga ningún terminal abierto (es una
- * tarjeta del tablero, no una tab). La liveness real la dan `status` y el recuento de
- * terminales vivos, así que se derivan explícitamente.
+ * tarjeta del tablero, no una tab), así que la liveness hay que derivarla.
+ *
+ * SE DERIVA DEL RECUENTO DE PTYs, NO DEL ENUM `status`. La primera versión hacía
+ * `status === 'active'` y marcaba MUERTA toda sesión que estuviera trabajando: el UAT
+ * de KODO-18 destapó que `worktree ps`.`status` vale también `'working'` mientras el
+ * agente ejecuta, no solo `'active'`/`'inactive'`. Ese falso «dead» es exactamente la
+ * clase de bug (ROMAN-151/152) que el carril de reconcile existe para evitar, así que
+ * la señal primaria pasa a ser la que NO depende de conocer el enum entero: si hay un
+ * pty vivo, la tab está viva.
+ *
+ * `status` queda solo como fallback para el caso en que Orca dejara de publicar el
+ * recuento, y ahí se usa en NEGATIVO (`!== 'inactive'`): un literal nuevo cuenta como
+ * vivo, que es el lado seguro — kodo prefiere una sesión zombi visible a una viva
+ * archivada por sorpresa.
+ *
+ * Enum observado de `status`: `active` · `inactive` · `working`.
  *
  * @param {any} w - fila de `worktree ps`.`worktrees[]`.
  * @returns {boolean}
  */
 export function deriveAlive(w) {
   if (w?.isArchived === true) return false;
-  if (typeof w?.status === 'string') return w.status === 'active';
-  return Number(w?.liveTerminalCount) > 0;
+  const live = Number(w?.liveTerminalCount);
+  if (Number.isFinite(live)) return live > 0 || w?.hasAttachedPty === true;
+  if (typeof w?.status === 'string') return w.status !== 'inactive';
+  return false;
 }
 
 /**

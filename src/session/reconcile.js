@@ -35,6 +35,7 @@
 // usado SOLO en isSessionProcessAlive (derivación de process_alive vía pgrep).
 
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 /** Ventana de retención antes de sellar una `dead` a `closed` (D-07 step 4). */
 const SEAL_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -154,6 +155,22 @@ function deriveTarget(session, live, now) {
 }
 
 /**
+ * Nombre del host activo, resuelto PEREZOSAMENTE (KODO-18). `require` en vez de import
+ * estático para no romper el invariante de este módulo: nada de I/O ni de lectura de
+ * config al CARGARLO (los tests lo importan puro). never-throws → `undefined` desactiva
+ * la guarda por host, que es el comportamiento previo.
+ *
+ * @returns {string|undefined}
+ */
+function resolveActiveHostName() {
+  try {
+    return createRequire(import.meta.url)('../host/interface.js').resolveHostName();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Aplica un tick de reconciliación. PURA: no muta `state` (clona lo que cambia)
  * ni hace I/O. never-throws.
  *
@@ -164,9 +181,12 @@ function deriveTarget(session, live, now) {
  * @param {number} opts.tick - número de tick monotónico (para trazas).
  * @param {number} opts.now - timestamp ms (inyectado — NO Date.now() interno, testabilidad).
  * @param {{ warn: Function, info?: Function }} [opts.logger] - logger inyectado (LOG-12). Opcional.
+ * @param {string} [opts.hostName] - KODO-18: nombre del host que produjo `liveRefs`. Cuando
+ *   se pasa, las sesiones cuyo `host` PERSISTIDO no coincide se dejan INTACTAS (ver el
+ *   guard dentro del bucle). Omitirlo mantiene el comportamiento previo (todas se evalúan).
  * @returns {{ state: State, events: { rescued: number, sealed: number, transitioned: number, total: number } }}
  */
-export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logger }) {
+export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logger, hostName }) {
   // F5 (D-07): host falló → skip tick, sin cambios. El caller ya emitió el
   // host.list_workspaces.fail; aquí solo dejamos traza del skip.
   if (liveRefs === null || liveRefs === undefined) {
@@ -179,6 +199,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   let transitioned = 0;
   let rescued = 0;
   let sealed = 0;
+  let foreign = 0; // KODO-18: sesiones de otro host, no observables desde este snapshot
 
   // Trabajamos sobre copias para preservar la pureza (no mutar el input).
   /** @type {Record<string, Session>} */
@@ -188,6 +209,25 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
 
   // ── (1) Transiciones + sellado sobre las sessions activas ──────────────────
   for (const [taskId, session] of Object.entries(state.sessions)) {
+    // ── KODO-18: guarda por HOST ────────────────────────────────────────────
+    // Desde que `config.host` es conmutable, `state.sessions` puede contener sesiones
+    // de un cliente que ya no es el activo. Sus `workspace_ref` JAMÁS aparecen en este
+    // snapshot, así que sin esta guarda el bucle las leería como «tab desaparecida» y
+    // las degradaría a idle/dead — corrompiendo sesiones que están perfectamente vivas
+    // en el otro cliente. AUSENCIA DE EVIDENCIA NO ES EVIDENCIA DE MUERTE: es
+    // exactamente el mismo criterio que ya aplica `unverifiable` en el gate del
+    // orquestador (orchestrator/launch.js), y el reverso del bug ROMAN-151/152.
+    //
+    // Solo actúa con evidencia POSITIVA de discrepancia: hace falta que AMBOS nombres
+    // existan y difieran. Una sesión legacy sin `host` persistido (pre-KODO-18) o un
+    // caller que no pase `hostName` caen al comportamiento previo — cero regresión.
+    if (hostName && session.host && session.host !== hostName) {
+      debounceStore.delete(taskId); // que no arrastre un pending de otro host
+      sessions[taskId] = session;   // intacta, byte a byte
+      foreign++;
+      continue;
+    }
+
     // Identidad-verificada: si el ref fue reciclado a otra sesión, `live` es undefined
     // → deriveTarget → 'dead' (cmux reusa workspace:N — ver liveForSession).
     const live = liveForSession(liveByRef.get(session.workspace_ref), session);
@@ -373,7 +413,10 @@ export function isSessionProcessAlive(sessionId, pgrep) {
  * @param {(sessionId: string) => string} [deps.pgrep] - inyectable (tests) para isSessionProcessAlive.
  * @returns {Promise<{ rescued: number, sealed: number, transitioned: number, total: number }>}
  */
-export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep }) {
+export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep, hostName: hostNameOpt }) {
+  // KODO-18: nombre del host que produce el snapshot. Inyectable para los tests; por
+  // defecto el activo. Lo consume la guarda por host de `reconcileTick`.
+  const hostName = hostNameOpt ?? resolveActiveHostName();
   const started = now();
   /** @type {LiveRef[]|null} */
   let liveRefs = null;
@@ -462,7 +505,7 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
       if (changed) state = { ...state, sessions };
     }
 
-    const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
+    const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger, hostName });
     events = ev;
     // Save condicional DENTRO del lock: solo si algo cambió (no-write optimization).
     if (newState !== state) {

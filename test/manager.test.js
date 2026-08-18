@@ -620,6 +620,35 @@ describe('manager — pure helpers', () => {
   });
 });
 
+describe('KODO-18 — buildSessionFromTask sella el host de la sesión', () => {
+  const task = {
+    id: 't-1', ref: 'KODO-1', title: 'x', projectId: 'p1', labels: [],
+    state: 'In Progress', url: 'u', projectName: 'kodo', description: '',
+  };
+  const base = { task, providerName: 'plane', projectPath: '/dev/kodo', workspaceRef: 'ws:1', sessionId: 's-1' };
+
+  it('persiste `host` cuando se pasa', () => {
+    assert.equal(buildSessionFromTask({ ...base, hostName: 'orca' }).host, 'orca');
+  });
+
+  it('OMITE el campo cuando no se pasa (spread condicional, shape legacy intacto)', () => {
+    const session = buildSessionFromTask(base);
+    assert.ok(!('host' in session), 'sin hostName el campo no debe aparecer');
+  });
+
+  it('el campo es el que consume la guarda por host de reconcileTick', async () => {
+    // Contrato de extremo a extremo entre los dos módulos: lo que escribe el launch es
+    // exactamente lo que lee la guarda que evita degradar sesiones del otro cliente.
+    const { reconcileTick } = await import('../src/session/reconcile.js');
+    const session = buildSessionFromTask({ ...base, hostName: 'cmux' });
+    const state = { schema_version: 3, sessions: { 't-1': session } };
+    const { state: out } = reconcileTick(state, [], {
+      debounceStore: new Map(), tick: 1, now: Date.now(), hostName: 'orca',
+    });
+    assert.equal(out.sessions['t-1'], session, 'intacta: el snapshot de orca no la juzga');
+  });
+});
+
 describe('manager.js source hygiene', () => {
   it('does not import PlaneClient', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');

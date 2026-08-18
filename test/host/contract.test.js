@@ -510,10 +510,19 @@ describe('WorkspaceHost contract matrix', () => {
       assert.equal(kodo42.title, 'KODO-42: arreglar el login');
     });
 
-    test('alive: `status:active` sí, `status:inactive` no, archivado NUNCA', async () => {
+    test('alive se deriva del pty, NO del enum `status` (regresión del UAT)', async () => {
       const items = await host.listWorkspaces();
       const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
       assert.equal(byRef.get('repo-a::/repos/alpha').alive, true, 'status active → alive');
+      // EL BUG QUE DESTAPÓ EL UAT: la primera versión hacía `status === 'active'` y
+      // marcaba MUERTA una sesión que estaba trabajando, porque Orca publica
+      // `status: 'working'` mientras el agente ejecuta. Un falso «dead» sobre una sesión
+      // viva es la clase de fallo (ROMAN-151/152) que el reconcile existe para evitar.
+      assert.equal(
+        byRef.get('repo-b::/orca/workspaces/beta/kodo-42').alive,
+        true,
+        "status:'working' con pty vivo DEBE ser alive",
+      );
       assert.equal(
         byRef.get('repo-a::/orca/workspaces/alpha/dormido').alive,
         false,
@@ -522,16 +531,24 @@ describe('WorkspaceHost contract matrix', () => {
       assert.equal(
         byRef.get('repo-b::/orca/workspaces/beta/archivado').alive,
         false,
-        'isArchived gana sobre status:active',
+        'isArchived gana sobre el pty vivo',
       );
     });
 
     test('needs_input SOLO desde agents[].state — `unread` NO es proxy', async () => {
       await host.listWorkspaces(); // puebla el snapshot 1-tick
+      // `done` es el literal REAL de Orca cuando el agente termina su turno y se queda
+      // en el prompt (verificado en el UAT). La primera versión asumía `waiting` por
+      // analogía con cmux y NINGUNA sesión llegaba nunca a needs-input.
+      assert.equal(
+        await host.needsInput('repo-b::/orca/workspaces/beta/kodo-23'),
+        true,
+        'agents[0].state === "done" → needs_input',
+      );
       assert.equal(
         await host.needsInput('repo-b::/orca/workspaces/beta/kodo-42'),
-        true,
-        'agents[0].state === "waiting" → needs_input',
+        false,
+        'un agente `working` está ocupado, NO esperando al humano',
       );
       // La fila `dormido` tiene unread:true y agents:[] — si `unread` se usara como
       // proxy, casi toda sesión en marcha entraría en needs-input (falsos positivos).

@@ -573,6 +573,75 @@ describe('titleIdentifiesSession — token con límite de palabra (anti-prefijo,
   });
 });
 
+describe('reconcileTick — guarda por HOST: una sesión de otro cliente NO se degrada (KODO-18)', () => {
+  // Regresión de un fallo OBSERVADO en el UAT end-to-end de KODO-18: al conmutar
+  // `config.host` a orca con sesiones de cmux vivas, el siguiente tick no encontraba
+  // sus `workspace_ref` en el snapshot de Orca y las degradaba (running → idle,
+  // needs_input → true, dead_since estampado). Ausencia de evidencia no es evidencia
+  // de muerte — mismo criterio que el `unverifiable` del gate del orquestador.
+  const opts = (hostName) => ({ debounceStore: new Map(), tick: 1, now: NOW, hostName });
+
+  it('la sesión de otro host sobrevive INTACTA (misma referencia, sin transición)', () => {
+    const cmuxSession = session({ host: 'cmux', workspace_ref: 'workspace:7' });
+    const state = { schema_version: 3, sessions: { t1: cmuxSession } };
+    // Snapshot de orca: no contiene NINGÚN workspace:N — no puede contenerlos.
+    const { state: out, events } = reconcileTick(state, [], opts('orca'));
+    assert.equal(out.sessions.t1, cmuxSession, 'la sesión debe conservarse byte a byte');
+    assert.equal(out.sessions.t1.state, 'running');
+    assert.equal(out.sessions.t1.needs_input, false);
+    assert.equal(events.transitioned, 0);
+  });
+
+  it('sin la guarda (hostName ausente) el comportamiento previo se conserva', () => {
+    // Cero regresión para todos los callers/tests que no pasan hostName.
+    const state = { schema_version: 3, sessions: { t1: session({ host: 'cmux' }) } };
+    const store = new Map();
+    let out = state;
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW }));
+    }
+    assert.notEqual(out.sessions.t1.state, 'running', 'sin hostName la sesión sí transiciona');
+  });
+
+  it('una sesión legacy SIN `host` persistido no activa la guarda', () => {
+    // Hace falta evidencia POSITIVA de discrepancia: ambos nombres presentes y distintos.
+    const state = { schema_version: 3, sessions: { t1: session() } }; // sin host
+    const store = new Map();
+    let out = state;
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.notEqual(out.sessions.t1.state, 'running', 'sin `host` en la sesión, se evalúa como siempre');
+  });
+
+  it('la sesión del MISMO host sí se evalúa (la guarda no es un pase libre)', () => {
+    const state = { schema_version: 3, sessions: { t1: session({ host: 'cmux' }) } };
+    const store = new Map();
+    let out = state;
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'cmux' }));
+    }
+    assert.notEqual(out.sessions.t1.state, 'running', 'mismo host + ref ausente → transiciona');
+  });
+
+  it('en un state MIXTO solo se evalúa la del host activo', () => {
+    const state = {
+      schema_version: 3,
+      sessions: {
+        t1: session({ host: 'cmux', task_id: 't1', workspace_ref: 'workspace:7' }),
+        t2: session({ host: 'orca', task_id: 't2', workspace_ref: 'repo::/x', session_id: 'sess-2' }),
+      },
+    };
+    const store = new Map();
+    let out = state;
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.equal(out.sessions.t1.state, 'running', 'la de cmux queda intacta');
+    assert.notEqual(out.sessions.t2.state, 'running', 'la de orca sí se evalúa');
+  });
+});
+
 describe('reconcileTick — guard de identidad sobre workspace_ref reciclado (cmux reusa workspace:N)', () => {
   // El escenario real (2026-06-08): ROMAN-160 cerrada conserva workspace_ref=workspace:4;
   // cmux reasignó workspace:4 a ROMAN-170 (viva). Sin guard, 160 heredaba el alive de 170.

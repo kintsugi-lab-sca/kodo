@@ -1,5 +1,5 @@
 {
-  "_comment": "Golden fixture de `orca worktree ps --json` (KODO-18). Shape COPIADO VERBATIM de una ejecución real contra orca 1.4.184 el 2026-08-18; solo se anonimizaron paths/ids y se recortó a 4 filas que cubren los casos que el host necesita distinguir. La clave `agents[]` va poblada en la fila 3 con el shape que publican los hooks de agente de Orca (`orca agent hooks on`) — es la ÚNICA fuente de needs_input.",
+  "_comment": "Golden fixture de `orca worktree ps --json` (KODO-18). Shape COPIADO VERBATIM de ejecuciones reales contra orca 1.4.184; paths/ids anonimizados y recortado a las 5 filas que cubren los casos que el host debe distinguir. Los estados NO son inventados: `status` vale active/inactive/working y `agents[].state` vale working/done — ambos enums OBSERVADOS durante el UAT end-to-end de KODO-18 con una sesión de Claude real. La fila `beta/kodo-42` (working) y la fila `beta/kodo-23` (done) existen justamente porque la primera versión del adapter, que solo conocía active/inactive y asumía el literal 'waiting', fallaba en las dos.",
   "id": "fixture-worktree-ps",
   "ok": true,
   "result": {
@@ -69,6 +69,38 @@
         "comment": "⬢ KODO-42 · arreglar el login",
         "isPinned": false,
         "isActive": true,
+        "unread": false,
+        "liveTerminalCount": 1,
+        "hasAttachedPty": true,
+        "preview": "",
+        "status": "working",
+        "agents": [
+          {
+            "agentType": "claude",
+            "state": "working",
+            "toolName": "Bash",
+            "toolInput": "npm test",
+            "interrupted": false
+          }
+        ]
+      },
+      {
+        "workspaceKind": "git",
+        "worktreeId": "repo-b::/orca/workspaces/beta/kodo-23",
+        "repoId": "repo-b",
+        "hostId": "local",
+        "repo": "beta",
+        "path": "/orca/workspaces/beta/kodo-23",
+        "branch": "refs/heads/deikka/kodo-23",
+        "isArchived": false,
+        "isMainWorktree": false,
+        "displayName": "KODO-23: esperando al humano",
+        "workspaceStatus": "in-progress",
+        "lastActivityAt": 1778598100000,
+        "lastOutputAt": 1778599500000,
+        "comment": "⬢ KODO-23 · esperando al humano",
+        "isPinned": false,
+        "isActive": false,
         "unread": true,
         "liveTerminalCount": 1,
         "hasAttachedPty": true,
@@ -76,9 +108,11 @@
         "status": "active",
         "agents": [
           {
-            "agent": "claude",
-            "state": "waiting",
-            "terminalHandle": "term_kodo42"
+            "agentType": "claude",
+            "state": "done",
+            "toolName": null,
+            "toolInput": null,
+            "interrupted": false
           }
         ]
       },
@@ -107,7 +141,7 @@
         "agents": []
       }
     ],
-    "totalCount": 4,
+    "totalCount": 5,
     "truncated": false
   },
   "_meta": {

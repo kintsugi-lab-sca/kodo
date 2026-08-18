@@ -24,6 +24,10 @@ import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
  *   flags?: string[],
  *   phaseId?: string,      // Phase 9 D-03: resolved phase id threaded from dispatcher (action === 'phase').
  *   brief?: string,        // Phase 9 D-09: bootstrap brief (only set when resolver returned 'bootstrap').
+ *   hostName?: string,     // KODO-18: host bajo el que se lanzó ('cmux'|'orca'). Aditivo
+ *                          //          opcional — lo consume la guarda por host de
+ *                          //          reconcileTick para no degradar sesiones del otro
+ *                          //          cliente cuando el operador conmuta `config.host`.
  *   worktreePath?: string, // Phase 18 D-03: deterministic worktree path computed by computeWorktreePath
  *                          //               (single source of truth in src/session/state.js). Persisted
  *                          //               PRE-spawn so kodo logs / consumers can resolve the path
@@ -32,7 +36,7 @@ import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief, worktreePath }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, flags, phaseId, brief, worktreePath, hostName }) {
   // Phase 11 (D-03): GSD execution mode derived locally from flags. Single source
   // of truth: `flags`. The signature does NOT grow — gsdMode is a local derivation,
   // mirroring the dispatcher pattern at src/triggers/dispatcher.js:74.
@@ -65,6 +69,13 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     // (consumers downstream toleran falsy — legacy v0.5 sessions sin este campo
     // se siguen leyendo). Mismo idiom que gsd_mode (Phase 11 D-08), phase_id y brief.
     ...(worktreePath ? { worktree_path: worktreePath } : {}),
+    // KODO-18: sella el cliente bajo el que corre la sesión. Sin esto, conmutar
+    // `config.host` con sesiones vivas hace que el siguiente tick de reconcile no
+    // encuentre sus `workspace_ref` en el snapshot del host NUEVO y las degrade a
+    // idle/dead — corrompiendo sesiones perfectamente sanas del cliente anterior.
+    // Mismo spread condicional que los campos de arriba: una sesión sin él (legacy)
+    // desactiva la guarda y conserva el comportamiento previo.
+    ...(hostName ? { host: hostName } : {}),
   };
 }
 
@@ -517,6 +528,7 @@ export async function launchWorkItem(identifier, opts = {}) {
     // Phase 18 (D-03): persist el path ANTES de cmux.send. Conditional spread
     // dentro de buildSessionFromTask preserva compat para call sites sin path.
     worktreePath,
+    hostName, // KODO-18: el host activo resuelto arriba
   });
 
   // Phase 18 (D-03 PRE-spawn ordering): persist BEFORE cmux.send so consumers
