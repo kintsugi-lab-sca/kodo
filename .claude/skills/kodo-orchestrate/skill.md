@@ -59,6 +59,9 @@ El mapping `projectId → path local` vive **únicamente** en
   hardcodes IDs ni paths en esta skill: el archivo es la única fuente.
 - Regla operativa relacionada: 1 proyecto del provider = 1 repo en disco.
   Mantén esa disciplina al añadir nuevos mappings.
+- `~/.kodo/config.json` cachea además `identifier` y `name` por proyecto. Ese
+  cache **no es la fuente de verdad**: el provider manda. Si el identifier de un
+  ref te chirría, `kodo doctor --identifiers` (ver §Diagnóstico 6).
 
 (IDs concretos de proyectos no aparecen en este documento — se han borrado
 deliberadamente; consulta siempre el JSON.)
@@ -281,7 +284,7 @@ de diseño LOCKED de Phase 60: `addComment` sobre `updateTask`).
 
 ## Diagnóstico
 
-Cinco flujos síntoma → comando. Sigue el orden de cada uno antes de escalar.
+Seis flujos síntoma → comando. Sigue el orden de cada uno antes de escalar.
 
 ### 1. Sesión stuck (>30min idle)
 
@@ -340,6 +343,29 @@ miembros.
    auto-arreglables en cada pase motivado (ver §"Higiene del sidebar") — el
    dry-run del doctor es solo diagnóstico bajo demanda, no hace falta correr
    `--fix` a mano en el flujo normal.
+
+### 6. Ref de tarea que no existe en el provider
+
+Síntoma: `state.json`, el prompt de arranque o la url de browse usan un ref
+(`PROJECT-N`) cuyo prefijo **no existe** en Plane, o un `kodo launch <REF>`
+correcto falla con `No configured project with identifier "<PREFIJO>"`.
+
+Causa: `~/.kodo/config.json` cachea `identifier`/`name` por proyecto. Si el
+proyecto se renombra en Plane, ese cache queda obsoleto (KODO-13: `ITROMAN` para
+lo que Plane llama `ITCLIP`).
+
+1. `kodo doctor --identifiers` — cruza el identifier cacheado con el real del
+   provider. Reporta `stale_identifier` (config dice X, Plane dice Y) y
+   `unknown_remote_project` (id configurado que el provider no conoce), exit 1.
+2. **Plane manda**: corrige `~/.kodo/config.json` con `kodo config`, nunca al
+   revés — no renombres el proyecto en Plane para que encaje con el cache.
+3. El runtime ya se realinea solo en cada `init()` (el ref sale del identifier
+   de la API, no del cache), así que el ref nuevo será correcto aunque el disco
+   siga desfasado. Lo que el doctor arregla es la divergencia **persistida**.
+4. Los refs YA emitidos con el identifier viejo **no se reescriben**: quedan en
+   el historial de `state.json` y en los handoffs. Al hacer post-mortem de una
+   sesión antigua, resuelve el ref por `project_id` + `sequence_id`, no por el
+   prefijo literal.
 
 ## Higiene del sidebar
 
@@ -481,6 +507,24 @@ orquestadora vía `handleOrchestratorStop`. No necesitas hacer `git commit`
 manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
+
+- [2026-08-18] **El identifier de `config.json` era un cache que nunca se
+  revalidaba; el ref lo manda el provider.** `init()` del provider de Plane solo
+  resolvía los proyectos contra la API cuando `providers.plane.projects` traía
+  UUID *strings* sueltos; en cuanto `kodo config` los persistía como objetos
+  `{id, identifier, name}`, el identifier local se volvía inmortal. Renombrar el
+  proyecto en Plane (`ITROMAN` → `ITCLIP`) dejaba a kodo emitiendo refs fantasma
+  —`ITROMAN-1`— en `state.json`, en la url de browse y en el nombre de grupo de
+  cmux. Arreglado en KODO-13: `init()` refresca siempre identifier/name contra
+  `listProjects()`, **fail-open** (un fallo de red o un proyecto ausente de la
+  respuesta conserva lo cacheado en vez de tumbar el dispatch entero). La
+  divergencia se avisa por el logger y se diagnostica con
+  `kodo doctor --identifiers` (§Diagnóstico 6). Corolario operativo: cuando un
+  ref no cuadre, **contrasta contra el provider antes de tocar Plane** — el
+  síntoma parece un error de datos en el kanban y es un cache local.
+  ⚠️ El fix vive en la rama `worktree-ab777e67-…` (commits `a03fb28`, `1a29fab`)
+  y **aún no está mergeado a main**: hasta entonces `--identifiers` no existe en
+  el `kodo` instalado y el realineado automático tampoco.
 
 - [2026-07-27] Plane Community Edition **no soporta `list_work_items`
   workspace-wide**: sin `project_id` devuelve `HTTP 404: Page not found`. Para
