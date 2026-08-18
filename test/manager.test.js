@@ -235,6 +235,75 @@ describe('manager — pure helpers', () => {
       });
     });
 
+    // KODO-22 — el SessionRecord sella el UUID del workspace, no solo su ref.
+    //
+    // El guard de branding del daemon (shouldBrandWorkspace, server.js) compara
+    // CMUX_WORKSPACE_ID —un UUID— contra los campos del registro. Mientras el record
+    // solo llevaba `workspace_ref` ("workspace:N"), ese brazo del guard no casaba nunca
+    // y `kodo up` desde la tab de una sesión viva la rebautizaba `心動 kodo service`.
+    describe('workspace_id (KODO-22)', () => {
+      const WS_UUID = '0AE8A07E-B73A-40EB-B168-2270EEE03683';
+
+      it('persiste el UUID resuelto tal cual', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          workspaceId: WS_UUID,
+        });
+        assert.equal(session.workspace_id, WS_UUID);
+        // El ref NO se sustituye: los dos conviven (ref para focus/logs, id para identidad).
+        assert.equal(session.workspace_ref, 'workspace:42');
+      });
+
+      it('persiste null —no omite la clave— cuando el host no lo resolvió (fail-open)', () => {
+        // A DIFERENCIA de worktree_path (spread condicional), este campo se escribe
+        // SIEMPRE: `null` significa "sesión lanzada, host sin contestar" y AUSENTE
+        // significa "sesión legacy anterior a KODO-22". Son estados distintos.
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          workspaceId: null,
+        });
+        assert.equal('workspace_id' in session, true, 'la clave debe estar presente');
+        assert.equal(session.workspace_id, null);
+      });
+
+      it('null también cuando el param se omite por completo', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+        });
+        assert.equal(session.workspace_id, null);
+      });
+
+      it('no regresiona el resto del shape', () => {
+        const session = buildSessionFromTask({
+          task: makeTask(),
+          providerName: 'test',
+          projectPath: '/tmp/proj',
+          workspaceRef: 'workspace:42',
+          sessionId: 'sess-uuid',
+          workspaceId: WS_UUID,
+          flags: ['gsd'],
+          worktreePath: '/tmp/proj/.bg-shell/sess-uuid',
+        });
+        assert.equal(session.task_id, 'uuid-task');
+        assert.equal(session.session_id, 'sess-uuid');
+        assert.equal(session.status, 'running');
+        assert.equal(session.gsd, true);
+        assert.equal(session.worktree_path, '/tmp/proj/.bg-shell/sess-uuid');
+      });
+    });
+
     // CR-01 regression guard: launchWorkItem threads opts.sessionId into
     // buildSessionFromTask via the sessionId param. We validate the
     // identity-preservation at the buildSessionFromTask seam because
@@ -766,6 +835,56 @@ describe('manager.js source hygiene', () => {
     assert.ok(
       addIdx < sendIdx,
       `Phase 18 D-03: addSession(task.id, session) must precede the workspace send (got addSession@${addIdx}, send@${sendIdx})`,
+    );
+  });
+
+  it('KODO-22: launchWorkItem resuelve el workspace_id vía host._legacy y ANTES del addSession', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+
+    // La resolución se importa del módulo hoja de host/, NO de orchestrator/launch.js:
+    // ese módulo arrastra el arranque completo del orquestador (prompt.md, sync de la
+    // skill, provider) al camino caliente del dispatch. Misma frontera que target.js.
+    assert.ok(
+      /import\s*\{[^}]*\bresolveWorkspaceId\b[^}]*\}\s*from\s*['"]\.\.\/host\/workspace-id\.js['"]/.test(source),
+      'manager.js debe importar resolveWorkspaceId desde ../host/workspace-id.js',
+    );
+    assert.ok(
+      !/from\s*['"]\.\.\/orchestrator\/launch\.js['"]/.test(source),
+      'manager.js NO debe importar orchestrator/launch.js (módulo pesado del camino caliente)',
+    );
+
+    // El árbol se pide por host._legacy (invariante cmux-isolation SC#5: src/session/
+    // nunca toca cmux/client.js), y un host sin árbol degrada a null sin caer al cliente.
+    assert.ok(
+      /const\s+listTreeFn\s*=\s*host\._legacy\?\.listTree/.test(source),
+      'el listTreeFn debe salir de host._legacy?.listTree (SC#5)',
+    );
+    assert.ok(
+      /listTreeFn\s*\?\s*await resolveWorkspaceId\(\s*workspaceRef\s*,\s*\{\s*listTreeFn\s*\}\s*\)\s*:\s*null/.test(source),
+      'sin listTree en el host, workspaceId debe degradar a null (nunca al cliente cmux)',
+    );
+
+    // El UUID viaja al record por el MISMO addSession PRE-spawn — no por un
+    // updateSession posterior, que dejaría una ventana en la que la sesión ya existe
+    // y el guard de branding aún no ve su identidad.
+    const resolveIdx = source.indexOf('await resolveWorkspaceId(workspaceRef');
+    const buildIdx = source.indexOf('const session = buildSessionFromTask({');
+    const addIdx = source.indexOf('addSession(task.id, session)');
+    assert.ok(resolveIdx > 0, 'launchWorkItem debe resolver el workspace_id');
+    assert.ok(
+      resolveIdx < buildIdx && buildIdx < addIdx,
+      `la resolución debe preceder a buildSessionFromTask y al addSession (got resolve@${resolveIdx}, build@${buildIdx}, add@${addIdx})`,
+    );
+    assert.ok(
+      /workspaceId,/.test(source.slice(buildIdx, addIdx)),
+      'buildSessionFromTask debe recibir workspaceId',
+    );
+
+    // Fail-open: el UUID es cosmético frente a la carga útil. Ni throw ni return por
+    // no resolverlo (resolveWorkspaceId ya es never-throws; esto blinda el call site).
+    assert.ok(
+      !/resolveWorkspaceId\([^)]*\)[\s\S]{0,120}?throw/.test(source),
+      'no resolver el workspace_id NUNCA debe abortar el lanzamiento',
     );
   });
 

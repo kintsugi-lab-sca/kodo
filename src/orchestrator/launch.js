@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
 import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
 import * as cmux from '../cmux/client.js';
+import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
 import { syncSkill } from '../skill/sync.js';
 import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
@@ -84,58 +85,14 @@ export function findOrchestratorRef(workspaceListText) {
 // reciclaje de refs). `findOrchestratorRef` se conserva como fallback de migración
 // para el orquestador que ya estuviera corriendo sin registro.
 
-/**
- * Busca un workspace en el árbol de `cmux tree --all --json` recorriendo TODOS los
- * windows. Puro / never-throws: un shape inesperado devuelve `null`, no lanza.
- *
- * Precedencia de identidad DELIBERADA: si se pasa `id`, el match es SOLO por `id`.
- * NO cae a `ref` cuando el `id` no aparece — cmux recicla los `workspace:N`, así que
- * ese fallback confundiría «mi workspace murió y otro heredó su número» con «mi
- * workspace sigue vivo», que es precisamente el falso positivo que hay que evitar.
- * El match por `ref` queda reservado para registros sin UUID (degradado).
- *
- * @param {any} treeJson - salida YA PARSEADA de `cmux tree --all --json`.
- * @param {{ id?: string|null, ref?: string|null }} identity
- * @returns {{ ref: string, id: string|null, title: string|null }|null}
- */
-export function findWorkspaceInTree(treeJson, identity = {}) {
-  const wantId = typeof identity.id === 'string' && identity.id ? identity.id : null;
-  const wantRef = typeof identity.ref === 'string' && identity.ref ? identity.ref : null;
-  if (!wantId && !wantRef) return null;
-
-  const windows = Array.isArray(treeJson?.windows) ? treeJson.windows : [];
-  for (const win of windows) {
-    const workspaces = Array.isArray(win?.workspaces) ? win.workspaces : [];
-    for (const ws of workspaces) {
-      if (!ws || typeof ws !== 'object') continue;
-      const id = typeof ws.id === 'string' ? ws.id : null;
-      const ref = typeof ws.ref === 'string' ? ws.ref : null;
-      const hit = wantId ? id === wantId : ref === wantRef;
-      if (!hit) continue;
-      // El ref del árbol GANA al registrado: es el que cmux reconoce ahora mismo.
-      return { ref: ref || wantRef || '', id, title: typeof ws.title === 'string' ? ws.title : null };
-    }
-  }
-  return null;
-}
-
-/**
- * Resuelve el UUID de un `workspace:N` consultando el árbol cross-window.
- * never-throws → `null` si cmux falla, el JSON no parsea o el ref no está.
- *
- * @param {string} ref - `workspace:N`.
- * @param {{ listTreeFn?: () => Promise<string> }} [deps]
- * @returns {Promise<string|null>}
- */
-export async function resolveWorkspaceId(ref, deps = {}) {
-  const listTreeFn = deps.listTreeFn || cmux.listTree;
-  try {
-    const hit = findWorkspaceInTree(JSON.parse(await listTreeFn()), { ref });
-    return hit ? hit.id : null;
-  } catch {
-    return null;
-  }
-}
+// `findWorkspaceInTree` y `resolveWorkspaceId` VIVEN en `../host/workspace-id.js`
+// desde KODO-22 y se re-exportan aquí sin cambios (call sites y tests intactos).
+// Se movieron porque `session/manager.js` necesita resolver el UUID del workspace
+// de una sesión recién lanzada y NO puede importar este módulo: launch.js es el
+// arranque completo del orquestador (prompt.md, sync de la skill, provider) y el
+// dispatch de sesiones es camino caliente. Ese conocimiento es del HOST (la shape
+// de su árbol), no del orquestador — misma frontera que motivó `target.js`.
+export { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 
 /**
  * Revalida el registro del orquestador contra el host. Es el gate que decide si

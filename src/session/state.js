@@ -23,6 +23,7 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
 /**
  * @typedef {{
  *   workspace_ref: string,
+ *   workspace_id?: string|null,  // KODO-22: UUID del workspace en el host (`tree --all --json`.windows[].workspaces[].id, == CMUX_WORKSPACE_ID dentro de la tab). IDENTIDAD ESTABLE de la sesión — `workspace_ref` se RECICLA (cmux reusa los `workspace:N`). Lo sella buildSessionFromTask en el mismo addSession PRE-spawn del launch. `null` = la sesión se lanzó pero el host no resolvió el UUID (fail-open never-throws); AUSENTE = sesión legacy anterior a KODO-22. Consumers (hoy shouldBrandWorkspace, server.js) deben tolerar ambos y degradar al match por workspace_ref. Aditivo opcional — sin bump de schema_version, mismo idiom que worktree_path (Phase 18 D-03c).
  *   session_id: string,
  *   task_id: string,           // UUID del task en el provider activo
  *   task_ref: string,          // Referencia humana: "KL-42", "#42"
