@@ -80,9 +80,32 @@
 // holder muerto no puede LIBERAR en plena sección crítica del stealer. Tras sembrar
 // deja el marcador `holder-seeded` en `--sandbox`, espera la barrera `--release` y
 // ejecuta `releaseGsdLock(repo, 'sess-live-holder')` — el `unlink` que abre el hueco
-// donde aterriza el creador Case-1. NO espera `--barrier`: siembra nada más bootear.
-// Veredicto `written`/`failed`, NUNCA `acquired`: el holder no adquiere nada y el
-// padre cuenta los `acquired` sobre TODOS los hijos. Never-throws.
+// donde aterriza el creador Case-1. Veredicto `written`/`failed`, NUNCA `acquired`:
+// el holder no adquiere nada y el padre cuenta los `acquired` sobre TODOS los hijos.
+// Never-throws.
+//
+// HANDSHAKES DE ARRANQUE Y CIERRE (Phase 87, KODO-24) — se activan pasando
+// `--sandbox` a los kinds `gsd`, `gsd-seam` y `gsd-holder`, y no existen para
+// ningún otro consumidor del harness:
+//
+//  - `ready-<pid>`: el hijo precarga `src/gsd/lock.js` y publica este marcador ANTES
+//    de esperar su `--barrier`. Sin él, escribir un go-file NO significaba que el
+//    hijo estuviera contendiendo: el coste real no es el `spawn` del padre sino el
+//    arranque del proceso más el import ESM en frío, y bajo carga medida (20
+//    procesos quemando CPU en 12 cores) un hijo llegaba a bootear 245 ms tarde, o
+//    sea DESPUÉS de que el escenario hubiera cerrado. Entonces encontraba el lock
+//    del ganador ya salido —PID muerto— y lo robaba con toda la razón, sumando un
+//    segundo `acquired` al agregado sin que ningún invariante se hubiera roto.
+//  - `settled-<pid>` (solo kind `gsd`): publicado en cuanto `acquireGsdLock` retorna
+//    y ANTES del hold. Es la otra mitad: el padre no cierra el escenario mientras
+//    alguien sigue contendiendo.
+//  - `barrier-timeouts.log`: una línea por barrera VENCIDA. Antes, vencer y cumplirse
+//    eran indistinguibles desde fuera —el hijo continuaba igual—, así que una
+//    desincronización de la orquestación daba el MISMO rojo que un fallo del
+//    invariante del lock, y los dos tienen arreglos opuestos.
+//
+// Los tres son CANALES LATERALES, molde del marcador de rama de `capture`: van en su
+// propio try/catch y su fallo jamás cambia lo que el hijo imprime ni lo hace lanzar.
 //
 // `--kind gsd-seam` (Phase 86 Plan 02, LOCK-05 b): el stealer que se APARCA dentro
 // de la sección crítica del steal. Llama a `acquireGsdLock` con el tercer parámetro
@@ -115,7 +138,11 @@
 //                                branch marker — absent, no marker is written.
 //                                gsd-holder: destino del marcador `holder-seeded`.
 //                                gsd-seam: destino de `stealer-parked` y del
-//                                marcador lateral `steal-reasons.log`)
+//                                marcador lateral `steal-reasons.log`.
+//                                gsd, OPCIONAL: activa los handshakes de
+//                                `ready-<pid>` / `settled-<pid>` y el marcador
+//                                `barrier-timeouts.log` — ausente, ningún marcador
+//                                se escribe y el kind se comporta como siempre)
 //   --id     <captureId>        (mark: the short id of the capture to close)
 //   --dest   <ref>              (mark, optional: the opaque trace pointer — kodo
 //                                never validates nor interprets it, D-11)
@@ -139,7 +166,8 @@
 //                                prioridad sobre `--hold` cuando ambos están
 //                                presentes, y ningún consumidor existente la pasa)
 
-import { existsSync } from 'node:fs';
+import { existsSync, appendFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** El `session_id` que siembra el kind `gsd-holder`. Constante conocida para que su
  *  propio `releaseGsdLock` pueda casarla y para que el padre distinga en disco el
@@ -168,9 +196,19 @@ function sleepSync(ms) {
   Atomics.wait(sab, 0, 0, ms);
 }
 
-/** Busy-wait (bounded) until the barrier go-file appears. */
+/**
+ * Busy-wait (bounded) until the barrier go-file appears.
+ *
+ * Devuelve `true` si la barrera LLEGÓ y `false` si venció el techo (Phase 87,
+ * KODO-24). El valor de retorno es ADITIVO: los seis consumidores previos lo
+ * ignoran y su comportamiento no cambia. Existe porque una barrera vencida se
+ * comportaba EXACTAMENTE igual que una barrera cumplida —el hijo continuaba como
+ * si la señal hubiera llegado—, de modo que un escenario que se desincronizaba
+ * bajo carga degradaba a medir otra cosa en SILENCIO. Quien pasa un `--sandbox`
+ * puede además dejar constancia con `noteBarrierTimeout`.
+ */
 function waitForBarrier(goFile, timeoutMs = 5000) {
-  if (!goFile) return;
+  if (!goFile) return true;
   const deadline = Date.now() + timeoutMs;
   // Tight spin with a tiny Atomics sleep to avoid pegging the CPU while still
   // reacting within ~1ms of the go-file appearing.
@@ -178,11 +216,67 @@ function waitForBarrier(goFile, timeoutMs = 5000) {
   while (!existsSync(goFile) && Date.now() < deadline) {
     Atomics.wait(sab, 0, 0, 1);
   }
+  return existsSync(goFile);
+}
+
+/**
+ * Marcador lateral de barrera VENCIDA (Phase 87, KODO-24). Molde literal del
+ * marcador de rama del kind `capture`: canal lateral, en su propio try/catch, su
+ * fallo jamás cambia el veredicto de este hijo ni lo hace lanzar. El padre lo lee
+ * para poder distinguir «el invariante del lock se rompió» de «la orquestación se
+ * desincronizó», que producen el mismo rojo y tienen arreglos opuestos.
+ *
+ * @param {string | undefined} sandbox
+ * @param {string} name — qué barrera venció, p. ej. `barrier` o `release`
+ */
+function noteBarrierTimeout(sandbox, name) {
+  if (!sandbox) return;
+  try {
+    appendFileSync(join(sandbox, 'barrier-timeouts.log'), `${name}:${process.pid}\n`);
+  } catch {
+    /* el marcador es diagnóstico, jamás un veredicto */
+  }
+}
+
+/**
+ * Handshake de PREPARADO (Phase 87, KODO-24). Precarga el módulo que el hijo va a
+ * ejercitar y publica `<sandbox>/ready-<pid>` ANTES de esperar su barrera.
+ *
+ * Por qué existe: el padre spawnea a todos los hijos antes de la primera
+ * liberación para dejar el `spawn` fuera de la ventana, pero el spawn no es el
+ * coste real — lo es el ARRANQUE del proceso más el import ESM en frío. Medido
+ * bajo carga (20 procesos quemando CPU en 12 cores), un hijo booteaba hasta 245 ms
+ * después del primero: escribir su go-file NO significaba que estuviera
+ * contendiendo, y llegaba cuando el escenario ya había cerrado. Con el marcador,
+ * el padre espera ESTADO DE DISCO —«el hijo está arrancado y con el módulo
+ * cargado»— en vez de suponerlo por haber escrito la barrera.
+ *
+ * El import es el mismo especificador que usa cada rama después, así que el
+ * registro de módulos de ESM ya lo tiene resuelto y el `await import` posterior es
+ * una consulta en memoria: el coste sale de la ventana medida. `src/gsd/lock.js`
+ * no lee `HOME` ni `KODO_DIR` (opera sobre `--repo`), de modo que precargarlo no
+ * viola la disciplina de import DINÁMICO POST-HOME del resto del fichero.
+ *
+ * @param {{ kind?: string, sandbox?: string }} args
+ */
+async function markReady(args) {
+  if (!args.sandbox) return;
+  if (args.kind !== 'gsd' && args.kind !== 'gsd-seam' && args.kind !== 'gsd-holder') return;
+  try {
+    await import('../../src/gsd/lock.js');
+    writeFileSync(join(args.sandbox, `ready-${process.pid}`), String(process.pid));
+  } catch {
+    /* sin marcador el padre falla con su propio mensaje, que es la reacción correcta */
+  }
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  waitForBarrier(args.barrier);
+  // Handshake de PREPARADO antes de la barrera: precarga + `ready-<pid>`. No-op
+  // salvo para los kinds gsd* con `--sandbox`, así que los consumidores previos
+  // del harness no ven ningún cambio.
+  await markReady(args);
+  if (!waitForBarrier(args.barrier)) noteBarrierTimeout(args.sandbox, 'barrier');
 
   // Writer mode (Plan 02): dynamic-import state.js AFTER HOME is set by the
   // parent (env), then addSession for this writer's index. Never throws.
@@ -364,7 +458,7 @@ async function main() {
         ) + '\n', // misma serialización que `serializeLockContent`
       );
       writeFileSync(join(args.sandbox, 'holder-seeded'), String(process.pid));
-      waitForBarrier(args.release, 3000);
+      if (!waitForBarrier(args.release, 3000)) noteBarrierTimeout(args.sandbox, 'release');
       const { releaseGsdLock } = await import('../../src/gsd/lock.js');
       releaseGsdLock(args.repo, HOLDER_SESSION_ID);
       written = true;
@@ -403,7 +497,7 @@ async function main() {
               writeFileSync(join(args.sandbox, 'stealer-parked'), String(process.pid));
               // Techo de fallo ruidoso, claramente por debajo de
               // STEAL_GUARD_STALE_MS: mientras esperamos RETENEMOS el steal-guard.
-              waitForBarrier(args.resume, 3000);
+              if (!waitForBarrier(args.resume, 3000)) noteBarrierTimeout(args.sandbox, 'resume');
             },
           },
         )
@@ -562,6 +656,21 @@ async function main() {
     acquired = false;
   }
 
+  // Handshake de ASENTADO (Phase 87, KODO-24), pareado con `ready-<pid>`: publica
+  // `<sandbox>/settled-<pid>` en cuanto el intento de adquisición TERMINA y ANTES
+  // del hold. Es lo que permite al padre no cerrar el escenario mientras alguien
+  // sigue contendiendo: si el ganador se marcha con un contendiente aún dentro de
+  // `acquireGsdLock`, ese contendiente encuentra un lock de PID muerto y lo roba
+  // —legítimamente— añadiendo un segundo `acquired` al agregado. El marcador es
+  // lateral: en su propio try/catch, jamás cambia el veredicto de este hijo.
+  if (args.sandbox && args.kind === 'gsd') {
+    try {
+      writeFileSync(join(args.sandbox, `settled-${process.pid}`), acquired ? 'acquired' : 'blocked');
+    } catch {
+      /* el marcador es diagnóstico, jamás un veredicto */
+    }
+  }
+
   // Hold the lock (stay alive) for the winner so concurrent siblings observe a
   // LIVE owner and are blocked, rather than stealing a lock abandoned by exit.
   //
@@ -570,7 +679,9 @@ async function main() {
   // duración calibrada. Extensión ADITIVA — los kinds existentes y sus seis
   // consumidores siguen pasando `--hold`, con comportamiento idéntico.
   if (acquired && args['hold-until']) {
-    waitForBarrier(args['hold-until'], 3000);
+    if (!waitForBarrier(args['hold-until'], 3000)) {
+      noteBarrierTimeout(args.sandbox, 'hold-until');
+    }
   } else if (acquired && args.hold) {
     const sab = new Int32Array(new SharedArrayBuffer(4));
     Atomics.wait(sab, 0, 0, Number(args.hold));
