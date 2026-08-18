@@ -62,11 +62,30 @@ function leaksCmuxClient(specifier) {
   return /\/cmux\/client/.test(specifier);
 }
 
+// KODO-18 amplía la lista: `orchestrator/`, `triggers/dispatcher.js` y `hooks/stop.js`
+// dejaron de importar cmux/client.js al migrar al contrato del host, así que entran al
+// walker para que no puedan volver a hacerlo sin que el test lo cante.
 const SCANNED = [
   join(SRC, 'cli', 'dashboard'),
   join(SRC, 'session'),
   join(SRC, 'cli', 'polling.js'),
+  join(SRC, 'orchestrator'),
+  join(SRC, 'triggers', 'dispatcher.js'),
+  join(SRC, 'hooks', 'stop.js'),
 ];
+
+// Los DOS módulos que a día de hoy siguen importando cmux/client.js a propósito. Se
+// listan aquí —y NO en SCANNED— para que la deuda quede contada, no escondida:
+//
+//   · src/hooks/session-end.js — lo conserva SOLO como fail-safe: `resolveHostClient()`
+//     cae al módulo cmux si la resolución del host falla, y la rama de degradación
+//     `setColor(colorForStatus('review'))` cubre a los clientes sin `setStatus`.
+//   · src/server.js — marca la tab PROPIA del daemon (nombre + color Indigo) partiendo de
+//     `process.env.CMUX_WORKSPACE_ID`, una variable que solo existe dentro de una tab de
+//     cmux. Con otro host la variable no está y el bloque entero se salta: es inerte, no
+//     roto. Portarlo exigiría un equivalente por host (`orca worktree current`) y es
+//     cosmética del daemon, no del ciclo de vida de las sesiones.
+const KNOWN_DIRECT_CMUX_CONSUMERS = ['src/hooks/session-end.js', 'src/server.js'];
 
 describe('Phase 38 SC#5 (cmux-isolation): cero refs a cmux/client.js fuera de src/host/', () => {
   for (const target of SCANNED) {
@@ -90,5 +109,22 @@ describe('Phase 38 SC#5 (cmux-isolation): cero refs a cmux/client.js fuera de sr
     const cmuxHost = join(SRC, 'host', 'cmux.js');
     assert.ok(existsSync(cmuxHost), 'src/host/cmux.js debe existir');
     // No assertamos que importe; solo documentamos que es el único path permitido.
+  });
+
+  test('la lista de consumidores directos de cmux/client.js no crece (KODO-18)', () => {
+    // Ratchet: fija el inventario REAL. Si un módulo nuevo importa el cliente cmux, este
+    // test lo caza aunque no esté en SCANNED; si uno de los dos conocidos se migra, hay
+    // que quitarlo de la lista — el test también lo exige, así que la lista no se
+    // queda desfasada hacia ninguno de los dos lados.
+    const actual = listJsFiles(SRC)
+      .filter((f) => f !== join(SRC, 'host', 'cmux.js'))
+      .filter((f) => extractImports(readFileSync(f, 'utf-8')).some(leaksCmuxClient))
+      .map((f) => relative(REPO, f))
+      .sort();
+    assert.deepEqual(
+      actual,
+      [...KNOWN_DIRECT_CMUX_CONSUMERS].sort(),
+      'cambió el inventario de módulos que importan cmux/client.js directamente',
+    );
   });
 });

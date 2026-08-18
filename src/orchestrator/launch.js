@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
 import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
-import * as cmux from '../cmux/client.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 import { getSessionMode } from '../labels.js';
 import { syncSkill } from '../skill/sync.js';
 import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
@@ -20,6 +20,28 @@ export const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
 // detached vive en otro window, así que una consulta en vivo jamás vería el ref del orquestador.
 // launchOrchestrator (que SÍ corre en el window correcto, con TTY) lo escribe al lanzar/refrescar.
 export const ORCHESTRATOR_REF_PATH = join(homedir(), '.kodo', 'orchestrator.json');
+
+/**
+ * Cliente de lifecycle del host ACTIVO (KODO-18).
+ *
+ * Este módulo hablaba con `cmux/client.js` directamente — era el último carril de kodo
+ * cableado a un host concreto. Ahora pasa por `_legacy`, el mismo shape de funciones que
+ * ya consumían `session/manager.js` y `session/health.js`, así que `kodo orchestrate`
+ * funciona igual con `host: orca`.
+ *
+ * FAIL-SAFE: si la resolución del host falla (config ilegible, host desconocido),
+ * `resolveHostName` ya cae a `'cmux'`; este try/catch adicional cubre el caso extremo de
+ * que la factory lance, devolviendo un cliente de no-ops en vez de reventar el launch.
+ *
+ * @returns {any} cliente con newWorkspace/setColor/send/notify/listWorkspaces/listTree.
+ */
+function hostLegacy() {
+  try {
+    return getHost(resolveHostName())._legacy;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Persiste el `workspace:N` del orquestador a ~/.kodo/orchestrator.json. never-throws
@@ -57,16 +79,28 @@ export function readOrchestratorRef() {
 }
 
 /**
- * Resuelve el `workspace:N` del orquestador desde el texto crudo de `cmux.listWorkspaces()`.
+ * Resuelve el ref del orquestador desde el texto crudo de `listWorkspaces()`.
  * Puro / never-throws: devuelve el ref si `kodo-orchestrator` está en la lista, o `null`.
  * Fuente única de verdad del match (reusado por launchOrchestrator y el endpoint /orchestrator).
  *
- * @param {string} workspaceListText - salida cruda de `cmux.listWorkspaces()`.
- * @returns {string|null} `workspace:N` o null si no existe / input no-string.
+ * KODO-18 — la regex dejó de exigir el shape `workspace:N` de cmux para admitir también el
+ * `<repoId>::<path>` de Orca. Sigue siendo igual de estricta gracias al ANCLA DE LÍNEA: el
+ * ref debe ser el PRIMER token de su línea y `kodo-orchestrator` el título COMPLETO, así que
+ * un workspace titulado `"mi kodo-orchestrator"` no matchea (antes tampoco). Tolera el
+ * sangrado y el marcador `*` de la fila seleccionada que cmux imprime.
+ *
+ * Formatos cubiertos (verificados contra ambos binarios):
+ *   cmux → `  workspace:12  kodo-orchestrator`  ·  `* workspace:3  kodo-orchestrator  [selected]`
+ *   orca → `<repoId>::/path/kodo-orchestrator  kodo-orchestrator`
+ *
+ * @param {string} workspaceListText - salida cruda de `listWorkspaces()`.
+ * @returns {string|null} ref del host, o null si no existe / input no-string.
  */
 export function findOrchestratorRef(workspaceListText) {
   if (typeof workspaceListText !== 'string') return null;
-  const match = workspaceListText.match(/(workspace:\d+)\s+kodo-orchestrator/);
+  const match = workspaceListText.match(
+    /^[^\S\n]*\*?[^\S\n]*(\S+)[^\S\n]+kodo-orchestrator[^\S\n]*(?:\[selected\])?[^\S\n]*$/m,
+  );
   return match ? match[1] : null;
 }
 
@@ -128,7 +162,7 @@ export function findWorkspaceInTree(treeJson, identity = {}) {
  * @returns {Promise<string|null>}
  */
 export async function resolveWorkspaceId(ref, deps = {}) {
-  const listTreeFn = deps.listTreeFn || cmux.listTree;
+  const listTreeFn = deps.listTreeFn || (() => hostLegacy().listTree());
   try {
     const hit = findWorkspaceInTree(JSON.parse(await listTreeFn()), { ref });
     return hit ? hit.id : null;
@@ -167,7 +201,7 @@ export async function resolveWorkspaceId(ref, deps = {}) {
  * @returns {Promise<{ status: 'none' } | { status: 'alive'|'dead'|'unverifiable', ref: string }>}
  */
 export async function verifyRegisteredOrchestrator(deps = {}) {
-  const listTreeFn = deps.listTreeFn || cmux.listTree;
+  const listTreeFn = deps.listTreeFn || (() => hostLegacy().listTree());
   const getOrchestratorFn = deps.getOrchestratorFn || getOrchestrator;
 
   const reg = getOrchestratorFn();
@@ -355,6 +389,9 @@ export async function launchOrchestrator(opts = {}) {
   // Primero por identidad persistida, porque es el único check que sobrevive tanto a
   // un rename de la tab como a correr desde otro window. Solo si este carril no
   // resuelve nada se consulta la detección por título de abajo.
+  // KODO-18: el host activo se resuelve UNA vez por launch y se sella en el registro,
+  // para que un `kodo orchestrate` posterior sepa bajo qué host se creó.
+  const hostName = resolveHostName();
   const verdict = await verifyRegisteredOrchestrator();
   if (verdict.status === 'alive') {
     // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
@@ -377,7 +414,24 @@ export async function launchOrchestrator(opts = {}) {
   if (verdict.status === 'dead') {
     // Evidencia positiva de muerte: el host respondió y el workspace no está. Se limpia
     // el registro para que la cola no quede sin supervisor y se sigue al launch.
-    console.log(`[kodo] Orchestrator registrado en ${verdict.ref} ya no existe — se relanza`);
+    //
+    // KODO-18 — distinguir «murió» de «cambiaste de host». Desde que `config.host` es
+    // conmutable, un registro hecho bajo cmux es INVISIBLE desde orca (y viceversa): el
+    // veredicto `dead` es literalmente cierto y relanzar es correcto, pero el
+    // orquestador del host anterior puede seguir vivo, y dos supervisores sobre el mismo
+    // state.json se pisan los nudges y duplican comentarios en el provider. No se puede
+    // verificar el otro host desde aquí, así que se AVISA — que es lo único honesto.
+    const previous = getOrchestrator();
+    if (previous?.host && previous.host !== hostName) {
+      console.log(
+        `[kodo] AVISO: el orquestador registrado en ${verdict.ref} pertenece al host ` +
+          `'${previous.host}' y el host activo ahora es '${hostName}'. Se relanza en ` +
+          `'${hostName}', pero CIERRA a mano el orquestador de '${previous.host}' si sigue ` +
+          'abierto — dos supervisores comparten state.json y la cola.',
+      );
+    } else {
+      console.log(`[kodo] Orchestrator registrado en ${verdict.ref} ya no existe — se relanza`);
+    }
     clearOrchestrator();
   }
 
@@ -387,7 +441,7 @@ export async function launchOrchestrator(opts = {}) {
   // aquí sobreviva a renames y a un check desde otro window.
   let workspaceList;
   try {
-    workspaceList = await cmux.listWorkspaces();
+    workspaceList = await hostLegacy().listWorkspaces();
   } catch {
     workspaceList = '';
   }
@@ -404,6 +458,7 @@ export async function launchOrchestrator(opts = {}) {
       // honesto — mejor que inventar un UUID que no corresponde a ninguna sesión.
       session_id: '',
       started_at: new Date().toISOString(),
+      host: hostName, // KODO-18
     });
     return { workspace: existingRef, existing: true };
   }
@@ -420,13 +475,15 @@ export async function launchOrchestrator(opts = {}) {
   );
 
   // Create workspace
-  const workspaceRef = await cmux.newWorkspace({
+  const workspaceRef = await hostLegacy().newWorkspace({
     name: ORCHESTRATOR_WORKSPACE_NAME,
     cwd: process.cwd(),
   });
 
-  // Set orchestrator color (Indigo)
-  await cmux.setColor({ workspace: workspaceRef, color: 'Indigo' });
+  // Set orchestrator color (Indigo). KODO-18: en orca `setColor` es un no-op documentado
+  // (no hay color por workspace) y la tarjeta se identifica por su nombre — el orquestador
+  // no es una tarea, así que NO se le asigna una columna del tablero.
+  await hostLegacy().setColor({ workspace: workspaceRef, color: 'Indigo' });
 
   // Build Claude command with orchestrator prompt + context
   const sessionId = randomUUID();
@@ -440,6 +497,7 @@ export async function launchOrchestrator(opts = {}) {
     workspace_id: await resolveWorkspaceId(workspaceRef),
     session_id: sessionId,
     started_at: new Date().toISOString(),
+    host: hostName, // KODO-18
   });
 
   const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
@@ -465,10 +523,10 @@ export async function launchOrchestrator(opts = {}) {
   // ─────────────────────────────────────────────────────────────────────
   const claudeCmd = buildOrchestratorCommand(config, sessionId, prompt);
 
-  await cmux.send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
+  await hostLegacy().send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
 
   // Notify
-  await cmux.notify({
+  await hostLegacy().notify({
     title: 'kodo: Orchestrator',
     body: `Lanzado con ${sessions.length} sesiones activas`,
     workspace: workspaceRef,

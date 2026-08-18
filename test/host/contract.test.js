@@ -610,6 +610,25 @@ describe('WorkspaceHost contract matrix', () => {
       });
     });
 
+    test('KODO-18: ambos hosts reales exponen _legacy.listTree (identidad del orquestador)', () => {
+      // `orchestrator/launch.js` dejó de importar cmux/client.js: su revalidación
+      // anti-duplicado consume esta vista cross-window del host activo.
+      for (const name of ['cmux', 'orca']) {
+        assert.equal(
+          typeof instantiateHost(name)?._legacy?.listTree,
+          'function',
+          `${name} _legacy.listTree presente`,
+        );
+      }
+    });
+
+    // NOTA: aquí solo se comprueba la PRESENCIA. Los métodos de `_legacy` son
+    // passthroughs fieles al módulo cliente, que resuelve su binario desde loadConfig()
+    // — el `run` inyectado NO los alcanza, así que invocarlos en un test dispararía el
+    // binario real del operador. El comportamiento de la traducción se cubre sobre la
+    // función PURA `buildTreeFromPs` en test/orca/client.test.js, incluida su
+    // integración con findWorkspaceInTree.
+
     test('orca host expone _legacy.rename como función', () => {
       const host = instantiateHost('orca');
       assert.equal(typeof host?._legacy?.rename, 'function', 'orca _legacy.rename presente');

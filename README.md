@@ -310,6 +310,23 @@ Las columnas del tablero se ajustan igual que los colores de cmux:
 kodo config --set orca.statuses.review=in-review
 ```
 
+### Cambiar de cliente con un orquestador vivo
+
+Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador del
+cliente anterior queda **fuera del alcance** del nuevo: su workspace no existe ahí,
+así que kodo lo da por muerto y lanza otro. El registro guarda bajo qué host se creó,
+así que en ese caso verás un aviso explícito:
+
+```
+[kodo] AVISO: el orquestador registrado en … pertenece al host 'cmux' y el host
+activo ahora es 'orca'. Se relanza en 'orca', pero CIERRA a mano el orquestador de
+'cmux' si sigue abierto — dos supervisores comparten state.json y la cola.
+```
+
+Cierra el anterior a mano. kodo no puede comprobar el otro cliente desde dentro, y
+dos supervisores sobre el mismo `state.json` se pisan los nudges y duplican
+comentarios en el provider.
+
 ### Límites conocidos (v0.19)
 
 Orca no expone en su CLI algunas cosas que cmux sí, y kodo degrada **fail-open** en
@@ -322,7 +339,9 @@ todas ellas — nada aborta un lanzamiento:
 - **Adopción de sesiones ad-hoc** (`kodo adopt` desde el descubrimiento del
   dashboard): requiere el `session_id` de Claude Code, que cmux publica en
   `surface resume show` y Orca no. La adopción explícita por ref sigue funcionando.
-- **Orquestador** (`kodo orchestrate`): su lanzamiento sigue cableado a cmux.
+- **Marca del propio daemon**: `kodo server` renombra y colorea su tab partiendo de
+  `CMUX_WORKSPACE_ID`, que solo existe dentro de cmux. Con Orca el bloque se salta —
+  es cosmética del daemon, no del ciclo de vida de las sesiones.
 - **`needs-input`**: se deriva de los hooks de agente de Orca. Actívalos con
   `orca agent hooks on`; sin ellos las sesiones nunca se marcan como «esperando».
 

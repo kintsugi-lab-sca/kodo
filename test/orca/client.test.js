@@ -20,6 +20,7 @@ import {
   formatWorkspaceList,
   statusForState,
   stripTrailingNewlineEscape,
+  buildTreeFromPs,
 } from '../../src/orca/client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -219,6 +220,46 @@ describe('stripTrailingNewlineEscape — convención de keystroke compartida con
     for (const raw of [undefined, null, 42]) {
       assert.doesNotThrow(() => stripTrailingNewlineEscape(raw));
       assert.equal(typeof stripTrailingNewlineEscape(raw), 'string');
+    }
+  });
+});
+
+describe('buildTreeFromPs — `worktree ps` traducido al shape de árbol de cmux', () => {
+  test('emite un único window sintético con todos los worktrees', () => {
+    const tree = buildTreeFromPs(PS.result);
+    assert.equal(tree.windows.length, 1, 'Orca no tiene eje de windows');
+    assert.equal(tree.windows[0].workspaces.length, PS.result.worktrees.length);
+  });
+
+  test('id === ref: en Orca el ref YA es identidad estable, no hay UUID aparte', () => {
+    // Esto es lo que hace que el carril anti-duplicado del orquestador (que en cmux
+    // necesita un UUID porque los `workspace:N` se reciclan) funcione sin ramificar.
+    for (const ws of buildTreeFromPs(PS.result).windows[0].workspaces) {
+      assert.equal(ws.id, ws.ref);
+      assert.equal(typeof ws.ref, 'string');
+    }
+  });
+
+  test('title ← displayName', () => {
+    const ws = buildTreeFromPs(PS.result).windows[0].workspaces
+      .find((w) => w.ref === 'repo-b::/orca/workspaces/beta/kodo-42');
+    assert.equal(ws.title, 'KODO-42: arreglar el login');
+  });
+
+  test('el resultado alimenta findWorkspaceInTree sin adaptación', async () => {
+    // El contrato REAL de esta función: que el consumidor del orquestador la digiera.
+    const { findWorkspaceInTree } = await import('../../src/orchestrator/launch.js');
+    const hit = findWorkspaceInTree(buildTreeFromPs(PS.result), {
+      id: 'repo-b::/orca/workspaces/beta/kodo-42',
+    });
+    assert.ok(hit, 'el workspace registrado se encuentra por identidad');
+    assert.equal(hit.ref, 'repo-b::/orca/workspaces/beta/kodo-42');
+  });
+
+  test('shape inesperado → árbol vacío, nunca lanza', () => {
+    for (const bad of [undefined, null, {}, { worktrees: 'x' }, { worktrees: [null] }]) {
+      assert.doesNotThrow(() => buildTreeFromPs(bad));
+      assert.deepEqual(buildTreeFromPs(bad).windows[0].workspaces, []);
     }
   });
 });

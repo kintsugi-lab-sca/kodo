@@ -298,6 +298,66 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
     assert.ok(lastTree < sendIdx, 'la identidad se registra antes de arrancar claude');
   });
 
+  it('KODO-18: un registro de OTRO host se relanza CON aviso explícito de doble supervisor', async () => {
+    // Desde que `config.host` es conmutable, un registro hecho bajo orca es invisible
+    // desde cmux: el veredicto `dead` es literalmente cierto y relanzar es correcto,
+    // pero el orquestador de orca puede seguir vivo. kodo no puede comprobarlo desde
+    // aquí, así que lo mínimo honesto es avisar en vez de callar.
+    seedState({
+      workspace_ref: 'repo-x::/orca/workspaces/kodo/kodo-orchestrator',
+      workspace_id: 'repo-x::/orca/workspaces/kodo/kodo-orchestrator',
+      session_id: 'sess-orca',
+      started_at: '2026-08-18T09:00:00Z',
+      host: 'orca',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: NEW_REF, id: NEW_UUID }] }] },
+      workspaceList: '',
+    });
+    const { calls, stdout } = await runLaunch();
+    assert.ok(createdWorkspace(calls), 'la cola no puede quedarse sin supervisor: se relanza');
+    assert.match(stdout, /AVISO/, 'debe avisar del cambio de host');
+    assert.match(stdout, /'orca'/, 'nombra el host del registro huérfano');
+    assert.match(stdout, /'cmux'/, 'nombra el host activo');
+    // El registro nuevo queda sellado con el host ACTIVO, no con el anterior.
+    assert.equal(readState().orchestrator.host, 'cmux');
+  });
+
+  it('KODO-18: un registro del MISMO host muerto NO dispara el aviso cross-host', async () => {
+    // El aviso solo tiene sentido cuando hay otro host implicado; en el caso normal
+    // (la tab murió de verdad) el mensaje de siempre.
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: ORCH_UUID,
+      session_id: 'sess-cmux',
+      started_at: '2026-08-18T09:00:00Z',
+      host: 'cmux',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: NEW_REF, id: NEW_UUID }] }] },
+      workspaceList: '',
+    });
+    const { calls, stdout } = await runLaunch();
+    assert.ok(createdWorkspace(calls), 'se relanza igual');
+    assert.doesNotMatch(stdout, /AVISO/, 'sin cambio de host no hay aviso');
+    assert.match(stdout, /ya no existe — se relanza/);
+  });
+
+  it('KODO-18: un registro LEGACY sin `host` no inventa un aviso (sin evidencia, silencio)', async () => {
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: ORCH_UUID,
+      session_id: 'sess-legacy',
+      started_at: '2026-08-18T09:00:00Z',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: NEW_REF, id: NEW_UUID }] }] },
+      workspaceList: '',
+    });
+    const { stdout } = await runLaunch();
+    assert.doesNotMatch(stdout, /AVISO/, 'un registro pre-KODO-18 no permite concluir nada');
+  });
+
   it('state.json queda con la clave top-level `orchestrator` (jq .orchestrator)', async () => {
     seedState(null);
     seedScenario({
@@ -307,7 +367,14 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
     await runLaunch();
     assert.ok(existsSync(statePath));
     const raw = readState();
+    // KODO-18: se suma `host` — sella bajo qué cliente (cmux|orca) se creó el
+    // orquestador, para poder distinguir «el workspace murió» de «cambiaste de host»
+    // cuando la revalidación no lo encuentra.
     assert.deepEqual(Object.keys(raw.orchestrator).sort(),
-      ['session_id', 'started_at', 'workspace_id', 'workspace_ref']);
+      ['host', 'session_id', 'started_at', 'workspace_id', 'workspace_ref']);
+    assert.ok(
+      ['cmux', 'orca'].includes(raw.orchestrator.host),
+      `host sellado inválido: ${raw.orchestrator.host}`,
+    );
   });
 });

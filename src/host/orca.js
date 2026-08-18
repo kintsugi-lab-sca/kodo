@@ -303,6 +303,15 @@ export function createOrcaHost(opts = {}) {
     async listWorkspaces() {
       return (await import('../orca/client.js')).listWorkspaces();
     },
+    /**
+     * Vista cross-window para la revalidación de identidad del orquestador (KODO-18),
+     * en el mismo shape que `cmux tree --all --json`. En Orca se SINTETIZA desde
+     * `worktree ps` — ver `buildTreeFromPs`.
+     * @returns {Promise<string>} JSON serializado
+     */
+    async listTree() {
+      return (await import('../orca/client.js')).listTree();
+    },
     /** @returns {Promise<string>} `'{"groups":[]}'` — Orca no tiene grupos (no-op fail-open) */
     async listWorkspaceGroups() {
       return (await import('../orca/client.js')).listWorkspaceGroups();

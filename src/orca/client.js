@@ -438,6 +438,47 @@ export async function listWorkspacesJson() {
 }
 
 /**
+ * Traduce la salida de `worktree ps` al SHAPE DE ÁRBOL de `cmux tree --all --json`
+ * (`{windows:[{workspaces:[{id,ref,title}]}]}`). PURA.
+ *
+ * Existe para que el carril de identidad del orquestador (`findWorkspaceInTree`,
+ * `verifyRegisteredOrchestrator`) funcione sin ramificar por host. Ese carril nació
+ * resolviendo un problema EXCLUSIVO de cmux —los `workspace:N` se reciclan, así que la
+ * identidad estable es un UUID aparte, y `workspace list` es window-scoped— pero la
+ * PREGUNTA que responde («¿sigue vivo el workspace que registré?») es universal.
+ *
+ * En Orca el ref `<repoId>::<path>` YA es identidad estable y `worktree ps` YA es
+ * cross-window, así que `id` y `ref` se emiten IGUALES: el match por UUID del carril
+ * degrada a un match por ref que aquí es exacto, no una heurística.
+ *
+ * Un único "window" sintético: Orca no tiene ese eje y el consumidor solo recorre.
+ *
+ * @param {any} psResult - `result` de `worktree ps --json`.
+ * @returns {{windows: {workspaces: {id: string, ref: string, title: string|null}[]}[]}}
+ */
+export function buildTreeFromPs(psResult) {
+  const worktrees = Array.isArray(psResult?.worktrees) ? psResult.worktrees : [];
+  const workspaces = worktrees
+    .filter((w) => w && typeof w.worktreeId === 'string')
+    .map((w) => ({
+      id: w.worktreeId, // en Orca el ref ES la identidad estable — no hay UUID aparte
+      ref: w.worktreeId,
+      title: typeof w.displayName === 'string' ? w.displayName : null,
+    }));
+  return { windows: [{ workspaces }] };
+}
+
+/**
+ * Equivalente de `cmux.listTree()`: vista cross-window para la revalidación de
+ * identidad del orquestador. Devuelve JSON serializado (mismo contrato de retorno que
+ * su hermano cmux: el caller hace el `JSON.parse`).
+ * @returns {Promise<string>} JSON en el shape de `cmux tree --all --json`
+ */
+export async function listTree() {
+  return JSON.stringify(buildTreeFromPs(await runJson(['worktree', 'ps'])));
+}
+
+/**
  * Passthrough read-only de `terminal list --json`, opcionalmente acotado a un
  * workspace. Crudo, sin parsear.
  * @param {{ workspace?: string }} [opts]

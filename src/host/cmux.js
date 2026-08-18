@@ -416,6 +416,16 @@ export function createCmuxHost(opts = {}) {
     async listWorkspaceGroups() {
       return (await import('../cmux/client.js')).listWorkspaceGroups();
     },
+    /**
+     * Vista CROSS-WINDOW (`cmux tree --all --json`) para la revalidación de identidad
+     * del orquestador. KODO-18: se expone por `_legacy` para que
+     * `orchestrator/launch.js` deje de importar `cmux/client.js` directamente y el
+     * carril funcione también con orca (que la sintetiza desde `worktree ps`).
+     * @returns {Promise<string>} JSON crudo
+     */
+    async listTree() {
+      return (await import('../cmux/client.js')).listTree();
+    },
   };
 
   return { listWorkspaces, selectWorkspace, isAlive, needsInput, listAgentSurfaces, _legacy };
