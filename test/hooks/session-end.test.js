@@ -46,6 +46,20 @@ after(() => {
 /** Spy no-op — sustituye a upsertTaskHandoff para que el state.json real no se toque. */
 const noopStateWriter = () => ({ ok: true });
 
+// ── Aislamiento del REGISTRO del orquestador (KODO-20) ─────────────────────────
+// Misma clase de fuga que la de arriba, un escalón más abajo y en sentido inverso: aquí
+// no se ESCRIBE el state.json real, se LEE. Desde KODO-16 el destinatario del nudge de
+// cierre sale de `state.orchestrator` y solo cae al título de `workspace list` como
+// fallback, así que `resolveOrchestratorTargets` sin deps consulta el `~/.kodo/state.json`
+// del operador. Con un orquestador vivo en la máquina, su ref GANA al del stub de
+// `listWorkspaces` y la suite falla con `actual: 'workspace:12'` / `expected:
+// 'workspace:9'` — verde o rojo según quién corra `npm test` y cuándo.
+//
+// Por eso el stub va en TODAS las invocaciones del hook, no solo en las que asertan el
+// ref: un caso que solo comprueba «hubo send» pasa por casualidad cuando hay orquestador
+// registrado, y esa casualidad es justo lo que esconde la regresión.
+const noOrchestrator = () => null;
+
 function makeLogger() {
   const events = [];
   const logger = {
@@ -105,6 +119,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -127,6 +142,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -145,6 +161,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         findSessionFn: () => null,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -164,6 +181,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
           removeSessionFn: () => { throw new Error('state.json locked'); },
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -191,6 +209,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: cmuxStub,
@@ -235,6 +254,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: () => {},
         loggerFactory: () => logger,
         provider,
@@ -263,6 +283,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
           findSessionFn: () => ({ id: session.task_id, session }),
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
           cmux: cmuxStub,
@@ -291,6 +312,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: () => { calls.push({ fn: 'removeSession' }); },
         loggerFactory: () => logger,
         cmux: cmuxStub,
@@ -335,6 +357,76 @@ function makeConfig(reviewState = 'In review') {
   return { provider: 'plane', providers: { plane: { states: { review: reviewState } } } };
 }
 
+// ── KODO-20 ────────────────────────────────────────────────────────────────────
+// Estos casos NO cubren el comportamiento del nudge (eso es HYG-04, arriba): cubren su
+// HERMETICIDAD. Fijan que el ref al que se avisa sale de lo que el test inyecta y de nada
+// más, para que `npm test` dé el mismo resultado con y sin orquestador vivo en la máquina.
+// Antes del fix, el primero de ellos fallaba en cualquier máquina con orquestador
+// registrado y pasaba en CI: exactamente el modo de fallo que motivó la tarea.
+describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)', () => {
+  /** Corre el hook con el nudge cableado y devuelve el ref al que se envió (o null). */
+  async function nudgeRefCon({ getOrchestratorFn, workspaceList }) {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub, calls } = makeCmuxStub();
+    stub.listWorkspaces = async () => workspaceList;
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: stub,
+      },
+    );
+    return calls.find((c) => c.fn === 'send')?.args.workspace ?? null;
+  }
+
+  it('el hook CONSULTA el getOrchestratorFn inyectado — el seam está cableado, no ignorado', async () => {
+    // El assert que de verdad importa: `resolveOrchestratorTargets` resuelve
+    // `deps.getOrchestratorFn || getOrchestrator`, así que una sola invocación del stub
+    // demuestra que el default real (el que lee ~/.kodo/state.json) NO entró en juego.
+    let consultas = 0;
+    const ref = await nudgeRefCon({
+      getOrchestratorFn: () => { consultas++; return { workspace_ref: 'workspace:77' }; },
+      workspaceList: 'workspace:9 kodo-orchestrator\n',
+    });
+    assert.equal(consultas, 1, 'el hook consulta el registro inyectado exactamente una vez');
+    assert.equal(ref, 'workspace:77', 'y el nudge va al ref inyectado, no al del state real');
+  });
+
+  it('dos registros inyectados distintos → dos refs distintos, con el MISMO state.json de la máquina', async () => {
+    // Ambas corridas comparten el `~/.kodo/state.json` real (no se toca). Si el hook lo
+    // leyera, las dos darían el mismo ref y este assert caería.
+    const uno = await nudgeRefCon({
+      getOrchestratorFn: () => ({ workspace_ref: 'workspace:101' }),
+      workspaceList: '',
+    });
+    const dos = await nudgeRefCon({
+      getOrchestratorFn: () => ({ workspace_ref: 'workspace:202' }),
+      workspaceList: '',
+    });
+    assert.equal(uno, 'workspace:101');
+    assert.equal(dos, 'workspace:202');
+  });
+
+  it('sin registro inyectado (() => null), el ref sale SOLO del stub de listWorkspaces', async () => {
+    const ref = await nudgeRefCon({
+      getOrchestratorFn: noOrchestrator,
+      workspaceList: 'workspace:9 kodo-orchestrator\n',
+    });
+    assert.equal(ref, 'workspace:9', 'fallback por título — el único candidato del test');
+  });
+
+  it('sin registro y sin título → no hay a quién avisar: cero send', async () => {
+    const ref = await nudgeRefCon({ getOrchestratorFn: noOrchestrator, workspaceList: '' });
+    assert.equal(ref, null);
+  });
+});
+
 describe('runSessionEndHook — review backstop (DELIV-04)', () => {
   it('tarea in_progress + reason limpio → transiciona a review + comenta + emite session.backstop.review; cleanup sigue', async () => {
     const session = makeSession();
@@ -347,6 +439,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -383,6 +476,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -407,6 +501,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -431,6 +526,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -459,6 +555,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -482,6 +579,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: () => {},
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -511,6 +609,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -550,6 +649,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -578,6 +678,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         findSessionFn: () => ({ id: session.task_id, session }),
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,
@@ -605,6 +706,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           findSessionFn: () => ({ id: session.task_id, session }),
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
           removeSessionFn: () => {},
           loggerFactory: () => logger,
         cmux: makeCmuxStub().stub,

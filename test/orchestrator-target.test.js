@@ -135,4 +135,22 @@ describe('source-hygiene: ningún consumidor resuelve al orquestador por título
       assert.match(source, /resolveOrchestratorTargets/);
     }
   });
+
+  // KODO-20: el seam de `resolveOrchestratorTargets` existe desde KODO-16 y su propio test
+  // lo usa — lo que faltaba era que los CONSUMIDORES lo threadearan. Un call site que llama
+  // `resolveOrchestratorTargets(workspaces)` a secas cae al `getOrchestrator` real y ata el
+  // resultado al `~/.kodo/state.json` de quien corra los tests. Este walker impide que la
+  // fuga vuelva a entrar por el mismo sitio.
+  it('ambos call sites threadean getOrchestratorFn (nada de resolver contra el state real)', () => {
+    for (const rel of [['src', 'session', 'manager.js'], ['src', 'hooks', 'session-end.js']]) {
+      const source = readFileSync(join(REPO, ...rel), 'utf-8');
+      for (const call of source.match(/resolveOrchestratorTargets\([^)]*\)/g) || []) {
+        assert.match(
+          call,
+          /getOrchestratorFn/,
+          `${rel.join('/')}: \`${call}\` debe pasar getOrchestratorFn — sin él el consumidor lee el state.json real`,
+        );
+      }
+    }
+  });
 });
