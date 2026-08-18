@@ -76,329 +76,6 @@ if (!console.log.__kodo_patched) {
   console.log.__kodo_patched = true;
 }
 
-function dashboardHtml(token) {
-  // WR-02: the token is interpolated into an inline <script>. The auto-generated
-  // token is 64-char lowercase hex (safe), but an operator-set KODO_API_TOKEN from
-  // ~/.kodo/.env may carry quotes or `</script>`. JSON.stringify escapes quotes and
-  // backslashes; replacing `<` with the < escape neutralizes a `</script>`
-  // breakout from inside the string literal (defense-in-depth; no behavior change
-  // for hex tokens).
-  const tokenJs = JSON.stringify(String(token)).replace(/</g, '\\u003c');
-  return `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kodo</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; padding: 24px; min-height: 100vh; }
-  h1 { font-size: 14px; color: #666; margin-bottom: 20px; letter-spacing: 2px; text-transform: uppercase; }
-  h1 span { color: #f59e0b; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1200px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: #141414; border: 1px solid #222; border-radius: 8px; padding: 16px; }
-  .card.full { grid-column: 1 / -1; }
-  .card h2 { font-size: 11px; color: #555; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
-  .card .subtitle { font-size: 11px; color: #444; margin-bottom: 12px; font-style: italic; }
-  .proj-group { margin-bottom: 14px; }
-  .proj-group:last-child { margin-bottom: 0; }
-  .proj-header { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; padding-bottom: 6px; border-bottom: 1px solid #1a1a1a; margin-bottom: 6px; }
-  .session, .pending-item, .history-item { padding: 10px 0; border-bottom: 1px solid #1a1a1a; }
-  .session:last-child, .pending-item:last-child, .history-item:last-child { border-bottom: none; }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .row-spread { display: flex; justify-content: space-between; align-items: center; }
-  .ref { font-weight: 600; color: #f59e0b; text-decoration: none; }
-  .ref:hover { text-decoration: underline; }
-  .title { color: #999; font-size: 12px; margin-top: 2px; }
-  .meta { font-size: 11px; color: #555; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-  .badge-running { background: #1a1a0a; color: #f59e0b; border: 1px solid #3d3200; }
-  .badge-review { background: #0a0a1a; color: #60a5fa; border: 1px solid #002a5c; }
-  .badge-stuck { background: #1a0a0a; color: #ef4444; border: 1px solid #5c0000; }
-  .badge-gone, .badge-dead { background: #1a0a0a; color: #ef4444; border: 1px solid #5c0000; }
-  .badge-idle { background: #111; color: #888; border: 1px solid #333; }
-  .badge-done { background: #0a1a0a; color: #22c55e; border: 1px solid #004d1a; }
-  .empty { color: #333; font-size: 12px; padding: 12px 0; }
-  .btn { background: transparent; border: 1px solid #333; color: #999; font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
-  .btn:hover { border-color: #555; color: #e0e0e0; }
-  .btn-danger:hover { border-color: #5c0000; color: #ef4444; }
-  .actions { display: flex; gap: 6px; margin-top: 6px; }
-  .stats { display: flex; gap: 24px; margin-bottom: 20px; }
-  .stat { text-align: center; }
-  .stat-val { font-size: 28px; font-weight: 700; color: #f59e0b; }
-  .stat-val.stale { color: #555; opacity: 0.6; }
-  .stale-tag { font-size: 13px; color: #ef4444; vertical-align: super; margin-left: 2px; }
-  .stat-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
-  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .update-time { font-size: 10px; color: #333; text-align: right; margin-top: 16px; max-width: 1200px; }
-  .log-line { font-size: 11px; padding: 3px 0; color: #888; font-family: inherit; white-space: pre-wrap; word-break: break-all; }
-  .log-line.error { color: #ef4444; }
-  .log-line.warn { color: #f59e0b; }
-  .log-ts { color: #444; margin-right: 8px; }
-  .logs-box { max-height: 280px; overflow-y: auto; background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 4px; padding: 8px; }
-  .comments-box { margin-top: 8px; padding: 8px; background: #0a0a0a; border-left: 2px solid #222; font-size: 11px; max-height: 200px; overflow-y: auto; }
-  .comment { padding: 4px 0; border-bottom: 1px dashed #1a1a1a; }
-  .comment:last-child { border-bottom: none; }
-  .comment-actor { color: #f59e0b; font-weight: 600; }
-  .comment-time { color: #444; font-size: 10px; margin-left: 6px; }
-  .comment-text { color: #999; margin-top: 2px; }
-</style>
-</head>
-<body>
-<h1><span>心動</span> kodo</h1>
-<div class="stats" id="stats"></div>
-<div class="grid">
-  <div class="card">
-    <h2><span class="dot"></span>Sesiones activas</h2>
-    <div class="subtitle">Tareas con sesión Claude lanzada por kodo</div>
-    <div id="sessions"><div class="empty">Cargando...</div></div>
-  </div>
-  <div class="card">
-    <h2>Candidatas</h2>
-    <div class="subtitle">Tareas en Plane con label kodo (no lanzadas)</div>
-    <div id="pending"><div class="empty">Cargando...</div></div>
-  </div>
-  <div class="card full">
-    <h2>Historial</h2>
-    <div class="subtitle">Últimas 10 sesiones cerradas</div>
-    <div id="history"><div class="empty">Cargando...</div></div>
-  </div>
-  <div class="card full">
-    <h2>Logs del servidor</h2>
-    <div class="subtitle">Últimas 200 entradas (más recientes arriba)</div>
-    <div id="logs" class="logs-box"><div class="empty">Cargando...</div></div>
-  </div>
-</div>
-<div class="update-time" id="updated"></div>
-
-<script>
-// NET-02 / D-05: the bearer token bound ONCE, injected from the served route (which
-// only runs after the ?token= guard validated it). authedFetch adds the Authorization
-// header to every same-origin API call so the four dashboard fetches cross the bearer
-// guard. PERSIST-04: the token lives only here (and in the request headers) — it is
-// never rendered as visible page text.
-const TOKEN = ${tokenJs};
-function authedFetch(url, opts) {
-  const o = opts || {};
-  return fetch(url, { ...o, headers: { ...(o.headers || {}), Authorization: 'Bearer ' + TOKEN } });
-}
-
-function ago(iso) {
-  const ms = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(ms / 60000);
-  if (m < 1) return 'ahora';
-  if (m < 60) return m + 'm';
-  const h = Math.floor(m / 60);
-  if (h < 24) return h + 'h ' + (m % 60) + 'm';
-  return Math.floor(h / 24) + 'd';
-}
-
-function uptime(s) {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
-}
-
-function groupBy(items, keyFn) {
-  const groups = {};
-  for (const item of items) {
-    const k = keyFn(item) || 'Sin proyecto';
-    if (!groups[k]) groups[k] = [];
-    groups[k].push(item);
-  }
-  return groups;
-}
-
-function escapeHtml(str) {
-  return String(str || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-// T-48-10 (OPEN-03 paridad HTML): allowlist http(s) sobre el task_url ANTES de renderlo como
-// href clickable. escapeHtml NO neutraliza \`javascript:\`/\`data:\` (no contienen & < > " '), así que
-// sin este guard un task_url con esquema hostil ejecutaría script al click — el mismo vector que el
-// carril TUI (open.js) ya bloquea. Espejo exacto de la allowlist de open.js. Devuelve la url segura
-// o null. URL es global del navegador (este script corre client-side).
-function safeHref(url) {
-  try {
-    var p = new URL(url);
-    return (p.protocol === 'http:' || p.protocol === 'https:') ? url : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// Helper compartido para el ref clickable de las 3 superficies (sessions/pending/history): aplica
-// safeHref + escapeHtml + rel="noopener noreferrer" (anti reverse-tabnabbing en target="_blank"),
-// con fallback a <span> de texto plano cuando la url es ausente o de esquema no permitido.
-function refAnchor(url, ref) {
-  var safe = safeHref(url);
-  return safe
-    ? '<a class="ref" href="' + escapeHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(ref) + '</a>'
-    : '<span class="ref">' + escapeHtml(ref) + '</span>';
-}
-
-async function deleteSession(taskId, ref) {
-  if (!confirm('¿Eliminar sesión ' + ref + ' del state?')) return;
-  await authedFetch('/sessions/' + encodeURIComponent(taskId), { method: 'DELETE' });
-  refresh();
-}
-
-async function toggleComments(taskId, btnEl) {
-  const boxId = 'comments-' + taskId;
-  let box = document.getElementById(boxId);
-  if (box) { box.remove(); btnEl.textContent = 'Comentarios'; return; }
-  btnEl.textContent = 'Cargando...';
-  try {
-    const res = await authedFetch('/comments/' + encodeURIComponent(taskId));
-    const data = await res.json();
-    const comments = data.comments || [];
-    box = document.createElement('div');
-    box.id = boxId;
-    box.className = 'comments-box';
-    if (data.supported === false) {
-      // D-08/D-09: paridad con el overlay ink — distinguir "provider sin soporte" de "sin comentarios".
-      box.innerHTML = '<div class="empty">Comentarios no soportados por este provider</div>';
-    } else if (!comments.length) {
-      box.innerHTML = '<div class="empty">Sin comentarios</div>';
-    } else {
-      box.innerHTML = comments.map((c) => (
-        '<div class="comment">' +
-          '<span class="comment-actor">' + escapeHtml(c.actor) + '</span>' +
-          '<span class="comment-time">' + ago(c.created_at) + '</span>' +
-          '<div class="comment-text">' + escapeHtml(c.text).slice(0, 500) + '</div>' +
-        '</div>'
-      )).join('');
-    }
-    btnEl.closest('.session, .history-item').appendChild(box);
-    btnEl.textContent = 'Ocultar';
-  } catch (e) {
-    btnEl.textContent = 'Error';
-  }
-}
-
-function renderSession(s) {
-  var displayStatus = s.status;
-  if (!s.alive && s.status === 'running') displayStatus = 'dead';
-  if (s.alive && s.status === 'running' && s.elapsed_min > 30) displayStatus = 'idle';
-  var refLink = refAnchor(s.task_url, s.task_ref);
-  return '<div class="session">' +
-    '<div class="row-spread">' +
-      '<div class="row">' + refLink + ' <span class="badge badge-' + displayStatus + '">' + displayStatus + '</span></div>' +
-      '<span class="meta">' + s.elapsed_min + 'min · ' + s.workspace_ref + '</span>' +
-    '</div>' +
-    '<div class="title">' + escapeHtml(s.summary) + '</div>' +
-    '<div class="actions">' +
-      '<button class="btn" onclick="toggleComments(\\''+ escapeHtml(s.task_id) +'\\', this)">Comentarios</button>' +
-      '<button class="btn btn-danger" onclick="deleteSession(\\''+ escapeHtml(s.task_id) +'\\', \\''+ escapeHtml(s.task_ref) +'\\')">Eliminar</button>' +
-    '</div>' +
-  '</div>';
-}
-
-function renderLogs(logs) {
-  if (!logs.length) return '<div class="empty">Sin logs</div>';
-  return logs.map((l) => {
-    const ts = new Date(l.ts).toLocaleTimeString();
-    return '<div class="log-line ' + l.level + '"><span class="log-ts">' + ts + '</span>' + escapeHtml(l.msg) + '</div>';
-  }).join('');
-}
-
-async function refreshLogs() {
-  try {
-    const res = await authedFetch('/logs');
-    const data = await res.json();
-    document.getElementById('logs').innerHTML = renderLogs(data.logs || []);
-  } catch {}
-}
-
-function renderGroupedSessions(sessions) {
-  if (!sessions.length) return '<div class="empty">Sin sesiones activas</div>';
-  const groups = groupBy(sessions, (s) => (s.project_path || '').split('/').slice(-2).join('/') || s.project_name);
-  return Object.keys(groups).sort().map((proj) => (
-    '<div class="proj-group">' +
-      '<div class="proj-header">' + escapeHtml(proj) + '</div>' +
-      groups[proj].map(renderSession).join('') +
-    '</div>'
-  )).join('');
-}
-
-function renderPending(items) {
-  if (!items.length) return '<div class="empty">Sin tareas candidatas</div>';
-  const groups = groupBy(items, (t) => t.projectName || t.ref.split('-')[0]);
-  return Object.keys(groups).sort().map((proj) => (
-    '<div class="proj-group">' +
-      '<div class="proj-header">' + escapeHtml(proj) + '</div>' +
-      groups[proj].map((t) => (
-        '<div class="pending-item">' +
-          '<div class="row">' +
-            // OPEN-04 / D-08: a work item with an unresolved identifier carries no url
-            // (normalizeWorkItem suppresses it) — refAnchor renders the ref as plain text
-            // rather than a dead <a href=""> anchor, and gates the protocol (T-48-10).
-            refAnchor(t.url, t.ref) +
-            (t.state ? '<span class="badge badge-running">' + escapeHtml(t.state) + '</span>' : '') +
-          '</div>' +
-          '<div class="title">' + escapeHtml(t.title) + '</div>' +
-        '</div>'
-      )).join('') +
-    '</div>'
-  )).join('');
-}
-
-function renderHistory(items) {
-  if (!items.length) return '<div class="empty">Sin historial</div>';
-  return items.map((s) => {
-    var durMin = s.ended_at ? Math.floor((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 60000) : '?';
-    var refLink = refAnchor(s.task_url, s.task_ref);
-    return '<div class="history-item">' +
-      '<div class="row-spread">' +
-        '<div class="row">' + refLink + ' <span class="badge badge-done">cerrada</span></div>' +
-        '<span class="meta">' + durMin + 'min · ' + ago(s.ended_at || s.started_at) + '</span>' +
-      '</div>' +
-      '<div class="title">' + escapeHtml(s.summary) + '</div>' +
-      '<div class="actions">' +
-        '<button class="btn" onclick="toggleComments(\\''+ escapeHtml(s.task_id) +'\\', this)">Comentarios</button>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
-
-async function refresh() {
-  try {
-    const res = await authedFetch('/status');
-    const data = await res.json();
-
-    const m = data.metrics || {};
-    // ORCH-06 (D-06): when the pending lane is stale (provider down past TTL), mark the
-    // «Candidatas» count so the operator distinguishes a real 0 from "couldn't tell".
-    const pendingStaleCls = data.pending_stale ? ' stale' : '';
-    const pendingStaleTag = data.pending_stale ? '<span class="stale-tag">?</span>' : '';
-    document.getElementById('stats').innerHTML =
-      '<div class="stat"><div class="stat-val">' + data.count + '</div><div class="stat-label">Activas</div></div>' +
-      '<div class="stat"><div class="stat-val' + pendingStaleCls + '">' + data.pending_count + pendingStaleTag + '</div><div class="stat-label">Candidatas</div></div>' +
-      '<div class="stat"><div class="stat-val">' + (m.closed_24h || 0) + '</div><div class="stat-label">Hoy</div></div>' +
-      '<div class="stat"><div class="stat-val">' + (m.closed_7d || 0) + '</div><div class="stat-label">7 días</div></div>' +
-      '<div class="stat"><div class="stat-val">' + (m.avg_duration_min || 0) + 'm</div><div class="stat-label">Duración media</div></div>' +
-      '<div class="stat"><div class="stat-val">' + uptime(data.uptime) + '</div><div class="stat-label">Uptime</div></div>';
-
-    document.getElementById('sessions').innerHTML = renderGroupedSessions(data.sessions);
-    document.getElementById('pending').innerHTML = renderPending(data.pending);
-    document.getElementById('history').innerHTML = renderHistory(data.history || []);
-    document.getElementById('updated').textContent = 'Actualizado: ' + new Date().toLocaleTimeString();
-  } catch (e) {
-    document.getElementById('updated').textContent = 'Error: ' + e.message;
-  }
-}
-
-refresh();
-refreshLogs();
-setInterval(refresh, 5000);
-setInterval(refreshLogs, 5000);
-</script>
-</body>
-</html>`;
-}
-
 /**
  * Read raw body from incoming HTTP request, bounded at MAX_BODY_BYTES (NET-03).
  *
@@ -639,9 +316,9 @@ export async function startServer(opts = {}) {
   const TOKEN = getOrCreateApiToken();
 
   const handleRequest = async (req, res) => {
-    // NET-02 (Pitfall 2): parse the URL ONCE. A `?token=` on the HTML routes makes
-    // req.url become '/?token=...', which no exact `req.url === '/x'` comparison would
-    // match — so every route decision below keys off `pathname`, never raw req.url.
+    // NET-02 (Pitfall 2): parse the URL ONCE. A query string makes req.url become
+    // '/x?...', which no exact `req.url === '/x'` comparison would match — so every
+    // route decision below keys off `pathname`, never raw req.url.
     // CR-01: parse defensively — Node's HTTP parser accepts request targets that
     // WHATWG-URL rejects (e.g. absolute-form `GET http://[ HTTP/1.1`), so an
     // unguarded `new URL()` threw synchronously inside the async handler →
@@ -654,19 +331,14 @@ export async function startServer(opts = {}) {
       res.end(JSON.stringify({ error: 'bad request' }));
       return;
     }
-    const { pathname, searchParams } = parsedUrl;
+    const { pathname } = parsedUrl;
 
     // NET-02 default-deny guard (D-04, fail-closed): every route except the OPEN
     // allowlist (GET /health, POST /webhook) requires a valid bearer BEFORE any route
-    // branch runs. The two HTML routes read the candidate from ?token= (a browser
-    // navigation cannot send an Authorization header, D-05); every other route reads
-    // it from the Authorization header. A future route with no explicit branch stays
-    // protected. Neutral 401 body — never leak err detail or the HTML shell.
+    // branch runs, read from the Authorization header. A future route with no explicit
+    // branch stays protected. Neutral 401 body — never leak err detail.
     if (!isOpenRoute(req.method, pathname)) {
-      const isHtmlRoute = req.method === 'GET' && (pathname === '/' || pathname === '/dashboard');
-      const candidate = isHtmlRoute
-        ? searchParams.get('token')
-        : parseBearer(req.headers['authorization']);
+      const candidate = parseBearer(req.headers['authorization']);
       if (!timingSafeTokenEqual(candidate, TOKEN)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'unauthorized' }));
@@ -851,12 +523,6 @@ export async function startServer(opts = {}) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: 'internal error' }));
       }
-      return;
-    }
-
-    if (req.method === 'GET' && (pathname === '/' || pathname === '/dashboard')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(dashboardHtml(TOKEN));
       return;
     }
 
