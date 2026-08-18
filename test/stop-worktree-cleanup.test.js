@@ -91,6 +91,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
       if (args.includes('--show-current')) return 'kodo-sess-wt-clean-test';
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0'; // KODO-21: rama totalmente mergeada
       return '';
     });
     await runSessionEndHook(
@@ -238,6 +239,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     const gitFn = (cwd, args) => {
       if (args.includes('--show-current')) return 'sess-x';
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0'; // KODO-21: rama mergeada → se intenta el borrado
       if (args[0] === 'branch' && args[1] === '-D') throw new Error('cannot delete branch in use');
       return '';
     };
@@ -386,6 +388,46 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     const branches = execSync('git branch', { cwd: repo, encoding: 'utf-8' });
     assert.ok(!branches.includes(branchName), `branch ${branchName} must be deleted`);
     assert.ok(events.find((e) => e.fields?.event === 'worktree.cleanup.ok'), 'cleanup.ok emitted');
+  });
+
+  // ── KODO-21 (DoD): una sesión que termina con commits sin mergear conserva su
+  // rama. Es el caso que costó 5 commits y 652 inserciones en KODO-13.
+  it('E2E UNMERGED: worktree limpio pero con commits propios → rama CONSERVADA en disco', async () => {
+    const { repo, wt, branchName } = makeIsolatedRepoWithWorktree('kodo-sess-unmerged');
+    const wtOpts = { cwd: wt, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] };
+    // Trabajo COMMITEADO dentro del worktree: el árbol queda limpio (no dispara
+    // el camino dirty) pero la rama acumula commits que no están en ningún otro sitio.
+    writeFileSync(join(wt, 'trabajo.txt'), 'fix del provider + tests');
+    execSync('git add -A && git commit -q -m "trabajo que no debe perderse"', wtOpts);
+    const head = execSync('git rev-parse HEAD', wtOpts).trim();
+
+    const session = makeSession({ project_path: repo, worktree_path: wt, session_id: 'sess-e2e-unmerged' });
+    const { logger, events } = makeMemLogger();
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: repo },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        // gitFn default (execFileSync real)
+      },
+    );
+
+    // El worktree se sanea igual — lo que sobrevive es la rama con el trabajo.
+    assert.equal(existsSync(wt), false, 'worktree dir must be removed');
+    const branches = execSync('git branch --list', { cwd: repo, encoding: 'utf-8' });
+    assert.ok(branches.includes(branchName), `branch ${branchName} must be PRESERVED (KODO-21)`);
+    const tip = execSync(`git rev-parse ${branchName}`, { cwd: repo, encoding: 'utf-8' }).trim();
+    assert.equal(tip, head, 'la rama conservada sigue apuntando al trabajo');
+
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.branch, branchName);
+    assert.equal(kept.fields.unmerged_commits, 1);
+
+    const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
+    assert.equal(ok.fields.branch_deleted, false);
   });
 
   it('E2E DIRTY: worktree moved to .dirty/ + branch preserved', async () => {

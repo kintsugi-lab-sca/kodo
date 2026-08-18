@@ -17,12 +17,16 @@
 // componibles, así que las lecturas scopeadas al worktree pasan `['-C', wt, ...]`.
 //
 // Orden de operaciones (Pitfall #2 / D-08): branch read (ANTES de remove) →
-// status → remove|move-to-.dirty → branch -D (solo clean) → prune oportunista.
+// status → remove|move-to-.dirty → merge check → branch -D (solo clean Y
+// mergeada) → prune oportunista.
 //
-// Invariantes de seguridad (T-41-02):
+// Invariantes de seguridad (T-41-02 + KODO-21):
 //   - NUNCA borrado recursivo forzado, NUNCA `unlinkSync` del worktree.
 //   - `git worktree remove` SIN `--force` (git actúa de segunda barrera).
 //   - DIRTY path NUNCA borra: mueve a `${worktree}.dirty` (pre-check lstatSync).
+//   - `branch -D` SOLO si la rama no tiene commits propios inalcanzables desde
+//     otra ref (KODO-21). Sin verificación → se conserva. El trabajo commiteado
+//     de una sesión JAMÁS se pierde por cerrar la sesión.
 //
 // LOG-12 invariant: este módulo NO importa `logger.js`. El `logger` inyectado es
 // el único canal de observabilidad; `logger-events.js` (pure transform) sí es
@@ -33,7 +37,48 @@ import {
   worktreeCleanupOk,
   worktreeCleanupDirty,
   worktreeCleanupError,
+  worktreeBranchKept,
 } from '../logger-events.js';
+
+/**
+ * Cuenta los commits de `branch` que NO son alcanzables desde ninguna OTRA
+ * referencia local o remota (KODO-21).
+ *
+ * `git rev-list --count <branch> --not --exclude=<branch> --branches --remotes`
+ *
+ * Elegido sobre `merge-base --is-ancestor <branch> main` a propósito: no hay que
+ * adivinar cómo se llama la rama principal (main/master/develop/deikka-*), el
+ * criterio cubre repos con varios remotos, y devuelve el CONTEO exacto que la
+ * traza para el operador necesita. `--exclude` aquí exige el nombre CORTO de la
+ * rama, no `refs/heads/<branch>` — con la forma larga el filtro no aplica y todo
+ * sale 0 (verificado empíricamente contra git 2.51).
+ *
+ * @param {{
+ *   project: string,
+ *   branch: string,
+ *   gitFn: (cwd: string, args: string[]) => Promise<string> | string,
+ * }} args
+ * @returns {Promise<{ count: number | null, reason: string | null }>}
+ *   `count: 0` ⇒ todo el trabajo está en otra ref, la rama es desechable.
+ *   `count > 0` ⇒ hay trabajo que solo vive aquí.
+ *   `count: null` ⇒ no verificable (git falló o devolvió basura) → el caller
+ *   DEBE conservar la rama: ante la duda nunca se borra.
+ */
+async function countUnmergedCommits({ project, branch, gitFn }) {
+  try {
+    const out = await gitFn(project, [
+      'rev-list', '--count', branch,
+      '--not', `--exclude=${branch}`, '--branches', '--remotes',
+    ]);
+    const n = Number.parseInt(String(out ?? '').trim(), 10);
+    if (!Number.isFinite(n) || n < 0) {
+      return { count: null, reason: `rev-list devolvió una salida no numérica: ${JSON.stringify(String(out ?? '').slice(0, 80))}` };
+    }
+    return { count: n, reason: null };
+  } catch (err) {
+    return { count: null, reason: /** @type {Error} */ (err).message };
+  }
+}
 
 /**
  * Sanea un worktree de sesión: lee el branch, decide clean/dirty por
@@ -107,14 +152,37 @@ export async function cleanupWorktree({ project, worktree, sessionId, gitFn, log
     if (removeOk) {
       removed = true;
       if (branchName) {
-        try {
-          await gitFn(project, ['branch', '-D', branchName]);
-          branch_deleted = true;
-        } catch (err) {
-          // Pitfall #3: branch checked-out by another worktree, race, etc.
-          // → warn fail-open. NO emit cleanup.error{phase:branch} — el test
-          // contractual exige cleanup.ok con branch_deleted=false.
-          console.error(`[kodo:worktree-cleanup] branch -D ${branchName} failed: ${/** @type {Error} */ (err).message}`);
+        // KODO-21: `branch -D` NUNCA es incondicional. Si la rama todavía tiene
+        // commits inalcanzables desde cualquier otra ref, borrarla deja el
+        // trabajo como objetos huérfanos a merced del siguiente gc — pérdida
+        // silenciosa y sin traza. Se conserva y se emite traza greppable; la
+        // poda queda para quien SÍ verifica el merge (skill worktree-cleanup).
+        const { count, reason } = await countUnmergedCommits({ project, branch: branchName, gitFn });
+        if (count === 0) {
+          try {
+            await gitFn(project, ['branch', '-D', branchName]);
+            branch_deleted = true;
+          } catch (err) {
+            // Pitfall #3: branch checked-out by another worktree, race, etc.
+            // → warn fail-open. NO emit cleanup.error{phase:branch} — el test
+            // contractual exige cleanup.ok con branch_deleted=false.
+            console.error(`[kodo:worktree-cleanup] branch -D ${branchName} failed: ${/** @type {Error} */ (err).message}`);
+          }
+        } else {
+          // count > 0 (trabajo sin mergear) o count === null (no verificable).
+          // Ambos caminos CONSERVAN la rama — fail-safe.
+          console.error(
+            count === null
+              ? `[kodo] branch_kept_unmerged — ${branchName}: no se pudo verificar el merge (${reason}); rama conservada`
+              : `[kodo] branch_kept_unmerged — ${branchName}: ${count} commits fuera de main`,
+          );
+          worktreeBranchKept(cleanupLog, {
+            session_id: sessionId,
+            worktree_path: wt,
+            branch: branchName,
+            unmerged_commits: count,
+            reason,
+          });
         }
       }
       worktreeCleanupOk(cleanupLog, {

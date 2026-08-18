@@ -41,6 +41,7 @@ import { join } from 'node:path';
  *   WORKTREE_CLEANUP_OK: 'worktree.cleanup.ok',
  *   WORKTREE_CLEANUP_DIRTY: 'worktree.cleanup.dirty',
  *   WORKTREE_CLEANUP_ERROR: 'worktree.cleanup.error',
+ *   WORKTREE_BRANCH_KEPT: 'worktree.branch.kept',
  *   SKILL_SYNC_AUTO: 'skill.sync.auto',
  *   SKILL_SYNC_AUTO_ERROR: 'skill.sync.auto.error',
  *   GITHUB_API_CALL: 'github.api.call',
@@ -78,6 +79,7 @@ export const EVENTS = Object.freeze({
   WORKTREE_CLEANUP_OK:     'worktree.cleanup.ok',
   WORKTREE_CLEANUP_DIRTY:  'worktree.cleanup.dirty',
   WORKTREE_CLEANUP_ERROR:  'worktree.cleanup.error',
+  WORKTREE_BRANCH_KEPT:    'worktree.branch.kept',
   SKILL_SYNC_AUTO:         'skill.sync.auto',
   SKILL_SYNC_AUTO_ERROR:   'skill.sync.auto.error',
   GITHUB_API_CALL:         'github.api.call',
@@ -393,6 +395,37 @@ export function worktreeCleanupError(logger, fields) {
     session_id: fields.session_id,
     worktree_path: fields.worktree_path,
     phase: fields.phase,
+    reason: fields.reason,
+  });
+}
+
+/**
+ * Worktree BRANCH KEPT — emitted (warn) when the clean path removed the worktree
+ * but PRESERVED its branch because the branch still holds commits unreachable
+ * from any other ref (KODO-21). También cubre el caso fail-safe en el que la
+ * verificación de merge no se pudo hacer: ante la duda, la rama se conserva.
+ *
+ * `unmerged_commits` es el conteo exacto de commits fuera del resto de refs, o
+ * `null` cuando la verificación falló (en ese caso `reason` lleva el error de git).
+ *
+ * LOG-12: whitelist explícito — no `...fields` spread.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   session_id: string,
+ *   worktree_path: string,
+ *   branch: string,
+ *   unmerged_commits: number | null,
+ *   reason: string | null,
+ * }} fields
+ */
+export function worktreeBranchKept(logger, fields) {
+  logger.warn(EVENTS.WORKTREE_BRANCH_KEPT, {
+    event: EVENTS.WORKTREE_BRANCH_KEPT,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    branch: fields.branch,
+    unmerged_commits: fields.unmerged_commits,
     reason: fields.reason,
   });
 }

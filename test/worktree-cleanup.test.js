@@ -43,6 +43,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
       if (args.includes('--show-current')) return 'kodo-sess-helper-test';
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0'; // KODO-21: rama totalmente mergeada
       return '';
     });
 
@@ -165,6 +166,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     const gitFn = (cwd, args) => {
       if (args.includes('--show-current')) return 'sess-x';
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0'; // KODO-21: rama mergeada → se intenta el borrado
       if (args[0] === 'branch' && args[1] === '-D') throw new Error('cannot delete branch in use');
       return '';
     };
@@ -252,6 +254,112 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     } finally {
       rmSync(tmpBase, { recursive: true, force: true });
     }
+  });
+
+  // ── KODO-21: el trabajo commiteado NUNCA se pierde al cerrar la sesión ──────
+  it('UNMERGED: rama con commits fuera de main → NO borra + emite worktree.branch.kept', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'worktree-sess-unmerged';
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '5\n'; // 5 commits que solo viven aquí
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+    });
+
+    // El worktree SÍ se remueve; lo que se conserva es la rama.
+    assert.equal(result.removed, true);
+    assert.equal(result.branch_deleted, false);
+
+    const branchDel = calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D');
+    assert.equal(branchDel, undefined, 'branch -D must NOT run when the branch has unmerged commits');
+
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.level, 'warn');
+    assert.equal(kept.fields.branch, 'worktree-sess-unmerged');
+    assert.equal(kept.fields.unmerged_commits, 5);
+    assert.equal(kept.fields.reason, null);
+    assert.equal(kept.fields.worktree_path, WT);
+
+    const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
+    assert.ok(ok, 'cleanup.ok sigue emitiéndose (el worktree se saneó)');
+    assert.equal(ok.fields.branch_deleted, false);
+  });
+
+  it('MERGE CHECK SHAPE: rev-list usa --exclude=<nombre corto> ANTES de --branches', async () => {
+    // Congela la forma exacta del comando: con `--exclude=refs/heads/<rama>` git
+    // NO aplica el filtro y el conteo sale siempre 0 → el guard se evaporaría en
+    // silencio y volveríamos a borrar trabajo. Verificado contra git 2.51.
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'worktree-sess-shape';
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0';
+      return '';
+    });
+
+    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger });
+
+    const revList = calls.find((c) => c.args[0] === 'rev-list');
+    assert.ok(revList, 'must run the merge check before deleting the branch');
+    assert.ok(revList.args.includes('--exclude=worktree-sess-shape'), 'exclude must use the SHORT branch name');
+    assert.ok(
+      !revList.args.includes('--exclude=refs/heads/worktree-sess-shape'),
+      'the refs/heads/ form does not filter — it would silently defeat the guard',
+    );
+    assert.ok(
+      revList.args.indexOf('--exclude=worktree-sess-shape') < revList.args.indexOf('--branches'),
+      '--exclude solo aplica al siguiente --branches; debe ir ANTES',
+    );
+    assert.ok(revList.args.includes('--remotes'), 'remotes cuentan como destino válido del trabajo');
+    // El repo principal es el cwd: el worktree ya no existe cuando esto corre.
+    assert.equal(revList.cwd, PROJECT);
+  });
+
+  it('MERGE CHECK UNVERIFIABLE: rev-list falla → conserva la rama (fail-safe)', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'worktree-sess-broken';
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') throw new Error('fatal: bad revision');
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+    });
+
+    assert.equal(result.branch_deleted, false);
+    assert.equal(
+      calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'),
+      undefined,
+      'ante la duda NUNCA se borra',
+    );
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.unmerged_commits, null);
+    assert.match(kept.fields.reason, /bad revision/);
+  });
+
+  it('MERGE CHECK GARBAGE: rev-list devuelve algo no numérico → conserva la rama', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'worktree-sess-garbage';
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return 'warning: something odd\n';
+      return '';
+    });
+
+    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger });
+
+    assert.equal(calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'), undefined);
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.unmerged_commits, null);
   });
 
   it('NEVER THROWS: branch read failure is swallowed (returns structured result)', async () => {
