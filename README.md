@@ -179,7 +179,7 @@ kodo orchestrate         # lanza la sesión orquestadora (usa tokens)
 kodo adopt               # adopta una sesión ad-hoc de cmux como tarea trackeada
 kodo comment <REF>       # postea un comentario resumen en una tarea existente
 kodo logs [session-id]   # inspecciona logs de sesión (dump, tail, filtro)
-kodo doctor              # diagnostica la alineación config.json ↔ projects.json (--states, --json)
+kodo doctor              # diagnostica la alineación config.json ↔ projects.json (--states, --identifiers, --json)
 kodo install / uninstall # registra/elimina hooks de Claude Code
 ```
 
@@ -257,6 +257,12 @@ operativo y sin embargo todos sus webhooks mueren con `No configured project ...
 `trigger` / `review` / `done` (por nombre exacto, case-insensitive) — el segundo fallo del caso
 SCP: sin el estado `In review` el cierre del flujo también falla. El editor de proyectos del
 dashboard (`m`) marca cada fila **⚡ dispatch** (en config) o **⚠ solo-mapeado** (la trampa).
+
+`--identifiers` consulta la API y compara el `identifier` cacheado en `config.json` con el real
+del provider. Renombrar un proyecto en Plane deja el cache obsoleto y el ref pasa a apuntar a un
+proyecto que no existe allí (`ITROMAN-1` para lo que Plane llama `ITCLIP`). El provider ya se
+realinea solo en cada `init()` —el ref siempre sale del identifier de Plane—, pero este check
+hace visible la divergencia persistida en disco para poder corregirla con `kodo config`.
 
 ## GitHub como provider
 

@@ -14,6 +14,7 @@ import {
   dispatchProjectIds,
   scanConfigAlignment,
   checkStates,
+  checkProjectIdentifiers,
 } from '../src/config-doctor.js';
 
 // ── dispatchProjectIds ───────────────────────────────────────────────────────
@@ -161,5 +162,69 @@ describe('checkStates: verificación pura de estados requeridos', () => {
   it('estado requerido vacío/falsy se ignora; never-throws ante basura', () => {
     assert.deepEqual(checkStates({ requiredStates: { trigger: '', review: null }, availableStateNames: [] }).missing, []);
     assert.doesNotThrow(() => checkStates({ requiredStates: null, availableStateNames: null }));
+  });
+});
+
+// ── checkProjectIdentifiers (puro; el CLI obtiene remoteProjects por red) ─────
+describe('checkProjectIdentifiers: divergencia identifier cacheado ↔ provider (KODO-13)', () => {
+  const REMOTE = [
+    { id: 'p1', identifier: 'ITCLIP', name: 'Clipping' },
+    { id: 'p2', identifier: 'KODO', name: 'kodo' },
+  ];
+
+  it('detecta el identifier obsoleto y expone cacheado vs real', () => {
+    const r = checkProjectIdentifiers({
+      configProjects: [{ id: 'p1', identifier: 'ITROMAN', name: 'IT roman' }],
+      remoteProjects: REMOTE,
+    });
+    assert.equal(r.checked, 1);
+    assert.equal(r.problems.length, 1);
+    assert.deepEqual(r.problems[0], {
+      code: 'stale_identifier',
+      projectId: 'p1',
+      cached: 'ITROMAN',
+      actual: 'ITCLIP',
+      cachedName: 'IT roman',
+      actualName: 'Clipping',
+    });
+  });
+
+  it('sin divergencia → sin problemas', () => {
+    const r = checkProjectIdentifiers({
+      configProjects: [{ id: 'p1', identifier: 'ITCLIP', name: 'Clipping' }, { id: 'p2', identifier: 'KODO', name: 'kodo' }],
+      remoteProjects: REMOTE,
+    });
+    assert.equal(r.checked, 2);
+    assert.deepEqual(r.problems, []);
+  });
+
+  it('proyecto configurado que el provider no conoce → unknown_remote_project', () => {
+    const r = checkProjectIdentifiers({
+      configProjects: [{ id: 'p-fantasma', identifier: 'GHOST' }],
+      remoteProjects: REMOTE,
+    });
+    assert.equal(r.problems[0].code, 'unknown_remote_project');
+    assert.equal(r.problems[0].projectId, 'p-fantasma');
+    assert.equal(r.problems[0].cached, 'GHOST');
+  });
+
+  it('entrada UUID string (sin identifier cacheado) no genera divergencia', () => {
+    const r = checkProjectIdentifiers({ configProjects: ['p1'], remoteProjects: REMOTE });
+    assert.equal(r.checked, 1);
+    assert.deepEqual(r.problems, []);
+  });
+
+  it('un nombre distinto con el mismo identifier NO es problema', () => {
+    const r = checkProjectIdentifiers({
+      configProjects: [{ id: 'p1', identifier: 'ITCLIP', name: 'nombre viejo' }],
+      remoteProjects: REMOTE,
+    });
+    assert.deepEqual(r.problems, []);
+  });
+
+  it('never-throws con entradas nulas/basura', () => {
+    assert.doesNotThrow(() => checkProjectIdentifiers({ configProjects: null, remoteProjects: null }));
+    assert.deepEqual(checkProjectIdentifiers({}).problems, []);
+    assert.deepEqual(checkProjectIdentifiers({ configProjects: [null, {}, 42], remoteProjects: REMOTE }).problems, []);
   });
 });

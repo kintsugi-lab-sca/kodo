@@ -32,6 +32,14 @@ export function createPlaneProvider(config, opts = {}) {
     logger,
   });
 
+  /**
+   * Proyectos configurados, YA resueltos contra la API (`refreshProjects`). Copia local:
+   * el config del caller puede venir congelado y, en cualquier caso, la resolución es
+   * estado del provider — no un efecto lateral sobre la config de quien lo construye.
+   * @type {Array<any>}
+   */
+  let configuredProjects = Array.isArray(config.projects) ? [...config.projects] : [];
+
   /** @type {Array<{id: string, name: string}>} */
   let labelCache = [];
   /** @type {Map<string, string>} state UUID → state name */
@@ -92,12 +100,75 @@ export function createPlaneProvider(config, opts = {}) {
   }
 
   /**
+   * Emite un aviso por el logger inyectado; sin logger, cae a stderr (mismo destino
+   * que el resto de avisos no fatales de este módulo).
+   * @param {string} msg
+   * @param {object} [ctx]
+   */
+  function warn(msg, ctx) {
+    if (logger) logger.warn(msg, ctx);
+    else console.warn(`[kodo] ${msg}`);
+  }
+
+  /**
+   * Refresca `identifier`/`name` de cada proyecto configurado contra la API (KODO-13).
+   *
+   * Plane MANDA: el ref `PROJECT-N` se construye con el identifier que devuelve la API,
+   * no con el que quedó cacheado en `~/.kodo/config.json` el día que se configuró el
+   * proyecto. Renombrar un proyecto en Plane (ITROMAN → ITCLIP) invalidaba ese cache y
+   * kodo seguía emitiendo refs fantasma (`ITROMAN-1`) que no existen en el provider.
+   *
+   * FAIL-OPEN por construcción: si la llamada falla, o si un proyecto configurado no
+   * aparece en la respuesta (borrado, permisos, respuesta parcial), se CONSERVA lo
+   * cacheado — degradar un identifier que funciona por un fallo de red tumbaría el
+   * dispatch entero. Única excepción: la entrada UUID-string sin resolver cae a
+   * `UNKNOWN` (comportamiento previo — nunca tuvo identifier que conservar), que es
+   * justo lo que `kodo doctor` reporta como `dispatched_unknown_identifier`.
+   *
+   * Muta `configuredProjects` in-memory; NO reescribe config.json — la divergencia
+   * persistida en disco la reporta `kodo doctor --identifiers`.
+   */
+  async function refreshProjects() {
+    if (configuredProjects.length === 0) return;
+
+    let remote;
+    try {
+      remote = await client.listProjects();
+    } catch (err) {
+      warn(
+        `No se pudieron refrescar los identifiers de proyecto contra Plane: ${/** @type {any} */ (err)?.message ?? err}. Se usan los valores cacheados en config.json.`,
+      );
+      return;
+    }
+
+    const byId = new Map(
+      (Array.isArray(remote) ? remote : []).filter((p) => p && p.id).map((p) => [p.id, p]),
+    );
+
+    configuredProjects = configuredProjects.map((entry) => {
+      const isString = typeof entry === 'string';
+      const id = isString ? entry : entry?.id;
+      const found = id ? byId.get(id) : undefined;
+
+      if (!found) return isString ? { id, identifier: 'UNKNOWN', name: id } : entry;
+
+      if (!isString && entry.identifier && entry.identifier !== found.identifier) {
+        warn(
+          `Identifier obsoleto en config.json para el proyecto ${id}: cacheado "${entry.identifier}", real en Plane "${found.identifier}". Se usa el de Plane; corrige el config con "kodo config" para que dejen de divergir.`,
+          { project_id: id, cached_identifier: entry.identifier, provider_identifier: found.identifier },
+        );
+      }
+      return { id: found.id, identifier: found.identifier, name: found.name };
+    });
+  }
+
+  /**
    * Find the project config entry matching a given identifier prefix.
    * @param {string} prefix
    * @returns {{id: string, identifier: string, name: string}}
    */
   function findProject(prefix) {
-    const proj = config.projects.find((p) => p.identifier === prefix);
+    const proj = configuredProjects.find((p) => p.identifier === prefix);
     if (!proj) throw new Error(`No configured project with identifier "${prefix}"`);
     return proj;
   }
@@ -108,22 +179,15 @@ export function createPlaneProvider(config, opts = {}) {
       // Skip re-init if recent
       if (initTimestamp && Date.now() - initTimestamp < INIT_TTL_MS) return;
 
-      // Resolve project entries: if config has plain UUID strings, enrich
-      // them with { id, identifier, name } from the API so that all other
-      // methods can rely on the object shape.
-      if (config.projects.length > 0 && typeof config.projects[0] === 'string') {
-        const allProjects = await client.listProjects();
-        config.projects = config.projects.map((entry) => {
-          const id = typeof entry === 'string' ? entry : entry.id;
-          const found = allProjects.find((p) => p.id === id);
-          if (found) return { id: found.id, identifier: found.identifier, name: found.name };
-          return { id, identifier: 'UNKNOWN', name: id };
-        });
-      }
+      // Resolve project entries contra la API: enriquece los UUID strings sueltos a
+      // { id, identifier, name } (para que el resto de métodos dependa de una sola forma)
+      // Y revalida los objetos ya persistidos, cuyo identifier cacheado queda obsoleto en
+      // cuanto el proyecto se renombra en Plane (KODO-13). Never-throws — ver refreshProjects.
+      await refreshProjects();
 
       // Fetch labels for each configured project
       const allLabels = [];
-      for (const proj of config.projects) {
+      for (const proj of configuredProjects) {
         const data = await client.request(`/projects/${proj.id}/labels/`);
         const labels = data.results || data;
         allLabels.push(...labels);
@@ -135,7 +199,7 @@ export function createPlaneProvider(config, opts = {}) {
       // varían de capitalización entre proyectos ("In review" vs "In Review") y el config
       // guarda UN solo nombre — el match exacto rompía updateTaskState por proyecto
       // (mismo criterio que moduleByName, que ya es lowercase).
-      for (const proj of config.projects) {
+      for (const proj of configuredProjects) {
         const states = await client.listStates(proj.id);
         const byName = new Map();
         for (const s of states) {
@@ -147,7 +211,7 @@ export function createPlaneProvider(config, opts = {}) {
       }
 
       // Cache module membership per project (workItemId → moduleName)
-      for (const proj of config.projects) {
+      for (const proj of configuredProjects) {
         try {
           const modules = await client.listModules(proj.id);
           for (const mod of modules) {
@@ -287,7 +351,7 @@ export function createPlaneProvider(config, opts = {}) {
     // LOUD (D-08); the {ok,code,detail} taxonomy belongs to Phase 53. Sanitization /
     // title-derivation is Phase 53 (BIDIR-08) — createTask receives resolved args.
     async createTask({ projectId, title, description, module }) {
-      const proj = config.projects.find((p) => p.id === projectId);
+      const proj = configuredProjects.find((p) => p.id === projectId);
       const html = description ? '<p>' + description.replace(/\n/g, '<br>') + '</p>' : '';
 
       // Resolve the trigger state UUID (D-04), mirroring updateTaskState's refresh-on-miss
@@ -380,7 +444,7 @@ export function createPlaneProvider(config, opts = {}) {
 
     async listPendingTasks() {
       const allTasks = [];
-      for (const proj of config.projects) {
+      for (const proj of configuredProjects) {
         // No expand — stateCache already maps UUID → name, project is known.
         const items = await client.listWorkItems(proj.id);
         const pending = items.filter(
@@ -402,7 +466,7 @@ export function createPlaneProvider(config, opts = {}) {
     },
 
     parseTriggerEvent(rawPayload) {
-      return parseTriggerEvent(rawPayload, labelCache, config.projects);
+      return parseTriggerEvent(rawPayload, labelCache, configuredProjects);
     },
 
     verifySignature(rawBody, headers) {
