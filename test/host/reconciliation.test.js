@@ -581,15 +581,130 @@ describe('reconcileTick — guarda por HOST: una sesión de otro cliente NO se d
   // de muerte — mismo criterio que el `unverifiable` del gate del orquestador.
   const opts = (hostName) => ({ debounceStore: new Map(), tick: 1, now: NOW, hostName });
 
-  it('la sesión de otro host sobrevive INTACTA (misma referencia, sin transición)', () => {
-    const cmuxSession = session({ host: 'cmux', workspace_ref: 'workspace:7' });
+  it('con el PROCESO vivo, la sesión de otro host sobrevive intacta (misma referencia)', () => {
+    const cmuxSession = session({ host: 'cmux', workspace_ref: 'workspace:7', process_alive: true });
     const state = { schema_version: 3, sessions: { t1: cmuxSession } };
     // Snapshot de orca: no contiene NINGÚN workspace:N — no puede contenerlos.
     const { state: out, events } = reconcileTick(state, [], opts('orca'));
     assert.equal(out.sessions.t1, cmuxSession, 'la sesión debe conservarse byte a byte');
     assert.equal(out.sessions.t1.state, 'running');
-    assert.equal(out.sessions.t1.needs_input, false);
     assert.equal(events.transitioned, 0);
+    assert.equal(events.foreign, 1, 'la degradación se CUENTA (telemetría, no silencio)');
+  });
+
+  it('con el PROCESO muerto sostenido sí muere: la tab es ciega, el pgrep no', () => {
+    // Sin esto, una sesión de otro cliente quedaba congelada en running/alive:true
+    // PARA SIEMPRE y retenía su slot de max_parallel — la fuga de capacidad A4 que
+    // `isSchedulable` había cerrado. El proceso SÍ es observable desde cualquier host.
+    const store = new Map();
+    let out = {
+      schema_version: 3,
+      sessions: {
+        t1: session({
+          host: 'cmux',
+          workspace_ref: 'workspace:7',
+          process_alive: false,
+          process_dead_since: new Date(NOW - 10 * 60 * 1000).toISOString(),
+        }),
+      },
+    };
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.equal(out.sessions.t1.state, 'dead');
+    assert.equal(out.sessions.t1.alive, false, 'libera el slot de max_parallel (isSchedulable)');
+  });
+
+  it('proceso vivo NO se relabela a running: se conserva el idle del otro cliente', () => {
+    // Saber que el proceso existe no dice si trabaja o espera — ese matiz lo da la tab,
+    // que es lo único ciego aquí. Afirmar `running` inventaría el dato y además
+    // provocaría una escritura espuria cada vez que se conmuta de cliente.
+    const store = new Map();
+    const idleForeign = session({ host: 'cmux', state: 'idle', process_alive: true });
+    let out = { schema_version: 3, sessions: { t1: idleForeign } };
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.equal(out.sessions.t1, idleForeign, 'ni transición ni escritura');
+    assert.equal(out.sessions.t1.state, 'idle');
+  });
+
+  it('proceso muerto DENTRO de la gracia → sin veredicto, estado conservado', () => {
+    const store = new Map();
+    let out = {
+      schema_version: 3,
+      sessions: {
+        t1: session({
+          host: 'cmux',
+          process_alive: false,
+          process_dead_since: new Date(NOW - 1000).toISOString(), // < 2 min de gracia
+        }),
+      },
+    };
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.equal(out.sessions.t1.state, 'running', 'sin evidencia concluyente no se toca');
+  });
+
+  it('una transición foreign NO falsifica tab_alive ni needs_input', () => {
+    // `applyLiveFields` escribiría `false` a partir de un `live` undefined, pero aquí
+    // ese undefined significa «no puedo verlo», no «no está». Afirmarlo sería inventar.
+    const store = new Map();
+    let out = {
+      schema_version: 3,
+      sessions: {
+        t1: session({
+          host: 'cmux',
+          tab_alive: true,
+          needs_input: true,
+          process_alive: false,
+          process_dead_since: new Date(NOW - 10 * 60 * 1000).toISOString(),
+        }),
+      },
+    };
+    for (let tick = 1; tick <= 3; tick++) {
+      ({ state: out } = reconcileTick(out, [], { debounceStore: store, tick, now: NOW, hostName: 'orca' }));
+    }
+    assert.equal(out.sessions.t1.state, 'dead', 'sí transiciona');
+    assert.equal(out.sessions.t1.tab_alive, true, 'tab_alive se PRESERVA (inobservable)');
+    assert.equal(out.sessions.t1.needs_input, true, 'needs_input se PRESERVA (inobservable)');
+  });
+
+  it('una sesión foreign ya `dead` SÍ se sella a closed pasados los 30 días', () => {
+    // La primera versión de la guarda saltaba la sesión antes del sellado, así que las
+    // dead de otro cliente se acumulaban en state.sessions sin techo.
+    const state = {
+      schema_version: 3,
+      sessions: {
+        t1: session({
+          host: 'cmux',
+          state: 'dead',
+          dead_since: new Date(NOW - 31 * DAY_MS).toISOString(),
+          process_alive: false,
+        }),
+      },
+    };
+    const { state: out, events } = reconcileTick(state, [], opts('orca'));
+    assert.equal(events.sealed, 1, 'se sella igual que una del host activo');
+    assert.ok(!out.sessions.t1, 'sale de sessions');
+    assert.equal(out.history[0].state, 'closed');
+  });
+
+  it('el rescate desde history NO revive una entry de otro host', () => {
+    const state = {
+      schema_version: 3,
+      sessions: {},
+      history: [{
+        ...session({ host: 'cmux', workspace_ref: 'ref-compartida', state: 'dead' }),
+        ended_at: new Date(NOW - 1000).toISOString(),
+      }],
+    };
+    // Snapshot del host activo que, por hipótesis, contiene un ref homónimo.
+    const live = [{ workspace_ref: 'ref-compartida', alive: true, needs_input: false }];
+    const { state: out, events } = reconcileTick(state, live, opts('orca'));
+    assert.equal(events.rescued, 0, 'un ref homónimo de otro cliente no es identidad');
+    assert.equal(out.history.length, 1, 'la entry se conserva en history');
   });
 
   it('sin la guarda (hostName ausente) el comportamiento previo se conserva', () => {
