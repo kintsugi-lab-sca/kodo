@@ -67,7 +67,7 @@ EOF
 
 - `PLANE_API_KEY`: en Plane → perfil → **API tokens**.
 - `PLANE_WEBHOOK_SECRET`: lo obtienes al crear el webhook (paso 4).
-- `KODO_API_TOKEN` (auth del dashboard y la API) se genera solo en el primer arranque — no hace falta crearlo.
+- `KODO_API_TOKEN` (auth de la API) se genera solo en el primer arranque — no hace falta crearlo.
 
 ### 2. Configurar y mapear proyectos
 
@@ -160,8 +160,6 @@ kodo dashboard   # TUI en vivo (también se abre con kodo up)
 ```
 
 Teclas: `↑↓` mover · `c` comentarios · `l` logs de la sesión · `L` log general del daemon · `p` plan · `/` filtrar · `d` descartar sesión muerta · `o` abrir tarea en el navegador · `O` enfocar el orquestador · `a` adoptar sesión ad-hoc · `e` config · `m` proyectos · `q` salir
-
-También hay dashboard web: `http://localhost:9090/?token=<KODO_API_TOKEN>` (el token está en `~/.kodo/.env`).
 
 ## Comandos
 
@@ -313,16 +311,15 @@ firewall que restrinja quién alcanza el puerto `:9090` (ACLs de Tailscale,
 
 La exposición **no** relaja la autenticación:
 
-- El carril no-webhook (dashboard / API) sigue exigiendo el **bearer token**
-  (`KODO_API_TOKEN`) — sin token responde `401`.
+- El carril no-webhook (la API que consume el TUI) sigue exigiendo el **bearer token**
+  (`KODO_API_TOKEN`) en la cabecera `Authorization` — sin token responde `401`.
 - `/webhook` conserva su verificación **HMAC** con el webhook secret.
 - `/health` permanece abierto (probe de salud sin auth).
 
-> **Nota — token en la URL.** Las rutas HTML del dashboard aceptan el token como
-> query param (`/?token=...`) porque el navegador no puede enviar la cabecera
-> `Authorization` al navegar. Ese token queda en el historial del navegador. Si
-> sospechas que se ha filtrado, borra la línea `KODO_API_TOKEN` de `~/.kodo/.env`
-> (se regenera al arrancar) y reinicia (`kodo stop && kodo up`).
+> **Nota — el token va siempre en cabecera.** No hay ruta que lo acepte como query
+> param: el `?token=` existía solo para el dashboard web, retirado. Si sospechas que
+> se ha filtrado, borra la línea `KODO_API_TOKEN` de `~/.kodo/.env` (se regenera al
+> arrancar) y reinicia (`kodo stop && kodo up`).
 
 ## Supervisión: vigilante + orquestador
 
@@ -373,7 +370,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 
 | Módulo | Qué hace |
 |---|---|
-| `src/server.js` | Servidor HTTP `:9090` — webhook (HMAC), API autenticada, dashboard web |
+| `src/server.js` | Servidor HTTP `:9090` — webhook (HMAC) + API JSON autenticada |
 | `src/daemon/` | Ciclo de vida del daemon (`kodo up/stop/status`, `daemon run` para launchd) |
 | `src/triggers/` | Dispatch de eventos: webhook (Plane), polling (GitHub) |
 | `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |

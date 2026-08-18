@@ -7,9 +7,9 @@
 // getFreePort, dynamic-import-with-cachebust). Drives real `fetch` against
 // http://127.0.0.1:<port> and asserts the default-deny bearer guard:
 //   - the API rail (/status, /logs, /comments, DELETE /sessions) requires a bearer;
-//   - the two HTML routes (`/`, `/dashboard`) accept a ?token= query param ONLY;
+//   - a ?token= query param NEVER authenticates (the HTML dashboard that needed it is gone);
 //   - /health stays open, /webhook keeps its own HMAC (never bearer-gated);
-//   - 401 bodies are neutral {error:'unauthorized'} and never leak the HTML shell.
+//   - 401 bodies are neutral {error:'unauthorized'}.
 //
 // A known KODO_API_TOKEN is seeded in env BEFORE importing server.js so the startup
 // getOrCreateApiToken() returns a deterministic value (no CSPRNG, no .env write).
@@ -152,15 +152,9 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     assert.deepEqual(body, { error: 'Invalid signature' });
   });
 
-  it('GET /?token=<correct> → 200 text/html (the dashboard shell)', async () => {
-    const res = await fetch(`${base}/?token=${TOKEN}`);
-    assert.equal(res.status, 200);
-    assert.match(res.headers.get('content-type') || '', /text\/html/);
-    const html = await res.text();
-    assert.match(html, /<!DOCTYPE html>/);
-  });
+  // --- KODO-17: the HTML dashboard rail is gone — `/` and `/dashboard` serve nothing ---
 
-  it('GET / with no token → 401 neutral body and NO HTML shell leaked', async () => {
+  it('GET / with no token → 401 neutral body (no HTML rail to fall into)', async () => {
     const res = await fetch(`${base}/`);
     assert.equal(res.status, 401);
     const text = await res.text();
@@ -168,45 +162,32 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     assert.deepEqual(JSON.parse(text), { error: 'unauthorized' });
   });
 
-  it('GET / with a wrong ?token= → 401 and NO HTML shell', async () => {
-    const res = await fetch(`${base}/?token=wrong`);
+  it('GET /?token=<correct> → 401 — a query token never authenticates any route', async () => {
+    const res = await fetch(`${base}/?token=${TOKEN}`);
     assert.equal(res.status, 401);
-    const text = await res.text();
-    assert.doesNotMatch(text, /<!DOCTYPE html>/);
+    assert.deepEqual(await res.json(), { error: 'unauthorized' });
   });
 
-  it('GET /status?token=<correct> (query, not header) → still 401 — query tokens are HTML-route only', async () => {
+  it('GET /status?token=<correct> (query, not header) → 401 — the bearer must be a header', async () => {
     const res = await fetch(`${base}/status?token=${TOKEN}`);
     assert.equal(res.status, 401);
     assert.deepEqual(await res.json(), { error: 'unauthorized' });
   });
 
-  // --- Task 3 (D-05): the served HTML carries the token to all four fetches ---
-
-  it('GET /?token=<correct> → HTML embeds the token once and routes its fetches through an auth wrapper', async () => {
-    const res = await fetch(`${base}/?token=${TOKEN}`);
-    const html = await res.text();
-    assert.match(html, /function authedFetch\(/, 'inline auth-adding fetch wrapper present');
-    assert.equal((html.match(/const TOKEN = /g) || []).length, 1, 'token bound exactly once');
-    // The four route fetches go through authedFetch; the raw unauthenticated forms are gone.
-    assert.match(html, /authedFetch\('\/status'\)/, '/status routed through authedFetch');
-    assert.match(html, /authedFetch\('\/logs'\)/, '/logs routed through authedFetch');
-    assert.match(html, /authedFetch\('\/comments\/'/, '/comments routed through authedFetch');
-    assert.match(html, /authedFetch\('\/sessions\/'/, 'DELETE /sessions routed through authedFetch');
-    assert.doesNotMatch(html, /[^d]fetch\('\/status'\)/, 'no raw unauthenticated /status fetch');
-    assert.doesNotMatch(html, /[^d]fetch\('\/logs'\)/, 'no raw unauthenticated /logs fetch');
+  it('GET / WITH a valid bearer → 404 and never HTML — the dashboard shell no longer exists', async () => {
+    for (const path of ['/', '/dashboard']) {
+      const res = await fetch(`${base}${path}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+      assert.equal(res.status, 404, `${path} must be 404`);
+      assert.doesNotMatch(res.headers.get('content-type') || '', /text\/html/);
+      const text = await res.text();
+      assert.doesNotMatch(text, /<!DOCTYPE html>/);
+      assert.deepEqual(JSON.parse(text), { error: 'Not found' });
+    }
   });
 
   it('an authenticated fetch to /status with the served token succeeds (bearer accepted)', async () => {
     const res = await fetch(`${base}/status`, { headers: { Authorization: `Bearer ${TOKEN}` } });
     assert.equal(res.status, 200);
     assert.ok(Array.isArray((await res.json()).sessions));
-  });
-
-  it('the served HTML does not print the token as visible page text (only in the inline binding)', async () => {
-    const res = await fetch(`${base}/?token=${TOKEN}`);
-    const html = await res.text();
-    const withoutBinding = html.replace(`const TOKEN = "${TOKEN}"`, 'const TOKEN = "<redacted>"');
-    assert.doesNotMatch(withoutBinding, new RegExp(TOKEN), 'token only lives in the inline binding');
   });
 });
