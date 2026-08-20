@@ -6,7 +6,6 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
-import { colorForStatus } from '../cmux/colors.js';
 import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { writePromptFile } from './prompt-file.js';
