@@ -579,3 +579,37 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   `pending` del check incluye tareas que el dispatcher luego filtra
   (`kodo:adopted`, sin label `kodo`) → un pending que "nunca baja" puede motivar
   checks eternos sin que haya nada despachable (capturado como `0gr9sl`).
+- [2026-08-20] **Cierre fantasma: con 2+ sesiones del MISMO repo, el fallback por
+  `cwd` de `findSession` atribuye el cierre ajeno a la primera de ellas.**
+  `findSession` (`src/session/state.js:673`) busca por `session_id` y, si no
+  encuentra, cae a `session.project_path === cwd` devolviendo la **primera**
+  coincidencia en orden de inserción. Los hooks `Stop` (`src/hooks/stop.js:160`)
+  y `SessionEnd` (`src/hooks/session-end.js:126`) usan ese fallback, así que el
+  cierre de cualquier otra sesión Claude Code con `cwd` dentro del repo (el
+  orquestador anterior, una ad-hoc, un subagente) se imputa a una tarea que sigue
+  viva: KODO-26 recibió `state.transition running → idle`, handoff automático
+  (`author=auto`) y backstop a **In review** 8 s después de arrancar, con el
+  agente trabajando. Síntoma reconocible: `handoff_saved` y transición a review
+  con distancia de segundos respecto al `session.start`, y `process_alive: true`
+  en el reconcile posterior. No hay pérdida de trabajo — el cleanup terminal no
+  llega a correr, la sesión sigue en `state.sessions` y el worktree intacto —
+  pero **el estado del provider queda falseado**: devuélvelo a `In Progress` y
+  deja constancia; el handoff `author=auto` del plan queda espurio en disco.
+  Corolario: antes de creerte un review, contrasta `process_alive`/`last_seen` y
+  la pantalla del workspace. Capturado como `lu1rlb`.
+- [2026-08-20] **`pending` cuenta las sesiones vivas contra sí mismas: `trigger`
+  ES `In Progress`.** `listPendingTasks` (`src/providers/plane/provider.js:445`)
+  filtra por `state == config.states.trigger`, y el trigger configurado es
+  `In Progress` — el mismo estado al que kodo mueve una tarea al lanzarla. Toda
+  sesión viva se autocuenta como pendiente, así que el check nunca baja a 0 y
+  queda motivado indefinidamente. Ejemplo del 20-ago: `4 pending` = KODO-26 y
+  KODO-25 (sesión viva lanzada por kodo) + SCRIBBA-1 (`kodo:adopted`, filtrada
+  por el dispatcher, en In Progress desde el 26-jul) + ITCLIP-57 (sin label
+  `kodo`, tarea humana, desde el 14-ago) → **lanzables reales: 0**. Amplía
+  `0gr9sl` con la causa real (capturado como `2ih5zi`). Operativamente: **nunca
+  decidas lanzar por el número del check** — resuelve la lista y descarta las que
+  tengan sesión activa y las que el dispatcher filtraría por label. La vía
+  rápida, con `provider.init()` OBLIGATORIO antes (sin él `listPendingTasks`
+  devuelve `[]` en silencio y parece que no hay nada):
+  `node -e` con `loadConfig` + `initRegistry` + `getProvider(cfg.provider)` +
+  `await p.init()` + `await p.listPendingTasks()`.
