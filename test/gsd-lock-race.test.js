@@ -231,6 +231,29 @@ function readStealReasons(dir) {
 }
 
 /**
+ * Las barreras que VENCIERON en algún hijo (`barrier-timeouts.log`, una línea por
+ * expiración). Mismo molde NEVER-THROWS que `readStealReasons`: fichero ausente =
+ * ninguna venció, que es el caso sano.
+ *
+ * Existe porque una barrera vencida y una barrera cumplida eran indistinguibles
+ * desde fuera: el hijo continuaba igual en los dos casos, así que una
+ * desincronización de la orquestación producía el MISMO rojo que un fallo del
+ * invariante del lock — con arreglos opuestos.
+ */
+function readBarrierTimeouts(dir) {
+  let raw = '';
+  try {
+    raw = readFileSync(join(dir, 'barrier-timeouts.log'), 'utf-8');
+  } catch {
+    return [];
+  }
+  return raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+/**
  * GUARD DE COBERTURA DE LA RAMA DEL CAS (LOCK-05 c) — molde literal de
  * `assertFailopenExercised` (`test/inbox-concurrency.test.js:226-253`), con el
  * precedente MEDIDO de 83-06: sin un guard así, una edición futura de la
@@ -281,10 +304,19 @@ function assertCasExercised(dir, ctx) {
  *    con lo que el escenario degradaría a medir la carrera de PRIMER orden que la
  *    Phase 82 ya cerró.
  *
- * @param {{ stages: Record<string, boolean>, holderVerdict: string, parkedMs: number }} r
+ * @param {{ stages: Record<string, boolean>, holderVerdict: string, parkedMs: number,
+ *   barrierTimeouts: string[] }} r
  * @param {string} ctx
  */
 function assertScenarioStaged(r, ctx) {
+  // El escenario NO OCURRIÓ si algún hijo no estaba listo antes de la primera
+  // liberación: los que llegan tarde contienden fuera de la ventana y lo que midan
+  // ya no es esta carrera.
+  assert.ok(
+    r.stages.ready,
+    `no todos los hijos llegaron a estar arrancados y con el módulo cargado antes ` +
+      `de la primera etapa. ${ctx}`,
+  );
   // El escenario NO OCURRIÓ si el holder no llegó a sembrar o el stealer no llegó a
   // aparcarse: sin eso, todo lo que venga después mide otra cosa.
   assert.ok(r.stages.seeded, `el holder stale-pero-VIVO no llegó a sembrar. ${ctx}`);
@@ -314,6 +346,22 @@ function assertScenarioStaged(r, ctx) {
     `el marcador lateral steal-reasons.log no llegó a escribirse. ${ctx}`,
   );
   assert.ok(
+    r.stages.settled,
+    `algún contendiente seguía dentro de acquireGsdLock cuando el escenario cerró: ` +
+      `el ganador se marcharía dejando un lock de PID muerto y robarlo sería CORRECTO, ` +
+      `así que el conteo de cardinalidad dejaría de medir esta carrera. ${ctx}`,
+  );
+  // Una barrera vencida NO es un fallo del invariante: es la orquestación
+  // desincronizada. Se separa aquí para que el rojo apunte a la causa correcta en vez
+  // de mezclarse con la cardinalidad. JAMÁS se arregla subiendo el techo que venció:
+  // se arregla añadiendo el handshake que falta (t0 / t7a son precisamente eso).
+  assert.deepEqual(
+    r.barrierTimeouts,
+    [],
+    `alguna barrera del harness venció en vez de cumplirse, así que a partir de ahí ` +
+      `los hijos avanzaron por su cuenta. ${ctx}`,
+  );
+  assert.ok(
     r.parkedMs < 3000,
     `el aparcamiento venció la barrera del seam (${r.parkedMs} ms ≥ 3000 ms): el ` +
       `stealer reanudó por su cuenta y lo que viene después ya no mide el CAS. ` +
@@ -333,18 +381,28 @@ function assertScenarioStaged(r, ctx) {
  * el CAS no se habría ejercitado jamás. Es el mismo modo de fallo silencioso que
  * 83-06 destapó, y por eso `assertCasExercised` existe.
  *
- * TODOS los hijos se spawnean ANTES de la primera liberación: así el `spawn` queda
- * fuera de la ventana de aparcamiento y dentro solo queda el trabajo real (un
- * `unlink` y un `O_EXCL` create). Cada etapa tiene su PROPIO go-file, nunca uno
- * compartido, y cada transición espera sobre ESTADO DE DISCO con `waitUntil`, nunca
- * sobre una duración fija. Al vencer un margen se continúa igualmente: dejar hijos
- * colgados enmascararía el fallo (misma disciplina que `raceChildren:159-160`).
+ * TODOS los hijos se spawnean ANTES de la primera liberación, y además el padre
+ * espera a que TODOS publiquen su `ready-<pid>` (t0): así quedan fuera de la ventana
+ * de aparcamiento no solo el `spawn` sino el ARRANQUE del proceso y el import ESM en
+ * frío, que es donde estaba el coste de verdad (KODO-24). Dentro solo queda el
+ * trabajo real (un `unlink` y un `O_EXCL` create). Simétricamente, el escenario no
+ * cierra hasta que todos los contendientes publican su `settled-<pid>` (t7a): el
+ * ganador no puede marcharse —dejando su lock con un PID muerto— mientras alguien
+ * sigue dentro de `acquireGsdLock`.
+ *
+ * Cada etapa tiene su PROPIO go-file, nunca uno compartido, y cada transición espera
+ * sobre ESTADO DE DISCO con `waitUntil`, nunca sobre una duración fija. Al vencer un
+ * margen se continúa igualmente: dejar hijos colgados enmascararía el fallo (misma
+ * disciplina que `raceChildren:159-160`). Lo que sí cambia es que ahora una barrera
+ * vencida DEJA CONSTANCIA (`barrier-timeouts.log`) en vez de ser indistinguible de
+ * una cumplida.
  *
  * @param {number} extraStealers — contendientes adicionales SIN seam (el caso N=5)
  */
 async function raceGsdStealLiveHolder(extraStealers) {
   mkdirSync(repoDir, { recursive: true });
   const go = (name) => join(sandbox, name);
+  const goHolder = go('go-holder');
   const goStealer = go('go-stealer');
   const goExtras = go('go-extras');
   const goRelease = go('go-release');
@@ -352,9 +410,12 @@ async function raceGsdStealLiveHolder(extraStealers) {
   const goResume = go('go-resume');
   const goTeardown = go('go-teardown');
 
-  // El holder NO recibe `--barrier`: siembra nada más bootear.
+  // El holder siembra en cuanto pasa su barrera, que el padre escribe justo después
+  // del handshake de preparado (t0) — no nada más bootear, como antes: así el techo
+  // de su espera `--release` cubre la orquestación y no el arranque de sus hermanos.
   const argvs = [
-    ['--kind', 'gsd-holder', '--repo', repoDir, '--sandbox', sandbox, '--release', goRelease],
+    ['--kind', 'gsd-holder', '--repo', repoDir, '--sandbox', sandbox, '--barrier', goHolder,
+      '--release', goRelease],
     // EXACTAMENTE UNO lleva el seam (D-14/A1): que varios se aparquen a la vez es
     // imposible por construcción —el steal-guard los serializa— y multiplicaría el
     // riesgo de acercar el aparcamiento al umbral de edad del guard.
@@ -362,10 +423,11 @@ async function raceGsdStealLiveHolder(extraStealers) {
       '--resume', goResume],
     // El creador es el kind `gsd` EXISTENTE, sin modificar. Su `session_id` es
     // `sess-<pid>`, así que el padre lo identifica por el pid del hijo que spawneó.
-    ['--kind', 'gsd', '--repo', repoDir, '--barrier', goCreator, '--hold-until', goTeardown],
+    ['--kind', 'gsd', '--repo', repoDir, '--sandbox', sandbox, '--barrier', goCreator,
+      '--hold-until', goTeardown],
   ];
   for (let i = 0; i < extraStealers; i++) {
-    argvs.push(['--kind', 'gsd', '--repo', repoDir, '--barrier', goExtras,
+    argvs.push(['--kind', 'gsd', '--repo', repoDir, '--sandbox', sandbox, '--barrier', goExtras,
       '--hold-until', goTeardown]);
   }
 
@@ -383,7 +445,30 @@ async function raceGsdStealLiveHolder(extraStealers) {
 
   const stages = {};
 
-  // t1 — el holder siembra el lock stale-pero-VIVO.
+  // t0 — HANDSHAKE DE PREPARADO. Ninguna etapa empieza hasta que TODOS los hijos han
+  // arrancado y tienen `src/gsd/lock.js` ya cargado (marcador `ready-<pid>`).
+  //
+  // Spawnearlos antes de la primera liberación NO basta, y suponerlo era el defecto
+  // que hacía flaky este escenario (KODO-24): el coste real no es el `spawn` del
+  // padre sino el ARRANQUE del proceso hijo más su import ESM en frío. Medido bajo
+  // carga (20 procesos quemando CPU en 12 cores), un hijo llegó a bootear 245 ms
+  // después del primero, o sea DESPUÉS de que la secuencia entera hubiera cerrado.
+  // Escribir su go-file no lo ponía a contender: lo ponía a contender más tarde,
+  // contra un lock ya abandonado por un ganador que había salido en el teardown, y
+  // robarlo era el comportamiento CORRECTO ante un PID muerto. El agregado sumaba
+  // dos `acquired` sin que ningún invariante de `stealLock` se hubiera roto.
+  //
+  // Con el marcador, cada transición espera ESTADO DE DISCO también aquí: el padre
+  // sabe que el hijo está dentro de su barrera, no que le ha escrito el fichero.
+  stages.ready = await waitUntil(
+    () => children.every((c) => existsSync(join(sandbox, `ready-${c.pid}`))),
+    10_000,
+  );
+
+  // t1 — el holder siembra el lock stale-pero-VIVO. Su barrera se escribe SOLO tras
+  // el handshake para que el techo de su espera `--release` (3000 ms) cubra la
+  // orquestación y nada más — nunca el arranque de sus hermanos.
+  writeFileSync(goHolder, '1');
   stages.seeded = await waitUntil(() => existsSync(join(sandbox, 'holder-seeded')), 5000);
 
   // t2 — soltar el stealer con seam, y esperar a que esté DENTRO de la sección
@@ -416,7 +501,22 @@ async function raceGsdStealLiveHolder(extraStealers) {
   const parkedMs = Date.now() - parkedAt;
   stages.reasons = await waitUntil(() => existsSync(join(sandbox, 'steal-reasons.log')), 5000);
 
-  // t7 — cierre: los ganadores con `--hold-until` salen.
+  // t7a — HANDSHAKE DE ASENTADO, pareado con el de preparado: nadie sigue dentro de
+  // `acquireGsdLock` cuando el escenario cierra. Es la otra mitad del defecto de
+  // KODO-24: el ganador retiene el lock hasta el teardown, así que en cuanto sale, su
+  // lock queda con un PID MUERTO. Un contendiente que siguiera dentro de su
+  // presupuesto —`sleepShort` es `Atomics.wait`, y bajo carga sobrepasa su nominal—
+  // lo encontraría muerto y lo robaría con toda la razón, sumando un segundo
+  // `acquired` al agregado sin que ningún invariante se hubiera roto. Se espera a los
+  // hijos `gsd` (creador + extras), que son los únicos que contienden aquí; el seam
+  // ya quedó cubierto por `steal-reasons.log` y el holder no adquiere nada.
+  const gsdChildren = children.slice(2);
+  stages.settled = await waitUntil(
+    () => gsdChildren.every((c) => existsSync(join(sandbox, `settled-${c.pid}`))),
+    10_000,
+  );
+
+  // t7b — cierre: los ganadores con `--hold-until` salen.
   writeFileSync(goTeardown, '1');
 
   await done;
@@ -428,6 +528,7 @@ async function raceGsdStealLiveHolder(extraStealers) {
     creatorSession: 'sess-' + children[2].pid,
     finalSession: readLockSession(),
     reasons: readStealReasons(sandbox),
+    barrierTimeouts: readBarrierTimeouts(sandbox),
     parkedMs,
     stages,
   };
@@ -438,6 +539,7 @@ describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º 
     const r = await raceGsdStealLiveHolder(0);
     const ctx =
       `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
+      `barrierTimeouts=[${r.barrierTimeouts.join(',')}] ` +
       `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
 
     assertScenarioStaged(r, ctx);
@@ -467,6 +569,7 @@ describe('gsd lock steal race — holder stale-pero-VIVO que libera (CR-01, 2º 
     const r = await raceGsdStealLiveHolder(2);
     const ctx =
       `verdicts=[${r.verdicts.join(',')}] reasons=[${r.reasons.join(',')}] ` +
+      `barrierTimeouts=[${r.barrierTimeouts.join(',')}] ` +
       `finalSession=${r.finalSession} parkedMs=${r.parkedMs} stages=${JSON.stringify(r.stages)}`;
 
     assertScenarioStaged(r, ctx);
