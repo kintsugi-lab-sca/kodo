@@ -22,7 +22,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { render } from 'ink-testing-library';
+import { render, renderInk, waitForFrame } from './helpers/ink-frame.js';
 import { createElement } from 'react';
 import App, { UNAUTHORIZED_MESSAGE } from '../src/cli/dashboard/App.js';
 
@@ -91,19 +91,6 @@ function injectProps(clock, fetchFn) {
   };
 }
 
-/**
- * Drena por completo la cola de microtasks pendientes (cadenas del kick-off `Promise.resolve()
- * .then(tick)` + `await fn()` + los setState/re-render que ink agenda). Más robusto que
- * `await Promise.resolve()` contra cadenas de profundidad variable.
- */
-async function drain() {
-  // Doble drain: el primer setImmediate absorbe el onResult del tick; el segundo absorbe el
-  // re-render del write-back de la selección inicial (useEffect en App, Phase 36 D-07). Sin él
-  // el frame podría capturarse entre los dos renders (flakiness de microtasks).
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-}
-
 /** Response-like mínimo con `ok`/`status`/`json()` (forma del fetch que consume client.js). */
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
@@ -120,29 +107,29 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
       throw new Error('ECONNREFUSED');
     };
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
     // Tick 1 (kick-off): ok → indicador "● live" (Phase 36: el contador `N sessions` del live
     // se reemplazó por contadores por estado; en este fixture las sesiones son objetos vacíos sin
     // status, así que el live no muestra contadores — basta con el indicador ● live).
-    await drain();
-    assert.match(lastFrame(), /● live/, `tras primer poll ok debe mostrar el indicador ● live\n${lastFrame()}`);
+    await waitForFrame(lastFrame, /● live/, `tras primer poll ok debe mostrar el indicador ● live`);
 
     // Tick 2: ok (count:3 de nuevo). Avanzar el reloj para que la edad sea > 0 al caer.
     clock.advance(8000);
     await clock.flushTick();
-    await drain();
 
     // Tick 3: throw (ECONNREFUSED) → estado stale, keep-last-good.
     clock.advance(8000);
     await clock.flushTick();
-    await drain();
 
-    const frame = lastFrame();
+    // estado stale: server caído / retrying.
+    const frame = await waitForFrame(
+      lastFrame,
+      /server caído|retrying/,
+      'debe mostrar el estado stale (server caído/retrying)',
+    );
     // keep-last-good: el contador NO se blanquea.
     assert.match(frame, /3 sessions/, `keep-last-good: el contador 3 sessions NO debe blanquearse\n${frame}`);
-    // estado stale: server caído / retrying.
-    assert.match(frame, /server caído|retrying/, `debe mostrar el estado stale (server caído/retrying)\n${frame}`);
   });
 
   it('waiting: fetch que falla desde el primer tick muestra "waiting for server" sin contador', async () => {
@@ -151,11 +138,8 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
       throw new Error('ECONNREFUSED');
     };
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
-
-    const frame = lastFrame();
-    assert.match(frame, /waiting for server/, `sin dato bueno debe mostrar "waiting for server"\n${frame}`);
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    const frame = await waitForFrame(lastFrame, /waiting for server/, `sin dato bueno debe mostrar "waiting for server"`);
     assert.doesNotMatch(frame, /\d+ sessions/, `waiting NO debe mostrar un contador de sessions\n${frame}`);
   });
 
@@ -163,11 +147,8 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse({ sessions: [{}, {}, {}, {}, {}], count: 5 });
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
-
-    const frame = lastFrame();
-    assert.match(frame, /● live/, `poll ok debe mostrar "● live"\n${frame}`);
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    const frame = await waitForFrame(lastFrame, /● live/, `poll ok debe mostrar "● live"`);
     // Phase 36: el live ya no muestra `N sessions`; las sesiones se renderizan como filas de la
     // tabla. La cabecera de columnas confirma que la tabla (no la status line) está montada.
     assert.match(frame, /task_ref/, `poll ok debe montar la tabla (cabecera de columnas)\n${frame}`);
@@ -189,22 +170,23 @@ describe('TUI-06: status line viva — keep-last-good + dos estados + JSON corru
       };
     };
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     // Phase 36: el live muestra el indicador ● live (el contador `N sessions` se movió al estado
     // stale / a los contadores por estado). Confirma que el primer poll ok montó la tabla viva.
-    assert.match(lastFrame(), /● live/, `tras primer poll ok debe mostrar el indicador ● live\n${lastFrame()}`);
+    await waitForFrame(lastFrame, /● live/, 'tras primer poll ok debe mostrar el indicador ● live');
 
     // Tick 2: json() lanza → client.js lo degrada a {ok:false} → estado stale, NUNCA crash.
     clock.advance(5000);
     await clock.flushTick();
-    await drain();
 
-    const frame = lastFrame();
+    // keep-last-good + stale: conserva el contador y muestra el estado degradado.
+    const frame = await waitForFrame(
+      lastFrame,
+      /2 sessions/,
+      'keep-last-good tras JSON corrupto: conserva 2 sessions',
+    );
     // El árbol ink sobrevive: lastFrame() sigue devolviendo un frame no vacío.
     assert.ok(frame && frame.length > 0, `el frame debe sobrevivir a un JSON corrupto (sin crash)\n${frame}`);
-    // keep-last-good + stale: conserva el contador y muestra el estado degradado.
-    assert.match(frame, /2 sessions/, `keep-last-good tras JSON corrupto: conserva 2 sessions\n${frame}`);
     assert.match(frame, /server caído|retrying/, `JSON corrupto = poll fallido → estado stale\n${frame}`);
   });
 });
@@ -228,17 +210,15 @@ describe('NET-02 (D-08): estado 401 "no autorizado" — banner accionable, nunca
       return okResponse({ sessions: [{}, {}], count: 2 });
     };
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    const frame = await waitForFrame(
+      lastFrame,
+      /no autorizado — revisa KODO_API_TOKEN/,
+      'un 401 debe renderizar UNAUTHORIZED_MESSAGE',
+    );
     // Nunca un blank screen en un 401 (D-08): el árbol renderiza y contiene el mensaje.
     assert.ok(frame && frame.length > 0, `el frame nunca queda vacío en un 401 (D-08)\n${frame}`);
-    assert.match(
-      frame,
-      /no autorizado — revisa KODO_API_TOKEN/,
-      `un 401 debe renderizar UNAUTHORIZED_MESSAGE\n${frame}`,
-    );
     // Precedencia sobre la degradación genérica: NO cae a "waiting for server" pese a no tener
     // dato bueno previo (el 401 es una condición específica y accionable, no un drop transitorio).
     assert.doesNotMatch(frame, /waiting for server/, `el 401 gana a "waiting for server"\n${frame}`);
@@ -249,10 +229,8 @@ describe('NET-02 (D-08): estado 401 "no autorizado" — banner accionable, nunca
     phase = 'ok';
     clock.advance(5000);
     await clock.flushTick();
-    await drain();
 
-    const frame2 = lastFrame();
-    assert.match(frame2, /● live/, `un poll OK vuelve a ● live\n${frame2}`);
+    const frame2 = await waitForFrame(lastFrame, /● live/, 'un poll OK vuelve a ● live');
     assert.doesNotMatch(frame2, /no autorizado/, `el estado 401 se limpia tras un poll OK\n${frame2}`);
   });
 });

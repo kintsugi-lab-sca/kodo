@@ -9,7 +9,8 @@
 // PERSIST-03/04 + el never-throws de escritura fallida (UX-04/D-12).
 //
 // Harness hermético reusado VERBATIM de test/dashboard-overlay.test.js (makeFakeClock/injectProps/
-// drain/okResponse/makeRouter). injectProps se EXTIENDE con dos props DI nuevas:
+// okResponse/makeRouter) + el helper compartido test/helpers/ink-frame.js. injectProps se EXTIENDE
+// con dos props DI nuevas:
 //   - loadConfigFn: () => CONFIG_FIXTURE (snapshot fake con valores conocidos; NO toca ~/.kodo/ real).
 //   - onSaveConfig: spy async never-throws que registra el config recibido y devuelve {ok} controlado.
 //
@@ -25,7 +26,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { render } from 'ink-testing-library';
+import { renderInk, waitForFrame } from './helpers/ink-frame.js';
 import { createElement } from 'react';
 import App, {
   CONFIG_OVERLAY_TITLE,
@@ -126,15 +127,9 @@ function injectProps(clock, fetchFn, extra = {}) {
 }
 
 // El editor encadena transiciones de modo + tecleo INMEDIATO (Enter→config-edit→teclear). ink
-// re-suscribe el handler de `useInput` un render TARDE respecto al cambio de estado, así que la
-// primera tecla tras una transición se descarta con un drain de 2 (suficiente para los overlays
-// read-only, que no tipean en el modo recién abierto). Un terminal real tiene latencia humana de
-// sobra entre teclas; aquí se purga con varios ciclos del event loop para reflejar esa realidad.
-async function drain() {
-  for (let i = 0; i < 6; i++) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
+// re-suscribe el handler de `useInput` un render TARDE respecto al cambio de estado: si la tecla
+// entra en esa ventana se descarta. Antes se compensaba drenando 6 turnos a ojo; ahora lo cubre
+// `press` del helper, que espera a que el render haya quiescido antes de escribir (KODO-25).
 
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
@@ -143,15 +138,12 @@ function okResponse(body) {
 // Abre el overlay de config y deja el cursor sobre `path`. El número de ↓ se DERIVA de
 // getEditableFields (no se hardcodea): añadir o reordenar un campo editable —KODO-12 insertó
 // `claude.orchestrator_model` en el índice 1— no debe romper los tests de otros campos.
-async function openFieldRow(stdin, path) {
+async function openFieldRow(press, lastFrame, path) {
   const index = getEditableFields(CONFIG_FIXTURE).findIndex((f) => f.path === path);
   assert.notEqual(index, -1, `path no editable: ${path}`);
-  stdin.write('e'); // abre config (fieldCursor=0)
-  await drain();
-  for (let i = 0; i < index; i++) {
-    stdin.write('\x1b[B'); // ↓
-    await drain();
-  }
+  await press('e'); // abre config (fieldCursor=0)
+  await waitForFrame(lastFrame, new RegExp(CONFIG_OVERLAY_TITLE), 'el overlay de config debe abrirse');
+  for (let i = 0; i < index; i++) await press('\x1b[B'); // ↓
 }
 
 // Fixture de /status: KL-1 (task_id 'a') es la fila seleccionada inicial (newest, arriba).
@@ -196,13 +188,15 @@ describe('UX-01/D-02: `e` abre el overlay de config sin salir del dashboard', ()
   it('`e` en mode:list abre el overlay con título + la lista de campos editables', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('e');
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, new RegExp(CONFIG_OVERLAY_TITLE), `e debe abrir el overlay de config\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('e');
+      const frame = await waitForFrame(
+        lastFrame,
+        new RegExp(CONFIG_OVERLAY_TITLE),
+        'e debe abrir el overlay de config',
+      );
       // La lista incluye al menos default_model ('opus') y max_parallel (label 'Máximo en paralelo').
       assert.match(frame, /Modelo por defecto|opus/, `el overlay debe listar el campo default_model\n${frame}`);
       assert.match(frame, /Máximo en paralelo/, `el overlay debe listar el campo max_parallel\n${frame}`);
@@ -214,12 +208,17 @@ describe('UX-01/D-02: `e` abre el overlay de config sin salir del dashboard', ()
   it('PERSIST-04: el overlay NUNCA muestra api_key_env / base_url / workspace_slug', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('e');
-      await drain();
-      const frame = lastFrame();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('e');
+      // Aserciones NEGATIVAS: hay que tener el overlay REALMENTE pintado antes de afirmar que no
+      // contiene los secretos, o el frame de la tabla las pasaría sin haber abierto nada.
+      const frame = await waitForFrame(
+        lastFrame,
+        new RegExp(CONFIG_OVERLAY_TITLE),
+        'el overlay de config debe estar abierto',
+      );
       assert.doesNotMatch(frame, /PLANE_API_KEY|api_key_env/, `ningún secreto en el overlay\n${frame}`);
       assert.doesNotMatch(frame, /workspace_slug|k-lab/, `ningún workspace_slug en el overlay\n${frame}`);
       assert.doesNotMatch(frame, /example\.com|base_url/, `ningún base_url en el overlay\n${frame}`);
@@ -233,25 +232,21 @@ describe('UX-02/D-01: text-input con cursor, backspace, ←, inserción en medio
   it('Enter precarga el valor y la edición inserta en la posición del cursor (no append ciego)', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
       // KODO-18: la fila se localiza por PATH (openFieldRow), no por el índice 0 — ese
       // índice pasó a ser `host` cuando el selector de cliente entró al editor.
-      await openFieldRow(stdin, 'claude.default_model');
-      stdin.write('\r'); // entra a config-edit, precarga 'opus' con el cursor al final
-      await drain();
-      stdin.write('8'); // 'opus8'
-      await drain();
-      stdin.write('\x7f'); // backspace → 'opus'
-      await drain();
-      stdin.write('\x1b[D'); // ← cursor a la izquierda (entre 'opu' y 's')
-      await drain();
-      stdin.write('X'); // inserta en medio → 'opuXs'
-      await drain();
-      const frame = lastFrame();
+      await openFieldRow(press, lastFrame, 'claude.default_model');
+      await press('\r'); // entra a config-edit, precarga 'opus' con el cursor al final
+      await press('8'); // 'opus8'
+      await waitForFrame(lastFrame, /opus8/, 'el buffer editado debe mostrar opus8');
+      await press('\x7f'); // backspace → 'opus'
+      await waitForFrame(lastFrame, (f) => !f.includes('opus8'), 'backspace debe borrar el último char');
+      await press('\x1b[D'); // ← cursor a la izquierda (entre 'opu' y 's')
+      await press('X'); // inserta en medio → 'opuXs'
       // Pitfall 5: asertar el segmento ANTES del cursor ('opuX'), contiguo y sin bytes ANSI internos.
-      assert.match(frame, /opuX/, `la inserción debe ocurrir en el cursor, no por append ciego\n${frame}`);
+      await waitForFrame(lastFrame, /opuX/, 'la inserción debe ocurrir en el cursor, no por append ciego');
     } finally {
       unmount();
     }
@@ -263,28 +258,26 @@ describe('CFG-05-UI: valor inválido → footer rojo, NO escribe, sigue en confi
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { onSaveConfig: fn })),
     );
     try {
-      await drain();
-      await openFieldRow(stdin, 'claude.max_parallel');
-      stdin.write('\r'); // config-edit de max_parallel (precarga '3')
-      await drain();
-      stdin.write('\x7f'); // backspace → ''
-      await drain();
-      stdin.write('0'); // '0' (inválido: < 1)
-      await drain();
-      stdin.write('\r'); // intenta guardar
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, /entero positivo/, `un valor inválido debe pintar el error de validación\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openFieldRow(press, lastFrame, 'claude.max_parallel');
+      await press('\r'); // config-edit de max_parallel (precarga '3')
+      await press('\x7f'); // backspace → ''
+      await press('0'); // '0' (inválido: < 1)
+      await press('\r'); // intenta guardar
+      const frame = await waitForFrame(
+        lastFrame,
+        /entero positivo/,
+        'un valor inválido debe pintar el error de validación',
+      );
       assert.equal(spy.calls, 0, 'onSaveConfig NO debe llamarse con un valor inválido');
       // Pitfall 2: el error vive en configEditError (no focusError) → la siguiente tecla NO se pierde.
       // Seguimos en config-edit: teclear un dígito válido sigue editando el buffer.
-      stdin.write('5'); // '05' → no consumido por un clear-on-any-input
-      await drain();
-      assert.match(lastFrame(), /05/, `tras el error la siguiente tecla edita el buffer (no se pierde)\n${lastFrame()}`);
+      await press('5'); // '05' → no consumido por un clear-on-any-input
+      await waitForFrame(lastFrame, /05/, 'tras el error la siguiente tecla edita el buffer (no se pierde)');
     } finally {
       unmount();
     }
@@ -296,23 +289,20 @@ describe('PERSIST-03/D-10: valor válido → guarda y muestra el aviso de reinic
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy({ ok: true });
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { onSaveConfig: fn })),
     );
     try {
-      await drain();
-      await openFieldRow(stdin, 'claude.max_parallel');
-      stdin.write('\r'); // config-edit (precarga '3')
-      await drain();
-      stdin.write('\x7f'); // ''
-      await drain();
-      stdin.write('5'); // '5'
-      await drain();
-      stdin.write('\r'); // guarda
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openFieldRow(press, lastFrame, 'claude.max_parallel');
+      await press('\r'); // config-edit (precarga '3')
+      await press('\x7f'); // ''
+      await press('5'); // '5'
+      await waitForFrame(lastFrame, /5/, 'el buffer editado debe mostrar 5 antes de confirmar');
+      await press('\r'); // guarda
+      await waitForFrame(lastFrame, /reinicia|reiniciar/i, 'tras guardar debe verse el aviso de reinicio');
       assert.equal(spy.calls, 1, 'onSaveConfig debe llamarse exactamente una vez');
       assert.equal(spy.lastConfig.claude.max_parallel, 5, 'el config guardado lleva el valor nuevo aplicado');
-      assert.match(lastFrame(), /reinicia|reiniciar/i, `tras guardar debe verse el aviso de reinicio\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -323,15 +313,17 @@ describe('UX-03/D-05: Esc en config preserva la selección por task_id', () => {
   it('Esc cierra el overlay y vuelve a la tabla con el MISMO cursor (KL-1)', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('e');
-      await drain();
-      stdin.write('\x1b'); // Esc
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, /›.*KL-1/, `Esc debe restaurar la tabla con el cursor en KL-1\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('e');
+      await waitForFrame(lastFrame, new RegExp(CONFIG_OVERLAY_TITLE), 'el overlay de config debe abrirse');
+      await press('\x1b'); // Esc
+      const frame = await waitForFrame(
+        lastFrame,
+        /›.*KL-1/,
+        'Esc debe restaurar la tabla con el cursor en KL-1',
+      );
       assert.match(frame, /KL-2/, `Esc debe restaurar la tabla completa (KL-2 visible)\n${frame}`);
     } finally {
       unmount();
@@ -344,23 +336,23 @@ describe('UX-04/D-12: escritura fallida deja el panel montado y el footer rojo',
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { fn } = makeSaveSpy({ ok: false, error: 'EACCES' });
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { onSaveConfig: fn })),
     );
     try {
-      await drain();
-      await openFieldRow(stdin, 'claude.max_parallel');
-      stdin.write('\r'); // config-edit
-      await drain();
-      stdin.write('\x7f'); // ''
-      await drain();
-      stdin.write('5'); // '5' (válido)
-      await drain();
-      stdin.write('\r'); // intenta guardar → falla
-      await drain();
-      const frame = lastFrame();
-      // CONFIG_SAVE_FAILED lleva `[!]` (metacaracteres de regex) → assert por substring literal.
-      assert.ok(frame.includes(CONFIG_SAVE_FAILED), `una escritura fallida pinta CONFIG_SAVE_FAILED\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openFieldRow(press, lastFrame, 'claude.max_parallel');
+      await press('\r'); // config-edit
+      await press('\x7f'); // ''
+      await press('5'); // '5' (válido)
+      await waitForFrame(lastFrame, /5/, 'el buffer editado debe mostrar 5 antes de confirmar');
+      await press('\r'); // intenta guardar → falla
+      // CONFIG_SAVE_FAILED lleva `[!]` (metacaracteres de regex) → se espera por substring literal.
+      const frame = await waitForFrame(
+        lastFrame,
+        (f) => f.includes(CONFIG_SAVE_FAILED),
+        'una escritura fallida pinta CONFIG_SAVE_FAILED',
+      );
       assert.ok(frame.length > 0, 'el panel ink sigue montado (lastFrame no vacío)');
     } finally {
       unmount();

@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { render } from 'ink-testing-library';
+import { renderInk, waitForFrame, waitUntil, drain } from './helpers/ink-frame.js';
 import { createElement } from 'react';
 import App, {
   OVERLAY_COMMENTS_EMPTY,
@@ -90,11 +90,6 @@ function injectProps(clock, fetchFn) {
     scheduleTimeout: clock.scheduleTimeout,
     cancelTimeout: clock.cancelTimeout,
   };
-}
-
-async function drain() {
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
 }
 
 function okResponse(body) {
@@ -174,14 +169,13 @@ describe('TUI-15/SC#1: overlay de comentarios (c) — abre, copy por caso, Esc r
       comments: (id) =>
         okResponse({ comments: id === 'a' ? [{ body: 'looks good to me' }] : [] }),
     });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      const frame = lastFrame();
-      // El overlay debe mostrar el contenido del comentario o el task_ref de la fila.
-      assert.match(frame, /looks good to me|KL-1/, `c debe abrir el overlay de comentarios de KL-1\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      // El overlay debe mostrar el contenido del comentario de la fila seleccionada. Se espera ese
+      // texto, no `KL-1`: el task_ref ya está en la tabla y se cumpliría sin abrir nada.
+      await waitForFrame(lastFrame, /looks good to me/, 'c debe abrir el overlay de comentarios de KL-1');
     } finally {
       unmount();
     }
@@ -190,12 +184,11 @@ describe('TUI-15/SC#1: overlay de comentarios (c) — abre, copy por caso, Esc r
   it('c sobre tarea 404 muestra OVERLAY_COMMENTS_NOT_FOUND', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => notFoundResponse() });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_COMMENTS_NOT_FOUND), `404 → ${OVERLAY_COMMENTS_NOT_FOUND}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_COMMENTS_NOT_FOUND), `404 → ${OVERLAY_COMMENTS_NOT_FOUND}`);
     } finally {
       unmount();
     }
@@ -204,12 +197,11 @@ describe('TUI-15/SC#1: overlay de comentarios (c) — abre, copy por caso, Esc r
   it('c sin comentarios muestra OVERLAY_COMMENTS_EMPTY', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => okResponse({ comments: [] }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_COMMENTS_EMPTY), `vacío → ${OVERLAY_COMMENTS_EMPTY}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_COMMENTS_EMPTY), `vacío → ${OVERLAY_COMMENTS_EMPTY}`);
     } finally {
       unmount();
     }
@@ -218,12 +210,11 @@ describe('TUI-15/SC#1: overlay de comentarios (c) — abre, copy por caso, Esc r
   it('c con error 500 muestra OVERLAY_COMMENTS_ERROR', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => serverErrorResponse() });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_COMMENTS_ERROR), `500 → ${OVERLAY_COMMENTS_ERROR}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_COMMENTS_ERROR), `500 → ${OVERLAY_COMMENTS_ERROR}`);
     } finally {
       unmount();
     }
@@ -232,17 +223,19 @@ describe('TUI-15/SC#1: overlay de comentarios (c) — abre, copy por caso, Esc r
   it('Esc cierra el overlay y vuelve a la tabla con el MISMO cursor (KL-1)', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => okResponse({ comments: [{ body: 'hi' }] }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
       // En overlay NO debe verse la cabecera de columnas de la tabla.
-      stdin.write('\x1b');
-      await drain();
-      const frame = lastFrame();
+      await waitForFrame(lastFrame, /hi/, 'el overlay de comentarios debe estar abierto');
+      await press('\x1b');
       // Vuelve a la tabla: el gutter sigue en KL-1 (cursor preservado, selectedTaskId intacto).
-      assert.match(frame, /›.*KL-1/, `Esc debe restaurar la tabla con el cursor en KL-1\n${frame}`);
+      const frame = await waitForFrame(
+        lastFrame,
+        /›.*KL-1/,
+        'Esc debe restaurar la tabla con el cursor en KL-1',
+      );
       assert.match(frame, /KL-2/, `Esc debe restaurar la tabla completa (KL-2 visible)\n${frame}`);
     } finally {
       unmount();
@@ -262,13 +255,11 @@ describe('TUI-16/SC#2/SC#3: overlay de logs (l) — grep substring, etiqueta hon
           ],
         }),
     });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('l');
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, new RegExp(OVERLAY_LOGS_LABEL.slice(0, 20)), `el overlay de logs debe llevar la etiqueta honesta\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('l');
+      const frame = await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_LABEL.slice(0, 20)), `el overlay de logs debe llevar la etiqueta honesta`);
       assert.match(frame, /KL-1 started build/, `el overlay debe mostrar la línea de log que matchea KL-1\n${frame}`);
     } finally {
       unmount();
@@ -280,12 +271,11 @@ describe('TUI-16/SC#2/SC#3: overlay de logs (l) — grep substring, etiqueta hon
     const fetchFn = makeRouter({
       logs: () => okResponse({ logs: [{ ts: '10:00', level: 'info', msg: 'nothing relevant here' }] }),
     });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('l');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_EMPTY), `no-match → ${OVERLAY_LOGS_EMPTY}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('l');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_EMPTY), `no-match → ${OVERLAY_LOGS_EMPTY}`);
     } finally {
       unmount();
     }
@@ -294,12 +284,11 @@ describe('TUI-16/SC#2/SC#3: overlay de logs (l) — grep substring, etiqueta hon
   it('l con error en /logs muestra OVERLAY_LOGS_ERROR', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ logs: () => serverErrorResponse() });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('l');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('l');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}`);
     } finally {
       unmount();
     }
@@ -319,13 +308,11 @@ describe('overlay de log GENERAL (L) — buffer completo SIN grep por sesión (d
           ],
         }),
     });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('L');
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, new RegExp(OVERLAY_LOGS_ALL_LABEL.slice(0, 20)), `el overlay general lleva su etiqueta honesta\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('L');
+      const frame = await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_ALL_LABEL.slice(0, 20)), `el overlay general lleva su etiqueta honesta`);
       assert.match(frame, /zzz webhook received unrelated/, `el overlay general muestra líneas que NO matchean la sesión (sin grep)\n${frame}`);
       assert.match(frame, /log · general/, `el header del overlay general es "log · general"\n${frame}`);
     } finally {
@@ -336,12 +323,11 @@ describe('overlay de log GENERAL (L) — buffer completo SIN grep por sesión (d
   it('L con buffer vacío muestra OVERLAY_LOGS_ALL_EMPTY', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ logs: () => okResponse({ logs: [] }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('L');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ALL_EMPTY), `buffer vacío → ${OVERLAY_LOGS_ALL_EMPTY}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('L');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_ALL_EMPTY), `buffer vacío → ${OVERLAY_LOGS_ALL_EMPTY}`);
     } finally {
       unmount();
     }
@@ -350,12 +336,11 @@ describe('overlay de log GENERAL (L) — buffer completo SIN grep por sesión (d
   it('L con error en /logs muestra OVERLAY_LOGS_ERROR', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ logs: () => serverErrorResponse() });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('L');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('L');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_LOGS_ERROR), `error /logs → ${OVERLAY_LOGS_ERROR}`);
     } finally {
       unmount();
     }
@@ -374,13 +359,12 @@ describe('tecla O — enfocar/lanzar el orquestador (resuelve ref vía /orchestr
       ...injectProps(clock, fetchFn),
       onFocus: async (/** @type {string} */ ref) => { focusCalls.push(ref); return { ok: true }; },
     };
-    const { lastFrame, stdin, unmount } = render(createElement(App, props));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, props));
     try {
-      await drain();
-      stdin.write('O');
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('O');
+      await waitForFrame(lastFrame, /opening orchestrator/, 'éxito → footer ORCH_OK');
       assert.deepEqual(focusCalls, ['workspace:7'], `onFocus debe recibir el ref del orquestador\n${lastFrame()}`);
-      assert.match(lastFrame(), /opening orchestrator/, `éxito → footer ORCH_OK\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -399,13 +383,14 @@ describe('tecla O — enfocar/lanzar el orquestador (resuelve ref vía /orchestr
       ...injectProps(clock, fetchFn),
       onFocus: async (/** @type {string} */ ref) => { focusCalls.push(ref); return { ok: true }; },
     };
-    const { lastFrame, stdin, unmount } = render(createElement(App, props));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, props));
     try {
-      await drain();
-      stdin.write('O');
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('O');
+      // El hint es el estado que confirma que la respuesta se procesó; recién entonces la ausencia
+      // de llamadas a onFocus es una afirmación con contenido.
+      await waitForFrame(lastFrame, /orchestrator not running/, 'ausente → hint ORCH_NOT_RUNNING');
       assert.deepEqual(focusCalls, [], `sin ref → onFocus no debe llamarse\n${lastFrame()}`);
-      assert.match(lastFrame(), /orchestrator not running/, `ausente → hint ORCH_NOT_RUNNING\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -414,12 +399,11 @@ describe('tecla O — enfocar/lanzar el orquestador (resuelve ref vía /orchestr
   it('O con error del server muestra ORCH_ERR', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ orchestrator: () => serverErrorResponse() });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('O');
-      await drain();
-      assert.match(lastFrame(), /orchestrator failed/, `error → footer ORCH_ERR\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('O');
+      await waitForFrame(lastFrame, /orchestrator failed/, `error → footer ORCH_ERR`);
     } finally {
       unmount();
     }
@@ -433,19 +417,16 @@ describe('D-05: snapshot congelado — el poll sigue por debajo pero el overlay 
     const fetchFn = makeRouter({
       comments: () => okResponse({ comments: [{ body: commentBody }] }),
     });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      assert.match(lastFrame(), /first comment/, `precondición: overlay muestra el comentario congelado\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      await waitForFrame(lastFrame, /first comment/, `precondición: overlay muestra el comentario congelado`);
 
       // El poll sigue corriendo bajo el overlay; aunque cambien los datos, el snapshot no se re-escribe.
       commentBody = 'CHANGED under the reader';
       await clock.flushTick();
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, /first comment/, `el overlay debe seguir mostrando el snapshot congelado\n${frame}`);
+      const frame = await waitForFrame(lastFrame, /first comment/, `el overlay debe seguir mostrando el snapshot congelado`);
       assert.doesNotMatch(frame, /CHANGED under the reader/, `el snapshot NO debe re-escribirse por el poll (D-05)\n${frame}`);
     } finally {
       unmount();
@@ -463,22 +444,26 @@ describe('D-06/WR-01: scroll del overlay (↑/↓) y clamp del viewport', () => 
   it('↓ scrollea el viewport y el clamp deja la ÚLTIMA pantalla llena (no una sola línea)', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => okResponse({ comments: manyComments() }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      const initial = lastFrame();
-      assert.match(initial, /line-00/, `al abrir (offset 0) la primera línea visible es line-00\n${initial}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      const initial = await waitForFrame(
+        lastFrame,
+        /line-00/,
+        'al abrir (offset 0) la primera línea visible es line-00',
+      );
       assert.doesNotMatch(initial, /line-19/, `al abrir, line-19 cae fuera del viewport de 18\n${initial}`);
 
       // Spam de ↓ (más allá del fondo): el clamp WR-01 detiene scrollOffset en lines.length - VIEWPORT.
-      for (let i = 0; i < 10; i++) {
-        stdin.write('\x1b[B');
-        await drain();
-      }
-      const scrolled = lastFrame();
-      assert.match(scrolled, /line-19/, `tras bajar al fondo, la última línea (line-19) es visible\n${scrolled}`);
+      // `press` ya espera a que el render quiescida antes de cada tecla, así que la ráfaga no
+      // necesita drenajes intercalados.
+      for (let i = 0; i < 10; i++) await press('\x1b[B');
+      const scrolled = await waitForFrame(
+        lastFrame,
+        /line-19/,
+        'tras bajar al fondo, la última línea (line-19) es visible',
+      );
       // CLAVE WR-01: con el viewport lleno, line-02 sigue visible (offset clampado a 2). Con el bug
       // viejo (offset hasta 19) solo se vería line-19 y este assert fallaría.
       assert.match(scrolled, /line-02/, `WR-01: el clamp deja el viewport LLENO — line-02 sigue visible\n${scrolled}`);
@@ -491,23 +476,24 @@ describe('D-06/WR-01: scroll del overlay (↑/↓) y clamp del viewport', () => 
   it('↑ revierte el scroll y el clamp inferior se detiene en offset 0', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ comments: () => okResponse({ comments: manyComments() }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      for (let i = 0; i < 5; i++) {
-        stdin.write('\x1b[B');
-        await drain();
-      }
-      assert.doesNotMatch(lastFrame(), /line-00/, `precondición: tras ↓ line-00 no es visible\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('c');
+      await waitForFrame(lastFrame, /line-00/, 'el overlay debe abrirse en el tope (line-00 visible)');
+      for (let i = 0; i < 5; i++) await press('\x1b[B');
+      await waitForFrame(
+        lastFrame,
+        (f) => !f.includes('line-00'),
+        'precondición: tras ↓ line-00 no es visible',
+      );
       // Spam de ↑ más allá del tope: vuelve a offset 0 sin pasarse (clamp en 0).
-      for (let i = 0; i < 10; i++) {
-        stdin.write('\x1b[A');
-        await drain();
-      }
-      const frame = lastFrame();
-      assert.match(frame, /line-00/, `tras ↑ el viewport vuelve al inicio (line-00 visible)\n${frame}`);
+      for (let i = 0; i < 10; i++) await press('\x1b[A');
+      const frame = await waitForFrame(
+        lastFrame,
+        /line-00/,
+        'tras ↑ el viewport vuelve al inicio (line-00 visible)',
+      );
       assert.doesNotMatch(frame, /line-19/, `de vuelta arriba, line-19 sale del viewport\n${frame}`);
     } finally {
       unmount();
@@ -535,21 +521,25 @@ describe('CR-01: handlers async de overlay no reabren contenido obsoleto', () =>
       if (u.endsWith('/logs')) return okResponse({ logs: [] });
       return okResponse(STATUS_FIXTURE);
     };
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
       // Dos `c` mientras mode sigue 'list' (ninguna request resolvió aún): handler1 reqId=1, handler2 reqId=2.
-      stdin.write('c');
-      await drain();
-      stdin.write('c');
-      await drain();
+      // Se espera a que CADA pedido esté emitido (su resolver registrado) en vez de drenar turnos:
+      // la carrera que se quiere reproducir exige que los dos hayan salido antes de resolverlos.
+      await press('c');
+      await waitUntil(() => typeof resolvers[0] === 'function', 'el primer pedido de comentarios debe haberse emitido');
+      await press('c');
+      await waitUntil(() => typeof resolvers[1] === 'function', 'el segundo pedido de comentarios debe haberse emitido');
+
       // Resolvemos PRIMERO el segundo pedido (gana, reqId vigente), luego el primero (obsoleto → descartado).
       resolvers[1]();
-      await drain();
+      await waitForFrame(lastFrame, /SECOND payload/, 'el overlay debe mostrar el último pedido');
       resolvers[0]();
+      // Ausencia de cambio: el obsoleto NO debe repintar nada → drenaje fijo y comprobación.
       await drain();
       const frame = lastFrame();
-      assert.match(frame, /SECOND payload/, `el overlay debe mostrar el último pedido\n${frame}`);
+      assert.match(frame, /SECOND payload/, `el último pedido debe seguir en pantalla\n${frame}`);
       assert.doesNotMatch(frame, /FIRST payload/, `CR-01: el handler obsoleto no debe sobrescribir el overlay\n${frame}`);
     } finally {
       unmount();
@@ -612,13 +602,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       writeFileSync(join(phaseDir, '44-01-PLAN.md'), 'OBJECTIVE: build the plan overlay\n');
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /plan · KL-1/, `p debe abrir el overlay de plan de KL-1\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, /plan · KL-1/, `p debe abrir el overlay de plan de KL-1`);
         assert.match(frame, /build the plan overlay/, `el overlay debe mostrar el contenido del PLAN.md\n${frame}`);
       } finally {
         unmount();
@@ -634,12 +622,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
     // (readLightPlan exige task_id utilizable) → se preserva el no-phase terminal puro (D-06).
     // Sin omitTaskId, una fila con task_id+sin phase_id leería ~/.kodo/plans/<id>.md → no-light-plan.
     const fetchFn = makeRouter({ status: planStatus({ omitTaskId: true }) });
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('p');
-      await drain();
-      assert.match(lastFrame(), new RegExp(OVERLAY_PLAN_NO_PHASE), `no-phase → ${OVERLAY_PLAN_NO_PHASE}\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('p');
+      await waitForFrame(lastFrame, new RegExp(OVERLAY_PLAN_NO_PHASE), `no-phase → ${OVERLAY_PLAN_NO_PHASE}`);
     } finally {
       unmount();
     }
@@ -659,13 +646,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       process.env.HOME = fakeHome;
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({}) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan ligero de KL-1\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, /plan · KL-1/, `p abre el overlay de plan ligero de KL-1`);
         assert.match(frame, /first do this/, `el overlay muestra el contenido del artefacto\n${frame}`);
       } finally {
         unmount();
@@ -684,13 +669,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       process.env.HOME = fakeHome;
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({}) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, new RegExp(OVERLAY_PLAN_NO_LIGHT), `artefacto ausente → ${OVERLAY_PLAN_NO_LIGHT}\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, new RegExp(OVERLAY_PLAN_NO_LIGHT), `artefacto ausente → ${OVERLAY_PLAN_NO_LIGHT}`);
         assert.doesNotMatch(frame, new RegExp(OVERLAY_PLAN_NO_PHASE), `no-light-plan debe ser DISTINTO de no-phase\n${frame}`);
       } finally {
         unmount();
@@ -710,13 +693,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       writeFileSync(join(phaseDir, '44-CONTEXT.md'), 'just context\n');
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, new RegExp(OVERLAY_PLAN_NO_PLAN), `no-plan → ${OVERLAY_PLAN_NO_PLAN}\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, new RegExp(OVERLAY_PLAN_NO_PLAN), `no-plan → ${OVERLAY_PLAN_NO_PLAN}`);
         assert.doesNotMatch(frame, new RegExp(OVERLAY_PLAN_NO_PHASE), `no-plan debe ser DISTINTO de no-phase\n${frame}`);
       } finally {
         unmount();
@@ -739,13 +720,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       writeFileSync(join(phaseDir, '44-01-PLAN.md'), '## Sec <!-- kodo:handoff v=1 session=x -->\n');
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan GSD\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, /plan · KL-1/, `p abre el overlay de plan GSD`);
         assert.match(
           frame,
           /<!-- kodo:handoff/,
@@ -775,13 +754,11 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       process.env.HOME = fakeHome;
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({}) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /plan · KL-1/, `p abre el overlay de plan ligero\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        const frame = await waitForFrame(lastFrame, /plan · KL-1/, `p abre el overlay de plan ligero`);
         assert.match(frame, /Handoff hoy/, `el texto legible del heading se muestra\n${frame}`);
         assert.match(frame, /cuerpo del plan/, `el cuerpo del plan se muestra\n${frame}`);
         assert.doesNotMatch(
@@ -808,16 +785,13 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       process.env.HOME = fakeHome;
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({}) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        assert.match(lastFrame(), /Plan ligero/, `el overlay light se abrió\n${lastFrame()}`);
-        stdin.write('\x1b');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /›.*KL-1/, `Esc restaura la tabla con el cursor en KL-1 (por task_id)\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        await waitForFrame(lastFrame, /Plan ligero/, `el overlay light se abrió`);
+        await press('\x1b');
+        const frame = await waitForFrame(lastFrame, /›.*KL-1/, `Esc restaura la tabla con el cursor en KL-1 (por task_id)`);
         assert.match(frame, /KL-2/, `Esc restaura la tabla completa (KL-2 visible)\n${frame}`);
       } finally {
         unmount();
@@ -836,15 +810,12 @@ describe('PLAN-01/PLAN-02: overlay de plan (p) — abre, copy honesto por caso, 
       writeFileSync(join(phaseDir, '44-01-PLAN.md'), 'plan body\n');
       const clock = makeFakeClock();
       const fetchFn = makeRouter({ status: planStatus({ phase_id: '44', project_path: tmp }) });
-      const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+      const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
       try {
-        await drain();
-        stdin.write('p');
-        await drain();
-        stdin.write('\x1b');
-        await drain();
-        const frame = lastFrame();
-        assert.match(frame, /›.*KL-1/, `Esc debe restaurar la tabla con el cursor en KL-1\n${frame}`);
+        await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+        await press('p');
+        await press('\x1b');
+        const frame = await waitForFrame(lastFrame, /›.*KL-1/, `Esc debe restaurar la tabla con el cursor en KL-1`);
         assert.match(frame, /KL-2/, `Esc debe restaurar la tabla completa (KL-2 visible)\n${frame}`);
       } finally {
         unmount();

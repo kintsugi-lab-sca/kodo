@@ -19,7 +19,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { render } from 'ink-testing-library';
+import { render, renderInk, waitForFrame } from './helpers/ink-frame.js';
 import { createElement } from 'react';
 import App, {
   API_KEY_LABEL,
@@ -228,10 +228,6 @@ function injectProps(clock, fetchFn, extra = {}) {
   };
 }
 
-async function drain() {
-  for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
-}
-
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }
@@ -256,13 +252,10 @@ function makeRouter() {
 }
 
 // Abre config y navega hasta el renglón de API key (API_KEY_ROW_INDEX ↓ desde el índice 0).
-async function openApiKeyRow(stdin) {
-  stdin.write('e');
-  await drain();
-  for (let i = 0; i < API_KEY_ROW_INDEX; i++) {
-    stdin.write('\x1b[B'); // ↓
-    await drain();
-  }
+async function openApiKeyRow(press, lastFrame) {
+  await press('e');
+  await waitForFrame(lastFrame, new RegExp(API_KEY_LABEL), 'el overlay de config debe abrirse');
+  for (let i = 0; i < API_KEY_ROW_INDEX; i++) await press('\x1b[B'); // ↓
 }
 
 describe('67-02 integración: onSaveApiKey recibe (api_key_env, valorReal)', () => {
@@ -270,23 +263,31 @@ describe('67-02 integración: onSaveApiKey recibe (api_key_env, valorReal)', () 
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeApiKeySpy({ ok: true });
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { onSaveApiKey: fn })),
     );
     try {
-      await openApiKeyRow(stdin);
-      stdin.write('\r'); // Enter → config-edit ENMASCARADO, buffer vacío
-      await drain();
-      for (const ch of 'sk-secret') { stdin.write(ch); await drain(); }
-      // La máscara está activa: el valor raw no se pinta.
-      assert.doesNotMatch(lastFrame(), /sk-secret/, `el valor raw no debe pintarse\n${lastFrame()}`);
-      assert.match(lastFrame(), /•/, `la máscara debe pintar bullets\n${lastFrame()}`);
-      stdin.write('\r'); // guarda
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openApiKeyRow(press, lastFrame);
+      await press('\r'); // Enter → config-edit ENMASCARADO, buffer vacío
+      for (const ch of 'sk-secret') await press(ch);
+      // La máscara está activa: el valor raw no se pinta. Se espera a que los 9 bullets estén
+      // pintados; solo entonces la ausencia del valor raw es una afirmación con contenido.
+      const masked = await waitForFrame(
+        lastFrame,
+        (f) => (f.match(/•/g) || []).length === 'sk-secret'.length,
+        'la máscara debe pintar un bullet por carácter tecleado',
+      );
+      assert.doesNotMatch(masked, /sk-secret/, `el valor raw no debe pintarse\n${masked}`);
+      await press('\r'); // guarda
+      await waitForFrame(
+        lastFrame,
+        (f) => f.includes(API_KEY_SAVED_RESTART),
+        'tras guardar debe verse el aviso de reinicio',
+      );
       assert.equal(spy.calls, 1, 'onSaveApiKey debe llamarse exactamente una vez');
       assert.equal(spy.lastKey, 'PLANE_API_KEY', 'la key es el api_key_env del provider activo');
       assert.equal(spy.lastValue, 'sk-secret', 'el valor pasado al callback es el REAL (no la máscara)');
-      assert.ok(lastFrame().includes(API_KEY_SAVED_RESTART), `tras guardar debe verse el aviso de reinicio\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -298,23 +299,29 @@ describe('67-02 integración: buffer se limpia tras cancelar (Pitfall 6)', () =>
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeApiKeySpy({ ok: true });
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { onSaveApiKey: fn })),
     );
     try {
-      await openApiKeyRow(stdin);
-      stdin.write('\r'); // config-edit
-      await drain();
-      for (const ch of 'abcd') { stdin.write(ch); await drain(); }
-      assert.equal((lastFrame().match(/•/g) || []).length, 4, `4 chars → 4 bullets\n${lastFrame()}`);
-      stdin.write('\x1b'); // Esc → cancela, limpia el buffer
-      await drain();
-      stdin.write('\r'); // re-entra al renglón (sigue seleccionado)
-      await drain();
-      stdin.write('z'); // un solo char
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openApiKeyRow(press, lastFrame);
+      await press('\r'); // config-edit
+      for (const ch of 'abcd') await press(ch);
+      await waitForFrame(
+        lastFrame,
+        (f) => (f.match(/•/g) || []).length === 4,
+        '4 chars → 4 bullets',
+      );
+      await press('\x1b'); // Esc → cancela, limpia el buffer
+      await waitForFrame(lastFrame, (f) => !f.includes('•'), 'Esc debe limpiar el buffer enmascarado');
+      await press('\r'); // re-entra al renglón (sigue seleccionado)
+      await press('z'); // un solo char
+      await waitForFrame(
+        lastFrame,
+        (f) => (f.match(/•/g) || []).length === 1,
+        're-entrar con buffer limpio → 1 bullet, no 5',
+      );
       assert.equal(spy.calls, 0, 'cancelar no debe llamar a onSaveApiKey');
-      assert.equal((lastFrame().match(/•/g) || []).length, 1, `re-entrar con buffer limpio → 1 bullet, no 5\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -325,14 +332,17 @@ describe('67-02 integración: indicador [configurado] refleja isApiKeyConfigured
   it('isApiKeyConfiguredFn=()=>true → el overlay muestra [configurado] (nunca el valor)', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { isApiKeyConfiguredFn: () => true })),
     );
     try {
-      stdin.write('e');
-      await drain();
-      const frame = lastFrame();
-      assert.ok(frame.includes(API_KEY_CONFIGURED), `presencia → [configurado]\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('e');
+      const frame = await waitForFrame(
+        lastFrame,
+        (f) => f.includes(API_KEY_CONFIGURED),
+        'presencia → [configurado]',
+      );
       assert.doesNotMatch(frame, /PLANE_API_KEY/, `nunca el nombre de la env var\n${frame}`);
     } finally {
       unmount();

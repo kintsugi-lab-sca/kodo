@@ -39,7 +39,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { EventEmitter } from 'node:events';
-import { render } from 'ink-testing-library';
+import { render, renderInk, waitForFrame } from './helpers/ink-frame.js';
 import { render as inkRender } from 'ink';
 import { createElement } from 'react';
 
@@ -348,12 +348,6 @@ function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }
 
-/** Drena la cola de microtasks (kick-off + setState/re-render que ink agenda). */
-async function drain() {
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-}
-
 /**
  * Props de inyección de `App`. `inboxCountFn` va SIEMPRE, con el conteo fijado por el test.
  *
@@ -374,17 +368,18 @@ function injectProps(clock, inboxOpen) {
 }
 
 /**
- * Renderiza `App` con el conteo inyectado y devuelve el último frame ya drenado.
+ * Renderiza `App` con el conteo inyectado y devuelve el frame ya repintado con los datos del
+ * primer poll (el indicador `● live` es la señal de que ese poll llegó — esperarlo evita leer el
+ * frame de arranque, KODO-25).
  *
  * @param {number} inboxOpen
  * @returns {Promise<string>}
  */
 async function frameWithCount(inboxOpen) {
   const clock = makeFakeClock();
-  const { lastFrame, unmount } = render(createElement(App, injectProps(clock, inboxOpen)));
+  const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, inboxOpen)));
   try {
-    await drain();
-    return lastFrame() ?? '';
+    return await waitForFrame(lastFrame, /● live/, 'el primer poll ok debe haber pintado la tabla');
   } finally {
     unmount();
   }

@@ -15,16 +15,16 @@
 //   - selección inicial (D-07): la primera fila (la más reciente) muestra el gutter `› `.
 //
 // Harness hermético reusado VERBATIM de test/dashboard-status-line.test.js: `makeFakeClock` /
-// `injectProps` / `drain` / `okResponse`. Sin red ni timers reales (Pitfall 11). ink@4 NO expone
-// `waitUntilExit()`, así que las aserciones usan `lastFrame()` tras drenar microtasks / disparar
-// el fake schedule.
+// `injectProps` / `okResponse`. Sin red ni timers reales (Pitfall 11). ink@4 NO expone
+// `waitUntilExit()`, así que la sincronización con el repintado va por `waitForFrame` (espera
+// sobre el estado observado del frame; ver test/helpers/ink-frame.js) — NO por un número fijo de
+// turnos del event loop, que es lo que hacía flakear estos tests bajo carga (KODO-25).
 //
 // Estado Wave 0: ROJO hasta que Task 2 modifique `App.js` para renderizar la tabla — hoy `App`
 // renderiza la status line de Phase 35 (sin columnas, sin gutter, sin contadores por estado).
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { render } from 'ink-testing-library';
 import { createElement } from 'react';
 import App, {
   OVERLAY_COMMENTS_EMPTY,
@@ -35,6 +35,8 @@ import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/form
 import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
 // Phase 75 Plan 01 (LIVE-05): render directo de SessionTable para la columna condicional `next`.
 import SessionTable from '../src/cli/dashboard/SessionTable.js';
+// KODO-25: sincronización con el repintado de ink por ESTADO observado, no por turnos fijos.
+import { render, renderInk, waitForFrame, waitUntil, drain } from './helpers/ink-frame.js';
 
 /**
  * Fake clock con un `schedule` determinista para el RE-ARME del tick del loop de polling que
@@ -101,21 +103,6 @@ function injectProps(clock, fetchFn) {
   };
 }
 
-/**
- * Drena por completo la cola de microtasks pendientes (cadenas del kick-off `Promise.resolve()
- * .then(tick)` + `await fn()` + los setState/re-render que ink agenda). Más robusto que
- * `await Promise.resolve()` contra cadenas de profundidad variable.
- *
- * Se drena DOS veces: el primer drain absorbe el `onResult` del kick-off (sets connected +
- * sessions); el segundo absorbe el re-render del write-back de la selección inicial (`useEffect`
- * que fija selectedTaskId — D-07). Sin el segundo drain el frame podría capturarse entre los dos
- * renders (flakiness de profundidad de microtasks en el proceso compartido del test runner).
- */
-async function drain() {
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-}
-
 /** Response-like mínimo con `ok`/`status`/`json()` (forma del fetch que consume client.js). */
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
@@ -163,11 +150,9 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(frame, /KL-1/, `debe mostrar task_ref KL-1\n${frame}`);
+    const frame = await waitForFrame(lastFrame, /KL-1/, 'debe mostrar task_ref KL-1');
     assert.match(frame, /kodo/, `debe mostrar el repo derivado 'kodo' (project_name)\n${frame}`);
     assert.match(frame, /36\/full/, `debe mostrar phase/mode 36/full\n${frame}`);
     assert.match(frame, /5m/, `debe mostrar age 5m\n${frame}`);
@@ -185,10 +170,11 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    // La aserción es NEGATIVA: primero hay que esperar a que la tabla esté pintada, o el frame
+    // sin datos la pasaría trivialmente.
+    const frame = await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de afirmar la ausencia');
     assert.doesNotMatch(frame, /running \(zombie\)/, `la columna status ya no muestra lifecycle\n${frame}`);
   });
 
@@ -196,12 +182,10 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
     // El fixture tiene 1 running+alive y 1 zombie → "1 running · 1 zombie" (zombie aparte).
-    assert.match(frame, /1 running/, `el header debe contar 1 running (zombie aparte)\n${frame}`);
+    const frame = await waitForFrame(lastFrame, /1 running/, 'el header debe contar 1 running (zombie aparte)');
     assert.match(frame, /1 zombie/, `el header debe contar 1 zombie por separado\n${frame}`);
     // Indicador live reusado de Phase 35 tras un poll ok.
     assert.match(frame, /● live/, `tras poll ok debe mostrar el indicador ● live (reusado Phase 35)\n${frame}`);
@@ -211,13 +195,15 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    const frame = await waitForFrame(
+      lastFrame,
+      (f) => f.includes('KL-1') && f.includes('KL-2'),
+      'ambas filas deben estar presentes',
+    );
     const idx1 = frame.indexOf('KL-1');
     const idx2 = frame.indexOf('KL-2');
-    assert.ok(idx1 !== -1 && idx2 !== -1, `ambas filas deben estar presentes\n${frame}`);
     assert.ok(
       idx1 < idx2,
       `KL-1 (más reciente) debe renderizar ANTES que KL-2 (DESC por started_at)\n${frame}`,
@@ -248,30 +234,26 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     };
     const fetchFn = async () => okResponse(evil);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    // El texto visible saneado del task_ref es la señal de que la fila ya se pintó.
+    const frame = await waitForFrame(lastFrame, /KL-90m/, 'el texto visible saneado del task_ref debe renderizarse');
     // \x07 (BEL) y \x9b (C1 CSI) no los emite ink por sí mismo — su presencia solo podría venir
     // del task_ref sin sanear. Su ausencia demuestra el strip en la proyección.
     assert.equal(frame.includes('\x07'), false, 'no debe quedar BEL del task_ref en el render');
     assert.equal(frame.includes('\x9b'), false, 'no debe quedar el C1 CSI (\\x9b) del task_ref en el render');
-    // El texto visible del task_ref sobrevive (solo se quitaron los bytes de control).
-    assert.match(frame, /KL-90m/, `el texto visible saneado del task_ref debe renderizarse\n${frame}`);
   });
 
   it('selección inicial (D-07): la primera fila (KL-1, la más reciente) muestra el gutter "› "', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(
-      frame,
+    await waitForFrame(
+      lastFrame,
       /›.*KL-1/,
-      `la fila inicialmente seleccionada (KL-1 newest) debe llevar el gutter "› "\n${frame}`,
+      'la fila inicialmente seleccionada (KL-1 newest) debe llevar el gutter "› "',
     );
   });
 
@@ -279,11 +261,13 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse({ count: 0, sessions: [] });
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(frame, /no active sessions/, `poll ok + 0 sesiones debe mostrar "no active sessions"\n${frame}`);
+    const frame = await waitForFrame(
+      lastFrame,
+      /no active sessions/,
+      'poll ok + 0 sesiones debe mostrar "no active sessions"',
+    );
     assert.doesNotMatch(
       frame,
       /no sessions match/,
@@ -293,11 +277,18 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
 
   it('precedencia degradada (D-12): un fetch que falla desde el primer tick mantiene "waiting for server" sin "no active sessions"', async () => {
     const clock = makeFakeClock();
+    let attempts = 0;
     const fetchFn = async () => {
+      attempts++;
       throw new Error('ECONNREFUSED');
     };
 
-    const { lastFrame } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+
+    // El estado esperado COINCIDE con el inicial (waiting for server), así que no hay repintado que
+    // esperar: lo observable es que el tick ya ocurrió y falló. Sin esta espera el test pasaría
+    // trivialmente con el frame de arranque, antes del primer intento.
+    await waitUntil(() => attempts > 0, 'el primer tick del poll debe haberse intentado');
     await drain();
 
     const frame = lastFrame();
@@ -363,10 +354,9 @@ describe('PSTATE-05: columna task — header entre status y age, 3 reason-states
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE_PSTATE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    const frame = await waitForFrame(lastFrame, /PS-1/, 'la tabla del fixture PSTATE debe estar pintada');
     const idxStatus = frame.indexOf('status');
     const idxTask = frame.indexOf('task'); // header literal 'task' (no 'task_ref', que es más largo)
     const idxAge = frame.indexOf('age');
@@ -385,11 +375,9 @@ describe('PSTATE-05: columna task — header entre status y age, 3 reason-states
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE_PSTATE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(frame, /in_review/, `la fila ok debe mostrar 'in_review' verbatim en la columna task\n${frame}`);
+    await waitForFrame(lastFrame, /in_review/, "la fila ok debe mostrar 'in_review' verbatim en la columna task");
     unmount();
   });
 
@@ -397,11 +385,13 @@ describe('PSTATE-05: columna task — header entre status y age, 3 reason-states
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE_PSTATE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(frame, /—/, `la fila unsupported debe mostrar el glyph '—'\n${frame}`);
+    const frame = await waitForFrame(
+      lastFrame,
+      (f) => f.includes('—'),
+      "la fila unsupported debe mostrar el glyph '—'",
+    );
     assert.match(frame, /\?/, `la fila fetch-failed debe mostrar el glyph '?'\n${frame}`);
     unmount();
   });
@@ -449,10 +439,10 @@ describe('TUI-18 (D-08): columna phase/mode condicional al flag estructural anyG
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE_NO_GSD);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    // Aserción principal NEGATIVA (la columna no está): espera primero a que la tabla se pinte.
+    const frame = await waitForFrame(lastFrame, /NG-1/, 'la tabla del fixture sin GSD debe estar pintada');
     assert.doesNotMatch(
       frame,
       /phase\/mode/,
@@ -470,14 +460,12 @@ describe('TUI-18 (D-08): columna phase/mode condicional al flag estructural anyG
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    assert.match(
-      frame,
+    const frame = await waitForFrame(
+      lastFrame,
       /phase\/mode/,
-      `con una sesión GSD (KL-1 phase_id 36) la columna phase/mode debe reaparecer\n${frame}`,
+      'con una sesión GSD (KL-1 phase_id 36) la columna phase/mode debe reaparecer',
     );
     assert.match(frame, /36\/full/, `y su valor 36/full debe renderizarse\n${frame}`);
     unmount();
@@ -489,15 +477,17 @@ describe('TUI-19 (D-09): marca per-fila (zombie) en la celda state, roja desde s
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
+    const frame = await waitForFrame(
+      lastFrame,
+      /▶ running/,
+      "la celda state debe mostrar el badge base '▶ running'",
+    );
     // KL-2 es running+!alive → la celda state lleva el badge base `▶ running` MÁS la marca aditiva
     // `(zombie)`. A width 18 el texto llena la celda exacta y ink ajusta `(zombie)` en la línea
     // siguiente de la MISMA celda (no se trunca: la marca SOBREVIVE entera, que es el contrato D-09 /
     // UI-SPEC "survives un-truncated"). Ambos tokens deben estar presentes en el frame.
-    assert.match(frame, /▶ running/, `la celda state debe mostrar el badge base '▶ running'\n${frame}`);
     assert.match(frame, /\(zombie\)/, `la celda state debe mostrar la marca per-fila '(zombie)' (no truncada)\n${frame}`);
     unmount();
   });
@@ -506,12 +496,14 @@ describe('TUI-19 (D-09): marca per-fila (zombie) en la celda state, roja desde s
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
     // D-09: la marca per-fila NO reemplaza el contador del header — ambos coexisten.
-    assert.match(frame, /1 zombie/, `el contador del header debe seguir mostrando '1 zombie' (aditivo, no reemplazado)\n${frame}`);
+    const frame = await waitForFrame(
+      lastFrame,
+      /1 zombie/,
+      "el contador del header debe seguir mostrando '1 zombie' (aditivo, no reemplazado)",
+    );
     assert.match(frame, /\(zombie\)/, `y la marca per-fila también está presente\n${frame}`);
     unmount();
   });
@@ -522,13 +514,13 @@ describe('TUI-19 (D-09): marca per-fila (zombie) en la celda state, roja desde s
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    const frame = lastFrame();
-    const idxZombie = frame.indexOf('(zombie)');
-    const idxKL2 = frame.indexOf('KL-2');
-    assert.ok(idxZombie !== -1 && idxKL2 !== -1, `la marca (zombie) y KL-2 deben estar presentes\n${frame}`);
+    await waitForFrame(
+      lastFrame,
+      (f) => f.includes('(zombie)') && f.includes('KL-2'),
+      'la marca (zombie) y KL-2 deben estar presentes',
+    );
     unmount();
   });
 });
@@ -536,12 +528,13 @@ describe('TUI-19 (D-09): marca per-fila (zombie) en la celda state, roja desde s
 // ---------------------------------------------------------------------------
 // Plan 03 Wave 0 — interacción de teclado (TUI-08 navegación + TUI-12 filtro modal).
 //
-// Se conduce el teclado con `stdin.write(...)` del handle de render (el fake Stdin de
+// Se conduce el teclado con el `press(...)` del handle de `renderInk` (el fake Stdin de
 // ink-testing-library tiene `isTTY=true`, así que `isRawModeSupported` es true y el useInput
 // gateado está ACTIVO). Códigos verificados contra ink@6.8.0 (parse-keypress.js / input-parser.js):
 //   ↑ = '\x1b[A'   ↓ = '\x1b[B'   Esc = '\x1b'   Enter = '\r'   Backspace = '\x7f'
-// El Esc solitario se emite vía un flush diferido con `setImmediate` (App.js schedulePendingInputFlush),
-// que el doble-`setImmediate` de `drain()` ya absorbe — por eso basta `await drain()` tras cada write.
+// El Esc solitario se emite vía un flush diferido con `setImmediate` (App.js schedulePendingInputFlush);
+// `waitForFrame` sondea hasta ver el efecto en el frame, así que ese diferido queda absorbido sin
+// depender de cuántos turnos tarde (KODO-25).
 // Char imprimible multi-byte ('s:running') llega como UN solo evento `input` → el handler lo
 // concatena de golpe a la query (live append, D-13).
 //
@@ -552,32 +545,36 @@ describe('TUI-08: navegación ↑/↓ — mueve el cursor por identidad, clamp s
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
     // Estado inicial (D-07): gutter en KL-1 (la más reciente, arriba).
-    assert.match(lastFrame(), /›.*KL-1/, `inicial: el gutter debe estar en KL-1\n${lastFrame()}`);
+    await waitForFrame(lastFrame, /›.*KL-1/, 'inicial: el gutter debe estar en KL-1');
 
-    // ↓ → el gutter baja a KL-2.
-    stdin.write('\x1b[B');
-    await drain();
-    assert.match(lastFrame(), /›.*KL-2/, `tras ↓ el gutter debe estar en KL-2\n${lastFrame()}`);
-    assert.doesNotMatch(lastFrame(), /›.*KL-1/, `tras ↓ el gutter ya NO debe estar en KL-1\n${lastFrame()}`);
+    // ↓ → el gutter baja a KL-2. Espera de ESTADO: el repintado de ink tras el input no tiene una
+    // profundidad de turnos garantizada (KODO-25) — se sondea hasta verlo o hasta vencer el techo.
+    await press('\x1b[B');
+    const afterDown = await waitForFrame(lastFrame, /›.*KL-2/, 'tras ↓ el gutter debe estar en KL-2');
+    // Sobre ESE mismo frame: el gutter es único, así que moverse a KL-2 implica dejar KL-1.
+    assert.doesNotMatch(afterDown, /›.*KL-1/, `tras ↓ el gutter ya NO debe estar en KL-1\n${afterDown}`);
 
-    // ↓ de nuevo → clamp en el extremo inferior (NO wrap a KL-1).
-    stdin.write('\x1b[B');
+    // ↓ de nuevo → clamp en el extremo inferior (NO wrap a KL-1). Aquí se afirma AUSENCIA de cambio:
+    // no hay estado nuevo que esperar, así que se drenan turnos y se comprueba que nada se movió.
+    // Drenar de menos solo restaría sensibilidad; nunca produce un falso rojo.
+    await press('\x1b[B');
     await drain();
     assert.match(lastFrame(), /›.*KL-2/, `otro ↓ debe CLAMPAR en KL-2 (sin wrap-around)\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /›.*KL-1/, `el clamp NO debe hacer wrap a KL-1\n${lastFrame()}`);
 
     // ↑ → vuelve a KL-1.
-    stdin.write('\x1b[A');
-    await drain();
-    assert.match(lastFrame(), /›.*KL-1/, `tras ↑ el gutter debe volver a KL-1\n${lastFrame()}`);
+    await press('\x1b[A');
+    const afterUp = await waitForFrame(lastFrame, /›.*KL-1/, 'tras ↑ el gutter debe volver a KL-1');
+    assert.doesNotMatch(afterUp, /›.*KL-2/, `tras ↑ el gutter ya NO debe estar en KL-2\n${afterUp}`);
 
-    // ↑ de nuevo → clamp en el extremo superior (NO wrap a KL-2).
-    stdin.write('\x1b[A');
+    // ↑ de nuevo → clamp en el extremo superior (NO wrap a KL-2). Otra vez ausencia de cambio.
+    await press('\x1b[A');
     await drain();
     assert.match(lastFrame(), /›.*KL-1/, `otro ↑ debe CLAMPAR en KL-1 (sin wrap-around)\n${lastFrame()}`);
+    assert.doesNotMatch(lastFrame(), /›.*KL-2/, `el clamp NO debe hacer wrap a KL-2\n${lastFrame()}`);
   });
 });
 
@@ -586,78 +583,86 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
-    stdin.write('/');
-    await drain();
+    await press('/');
     // El prompt modal lleva el cursor `▏` (UI-SPEC:191) — marcador inequívoco de la línea de filtro
     // (lo distingue del `/ filter` del footer de hints).
-    assert.match(lastFrame(), /▏/, `tras '/' debe abrirse la línea de filtro (prompt con cursor ▏)\n${lastFrame()}`);
+    await waitForFrame(lastFrame, /▏/, "tras '/' debe abrirse la línea de filtro (prompt con cursor ▏)");
   });
 
   it('filtra EN VIVO (D-13/D-14): s:running deja ambas; añadir r:kodo deja solo KL-1', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
-    stdin.write('/');
-    await drain();
+    await press('/');
+    await waitForFrame(lastFrame, /▏/, "'/' debe abrir la línea de filtro");
 
     // s:running → ambas sesiones son running (KL-1 alive, KL-2 zombie) → las dos siguen visibles.
-    stdin.write('s:running');
-    await drain();
-    assert.match(lastFrame(), /KL-1/, `con s:running KL-1 (running+alive) debe seguir visible\n${lastFrame()}`);
-    assert.match(lastFrame(), /KL-2/, `con s:running KL-2 (running zombie) debe seguir visible\n${lastFrame()}`);
+    // La query tecleada se pinta en la línea de filtro: ese es el estado que confirma el repintado.
+    await press('s:running');
+    const filtered = await waitForFrame(lastFrame, /s:running/, 'la query s:running debe pintarse en la línea de filtro');
+    assert.match(filtered, /KL-1/, `con s:running KL-1 (running+alive) debe seguir visible\n${filtered}`);
+    assert.match(filtered, /KL-2/, `con s:running KL-2 (running zombie) debe seguir visible\n${filtered}`);
 
     // Añadir ' r:kodo' → AND con repo 'kodo' → solo KL-1 (repo kodo); KL-2 (repo 'foo') se oculta.
-    stdin.write(' r:kodo');
-    await drain();
-    assert.match(lastFrame(), /KL-1/, `con r:kodo solo KL-1 (repo kodo) debe quedar\n${lastFrame()}`);
-    assert.doesNotMatch(lastFrame(), /KL-2/, `r:kodo debe OCULTAR KL-2 (repo foo) — filtro en vivo AND\n${lastFrame()}`);
+    await press(' r:kodo');
+    const andFiltered = await waitForFrame(
+      lastFrame,
+      (f) => !f.includes('KL-2'),
+      'r:kodo debe OCULTAR KL-2 (repo foo) — filtro en vivo AND',
+    );
+    assert.match(andFiltered, /KL-1/, `con r:kodo solo KL-1 (repo kodo) debe quedar\n${andFiltered}`);
   });
 
   it('Esc CANCELA el filtro (D-15): limpia query, vuelve a la lista completa, cursor preservado (D-16)', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
-    stdin.write('/');
-    await drain();
-    stdin.write('r:kodo'); // oculta KL-2
-    await drain();
-    assert.doesNotMatch(lastFrame(), /KL-2/, `precondición: r:kodo oculta KL-2\n${lastFrame()}`);
+    await press('/');
+    await waitForFrame(lastFrame, /▏/, "'/' debe abrir la línea de filtro");
+    await press('r:kodo'); // oculta KL-2
+    await waitForFrame(lastFrame, (f) => !f.includes('KL-2'), 'precondición: r:kodo oculta KL-2');
 
     // Esc → cancela: la línea de filtro desaparece, la lista completa vuelve, el cursor sigue en KL-1.
-    stdin.write('\x1b');
-    await drain();
-    assert.doesNotMatch(lastFrame(), /▏/, `tras Esc la línea de filtro (cursor ▏) debe desaparecer\n${lastFrame()}`);
-    assert.match(lastFrame(), /KL-2/, `tras Esc (cancela) la lista completa vuelve — KL-2 visible de nuevo\n${lastFrame()}`);
-    assert.match(lastFrame(), /›.*KL-1/, `tras cancelar, el cursor preservado sigue en KL-1 (D-16)\n${lastFrame()}`);
+    await press('\x1b');
+    const cancelled = await waitForFrame(
+      lastFrame,
+      (f) => !f.includes('▏'),
+      'tras Esc la línea de filtro (cursor ▏) debe desaparecer',
+    );
+    assert.match(cancelled, /KL-2/, `tras Esc (cancela) la lista completa vuelve — KL-2 visible de nuevo\n${cancelled}`);
+    assert.match(cancelled, /›.*KL-1/, `tras cancelar, el cursor preservado sigue en KL-1 (D-16)\n${cancelled}`);
   });
 
   it('Enter CONFIRMA (D-15): cierra la línea de filtro pero MANTIENE el filtro aplicado', async () => {
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
-    stdin.write('/');
-    await drain();
-    stdin.write('r:kodo'); // oculta KL-2
-    await drain();
+    await press('/');
+    await waitForFrame(lastFrame, /▏/, "'/' debe abrir la línea de filtro");
+    await press('r:kodo'); // oculta KL-2
+    await waitForFrame(lastFrame, (f) => !f.includes('KL-2'), 'precondición: r:kodo oculta KL-2');
 
     // Enter → confirma: la línea de filtro se cierra pero el resultado filtrado se mantiene (KL-2 oculta).
-    stdin.write('\r');
-    await drain();
-    assert.doesNotMatch(lastFrame(), /▏/, `tras Enter la línea de filtro (cursor ▏) debe cerrarse\n${lastFrame()}`);
-    assert.match(lastFrame(), /KL-1/, `tras Enter KL-1 (matchea r:kodo) sigue visible\n${lastFrame()}`);
-    assert.doesNotMatch(lastFrame(), /KL-2/, `tras Enter (confirma) el filtro se MANTIENE — KL-2 sigue oculta\n${lastFrame()}`);
+    await press('\r');
+    const confirmed = await waitForFrame(
+      lastFrame,
+      (f) => !f.includes('▏'),
+      'tras Enter la línea de filtro (cursor ▏) debe cerrarse',
+    );
+    assert.match(confirmed, /KL-1/, `tras Enter KL-1 (matchea r:kodo) sigue visible\n${confirmed}`);
+    assert.doesNotMatch(confirmed, /KL-2/, `tras Enter (confirma) el filtro se MANTIENE — KL-2 sigue oculta\n${confirmed}`);
   });
 
   it('CR-01/D-16: filtro que oculta TODA la lista → al limpiar, el cursor vuelve a la sesión seleccionada (no a la primera fila)', async () => {
@@ -669,44 +674,45 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /›.*KL-1/, 'la tabla debe estar pintada con la selección inicial en KL-1');
 
     // Llevar la selección a KL-2 (la fila INFERIOR, NO la selección inicial KL-1) SIN usar teclas de
     // flecha: filtrar a un subconjunto que solo contiene KL-2 (repo 'foo') hace que el cursor caiga a
     // KL-2 por clamp (D-06), fijando selectedTaskId='b'. (Las secuencias de escape '\x1b[A/B' del fake
     // stdin de ink dejan un flush diferido que interfiere con el texto de filtro posterior; este
     // camino por filtro es equivalente y ejerce la misma identidad seleccionada.)
-    stdin.write('/');
-    await drain();
-    stdin.write('r:foo');
-    await drain();
-    await drain();
-    assert.match(lastFrame(), /›.*KL-2/, `precondición: filtrar a repo foo deja el cursor en KL-2\n${lastFrame()}`);
-    assert.doesNotMatch(lastFrame(), /KL-1/, `precondición: r:foo oculta KL-1\n${lastFrame()}`);
+    await press('/');
+    await waitForFrame(lastFrame, /▏/, "'/' debe abrir la línea de filtro");
+    await press('r:foo');
+    const onlyFoo = await waitForFrame(
+      lastFrame,
+      /›.*KL-2/,
+      'precondición: filtrar a repo foo deja el cursor en KL-2',
+    );
+    assert.doesNotMatch(onlyFoo, /KL-1/, `precondición: r:foo oculta KL-1\n${onlyFoo}`);
 
     // Extender la query a 'r:foozzz' → no matchea NINGUNA fila → lista filtrada vacía → "no sessions match".
-    stdin.write('zzz');
-    await drain();
-    await drain();
-    assert.match(lastFrame(), /no sessions match/, `precondición: el filtro sin match debe vaciar la lista\n${lastFrame()}`);
+    await press('zzz');
+    await waitForFrame(lastFrame, /no sessions match/, 'precondición: el filtro sin match debe vaciar la lista');
 
     // Esc → cancela el filtro: la lista completa vuelve. El cursor debe RE-ENCONTRAR KL-2 por
     // identidad — NO saltar a KL-1 (la primera fila). Sin el fix de CR-01, selectedTaskId fue
     // pisado a null mientras la lista estaba vacía y el cursor cae a KL-1 (fallo).
-    stdin.write('\x1b');
-    await drain();
-    await drain();
-    assert.match(lastFrame(), /KL-2/, `tras limpiar el filtro KL-2 debe estar visible de nuevo\n${lastFrame()}`);
-    assert.match(
-      lastFrame(),
-      /›.*KL-2/,
-      `CR-01/D-16: el cursor debe VOLVER a la sesión seleccionada (KL-2), no saltar a la primera fila\n${lastFrame()}`,
+    await press('\x1b');
+    // Se espera el estado FINAL completo (lista entera + cursor de vuelta en KL-2) en un solo
+    // predicado: así un frame intermedio —lista ya restaurada pero write-back del cursor aún sin
+    // aplicar— no puede dar un rojo falso. Si el bug CR-01 vuelve, el cursor se queda en KL-1 y la
+    // espera vence imprimiendo el frame.
+    const restored = await waitForFrame(
+      lastFrame,
+      (f) => f.includes('KL-1') && /›.*KL-2/.test(f),
+      'CR-01/D-16: el cursor debe VOLVER a la sesión seleccionada (KL-2), no saltar a la primera fila',
     );
     assert.doesNotMatch(
-      lastFrame(),
+      restored,
       /›.*KL-1/,
-      `CR-01: el cursor NO debe haber saltado a KL-1 (identidad destruida por el write-back)\n${lastFrame()}`,
+      `CR-01: el cursor NO debe haber saltado a KL-1 (identidad destruida por el write-back)\n${restored}`,
     );
   });
 
@@ -714,19 +720,22 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
-    stdin.write('/');
-    await drain();
-    stdin.write('r:zzzznomatch');
-    await drain();
+    await press('/');
+    await waitForFrame(lastFrame, /▏/, "'/' debe abrir la línea de filtro");
+    await press('r:zzzznomatch');
 
-    assert.match(lastFrame(), /no sessions match/, `un filtro sin match debe mostrar "no sessions match" (D-12b)\n${lastFrame()}`);
+    const noMatch = await waitForFrame(
+      lastFrame,
+      /no sessions match/,
+      'un filtro sin match debe mostrar "no sessions match" (D-12b)',
+    );
     assert.doesNotMatch(
-      lastFrame(),
+      noMatch,
       /no active sessions/,
-      `hay sesiones reales (las oculta el filtro) → NO debe decir "no active sessions"\n${lastFrame()}`,
+      `hay sesiones reales (las oculta el filtro) → NO debe decir "no active sessions"\n${noMatch}`,
     );
   });
 
@@ -734,11 +743,12 @@ describe('TUI-12: filtro modal — / abre, filtra en vivo, Esc cancela, Enter co
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
-    const { lastFrame, stdin } = render(createElement(App, injectProps(clock, fetchFn)));
-    await drain();
+    const { lastFrame, press } = renderInk(createElement(App, injectProps(clock, fetchFn)));
+    await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
 
     // Esc en modo lista (sin filtro abierto): deliberadamente NO-OP (reservado Phase 38, D-15).
-    stdin.write('\x1b');
+    // Se afirma AUSENCIA de cambio → drenaje fijo (no hay estado nuevo que esperar).
+    await press('\x1b');
     await drain();
 
     const frame = lastFrame();
@@ -864,16 +874,14 @@ describe("TUI-15: overlay 'unsupported' — supported:false → mensaje distinto
       if (u.includes('/comments/')) return okResponse({ comments: [], supported: false });
       return okResponse(FIXTURE);
     };
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      const frame = lastFrame();
-      assert.match(
-        frame,
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de abrir el overlay');
+      await press('c');
+      const frame = await waitForFrame(
+        lastFrame,
         new RegExp(OVERLAY_COMMENTS_UNSUPPORTED),
-        `supported:false → ${OVERLAY_COMMENTS_UNSUPPORTED}\n${frame}`,
+        `supported:false → ${OVERLAY_COMMENTS_UNSUPPORTED}`,
       );
       // CRÍTICO: NO debe mostrar el mensaje de "sin comentarios aún" (sería indistinguible).
       assert.doesNotMatch(
@@ -893,16 +901,14 @@ describe("TUI-15: overlay 'unsupported' — supported:false → mensaje distinto
       if (u.includes('/comments/')) return okResponse({ comments: [], supported: true });
       return okResponse(FIXTURE);
     };
-    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, fetchFn)));
     try {
-      await drain();
-      stdin.write('c');
-      await drain();
-      const frame = lastFrame();
-      assert.match(
-        frame,
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de abrir el overlay');
+      await press('c');
+      const frame = await waitForFrame(
+        lastFrame,
         new RegExp(OVERLAY_COMMENTS_EMPTY),
-        `supported:true + vacío → ${OVERLAY_COMMENTS_EMPTY}\n${frame}`,
+        `supported:true + vacío → ${OVERLAY_COMMENTS_EMPTY}`,
       );
       assert.doesNotMatch(
         frame,
@@ -996,9 +1002,11 @@ describe('LIVE-05 (T-75-01): enrich por tick — merge por task_id + saneo del c
       createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
     );
     try {
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, /siguiente paso concreto/, `el next de la tarea 'a' debe pintarse en la fila KL-1\n${frame}`);
+      await waitForFrame(
+        lastFrame,
+        /siguiente paso concreto/,
+        "el next de la tarea 'a' debe pintarse en la fila KL-1",
+      );
     } finally {
       unmount();
     }
@@ -1016,11 +1024,14 @@ describe('LIVE-05 (T-75-01): enrich por tick — merge por task_id + saneo del c
       createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
     );
     try {
-      await drain();
-      const frame = lastFrame();
+      // El texto visible del next ya pintado es la señal de que el saneo se aplicó en ese render.
+      const frame = await waitForFrame(
+        lastFrame,
+        /payload/,
+        'el texto visible del next se conserva tras el saneo',
+      );
       assert.equal(frame.includes(ESC), false, `el next saneado NO debe contener ESC\n${JSON.stringify(frame)}`);
       assert.equal(frame.includes(BEL), false, `el next saneado NO debe contener BEL\n${JSON.stringify(frame)}`);
-      assert.match(frame, /payload/, `el texto visible del next se conserva tras el saneo\n${frame}`);
     } finally {
       unmount();
     }
@@ -1035,8 +1046,8 @@ describe('LIVE-05 (T-75-01): enrich por tick — merge por task_id + saneo del c
       createElement(App, { ...injectProps(clock, fetchFn), readTasksFn }),
     );
     try {
-      await drain();
-      const frame = lastFrame();
+      // Aserción NEGATIVA: la tabla debe estar pintada antes, o el frame de arranque la pasaría solo.
+      const frame = await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada');
       assert.doesNotMatch(frame, /\bnext\b/, `sin next en ninguna fila la columna no se renderiza\n${frame}`);
     } finally {
       unmount();

@@ -31,7 +31,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { render } from 'ink-testing-library';
+import { render, renderInk, waitForFrame, waitUntil, drain } from './helpers/ink-frame.js';
 import { createElement } from 'react';
 import App, {
   PROJECTS_OVERLAY_TITLE,
@@ -127,14 +127,6 @@ const MODULES_FIXTURE = [
   { id: 'mod2', name: 'web' },
 ];
 
-// drain idéntico a dashboard-config.test.js: 6 ciclos del event loop purgan el re-subscribe de
-// useInput (un render tarde tras un cambio de modo) y resuelven los await de los *Fn async.
-async function drain() {
-  for (let i = 0; i < 6; i++) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
-
 function okResponse(body) {
   return { ok: true, status: 200, json: async () => body };
 }
@@ -181,7 +173,7 @@ describe('PROJ-01 / D-01/D-02/D-10: `m` abre el editor, fetch ok → lista con e
   it('`m` en mode:list → projects-loading → projects con título, nombres y estado [ruta]/[sin mapear]', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -191,11 +183,9 @@ describe('PROJ-01 / D-01/D-02/D-10: `m` abre el editor, fetch ok → lista con e
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // abre → projects-loading → (await) → projects
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `m debe abrir el overlay de proyectos\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // abre → projects-loading → (await) → projects
+      const frame = await waitForFrame(lastFrame, new RegExp(PROJECTS_OVERLAY_TITLE), `m debe abrir el overlay de proyectos`);
       assert.match(frame, /k-lab/, `la lista debe mostrar el proyecto p1 (k-lab)\n${frame}`);
       assert.match(frame, /otro/, `la lista debe mostrar el proyecto p2 (otro)\n${frame}`);
       assert.match(frame, /\/tmp/, `la fila mapeada (p1) debe mostrar su ruta\n${frame}`);
@@ -210,7 +200,7 @@ describe('KODO-10: marca dispatch-enabled vs solo-mapeado en el overlay de proye
   it('p1 en config (dispatch) → tag dispatch; p2 mapeado pero no en config → tag solo-mapeado', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -221,11 +211,13 @@ describe('KODO-10: marca dispatch-enabled vs solo-mapeado en el overlay de proye
       ),
     );
     try {
-      await drain();
-      stdin.write('m');
-      await drain();
-      const frame = lastFrame();
-      assert.ok(frame.includes(PROJECTS_DISPATCH_TAG), `p1 (en config) debe llevar el tag dispatch\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m');
+      const frame = await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_DISPATCH_TAG),
+        'p1 (en config) debe llevar el tag dispatch',
+      );
       assert.ok(frame.includes(PROJECTS_MAPPED_ONLY_TAG), `p2 (mapeado, no en config) debe llevar el tag solo-mapeado\n${frame}`);
     } finally {
       unmount();
@@ -235,7 +227,7 @@ describe('KODO-10: marca dispatch-enabled vs solo-mapeado en el overlay de proye
   it('proyecto NI mapeado NI en config → sin tag de dispatch/solo-mapeado (solo [sin mapear])', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -245,11 +237,13 @@ describe('KODO-10: marca dispatch-enabled vs solo-mapeado en el overlay de proye
       ),
     );
     try {
-      await drain();
-      stdin.write('m');
-      await drain();
-      const frame = lastFrame();
-      assert.ok(frame.includes(PROJECTS_UNMAPPED), `un proyecto sin mapear muestra ${PROJECTS_UNMAPPED}\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m');
+      const frame = await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_UNMAPPED),
+        `un proyecto sin mapear muestra ${PROJECTS_UNMAPPED}`,
+      );
       assert.ok(!frame.includes(PROJECTS_DISPATCH_TAG), `sin config no debe haber tag dispatch\n${frame}`);
       assert.ok(!frame.includes(PROJECTS_MAPPED_ONLY_TAG), `sin mapear no debe haber tag solo-mapeado\n${frame}`);
     } finally {
@@ -264,7 +258,7 @@ describe('PROJ-02 UI (válido) / D-03: Enter precarga, valida y guarda con aviso
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -274,16 +268,13 @@ describe('PROJ-02 UI (válido) / D-03: Enter precarga, valida y guarda con aviso
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects
-      await drain();
-      stdin.write('\r'); // Enter en p1 → projects-edit (precarga realDir, cursor al final)
-      await drain();
-      stdin.write('\r'); // Enter → valida realDir (ok) → guarda
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects
+      await press('\r'); // Enter en p1 → projects-edit (precarga realDir, cursor al final)
+      await press('\r'); // Enter → valida realDir (ok) → guarda
+      await waitForFrame(lastFrame, /reinicia|reiniciar/i, 'tras guardar debe verse el aviso de reinicio');
       assert.equal(spy.calls, 1, 'saveProjectsFn debe llamarse exactamente una vez con una ruta válida');
       assert.equal(spy.lastMap.p1, realDir, 'el mapa guardado lleva p1 → la ruta validada');
-      assert.match(lastFrame(), /reinicia|reiniciar/i, `tras guardar debe verse el aviso de reinicio\n${lastFrame()}`);
     } finally {
       unmount();
       rmSync(realDir, { recursive: true, force: true });
@@ -296,7 +287,7 @@ describe('PROJ-02 UI (inválido) / CFG-05-mol: ruta inexistente → footer rojo,
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -306,22 +297,16 @@ describe('PROJ-02 UI (inválido) / CFG-05-mol: ruta inexistente → footer rojo,
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects
-      await drain();
-      stdin.write('\r'); // Enter en p1 → projects-edit (precarga '')
-      await drain();
-      stdin.write('Z'); // 'Z' (ruta inexistente)
-      await drain();
-      stdin.write('\r'); // intenta guardar → inválido
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, /no existe/, `una ruta inexistente debe pintar el error de validación\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects
+      await press('\r'); // Enter en p1 → projects-edit (precarga '')
+      await press('Z'); // 'Z' (ruta inexistente)
+      await press('\r'); // intenta guardar → inválido
+      const frame = await waitForFrame(lastFrame, /no existe/, `una ruta inexistente debe pintar el error de validación`);
       assert.equal(spy.calls, 0, 'saveProjectsFn NO debe llamarse con una ruta inválida');
       // Pitfall 2: el error vive en projectsEditError (no focusError) → la siguiente tecla edita.
-      stdin.write('Q'); // 'ZQ' → no consumido por un clear-on-any-input
-      await drain();
-      assert.match(lastFrame(), /ZQ/, `tras el error la siguiente tecla edita el buffer (no se pierde)\n${lastFrame()}`);
+      await press('Q'); // 'ZQ' → no consumido por un clear-on-any-input
+      await waitForFrame(lastFrame, /ZQ/, `tras el error la siguiente tecla edita el buffer (no se pierde)`);
     } finally {
       unmount();
     }
@@ -333,7 +318,7 @@ describe('PROJ-03 / D-03/D-06: una tecla quita el mapeo (delete + save sin la ke
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -343,14 +328,16 @@ describe('PROJ-03 / D-03/D-06: una tecla quita el mapeo (delete + save sin la ke
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects (fieldCursor=0 → p1)
-      await drain();
-      stdin.write('x'); // quita el mapeo de p1
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects (fieldCursor=0 → p1)
+      await press('x'); // quita el mapeo de p1
+      await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_UNMAPPED),
+        `la fila quitada debe mostrar ${PROJECTS_UNMAPPED}`,
+      );
       assert.equal(spy.calls, 1, 'quitar debe llamar a saveProjectsFn una vez');
       assert.ok(!('p1' in spy.lastMap), 'el mapa guardado NO debe contener la key p1 (delete)');
-      assert.ok(lastFrame().includes(PROJECTS_UNMAPPED), `la fila quitada debe mostrar ${PROJECTS_UNMAPPED}\n${lastFrame()}`);
     } finally {
       unmount();
     }
@@ -362,7 +349,7 @@ describe('PROJ-05 (error) / D-07: fetch {ok:false} → projects-error; Esc sale;
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -372,16 +359,15 @@ describe('PROJ-05 (error) / D-07: fetch {ok:false} → projects-error; Esc sale;
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects-loading → projects-error
-      await drain();
-      assert.ok(
-        lastFrame().includes(PROJECTS_LOAD_FAILED('ECONNREFUSED')),
-        `un fallo de fetch debe pintar PROJECTS_LOAD_FAILED\n${lastFrame()}`,
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects-loading → projects-error
+      await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_LOAD_FAILED('ECONNREFUSED')),
+        'un fallo de fetch debe pintar PROJECTS_LOAD_FAILED',
       );
-      stdin.write('\x1b'); // Esc → vuelve a list
-      await drain();
-      assert.match(lastFrame(), /KL-1/, `Esc en projects-error debe volver a la tabla\n${lastFrame()}`);
+      await press('\x1b'); // Esc → vuelve a list
+      await waitForFrame(lastFrame, /KL-1/, `Esc en projects-error debe volver a la tabla`);
       assert.equal(spy.calls, 0, 'el carril de error NUNCA debe llamar a saveProjectsFn (PROJ-05)');
     } finally {
       unmount();
@@ -399,17 +385,19 @@ describe('PROJ-05 (error) / D-07: fetch {ok:false} → projects-error; Esc sale;
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { listProjectsFn, saveProjectsFn: fn })),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects-error (1ª llamada falla)
-      await drain();
-      assert.ok(lastFrame().includes(PROJECTS_LOAD_FAILED('ECONNREFUSED')), `1ª llamada falla\n${lastFrame()}`);
-      stdin.write('r'); // reintenta → 2ª llamada ok → projects
-      await drain();
-      assert.match(lastFrame(), /k-lab/, `el retry exitoso debe mostrar la lista de proyectos\n${lastFrame()}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects-error (1ª llamada falla)
+      await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_LOAD_FAILED('ECONNREFUSED')),
+        '1ª llamada falla',
+      );
+      await press('r'); // reintenta → 2ª llamada ok → projects
+      await waitForFrame(lastFrame, /k-lab/, `el retry exitoso debe mostrar la lista de proyectos`);
       assert.equal(spy.calls, 0, 'ni el error ni el retry escriben projects.json (PROJ-05)');
     } finally {
       unmount();
@@ -428,16 +416,16 @@ describe('PROJ-05 (race) / UX-03: Esc durante projects-loading descarta el resul
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { listProjectsFn, saveProjectsFn: fn })),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects-loading (fetch queda en vuelo, deferred)
-      await drain(); // re-subscribe a la rama projects-loading (fetch sigue pendiente)
-      stdin.write('\x1b'); // Esc → invalida (projectsReqRef++) + vuelve a list
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects-loading (fetch queda en vuelo, deferred)
+      await press('\x1b'); // Esc → invalida (projectsReqRef++) + vuelve a list
+      await waitForFrame(lastFrame, /›.*KL-1/, 'Esc en projects-loading debe volver a la tabla');
       resolveFetch({ ok: true, projects: PROJECTS_FIXTURE }); // resultado TARDÍO
+      // El contrato es que el resultado tardío NO cambia nada → drenaje fijo y comprobación.
       await drain();
       const frame = lastFrame();
       assert.doesNotMatch(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `el resultado tardío NO debe abrir el overlay\n${frame}`);
@@ -455,7 +443,7 @@ describe('PROJ-04 (mapear módulo) / D-05/D-06: tecla módulos → listModulesFn
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -466,21 +454,16 @@ describe('PROJ-04 (mapear módulo) / D-05/D-06: tecla módulos → listModulesFn
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // mode:list → projects
-      await drain();
-      stdin.write('m'); // mode:projects → projects-modules-loading → (await 2º hop) → projects-modules
-      await drain();
-      const frame = lastFrame();
-      assert.match(frame, new RegExp(PROJECTS_MODULES_TITLE), `el sub-overlay de módulos debe abrirse\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // mode:list → projects
+      await press('m'); // mode:projects → projects-modules-loading → (await 2º hop) → projects-modules
+      const frame = await waitForFrame(lastFrame, new RegExp(PROJECTS_MODULES_TITLE), `el sub-overlay de módulos debe abrirse`);
       assert.match(frame, /core/, `la lista de módulos debe mostrar core\n${frame}`);
       assert.match(frame, /web/, `la lista de módulos debe mostrar web\n${frame}`);
-      stdin.write('\r'); // Enter en core (fieldCursor=0) → projects-modules-edit (core sin mapear → buffer '')
-      await drain();
-      stdin.write(realDir); // teclea la ruta REAL del módulo
-      await drain();
-      stdin.write('\r'); // Enter → valida realDir (ok) → setModulePath + save
-      await drain();
+      await press('\r'); // Enter en core (fieldCursor=0) → projects-modules-edit (core sin mapear → buffer '')
+      await press(realDir); // teclea la ruta REAL del módulo
+      await press('\r'); // Enter → valida realDir (ok) → setModulePath + save
+      await waitUntil(() => spy.calls > 0, 'mapear un módulo válido debe llamar a saveProjectsFn');
       assert.equal(spy.calls, 1, 'mapear un módulo válido debe llamar a saveProjectsFn una vez');
       assert.deepEqual(
         spy.lastMap.p1,
@@ -499,7 +482,7 @@ describe('PROJ-04 (sin módulos) / D-05: provider sin módulos → footer no-op,
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(
         App,
         injectProps(clock, fetchFn, {
@@ -509,13 +492,14 @@ describe('PROJ-04 (sin módulos) / D-05: provider sin módulos → footer no-op,
       ),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects
-      await drain();
-      stdin.write('m'); // → projects-modules-loading → (await) → lista vacía → vuelve a projects
-      await drain();
-      const frame = lastFrame();
-      assert.ok(frame.includes(PROJECTS_NO_MODULES), `la lista vacía debe pintar PROJECTS_NO_MODULES\n${frame}`);
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects
+      await press('m'); // → projects-modules-loading → (await) → lista vacía → vuelve a projects
+      const frame = await waitForFrame(
+        lastFrame,
+        (f) => f.includes(PROJECTS_NO_MODULES),
+        'la lista vacía debe pintar PROJECTS_NO_MODULES',
+      );
       assert.match(frame, new RegExp(PROJECTS_OVERLAY_TITLE), `el modo sigue en projects (no abre el sub-overlay)\n${frame}`);
       assert.doesNotMatch(frame, new RegExp(PROJECTS_MODULES_TITLE), `NO debe abrir el sub-overlay de módulos\n${frame}`);
       assert.equal(spy.calls, 0, 'el caso sin-módulos es no-op: saveProjectsFn NO se llama');
@@ -536,18 +520,21 @@ describe('PROJ-04 (staleness 2º hop) / Pitfall 3: Esc durante modules-loading d
     const clock = makeFakeClock();
     const fetchFn = makeRouter();
     const { spy, fn } = makeSaveSpy();
-    const { lastFrame, stdin, unmount } = render(
+    const { lastFrame, press, unmount } = renderInk(
       createElement(App, injectProps(clock, fetchFn, { listModulesFn, saveProjectsFn: fn })),
     );
     try {
-      await drain();
-      stdin.write('m'); // → projects (1er hop ok)
-      await drain();
-      stdin.write('m'); // → projects-modules-loading (2º hop queda en vuelo, deferred)
-      await drain(); // re-subscribe a la rama projects-modules-loading
-      stdin.write('\x1b'); // Esc → invalida (projectsReqRef++) + vuelve a projects
-      await drain();
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('m'); // → projects (1er hop ok)
+      await press('m'); // → projects-modules-loading (2º hop queda en vuelo, deferred)
+      await press('\x1b'); // Esc → invalida (projectsReqRef++) + vuelve a projects
+      await waitForFrame(
+        lastFrame,
+        new RegExp(PROJECTS_OVERLAY_TITLE),
+        'Esc en modules-loading debe volver a la lista de proyectos',
+      );
       resolveModules({ ok: true, modules: MODULES_FIXTURE }); // resultado TARDÍO
+      // El contrato es que el resultado tardío NO cambia nada → drenaje fijo y comprobación.
       await drain();
       const frame = lastFrame();
       assert.doesNotMatch(frame, new RegExp(PROJECTS_MODULES_TITLE), `el resultado tardío NO debe abrir el sub-overlay\n${frame}`);
