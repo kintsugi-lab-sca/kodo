@@ -66,6 +66,7 @@ import { join } from 'node:path';
  *   SESSION_DISMISSED: 'session.dismissed',
  *   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
  *   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
+ *   INTEGRATE_ACTION: 'integrate.action',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -104,6 +105,7 @@ export const EVENTS = Object.freeze({
   SESSION_DISMISSED:       'session.dismissed',
   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
+  INTEGRATE_ACTION:        'integrate.action',
 });
 
 /**
@@ -961,4 +963,46 @@ export function sessionOrphanDetected(logger, fields) {
     task_id: fields.task_id,
     state: fields.state,
   });
+}
+
+/**
+ * Emite `integrate.action` — el registro DETERMINISTA de lo que `kodo integrate` ejecutó sobre
+ * una rama (KODO-26). Uno por invocación, incluido `--drop`.
+ *
+ * Complementario, no redundante: las observaciones de claude-mem son la memoria narrativa del
+ * LLM; esta línea es el hecho verificable («qué acción, sobre qué rama, con qué resultado»),
+ * append-only en `~/.kodo/logs/integrate.ndjson` y greppable meses después. También es la traza
+ * PERMANENTE de la cola, cuyo bloque en state.json evicta las resueltas más antiguas.
+ *
+ * Se emite SIEMPRE, en éxito y en fallo — lo que cambia es `outcome`. Un intento que no llegó a
+ * tocar git (worktree sucio, rama base no checkouteada) deja su línea igual: saber qué NO se
+ * pudo hacer es parte del registro. `sha` es `null` en todo lo que no produce un commit nuevo
+ * (`--pr`, `--drop`, cualquier fallo).
+ *
+ * Nivel: `info` en éxito, `warn` en fallo — así un filtro por `warn` sobre el log saca
+ * exactamente las acciones que no salieron.
+ *
+ * LOG-12: whitelist explícito — no `...fields` spread. El `timestamp` lo pone el sink.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   action: 'ff'|'merge'|'pr'|'drop',
+ *   task_ref: string,
+ *   branch: string|null,
+ *   sha: string|null,
+ *   outcome: string,
+ *   ok: boolean,
+ * }} fields
+ */
+export function integrateAction(logger, fields) {
+  const record = {
+    event: EVENTS.INTEGRATE_ACTION,
+    action: fields.action,
+    task_ref: fields.task_ref,
+    branch: fields.branch,
+    sha: fields.sha,
+    outcome: fields.outcome,
+  };
+  if (fields.ok) logger.info(EVENTS.INTEGRATE_ACTION, record);
+  else logger.warn(EVENTS.INTEGRATE_ACTION, record);
 }

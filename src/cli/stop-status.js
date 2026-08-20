@@ -113,6 +113,13 @@ export async function runStopUnified(opts = {}, deps = {}) {
  *     pid; idle → `dim('stopped')` (el texto humano usa 'stopped' para satisfacer el
  *     criterio running/stopped; el JSON conserva 'idle').
  *
+ * COLA DE INTEGRACIÓN (KODO-26): la rama TTY añade, DESPUÉS de la línea del daemon, un bloque
+ * con las ramas que esperan integración. La rama `--json` NO se toca: sus 2 keys están
+ * congeladas por DX-06 y por el test byte-exacto de `test/cli/status-unified.test.js`; el carril
+ * scriptable de la cola es `kodo integrate --json`, que ya emite las entradas completas. El
+ * bloque COLAPSA a nada cuando la cola está vacía — mismo criterio que el conteo del dashboard:
+ * cero entradas es cero ruido.
+ *
  * Exit code SIEMPRE 0 (D-13 heredado): una consulta de status nunca falla; los scripts
  * distinguen el estado por el JSON, no por el exit code.
  *
@@ -121,7 +128,12 @@ export async function runStopUnified(opts = {}, deps = {}) {
  *   _statusDaemon?: (name: string, deps?: any) => { status: string, pid: number | null },
  *   _write?: (s: string) => any,
  *   _stdout?: { isTTY?: boolean },
+ *   _listQueue?: (opts?: { all?: boolean }) => Array<{ task_ref: string, branch: string, suggested: string, commits_ahead: number|null, created_at: string }>,
+ *   _now?: () => Date,
  * }} [deps]
+ *   `_listQueue` (KODO-26) es el seam de aislamiento del HOME: sin él, el default lee el
+ *   `~/.kodo/state.json` real y la salida de la suite pasaría a depender de la cola de quien
+ *   corre `npm test`. Never-throws por contrato del store (una cola ilegible → []).
  * @returns {Promise<number>} exit code (SIEMPRE 0).
  */
 export async function runStatusUnified(opts = {}, deps = {}) {
@@ -134,14 +146,40 @@ export async function runStatusUnified(opts = {}, deps = {}) {
     // DX-06 / Pitfall #10: keys FIJAS {status, pid}, mismo orden, sin createFormatter →
     // bytes idénticos TTY/no-TTY. idle ya trae pid null desde statusDaemon.
     write(JSON.stringify({ status: st.status, pid: st.pid }) + '\n');
-  } else {
-    // Rama TTY: color isolation LOCKED (createFormatter TTY-aware sobre _stdout).
-    const fmt = createFormatter(deps._stdout || process.stdout);
-    if (st.status === 'running') {
-      write(`${fmt.ok('running')} pid: ${st.pid}\n`);
-    } else {
-      write(`${fmt.dim('stopped')}\n`);
-    }
+    return 0;
   }
+
+  // Rama TTY: color isolation LOCKED (createFormatter TTY-aware sobre _stdout).
+  const fmt = createFormatter(deps._stdout || process.stdout);
+  if (st.status === 'running') {
+    write(`${fmt.ok('running')} pid: ${st.pid}\n`);
+  } else {
+    write(`${fmt.dim('stopped')}\n`);
+  }
+
+  // Bloque de la cola. Envuelto en try/catch además del never-throws del store: `kodo status`
+  // no puede fallar por un añadido informativo (D-13).
+  try {
+    const listQueue = deps._listQueue || (await import('../integration/queue.js')).listIntegrationQueue;
+    const pending = listQueue({});
+    if (pending.length > 0) {
+      // `formatAge` se importa aquí y no en la cabecera: `kodo stop` comparte este módulo y no
+      // tiene por qué pagar el grafo de la cola. Es el mismo helper que usa `kodo integrate`
+      // — la edad se pinta igual en las dos superficies.
+      const { formatAge } = await import('./integrate.js');
+      const now = (deps._now || (() => new Date()))();
+      write(`${fmt.cyan(`cola de integración: ${pending.length}`)}\n`);
+      for (const e of pending) {
+        // `commits: N` y no `N commits`: la forma con el número delante obligaría a una rama de
+        // plural para no escribir «1 commits», y el repo evita esas ramas en la copy (mismo
+        // criterio que el `N sin enrutar` invariante del header del dashboard).
+        const commits = e.commits_ahead === null ? '?' : String(e.commits_ahead);
+        write(`  ${e.task_ref}  ${e.branch}  commits: ${commits}  → ${e.suggested}  (${formatAge(e.created_at, now)})\n`);
+      }
+    }
+  } catch {
+    /* fail-open: el estado del daemon ya se reportó y es lo que el comando promete */
+  }
+
   return 0; // D-13: status nunca falla.
 }

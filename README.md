@@ -170,6 +170,7 @@ kodo status              # estado del daemon (running|stopped)
 kodo dashboard           # TUI de sesiones activas
 kodo capture "<texto>"   # captura una idea al inbox global (~/.kodo/inbox.md)
 kodo inbox               # triage del inbox (--all, --json, route <id>, discard <id>)
+kodo integrate           # cola de integración: qué ramas esperan ff/merge/PR (--all, --json)
 kodo config              # wizard de configuración / --show / --set clave=valor
 kodo launch <REF>        # lanza una tarea manualmente (ej: KL-42)
 kodo check               # vigilante: revisa estado y lanza orquestador si hace falta (0 tokens)
@@ -237,6 +238,71 @@ desfasado respecto a ella. Consecuencias prácticas:
 - **Toda línea que kodo no reconoce se conserva intacta**, byte a byte —encabezados, notas
   sueltas, líneas en blanco— y simplemente se omite del listado. El marcado de una captura no
   reescribe ninguna otra línea del fichero.
+
+### `kodo integrate` — la cola de integración
+
+Cada sesión termina pidiendo algo distinto: esta rama es un fast-forward, esta otra merece un
+merge commit, esta hay que mirarla antes. Hasta ahora esa información viajaba solo en el nudge
+efímero del hook Stop: si no actuabas en ese momento, se perdía y acababas repasando sesión por
+sesión de memoria.
+
+Ahora, **al cerrar una sesión cuya rama tiene commits que no están en ninguna otra referencia**
+(el mismo cálculo que decide conservar la rama), kodo persiste una entrada en
+`~/.kodo/state.json`. Una sesión que cierra ya mergeada no deja nada.
+
+```bash
+kodo integrate                    # la cola pendiente, en bloque
+kodo integrate --all --json       # incluida la traza de lo ya resuelto, como JSON
+kodo integrate KODO-26 --ff       # fast-forward (falla si no es posible)
+kodo integrate KODO-26 --merge    # merge commit explícito (--no-ff)
+kodo integrate KODO-26 --pr       # prepara la rama y DEVUELVE el comando gh listo
+kodo integrate KODO-26 --drop     # descarta la entrada sin tocar la rama
+kodo integrate KODO-26 --merge --test 'npm test'   # suite antes de integrar
+```
+
+```
+ref     · rama             · commits · base · sugerido · edad · estado
+KODO-26 · worktree-5b1f809 · 3       · sí   · merge    · 2h   ·
+KODO-24 · worktree-ae91f22 · 1       · NO   · merge    · 3d   ·
+```
+
+**La sugerencia es una sugerencia.** Sale de una heurística simple y visible, y la confirma
+quien integra:
+
+| Qué toca la rama | Sugerencia |
+|---|---|
+| Solo documentación y tests | `ff` |
+| `src/` sin nada sensible | `merge` |
+| Migraciones, auth, billing, credenciales, o un diff de más de 400 líneas | `pr` |
+| Diff no inspeccionable (sin base resoluble, o solo merge commits) | `review` |
+
+La columna **base** es `merge-base` en una palabra: `sí` significa que la rama contiene la base
+entera; `NO`, que `main` avanzó por debajo mientras la sesión trabajaba. Con `NO` (o con `?`, no
+verificable) el `ff` **nunca** se sugiere — `git merge --ff-only` fallaría.
+
+Lo que este comando **no** hace, por contrato:
+
+- **Nunca hace `git push` ni crea PRs.** `--pr` valida la rama, marca la entrada y te imprime el
+  `git push … && gh pr create …` listo para pegar. Publicar sigue siendo tuyo.
+- **Nunca cambia de rama.** Si el repo no está en la base, aborta con código 1 y te lo dice; no
+  hace `switch` por debajo.
+- **Nunca borra la rama** tras integrar (eso es del cleanup, que ya sabe verificar) **ni borra la
+  entrada** de la cola: al resolverla queda con su `status`, `action`, `sha` y `outcome` como
+  traza, igual que el inbox.
+- **Nunca integra sobre un worktree sucio.** Es la primera precondición que comprueba.
+
+Exit codes: `0` la acción se ejecutó · `1` falló (worktree sucio, base no checkouteada, merge
+rechazado, suite en rojo) · `2` uso incorrecto o ref que no está pendiente en la cola. Solo el
+`0` saca la entrada de pendiente.
+
+Cada acción —incluido `--drop`— deja además una línea NDJSON en
+`~/.kodo/logs/integrate.ndjson` con `{action, task_ref, branch, sha, outcome}`, en éxito y en
+fallo. Ese es el registro permanente de lo que se ejecutó; si el log no es escribible, la acción
+sigue igual.
+
+El listado no hace **ni una** llamada a git: todo se calculó al cerrar la sesión y vive en
+`state.json`, así que el orquestador puede presentar la cola entera en cada ronda gratis. El
+dashboard lo refleja como `N por integrar` en la cabecera, y `kodo status` lista el bloque.
 
 ### `kodo doctor` — alineación config ↔ projects
 
@@ -465,6 +531,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
 | `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación, barrido de sesiones huérfanas |
 | `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/nudge al cierre real) |
+| `src/integration/` | Cola de integración: captura al cerrar sesión, heurística de tier y store sobre `state.json` |
 | `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
 | `src/cli/dashboard/` | Dashboard TUI (Ink/React) |
 
@@ -475,7 +542,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
 ├── config.json        # provider, estados, servidor, claude
 ├── projects.json      # proyecto del provider → path local
-├── state.json         # sesiones activas + registro del orquestador (`.orchestrator`)
+├── state.json         # sesiones activas + registro del orquestador (`.orchestrator`) + cola de integración (`.integration_queue`)
 ├── inbox.md           # capturas rápidas (markdown plano, editable a mano)
 ├── inbox.lock         # lock advisory del inbox (efímero: se libera al terminar)
 ├── plans/             # planes de acción por tarea

@@ -69,6 +69,7 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *   sessions: Record<string, Session>,
  *   history?: Array<Session & { ended_at: string }>,  // Phase 30 (D-09 cleanup): aditivo opcional. Mantenido por removeSession (FIFO 50-slot cap). Legacy state.json files sin history se leen como ausente — callers usan `Array.isArray(state.history) ? state.history : []` defensive guard.
  *   tasks?: Record<string, TaskHandoff>  // Phase 74 (D-05): aditivo opcional, mantenido por upsertTaskHandoff. El handoff es dato de la TAREA, no de la sesión: `removeSession` archiva la sesión a `history` (FIFO 50) y borra la fila de `sessions`, así que un `NEXT:` guardado ahí no sobreviviría al cierre que lo produjo. State files sin `tasks` se leen como ausente — callers usan el guard defensivo `state.tasks || {}`. NO bump de schema_version.
+ *   integration_queue?: Array<import('../integration/queue.js').IntegrationEntry>,  // KODO-26: aditivo opcional, mantenido por `src/integration/queue.js` (enqueueIntegration/resolveIntegration, siempre bajo `withStateLock`). La cola de «qué necesita cada rama al cerrar su sesión» (ff/merge/pr/review). Es dato de la RAMA, no de la sesión ni de la tarea: sobrevive al cierre que la produjo igual que `tasks`, y su identidad es el par (project_path, branch) — una entrada es SIEMPRE de un solo repo, nada cross-repo. State files sin la clave se leen como cola vacía (guard `Array.isArray(...) ? ... : []`). Las entradas resueltas NO se borran (traza); solo se evictan por FIFO por encima de RESOLVED_CAP, y las `pending` jamás. NO bump de schema_version.
  *   orchestrator?: OrchestratorRegistration|null  // KODO-16: aditivo opcional, mantenido por setOrchestrator/clearOrchestrator. Registra QUÉ workspace es el del orquestador para que su identidad sobreviva a un reinicio del daemon (antes solo existía como el título `kodo-orchestrator` de una tab, y arrancar el daemon desde esa tab lo renombraba). El orquestador NO es una sesión de trabajo: no tiene task_id ni entra en `sessions` (nada de dispatch, health ni conteos de slots), por eso va en su propia clave top-level. State files sin `orchestrator` se leen como ausente → getOrchestrator devuelve null. NO bump de schema_version.
  * }} State
  */
@@ -272,7 +273,19 @@ function migrateStateIfNeeded(logger) {
 /** @returns {State} */
 export function loadState() {
   migrateStateIfNeeded();
-  if (!existsSync(STATE_PATH)) return { schema_version: 2, sessions: {} };
+  // KODO-26: el default de fichero-ausente es v3, igual que el de fichero-corrupto de tres
+  // líneas más abajo (que ya lo era). Antes devolvía la forma **v2**, y eso abría una vía de
+  // PÉRDIDA SILENCIOSA de las claves aditivas sobre un HOME limpio: un escritor bajo
+  // `withStateLock` mutaba ese v2, `saveState` persistía un fichero v2 CON la clave nueva, y la
+  // siguiente `loadState` disparaba `migrateStateV2toV3`, cuya reconstrucción exhaustiva
+  // (`:159-163`) DESCARTA toda clave desconocida — `tasks`, `orchestrator` e
+  // `integration_queue` incluidas. Reproducido con un HOME recién creado: la primera captura de
+  // la cola aterrizaba en disco y desaparecía en la siguiente lectura.
+  //
+  // Las dos ramas coinciden ahora en la misma forma, y un HOME limpio deja de generar una
+  // migración espuria (con su `.bak`) en la primera lectura. Un fichero v2 REAL en disco sigue
+  // migrando exactamente igual que antes: esta rama solo cubre el caso de que no haya fichero.
+  if (!existsSync(STATE_PATH)) return { schema_version: 3, sessions: {}, history: [] };
   try {
     return JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
   } catch {

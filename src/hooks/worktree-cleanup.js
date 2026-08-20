@@ -63,8 +63,13 @@ import {
  *   `count > 0` ⇒ hay trabajo que solo vive aquí.
  *   `count: null` ⇒ no verificable (git falló o devolvió basura) → el caller
  *   DEBE conservar la rama: ante la duda nunca se borra.
+ *
+ * EXPORTADA desde KODO-26: la cola de integración hace EXACTAMENTE la misma pregunta
+ * («¿queda trabajo que solo vive en esta rama?») en el mismo instante del ciclo de vida, así
+ * que la reusa en vez de reimplementarla. El cálculo tiene un único dueño y ninguna deriva
+ * posible entre «la rama se conserva» y «la rama entra en la cola» — son el mismo veredicto.
  */
-async function countUnmergedCommits({ project, branch, gitFn }) {
+export async function countUnmergedCommits({ project, branch, gitFn }) {
   try {
     const out = await gitFn(project, [
       'rev-list', '--count', branch,

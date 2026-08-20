@@ -458,6 +458,57 @@ Reglas duras:
   lista, una métrica negativa— sin ese separador se lee como una opción, aborta
   la captura y la idea se pierde.
 
+## Cola de integración
+
+Cada sesión que cierra dejando commits que solo viven en su rama añade una
+entrada a la **cola de integración** (`integration_queue` en
+`~/.kodo/state.json`). Es la respuesta persistida a «qué necesita esta rama»,
+que antes solo existía en el nudge efímero del hook Stop: si nadie actuaba en
+ese momento, se perdía.
+
+- **Cuándo mirarla.** En **cada ronda**, junto al repaso de sesiones, y
+  preséntala **en bloque** (no rama por rama): el valor está en ver de una vez
+  todo lo que espera integración y su antigüedad.
+- **Cómo leerla.** `kodo integrate` (humano) o `kodo integrate --json`
+  (scriptable). El listado es **cero llamadas a git**: todo sale ya calculado de
+  `state.json`, así que puedes leerlo también con `cat ~/.kodo/state.json` en el
+  mismo pase en el que ya lees las sesiones. `--all` añade las resueltas (traza).
+- **Qué trae cada entrada.** `task_ref`, `branch`, `project_path`,
+  `commits_ahead`, `base_ok` y `suggested`, más la edad (`created_at`).
+- **La sugerencia es una sugerencia.** `suggested` sale de una heurística simple
+  y visible (docs/tests → `ff` · src → `merge` · migraciones/auth/billing o un
+  diff grande → `pr` · sin diff inspeccionable → `review`). **No la ejecutes por
+  tu cuenta**: propónsela al operador con su razón. `base_ok: false` significa
+  que la base avanzó por debajo — ahí el `ff` no es aplicable y la heurística ya
+  lo ha degradado.
+
+```
+kodo integrate                       → la cola pendiente, en bloque
+kodo integrate <ref> --ff            → fast-forward (falla si no es posible)
+kodo integrate <ref> --merge         → merge commit explícito (--no-ff)
+kodo integrate <ref> --pr            → PREPARA: valida y DEVUELVE el `gh pr create`
+kodo integrate <ref> --drop          → descarta la entrada SIN tocar la rama
+kodo integrate <ref> --merge --test 'npm test'   → corre la suite antes de integrar
+```
+
+Reglas duras:
+
+- **`--pr` no publica nada.** Ni `git push`, ni `gh pr create`: imprime el
+  comando listo para que lo ejecute el operador. No lo ejecutes tú «para
+  ahorrarle el paso» — es la misma política anti-push-fantasma de siempre.
+- **kodo no cambia de rama.** Si el repo no está en la base, el comando aborta
+  con código 1 y un mensaje accionable. Pídele al operador que cambie de rama;
+  no hagas `git switch` por tu cuenta.
+- **Un fallo NO saca la entrada de pendiente.** Códigos: `0` hecho · `1` la
+  acción falló (worktree sucio, base no checkouteada, merge rechazado) · `2` uso
+  incorrecto o ref que no está en la cola. Solo el `0` la resuelve.
+- **Nunca escribas `integration_queue` a mano.** El único escritor es kodo, bajo
+  el lock de `state.json`.
+- **La entrada no se borra nunca.** Al resolverla queda con `status`, `action`,
+  `sha` y `outcome` como traza. Cada acción deja además una línea NDJSON
+  `integrate.action` en `~/.kodo/logs/integrate.ndjson` — ese es el registro
+  permanente de lo que se ejecutó.
+
 ## Estado vivo de la tarea (novedades v0.17)
 
 A partir de v0.17 cada tarea deja **estado vivo** que puedes consumir como

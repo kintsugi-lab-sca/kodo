@@ -23,9 +23,26 @@ function makeDeps(overrides = {}) {
     _write: (s) => { calls.out.push(s); },
     // stream no-TTY → createFormatter no colorea (bytes limpios en la rama TTY del test).
     _stdout: { isTTY: false },
+    // KODO-26: sin este stub el handler leería la cola del `~/.kodo/state.json` REAL y la salida
+    // del test dependería de cuántas ramas tenga sin integrar quien corra `npm test`.
+    _listQueue: () => [],
+    _now: () => new Date('2026-08-20T13:00:00.000Z'),
     ...overrides,
   };
   return { deps, calls };
+}
+
+/** Entrada pendiente mínima para los casos de la cola. */
+function queueEntry(overrides = {}) {
+  return {
+    task_ref: 'KODO-26',
+    branch: 'worktree-abc',
+    suggested: 'merge',
+    commits_ahead: 3,
+    status: 'pending',
+    created_at: '2026-08-20T10:00:00.000Z',
+    ...overrides,
+  };
 }
 
 describe('runStatusUnified', () => {
@@ -71,5 +88,48 @@ describe('runStatusUnified', () => {
     const code = await runStatusUnified({}, deps);
     assert.equal(code, 0);
     assert.ok(calls.out.some((s) => /stopped/.test(s)));
+  });
+});
+
+// ── KODO-26: la cola de integración en la rama humana ───────────────────────────────────
+describe('runStatusUnified — cola de integración', () => {
+  it('con entradas pendientes pinta el bloque tras la línea del daemon', async () => {
+    const { deps, calls } = makeDeps({
+      _listQueue: () => [queueEntry(), queueEntry({ task_ref: 'KODO-30', branch: 'rama-b', suggested: 'ff', commits_ahead: 1 })],
+    });
+    const code = await runStatusUnified({}, deps);
+    const text = calls.out.join('');
+
+    assert.equal(code, 0);
+    assert.match(text, /cola de integración: 2/);
+    assert.match(text, /KODO-26\s+worktree-abc\s+commits: 3\s+→ merge\s+\(3h\)/, 'la edad se pinta junto a la sugerencia');
+    assert.match(text, /KODO-30\s+rama-b\s+commits: 1\s+→ ff/);
+    assert.ok(text.indexOf('running') < text.indexOf('cola de integración'), 'el daemon va primero');
+  });
+
+  it('cola vacía → COLAPSA: ni una línea de más', async () => {
+    const { deps, calls } = makeDeps();
+    await runStatusUnified({}, deps);
+    assert.equal(calls.out.join(''), '✓ running pid: 123\n', 'salida byte-idéntica a la previa a KODO-26');
+  });
+
+  it('commits_ahead null se pinta como ? (no verificable, no cero)', async () => {
+    const { deps, calls } = makeDeps({ _listQueue: () => [queueEntry({ commits_ahead: null })] });
+    await runStatusUnified({}, deps);
+    assert.match(calls.out.join(''), /commits: \?/);
+  });
+
+  it('un store que revienta NO rompe el status (fail-open, D-13)', async () => {
+    const { deps, calls } = makeDeps({ _listQueue: () => { throw new Error('boom'); } });
+    const code = await runStatusUnified({}, deps);
+    assert.equal(code, 0);
+    assert.match(calls.out.join(''), /running/, 'el estado del daemon sí se reportó');
+  });
+
+  it('la rama --json NO gana claves: el contrato DX-06 sigue congelado en {status, pid}', async () => {
+    const { deps, calls } = makeDeps({ _listQueue: () => [queueEntry()] });
+    await runStatusUnified({ json: true }, deps);
+    assert.equal(calls.out.length, 1, 'una sola línea, sin bloque de cola');
+    assert.equal(calls.out[0], '{"status":"running","pid":123}\n');
   });
 });

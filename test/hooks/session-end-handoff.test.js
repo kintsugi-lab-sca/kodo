@@ -97,6 +97,17 @@ afterEach(() => {
 
 // ── Task 1: writeHandoff ───────────────────────────────────────────────────────
 
+/**
+ * Stub de la captura de la cola de integración (KODO-26).
+ *
+ * OBLIGATORIO en toda invocación de `runSessionEndHook`, misma clase de fuga que
+ * `stateWriterFn`/`getOrchestratorFn`: sin inyectarlo, el hook consulta git de verdad y encola
+ * en el `~/.kodo/state.json` REAL del operador (T-74-15), y además mete sus propios comandos en
+ * cualquier `gitFn` que la suite esté contando. La cobertura de la captura vive en
+ * test/integration/capture.test.js.
+ */
+const noCapture = async () => ({ captured: false, reason: 'stubbed', entry: null });
+
 describe('writeHandoff — RMW del plan bajo withFileLock (D-07/D-08/D-09)', () => {
   it('es SÍNCRONA — un fn asíncrono liberaría el lock antes de que la escritura aterrice (Pitfall 4)', () => {
     assert.equal(writeHandoff.constructor.name, 'Function');
@@ -557,6 +568,7 @@ function makeTracingFs(calls) {
 function makeHookDeps({ session, calls, plansDir: dir, logger, writer, fs }) {
   return {
     findSessionFn: () => ({ id: session.task_id, session }),
+    captureIntegrationFn: noCapture,
     removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
     loggerFactory: () => logger,
     cmux: makeCmuxStub(calls),
@@ -786,6 +798,7 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
       { session_id: 'unknown', cwd: '/tmp/elsewhere', reason: 'clear' },
       {
         findSessionFn: () => null,
+        captureIntegrationFn: noCapture,
         removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
         loggerFactory: () => logger,
         cmux: makeCmuxStub(calls),
@@ -811,6 +824,7 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
         loggerFactory: () => logger,
         cmux: makeCmuxStub(calls),

@@ -27,6 +27,24 @@ import { removePromptFile } from '../session/prompt-file.js';
  */
 
 /**
+ * `gitFn` de PRODUCCIÓN: ejecuta git scopeado al directorio dado y devuelve su stdout
+ * trimeado; LANZA si el exit code no es 0 (contrato de `execFileSync`).
+ *
+ * Estaba inline dentro de `performTerminalCleanup`; se extrae en KODO-26 porque la captura de
+ * la cola de integración necesita EXACTAMENTE el mismo ejecutor un paso antes, y dos copias del
+ * mismo builder son dos sitios donde la forma del comando puede divergir. Sin `-C` propio: el
+ * caller compone los suyos en `args` (git los admite encadenados).
+ *
+ * @param {string} cwd
+ * @param {string[]} gitArgs
+ * @returns {Promise<string>}
+ */
+export async function defaultGitFn(cwd, gitArgs) {
+  const { execFileSync } = await import('node:child_process');
+  return execFileSync('git', ['-C', cwd, ...gitArgs], { encoding: 'utf-8' }).trim();
+}
+
+/**
  * Resuelve el worktree que hay que sanear de verdad (KODO-21 / inbox 1yx98p).
  *
  * `session.worktree_path` se persiste con `computeWorktreePath` → la convención
@@ -41,11 +59,16 @@ import { removePromptFile } from '../session/prompt-file.js';
  * al path legacy). Si ninguno de los dos existe se devuelve el persistido y el
  * cleanup se comporta exactamente como antes.
  *
+ * EXPORTADA desde KODO-26: la captura de la cola de integración necesita EL MISMO directorio
+ * para leer el nombre de la rama, y tiene que leerlo ANTES de que este módulo lo remueva. Dos
+ * resoluciones distintas del «worktree efectivo» podrían apuntar a sitios distintos y encolar
+ * la rama equivocada.
+ *
  * @param {import('../session/state.js').Session} session
  * @param {(path: string) => boolean} existsFn
  * @returns {string} Path del worktree a sanear.
  */
-function resolveEffectiveWorktree(session, existsFn) {
+export function resolveEffectiveWorktree(session, existsFn) {
   const persisted = /** @type {string} */ (session.worktree_path);
   if (existsFn(persisted)) return persisted;
   if (!session.project_path || !session.session_id) return persisted;
@@ -102,10 +125,7 @@ export async function performTerminalCleanup({ id, session, gitFn, loggerFactory
             }).child({ component: 'hook', task_id: session.task_id });
           })();
 
-      const gitImpl = gitFn || (async (cwd, gitArgs) => {
-        const { execFileSync } = await import('node:child_process');
-        return execFileSync('git', ['-C', cwd, ...gitArgs], { encoding: 'utf-8' }).trim();
-      });
+      const gitImpl = gitFn || defaultGitFn;
 
       await cleanupWorktree({
         project: session.project_path,

@@ -108,6 +108,17 @@ function makeSession(overrides = {}) {
   };
 }
 
+/**
+ * Stub de la captura de la cola de integración (KODO-26).
+ *
+ * OBLIGATORIO en toda invocación de `runSessionEndHook`, misma clase de fuga que
+ * `stateWriterFn`/`getOrchestratorFn`: sin inyectarlo, el hook consulta git de verdad y encola
+ * en el `~/.kodo/state.json` REAL del operador (T-74-15), y además mete sus propios comandos en
+ * cualquier `gitFn` que la suite esté contando. La cobertura de la captura vive en
+ * test/integration/capture.test.js.
+ */
+const noCapture = async () => ({ captured: false, reason: 'stubbed', entry: null });
+
 describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
   it('sesión viva (no worktree): emite session.end + remueve la sesión', async () => {
     const session = makeSession();
@@ -117,6 +128,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -140,6 +152,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       {
         // Simula una sesión ya archivada (Stop espurio, SessionEnd previo, doctor).
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -159,6 +172,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       { session_id: 'unknown', cwd: '/tmp/elsewhere' },
       {
         findSessionFn: () => null,
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -179,6 +193,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
           getOrchestratorFn: noOrchestrator,
@@ -207,6 +222,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -248,6 +264,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -273,6 +290,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -308,6 +326,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -337,6 +356,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
           getOrchestratorFn: noOrchestrator,
@@ -366,6 +386,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -430,6 +451,7 @@ describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)'
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn,
@@ -493,6 +515,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -530,6 +553,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -555,6 +579,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -580,6 +605,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
           getOrchestratorFn: noOrchestrator,
@@ -609,6 +635,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
           getOrchestratorFn: noOrchestrator,
@@ -633,6 +660,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -663,6 +691,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -703,6 +732,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -732,6 +762,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
         stateWriterFn: noopStateWriter,
         getOrchestratorFn: noOrchestrator,
@@ -760,6 +791,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
           stateWriterFn: noopStateWriter,
           getOrchestratorFn: noOrchestrator,

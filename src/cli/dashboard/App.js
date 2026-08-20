@@ -75,6 +75,7 @@ import { readPlan } from './plan.js';
 import { readGsdProgress } from './progress.js';
 import { readTasks } from './tasks.js';
 import { readOpenCaptureCount } from './inbox-count.js';
+import { readPendingIntegrationCount } from './queue-count.js';
 import { existsSync } from 'node:fs';
 import { computeRealWorktreePath } from '../../session/state.js';
 import { resolvePhase } from '../../gsd/resolver.js';
@@ -509,6 +510,10 @@ export default function App({
   // readOpenCaptureCount real (leaf never-throws → 0); inyectable para aislar el HOME en tests
   // (mismo patrón DI que readTasksFn — sin él, los tests leerían el inbox real del desarrollador).
   inboxCountFn = readOpenCaptureCount,
+  // KODO-26: entradas PENDIENTES de la cola de integración (~/.kodo/state.json). Default =
+  // readPendingIntegrationCount real (leaf never-throws → 0); inyectable para aislar el HOME en
+  // tests, mismo patrón DI que inboxCountFn.
+  queueCountFn = readPendingIntegrationCount,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -753,6 +758,12 @@ export default function App({
   // `readTasksFn`: piggyback sobre el ciclo de render que el tick de usePoll ya redispara —
   // cero timers nuevos, cero cambios en el scheduler. never-throws → 0 (D-20).
   const inboxOpen = inboxCountFn({});
+  // KODO-26: mismo sitio, misma cadencia y misma política de colapso en 0 que `inboxOpen` — es
+  // la otra presión ambient del operador: capturas sin triar por un lado, ramas sin integrar por
+  // el otro. Tampoco se deriva del conjunto de sesiones (la rama sobrevive a su sesión), así que
+  // no tiene el problema de parpadeo bajo filtro que obliga a derivar los `any*` sobre el set
+  // sin filtrar. never-throws → 0.
+  const queuePending = queueCountFn({});
   const enriched = sorted.map((rawRow) => {
     // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
     // columna task_ref; summary usado en filtro/plan y como task.title) pasa por
@@ -2066,6 +2077,7 @@ export default function App({
         anyProgress, // PROG-03 D-06: flag estructural progreso (sobre `enriched` sin filtrar) → drop columna prog
         anyNext, // LIVE-05 Pitfall 4: flag estructural NEXT: (sobre `enriched` sin filtrar) → drop columna next
         inboxOpen, // CAPT-07 D-22/D-23: capturas sin enrutar → 3er hijo del header; en 0 no se emite
+        queuePending, // KODO-26: ramas esperando integración → 4º hijo del header; en 0 no se emite
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
         footerColor, // Phase 42 D-09: color del footer transitorio (green/yellow/red derivado de actions[])
         armedTaskRef, // Phase 42 D-02: task_ref del confirm armado (copy del DISMISS_CONFIRM)

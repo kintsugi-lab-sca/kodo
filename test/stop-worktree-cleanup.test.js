@@ -84,6 +84,17 @@ function makeGitFnStub(handler) {
   return { gitFn, calls };
 }
 
+/**
+ * Stub de la captura de la cola de integración (KODO-26).
+ *
+ * OBLIGATORIO en toda invocación de `runSessionEndHook`, misma clase de fuga que
+ * `stateWriterFn`/`getOrchestratorFn`: sin inyectarlo, el hook consulta git de verdad y encola
+ * en el `~/.kodo/state.json` REAL del operador (T-74-15), y además mete sus propios comandos en
+ * cualquier `gitFn` que la suite esté contando. La cobertura de la captura vive en
+ * test/integration/capture.test.js.
+ */
+const noCapture = async () => ({ captured: false, reason: 'stubbed', entry: null });
+
 describe('KODO-18: el worktree del HOST no se borra jamás', () => {
   // Guarda de SEGURIDAD, no de corrección: `worktree_path` también se rellena cuando el
   // checkout lo creó el host (Orca) —el dashboard lo necesita para leer el `.planning/`
@@ -101,6 +112,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -128,6 +140,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -149,6 +162,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -176,6 +190,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -213,6 +228,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -241,6 +257,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -274,6 +291,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -300,6 +318,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -325,6 +344,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       { session_id: session.session_id, cwd: session.project_path },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -361,6 +381,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -400,6 +421,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         { session_id: session.session_id, cwd: session.project_path },
         {
           findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -456,6 +478,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       { session_id: session.session_id, cwd: repo },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -485,6 +508,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       { session_id: session.session_id, cwd: repo },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -521,6 +545,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       { session_id: session.session_id, cwd: repo },
       {
         findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,

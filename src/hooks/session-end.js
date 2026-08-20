@@ -77,6 +77,7 @@ async function readStdin() {
  *   stateWriterFn?: typeof upsertTaskHandoff,
  *   now?: () => Date,
  *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
+ *   captureIntegrationFn?: typeof import('../integration/capture.js').captureIntegration,
  * }} [deps]
  *   `plansDir`/`fs`/`stateWriterFn`/`now` (Phase 74) fluyen tal cual hasta
  *   `writeHandoff`. Sin ellos, la suite de tests escribiría en el `~/.kodo` REAL del
@@ -86,6 +87,11 @@ async function readStdin() {
  *   inyectarlo el hook LEE el `~/.kodo/state.json` real y el resultado de la suite pasa a
  *   depender de si la máquina tiene un orquestador vivo. Fluye tal cual hasta
  *   `resolveOrchestratorTargets`; sin él, el default es el `getOrchestrator` real.
+ *   `captureIntegrationFn` (KODO-26) cierra la MISMA fuga por tercera vez, ahora en escritura:
+ *   la captura de la cola encola en el `~/.kodo/state.json` real y consulta git de verdad, así
+ *   que un test que no lo inyecte ensucia el HOME del operador en cada `npm test` (T-74-15) y
+ *   además mete comandos git propios en cualquier stub de `gitFn` que la suite esté contando.
+ *   Sin él, el default es el `captureIntegration` real.
  * @returns {Promise<void>}
  */
 /**
@@ -256,6 +262,45 @@ export async function runSessionEndHook(input, deps = {}) {
       } catch (err) {
         console.error(`[kodo:session-end] Error releasing GSD lock: ${/** @type {Error} */ (err).message}`);
       }
+    }
+
+    // ── Captura de la cola de integración (KODO-26) ────────────────────────
+    // Va AQUÍ, en el último hueco ANTES del cleanup terminal, por una razón mecánica: el
+    // nombre de la rama se lee del worktree de la sesión, y `performTerminalCleanup` lo
+    // remueve tres líneas más abajo. Detrás del cleanup no habría dónde leerlo.
+    //
+    // Va DESPUÉS del handoff (:190) y del backstop a propósito: los dos son más valiosos que
+    // esto. Si algo se atasca, lo que tiene que haber aterrizado ya es el handoff.
+    //
+    // FAIL-OPEN (invariante del enunciado): la sesión cierra igual si la captura falla. La
+    // cola es conveniencia — la rama con trabajo sin mergear ya sobrevive al cleanup por
+    // KODO-21, así que aquí nunca se pierde trabajo, solo la comodidad de verlo listado.
+    // `captureIntegration` ya es never-throws de cuerpo entero; este try/catch cubre además el
+    // `await import()` y la resolución del worktree.
+    try {
+      const { captureIntegration } = deps.captureIntegrationFn
+        ? { captureIntegration: deps.captureIntegrationFn }
+        : await import('../integration/capture.js');
+      const { resolveEffectiveWorktree, defaultGitFn } = await import('./terminal-cleanup.js');
+      const fsImpl = deps.fs || nodeFs;
+      // Sesión con worktree de kodo → se lee de ahí (incluidas las de Orca, cuyo checkout no se
+      // limpia pero sí tiene la rama). Sesión adoptada sin worktree → se lee del propio repo.
+      const captureDir = session.worktree_path
+        ? resolveEffectiveWorktree(session, (p) => fsImpl.existsSync(p))
+        : null;
+      const capture = await captureIntegration({
+        session,
+        worktree: captureDir,
+        gitFn: deps.gitFn || defaultGitFn,
+        logger: log,
+      });
+      if (capture.captured && capture.entry) {
+        console.error(
+          `[kodo:integrate] cola — ${capture.entry.branch}: ${capture.entry.commits_ahead ?? '?'} commits, sugerencia ${capture.entry.suggested}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[kodo:session-end] Integration capture error: ${/** @type {Error} */ (err).message}`);
     }
 
     // Cleanup terminal destructivo (helper compartido, fail-open por paso).

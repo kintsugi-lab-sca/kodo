@@ -76,6 +76,17 @@ function makeCmuxStub() {
   };
 }
 
+/**
+ * Stub de la captura de la cola de integración (KODO-26).
+ *
+ * OBLIGATORIO en toda invocación de `runSessionEndHook`, misma clase de fuga que
+ * `stateWriterFn`/`getOrchestratorFn`: sin inyectarlo, el hook consulta git de verdad y encola
+ * en el `~/.kodo/state.json` REAL del operador (T-74-15), y además mete sus propios comandos en
+ * cualquier `gitFn` que la suite esté contando. La cobertura de la captura vive en
+ * test/integration/capture.test.js.
+ */
+const noCapture = async () => ({ captured: false, reason: 'stubbed', entry: null });
+
 describe('stop hook — Phase 30 idempotency (CR-01)', () => {
   let tmpHome;
   let origHome;
@@ -157,6 +168,7 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
         cmux: cmux1,
+        captureIntegrationFn: noCapture,
         loggerFactory: () => logger1,
         // NO inyectamos findSessionFn — usamos el real para que el state.json del
         // tmpdir refleje la transición real sessions→history que el guard explota.
@@ -198,6 +210,7 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
         cmux: cmux2,
+        captureIntegrationFn: noCapture,
         loggerFactory: () => logger2,
         removeSessionFn: (id) => {
           removeSessionCalls2.push(id);

@@ -795,6 +795,11 @@ function renderModulesOverlay(snapshot, fieldCursor, mode, buffer, cursor, proje
  *   indicador de conexión y de `countsLabel`; cuando es `0` el `<Text>` NO se emite y la cabecera
  *   queda byte-idéntica a la de antes de esta fase (mismo colapso estructural que anyGsd/
  *   anyProgress). Default `0` (retro-compat: sin la prop no se pinta nada).
+ * @param {number} [props.queuePending] - KODO-26: entradas PENDIENTES de la cola de integración
+ *   (`integration_queue` de `~/.kodo/state.json`), leídas en App.js por el leaf never-throws
+ *   `readPendingIntegrationCount`. Cuando es `> 0` se pinta como CUARTO hijo del header, en cyan
+ *   y detrás del conteo del inbox; en `0` el `<Text>` NO se emite y la cabecera queda
+ *   byte-idéntica a la previa (mismo colapso estructural que `inboxOpen`). Default `0`.
  * @param {'list'|'filter'|'overlay'|'confirm'|'deriving'} [props.mode] - modo de interacción. En
  *   `filter` se muestra la línea de filtro modal al pie; en `confirm` (Phase 42) el armed prompt
  *   persistente; en `deriving` (Phase 62) el spinner DERIVE_PROGRESS mientras onDerive corre.
@@ -840,6 +845,7 @@ export default function SessionTable({
   anyProgress = false,
   anyNext = false,
   inboxOpen = 0,
+  queuePending = 0,
   mode = 'list',
   query = '',
   focusError = null,
@@ -936,6 +942,12 @@ export default function SessionTable({
     indicator,
     label ? h(Text, null, `   ${label}`) : null,
     inboxOpen > 0 ? h(Text, { color: 'yellow' }, `   ${inboxOpen} sin enrutar`) : null,
+    // KODO-26: CUARTO hijo, siempre el último y con la misma forma contractual que el conteo del
+    // inbox (3 espacios embebidos en el template, cero Box nuevo, cero aritmética de anchos, sin
+    // bold ni dim). Cyan y no amarillo a propósito: es otra presión, no la misma — el inbox pide
+    // triar ideas, esto pide integrar ramas, y distinguirlas de un vistazo es todo el valor de
+    // que sean dos números y no uno. En 0 no se emite (mismo colapso estructural).
+    queuePending > 0 ? h(Text, { color: 'cyan' }, `   ${queuePending} por integrar`) : null,
   );
 
   // Línea de filtro modal (D-13, UI-SPEC:191): prompt `/ <query>▏` al pie, SOLO cuando mode==='filter'.

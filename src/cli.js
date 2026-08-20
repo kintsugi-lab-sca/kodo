@@ -702,6 +702,48 @@ inbox
     }
   });
 
+// --- kodo integrate --- (KODO-26: cola de integración)
+//
+// MISMA forma que `inbox` y por la MISMA razón: el padre lista, y la acción sobre una entrada
+// concreta viaja como argumento + flag. Aquí no hay subcomandos — `kodo integrate KODO-26 --ff`
+// se lee como la frase que el operador diría en voz alta, y `kodo integrate` a secas es el
+// listado que el orquestador consulta en cada ronda.
+//
+// NO `ensureConfig()`: la cola es filesystem local (`~/.kodo/state.json`) + git, y no toca
+// ningún provider. Mismo precedente que `inbox`, `skill sync` y `gsd doctor`.
+program
+  .command('integrate [ref]')
+  .description(
+    'Cola de integración: sin argumentos LISTA lo que espera integración; con <ref> ejecuta la acción indicada',
+  )
+  .option('--all', 'En el listado: incluir también las entradas ya resueltas (la traza)')
+  .option('--json', 'Emitir el resultado como JSON (scriptable, byte-determinista)')
+  .option('--ff', 'Integrar con fast-forward (falla si no es posible; nunca crea un merge commit)')
+  .option('--merge', 'Integrar con merge commit explícito (--no-ff)')
+  .option('--pr', 'Preparar la rama para PR: valida y DEVUELVE el comando gh listo. NO hace push ni crea la PR')
+  .option('--drop', 'Descartar la entrada de la cola SIN tocar la rama')
+  .option('--test <cmd>', 'Correr esta suite en el repo antes de integrar; si falla, no se integra nada')
+  .action(async (ref, opts) => {
+    try {
+      const mod = await import('./cli/integrate.js');
+      if (!ref) {
+        process.exitCode = mod.runIntegrateListCli({ all: opts.all || false, json: opts.json || false });
+        return;
+      }
+      process.exitCode = await mod.runIntegrateActionCli(ref, {
+        ff: opts.ff || false,
+        merge: opts.merge || false,
+        pr: opts.pr || false,
+        drop: opts.drop || false,
+        json: opts.json || false,
+        test: opts.test,
+      });
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
 program.parse();
 
 // --- Helpers ---
