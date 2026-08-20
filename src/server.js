@@ -622,7 +622,7 @@ export async function startServer(opts = {}) {
   // WorkspaceHost, aplica transiciones con debouncing 2-tick, rescata sesiones
   // desde history cuya tab sigue viva (cierra ROMAN-151/152) y sella las dead
   // viejas a closed. never-throws; .unref() para no bloquear el cierre.
-  const { getHost } = await import('./host/interface.js');
+  const { getHost, resolveHostName } = await import('./host/interface.js');
   const { startReconcileLoop } = await import('./session/reconcile.js');
   const { createLogger } = await import('./logger.js');
   // createLogger exige un sessionId (lo usa como nombre del NDJSON). El server es
@@ -633,7 +633,8 @@ export async function startServer(opts = {}) {
     minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
   }).child({ component: 'reconcile' });
   const stopReconcile = startReconcileLoop({
-    host: getHost('cmux'),
+    // KODO-18: host ACTIVO (config.host) en vez del literal 'cmux'.
+    host: getHost(resolveHostName()),
     loadState,
     saveState,
     // Phase 70 Plan 02: el save del tick participa del MISMO state lock que los

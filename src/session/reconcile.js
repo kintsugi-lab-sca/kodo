@@ -35,6 +35,7 @@
 // usado SOLO en isSessionProcessAlive (derivación de process_alive vía pgrep).
 
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 /** Ventana de retención antes de sellar una `dead` a `closed` (D-07 step 4). */
 const SEAL_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -154,6 +155,82 @@ function deriveTarget(session, live, now) {
 }
 
 /**
+ * Deriva el estado objetivo de una sesión que pertenece a OTRO host (KODO-18).
+ *
+ * La diferencia con `deriveTarget` es CUÁNTA evidencia hay, no cuánta se ignora. Para
+ * una sesión de otro cliente kodo tiene DOS señales y solo una es ciega:
+ *
+ *   · la TAB es inobservable — su `workspace_ref` no puede aparecer en el snapshot de
+ *     este host. Por eso se omite la primera línea de `deriveTarget`
+ *     (`if (!live || !live.alive) return 'dead'`), que es la que corrompía sesiones
+ *     sanas al leer la ausencia estructural como desaparición.
+ *   · el PROCESO sí es observable: `process_alive` sale de un `pgrep` por session_id,
+ *     que no sabe ni le importa en qué cliente vive la tab.
+ *
+ * Descartar también la señal del proceso —que es lo que hacía la primera versión de la
+ * guarda, saltándose la sesión entera— dejaba dos fugas: una sesión congelada en
+ * `running`/`alive:true` retenía su slot de `max_parallel` para siempre (la fuga de
+ * capacidad A4 que `isSchedulable` cerró), y una ya `dead` nunca llegaba a sellarse a
+ * `closed`, engordando `state.sessions` sin techo.
+ *
+ * Sin evidencia concluyente devuelve el estado ACTUAL, que en el caller significa
+ * «estable» → ni transición ni escritura.
+ *
+ * @param {Session} session
+ * @param {number} now - timestamp ms (inyectado).
+ * @returns {'running'|'idle'|'needs-input'|'dead'}
+ */
+function deriveTargetForeign(session, now) {
+  // Muerte del proceso SOSTENIDA: el agente ya no existe. Que la tab siga o no abierta
+  // en el otro cliente es irrelevante — la sesión terminó, y declararlo es lo que
+  // libera su slot y permite el sellado posterior. Es la ÚNICA afirmación que estos
+  // datos sostienen.
+  if (isProcessDeadBeyondGrace(session, now)) return 'dead';
+  // Proceso vivo: sabemos que el agente EXISTE, no si está trabajando o esperando —
+  // ese matiz lo da la tab, que es justo lo que no vemos. Devolver `'running'` aquí
+  // sería inventarlo (y además relabelaría a running toda sesión `idle` del otro
+  // cliente, con su escritura espuria). Conservar es lo honesto y lo barato: el caller
+  // lo lee como «estable» → ni transición ni escritura.
+  return session.state;
+}
+
+/**
+ * Espejo de `applyLiveFields` para sesiones de otro host (KODO-18): actualiza SOLO lo
+ * derivable y PRESERVA lo que no se puede observar.
+ *
+ * `applyLiveFields` escribiría `tab_alive:false` / `needs_input:false` a partir de un
+ * `live` undefined — pero ese undefined aquí no significa «la tab no está», significa
+ * «no puedo verla». Afirmar `false` sería inventar. `alive` sí se recalcula: es una
+ * función pura del estado efectivo, no una observación del host.
+ *
+ * @param {Session} session
+ * @param {'running'|'idle'|'needs-input'|'dead'} effectiveState
+ * @returns {Session}
+ */
+function applyForeignFields(session, effectiveState) {
+  return {
+    ...session,
+    alive: effectiveState === 'running' || effectiveState === 'idle' || effectiveState === 'needs-input',
+  };
+}
+
+/**
+ * Nombre del host activo, resuelto PEREZOSAMENTE (KODO-18). `require` en vez de import
+ * estático para no romper el invariante de este módulo: nada de I/O ni de lectura de
+ * config al CARGARLO (los tests lo importan puro). never-throws → `undefined` desactiva
+ * la guarda por host, que es el comportamiento previo.
+ *
+ * @returns {string|undefined}
+ */
+function resolveActiveHostName() {
+  try {
+    return createRequire(import.meta.url)('../host/interface.js').resolveHostName();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Aplica un tick de reconciliación. PURA: no muta `state` (clona lo que cambia)
  * ni hace I/O. never-throws.
  *
@@ -164,9 +241,12 @@ function deriveTarget(session, live, now) {
  * @param {number} opts.tick - número de tick monotónico (para trazas).
  * @param {number} opts.now - timestamp ms (inyectado — NO Date.now() interno, testabilidad).
  * @param {{ warn: Function, info?: Function }} [opts.logger] - logger inyectado (LOG-12). Opcional.
- * @returns {{ state: State, events: { rescued: number, sealed: number, transitioned: number, total: number } }}
+ * @param {string} [opts.hostName] - KODO-18: nombre del host que produjo `liveRefs`. Cuando
+ *   se pasa, las sesiones cuyo `host` PERSISTIDO no coincide se dejan INTACTAS (ver el
+ *   guard dentro del bucle). Omitirlo mantiene el comportamiento previo (todas se evalúan).
+ * @returns {{ state: State, events: { rescued: number, sealed: number, transitioned: number, total: number, foreign: number } }}
  */
-export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logger }) {
+export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logger, hostName }) {
   // F5 (D-07): host falló → skip tick, sin cambios. El caller ya emitió el
   // host.list_workspaces.fail; aquí solo dejamos traza del skip.
   if (liveRefs === null || liveRefs === undefined) {
@@ -179,6 +259,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   let transitioned = 0;
   let rescued = 0;
   let sealed = 0;
+  let foreign = 0; // KODO-18: sesiones de otro host, no observables desde este snapshot
 
   // Trabajamos sobre copias para preservar la pureza (no mutar el input).
   /** @type {Record<string, Session>} */
@@ -188,10 +269,31 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
 
   // ── (1) Transiciones + sellado sobre las sessions activas ──────────────────
   for (const [taskId, session] of Object.entries(state.sessions)) {
+    // ── KODO-18: guarda por HOST ────────────────────────────────────────────
+    // Desde que `config.host` es conmutable, `state.sessions` puede contener sesiones
+    // de un cliente que ya no es el activo. Su `workspace_ref` NUNCA aparece en este
+    // snapshot —no puede—, así que sin la guarda el bucle leería esa ausencia
+    // ESTRUCTURAL como «tab desaparecida» y degradaría a idle/dead sesiones
+    // perfectamente vivas en el otro cliente (observado en el UAT de KODO-18 sobre
+    // cuatro sesiones reales). Ausencia de evidencia no es evidencia de muerte: mismo
+    // criterio que el `unverifiable` del gate del orquestador, y el reverso de
+    // ROMAN-151/152.
+    //
+    // La guarda degrada la EVIDENCIA, no salta la sesión: la tab es inobservable, pero
+    // el proceso sí lo es (`pgrep` por session_id no depende del cliente). Ver
+    // `deriveTargetForeign` — saltarla entera fugaba slots de `max_parallel` y bloqueaba
+    // el sellado a `closed`.
+    //
+    // Exige evidencia POSITIVA de discrepancia: ambos nombres presentes y distintos.
+    // Una sesión legacy sin `host` (pre-KODO-18) o un caller sin `hostName` caen al
+    // comportamiento previo — cero regresión.
+    const isForeign = Boolean(hostName && session.host && session.host !== hostName);
+    if (isForeign) foreign++;
+
     // Identidad-verificada: si el ref fue reciclado a otra sesión, `live` es undefined
     // → deriveTarget → 'dead' (cmux reusa workspace:N — ver liveForSession).
-    const live = liveForSession(liveByRef.get(session.workspace_ref), session);
-    const target = deriveTarget(session, live, now);
+    const live = isForeign ? undefined : liveForSession(liveByRef.get(session.workspace_ref), session);
+    const target = isForeign ? deriveTargetForeign(session, now) : deriveTarget(session, live, now);
 
     // Sellado a closed (D-07 step 4): dead con dead_since > 30 días → history.
     if (session.state === 'dead' && session.dead_since) {
@@ -231,7 +333,9 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     if (next.tick_count >= DEBOUNCE_TICKS) {
       // Aplica la transición.
       debounceStore.delete(taskId);
-      const transitioned_session = applyLiveFields({ ...session, state: target }, live, target, now);
+      const transitioned_session = isForeign
+        ? applyForeignFields({ ...session, state: target }, target)
+        : applyLiveFields({ ...session, state: target }, live, target, now);
       if (target === 'dead' && session.state !== 'dead') {
         transitioned_session.dead_since = new Date(now).toISOString();
       }
@@ -240,7 +344,9 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     } else {
       // Aún en debounce: conserva el estado actual, guarda el pending.
       debounceStore.set(taskId, next);
-      sessions[taskId] = applyLiveFields(session, live, session.state, now);
+      sessions[taskId] = isForeign
+        ? applyForeignFields(session, session.state)
+        : applyLiveFields(session, live, session.state, now);
     }
   }
 
@@ -249,6 +355,15 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   // vuelve a sessions con el estado derivado (idle/needs-input) y tab_alive:true.
   const keptHistory = [];
   for (const entry of history) {
+    // KODO-18: simetría con el carril (1). Una entry de OTRO host no puede ser
+    // rescatada por este snapshot: su ref no está aquí, y si alguna vez lo estuviera
+    // sería por colisión de formato entre clientes, nunca por identidad real. Hoy los
+    // refs de cmux (`workspace:N`) y orca (`<repoId>::<path>`) no pueden colisionar, así
+    // que esto es un cierre estructural, no un parche a un fallo observado.
+    if (hostName && entry.host && entry.host !== hostName) {
+      keptHistory.push(entry);
+      continue;
+    }
     // Mismo guard de identidad: NO revivir una entry porque su ref reciclado esté vivo
     // bajo OTRA sesión (evita resucitar la sesión equivocada).
     const live = liveForSession(liveByRef.get(entry.workspace_ref), entry);
@@ -286,12 +401,12 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   // Si nada cambió, retornar el state original (referencialmente) para que el
   // caller pueda saltarse la escritura a disco.
   if (transitioned === 0 && rescued === 0 && sealed === 0) {
-    return { state, events: { rescued, sealed, transitioned, total } };
+    return { state, events: { rescued, sealed, transitioned, total, foreign } };
   }
 
   return {
     state: { ...state, sessions, history },
-    events: { rescued, sealed, transitioned, total },
+    events: { rescued, sealed, transitioned, total, foreign },
   };
 }
 
@@ -373,7 +488,10 @@ export function isSessionProcessAlive(sessionId, pgrep) {
  * @param {(sessionId: string) => string} [deps.pgrep] - inyectable (tests) para isSessionProcessAlive.
  * @returns {Promise<{ rescued: number, sealed: number, transitioned: number, total: number }>}
  */
-export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep }) {
+export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep, hostName: hostNameOpt }) {
+  // KODO-18: nombre del host que produce el snapshot. Inyectable para los tests; por
+  // defecto el activo. Lo consume la guarda por host de `reconcileTick`.
+  const hostName = hostNameOpt ?? resolveActiveHostName();
   const started = now();
   /** @type {LiveRef[]|null} */
   let liveRefs = null;
@@ -414,8 +532,11 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
   // pgrep ya corrió arriba (Pitfall 1). Default passthrough para los tests que
   // inyectan loadState/saveState in-memory (no tocan el FS).
   const runLocked = withStateLock ?? /** @type {<T>(fn: () => T) => { ok: boolean, value: T }} */ ((fn) => ({ ok: true, value: fn() }));
-  /** @type {{ rescued: number, sealed: number, transitioned: number, total: number }} */
-  let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0 };
+  /** @type {{ rescued: number, sealed: number, transitioned: number, total: number, foreign: number }} */
+  // KODO-18: `foreign` cuenta las sesiones de otro cliente que este tick NO pudo
+  // observar por tab. Va en la telemetría para que la degradación sea visible en
+  // `host.reconcile.tick` en vez de silenciosa.
+  let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0, foreign: 0 };
   // LOG-hygiene: ¿el tick cambió algo (persistió)? Es el señalador de "acción real"
   // — más fiel que los contadores (la derivación idle persiste pero no incrementa
   // `transitioned`). Un tick sin cambios es el heartbeat idle que inflaba el NDJSON.
@@ -462,7 +583,7 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
       if (changed) state = { ...state, sessions };
     }
 
-    const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger });
+    const { state: newState, events: ev } = reconcileTick(state, liveRefs, { debounceStore, tick, now: now(), logger, hostName });
     events = ev;
     // Save condicional DENTRO del lock: solo si algo cambió (no-write optimization).
     if (newState !== state) {
@@ -502,6 +623,14 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
  */
 export function startReconcileLoop(deps) {
   const debounceStore = new Map();
+  // KODO-18: el host activo se resuelve UNA vez al arrancar el loop, no en cada tick.
+  // `resolveActiveHostName()` acaba en `loadConfig()`, que lee y valida
+  // ~/.kodo/config.json: hacerlo cada 2,5 s durante toda la vida del daemon sería I/O
+  // de disco en el bucle caliente a cambio de nada. Cambiar `config.host` ya exige
+  // reiniciar el daemon (como el resto del config), así que un valor por loop es tan
+  // fresco como puede ser. Los callers directos de `runReconcileTick` (tests, CLI)
+  // siguen resolviéndolo ellos.
+  const hostName = deps.hostName ?? resolveActiveHostName();
   let tick = 0;
   let running = false; // single-flight: no solapar ticks si uno tarda > interval
   const intervalMs = deps.intervalMs ?? RECONCILE_INTERVAL_MS;
@@ -523,6 +652,7 @@ export function startReconcileLoop(deps) {
         tick,
         now,
         logger: deps.logger,
+        hostName, // KODO-18: resuelto una vez arriba, fuera del bucle caliente
       });
     } catch (err) {
       // never-throws: un fallo del tick no debe tumbar el server.

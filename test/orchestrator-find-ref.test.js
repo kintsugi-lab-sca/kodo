@@ -38,6 +38,41 @@ describe('findOrchestratorRef — resolución pura del ref del orquestador', () 
   });
 });
 
+describe('findOrchestratorRef — KODO-18: el ref ya no tiene que ser `workspace:N`', () => {
+  it('cmux: tolera el sangrado del listado real', () => {
+    const text = ['  workspace:12  kodo-orchestrator', '  workspace:6  Grupo 1'].join('\n');
+    assert.equal(findOrchestratorRef(text), 'workspace:12');
+  });
+
+  it('cmux: tolera el marcador `*` y el sufijo [selected] de la fila activa', () => {
+    assert.equal(
+      findOrchestratorRef('* workspace:3  kodo-orchestrator  [selected]'),
+      'workspace:3',
+    );
+  });
+
+  it('orca: resuelve el ref `<repoId>::<path>`', () => {
+    const text = [
+      'f56c::/Users/alex/orca/workspaces/kodo/kodo-orchestrator  kodo-orchestrator',
+      'f56c::/Users/alex/dev/klab/kodo  main',
+    ].join('\n');
+    assert.equal(
+      findOrchestratorRef(text),
+      'f56c::/Users/alex/orca/workspaces/kodo/kodo-orchestrator',
+    );
+  });
+
+  it('el ancla de línea impide el falso positivo de un título que CONTIENE el nombre', () => {
+    // Sin el ancla, aflojar la regex de `workspace:\d+` a `\S+` habría hecho que un
+    // workspace titulado "mi kodo-orchestrator" se adoptara como el orquestador.
+    assert.equal(findOrchestratorRef('  workspace:9  mi kodo-orchestrator'), null);
+  });
+
+  it('no matchea una línea sin ref delante del nombre', () => {
+    assert.equal(findOrchestratorRef('kodo-orchestrator'), null);
+  });
+});
+
 describe('persist/readOrchestratorRef — ref persistido para el daemon (window-independiente)', () => {
   /** @type {string} */ let tmpHome;
   /** @type {string | undefined} */ let savedHome;

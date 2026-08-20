@@ -372,6 +372,22 @@ export function createCmuxHost(opts = {}) {
     async setColor(opts) {
       return (await import('../cmux/client.js')).setColor(opts);
     },
+    /**
+     * Refleja el estado semántico de la sesión en el host (KODO-18). Verbo
+     * HOST-AGNÓSTICO: recibe el estado de kodo (`running`/`done`/`error`/`review`),
+     * NO un color ya resuelto — cada host decide su canal (color de tab en cmux,
+     * columna del tablero en orca). Esto saca `colorForStatus` del launch path y deja
+     * el vocabulario de colores confinado a este módulo, que es lo que permitió que
+     * `session/manager.js` deje de importar `cmux/colors.js`.
+     * @param {{ workspace: string, status: 'running'|'done'|'error'|'review' }} opts
+     */
+    async setStatus(opts) {
+      const [{ setColor }, { colorForStatus }] = await Promise.all([
+        import('../cmux/client.js'),
+        import('../cmux/colors.js'),
+      ]);
+      return setColor({ workspace: opts.workspace, color: colorForStatus(opts.status) });
+    },
     /** @param {{ workspace: string, description: string }} opts */
     async setDescription(opts) {
       return (await import('../cmux/client.js')).setDescription(opts);
@@ -401,12 +417,14 @@ export function createCmuxHost(opts = {}) {
       return (await import('../cmux/client.js')).listWorkspaceGroups();
     },
     /**
-     * KODO-22: JSON crudo de `cmux tree --all --json`. Es la ÚNICA vista que expone
-     * el UUID de cada workspace (la identidad estable — los `workspace:N` se reciclan)
-     * y además es cross-window, a diferencia de `listWorkspaces()`. La consume
-     * `session/manager.js` vía `resolveWorkspaceId` para sellar el `workspace_id` del
-     * SessionRecord sin importar `cmux/client.js` (invariante cmux-isolation SC#5).
-     * @returns {Promise<string>}
+     * Vista CROSS-WINDOW (`cmux tree --all --json`) — la ÚNICA que expone el UUID de
+     * cada workspace (la identidad estable; los `workspace:N` se reciclan).
+     * Dos consumidores, ambos sin importar `cmux/client.js` (invariante
+     * cmux-isolation SC#5): la revalidación de identidad del orquestador
+     * (`orchestrator/launch.js`, KODO-18 — con orca se sintetiza desde `worktree ps`)
+     * y `session/manager.js` vía `resolveWorkspaceId` para sellar el `workspace_id`
+     * del SessionRecord (KODO-22).
+     * @returns {Promise<string>} JSON crudo
      */
     async listTree() {
       return (await import('../cmux/client.js')).listTree();

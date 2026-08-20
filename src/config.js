@@ -71,6 +71,20 @@ const DEFAULT_CONFIG = {
       },
     },
   },
+  // KODO-18 — CLIENTE (WorkspaceHost) ACTIVO. Selector top-level, hermano exacto de
+  // `provider` (que elige entre `providers.plane` / `providers.github`): `host` elige
+  // entre los bloques `cmux` y `orca` de abajo.
+  //
+  // Por qué AQUÍ y no en `projects.json` ni en una env var: el host es una propiedad de
+  // la INSTALACIÓN (qué app de terminal tienes abierta en esta máquina), no de un
+  // proyecto ni de una invocación — igual que hoy `cmux.binary` es uno por instalación.
+  //
+  // El default `'cmux'` garantiza cero regresión: `loadConfig()` deep-mergea sobre estos
+  // defaults, así que los `~/.kodo/config.json` ya existentes (que no traen la clave)
+  // siguen resolviendo a cmux sin migración ni backup.
+  //
+  // Se cambia con: `kodo config set host orca`.
+  host: 'cmux',
   cmux: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/cmux',
     colors: {
@@ -78,6 +92,27 @@ const DEFAULT_CONFIG = {
       done: 'Green',
       error: 'Crimson',
       review: 'Blue',
+    },
+  },
+  // KODO-18 — bloque del host Orca, hermano estructural de `cmux` (solo se lee cuando
+  // `host === 'orca'`). Su presencia en los defaults es INERTE para un usuario de cmux.
+  orca: {
+    // Instalado por la app en /usr/local/bin. Se resuelve por PATH si el operador lo
+    // deja vacío o mueve el binario. AVISO (documentado por el propio CLI de Orca): en
+    // Linux, fuera de una terminal gestionada por Orca, `orca` a secas resuelve al
+    // LECTOR DE PANTALLA de GNOME — ahí hay que apuntar esto a `orca-ide`.
+    binary: '/usr/local/bin/orca',
+    // Equivalente semántico de `cmux.colors`: dónde aterriza cada estado de sesión en
+    // el tablero de Orca. Los ids son los de las columnas por defecto (`todo`,
+    // `in-progress`, `in-review`, `completed`); un tablero con columnas propias se
+    // ajusta aquí. `error` cae a `in-progress` a propósito: Orca no tiene columna de
+    // fallo y sacar la tarjeta del carril activo la escondería justo cuando hay que
+    // mirarla — el fallo ya se señaliza en el dashboard de kodo y en el provider.
+    statuses: {
+      running: 'in-progress',
+      done: 'completed',
+      error: 'in-progress',
+      review: 'in-review',
     },
   },
   claude: {

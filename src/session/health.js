@@ -1,7 +1,7 @@
 // @ts-check
 import { loadConfig } from '../config.js';
 import { loadState, updateSession, removeSession } from './state.js';
-import { getHost } from '../host/interface.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 
 /**
  * @typedef {'healthy'|'idle'|'stuck'|'gone'} SessionHealth
@@ -31,7 +31,8 @@ export async function checkHealth() {
   // — comportamiento idéntico al previo `import * as cmux`; el walker
   // cmux-isolation queda verde. La migración al contrato D-03 (listWorkspaces
   // tipado + isAlive) la hace 38-02.
-  const host = getHost('cmux');
+  // KODO-18: host ACTIVO (config.host), ya no el literal 'cmux'.
+  const host = getHost(resolveHostName());
 
   // Get current workspaces list once
   let workspaceList = '';
@@ -104,8 +105,10 @@ export async function checkHealth() {
  * @param {HealthReport[]} reports
  */
 export async function actOnHealth(reports) {
-  // Phase 38 SC#5: notify vía host._legacy (passthrough fiel de cmux/client.js).
-  const host = getHost('cmux');
+  // Phase 38 SC#5: notify vía host._legacy (passthrough fiel del cliente del host).
+  // KODO-18: en orca `notify` es un no-op documentado (su CLI no expone notificaciones
+  // de SO) — el aviso de sesión atascada sigue saliendo por consola.
+  const host = getHost(resolveHostName());
   for (const report of reports) {
     switch (report.health) {
       case 'gone':

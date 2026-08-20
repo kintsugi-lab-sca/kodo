@@ -61,6 +61,7 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *   workspace_id: string|null,    // UUID del workspace en cmux (`tree --all --json`.windows[].workspaces[].id, == CMUX_WORKSPACE_ID dentro de la tab). IDENTIDAD ESTABLE del orquestador. null cuando el host no pudo resolverlo al registrar (fail-open) — entonces la revalidación degrada al match por workspace_ref.
  *   session_id: string,           // session-id de Claude con el que arrancó el orquestador.
  *   started_at: string,           // ISO 8601 del lanzamiento.
+ *   host?: string,                // KODO-18: host bajo el que se registró ('cmux'|'orca'). ADITIVO OPCIONAL — las registraciones previas a KODO-18 no lo traen y se leen como `undefined`. Existe porque desde que `config.host` es conmutable, un registro puede pertenecer a un host que ya no es el activo: el workspace registrado no es alcanzable desde el host nuevo, así que la revalidación lo declara `dead` (correcto) y relanza — pero el orquestador del host ANTERIOR puede seguir vivo, y dos supervisores sobre el mismo state.json es justo lo que el carril de KODO-16 evita. El campo permite distinguir «murió» de «cambiaste de host» y AVISAR al operador. NO participa del veredicto.
  * }} OrchestratorRegistration
  *
  * @typedef {{
@@ -539,6 +540,9 @@ export function getOrchestrator() {
       workspace_id: typeof reg.workspace_id === 'string' && reg.workspace_id ? reg.workspace_id : null,
       session_id: typeof reg.session_id === 'string' ? reg.session_id : '',
       started_at: typeof reg.started_at === 'string' ? reg.started_at : '',
+      // KODO-18: aditivo opcional. Ausente en registros pre-KODO-18 → el caller lo lee
+      // como undefined y omite el aviso cross-host (sin evidencia, no se inventa).
+      ...(typeof reg.host === 'string' && reg.host ? { host: reg.host } : {}),
     };
   } catch {
     return null;
@@ -561,6 +565,9 @@ export function setOrchestrator(reg, logger = noopLogger) {
       workspace_id: reg.workspace_id ?? null,
       session_id: reg.session_id,
       started_at: reg.started_at,
+      // KODO-18: spread condicional — un caller que no lo pase deja el registro con el
+      // shape exacto de antes (mismo idiom que gsd_mode/phase_id en buildSessionFromTask).
+      ...(reg.host ? { host: reg.host } : {}),
     };
   });
   if (!r.ok) {

@@ -9,7 +9,7 @@ import { listSessions, removeSession, computeWorktreePath } from '../session/sta
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import { acquireLock, releaseLock } from '../session/state-lock.js';
-import * as cmux from '../cmux/client.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
 import { EVENTS, gsdPhaseResolved, gsdBootstrap } from '../logger-events.js';
@@ -73,7 +73,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
   const launchWorkItemFn = deps.launchWorkItemFn || launchWorkItem;
   const listSessionsFn = deps.listSessionsFn || listSessions;
-  const listWorkspacesFn = deps.listWorkspacesFn || (() => cmux.listWorkspaces());
+  // KODO-18: la lista de workspaces sale del host ACTIVO (`_legacy`), no del binario
+  // cmux. El seam `deps.listWorkspacesFn` no cambia — solo su default.
+  const listWorkspacesFn =
+    deps.listWorkspacesFn || (() => getHost(resolveHostName())._legacy.listWorkspaces());
   const removeSessionFn = deps.removeSessionFn || removeSession;
   const acquireGsdLockFn = deps.acquireGsdLockFn || acquireGsdLock;
   const releaseGsdLockFn = deps.releaseGsdLockFn || releaseGsdLock;

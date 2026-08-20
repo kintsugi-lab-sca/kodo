@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
 import { getSessionMode } from '../labels.js';
 import { stripForKeystroke } from '../cli/sanitize.js';
-import * as cmux from '../cmux/client.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..');
@@ -318,7 +318,10 @@ async function handleOrchestratorStop() {
 
     console.error('[kodo] Orchestrator skill changes auto-committed');
 
-    await cmux.notify({
+    // KODO-18: aviso por el host ACTIVO. En orca `notify` es un no-op documentado (su
+    // CLI no expone notificaciones de SO), así que el aviso queda en el `console.error`
+    // de arriba — el auto-commit en sí no depende de esto.
+    await getHost(resolveHostName())._legacy.notify({
       title: 'kodo: skill actualizado',
       body: `Aprendizajes del orquestador guardados (${date})`,
     });

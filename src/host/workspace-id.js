@@ -68,13 +68,19 @@ export function findWorkspaceInTree(treeJson, identity = {}) {
  *
  * @param {string} ref - `workspace:N`.
  * @param {{ listTreeFn?: () => Promise<string> }} [deps] - `listTreeFn` inyectado por
- *   los callers que ya tienen host (`host._legacy.listTree`); sin él cae al cliente
- *   cmux, cargado lazy para no acoplar este módulo a `cmux/client.js`.
+ *   los callers que ya tienen host (`host._legacy.listTree`); sin él cae al host
+ *   ACTIVO vía `./interface.js` (KODO-18: con `host: orca` el árbol se sintetiza
+ *   desde `worktree ps` — este default no debe cablear cmux).
  * @returns {Promise<string|null>}
  */
 export async function resolveWorkspaceId(ref, deps = {}) {
   try {
-    const listTreeFn = deps.listTreeFn || (await import('../cmux/client.js')).listTree;
+    const listTreeFn =
+      deps.listTreeFn ||
+      (async () => {
+        const { getHost, resolveHostName } = await import('./interface.js');
+        return getHost(resolveHostName())._legacy.listTree();
+      });
     const hit = findWorkspaceInTree(JSON.parse(await listTreeFn()), { ref });
     return hit ? hit.id : null;
   } catch {

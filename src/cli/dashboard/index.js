@@ -154,7 +154,7 @@ export async function runDashboard(deps = {}) {
   // getHost factory para instanciar el host cmux IN-PROCESS (D-01, getHost designa "el wiring del
   // dashboard" en interface.js). Mismo patrón lazy que runFocus/runOpen — cero overhead en arranque.
   const { runAdopt } = await import('./adopt.js');
-  const { getHost } = await import('../../host/interface.js');
+  const { getHost, resolveHostName } = await import('../../host/interface.js');
 
   // Phase 62 (ORCH-02): deriveAdoptionMeta (derivador LLM one-shot never-throws, Plan 01) +
   // readFileSync/existsSync de node:fs (DI del derivador — en enrich.js van inyectados, SOLO aquí
@@ -174,17 +174,22 @@ export async function runDashboard(deps = {}) {
   // (post-guard non-TTY), idéntico patrón a los otros lazy imports arriba.
   const execImpl = exec ?? (await import('node:child_process')).execFile;
 
-  // Resolución del binario cmux desde la config (mismo patrón que src/cmux/client.js:5-7). El
-  // default `/Applications/cmux.app/Contents/Resources/bin/cmux` viene de DEFAULT_CONFIG y se
-  // sobreescribe vía ~/.kodo/config.json si el operador apunta a otro binario. Llamada extra a
-  // loadConfig (cero coste real — primera invocación ya cacheó por la lectura de baseUrl arriba;
+  // Resolución del binario del host desde la config (mismo patrón que src/cmux/client.js:5-7).
+  // Los defaults (`/Applications/cmux.app/…/cmux`, `/usr/local/bin/orca`) vienen de
+  // DEFAULT_CONFIG y se sobreescriben vía ~/.kodo/config.json. Llamada extra a loadConfig
+  // (cero coste real — primera invocación ya cacheó por la lectura de baseUrl arriba;
   // segunda lectura solo re-deserializa el config en memoria).
-  const cmuxBin = loadConfig().cmux.binary;
+  // KODO-18: el binario se elige según el host ACTIVO, no siempre el de cmux.
+  const dashboardConfig = loadConfig();
+  const hostName = resolveHostName();
+  const hostBin = hostName === 'orca' ? dashboardConfig.orca?.binary : dashboardConfig.cmux?.binary;
 
-  // Phase 56 D-01: host cmux IN-PROCESS (reusa el MISMO execImpl + cmuxBin ya resueltos — CERO
+  // Phase 56 D-01: host IN-PROCESS (reusa el MISMO execImpl + binario ya resueltos — CERO
   // endpoint nuevo en el server, preserva el invariante "cero endpoints desde v0.10"). `listAgentSurfaces`
   // NO está en HOST_METHODS → se detecta por typeof en el prop onAdoptDiscover (fail-open a []).
-  const host = getHost('cmux', { exec: execImpl, binary: cmuxBin });
+  // El host orca NO lo implementa a propósito (Orca no publica el session_id de Claude), así que
+  // el descubrimiento de adopción degrada a [] sin romper el TUI.
+  const host = getHost(hostName, { exec: execImpl, binary: hostBin });
 
   // Phase 56 D-05: mapa projectId → path para el reverse-lookup cwd→projectId (resolveProjectId en
   // App.js). Mismo loadProjects() que lee src/cli/adopt.js — el dashboard resuelve el `--project`.

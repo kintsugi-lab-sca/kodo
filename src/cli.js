@@ -168,6 +168,10 @@ program
     '--polling',
     'Arranca polling integrado en el orchestrator (mismo proceso). NO usar con `kodo polling start` simultáneo sobre el mismo repo — mutex implícito vía lock per-repo Phase 8 GSD-10.',
   )
+  .option(
+    '--force',
+    'Descarta un registro de orquestador hecho bajo OTRO cliente y lanza uno nuevo en el activo (KODO-18). Úsalo solo tras comprobar que el del cliente anterior está cerrado: dos supervisores comparten state.json y la cola.',
+  )
   .action(async (opts) => {
     // W-5 LOCKED — ORDEN ESTRICTO:
     //   PASO 0: SIGINT/SIGTERM handlers ANTES de cualquier setup async (T-26-04 race mitigation).
@@ -213,7 +217,7 @@ program
       // Sin --polling, comportamiento idéntico a hoy (D-19 zero breaking change).
       try {
         const { launchOrchestrator } = await import('./orchestrator/launch.js');
-        const result = await launchOrchestrator();
+        const result = await launchOrchestrator({ force: opts.force });
         if (result.existing) {
           console.log(`Orchestrator already running at ${result.workspace}`);
         } else {

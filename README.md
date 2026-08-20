@@ -1,6 +1,6 @@
 # kodo 心動
 
-Sesiones de Claude Code automatizadas desde tu kanban. Mueves una tarea a "In Progress" → kodo lanza [Claude Code](https://claude.ai/code) en un workspace de [cmux](https://cmux.dev) → al terminar, la tarea vuelve como "In Review".
+Sesiones de Claude Code automatizadas desde tu kanban. Mueves una tarea a "In Progress" → kodo lanza [Claude Code](https://claude.ai/code) en un workspace de [cmux](https://cmux.dev) o de [Orca](https://www.onorca.dev) → al terminar, la tarea vuelve como "In Review".
 
 Providers soportados: [Plane](https://plane.so) (webhook) y GitHub Issues (polling).
 
@@ -273,6 +273,94 @@ GITHUB_TOKEN=ghp_...
 
 Configura `provider: "github"` vía `kodo config`. El trigger son issues con el label `kodo`; al terminar, la sesión reporta con un comentario y el estado de revisión es el cierre del issue.
 
+## Orca como cliente
+
+Además de [cmux](https://cmux.dev), kodo puede correr sus sesiones en
+[Orca](https://www.onorca.dev). El cliente se elige con **una sola clave** en
+`~/.kodo/config.json`:
+
+```bash
+kodo config --set host=orca        # 'cmux' (default) | 'orca'
+kodo config --set orca.binary=/usr/local/bin/orca
+```
+
+Es una propiedad de la **instalación**, no del proyecto ni de la tarea: un kodo
+apunta a un cliente, igual que apunta a un solo binario de cmux. No hay migración —
+las instalaciones existentes siguen en cmux sin tocar nada.
+
+### Qué cambia con Orca
+
+| | cmux | Orca |
+|---|---|---|
+| Unidad de trabajo | tab (`workspace:N`, ref reciclado) | worktree (`<repoId>::<path>`, ref estable) |
+| Aislamiento git | `claude --worktree` → `.bg-shell/<id>` | lo crea Orca en `~/orca/workspaces/<repo>/<slug>` |
+| Estado de la sesión | color de tab (Amber/Blue/…) | columna del tablero (`in-progress`/`in-review`/…) |
+| Marca kodo | `set-description` | comentario de la tarjeta |
+| Nombre | título libre | rama git → se slugifica; el título humano va a `--display-name` |
+
+Con Orca, kodo **no** emite `claude --worktree`: el aislamiento ya lo pone el propio
+Orca al crear el worktree. Lo verás en el log como `worktree_skipped_host`.
+
+**Los worktrees de Orca no se borran solos.** Con cmux, kodo crea
+`<repo>/.bg-shell/<id>` y lo limpia al cerrar la sesión. Con Orca el checkout es *tu*
+workspace —tiene su tarjeta en el tablero y su rama— así que kodo no lo toca: es donde
+revisas el trabajo cuando el agente termina. Lo cierras tú, desde la app o con
+`orca worktree rm`. Ninguna ruta de kodo ejecuta ese comando, y hay un test que falla
+si alguien lo cablea.
+
+Las columnas del tablero se ajustan igual que los colores de cmux:
+
+```bash
+kodo config --set orca.statuses.review=in-review
+```
+
+### Cambiar de cliente con sesiones vivas
+
+Cada sesión guarda bajo qué cliente se lanzó. Es lo que permite que conmutar `host`
+**no toque** las sesiones del cliente anterior: sus workspaces no aparecen en el
+snapshot del nuevo, y sin ese sello kodo las leería como «tab desaparecida» y las
+degradaría a idle/dead estando perfectamente vivas. Ausencia de evidencia no es
+evidencia de muerte: se quedan intactas hasta que vuelvas a su cliente.
+
+Las sesiones lanzadas antes de v0.19 no llevan el sello y sí se evalúan como antes.
+
+### Cambiar de cliente con un orquestador vivo
+
+Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador del
+cliente anterior queda **fuera del alcance** del nuevo: su workspace no aparece ahí, y
+esa ausencia es *estructural* — no significa que haya muerto. kodo **no lanza otro por
+su cuenta**: dos supervisores sobre el mismo `state.json` despachan la misma tarea dos
+veces, se pisan los nudges y duplican comentarios en el provider.
+
+```
+[kodo] Orchestrator registrado en … pertenece al host 'cmux' y el host activo es
+'orca' — NO se lanza otro.
+[kodo]   Desde 'orca' no puedo ver si sigue vivo. Si el orquestador de 'cmux' está
+abierto, ciérralo; después: kodo orchestrate --force
+```
+
+La decisión es tuya porque eres el único que puede mirar el otro cliente. Comprueba que
+el anterior está cerrado y lanza el nuevo con `--force`.
+
+### Límites conocidos (v0.19)
+
+Orca no expone en su CLI algunas cosas que cmux sí, y kodo degrada **fail-open** en
+todas ellas — nada aborta un lanzamiento:
+
+- **Notificaciones de sistema**: Orca no tiene `notify`. Los avisos de sesión
+  atascada salen solo por consola y por el dashboard.
+- **Grupos de sidebar**: Orca organiza por linaje (padre/hijo, carpetas), no por
+  grupos nombrados. `kodo sidebar doctor` no aplica.
+- **Adopción de sesiones ad-hoc** (`kodo adopt` desde el descubrimiento del
+  dashboard): requiere el `session_id` de Claude Code, que cmux publica en
+  `surface resume show` y Orca no. La adopción explícita por ref sigue funcionando.
+- **Marca del propio daemon**: `kodo server` renombra y colorea su tab partiendo de
+  `CMUX_WORKSPACE_ID`, que solo existe dentro de cmux. Con Orca el bloque se salta —
+  es cosmética del daemon, no del ciclo de vida de las sesiones.
+- **`needs-input`**: se deriva de `agents[].state` de Orca (`done` = el agente
+  terminó su turno y espera). Requiere los hooks de agente: actívalos con
+  `orca agent hooks on`; sin ellos las sesiones nunca se marcan como «esperando».
+
 ## Configuración
 
 ```bash
@@ -394,7 +482,9 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 └── logs/              # logs NDJSON por sesión
 ```
 
-## Colores de workspace
+## Estado de la sesión en el cliente
+
+Con `host: cmux` — color de la tab:
 
 | Color | Significado |
 |---|---|
@@ -403,6 +493,14 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | Green | Completada |
 | Crimson | Error |
 | Indigo | kodo service / orquestador |
+
+Con `host: orca` — columna del tablero (`orca.statuses`):
+
+| Columna | Significado |
+|---|---|
+| `in-progress` | Sesión corriendo (y también error: Orca no tiene columna de fallo, y esconder la tarjeta justo cuando hay que mirarla sería peor) |
+| `in-review` | En review |
+| `completed` | Completada |
 
 ## Tests
 

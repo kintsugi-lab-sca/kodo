@@ -38,6 +38,7 @@ import { KODO_DIR } from '../config.js';
 // Phase 72 HYG-04: efectos de cierre COSMÉTICOS movidos desde stop.js. Disparan
 // al cierre REAL de la sesión (una vez), no al final de cada turno.
 import * as cmux from '../cmux/client.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { buildStopNudgeText } from './stop.js';
 
@@ -87,12 +88,37 @@ async function readStdin() {
  *   `resolveOrchestratorTargets`; sin él, el default es el `getOrchestrator` real.
  * @returns {Promise<void>}
  */
+/**
+ * Resuelve el cliente de lifecycle del host ACTIVO para los efectos de cierre (KODO-18).
+ *
+ * Devuelve `host._legacy` — el mismo shape de funciones que expone `cmux/client.js`, que
+ * es lo que este hook lleva consumiendo desde la Phase 72. FAIL-SAFE: cualquier fallo de
+ * resolución (config ilegible, host sin `_legacy`) cae al módulo cmux importado, o sea al
+ * comportamiento anterior a KODO-18. Nunca lanza: los efectos de cierre son cosméticos y
+ * jamás deben impedir que el hook termine.
+ *
+ * @returns {any} cliente con setStatus/setColor/notify/listWorkspaces/send.
+ */
+function resolveHostClient() {
+  try {
+    return getHost(resolveHostName())?._legacy || cmux;
+  } catch {
+    return cmux;
+  }
+}
+
 export async function runSessionEndHook(input, deps = {}) {
   const findSessionFn = deps.findSessionFn || findSession;
   const removeSessionFn = deps.removeSessionFn || removeSession;
-  // Phase 72 HYG-04: cmux inyectable (default lazy al import estático) para los
-  // efectos de cierre cosméticos — mismo patrón DI que stop.js.
-  const cmuxClient = deps.cmux || cmux;
+  // Phase 72 HYG-04: cliente del host inyectable para los efectos de cierre cosméticos
+  // — mismo patrón DI que stop.js. El nombre del seam (`deps.cmux`) se conserva por
+  // compatibilidad con los stubs de la suite.
+  //
+  // KODO-18: el DEFAULT deja de ser el módulo cmux y pasa a ser el `_legacy` del host
+  // ACTIVO, así que con `host: 'orca'` estos efectos aterrizan en Orca. Fail-safe: si la
+  // resolución del host falla por lo que sea, se cae al import estático de cmux — el
+  // comportamiento previo — en vez de dejar la sesión sin cerrar sus efectos.
+  const cmuxClient = deps.cmux || resolveHostClient();
   try {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
@@ -248,12 +274,23 @@ export async function runSessionEndHook(input, deps = {}) {
     // backstop DELIV-04. Cada efecto en su propio try/catch (never-throws
     // individual): un fallo de cmux NUNCA aborta los demás efectos ni el cleanup.
 
-    // 1. Color review sobre el workspace de la sesión.
+    // 1. Marca de `review` sobre el workspace de la sesión (color de tab en cmux,
+    //    columna del tablero en Orca).
+    //
+    //    KODO-18: se prefiere el verbo HOST-AGNÓSTICO `setStatus` cuando el cliente lo
+    //    expone, y se cae a `setColor(colorForStatus('review'))` cuando no — el mismo
+    //    idiom typeof-detected que ya usan `listAgentSurfaces` y `_legacy.rename`. Los
+    //    dos hosts reales implementan `setStatus`; la rama de fallback cubre los stubs
+    //    cmux-shaped de la suite sin obligarlos a crecer.
     try {
-      await cmuxClient.setColor({
-        workspace: session.workspace_ref,
-        color: colorForStatus('review'),
-      });
+      if (typeof cmuxClient.setStatus === 'function') {
+        await cmuxClient.setStatus({ workspace: session.workspace_ref, status: 'review' });
+      } else {
+        await cmuxClient.setColor({
+          workspace: session.workspace_ref,
+          color: colorForStatus('review'),
+        });
+      }
     } catch (err) {
       console.error(`[kodo] Error setting color: ${/** @type {Error} */ (err).message}`);
     }

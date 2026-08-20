@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
 import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
-import * as cmux from '../cmux/client.js';
+import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
 import { syncSkill } from '../skill/sync.js';
@@ -21,6 +21,28 @@ export const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
 // detached vive en otro window, así que una consulta en vivo jamás vería el ref del orquestador.
 // launchOrchestrator (que SÍ corre en el window correcto, con TTY) lo escribe al lanzar/refrescar.
 export const ORCHESTRATOR_REF_PATH = join(homedir(), '.kodo', 'orchestrator.json');
+
+/**
+ * Cliente de lifecycle del host ACTIVO (KODO-18).
+ *
+ * Este módulo hablaba con `cmux/client.js` directamente — era el último carril de kodo
+ * cableado a un host concreto. Ahora pasa por `_legacy`, el mismo shape de funciones que
+ * ya consumían `session/manager.js` y `session/health.js`, así que `kodo orchestrate`
+ * funciona igual con `host: orca`.
+ *
+ * FAIL-SAFE: si la resolución del host falla (config ilegible, host desconocido),
+ * `resolveHostName` ya cae a `'cmux'`; este try/catch adicional cubre el caso extremo de
+ * que la factory lance, devolviendo un cliente de no-ops en vez de reventar el launch.
+ *
+ * @returns {any} cliente con newWorkspace/setColor/send/notify/listWorkspaces/listTree.
+ */
+function hostLegacy() {
+  try {
+    return getHost(resolveHostName())._legacy;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Persiste el `workspace:N` del orquestador a ~/.kodo/orchestrator.json. never-throws
@@ -58,16 +80,28 @@ export function readOrchestratorRef() {
 }
 
 /**
- * Resuelve el `workspace:N` del orquestador desde el texto crudo de `cmux.listWorkspaces()`.
+ * Resuelve el ref del orquestador desde el texto crudo de `listWorkspaces()`.
  * Puro / never-throws: devuelve el ref si `kodo-orchestrator` está en la lista, o `null`.
  * Fuente única de verdad del match (reusado por launchOrchestrator y el endpoint /orchestrator).
  *
- * @param {string} workspaceListText - salida cruda de `cmux.listWorkspaces()`.
- * @returns {string|null} `workspace:N` o null si no existe / input no-string.
+ * KODO-18 — la regex dejó de exigir el shape `workspace:N` de cmux para admitir también el
+ * `<repoId>::<path>` de Orca. Sigue siendo igual de estricta gracias al ANCLA DE LÍNEA: el
+ * ref debe ser el PRIMER token de su línea y `kodo-orchestrator` el título COMPLETO, así que
+ * un workspace titulado `"mi kodo-orchestrator"` no matchea (antes tampoco). Tolera el
+ * sangrado y el marcador `*` de la fila seleccionada que cmux imprime.
+ *
+ * Formatos cubiertos (verificados contra ambos binarios):
+ *   cmux → `  workspace:12  kodo-orchestrator`  ·  `* workspace:3  kodo-orchestrator  [selected]`
+ *   orca → `<repoId>::/path/kodo-orchestrator  kodo-orchestrator`
+ *
+ * @param {string} workspaceListText - salida cruda de `listWorkspaces()`.
+ * @returns {string|null} ref del host, o null si no existe / input no-string.
  */
 export function findOrchestratorRef(workspaceListText) {
   if (typeof workspaceListText !== 'string') return null;
-  const match = workspaceListText.match(/(workspace:\d+)\s+kodo-orchestrator/);
+  const match = workspaceListText.match(
+    /^[^\S\n]*\*?[^\S\n]*(\S+)[^\S\n]+kodo-orchestrator[^\S\n]*(?:\[selected\])?[^\S\n]*$/m,
+  );
   return match ? match[1] : null;
 }
 
@@ -107,6 +141,26 @@ export { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js
  *                      queda sin supervisor).
  *   - `unverifiable` — hay registro pero el host no contestó (cmux caído, timeout,
  *                      JSON corrupto). NO lanzar.
+ *   - `foreign-host` — hay registro pero se creó bajo OTRO cliente (KODO-18). NO lanzar
+ *                      sin `--force`.
+ *
+ * `foreign-host` NO es `dead` (aunque el ref no aparezca) ni `unverifiable` (aunque no
+ * se pueda comprobar), y merecía su propio veredicto en vez de colarse en cualquiera de
+ * los dos:
+ *
+ *   · NO es `dead`, que exige «el host respondió y el workspace NO está». Aquí el host
+ *     respondió sobre OTRO universo: la ausencia de un `workspace:N` en el árbol de Orca
+ *     es ESTRUCTURAL, no evidencia de muerte. Tratarlo como dead limpiaba el registro y
+ *     arrancaba un segundo supervisor mientras el primero seguía vivo — el escenario que
+ *     el párrafo de abajo describe como «hace falta un humano para deshacerlo».
+ *   · NO es `unverifiable`, cuya justificación entera es «el siguiente check reintenta a
+ *     los pocos minutos». Aquí reintentar no resuelve NADA: la ceguera es permanente
+ *     mientras no se vuelva al otro cliente, así que devolverlo dejaría la cola sin
+ *     supervisor para siempre — violando el criterio 3.
+ *
+ * Por eso el veredicto propio: no se lanza solo, pero el mensaje dice exactamente qué
+ * hacer y `--force` es la salida explícita. La decisión es del operador, que es el único
+ * que puede mirar el otro cliente.
  *
  * El caso `unverifiable` es la única decisión no obvia, y va deliberadamente en
  * contra del fail-open habitual del repo. La asimetría de coste lo justifica: dos
@@ -120,15 +174,27 @@ export { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js
  * @param {{
  *   listTreeFn?: () => Promise<string>,
  *   getOrchestratorFn?: () => import('../session/state.js').OrchestratorRegistration|null,
+ *   hostName?: string,
  * }} [deps]
- * @returns {Promise<{ status: 'none' } | { status: 'alive'|'dead'|'unverifiable', ref: string }>}
+ * @returns {Promise<{ status: 'none' }
+ *   | { status: 'alive'|'dead'|'unverifiable', ref: string }
+ *   | { status: 'foreign-host', ref: string, host: string }>}
  */
 export async function verifyRegisteredOrchestrator(deps = {}) {
-  const listTreeFn = deps.listTreeFn || cmux.listTree;
+  const listTreeFn = deps.listTreeFn || (() => hostLegacy().listTree());
   const getOrchestratorFn = deps.getOrchestratorFn || getOrchestrator;
+  const hostName = deps.hostName ?? resolveHostName();
 
   const reg = getOrchestratorFn();
   if (!reg) return { status: 'none' };
+
+  // KODO-18: registro de otro cliente. Se decide ANTES de tocar el árbol — preguntarle a
+  // un host por el ref de otro no puede dar información, solo la ilusión de haberla
+  // buscado (y una llamada de I/O de más). Exige evidencia POSITIVA de discrepancia:
+  // un registro legacy sin `host` cae al camino de siempre.
+  if (reg.host && hostName && reg.host !== hostName) {
+    return { status: 'foreign-host', ref: reg.workspace_ref, host: reg.host };
+  }
 
   let tree;
   try {
@@ -250,6 +316,7 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
  *
  * @param {{
  *   logger?: import('../logger.js').Logger,
+ *   force?: boolean,
  *   spawnFn?: (ctx: {
  *     workspaceRef: string,
  *     sessionId: string,
@@ -258,9 +325,10 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
  *     taskRef: string,
  *   }) => Promise<void> | void,
  * }} [opts]
- * @returns {Promise<{ workspace: string, existing: boolean, verified?: boolean }>}
- *   `verified:false` marca el único caso en que `existing:true` NO significa «lo he
- *   visto vivo», sino «hay uno registrado y no he podido comprobarlo, así que no lanzo».
+ * @returns {Promise<{ workspace: string, existing: boolean, verified?: boolean, foreignHost?: string }>}
+ *   `verified:false` marca los casos en que `existing:true` NO significa «lo he visto
+ *   vivo», sino «hay uno registrado y no he podido comprobarlo, así que no lanzo»:
+ *   el host no contesta, o el registro es de otro cliente (`foreignHost`, KODO-18).
  */
 export async function launchOrchestrator(opts = {}) {
   const config = loadConfig();
@@ -312,7 +380,10 @@ export async function launchOrchestrator(opts = {}) {
   // Primero por identidad persistida, porque es el único check que sobrevive tanto a
   // un rename de la tab como a correr desde otro window. Solo si este carril no
   // resuelve nada se consulta la detección por título de abajo.
-  const verdict = await verifyRegisteredOrchestrator();
+  // KODO-18: el host activo se resuelve UNA vez por launch y se sella en el registro,
+  // para que un `kodo orchestrate` posterior sepa bajo qué host se creó.
+  const hostName = resolveHostName();
+  const verdict = await verifyRegisteredOrchestrator({ hostName });
   if (verdict.status === 'alive') {
     // SIN nudge de refresh (decisión operador 2026-07-14, resuelve el spam que motivó la
     // Phase 73): el orquestador ya se auto-pacea con sus rondas de supervisión, y cualquier
@@ -331,6 +402,30 @@ export async function launchOrchestrator(opts = {}) {
     );
     return { workspace: verdict.ref, existing: true, verified: false };
   }
+  if (verdict.status === 'foreign-host') {
+    // KODO-18 — el registro es de OTRO cliente, así que este host no puede decir nada
+    // sobre él: su ausencia del árbol es estructural, no evidencia de muerte. Lanzar
+    // igualmente arrancaría un segundo supervisor mientras el primero quizá sigue vivo,
+    // y dos supervisores sobre el mismo state.json duplican comentarios en el provider y
+    // despachan la misma tarea dos veces. Bloquear para siempre tampoco vale: reintentar
+    // no resuelve nada mientras no se vuelva al otro cliente.
+    //
+    // Así que la decisión es del OPERADOR — el único que puede mirar el otro cliente — y
+    // el mensaje dice exactamente qué hacer. `--force` es la salida explícita.
+    if (!opts.force) {
+      console.log(
+        `[kodo] Orchestrator registrado en ${verdict.ref} pertenece al host '${verdict.host}' ` +
+          `y el host activo es '${hostName}' — NO se lanza otro.\n` +
+          `[kodo]   Desde '${hostName}' no puedo ver si sigue vivo. Si el orquestador de ` +
+          `'${verdict.host}' está abierto, ciérralo; después: kodo orchestrate --force`,
+      );
+      return { workspace: verdict.ref, existing: true, verified: false, foreignHost: verdict.host };
+    }
+    console.log(
+      `[kodo] --force: se descarta el registro del host '${verdict.host}' y se lanza en '${hostName}'`,
+    );
+    clearOrchestrator();
+  }
   if (verdict.status === 'dead') {
     // Evidencia positiva de muerte: el host respondió y el workspace no está. Se limpia
     // el registro para que la cola no quede sin supervisor y se sigue al launch.
@@ -344,7 +439,7 @@ export async function launchOrchestrator(opts = {}) {
   // aquí sobreviva a renames y a un check desde otro window.
   let workspaceList;
   try {
-    workspaceList = await cmux.listWorkspaces();
+    workspaceList = await hostLegacy().listWorkspaces();
   } catch {
     workspaceList = '';
   }
@@ -361,6 +456,7 @@ export async function launchOrchestrator(opts = {}) {
       // honesto — mejor que inventar un UUID que no corresponde a ninguna sesión.
       session_id: '',
       started_at: new Date().toISOString(),
+      host: hostName, // KODO-18
     });
     return { workspace: existingRef, existing: true };
   }
@@ -377,13 +473,15 @@ export async function launchOrchestrator(opts = {}) {
   );
 
   // Create workspace
-  const workspaceRef = await cmux.newWorkspace({
+  const workspaceRef = await hostLegacy().newWorkspace({
     name: ORCHESTRATOR_WORKSPACE_NAME,
     cwd: process.cwd(),
   });
 
-  // Set orchestrator color (Indigo)
-  await cmux.setColor({ workspace: workspaceRef, color: 'Indigo' });
+  // Set orchestrator color (Indigo). KODO-18: en orca `setColor` es un no-op documentado
+  // (no hay color por workspace) y la tarjeta se identifica por su nombre — el orquestador
+  // no es una tarea, así que NO se le asigna una columna del tablero.
+  await hostLegacy().setColor({ workspace: workspaceRef, color: 'Indigo' });
 
   // Build Claude command with orchestrator prompt + context
   const sessionId = randomUUID();
@@ -397,6 +495,7 @@ export async function launchOrchestrator(opts = {}) {
     workspace_id: await resolveWorkspaceId(workspaceRef),
     session_id: sessionId,
     started_at: new Date().toISOString(),
+    host: hostName, // KODO-18
   });
 
   const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
@@ -422,10 +521,10 @@ export async function launchOrchestrator(opts = {}) {
   // ─────────────────────────────────────────────────────────────────────
   const claudeCmd = buildOrchestratorCommand(config, sessionId, prompt);
 
-  await cmux.send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
+  await hostLegacy().send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
 
   // Notify
-  await cmux.notify({
+  await hostLegacy().notify({
     title: 'kodo: Orchestrator',
     body: `Lanzado con ${sessions.length} sesiones activas`,
     workspace: workspaceRef,

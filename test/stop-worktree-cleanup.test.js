@@ -84,6 +84,84 @@ function makeGitFnStub(handler) {
   return { gitFn, calls };
 }
 
+describe('KODO-18: el worktree del HOST no se borra jamás', () => {
+  // Guarda de SEGURIDAD, no de corrección: `worktree_path` también se rellena cuando el
+  // checkout lo creó el host (Orca) —el dashboard lo necesita para leer el `.planning/`
+  // de la sesión—, pero ese directorio es el workspace del operador, con su tarjeta y su
+  // rama. Sin esta guarda, `cleanupWorktree` le haría `worktree remove` + `branch -D` en
+  // cuanto el agente cerrara, destruyendo el sitio donde el humano iba a revisar.
+  it('una sesión con host: orca NO dispara NINGÚN comando git de cleanup', async () => {
+    const session = makeSession({
+      host: 'orca',
+      worktree_path: '/Users/x/orca/workspaces/kodo/kodo-42',
+    });
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub(() => '');
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+    const destructive = calls.filter(
+      (c) => (c.args[0] === 'worktree' && c.args[1] === 'remove') || (c.args[0] === 'branch' && c.args[1] === '-D'),
+    );
+    assert.deepEqual(destructive, [], 'ni worktree remove ni branch -D');
+    assert.ok(
+      !events.some((e) => String(e.fields?.event || '').startsWith('worktree.cleanup')),
+      'el carril de cleanup ni siquiera arranca',
+    );
+  });
+
+  it('se mira el host de LA SESIÓN, no el activo', async () => {
+    // Una sesión lanzada bajo Orca no debe limpiarse aunque el operador haya vuelto a
+    // cmux: el directorio sigue siendo de Orca. El test corre con el host activo por
+    // defecto (cmux) y aun así la guarda debe morder.
+    const session = makeSession({ host: 'orca', worktree_path: '/Users/x/orca/workspaces/kodo/kodo-9' });
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub(() => '');
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+    assert.deepEqual(calls, [], 'cero comandos git');
+  });
+
+  it('una sesión de cmux (o legacy sin `host`) SÍ se limpia — cero regresión', async () => {
+    const session = makeSession({ host: 'cmux' });
+    const { logger, events } = makeMemLogger();
+    const { gitFn } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'kodo-sess-wt-clean-test';
+      if (args.includes('--porcelain')) return '';
+      return '';
+    });
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+    assert.ok(
+      events.some((e) => e.fields?.event === 'worktree.cleanup.ok'),
+      'el carril de cmux sigue intacto',
+    );
+  });
+});
+
 describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
   it('CLEAN: removes worktree + deletes branch + emits cleanup.ok with branch_deleted=true', async () => {
     const session = makeSession();
