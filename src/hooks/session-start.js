@@ -248,12 +248,22 @@ async function readStdin() {
 async function main() {
   try {
     const input = JSON.parse(await readStdin());
-    const cwd = input.cwd || process.cwd();
     const sessionId = input.session_id;
 
-    const result = findSession({ sessionId, cwd });
+    // KODO-27 — lookup por IDENTIDAD, sin fallback por cwd. Este hook INYECTA el
+    // contexto de la tarea en el prompt: un match equivocado no corrompe estado, pero
+    // arranca la sesión creyendo que trabaja en otra cosa. El 20-ago el orquestador
+    // arrancó con el contexto de KODO-24 — una tarea cerrada horas antes — porque el
+    // fallback matcheó su cwd contra `state.history`, donde TODAS las sesiones
+    // archivadas del repo comparten `project_path`.
+    //
+    // Sólo `session_id` identifica: kodo lo genera en el dispatcher y se lo pasa a
+    // Claude Code con `--session-id`, así que la sesión lanzada por kodo sigue
+    // recibiendo su contexto igual que antes. Una sesión ad-hoc no adoptada sale en
+    // silencio, que es lo correcto: no hay tarea que inyectar.
+    const result = findSession({ sessionId });
     if (!result) {
-      // No tracked session for this directory — silent exit
+      // No tracked session for this session_id — silent exit
       process.exit(0);
     }
 

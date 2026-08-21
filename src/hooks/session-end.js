@@ -20,6 +20,7 @@ import * as nodeFs from 'node:fs';
 import { findSession, removeSession, upsertTaskHandoff } from '../session/state.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { performTerminalCleanup } from './terminal-cleanup.js';
+import { traceUnmatchedClose } from './close-guard.js';
 // Phase 74 (D-07/D-13): el handoff acumulativo. El FORMATO entero vive en
 // session/handoff.js (hoja pura, cero imports); aquí solo hay I/O + orquestación.
 import { withFileLock } from '../session/state-lock.js';
@@ -66,6 +67,8 @@ async function readStdin() {
  * @param {{session_id: string, cwd?: string, reason?: string, transcript_path?: string}} input
  * @param {{
  *   findSessionFn?: typeof findSession,
+ *   listSessionsForPathFn?: (cwd: string) => {id: string, session: any}[],
+ *   unmatchedLoggerFactory?: () => any,
  *   removeSessionFn?: typeof removeSession,
  *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
@@ -129,12 +132,30 @@ export async function runSessionEndHook(input, deps = {}) {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
 
-    let result = findSessionFn({ sessionId, cwd });
+    // KODO-27 — lookup por IDENTIDAD, sin fallback por cwd. SessionEnd es el camino
+    // MÁS destructivo del sistema: escribe el handoff, postea el comentario de cierre
+    // y mueve la tarea a review en el provider, y termina en `performTerminalCleanup`
+    // (worktree remove + branch -D + removeSession). Ese helper NO comprueba liveness
+    // — con la sesión mal imputada correría contra una sesión VIVA; el 20-ago sólo se
+    // frenó porque el worktree estaba `locked` y el `git worktree remove` falló.
+    //
+    // El fallback por cwd que había aquí sólo podía acertar por casualidad: una sesión
+    // de kodo corre en su worktree, no en `project_path`, así que el cwd sólo matchea
+    // sesiones AJENAS lanzadas en la raíz del repo. Ver la misma nota en stop.js:158 y
+    // en `findSession` (src/session/state.js).
+    //
+    // Fail-closed: sin match por `session_id`, no se toca nada. El coste de fallar
+    // cerrado es un cierre perdido (recuperable vía reconcile / `kodo doctor`); el de
+    // fallar abierto es destruir el worktree de otra sesión mientras trabaja.
+    let result = findSessionFn({ sessionId });
 
     // Idempotencia (D-3): sin sesión tracked → nada que limpiar (p.ej. la sesión
     // del orquestador o una sesión ad-hoc no adoptada). No-op silencioso.
     if (!result) {
       console.error(`[kodo:session-end] No matching session — nothing to clean`);
+      // KODO-27: traza del no-op — sólo si había sesiones vivas en este cwd, o sea
+      // si el fallback de antes habría cerrado una tarea ajena. Never-throws.
+      await traceUnmatchedClose({ hook: 'session-end', sessionId, cwd }, deps);
       return;
     }
 

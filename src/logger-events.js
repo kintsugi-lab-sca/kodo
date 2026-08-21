@@ -67,6 +67,7 @@ import { join } from 'node:path';
  *   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
  *   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
  *   INTEGRATE_ACTION: 'integrate.action',
+ *   SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -106,6 +107,7 @@ export const EVENTS = Object.freeze({
   SESSION_BACKSTOP_REVIEW: 'session.backstop.review',
   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
   INTEGRATE_ACTION:        'integrate.action',
+  SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
 });
 
 /**
@@ -1005,4 +1007,45 @@ export function integrateAction(logger, fields) {
   };
   if (fields.ok) logger.info(EVENTS.INTEGRATE_ACTION, record);
   else logger.warn(EVENTS.INTEGRATE_ACTION, record);
+}
+
+/**
+ * Emite `session.close.unmatched` (warn) — un hook de cierre (Stop / SessionEnd) recibió
+ * un `session_id` que NO corresponde a ninguna sesión registrada, y se descartó el cierre
+ * (KODO-27).
+ *
+ * Se emite SÓLO cuando el descarte importaba: había `candidates` sesiones vivas con ese
+ * mismo `project_path`, o sea que el fallback por cwd de antes de KODO-27 habría imputado
+ * el cierre a una de ellas. Sin candidatos no hay línea — un `Stop` de cualquier sesión
+ * ad-hoc de la máquina no es noticia, y los hooks están instalados global.
+ *
+ * Va a `~/.kodo/logs/hooks.ndjson` (sessionId sintético `hooks`, mismo patrón que
+ * `polling` e `integrate`), NO al fichero de la sesión candidata: la línea habla del hook
+ * que se contuvo, no de la tarea, y ensuciar el log de la víctima con eventos de terceros
+ * es exactamente la confusión de identidad que este fix elimina.
+ *
+ * Nivel warn a propósito: un filtro por `warn` sobre `hooks.ndjson` saca todos los cierres
+ * fantasma evitados, que es la pregunta que se hace el operador cuando una tarea "se cerró
+ * sola".
+ *
+ * LOG-12 / T-25-02: whitelist explícito field-by-field, nunca spread.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   hook: 'stop' | 'session-end',
+ *   session_id: string | null,
+ *   cwd: string,
+ *   candidates: number,
+ *   candidate_task_refs: string[],
+ * }} fields
+ */
+export function sessionCloseUnmatched(logger, fields) {
+  logger.warn(EVENTS.SESSION_CLOSE_UNMATCHED, {
+    event: EVENTS.SESSION_CLOSE_UNMATCHED,
+    hook: fields.hook,
+    session_id: fields.session_id,
+    cwd: fields.cwd,
+    candidates: fields.candidates,
+    candidate_task_refs: fields.candidate_task_refs,
+  });
 }

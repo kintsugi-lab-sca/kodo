@@ -12,6 +12,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
+import { traceUnmatchedClose } from './close-guard.js';
 import { getSessionMode } from '../labels.js';
 import { stripForKeystroke } from '../cli/sanitize.js';
 import { getHost, resolveHostName } from '../host/interface.js';
@@ -125,6 +126,8 @@ async function readStdin() {
  *   findSessionFn?: typeof findSession,
  *   cmux?: typeof cmux,
  *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
+ *   listSessionsForPathFn?: (cwd: string) => {id: string, session: any}[],
+ *   unmatchedLoggerFactory?: () => any,
  * }} [deps]
  * @returns {Promise<void>}
  *
@@ -155,12 +158,33 @@ export async function runStopHook(input, deps = {}) {
     const sessionId = input.session_id;
     const cwd = input.cwd || process.cwd();
 
-    // Find the tracked session — prefer session_id (unique), fall back to cwd
-    console.error(`[kodo:stop] Looking for session: sessionId=${sessionId}, cwd=${cwd}`);
-    let result = findSessionFn({ sessionId, cwd });
+    // KODO-27 — lookup por IDENTIDAD, sin fallback por cwd. Stop muta state.json
+    // (markSessionStatus) y libera el lock GSD: es camino de ESCRITURA, así que ante
+    // un `session_id` desconocido hace no-op en vez de adivinar.
+    //
+    // El fallback por cwd que había aquí comparaba `input.cwd` contra
+    // `session.project_path` y devolvía la primera coincidencia. Nunca acertaba por
+    // mérito propio: una sesión lanzada por kodo corre en su worktree
+    // (`<repo>/.claude/worktrees/<sid>`), NO en `project_path`, así que jamás se
+    // matchea a sí misma por esa vía — sólo matcheaba sesiones AJENAS lanzadas en la
+    // raíz del repo (el orquestador, una sesión ad-hoc, un subagente), y les imputaba
+    // el cierre a una tarea viva. El 20-ago a las 13:23 eso marcó KODO-26 idle, le
+    // escribió un handoff automático falso y la movió a review 8 s después de
+    // arrancar, con el agente todavía ejecutando herramientas.
+    //
+    // Fail-closed a propósito: un cierre perdido se recupera (el reconcile ve el
+    // proceso muerto); un cierre imputado a la sesión equivocada, no. Esto NO cambia
+    // el camino de una sola sesión por repo — kodo genera el UUID en el dispatcher y
+    // lo pasa a Claude Code con `--session-id`, así que el match por identidad es el
+    // que ya resolvía en producción.
+    console.error(`[kodo:stop] Looking for session: sessionId=${sessionId}`);
+    let result = findSessionFn({ sessionId });
 
     if (!result) {
       console.error(`[kodo:stop] No matching session found`);
+      // KODO-27: traza del no-op — sólo si había sesiones vivas en este cwd, o sea
+      // si el fallback de antes habría cerrado una tarea ajena. Never-throws.
+      await traceUnmatchedClose({ hook: 'stop', sessionId, cwd }, deps);
       // Check if this is the orchestrator session (cwd = kodo repo)
       const isOrchestratorSession = cwd && (
         cwd === KODO_ROOT ||

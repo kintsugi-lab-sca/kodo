@@ -189,4 +189,96 @@ describe('LIFE-01 — findSession scans history', () => {
     const result = findSession({ sessionId: 'never-existed' });
     assert.equal(result, null);
   });
+
+  // ---------------------------------------------------------------------
+  // KODO-27: los fallbacks no-identidad resuelven SÓLO si son únicos.
+  //
+  // `project_path` y `workspace_ref` no identifican una sesión: todas las del
+  // mismo repo comparten el primero, y cmux recicla el segundo. Hasta KODO-27
+  // el fallback devolvía la PRIMERA coincidencia en orden de inserción, lo que
+  // con dos sesiones del mismo repo elegía mal de forma determinista.
+  // ---------------------------------------------------------------------
+  it('KODO-27: cwd con 2+ candidatos en sessions devuelve null (no la primera)', () => {
+    const repo = '/tmp/kodo27-find-repo';
+    addSession('task-amb-1', buildSession('s-amb-1', 'task-amb-1', { project_path: repo }));
+    addSession('task-amb-2', buildSession('s-amb-2', 'task-amb-2', { project_path: repo }));
+
+    assert.equal(
+      findSession({ cwd: repo }),
+      null,
+      'ambiguo → null; devolver la primera es lo que imputaba el cierre a la tarea equivocada',
+    );
+  });
+
+  it('KODO-27: cwd con 1 solo candidato conserva el comportamiento previo', () => {
+    const repo = '/tmp/kodo27-find-solo';
+    addSession('task-solo', buildSession('s-solo', 'task-solo', { project_path: repo }));
+
+    const result = findSession({ cwd: repo });
+    assert.ok(result, 'con un único candidato el fallback sigue resolviendo');
+    assert.equal(result.id, 'task-solo');
+    assert.equal(result.source, 'sessions');
+  });
+
+  it('KODO-27: cwd ambiguo en sessions NO cae a history', () => {
+    const repo = '/tmp/kodo27-find-nofall';
+    // Dos vivas + una archivada del mismo repo: la ambigüedad de `sessions` corta
+    // el lookup en seco. Caer a history sería peor — devolvería una sesión muerta.
+    writeFileSync(
+      join(tmpHome, ...STATE_REL),
+      JSON.stringify({
+        schema_version: 2,
+        sessions: {
+          'task-nf-1': buildSession('s-nf-1', 'task-nf-1', { project_path: repo }),
+          'task-nf-2': buildSession('s-nf-2', 'task-nf-2', { project_path: repo }),
+        },
+        history: [
+          { ...buildSession('s-nf-0', 'task-nf-0', { project_path: repo }), ended_at: '2026-08-20T11:00:00.000Z' },
+        ],
+      }) + '\n',
+    );
+
+    assert.equal(findSession({ cwd: repo }), null);
+  });
+
+  it('KODO-27: cwd con 2+ candidatos en history devuelve null', () => {
+    const repo = '/tmp/kodo27-find-hist';
+    // El caso real del SessionStart del orquestador: history acumula hasta 50
+    // sesiones archivadas del mismo repo, así que el fallback devolvía una tarea
+    // cerrada horas antes e inyectaba su contexto en una sesión nueva.
+    writeFileSync(
+      join(tmpHome, ...STATE_REL),
+      JSON.stringify({
+        schema_version: 2,
+        sessions: {},
+        history: [
+          { ...buildSession('s-h-2', 'task-h-2', { project_path: repo }), ended_at: '2026-08-20T13:00:00.000Z' },
+          { ...buildSession('s-h-1', 'task-h-1', { project_path: repo }), ended_at: '2026-08-20T11:00:00.000Z' },
+        ],
+      }) + '\n',
+    );
+
+    assert.equal(findSession({ cwd: repo }), null);
+  });
+
+  it('KODO-27: workspaceRef ambiguo (cmux recicla refs) devuelve null', () => {
+    const ref = 'workspace:reciclado';
+    addSession('task-wr-1', buildSession('s-wr-1', 'task-wr-1', { workspace_ref: ref }));
+    addSession('task-wr-2', buildSession('s-wr-2', 'task-wr-2', { workspace_ref: ref }));
+
+    assert.equal(findSession({ workspaceRef: ref }), null);
+  });
+
+  it('KODO-27: sessionId sigue ganando aunque el cwd sea ambiguo', () => {
+    const repo = '/tmp/kodo27-find-id-wins';
+    addSession('task-idw-1', buildSession('s-idw-1', 'task-idw-1', { project_path: repo }));
+    addSession('task-idw-2', buildSession('s-idw-2', 'task-idw-2', { project_path: repo }));
+
+    // El camino de producción: los hooks pasan el session_id y la ambigüedad del
+    // cwd es irrelevante porque el match por identidad ocurre antes.
+    const result = findSession({ sessionId: 's-idw-2', cwd: repo });
+    assert.ok(result, 'la identidad resuelve por encima de la ambigüedad del fallback');
+    assert.equal(result.id, 'task-idw-2');
+    assert.equal(result.source, 'sessions');
+  });
 });

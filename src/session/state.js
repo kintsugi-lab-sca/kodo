@@ -680,6 +680,27 @@ export function listSessions() {
  * `state.history`. `kodo gsd verify <session-id>` and `kodo logs
  * --session-of <task-id>` must work for archived sessions.
  *
+ * ── KODO-27: los fallbacks no-identidad resuelven SÓLO si son únicos ──
+ *
+ * `sessionId` es identidad: un match ES el match. `workspaceRef` y `cwd` no lo
+ * son — varias sesiones del mismo repo comparten `project_path`, y cmux recicla
+ * workspace refs (Phase 43 / Phase 55 D-06). Hasta KODO-27 esos dos fallbacks
+ * devolvían la PRIMERA coincidencia en orden de inserción; con dos sesiones del
+ * mismo repo registradas eso elegía mal de forma determinista y el cierre de
+ * una sesión ajena se imputaba a una tarea viva (20-ago 13:23: idle + handoff
+ * automático falso + transición a review sobre KODO-26, que seguía corriendo).
+ *
+ * Ahora un fallback ambiguo (2+ candidatos) devuelve `null` y NO cae a history:
+ * ante duda, no responder. Un lookup perdido se recupera (el reconcile ve el
+ * proceso); una respuesta equivocada corrompe estado ajeno. El caso de 1
+ * candidato conserva el comportamiento previo verbatim.
+ *
+ * Nota para quien lea esto buscando «por qué no se arregló sólo aquí»: este
+ * guard NO basta para los hooks de cierre — con UNA sola sesión registrada el
+ * fallback por cwd sigue siendo único y seguiría imputando el cierre ajeno. Por
+ * eso `stop.js` / `session-end.js` / `session-start.js` consultan SÓLO por
+ * `sessionId` (fail-closed). Este guard protege a los consumidores restantes.
+ *
  * @param {{ sessionId?: string, cwd?: string, workspaceRef?: string }} query
  * @returns {{ id: string, session: Session, source: 'sessions' | 'history' } | null}
  */
@@ -699,14 +720,21 @@ export function findSession(query) {
       }
     }
   }
-  for (const [id, session] of Object.entries(sessions)) {
-    if (query.workspaceRef && session.workspace_ref === query.workspaceRef) {
-      return { id, session, source: 'sessions' };
-    }
-    if (query.cwd && session.project_path === query.cwd) {
-      return { id, session, source: 'sessions' };
-    }
-  }
+
+  // KODO-27: fallbacks no-identidad, uno por clave, cada uno unique-or-null.
+  // El orden (workspaceRef antes que cwd, sessions antes que history) es el de
+  // los bucles previos; ningún caller real pasa las dos claves a la vez.
+  const byRef = query.workspaceRef
+    ? Object.entries(sessions).filter(([, s]) => s.workspace_ref === query.workspaceRef)
+    : [];
+  if (byRef.length > 1) return null;
+  if (byRef.length === 1) return { id: byRef[0][0], session: byRef[0][1], source: 'sessions' };
+
+  const byCwd = query.cwd
+    ? Object.entries(sessions).filter(([, s]) => s.project_path === query.cwd)
+    : [];
+  if (byCwd.length > 1) return null;
+  if (byCwd.length === 1) return { id: byCwd[0][0], session: byCwd[0][1], source: 'sessions' };
 
   // D-03 history scan: id sintetizado desde session.task_id (history es
   // array sin key real). Mismas 3 lookup keys que sessions (D-04 — shape
@@ -718,16 +746,46 @@ export function findSession(query) {
       }
     }
   }
-  for (const session of history) {
-    if (query.workspaceRef && session.workspace_ref === query.workspaceRef) {
-      return { id: session.task_id, session, source: 'history' };
-    }
-    if (query.cwd && session.project_path === query.cwd) {
-      return { id: session.task_id, session, source: 'history' };
-    }
+
+  const histByRef = query.workspaceRef
+    ? history.filter((s) => s.workspace_ref === query.workspaceRef)
+    : [];
+  if (histByRef.length > 1) return null;
+  if (histByRef.length === 1) {
+    return { id: histByRef[0].task_id, session: histByRef[0], source: 'history' };
+  }
+
+  const histByCwd = query.cwd ? history.filter((s) => s.project_path === query.cwd) : [];
+  if (histByCwd.length > 1) return null;
+  if (histByCwd.length === 1) {
+    return { id: histByCwd[0].task_id, session: histByCwd[0], source: 'history' };
   }
 
   return null;
+}
+
+/**
+ * Sesiones ACTIVAS cuyo `project_path` es exactamente `cwd` (KODO-27).
+ *
+ * Existe para la TRAZA del no-op, no para resolver identidad: los hooks de
+ * cierre la usan para distinguir «no había nada que cerrar» (silencio) de
+ * «había candidatos y se descartó el cierre a propósito» (warn + evento
+ * `session.close.unmatched`). Sin esto el fix es correcto pero invisible: el
+ * cierre fantasma dejaría de ocurrir sin dejar rastro de que ocurrió el intento.
+ *
+ * Sólo mira `state.sessions` — history no puede ser víctima de un cierre
+ * fantasma (los hooks ya la saltan por idempotencia).
+ *
+ * Never-throws vía loadState (resiliente). Devuelve [] si no hay ninguna.
+ *
+ * @param {string} cwd
+ * @returns {{ id: string, session: Session }[]}
+ */
+export function listSessionsForPath(cwd) {
+  if (!cwd) return [];
+  return Object.entries(loadState().sessions)
+    .filter(([, s]) => s && s.project_path === cwd)
+    .map(([id, session]) => ({ id, session }));
 }
 
 export { STATE_PATH };
