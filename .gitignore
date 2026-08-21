@@ -6,3 +6,12 @@ node_modules/
 .planning/.kodo.lock.steal-guard
 .planning/.kodo.lock.tmp.*
 .planning/.kodo.lock.steal-guard.tmp.*
+
+# Estado local efímero (runtime de kodo / cmux / omc) — nunca se commitea
+.bg-shell/
+.cmux/
+.omc/
+.DS_Store
+
+# Tap de Homebrew: repo git propio clonado aquí, no un submódulo de este repo
+homebrew-kodo/

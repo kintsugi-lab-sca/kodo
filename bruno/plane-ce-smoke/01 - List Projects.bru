@@ -1,0 +1,32 @@
+meta {
+  name: 01 - List Projects
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+script:post-response {
+  const results = res.body.results || res.body;
+  console.log("Projects (id — identifier — name):");
+  for (const p of results) console.log("  " + p.id + " — " + p.identifier + " — " + p.name);
+  console.log("→ Copia un project id en la env var `projectId` antes de seguir.");
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Sanity-check de credenciales + lista de proyectos. Sirve para obtener un `projectId`
+  (UUID) que usan el resto de requests. Si esto da 401/403, revisa `apiKey` (es el
+  valor de PLANE_API_KEY en ~/.kodo/.env) y `baseUrl`/`workspaceSlug`.
+}

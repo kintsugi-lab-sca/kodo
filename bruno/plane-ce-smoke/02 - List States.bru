@@ -1,0 +1,32 @@
+meta {
+  name: 02 - List States
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/{{projectId}}/states/
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+script:post-response {
+  const results = res.body.results || res.body;
+  console.log("States (name — group — id):");
+  for (const s of results) console.log("  " + s.name + " — " + s.group + " — " + s.id);
+  console.log("→ El estado in-progress/trigger configurado es el que createTask asigna (D-04).");
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Lista los estados (columnas del workflow) del proyecto. `createTask` crea la work-item
+  en el estado in-progress/trigger configurado (D-04), resolviendo el nombre del estado a
+  su UUID vía las caches del provider. Útil para ver qué UUID corresponde a tu estado activo.
+}

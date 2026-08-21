@@ -1,0 +1,39 @@
+meta {
+  name: 04 - Create Label (kodo-adopted)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/{{projectId}}/labels/
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "kodo:adopted",
+    "color": "#6b7280"
+  }
+}
+
+script:post-response {
+  if (res.status === 201) {
+    console.log("Label creado:", res.body.id, "—", res.body.name);
+    console.log("→ Confirma createLabel (Open Q1): devuelve un label con id (UUID).");
+  } else {
+    console.log("status:", res.status, "body:", JSON.stringify(res.body));
+    console.log("→ Si es 400 'already exists', es ESPERADO si ya lo creaste (ver request 03).");
+  }
+}
+
+docs {
+  El lado "create" del lookup-or-create. Mapea a `PlaneClient.createLabel`
+  (POST /projects/{projectId}/labels/). Reejecutar tras crearlo devuelve 400
+  ("already exists") — esperado; kodo evita eso listando primero (request 03).
+}

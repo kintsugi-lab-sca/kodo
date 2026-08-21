@@ -1,0 +1,42 @@
+meta {
+  name: 06 - Get Work Item (inspect shape)
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/{{projectId}}/work-items/{{createdWorkItemId}}/?expand=state_detail,project_detail
+  body: none
+  auth: none
+}
+
+params:query {
+  expand: state_detail,project_detail
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+script:post-response {
+  console.log("=== Work item expandido ===");
+  console.log("state_detail:  ", JSON.stringify(res.body.state_detail));
+  console.log("project_detail:", JSON.stringify(res.body.project_detail));
+  console.log("→ Confirma qué campos vienen embebidos vs requieren las caches del provider.");
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Lee la work-item recién creada (request 05 capturó su id en `createdWorkItemId`) con
+  expand=state_detail,project_detail — el mismo expand que usa `PlaneClient.getWorkItem`.
+  Muestra si `state_detail`/`project_detail` vienen embebidos (relevante para confirmar
+  que normalizeWorkItem puede resolver name/url sin lookups extra).
+
+  NOTA: en v0.10 se descubrió que la API de Plane CE NO puebla `state_detail` aunque
+  se pida expand — por eso getTaskState resuelve el state UUID vía las definiciones
+  cacheadas. Si aquí `state_detail` viene null/ausente, es consistente con ese hallazgo
+  (no es un fallo del create).
+}

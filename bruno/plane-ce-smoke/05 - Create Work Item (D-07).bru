@@ -1,0 +1,57 @@
+meta {
+  name: 05 - Create Work Item (D-07)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/{{projectId}}/work-items/
+  body: json
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "kodo adopt smoke test"
+  }
+}
+
+script:post-response {
+  if (res.body && res.body.id) bru.setEnvVar("createdWorkItemId", res.body.id);
+  console.log("=== D-07 RESULT (shape del 201) ===");
+  console.log("status:      ", res.status, "(debe ser 201)");
+  console.log("id:          ", res.body.id);
+  console.log("sequence_id: ", res.body.sequence_id, "(numérico → task_id = IDENT-<sequence_id>)");
+  console.log("state:       ", res.body.state, "(UUID — normalizeWorkItem lo resuelve vía caches)");
+  console.log("project:     ", res.body.project);
+  console.log("name:        ", res.body.name);
+  console.log("---");
+  console.log("→ Responde a kodo con el sequence_id observado ('approved'),");
+  console.log("  o pega el JSON crudo si falta sequence_id / state no es resoluble.");
+}
+
+assert {
+  res.status: eq 201
+  res.body.id: isDefined
+  res.body.sequence_id: isDefined
+}
+
+docs {
+  ESTE es el test del checkpoint D-07. Mapea a `PlaneClient.createWorkItem`
+  (POST /projects/{projectId}/work-items/, trailing-slash load-bearing). Body mínimo
+  `{ name }` (único campo required) para aislar el shape del 201.
+
+  Verifica que el 201 trae lo que `normalizeWorkItem` consume:
+  - `id` (UUID), `sequence_id` (numérico, base del task_id),
+  - `state` (UUID resoluble), `project` (UUID).
+
+  Para fidelidad total con lo que kodo POSTea, puedes añadir al body:
+  - "state": "<UUID del estado in-progress de request 02>"   (D-04)
+  - "labels": ["<UUID del label kodo:adopted de request 03/04>"]   (marker Q1)
+  pero NO es necesario para validar el shape del 201.
+}

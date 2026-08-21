@@ -1,0 +1,34 @@
+meta {
+  name: 03 - List Labels
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/workspaces/{{workspaceSlug}}/projects/{{projectId}}/labels/
+  body: none
+  auth: none
+}
+
+headers {
+  X-API-Key: {{apiKey}}
+}
+
+script:post-response {
+  const results = res.body.results || res.body;
+  const adopted = results.find(l => (l.name || "").toLowerCase() === "kodo:adopted");
+  console.log("Labels (name — id):");
+  for (const l of results) console.log("  " + l.name + " — " + l.id);
+  console.log(adopted
+    ? "→ `kodo:adopted` YA existe (id " + adopted.id + "). createTask lo reusa (lookup)."
+    : "→ `kodo:adopted` NO existe aún. createTask lo crea (request 04).");
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  El lado "lookup" del lookup-or-create del marker `kodo:adopted` (Open Q1). En Plane los
+  labels son UUIDs, así que createTask primero lista, busca por nombre, y solo crea si falta.
+}
