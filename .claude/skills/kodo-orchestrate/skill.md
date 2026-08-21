@@ -691,3 +691,28 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   así que un «integrar vía la cola» puede llegarte ya resuelto. Contrasta contra
   `git log` / `branch --no-merged` antes de actuar sobre un `NEXT:`, igual que ya
   manda la lección del 27-jul.
+- [2026-08-21] **«El TUI se queda en waiting for server» no es kodo: es el bind a
+  `0.0.0.0` contra un firewall de aplicación.** Con LuLu instalado (extensión de
+  red activa), un socket que escucha en todas las interfaces queda interceptado a
+  la espera de una decisión que nadie da, y las conexiones **se descartan en vez
+  de rechazarse** — por eso el síntoma es *timeout*, no *connection refused*, y el
+  TUI espera indefinidamente. `server.bind` en `~/.kodo/config.json` valía
+  `0.0.0.0`, sobrescribiendo el default del propio kodo (`src/config.js:152`,
+  NET-01, que es `127.0.0.1` justo para evitar esto). Arreglo: devolver `bind` a
+  `127.0.0.1` y reiniciar el daemon. Sólo hace falta `0.0.0.0` si se usa el
+  webhook entrante — comprueba antes si existe alguno (`grep webhook` sobre
+  `~/.kodo/logs/*.ndjson`) porque puede llevar meses sin usarse.
+  **Secuencia de diagnóstico que discrimina de verdad**, en este orden: (1)
+  `curl -v` — si dice `Failed to connect ... after N ms` el fallo es del
+  `connect()`, no del handler, y todo lo que mires del lado servidor sobra; (2)
+  `nc -z -w5` a tres destinos — el puerto en cuestión, otro servicio local, y un
+  puerto cerrado: si el cerrado da *refused* al instante, la pila de loopback está
+  sana y el filtro es selectivo; (3) dos servers HTTP mínimos de node idénticos,
+  uno con `bind 0.0.0.0` y otro con `127.0.0.1` — si sólo falla el primero, es
+  filtro por bind, no por binario ni por código; (4) `systemextensionsctl list`
+  para ver **qué** filtra (LuLu, Defender, VPNs).
+  ⚠️ Trampa en la que caí: atribuirlo al Application Firewall de macOS y autorizar
+  el binario con `socketfilterfw --unblockapp`. La autorización entró y **no
+  cambió nada** — repetir el paso (3) con el binario ya autorizado y un socket
+  nuevo es lo que lo descarta. No mandes un `sudo` al operador antes de haber
+  aislado la variable.
