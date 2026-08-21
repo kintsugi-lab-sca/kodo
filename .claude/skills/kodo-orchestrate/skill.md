@@ -664,3 +664,30 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   devuelve `[]` en silencio y parece que no hay nada):
   `node -e` con `loadConfig` + `initRegistry` + `getProvider(cfg.provider)` +
   `await p.init()` + `await p.listPendingTasks()`.
+- [2026-08-21] **El cierre fantasma está arreglado (KODO-27, en `main`): ahora los
+  hooks fallan CERRADOS y dejan traza.** `Stop`, `SessionEnd` y `SessionStart`
+  resuelven **sólo** por `session_id`; `findSession` devuelve `null` cuando un
+  fallback no-identidad (`cwd`, `workspaceRef`) es ambiguo. El diagnóstico ya no
+  se hace a mano: cuando un cierre se descarta **y había una sesión viva en ese
+  `cwd`** se emite `session.close.unmatched` (warn) en
+  `~/.kodo/logs/hooks.ndjson`, con `hook`, `cwd`, `candidates` y
+  `candidate_task_refs` — grep ahí antes que reconstruir cronologías. Confirmado
+  en producción a las pocas horas: dos eventos con `candidates: 1` y
+  `candidate_task_refs: ["KODO-27"]`, uno de ellos **desde la propia sesión del
+  orquestador** (`b56c5da2`), que sin el fix habría cerrado en falso la tarea que
+  estaba arreglando el bug. Dato que corrige la intuición: `candidates: 1` prueba
+  que desambiguar `findSession` NO bastaba — con una sola sesión registrada el
+  fallback seguía siendo «único» y acertaba a la víctima equivocada; el
+  fail-closed en los hooks es lo que lo cierra. Razón de fondo: una sesión de kodo
+  corre en `<repo>/.claude/worktrees/<sid>` y el fallback comparaba contra
+  `project_path`, así que **nunca** se matcheaba a sí misma — sólo alcanzaba
+  sesiones ajenas lanzadas en la raíz.
+- [2026-08-21] **Cola de integración vacía tras mergear a mano ≠ cola rota.** La
+  captura de KODO-26 corre en `SessionEnd` y usa `countUnmergedCommits`: si
+  integras la rama **antes** de que la sesión cierre, al cerrar ya no hay commits
+  sin mergear y no se encola nada — es el DoD funcionando («una que cierra
+  mergeada no aparece»), no un fallo. Consecuencia operativa: el `NEXT:` del
+  handoff y el nudge del Stop son **fotos del instante en que la sesión escribió**,
+  así que un «integrar vía la cola» puede llegarte ya resuelto. Contrasta contra
+  `git log` / `branch --no-merged` antes de actuar sobre un `NEXT:`, igual que ya
+  manda la lección del 27-jul.
