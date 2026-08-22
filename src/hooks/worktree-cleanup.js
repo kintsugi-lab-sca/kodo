@@ -113,6 +113,26 @@ function pathPresent(path) {
 }
 
 /**
+ * ¿Existe la rama localmente? Never-throws → `false` (KODO-30).
+ *
+ * `--verify --quiet refs/heads/<branch>`: la forma larga y explícita, para no confundir una
+ * rama con un tag o un remoto del mismo nombre. Bajo el seam `gitFn` un exit distinto de 0
+ * llega como excepción, así que «no existe» y «git falló» colapsan en `false` — y ambos
+ * llevan al mismo sitio: no se toca la rama.
+ *
+ * @param {{ project: string, branch: string, gitFn: (cwd: string, args: string[]) => Promise<string> | string }} args
+ * @returns {Promise<boolean>}
+ */
+async function branchExists({ project, branch, gitFn }) {
+  try {
+    const out = await gitFn(project, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
+    return String(out ?? '').trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Decide sobre la RAMA de una sesión cuyo worktree ya no está en disco (KODO-30).
  *
  * Camino explícito, no un fallback silencioso. QUIÉN borra el worktree (observado en el
@@ -133,9 +153,12 @@ function pathPresent(path) {
  * llegue PERSISTIDA desde `state.json` (`session.branch`, sellada por el hook Stop
  * mientras el worktree aún vivía) en vez de leerse de un `git -C <wt>` que ya no responde.
  *
- * Si la rama persistida es la que Claude Code borró (`worktree-<sid>`, sesión que nunca
- * renombró), `countUnmergedCommits` falla sobre una ref inexistente → `count: null` → se
- * conserva y se emite `branch.kept`. Ruido inocuo, y el lado seguro del fail-safe.
+ * De ahí el `rev-parse --verify` previo al gate: si la rama persistida es la que Claude
+ * Code YA borró (`worktree-<sid>`, sesión que nunca renombró — el caso más común, porque
+ * kodo lanza con `claude --worktree <sessionId>`), no hay nada que decidir. Sin esa
+ * comprobación, `countUnmergedCommits` fallaría sobre una ref inexistente, devolvería
+ * `count: null` y el fail-safe emitiría un `branch.kept` en CADA cierre — cambiar un error
+ * espurio por un warn espurio no es arreglar nada.
  *
  * Orden LOAD-BEARING: `prune` va ANTES del `branch -D`. Si git todavía tiene registrado
  * el worktree ausente, considera la rama «checked out» por él y rechaza el borrado; el
@@ -171,7 +194,11 @@ async function cleanupAlreadyGoneWorktree({ project, worktree, sessionId, branch
   }
 
   // 2. Decisión sobre la rama — MISMO gate que el camino clean (KODO-21).
-  if (branch) {
+  if (branch && !(await branchExists({ project, branch, gitFn }))) {
+    // La rama persistida ya no está: Claude Code borra `worktree-<sid>` junto con el
+    // directorio. No hay nada que podar ni que conservar.
+    console.error(`[kodo:worktree-cleanup] already_gone — ${sessionId}: la rama ${branch} ya no existe; nada que podar`);
+  } else if (branch) {
     const { count, reason } = await countUnmergedCommits({ project, branch, gitFn });
     if (count === 0) {
       try {

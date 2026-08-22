@@ -604,6 +604,7 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
     const session = makeSession({ branch: 'feat/itclip-81-piezas-prototipo' });
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '0'; // gate KODO-21: todo mergeado
       return '';
     });
@@ -640,6 +641,7 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
     const session = makeSession({ branch: 'feat/con-trabajo' });
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '7\n';
       return '';
     });
@@ -665,7 +667,10 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
   it('la sesión se archiva igual: removeSession corre en ambos caminos', async () => {
     const session = makeSession({ branch: 'feat/z' });
     const { logger } = makeMemLogger();
-    const { gitFn } = makeGitFnStub((cwd, args) => (args[0] === 'rev-list' ? '0' : ''));
+    const { gitFn } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef';
+      return args[0] === 'rev-list' ? '0' : '';
+    });
     const removed = [];
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },

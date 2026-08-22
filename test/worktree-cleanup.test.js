@@ -397,6 +397,7 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
   it('RAMA MERGEADA: prune + branch -D, cleanup.ok{already_gone}, SIN cleanup.error', async () => {
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '0'; // gate KODO-21: todo mergeado
       return '';
     });
@@ -440,7 +441,10 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
 
   it('ORDEN: prune corre ANTES de branch -D (git suelta la rama del worktree huérfano)', async () => {
     const { logger } = makeMemLogger();
-    const { gitFn, calls } = makeGitFnStub((cwd, args) => (args[0] === 'rev-list' ? '0' : ''));
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef';
+      return args[0] === 'rev-list' ? '0' : '';
+    });
 
     await cleanupWorktree({
       project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
@@ -456,6 +460,7 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
   it('RAMA NO MERGEADA: la conserva + emite worktree.branch.kept (gate KODO-21 intacto)', async () => {
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '5\n'; // 5 commits que solo viven aquí
       return '';
     });
@@ -481,6 +486,7 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
   it('MERGE NO VERIFICABLE: rev-list falla → conserva la rama (fail-safe)', async () => {
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') throw new Error('fatal: bad revision');
       return '';
     });
@@ -514,10 +520,40 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
     assert.equal(ok.fields.already_gone, true);
   });
 
+  it('RAMA YA BORRADA por Claude Code: cierra limpio, sin branch.kept espurio', async () => {
+    // El caso MÁS COMÚN: kodo lanza con `claude --worktree <sessionId>`, así que la rama de
+    // la sesión es `worktree-<sid>` — y el «Remove worktree» de Claude Code la borra junto
+    // con el directorio. Sin el `rev-parse` previo al gate, `countUnmergedCommits` fallaría
+    // sobre una ref inexistente y el fail-safe emitiría un warn en CADA cierre: cambiar un
+    // error espurio por un warn espurio no sería arreglar nada.
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-parse') return ''; // --verify --quiet sobre una ref que no está
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: `worktree-${SESSION_ID}`, existsFn: WT_GONE,
+    });
+
+    assert.equal(result.already_gone, true);
+    assert.equal(result.branch_deleted, false);
+    assert.equal(calls.find((c) => c.args[0] === 'rev-list'), undefined, 'no se pregunta por el merge');
+    assert.equal(
+      events.find((e) => e.fields?.event === 'worktree.branch.kept'),
+      undefined,
+      'nada que conservar: la rama ya no existe',
+    );
+    assert.equal(events.find((e) => e.fields?.event === 'worktree.cleanup.error'), undefined);
+    assert.ok(events.find((e) => e.fields?.event === 'worktree.cleanup.ok'), 'cierra ok');
+  });
+
   it('PRUNE falla → cleanup.error{phase:prune}, never-throws, y la rama se decide igual', async () => {
     const { logger, events } = makeMemLogger();
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
       if (args[0] === 'worktree' && args[1] === 'prune') throw new Error('prune locked');
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '0';
       return '';
     });
@@ -539,6 +575,7 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
       if (args.includes('--show-current')) return 'feat/z';
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '0';
       return '';
     });
@@ -559,6 +596,7 @@ describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
     const { gitFn, calls } = makeGitFnStub((cwd, args) => {
       if (args.includes('--show-current')) throw new Error('fatal: not a git repository');
       if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-parse') return 'deadbeef'; // la rama persistida sigue existiendo
       if (args[0] === 'rev-list') return '0';
       return '';
     });
