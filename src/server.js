@@ -544,8 +544,17 @@ export async function startServer(opts = {}) {
     if (req.method === 'POST' && pathname === '/webhook') {
       try {
         const rawBody = await readBody(req);
-        console.log(`[kodo] Webhook received: ${rawBody.slice(0, 200)}`);
-        const result = await handleWebhookRequest(rawBody, req.headers, provider);
+        // KODO-28: el audit del webhook vive ahora en el NDJSON estructurado
+        // (`webhook.received` / `webhook.rejected`, emitidos dentro de
+        // handleWebhookRequest). Estas dos líneas se quedan SOLO para el ring
+        // buffer in-memory que sirve `/logs` al dashboard — pero la de entrada
+        // deja de volcar 200 bytes del body crudo: ese buffer es legible por
+        // cualquiera con el bearer y el body de un webhook puede traer datos del
+        // work item. El tamaño basta para correlacionar con el 413 de readBody.
+        console.log(`[kodo] Webhook received: ${rawBody.length} bytes`);
+        const result = await handleWebhookRequest(rawBody, req.headers, provider, {
+          providerName: config.provider,
+        });
         console.log(`[kodo] Webhook result: ${JSON.stringify(result)}`);
         res.writeHead(result.status, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result.body));

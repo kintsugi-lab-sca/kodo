@@ -1,5 +1,12 @@
 // @ts-check
 //
+// KODO-28: HOME aislado ANTES de cualquier dynamic import — el audit del dispatcher
+// escribe NDJSON, y sin esto iria al `~/.kodo/logs/` REAL del operador.
+import { mkdtempSync as mkdtempForHome } from 'node:fs';
+import { tmpdir as osTmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+process.env.HOME = mkdtempForHome(joinPath(osTmpdir(), 'kodo-gsdconc-test-'));
+//
 // Integration test: Two concurrent GSD tasks targeting the same repo.
 // Uses real lock files on disk (tmpdir) but DI for everything else.
 // Validates ROADMAP Success Criterion 3: "Dos webhooks Plane que resuelven

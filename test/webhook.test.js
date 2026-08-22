@@ -36,6 +36,7 @@ describe('handleWebhookRequest', () => {
     const headers = { 'x-webhook-signature': 'valid' };
 
     const result = await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async (event, opts) => {
         dispatchCalls.push({ event, opts });
         return { action: 'launched' };
@@ -61,6 +62,7 @@ describe('handleWebhookRequest', () => {
     const headers = {};
 
     const result = await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async (event) => {
         dispatchCalls.push(event);
         return { action: 'launched' };
@@ -80,6 +82,7 @@ describe('handleWebhookRequest', () => {
     const headers = {};
 
     const result = await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async (event) => {
         dispatchCalls.push(event);
         return { action: 'launched' };
@@ -101,6 +104,7 @@ describe('handleWebhookRequest', () => {
     const headers = {};
 
     const result = await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async (event) => {
         dispatchCalls.push(event);
         return { action: 'launched' };
@@ -127,6 +131,7 @@ describe('handleWebhookRequest', () => {
     const headers = { 'x-signature': 'abc123' };
 
     await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async () => ({ action: 'launched' }),
     });
 
@@ -150,6 +155,7 @@ describe('handleWebhookRequest', () => {
     const headers = {};
 
     await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async () => ({ action: 'launched' }),
     });
 
@@ -165,6 +171,7 @@ describe('handleWebhookRequest', () => {
     const headers = {};
 
     const result = await handleWebhookRequest(body, headers, provider, {
+      logger: null, // KODO-28: audit NDJSON off (mantiene el test hermetico)
       dispatchTriggerFn: async () => {
         throw new Error('dispatch boom');
       },
@@ -175,5 +182,139 @@ describe('handleWebhookRequest', () => {
     assert.equal(result.body.ok, true);
     // Give fire-and-forget catch handler time to run
     await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
+// ─── KODO-28: audit estructurado del carril webhook ──────────────────────────
+//
+// El bug que cierra este bloque: desde a01de1d el daemon detached nacía con
+// stdio 'ignore', así que los `console.log('[kodo] Webhook received: ...')` de
+// server.js se perdían y no había forma de auditar si un webhook llegó, si lo
+// rechazó el HMAC, ni qué se decidió. Estos tests fijan el contrato del NDJSON,
+// que es lo único que sobrevive al proceso.
+
+describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
+  /** Logger espía con la misma superficie que usa logger-events (info/warn/error). */
+  function makeSpyLogger() {
+    /** @type {any[]} */
+    const records = [];
+    const push = (level) => (msg, fields) => records.push({ level, msg, ...fields });
+    return {
+      records,
+      info: push('info'),
+      warn: push('warn'),
+      error: push('error'),
+      child: () => makeSpyLogger(),
+    };
+  }
+
+  it('acepta: emite webhook.received con provider, action, task_ref y bytes', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const logger = makeSpyLogger();
+    const provider = createFakeProvider();
+    const body = JSON.stringify({ event: 'issue', action: 'updated' });
+
+    await handleWebhookRequest(body, {}, provider, {
+      logger,
+      providerName: 'plane',
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+
+    assert.equal(logger.records.length, 1);
+    const rec = logger.records[0];
+    assert.equal(rec.event, 'webhook.received');
+    assert.equal(rec.level, 'info');
+    // provider sale del TriggerEvent (autoritativo), no de deps.providerName.
+    assert.equal(rec.provider, 'test');
+    assert.equal(rec.action, 'state_change');
+    assert.equal(rec.task_ref, 'KL-42');
+    assert.equal(rec.bytes, Buffer.byteLength(body, 'utf8'));
+  });
+
+  it('firma inválida: emite webhook.rejected reason=signature (warn) y NO received', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const logger = makeSpyLogger();
+    const provider = createFakeProvider({ verifySignature: () => false });
+
+    const result = await handleWebhookRequest('{"a":1}', {}, provider, {
+      logger,
+      providerName: 'plane',
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+
+    assert.equal(result.status, 401);
+    assert.equal(logger.records.length, 1);
+    assert.equal(logger.records[0].event, 'webhook.rejected');
+    assert.equal(logger.records[0].level, 'warn');
+    assert.equal(logger.records[0].reason, 'signature');
+    assert.equal(logger.records[0].provider, 'plane', 'pre-parse el provider lo inyecta el caller');
+    assert.equal(logger.records[0].bytes, 7);
+  });
+
+  it('JSON roto: emite webhook.rejected reason=parse', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const logger = makeSpyLogger();
+
+    await handleWebhookRequest('not-json{{{', {}, createFakeProvider(), {
+      logger,
+      providerName: 'plane',
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+
+    assert.equal(logger.records.length, 1);
+    assert.equal(logger.records[0].reason, 'parse');
+  });
+
+  it('evento no despachable: emite webhook.rejected reason=payload (no silencio)', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const logger = makeSpyLogger();
+    const provider = createFakeProvider({ parseTriggerEvent: () => null });
+
+    const result = await handleWebhookRequest('{"event":"x"}', {}, provider, {
+      logger,
+      providerName: 'plane',
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+
+    // 200 + ignored:true, pero el audit lo registra: "llegó y se descartó" ≠ "no llegó".
+    assert.equal(result.status, 200);
+    assert.equal(result.body.ignored, true);
+    assert.equal(logger.records.length, 1);
+    assert.equal(logger.records[0].reason, 'payload');
+  });
+
+  it('el audit NUNCA persiste el body — solo su tamaño', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const logger = makeSpyLogger();
+    const body = JSON.stringify({ event: 'issue', secret_field: 'hunter2' });
+
+    await handleWebhookRequest(body, {}, createFakeProvider(), {
+      logger,
+      providerName: 'plane',
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+
+    assert.equal(JSON.stringify(logger.records).includes('hunter2'), false);
+  });
+
+  it('un logger que lanza no cambia el status ni el body de la respuesta', async () => {
+    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const exploding = {
+      info: () => { throw new Error('sink caído'); },
+      warn: () => { throw new Error('sink caído'); },
+      error: () => { throw new Error('sink caído'); },
+    };
+
+    const ok = await handleWebhookRequest('{"e":1}', {}, createFakeProvider(), {
+      logger: exploding,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+    assert.equal(ok.status, 200);
+
+    const rejected = await handleWebhookRequest('{"e":1}', {}, createFakeProvider({ verifySignature: () => false }), {
+      logger: exploding,
+      dispatchTriggerFn: async () => ({ action: 'launched' }),
+    });
+    assert.equal(rejected.status, 401);
   });
 });

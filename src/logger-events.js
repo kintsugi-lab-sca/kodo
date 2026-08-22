@@ -68,6 +68,10 @@ import { join } from 'node:path';
  *   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
  *   INTEGRATE_ACTION: 'integrate.action',
  *   SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
+ *   WEBHOOK_RECEIVED: 'webhook.received',
+ *   WEBHOOK_REJECTED: 'webhook.rejected',
+ *   DISPATCH_DECISION: 'dispatch.decision',
+ *   DISPATCH_ERROR: 'dispatch.error',
  * }>} */
 export const EVENTS = Object.freeze({
   SESSION_START:           'session.start',
@@ -108,6 +112,10 @@ export const EVENTS = Object.freeze({
   SESSION_ORPHAN_DETECTED: 'session.orphan.detected',
   INTEGRATE_ACTION:        'integrate.action',
   SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
+  WEBHOOK_RECEIVED:        'webhook.received',
+  WEBHOOK_REJECTED:        'webhook.rejected',
+  DISPATCH_DECISION:       'dispatch.decision',
+  DISPATCH_ERROR:          'dispatch.error',
 });
 
 /**
@@ -1047,5 +1055,121 @@ export function sessionCloseUnmatched(logger, fields) {
     cwd: fields.cwd,
     candidates: fields.candidates,
     candidate_task_refs: fields.candidate_task_refs,
+  });
+}
+
+// ─── KODO-28: carril webhook → dispatch ──────────────────────────────────────
+//
+// Antes de KODO-28 este carril SOLO existía como `console.log` en server.js y
+// dispatcher.js, y el daemon detached mandaba su stdout/stderr a /dev/null
+// (lifecycle.js `deps._logFd ?? 'ignore'`) — así que desde julio de 2026 no
+// quedaba rastro auditable de si un webhook llegó, si lo rechazó el HMAC, ni
+// qué decidió el dispatcher. Estos 4 eventos son la fuente de verdad del audit;
+// el `console.log` sigue existiendo solo para el ring buffer de `/logs`.
+//
+// Invariante de seguridad (mismo criterio que T-25-02 en pollingDispatch): NADA
+// de contenido de usuario en el payload. Ni body crudo, ni título, ni labels —
+// solo identificación (`task_ref`), taxonomía (`action`, `reason`, `code`) y
+// tamaño (`bytes`). El body del webhook es precisamente lo que NO se persiste.
+
+/**
+ * Emitido cuando un webhook pasa la verificación de firma Y se parsea a un
+ * TriggerEvent — es decir, justo antes del dispatch fire-and-forget.
+ *
+ * `action` es el tipo de evento del proveedor (p.ej. `issue.updated`), NO la
+ * decisión del dispatcher: el campo se llama `action` y no `event` porque
+ * `event` ya está tomado por el nombre del propio evento del logger en todos
+ * los records de la taxonomía.
+ *
+ * `bytes` es la longitud del body crudo, no el body. Sirve para correlacionar
+ * con el 413 de `readBody` (NET-03) sin persistir payload alguno.
+ *
+ * @param {Logger} logger
+ * @param {{ provider: string, action: string, task_ref: string, bytes: number }} fields
+ */
+export function webhookReceived(logger, fields) {
+  logger.info(EVENTS.WEBHOOK_RECEIVED, {
+    event: EVENTS.WEBHOOK_RECEIVED,
+    provider: fields.provider,
+    action: fields.action,
+    task_ref: fields.task_ref,
+    bytes: fields.bytes,
+  });
+}
+
+/**
+ * Emitido (warn) cuando un webhook NO llega a dispatch. Tres motivos cerrados:
+ *
+ *   - `signature` → `provider.verifySignature()` devolvió false (401). Cubre
+ *     tanto firma inválida como header/secret ausente — el provider no
+ *     distingue, y distinguirlo aquí filtraría al operador qué mitad del HMAC
+ *     falló.
+ *   - `parse`     → el body no es JSON válido (400).
+ *   - `payload`   → JSON válido pero `parseTriggerEvent` devolvió null: el
+ *     evento no es de los que kodo despacha (200 + `ignored:true`). NO es un
+ *     error — es el caso mayoritario en un webhook de Plane con `issue.*`
+ *     genérico — pero se emite igual porque el punto ciego que abre KODO-28 es
+ *     precisamente "no sé si llegó y se descartó, o si no llegó".
+ *
+ * @param {Logger} logger
+ * @param {{ provider: string, reason: 'signature' | 'parse' | 'payload', bytes: number }} fields
+ */
+export function webhookRejected(logger, fields) {
+  logger.warn(EVENTS.WEBHOOK_REJECTED, {
+    event: EVENTS.WEBHOOK_REJECTED,
+    provider: fields.provider,
+    reason: fields.reason,
+    bytes: fields.bytes,
+  });
+}
+
+/**
+ * Emitido en CADA return de `dispatchTrigger` — el veredicto del dispatcher.
+ * `action` es el discriminante del propio return (`launched`, `ignored`,
+ * `already_active`, `stale_relaunch`, `cleaned`, `gsd_locked`,
+ * `resolver_failed`, `worktree_collision`); `code`/`detail` viajan cuando el
+ * return los trae (p.ej. `code:'gsd_child'`, `detail:<worktree path>`).
+ *
+ * Las claves opcionales se omiten cuando no aplican (truthy-spread, mismo
+ * patrón que `first_tick` en pollingTick) para que el NDJSON no se llene de
+ * `code:null`.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   provider: string,
+ *   task_ref: string,
+ *   action: string,
+ *   code?: string,
+ *   detail?: string,
+ * }} fields
+ */
+export function dispatchDecision(logger, fields) {
+  logger.info(EVENTS.DISPATCH_DECISION, {
+    event: EVENTS.DISPATCH_DECISION,
+    provider: fields.provider,
+    task_ref: fields.task_ref,
+    action: fields.action,
+    ...(fields.code ? { code: fields.code } : {}),
+    ...(fields.detail ? { detail: fields.detail } : {}),
+  });
+}
+
+/**
+ * Emitido (error) cuando `dispatchTrigger` lanza en vez de devolver veredicto:
+ * el provider no resuelve el ref, `launchWorkItem` falla, config rota, etc.
+ *
+ * `error` es el `err.message`, que el caller DEBE truncar (≤ 200 chars, mismo
+ * contrato que `pollingError`). El stack no se persiste aquí — para eso está
+ * `~/.kodo/logs/daemon.log`, que captura stdout/stderr crudo del daemon.
+ *
+ * @param {Logger} logger
+ * @param {{ provider: string, task_ref: string, error: string }} fields
+ */
+export function dispatchError(logger, fields) {
+  logger.error(EVENTS.DISPATCH_ERROR, {
+    event: EVENTS.DISPATCH_ERROR,
+    provider: fields.provider,
+    task_ref: fields.task_ref,
+    error: fields.error,
   });
 }

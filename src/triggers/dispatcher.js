@@ -12,7 +12,7 @@ import { acquireLock, releaseLock } from '../session/state-lock.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
-import { EVENTS, gsdPhaseResolved, gsdBootstrap } from '../logger-events.js';
+import { EVENTS, gsdPhaseResolved, gsdBootstrap, dispatchDecision, dispatchError } from '../logger-events.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
 const inFlight = new Set();
@@ -56,6 +56,7 @@ export function resolverFailureHint(verdict, ctx = {}) {
  *   acquireLockFn?: (lockPath: string, opts?: object) => ({ token: string } | null),
  *   releaseLockFn?: (lockPath: string, token: string) => void,
  *   dispatchLockDir?: string,
+ *   _logger?: any,
  * }} DispatchDeps
  */
 
@@ -69,7 +70,7 @@ export function resolverFailureHint(verdict, ctx = {}) {
  * @param {DispatchDeps} [deps] - Injectable dependencies for testing
  * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked'|'resolver_failed'|'worktree_collision', session?: object, holder?: object, code?: string, detail?: string }>}
  */
-export async function dispatchTrigger(event, opts = {}, deps = {}) {
+async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
   const getProviderFn = deps.getProviderFn || ((name) => getProvider(name || event.provider));
   const launchWorkItemFn = deps.launchWorkItemFn || launchWorkItem;
   const listSessionsFn = deps.listSessionsFn || listSessions;
@@ -129,7 +130,10 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
     console.log(`[kodo:dispatch] isKodo: ${kodoConfig.isKodo}, model: ${kodoConfig.model}`);
     if (!kodoConfig.isKodo) {
       console.log(`[kodo:dispatch] Ignored — no kodo label`);
-      return { action: 'ignored' };
+      // KODO-28: `code` añadido para que `dispatch.decision` distinga POR QUÉ se
+      // ignoró. Las ramas gsd_child/adopted ya lo traían; estas tres no, y sin él
+      // el audit solo veía `action:'ignored'` para tres causas muy distintas.
+      return { action: 'ignored', code: 'no_kodo_label' };
     }
   }
 
@@ -155,7 +159,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         return { action: 'cleaned' };
       }
       console.log(`[kodo:dispatch] Ignored — state "${task.state}" is terminal`);
-      return { action: 'ignored' };
+      return { action: 'ignored', code: 'terminal_state' };
     }
 
     // Ignore inactive states (skip if force=true)
@@ -166,7 +170,7 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
       const ignoreStates = providerStates.ignore || defaultIgnore;
       if (ignoreStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
         console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
-        return { action: 'ignored' };
+        return { action: 'ignored', code: 'inactive_state' };
       }
     }
   }
@@ -532,5 +536,99 @@ export async function dispatchTrigger(event, opts = {}, deps = {}) {
         // silent — release is ownership-checked + never-throws in the primitive
       }
     }
+  }
+}
+
+/**
+ * Logger del carril dispatch, memoizado por proceso (KODO-28).
+ *
+ * Sink: `~/.kodo/logs/dispatch.ndjson` — id sintético `dispatch`, el mismo que ya
+ * usaban los emits de `gsd.phase.resolved` cuando aún no hay `gsdSessionId`
+ * (`createLogger({ sessionId: gsdSessionId || 'dispatch' })` más abajo). El
+ * veredicto del dispatcher se decide ANTES de que exista sesión — de hecho la
+ * mayoría de veredictos son "no la crees" — así que colgarlo de un session_id
+ * real no es posible.
+ *
+ * Import DINÁMICO obligatorio: `src/logger.js` es el módulo prohibido en el grafo
+ * de `kodo check` (LOG-12, test/check-isolation.test.js), y este fichero cuelga de
+ * `polling.js`, que a su vez está excluido de ese grafo precisamente por arrastrar
+ * al dispatcher. Un import estático rompería la invariante.
+ *
+ * @type {any}
+ */
+let cachedDispatchLogger = null;
+
+/**
+ * @returns {Promise<any>} el logger del carril, o null si no se pudo construir.
+ */
+async function getDispatchLogger() {
+  if (cachedDispatchLogger) return cachedDispatchLogger;
+  try {
+    const { createLogger } = await import('../logger.js');
+    cachedDispatchLogger = createLogger({
+      sessionId: 'dispatch',
+      minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+    }).child({ component: 'dispatcher' });
+    return cachedDispatchLogger;
+  } catch {
+    // never-throws: el audit es best-effort, jamás altera el veredicto.
+    return null;
+  }
+}
+
+/** Techo del `error` de `dispatch.error` — mismo contrato que pollingError. */
+const DISPATCH_ERROR_MAX_CHARS = 200;
+
+/**
+ * Central dispatch function for all trigger sources — punto de entrada público.
+ *
+ * Envoltorio de auditoría sobre `dispatchTriggerImpl` (KODO-28). Se hace aquí, en
+ * UN solo sitio, en vez de sembrar un emit en cada uno de los ~10 `return` de la
+ * implementación: los returns ya son un discriminante cerrado (`action` + `code`
+ * + `detail`), así que el wrapper tiene toda la información sin duplicar lógica, y
+ * un `return` nuevo en el futuro queda auditado por construcción en lugar de
+ * olvidarse.
+ *
+ * Contrato preservado byte a byte: mismo nombre, misma firma, mismo valor de
+ * retorno, y los throws se RE-LANZAN intactos (el caller de webhook.js sigue
+ * viendo su `err.message` para la pista accionable de KODO-10).
+ *
+ * @param {import('../interface.js').TriggerEvent} event
+ * @param {{ model?: string|null, flags?: string[], force?: boolean }} [opts]
+ * @param {DispatchDeps} [deps] - Injectable dependencies for testing
+ * @returns {Promise<{ action: 'launched'|'ignored'|'already_active'|'stale_relaunch'|'cleaned'|'gsd_locked'|'resolver_failed'|'worktree_collision', session?: object, holder?: object, code?: string, detail?: string }>}
+ */
+export async function dispatchTrigger(event, opts = {}, deps = {}) {
+  // `_logger: null` desactiva el audit (tests que no quieren tocar el disco).
+  const log = deps._logger !== undefined ? deps._logger : await getDispatchLogger();
+  try {
+    const result = await dispatchTriggerImpl(event, opts, deps);
+    if (log) {
+      try {
+        dispatchDecision(log, {
+          provider: event.provider,
+          task_ref: event.taskRef,
+          action: result.action,
+          code: result.code,
+          detail: result.detail,
+        });
+      } catch {
+        // never-throws — el audit no puede cambiar el veredicto.
+      }
+    }
+    return result;
+  } catch (err) {
+    if (log) {
+      try {
+        dispatchError(log, {
+          provider: event.provider,
+          task_ref: event.taskRef,
+          error: String(/** @type {any} */ (err)?.message ?? err).slice(0, DISPATCH_ERROR_MAX_CHARS),
+        });
+      } catch {
+        // never-throws — jamás enmascarar el error original.
+      }
+    }
+    throw err;
   }
 }

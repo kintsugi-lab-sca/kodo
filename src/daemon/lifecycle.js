@@ -38,6 +38,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { isPidAlive } from '../gsd/lock.js';
 import { acquireLock, releaseLock } from '../session/state-lock.js';
 import { readPidFile, removePidFile } from '../cli/polling-daemon.js';
+import { openDaemonLog, closeDaemonLog } from './logfile.js';
 
 /**
  * Resuelve el path absoluto al binario `bin/kodo` desde `src/daemon/lifecycle.js`.
@@ -65,6 +66,8 @@ function resolveKodoBin() {
  *   _kodoBin?: string,
  *   _execPath?: string,
  *   _logFd?: any,
+ *   _openDaemonLog?: () => number | null,
+ *   _closeDaemonLog?: (fd: number | null | undefined) => void,
  *   _waitMs?: number,
  *   _exec?: (...args: any[]) => any,
  *   _warn?: (event: string, meta?: Record<string, any>) => void,
@@ -131,7 +134,8 @@ export function processStartMatches(pid, payloadStartedAtISO, { toleranceMs = 80
  *      (steal-if-dead de la primitiva) y se libera SIEMPRE en el finally.
  *   3. Pre-flight: readPidFile(name) vivo → already-running (no spawn); stale (file
  *      presente, proceso muerto) → removePidFile(name) y procede (polling.js:259-268).
- *   4. Detached spawn `execPath + [KODO_BIN, ...argv]` + child.unref() (polling.js:283-303).
+ *   4. Detached spawn `execPath + [KODO_BIN, ...argv]` + child.unref() (polling.js:283-303),
+ *      con stdout+stderr redirigidos a `~/.kodo/logs/daemon.log` (KODO-28).
  *   5. Bounded wait: poll readPidFile(name)+isPidAlive hasta `waitMs` (polling.js:315-323).
  *
  * @param {string} name — basename del PID file (p.ej. 'kodo' → ~/.kodo/kodo.pid).
@@ -152,9 +156,20 @@ export async function startDaemon(name, argv, deps = {}) {
   const now = deps._now || Date.now;
   const sleepFn = deps._sleep || sleep;
   const waitMs = deps._waitMs ?? 2000;
-  // stdio del hijo: 'ignore' por defecto (genérico); un consumidor (Phase 66) puede
-  // inyectar un fd de logfile via `_logFd` para capturar stdout/stderr crudo.
-  const outFd = deps._logFd ?? 'ignore';
+  // stdio del hijo (KODO-28). El default dejó de ser 'ignore': ahora se abre
+  // `~/.kodo/logs/daemon.log` y su fd se usa como stdout+stderr del hijo. Antes,
+  // como NADIE inyectaba `_logFd` fuera de los tests, todo el stdout/stderr del
+  // daemon —incluidos los stack traces de un crash— iba a /dev/null.
+  //
+  // El fd se abre LAZY, justo antes del spawn (no aquí): un `alreadyRunning`, un
+  // `alreadyStarting` o un refuse de win32 no deben crear ficheros.
+  //
+  // Seams: `_logFd` (fd explícito, gana siempre — lo usan los tests y cualquier
+  // consumidor que quiera su propio destino) y `_openDaemonLog` (sustituye la
+  // apertura por defecto). `_logFd: 'ignore'` sigue siendo la forma de pedir
+  // explícitamente el comportamiento previo.
+  const openLogFn = deps._openDaemonLog || openDaemonLog;
+  const closeLogFn = deps._closeDaemonLog || closeDaemonLog;
 
   // Start-lock (CONC-06/D-12): reusa la primitiva Plan-01 (NO nueva lógica de lock).
   // Path derivado del name, junto a los PID files (`~/.kodo/{name}.start.lock`); el
@@ -183,6 +198,11 @@ export async function startDaemon(name, argv, deps = {}) {
     return { ok: true, alreadyStarting: true };
   }
 
+  // fd propio del padre (KODO-28): se abre en el paso 4 y se cierra SIEMPRE en el
+  // finally. `null` mientras no se haya abierto o cuando el caller inyectó `_logFd`.
+  /** @type {number | null} */
+  let ownedLogFd = null;
+
   try {
     // 3) Pre-flight (Pitfall #3): check en el padre ANTES del spawn — ahora bajo el lock.
     const existing = readPid(name);
@@ -195,6 +215,20 @@ export async function startDaemon(name, argv, deps = {}) {
     }
 
     // 4) Detached spawn con argv absoluto (T-65-10 EOP: cero PATH lookup, argv array form).
+    //
+    // KODO-28: resolución del destino de stdout/stderr, en orden de precedencia:
+    //   a) `_logFd` inyectado → se usa verbatim y el padre NO es dueño del fd
+    //      (no lo cierra: quien lo abrió lo cierra).
+    //   b) apertura por defecto de `~/.kodo/logs/daemon.log`; el padre SÍ es dueño.
+    //   c) si la apertura falla (never-throws → null) → 'ignore', que es
+    //      exactamente el comportamiento previo a KODO-28: degradar nunca deja el
+    //      arranque peor que el statu quo.
+    let outFd = deps._logFd;
+    if (outFd === undefined) {
+      ownedLogFd = openLogFn();
+      outFd = ownedLogFd ?? 'ignore';
+    }
+
     const child = spawnFn(
       execPath,
       [kodoBin, ...argv],
@@ -225,6 +259,12 @@ export async function startDaemon(name, argv, deps = {}) {
       message: `daemon '${name}' failed to write PID file within ${waitMs}ms`,
     };
   } finally {
+    // KODO-28: cierra el fd del PADRE. El hijo ya tiene su propia copia duplicada
+    // por el kernel en el spawn, así que cerrar aquí no le quita el logfile — solo
+    // evita filtrar un fd por cada `kodo up`. Si el spawn lanzó (ENOENT, EAGAIN),
+    // este cierre es justamente el que impide el leak (mismo cuidado que T-28-14
+    // en polling.js). Nunca se cierra un `_logFd` inyectado: no es nuestro.
+    closeLogFn(ownedLogFd);
     // Libera el start-lock SIEMPRE (éxito, already-running, timeout o throw).
     releaseLockFn(startLockPath, held.token);
   }

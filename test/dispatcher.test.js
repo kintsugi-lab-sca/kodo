@@ -1,4 +1,13 @@
 // @ts-check
+//
+// KODO-28: HOME aislado ANTES de cualquier dynamic import. Sin esto, el audit
+// `dispatch.decision` que el wrapper emite en cada veredicto escribiria en el
+// `~/.kodo/logs/dispatch.ndjson` REAL del operador — contaminando justamente la
+// traza de auditoria que este issue existe para recuperar.
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+process.env.HOME = mkdtempSync(joinPath(tmpdir(), 'kodo-dispatcher-test-'));
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

@@ -47,6 +47,10 @@ const {
   pollingError,
   pollingTickSummary,
   sessionDismissed,
+  webhookReceived,
+  webhookRejected,
+  dispatchDecision,
+  dispatchError,
 } = await import('../src/logger-events.js');
 
 function logPathFor(sessionId) {
@@ -54,10 +58,12 @@ function logPathFor(sessionId) {
 }
 
 describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
-  it('EVENTS is frozen and contains the 38 canonical types (KODO-27 grew 37 → 38: session.close.unmatched)', () => {
+  it('EVENTS is frozen and contains the 42 canonical types (KODO-28 grew 38 → 42: carril webhook.* + dispatch.*)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
+      'dispatch.decision',
+      'dispatch.error',
       'doctor.fix.error',
       'doctor.fix.lock',
       'doctor.fix.log',
@@ -92,12 +98,14 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'skill.sync.auto.error',
       'state.migration.v2_to_v3',
       'state.transition',
+      'webhook.received',
+      'webhook.rejected',
       'worktree.branch.kept',
       'worktree.cleanup.dirty',
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
-    assert.equal(Object.keys(EVENTS).length, 38, 'EVENTS key count must equal 38 post-KODO-27');
+    assert.equal(Object.keys(EVENTS).length, 42, 'EVENTS key count must equal 42 post-KODO-28');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
@@ -623,5 +631,108 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
     assert.equal(line.event, EVENTS.SESSION_DISMISSED);
     assert.equal(line.task_id, 'KL-42');
     assert.equal(line.actions_count, 3);
+  });
+});
+
+// ─── KODO-28: carril webhook → dispatch ──────────────────────────────────────
+
+describe('KODO-28: helpers del carril webhook → dispatch', () => {
+  it('webhookReceived emite info con {provider, action, task_ref, bytes}', () => {
+    const sessionId = 'sess-ev-webhook-received';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    webhookReceived(log, {
+      provider: 'plane',
+      action: 'issue.updated',
+      task_ref: 'KODO-28',
+      bytes: 1234,
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.WEBHOOK_RECEIVED);
+    assert.equal(line.level, 'info');
+    assert.equal(line.provider, 'plane');
+    assert.equal(line.action, 'issue.updated');
+    assert.equal(line.task_ref, 'KODO-28');
+    assert.equal(line.bytes, 1234);
+  });
+
+  it('webhookRejected emite warn con el motivo, para los 3 motivos cerrados', () => {
+    const sessionId = 'sess-ev-webhook-rejected';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    for (const reason of /** @type {const} */ (['signature', 'parse', 'payload'])) {
+      webhookRejected(log, { provider: 'plane', reason, bytes: 7 });
+    }
+    const lines = readAllLines(logPathFor(sessionId));
+    assert.equal(lines.length, 3);
+    assert.deepEqual(lines.map((l) => l.reason), ['signature', 'parse', 'payload']);
+    for (const l of lines) {
+      assert.equal(l.event, EVENTS.WEBHOOK_REJECTED);
+      assert.equal(l.level, 'warn');
+      assert.equal(l.provider, 'plane');
+      assert.equal(l.bytes, 7);
+    }
+  });
+
+  it('el carril webhook NO persiste body ni contenido de usuario (T-25-02 análogo)', () => {
+    const sessionId = 'sess-ev-webhook-noleak';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    // Campos extra hostiles: los helpers son whitelist field-by-field, nunca spread.
+    webhookReceived(/** @type {any} */ (log), /** @type {any} */ ({
+      provider: 'plane',
+      action: 'issue.updated',
+      task_ref: 'KODO-28',
+      bytes: 10,
+      raw: '{"secret":"hunter2"}',
+      title: 'título con datos del cliente',
+    }));
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal('raw' in line, false);
+    assert.equal('title' in line, false);
+    assert.equal(JSON.stringify(line).includes('hunter2'), false);
+  });
+
+  it('dispatchDecision emite info y omite code/detail cuando no aplican', () => {
+    const sessionId = 'sess-ev-dispatch-decision';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    dispatchDecision(log, { provider: 'plane', task_ref: 'KODO-28', action: 'launched' });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.DISPATCH_DECISION);
+    assert.equal(line.level, 'info');
+    assert.equal(line.provider, 'plane');
+    assert.equal(line.task_ref, 'KODO-28');
+    assert.equal(line.action, 'launched');
+    assert.equal('code' in line, false);
+    assert.equal('detail' in line, false);
+  });
+
+  it('dispatchDecision incluye code y detail cuando el veredicto los trae', () => {
+    const sessionId = 'sess-ev-dispatch-decision-code';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    dispatchDecision(log, {
+      provider: 'plane',
+      task_ref: 'KODO-28',
+      action: 'worktree_collision',
+      code: 'worktree_exists',
+      detail: '/tmp/proj/.bg-shell/abc',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.action, 'worktree_collision');
+    assert.equal(line.code, 'worktree_exists');
+    assert.equal(line.detail, '/tmp/proj/.bg-shell/abc');
+  });
+
+  it('dispatchError emite level=error con el mensaje', () => {
+    const sessionId = 'sess-ev-dispatch-error';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    dispatchError(log, {
+      provider: 'plane',
+      task_ref: 'KODO-28',
+      error: 'No configured project with identifier "UNKNOWN"',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.DISPATCH_ERROR);
+    assert.equal(line.level, 'error');
+    assert.equal(line.provider, 'plane');
+    assert.equal(line.task_ref, 'KODO-28');
+    assert.equal(line.error, 'No configured project with identifier "UNKNOWN"');
   });
 });

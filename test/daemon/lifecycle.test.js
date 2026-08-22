@@ -12,6 +12,10 @@
 // TODO se conduce vía DI (deps con `_spawn`/`_kill`/`_isPidAlive`/`_readPidFile`/
 // `_removePidFile`/`_now`/`_sleep`/`_platform`/`_kodoBin`), sin procesos reales ni FS real,
 // así que NO necesita HOME-isolation: las primitivas FS/proc están todas inyectadas.
+//
+// KODO-28: los tests que llegan al spawn inyectan además `_openDaemonLog` — sin él,
+// startDaemon abriría de verdad `~/.kodo/logs/daemon.log` (el fd por defecto que este
+// issue introduce) y el test dejaría de ser hermético.
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -60,6 +64,7 @@ describe('lifecycle: startDaemon(name, argv, deps)', () => {
       _now: makeClock(),
       _sleep: async () => {},
       _kodoBin: '/abs/bin/kodo',
+      _openDaemonLog: () => null, // KODO-28: sin FS real
     });
     assert.equal(removed, 'kodo', 'stale PID debe limpiarse antes de proceder');
     assert.equal(spawned, 1, 'debe spawnear tras limpiar el stale');
@@ -83,6 +88,7 @@ describe('lifecycle: startDaemon(name, argv, deps)', () => {
       _sleep: async () => {},
       _kodoBin: '/abs/bin/kodo',
       _execPath: '/usr/bin/node',
+      _openDaemonLog: () => null, // KODO-28: sin FS real
     });
     assert.equal(res.started, true);
     assert.equal(res.pid, 456);
@@ -103,6 +109,7 @@ describe('lifecycle: startDaemon(name, argv, deps)', () => {
       _now: makeClock(),
       _sleep: async () => {},
       _kodoBin: '/abs/bin/kodo',
+      _openDaemonLog: () => null, // KODO-28: sin FS real
     });
     assert.equal(res.ok, false);
     assert.equal(res.timedOut, true);
