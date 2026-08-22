@@ -144,6 +144,51 @@ describe('runUp', () => {
   });
 });
 
+// KODO-29 — la sonda de puerto sigue `config.server.bind`.
+//
+// Con `server.bind=100.x.y.z` (el bind a IP de Tailscale del README) el daemon deja de
+// escuchar en 127.0.0.1: el default de `probePortInUse` daba ECONNREFUSED, `runUp`
+// concluía "puerto libre" y spawneaba un segundo daemon condenado a EADDRINUSE.
+describe('runUp: host de la sonda de puerto (KODO-29)', () => {
+  /** Corre runUp con el bind dado y devuelve el host con el que se llamó a probePort. */
+  async function probedHostFor(bind, extra = {}) {
+    const probed = [];
+    const { deps } = makeDeps({
+      _loadConfig: () => ({ server: bind === undefined ? { port: 9090 } : { port: 9090, bind } }),
+      _probePort: async (port, host) => { probed.push([port, host]); return false; },
+      ...extra,
+    });
+    await runUp(deps);
+    return probed;
+  }
+
+  it('sin bind → 127.0.0.1 (cero cambio para la instalación por defecto)', async () => {
+    assert.deepEqual(await probedHostFor(undefined), [[9090, '127.0.0.1']]);
+  });
+
+  it('bind a IP concreta → sondea esa IP, donde el daemon escucha de verdad', async () => {
+    assert.deepEqual(await probedHostFor('100.64.1.2'), [[9090, '100.64.1.2']]);
+  });
+
+  it('bind `0.0.0.0` → 127.0.0.1 (el wildcard ya incluye loopback)', async () => {
+    assert.deepEqual(await probedHostFor('0.0.0.0'), [[9090, '127.0.0.1']]);
+  });
+
+  it('bind vacío → 127.0.0.1 (WR-04: vacío = ausente)', async () => {
+    assert.deepEqual(await probedHostFor('  '), [[9090, '127.0.0.1']]);
+  });
+
+  it('bind a IP concreta con el puerto ocupado → attach sin spawn (idempotencia UP-03 intacta)', async () => {
+    const { deps, calls } = makeDeps({
+      _loadConfig: () => ({ server: { port: 9090, bind: '100.64.1.2' } }),
+      _probePort: async (_port, host) => host === '100.64.1.2',
+    });
+    await runUp(deps);
+    assert.equal(calls.startDaemon.length, 0, 'la sonda ve el daemon en la IP bindeada');
+    assert.equal(calls.runDashboard.length, 1);
+  });
+});
+
 // Gap-closure 66-07: con el kodo.pid escrito temprano, `kodo up` pasa el pid-wait
 // en <100ms y confía en waitForHealth para el readiness. El health-wait DEBE
 // tolerar un provider.init de red (boot lento) sin rendirse — pero seguir acotado

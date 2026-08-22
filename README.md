@@ -113,6 +113,9 @@ Settings → Webhooks → nuevo webhook:
 > kodo config --set server.bind=100.x.y.z
 > ```
 >
+> Las herramientas locales (`kodo up`, `kodo dashboard`) siguen el bind
+> automáticamente: no hace falta `0.0.0.0` ni pasar `--url`.
+>
 > Ver [Topología multi-nodo](#topología-multi-nodo) para las implicaciones de seguridad.
 
 ### 5. Instalar hooks de Claude Code
@@ -462,6 +465,29 @@ kodo config --set server.bind=100.x.y.z   # p. ej. tu IP de Tailscale
 Exponer el bind es un **opt-in explícito** y debe ir acompañado de una ACL o
 firewall que restrinja quién alcanza el puerto `:9090` (ACLs de Tailscale,
 `pf`/`ufw`). No dejes `0.0.0.0` sin control de acceso delante.
+
+### El tooling local sigue el bind
+
+`kodo up` y `kodo dashboard` derivan a qué host conectarse del propio
+`server.bind`, así que un bind a una interfaz concreta funciona tal cual:
+
+| `server.bind`            | dónde escucha el daemon | a qué se conectan `up` / `dashboard` |
+| ------------------------ | ----------------------- | ------------------------------------ |
+| ausente (default)        | `127.0.0.1`             | `http://localhost:<port>`            |
+| `0.0.0.0` / `::`         | todas las interfaces    | `http://localhost:<port>`            |
+| `100.x.y.z` (Tailscale)  | `100.x.y.z`             | `http://100.x.y.z:<port>`            |
+
+Conectar a una IP asignada a esta misma máquina no sale del kernel, así que el
+dashboard funciona igual de rápido que contra loopback. **No hace falta bindear a
+`0.0.0.0` ni añadir reglas de firewall solo para que el dashboard hable con el
+daemon**, y `kodo status` no toca la red en ningún caso (resuelve por PID).
+
+`--url` queda reservado para lo que el bind no describe: apuntar el dashboard a un
+daemon que corre en **otra** máquina.
+
+```bash
+kodo dashboard --url http://100.x.y.z:9090
+```
 
 La exposición **no** relaja la autenticación:
 

@@ -19,6 +19,9 @@
 
 import net from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
+// KODO-29: helper PURO (cero imports, cero I/O) — deriva de `config.server.bind` el
+// host donde el daemon escucha de verdad. Import eager: no arrastra config ni ink.
+import { resolveClientHost } from '../net-host.js';
 
 /**
  * Sonda de puerto-en-uso vía node:net (UP-03). NEVER-THROWS / never-hang.
@@ -188,6 +191,12 @@ export async function runUp(deps = {}) {
   const cfg = loadConfigFn();
   const port = cfg?.server?.port ?? 9090;
   const baseUrl = resolveBaseUrlFn({ loadConfig: loadConfigFn });
+  // KODO-29: la sonda de puerto debe apuntar a donde el daemon escucha DE VERDAD. Con
+  // `server.bind=100.x.y.z` el server ya no atiende en 127.0.0.1, así que el default de
+  // probePortInUse daba ECONNREFUSED y `kodo up` creía el puerto libre — arrancando un
+  // segundo daemon condenado a EADDRINUSE. Sin bind (o con wildcard) resuelve al mismo
+  // 127.0.0.1 de siempre: cero cambio para la instalación por defecto.
+  const probeHost = resolveClientHost(cfg);
 
   // (1.5) first-run pre-spawn (D-02): config incompleta → abre el dashboard en modo
   // setup SIN arrancar el daemon. Arrancarlo aquí sería contraproducente: en first-run
@@ -201,7 +210,7 @@ export async function runUp(deps = {}) {
 
   // (2) ensure-daemon (idempotencia D-02): PID-alive PRIMARIO + probePort SECUNDARIO.
   const status = statusDaemonFn('kodo');
-  const portBusy = await probePortFn(port);
+  const portBusy = await probePortFn(port, probeHost);
   if (status.status !== 'running' && !portBusy) {
     // Daemon frío: arranca detached (['daemon','run'] → runDaemon foreground en el hijo).
     const res = await startDaemonFn('kodo', ['daemon', 'run']);

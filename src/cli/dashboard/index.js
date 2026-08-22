@@ -43,6 +43,9 @@ import { DEFAULT_CONFIG } from '../../config.js';
 // KODO-10: helper PURO (solo depende de projects-shape.js) — sin ink/picocolors ni I/O, misma
 // disciplina de import eager que DEFAULT_CONFIG. Extrae los IDs dispatch-enabled del config.
 import { dispatchProjectIds } from '../../config-doctor.js';
+// KODO-29: helpers PUROS (cero imports, cero I/O) que derivan el host de `server.bind`.
+// Misma disciplina de import eager que DEFAULT_CONFIG; no rompen color-isolation.
+import { resolveClientHost, formatHostForUrl } from '../../net-host.js';
 
 // Mensaje canónico D-04 — string EXACTO que test/dashboard-non-tty.test.js
 // compara con stderr.trim(). Construido en dos líneas concatenadas.
@@ -63,6 +66,14 @@ const NON_TTY_MSG =
  * `../../config.js` (no cargar config en el arranque del CLI), los tests pasan
  * fakes herméticos. `defaultConfig` por defecto es DEFAULT_CONFIG (eager).
  *
+ * KODO-29: el HOST también sale del config, no de un `localhost` fijo. Con
+ * `server.bind=100.x.y.z` (el bind a IP de Tailscale que el README recomienda para
+ * recibir el webhook desde otra máquina) el daemon deja de escuchar en loopback, y
+ * el dashboard se enganchaba a un `localhost:<port>` muerto. `resolveClientHost`
+ * conserva el fallback `localhost` cuando el bind está ausente o es un wildcard —
+ * el default histórico y el que anuncia el help de `--url` (cli.js:398) — y solo se
+ * desvía cuando el bind nombra una dirección concreta.
+ *
  * @param {object} args
  * @param {string} [args.url] - Override de baseUrl (flag --url, D-05).
  * @param {() => any} args.loadConfig - Lector de config (inyectable para tests).
@@ -70,9 +81,13 @@ const NON_TTY_MSG =
  * @returns {string} baseUrl resuelto.
  */
 export function resolveBaseUrl({ url, loadConfig, defaultConfig = DEFAULT_CONFIG }) {
+  // El override --url gana ANTES de leer nada del config: es la vía de escape para
+  // un daemon remoto o una topología que el bind no describe.
+  if (url) return url;
   const cfg = loadConfig();
   const port = cfg.server?.port ?? defaultConfig.server.port;
-  return url ?? `http://localhost:${port}`;
+  const host = formatHostForUrl(resolveClientHost(cfg, 'localhost'));
+  return `http://${host}:${port}`;
 }
 
 /**

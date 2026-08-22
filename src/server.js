@@ -10,6 +10,10 @@ import { createProviderStateResolver } from './server/provider-state.js';
 import { createPendingResolver, buildPendingStatusFields, excludeActiveTasks } from './tasks/pending.js';
 import { createDismissHandler } from './server/dismiss.js';
 import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken, MAX_BODY_BYTES } from './server/auth.js';
+// KODO-29: la normalización del bind vive en un módulo puro compartido con el tooling
+// local (dashboard, sonda de puerto de `kodo up`) — antes era exclusiva de este fichero
+// y por eso el cliente asumía loopback fijo aunque el server escuchara en otra IP.
+import { resolveListenHost, resolveClientHost, formatHostForUrl } from './net-host.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -238,8 +242,14 @@ export async function startServer(opts = {}) {
   // config.server.bind. WR-04: an empty/whitespace string is treated as ABSENT,
   // not passed through — `server.listen(port, '')` silently binds 0.0.0.0 (all
   // interfaces), the exact LAN exposure NET-01 exists to prevent.
-  const rawBind = config.server.bind;
-  const host = (typeof rawBind === 'string' && rawBind.trim()) ? rawBind.trim() : '127.0.0.1';
+  // KODO-29: those rules now live in resolveListenHost (src/net-host.js) so the local
+  // tooling derives the SAME host instead of hardcoding loopback.
+  const host = resolveListenHost(config);
+  // KODO-29: the advertised URLs must name an address the daemon actually answers on.
+  // Printing `localhost` under `server.bind=100.x.y.z` pointed operators (and the Plane
+  // webhook they paste it into) at an address we no longer listen on. A wildcard bind
+  // keeps `localhost` — `http://0.0.0.0:9090/webhook` is not a dialable URL.
+  const advertisedHost = formatHostForUrl(resolveClientHost(config, 'localhost'));
 
   let provider;
   if (opts._provider) {
@@ -595,9 +605,9 @@ export async function startServer(opts = {}) {
       server.on('error', onError);
       server.listen(port, host, () => {
         server.removeListener('error', onError);
-        console.log(`[kodo] Server listening on :${port}`);
-        console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
-        console.log(`[kodo] Status URL: http://localhost:${port}/status`);
+        console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
+        console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
+        console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
 
         // Point 3: managed skips its own server.pid (daemon owns kodo.pid).
 
@@ -607,9 +617,9 @@ export async function startServer(opts = {}) {
     });
   } else {
     server.listen(port, host, () => {
-      console.log(`[kodo] Server listening on :${port}`);
-      console.log(`[kodo] Webhook URL: http://localhost:${port}/webhook`);
-      console.log(`[kodo] Status URL: http://localhost:${port}/status`);
+      console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
+      console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
+      console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
 
       writeFileSync(PID_PATH, String(process.pid));
 
