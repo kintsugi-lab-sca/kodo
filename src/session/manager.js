@@ -6,7 +6,7 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
-import { addSession, listSessions, updateSession, computeWorktreePath } from './state.js';
+import { addSession, listSessions, updateSession, computeRealWorktreePath } from './state.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
@@ -31,7 +31,7 @@ import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
  *                          //          opcional — lo consume la guarda por host de
  *                          //          reconcileTick para no degradar sesiones del otro
  *                          //          cliente cuando el operador conmuta `config.host`.
- *   worktreePath?: string, // Phase 18 D-03: deterministic worktree path computed by computeWorktreePath
+ *   worktreePath?: string, // Phase 18 D-03: deterministic worktree path computed by computeRealWorktreePath (KODO-30)
  *                          //               (single source of truth in src/session/state.js). Persisted
  *                          //               PRE-spawn so kodo logs / consumers can resolve the path
  *                          //               immediately. Aditivo opcional (D-03c) — mismo idiom que
@@ -529,10 +529,18 @@ export async function launchWorkItem(identifier, opts = {}) {
   const hostOwnsWorktree = hostIsolatesWorktree(hostName);
   const isolateWithClaude = gitBacked && !hostOwnsWorktree;
   // Phase 18 (D-01, D-02, D-03): compute deterministic worktree path PRE-spawn.
-  // Single source of truth: computeWorktreePath de session/state.js (Plan 01).
+  // Single source of truth: computeRealWorktreePath de session/state.js.
   // El path NO se crea aquí — `claude --worktree <sessionId>` lo materializa al
   // arrancar la sesión del lado de claude. Plan 03 valida la unicidad del path
   // (D-05 fail-fast canonical error en el dispatcher, fuera de launchWorkItem).
+  //
+  // KODO-30: el helper es `computeRealWorktreePath` (`.claude/worktrees/<sid>`), NO el
+  // legacy `computeWorktreePath` (`.bg-shell/<sid>`). Se persistía un path que Claude
+  // Code nunca crea, y todo consumidor downstream tenía que parchearlo por su cuenta
+  // (resolveEffectiveWorktree, verify.js, dashboard/App.js). El parche fallaba en el
+  // único momento que importa: si el worktree real ya se borró cuando corre SessionEnd,
+  // el fallback devolvía el `.bg-shell` inexistente y el cleanup abortaba en `status`.
+  // Con el path real persistido, `already_gone` es distinguible de «path equivocado».
   // KODO-9: solo para proyectos git. En no-git no hay worktree que materializar,
   // así que worktree_path queda sin persistir (buildSessionFromTask lo omite vía
   // spread condicional) y session-end no intenta un cleanup fantasma.
@@ -548,7 +556,7 @@ export async function launchWorkItem(identifier, opts = {}) {
   // `workspaceCwd` es OPCIONAL y typeof-detected (solo lo tienen los hosts que crean
   // checkout). Fail-open: si falta o falla, el campo queda vacío y el comportamiento es
   // el de antes de este arreglo — se pierde precisión en el overlay, nunca la sesión.
-  let worktreePath = isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null;
+  let worktreePath = isolateWithClaude ? computeRealWorktreePath(projectPath, sessionId) : null;
   if (hostOwnsWorktree && typeof host._legacy?.workspaceCwd === 'function') {
     try {
       worktreePath = (await host._legacy.workspaceCwd(workspaceRef)) || null;

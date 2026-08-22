@@ -95,6 +95,19 @@ function makeGitFnStub(handler) {
  */
 const noCapture = async () => ({ captured: false, reason: 'stubbed', entry: null });
 
+/**
+ * Probe que declara «el worktree de la sesión SIGUE en disco» (KODO-30).
+ *
+ * Estos tests usan `worktree_path` sintéticos que nunca se crean — todo el git está
+ * stubeado. Desde KODO-30 el cleanup hace un probe de existencia y, si el directorio no
+ * está, bifurca al camino `already_gone` (que ni remueve ni mueve nada). Sin este stub la
+ * suite entera mediría ese otro camino, no el que dice medir.
+ *
+ * Se inyecta por `existsFn` y NO sustituyendo `deps.fs`: un `fs` parcial dejaría sin
+ * `mkdirSync` al bloque de handoff, que corre en el mismo hook.
+ */
+const WORKTREE_EXISTS = () => true;
+
 describe('KODO-18: el worktree del HOST no se borra jamás', () => {
   // Guarda de SEGURIDAD, no de corrección: `worktree_path` también se rellena cuando el
   // checkout lo creó el host (Orca) —el dashboard lo necesita para leer el `.planning/`
@@ -113,6 +126,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -141,6 +155,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -163,6 +178,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -191,6 +207,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -229,6 +246,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -258,6 +276,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -292,6 +311,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         {
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
+          existsFn: WORKTREE_EXISTS,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -319,6 +339,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -345,6 +366,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -382,6 +404,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         {
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
+          existsFn: WORKTREE_EXISTS,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -422,6 +445,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
         {
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
+          existsFn: WORKTREE_EXISTS,
           removeSessionFn: () => {},
           cmux: makeStubCmux(),
           loggerFactory: () => logger,
@@ -479,6 +503,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -509,6 +534,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -546,6 +572,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
       {
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_EXISTS,
         removeSessionFn: () => {},
         cmux: makeStubCmux(),
         loggerFactory: () => logger,
@@ -556,5 +583,103 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     assert.equal(existsSync(dirtyEv.fields.moved_to), true, 'moved_to path exists on disk');
     const branches = execSync('git branch', { cwd: repo, encoding: 'utf-8' });
     assert.ok(branches.includes(branchName), `branch ${branchName} preserved`);
+  });
+});
+
+// ── KODO-30: cerrar una sesión cuyo worktree Claude Code ya borró ────────────
+//
+// El caso REAL del 2026-08-22 (cierres de ITCLIP-81 y ITCLIP-82 con /exit): el hook emitía
+// `worktree.cleanup.error` y las ramas locales ya mergeadas quedaban huérfanas en el repo.
+// Quién borra el worktree, observado después en el cierre de KODO-29: al salir, Claude Code
+// ofrece «Keep worktree / Remove worktree»; con Remove borra el directorio y la rama
+// `worktree-<sid>` ANTES de que arranque session-end.js. La rama renombrada por la sesión
+// (`feat/…`) sobrevive — y es exactamente la que se quedaba sin podar.
+// Aquí se cierra el ciclo entero por el hook, no por el helper: probe → already_gone →
+// decisión sobre la rama PERSISTIDA.
+describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
+  /** Probe que declara «el worktree de la sesión ya NO está en disco». */
+  const WORKTREE_GONE = () => false;
+
+  it('RAMA MERGEADA: la borra y NO emite worktree.cleanup.error', async () => {
+    const session = makeSession({ branch: 'feat/itclip-81-piezas-prototipo' });
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-list') return '0'; // gate KODO-21: todo mergeado
+      return '';
+    });
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_GONE,
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+
+    // El síntoma exacto del bug.
+    assert.equal(
+      events.find((e) => e.fields?.event === 'worktree.cleanup.error'),
+      undefined,
+      'cerrar con el worktree ya borrado NO es un error',
+    );
+    const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
+    assert.ok(ok, 'must emit worktree.cleanup.ok');
+    assert.equal(ok.fields.already_gone, true);
+    assert.equal(ok.fields.branch_deleted, true);
+
+    const branchDel = calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D');
+    assert.ok(branchDel, 'la rama mergeada se borra — deja de quedar huérfana');
+    assert.equal(branchDel.args[2], 'feat/itclip-81-piezas-prototipo');
+  });
+
+  it('RAMA NO MERGEADA: la conserva (el trabajo commiteado nunca se pierde)', async () => {
+    const session = makeSession({ branch: 'feat/con-trabajo' });
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-list') return '7\n';
+      return '';
+    });
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_GONE,
+        removeSessionFn: () => {},
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+
+    assert.equal(calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'), undefined);
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.unmerged_commits, 7);
+  });
+
+  it('la sesión se archiva igual: removeSession corre en ambos caminos', async () => {
+    const session = makeSession({ branch: 'feat/z' });
+    const { logger } = makeMemLogger();
+    const { gitFn } = makeGitFnStub((cwd, args) => (args[0] === 'rev-list' ? '0' : ''));
+    const removed = [];
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path },
+      {
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        existsFn: WORKTREE_GONE,
+        removeSessionFn: (id) => removed.push(id),
+        cmux: makeStubCmux(),
+        loggerFactory: () => logger,
+        gitFn,
+      },
+    );
+
+    assert.deepEqual(removed, [session.task_id], 'el cierre completa igual');
   });
 });

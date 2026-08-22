@@ -186,12 +186,22 @@ describe('stop.js source hygiene', () => {
       source.includes('lstatSync(target)'),
       'pre-check must use lstatSync(target) per Phase 19 CR-03 (symlink-safe)',
     );
-    // existsSync NO debe aparecer en el helper — el único uso era el pre-check
-    // que se sustituyó por lstatSync (CR-03). Si reaparece, regresión.
+    // existsSync NO debe USARSE en el helper — sigue symlinks, y el único uso que había
+    // (el pre-check del target `.dirty`) se sustituyó por lstatSync (CR-03). Si reaparece,
+    // regresión.
+    //
+    // KODO-30: el guard pasó de «la palabra no aparece» a «no se importa ni se invoca». El
+    // helper ganó un segundo probe de existencia (¿sigue el worktree en disco?) que también
+    // resuelve con lstatSync y explica en prosa POR QUÉ no usa existsSync — con el guard
+    // anterior, documentar la decisión hacía fallar el test que la protege.
     assert.equal(
-      source.indexOf('existsSync'),
+      source.indexOf('existsSync('),
       -1,
-      'existsSync must NOT appear in worktree-cleanup.js after CR-03 fix (symlink-following risk)',
+      'existsSync must NOT be CALLED in worktree-cleanup.js after CR-03 fix (symlink-following risk)',
+    );
+    assert.ok(
+      !/import\s+\{[^}]*\bexistsSync\b[^}]*\}\s+from\s+['"]node:fs['"]/.test(source),
+      'worktree-cleanup.js must NOT import existsSync from node:fs (CR-03)',
     );
     // Sanity: el comentario referencia la decisión.
     assert.ok(

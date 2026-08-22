@@ -237,3 +237,95 @@ describe('captureIntegration — fail-open (la sesión SIEMPRE cierra)', () => {
     assert.equal(r.reason, 'error');
   });
 });
+
+// ── KODO-30: el worktree ya no existe cuando corre la captura ────────────────
+//
+// La captura corre en SessionEnd, justo después de que Claude Code haya borrado el worktree
+// de una sesión `--worktree` limpia. `git -C <wt> branch --show-current` LANZA sobre un
+// directorio ausente, y el resultado era `detached`: una rama con trabajo que jamás entraba
+// en la cola, con un skip indistinguible de un detached HEAD real.
+//
+// `session.branch` es la misma rama, sellada por el hook Stop mientras el worktree vivía.
+describe('captureIntegration — worktree desaparecido, rama persistida (KODO-30)', () => {
+  /** El `-C <wt>` falla; el resto del repo (leído desde `project`) responde normal. */
+  function worktreeGone(branch, overrides = {}) {
+    return (args, cwd) => {
+      if (args.includes('branch --show-current')) {
+        return new Error(`fatal: cannot change to '/repo/kodo/.claude/worktrees/sess-1': No such file or directory`);
+      }
+      if (args.startsWith('symbolic-ref')) return 'origin/main';
+      if (args.startsWith('rev-parse --verify')) return 'deadbeef';
+      if (args.startsWith(`rev-list --count ${branch} --not`)) return overrides.unmerged ?? '3';
+      if (args.startsWith(`rev-list --count ${branch}..main`)) return '0';
+      if (args.startsWith('diff --numstat')) return '3\t1\tREADME.md';
+      return '';
+    };
+  }
+
+  it('ENCOLA con la rama persistida cuando el directorio del worktree ya no responde', async () => {
+    const branch = 'feat/itclip-82-cliente-activo';
+    const { gitFn } = makeGit(worktreeGone(branch));
+    const { enqueueFn, calls } = makeEnqueue();
+
+    const r = await captureIntegration({
+      session: { ...session, branch },
+      worktree: '/repo/kodo/.claude/worktrees/sess-1',
+      gitFn,
+      enqueueFn,
+    });
+
+    assert.equal(r.captured, true);
+    assert.equal(r.reason, 'queued');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].branch, branch);
+    assert.equal(calls[0].commits_ahead, 3);
+  });
+
+  it('MERGED: con la rama persistida el gate KODO-21 resuelve, en vez de saltar como detached', async () => {
+    const branch = 'feat/itclip-81-piezas-prototipo';
+    const { gitFn } = makeGit(worktreeGone(branch, { unmerged: '0' }));
+    const { enqueueFn, calls } = makeEnqueue();
+
+    const r = await captureIntegration({
+      session: { ...session, branch },
+      worktree: '/repo/kodo/.claude/worktrees/sess-1',
+      gitFn,
+      enqueueFn,
+    });
+
+    // 'merged' y no 'detached': la pregunta SE RESPONDIÓ, y la respuesta es que no hay
+    // nada que integrar. Ese es el criterio del DoD — encola, o dice merged.
+    assert.equal(r.reason, 'merged');
+    assert.equal(r.captured, false);
+    assert.equal(calls.length, 0);
+  });
+
+  it('SIN rama persistida sigue siendo detached (no se inventa nada)', async () => {
+    const { gitFn } = makeGit(worktreeGone('feat/x'));
+    const { enqueueFn, calls } = makeEnqueue();
+
+    const r = await captureIntegration({
+      session,
+      worktree: '/repo/kodo/.claude/worktrees/sess-1',
+      gitFn,
+      enqueueFn,
+    });
+
+    assert.equal(r.reason, 'detached');
+    assert.equal(calls.length, 0);
+  });
+
+  it('CON worktree vivo manda git, NO la rama persistida (el agente pudo cambiar de rama)', async () => {
+    const { gitFn } = makeGit(healthyRepo()); // git dice 'worktree-abc'
+    const { enqueueFn, calls } = makeEnqueue();
+
+    await captureIntegration({
+      session: { ...session, branch: 'feat/rama-vieja' },
+      worktree: '/repo/kodo/.claude/worktrees/sess-1',
+      gitFn,
+      enqueueFn,
+    });
+
+    assert.equal(calls[0].branch, 'worktree-abc', 'el dato de AHORA gana al persistido');
+  });
+});

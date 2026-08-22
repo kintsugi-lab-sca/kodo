@@ -39,7 +39,8 @@ const STATE_LOCK_PATH = STATE_PATH + '.lock';
  *   gsd_mode?: 'full'|'quick', // GSD execution mode. 'full' = plan→execute→verify chain (kodo:gsd label). 'quick' = single /gsd-quick command (kodo:gsd-quick label). Only set when gsd === true.
  *   phase_id?: string,         // Phase 9 (D-11): resolved phase identifier. Populated by dispatcher when match succeeds.
  *   brief?: string,            // Phase 9 (D-09, pattern-mapper #4): bootstrap brief rendered by buildBriefFromTask. Persisted so hook SessionStart can read it via findSession(). Only set when resolver returns action='bootstrap'.
- *   worktree_path?: string,    // Phase 18 (D-03c, aditivo opcional — mismo patrón que gsd_mode Phase 11 D-08). Path determinístico derivado del session-id (`<projectPath>/.bg-shell/<sessionId>`) computado por computeWorktreePath. Sesiones legacy v0.5 sin este campo se leen como undefined; consumers downstream deben tolerar falsy. NO bump de schema_version.
+ *   worktree_path?: string,    // Phase 18 (D-03c, aditivo opcional — mismo patrón que gsd_mode Phase 11 D-08). Path determinístico derivado del session-id, computado por computeRealWorktreePath: `<projectPath>/.claude/worktrees/<sessionId>` (KODO-30). Hasta KODO-30 se persistía la convención LEGACY `.bg-shell/<sessionId>` (computeWorktreePath), un directorio que Claude Code nunca crea — las sesiones persistidas ANTES de este cambio siguen trayendo ese path, y `resolveEffectiveWorktree` (hooks/terminal-cleanup.js) es quien las repara. Sesiones legacy v0.5 sin este campo se leen como undefined; consumers downstream deben tolerar falsy. NO bump de schema_version.
+ *   branch?: string,           // KODO-30: nombre de la rama sobre la que trabaja la sesión, leído del worktree y persistido por el hook Stop MIENTRAS el directorio aún existe. Es el ancla que permite al cleanup terminal y a la captura de integración decidir sobre la rama cuando el «Remove worktree» que Claude Code ofrece al salir ya ha borrado el directorio (`git -C <wt>` deja de responder y la rama sería, si no, inaverigüable; Claude Code borra además la rama `worktree-<sid>`, pero NO la renombrada `feat/…` que usa cualquier sesión de kodo — esa es justo la que quedaba huérfana). AUSENTE = sesión legacy, sesión sin worktree, o Stop nunca llegó a correr; los consumers degradan al comportamiento previo. Aditivo opcional, sin bump de schema_version.
  *   state?: 'running'|'idle'|'needs-input'|'dead'|'closed'|'review'|'error',  // Phase 38 D-04/D-11: ciclo de vida explícito. Aditivo opcional (poblado por migrateStateV2toV3); sesiones v2 sin migrar se leen undefined.
  *   needs_input?: boolean,     // Phase 38 D-04/D-11: true cuando el host expone "Needs input". Dimensión independiente de state.
  *   process_alive?: boolean,   // Phase 38 D-04/D-11: el proceso Claude sigue vivo. Derivado de status en la migración.
@@ -177,17 +178,20 @@ export function migrateStateV2toV3(rawState) {
  * Phase 19 consumirá este helper para `git worktree remove <worktreePath>`
  * en el stop hook (WT-04). Mantener la firma estable.
  *
- * ─── CONC-09 / M13 DISCREPANCY (Phase 70, D-15) — DOCUMENTED, DEFERRED ───
+ * ─── CONC-09 / M13 DISCREPANCY (Phase 70, D-15) — RESUELTA EN KODO-30 ───
  * The `.bg-shell/<sid>` convention here is the LEGACY assumption. Phase 50.1
  * empirically confirmed (via `git worktree list`) that the live Claude Code
  * session actually creates its worktree at `.claude/worktrees/<sid>` — see the
- * sibling `computeRealWorktreePath` below, which the dashboard and verify.js
- * already use. Two consumers still assume `.bg-shell`: the dispatcher's
- * pre-launch collision-check and `gsd/doctor.js`'s orphan scan. Per D-15 the
- * path is NOT changed by inference; the discrepancy, every consumer, and the
- * live-session verification steps are documented in
- * `.planning/phases/70-.../70-WORKTREE-VERIFICATION.md`, with the empirical
- * human sign-off DEFERRED (same precedent as the Phase 50.1 progress display).
+ * sibling `computeRealWorktreePath` below.
+ *
+ * KODO-30 cierra la discrepancia en el carril de ESCRITURA: `session/manager.js`
+ * y el collision-check del dispatcher pasaron a `computeRealWorktreePath`, así que
+ * `worktree_path` de una sesión NUEVA apunta ya a un directorio que existe.
+ *
+ * Este helper NO se borra: es COMPATIBILIDAD. Queda un consumidor legítimo —
+ * el escaneo de huérfanos de `gsd/doctor.js`, que tiene que seguir encontrando
+ * los `.bg-shell/<sid>` que dejaron las sesiones anteriores al cambio — y
+ * `resolveEffectiveWorktree` sigue reparando los `worktree_path` ya persistidos.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * @param {string} projectPath - Repo principal (no symlinked-resolved aquí; ver D-04).

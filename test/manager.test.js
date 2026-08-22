@@ -778,24 +778,24 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 18 WT-01: imports computeWorktreePath from session/state.js (single source of truth)', () => {
+  it('Phase 18 WT-01 + KODO-30: imports computeRealWorktreePath from session/state.js (single source of truth)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     assert.ok(
-      /import\s+\{[^}]*\bcomputeWorktreePath\b[^}]*\}\s+from\s+['"]\.\/state\.js['"]/.test(source),
-      'manager.js must import computeWorktreePath from ./state.js (Plan 01 helper)',
+      /import\s+\{[^}]*\bcomputeRealWorktreePath\b[^}]*\}\s+from\s+['"]\.\/state\.js['"]/.test(source),
+      'manager.js must import computeRealWorktreePath from ./state.js (Plan 01 helper)',
     );
     // No re-implementation inline — Plan 01 is the single source of truth.
     assert.ok(
       !/\.bg-shell['"]\s*,\s*sessionId/.test(source),
-      'manager.js must NOT inline path.join(... , ".bg-shell", sessionId) — use computeWorktreePath',
+      'manager.js must NOT inline path.join(... , ".bg-shell", sessionId) — use computeRealWorktreePath',
     );
   });
 
-  it('Phase 18 WT-01: launchWorkItem computes worktreePath from (projectPath, sessionId)', () => {
+  it('Phase 18 WT-01 + KODO-30: launchWorkItem computes worktreePath from (projectPath, sessionId)', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
     assert.ok(
-      /computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)/.test(source),
-      'launchWorkItem must invoke computeWorktreePath(projectPath, sessionId) verbatim',
+      /computeRealWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)/.test(source),
+      'launchWorkItem must invoke computeRealWorktreePath(projectPath, sessionId) verbatim',
     );
   });
 
@@ -860,8 +860,8 @@ describe('manager.js source hygiene', () => {
     // Y worktreePath solo se computa cuando el aislamiento lo pone claude (no cleanup
     // fantasma ni en no-git ni cuando el worktree lo crea el host).
     assert.ok(
-      /isolateWithClaude\s*\?\s*computeWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)\s*:\s*null/.test(source),
-      'worktreePath debe ser `isolateWithClaude ? computeWorktreePath(projectPath, sessionId) : null`',
+      /isolateWithClaude\s*\?\s*computeRealWorktreePath\(\s*projectPath\s*,\s*sessionId\s*\)\s*:\s*null/.test(source),
+      'worktreePath debe ser `isolateWithClaude ? computeRealWorktreePath(projectPath, sessionId) : null`',
     );
   });
 

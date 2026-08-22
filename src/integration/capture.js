@@ -149,7 +149,8 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
  * Captura la necesidad de integración de la rama de una sesión que cierra.
  *
  * Secuencia (todo fail-open, ningún paso lanza):
- *   1. Rama actual del directorio de trabajo de la sesión. Vacía (detached HEAD) → skip.
+ *   1. Rama actual del directorio de trabajo de la sesión; si ese directorio ya no existe,
+ *      la rama PERSISTIDA en `session.branch` (KODO-30). Vacía (detached HEAD) → skip.
  *   2. La rama NO puede ser la base: cerrar trabajando sobre `main` no encola nada.
  *   3. Gate KODO-21 (`countUnmergedCommits`): `0` ⇒ todo está mergeado ⇒ NO se encola. Es la
  *      mitad «una sesión que cierra mergeada no aparece» del DoD.
@@ -157,7 +158,7 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
  *   5. Sugerencia (`suggestTier`) y encolado bajo el lock de state.json.
  *
  * @param {{
- *   session: { task_ref?: string, task_id?: string, project_path?: string, session_id?: string },
+ *   session: { task_ref?: string, task_id?: string, project_path?: string, session_id?: string, branch?: string },
  *   worktree?: string|null,
  *   gitFn: (cwd: string, args: string[]) => Promise<string>|string,
  *   logger?: import('../logger-noop.js').NoopLogger,
@@ -186,6 +187,21 @@ export async function captureIntegration({ session, worktree, gitFn, logger, enq
       branch = String(out ?? '').trim();
     } catch {
       branch = '';
+    }
+    // KODO-30: la lectura de arriba falla ENTERA cuando el directorio del worktree ya no
+    // existe — al salir, Claude Code ofrece «Remove worktree» y lo borra ANTES de que
+    // arranque el hook en el que esta captura vive. El resultado era `detached` y una rama
+    // con trabajo que jamás entraba en la cola, sin más traza que un skip indistinguible de
+    // un detached HEAD real.
+    //
+    // `session.branch` es la misma rama, sellada por el hook Stop mientras el worktree aún
+    // respondía. Solo entra cuando git no dio nada: con el worktree vivo manda git, que es
+    // el dato de AHORA (el agente pudo cambiar de rama en el último turno).
+    if (!branch && session?.branch) {
+      branch = String(session.branch).trim();
+      if (branch) {
+        console.error(`[kodo:integrate] rama persistida — ${branch}: el worktree ya no responde, se usa session.branch`);
+      }
     }
     if (!branch) return { captured: false, reason: 'detached', entry: null };
 

@@ -47,17 +47,26 @@ export async function defaultGitFn(cwd, gitArgs) {
 /**
  * Resuelve el worktree que hay que sanear de verdad (KODO-21 / inbox 1yx98p).
  *
- * `session.worktree_path` se persiste con `computeWorktreePath` → la convención
+ * `session.worktree_path` se persistía con `computeWorktreePath` → la convención
  * LEGACY `<project>/.bg-shell/<sid>`, que en la práctica NO existe: Claude Code
- * materializa el worktree en `<project>/.claude/worktrees/<sid>`. El síntoma es
+ * materializa el worktree en `<project>/.claude/worktrees/<sid>`. El síntoma era
  * un `worktree.cleanup.error{phase:status}` en cada cierre de sesión ("cannot
  * change to '.../.bg-shell/<sid>': No such file or directory") mientras el
  * worktree real sobrevive sin sanear.
  *
  * El fallback es deliberadamente estrecho — solo cuando el persistido NO existe
- * y el real SÍ. `computeWorktreePath` NO se toca (D-15: 5 consumidores acoplados
- * al path legacy). Si ninguno de los dos existe se devuelve el persistido y el
+ * y el real SÍ. Si ninguno de los dos existe se devuelve el persistido y el
  * cleanup se comporta exactamente como antes.
+ *
+ * KODO-30: esta función es ya COMPATIBILIDAD, no el arreglo. El carril de escritura
+ * (`session/manager.js`) persiste desde entonces el path REAL, así que una sesión
+ * nueva llega aquí con `worktree_path` correcto y el fallback no dispara. Sigue viva
+ * por las sesiones persistidas ANTES del cambio, que arrastran su `.bg-shell` en
+ * `state.json` y no se migran.
+ *
+ * Lo que esta función NO resuelve —y era la mitad restante del bug— es que el
+ * worktree real haya DESAPARECIDO cuando corre el hook: ahí no hay path bueno que
+ * devolver, y quien decide es el camino `already_gone` de `cleanupWorktree`.
  *
  * EXPORTADA desde KODO-26: la captura de la cola de integración necesita EL MISMO directorio
  * para leer el nombre de la rama, y tiene que leerlo ANTES de que este módulo lo remueva. Dos
@@ -133,6 +142,12 @@ export async function performTerminalCleanup({ id, session, gitFn, loggerFactory
         sessionId: session.session_id,
         gitFn: gitImpl,
         logger: cleanupLog,
+        // KODO-30: la rama que el hook Stop selló mientras el worktree aún existía. Es el
+        // único dato que sobrevive a que Claude Code borre el directorio al salir, y sin
+        // él el cleanup no puede decidir si la rama mergeada se borra o se conserva.
+        // Ausente en sesiones legacy → el helper degrada a «no tocar ninguna rama».
+        branch: session.branch || null,
+        existsFn,
       });
     } catch (outerErr) {
       console.error(`[kodo:session-end] worktree cleanup outer error: ${/** @type {Error} */ (outerErr).message}`);

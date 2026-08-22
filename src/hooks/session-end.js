@@ -45,6 +45,24 @@ import { buildStopNudgeText } from './stop.js';
 
 const STDIN_TIMEOUT = 3000;
 
+/**
+ * Resuelve el probe «¿existe esta ruta?» que usan las DOS mitades del cierre (KODO-30):
+ * la captura de integración, para resolver el worktree del que leer la rama, y el cleanup
+ * terminal, para decidir si el worktree sigue en disco. Un único punto de resolución para
+ * que no puedan discrepar sobre el mismo directorio.
+ *
+ * `deps.existsFn` gana a `deps.fs`: el primero es el seam ESTRECHO (solo este probe), y con
+ * él un test puede declarar «el worktree ya no está» sin sustituir el módulo `fs` entero —
+ * un `fs` parcial rompería el bloque de handoff, que necesita `mkdirSync`/`writeFileSync`.
+ *
+ * @param {{ existsFn?: (path: string) => boolean, fs?: typeof nodeFs }} deps
+ * @returns {(path: string) => boolean}
+ */
+function resolveExistsFn(deps) {
+  if (typeof deps.existsFn === 'function') return deps.existsFn;
+  return (p) => (deps.fs || nodeFs).existsSync(p);
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -77,11 +95,16 @@ async function readStdin() {
  *   cmux?: typeof cmux,
  *   plansDir?: string,
  *   fs?: typeof nodeFs,
+ *   existsFn?: (path: string) => boolean,
  *   stateWriterFn?: typeof upsertTaskHandoff,
  *   now?: () => Date,
  *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
  *   captureIntegrationFn?: typeof import('../integration/capture.js').captureIntegration,
  * }} [deps]
+ *   `existsFn` (KODO-30) es el seam ESTRECHO del probe de existencia del worktree: lo
+ *   consumen la captura de integración y el cleanup terminal (ver `resolveExistsFn`). Gana a
+ *   `fs` a propósito — un test que quiera declarar «el worktree ya no está» no debería tener
+ *   que sustituir el módulo `fs` entero y dejar sin `mkdirSync` al bloque de handoff.
  *   `plansDir`/`fs`/`stateWriterFn`/`now` (Phase 74) fluyen tal cual hasta
  *   `writeHandoff`. Sin ellos, la suite de tests escribiría en el `~/.kodo` REAL del
  *   operador en cada `npm test` (T-74-15).
@@ -303,11 +326,10 @@ export async function runSessionEndHook(input, deps = {}) {
         ? { captureIntegration: deps.captureIntegrationFn }
         : await import('../integration/capture.js');
       const { resolveEffectiveWorktree, defaultGitFn } = await import('./terminal-cleanup.js');
-      const fsImpl = deps.fs || nodeFs;
       // Sesión con worktree de kodo → se lee de ahí (incluidas las de Orca, cuyo checkout no se
       // limpia pero sí tiene la rama). Sesión adoptada sin worktree → se lee del propio repo.
       const captureDir = session.worktree_path
-        ? resolveEffectiveWorktree(session, (p) => fsImpl.existsSync(p))
+        ? resolveEffectiveWorktree(session, resolveExistsFn(deps))
         : null;
       const capture = await captureIntegration({
         session,
@@ -325,12 +347,17 @@ export async function runSessionEndHook(input, deps = {}) {
     }
 
     // Cleanup terminal destructivo (helper compartido, fail-open por paso).
+    // KODO-30: el `fs` inyectado llega hasta aquí. El cleanup decide con él si el worktree
+    // sigue en disco (camino `already_gone`), y tiene que ser el MISMO `fs` con el que la
+    // captura de arriba resolvió el directorio — si no, las dos mitades del cierre podrían
+    // discrepar sobre si el worktree existe.
     await performTerminalCleanup({
       id,
       session,
       gitFn: deps.gitFn,
       loggerFactory: deps.loggerFactory,
       removeSessionFn,
+      existsFn: resolveExistsFn(deps),
     });
 
     // ── Efectos de cierre cosméticos (HYG-04, Phase 72) ────────────────────

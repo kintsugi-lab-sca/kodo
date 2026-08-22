@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects, KODO_DIR } from '../config.js';
 import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js';
-import { listSessions, removeSession, computeWorktreePath } from '../session/state.js';
+import { listSessions, removeSession, computeRealWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
 import { acquireLock, releaseLock } from '../session/state-lock.js';
@@ -213,8 +213,10 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
 
   // ─────────────────────────────────────────────────────────────────────
   // Phase 18 D-05, D-05b, D-06b: fail-fast worktree_collision canonical
-  // error. Single source of truth para el path: computeWorktreePath de
-  // session/state.js (Plan 01). Patrón paralelo a gsd_locked (Phase 8
+  // error. Single source of truth para el path: computeRealWorktreePath de
+  // session/state.js (KODO-30 — antes el legacy `.bg-shell`, que comprobaba
+  // colisión sobre un directorio que Claude Code nunca crea: el check no podía
+  // dar positivo jamás). Patrón paralelo a gsd_locked (Phase 8
   // D-19) y resolver_failed (Phase 9 D-13): action explícito + return
   // early ANTES de invocar launchWorkItem.
   //
@@ -234,7 +236,7 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
   // WR-03 (review): ventana TOCTOU aceptada (threat model T-18-07). Entre
   // existsSyncFn (línea 179) y cmux.send (manager.js:255) hay decenas/
   // cientos de ms donde un proceso externo podría crear
-  // <projectPath>/.bg-shell/<sessionId>/. Probabilidad efectiva ~0 (UUID
+  // <projectPath>/.claude/worktrees/<sessionId>/. Probabilidad efectiva ~0 (UUID
   // v4 de 122 bits + dispatcher es punto único de generación de sessionId
   // por phase). Si ocurre, el síntoma es un fallo de `claude --worktree`
   // en runtime (no en collision-check). No emitimos canonical
@@ -252,7 +254,7 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
     if (dispatchProjectPath) dispatchSessionId = randomUUID();
   }
   if (dispatchSessionId && dispatchProjectPath) {
-    const worktreePath = computeWorktreePath(dispatchProjectPath, dispatchSessionId);
+    const worktreePath = computeRealWorktreePath(dispatchProjectPath, dispatchSessionId);
     // WR-04 (review): existsSync devuelve `false` ante TODO error
     // (EACCES, ENOTDIR, EIO, FUSE disconnect) — false-negative silencioso.
     // Si el directorio no puede verificarse, procedemos al launch (el path

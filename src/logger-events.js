@@ -341,8 +341,20 @@ export function githubApiCallFailed(logger, fields) {
  * Worktree cleanup OK — emitted (info) after a clean worktree was
  * successfully removed and (optionally) its branch deleted (Phase 19 D-08).
  *
+ * `already_gone: true` (KODO-30) marca el camino en el que NO hubo nada que
+ * remover: el directorio del worktree ya no existía cuando corrió el cleanup
+ * (el «Remove worktree» que Claude Code ofrece al salir lo borra antes). Eso NO es
+ * un error — antes se emitía `worktree.cleanup.error{phase:status}` porque el
+ * `status --porcelain` fallaba sobre un directorio ausente, y el operador veía
+ * un fallo en cada cierre normal. El camino sigue decidiendo sobre la rama
+ * (prune + gate KODO-21), así que `branch_deleted` es significativo igual.
+ *
+ * LOG-12: whitelist explícito — no `...fields` spread. `already_gone` se
+ * normaliza a booleano para que el campo esté SIEMPRE presente en el NDJSON y
+ * `already_gone=false` sea greppable, no una ausencia que haya que inferir.
+ *
  * @param {Logger} logger
- * @param {{ session_id: string, worktree_path: string, branch_deleted: boolean }} fields
+ * @param {{ session_id: string, worktree_path: string, branch_deleted: boolean, already_gone?: boolean }} fields
  */
 export function worktreeCleanupOk(logger, fields) {
   logger.info(EVENTS.WORKTREE_CLEANUP_OK, {
@@ -350,6 +362,7 @@ export function worktreeCleanupOk(logger, fields) {
     session_id: fields.session_id,
     worktree_path: fields.worktree_path,
     branch_deleted: fields.branch_deleted,
+    already_gone: fields.already_gone === true,
   });
 }
 

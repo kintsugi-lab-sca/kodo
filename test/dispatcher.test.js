@@ -812,7 +812,9 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     assert.equal(result.action, 'worktree_collision');
     assert.equal(result.code, 'worktree_exists');
     assert.ok(result.detail, 'detail must be populated with worktree path');
-    assert.match(result.detail, /\/tmp\/test-repo\/\.bg-shell\/[a-f0-9-]+$/);
+    // KODO-30: el collision-check pasó a `computeRealWorktreePath` — el directorio que
+    // Claude Code crea de verdad. Con `.bg-shell` el check no podía dar positivo nunca.
+    assert.match(result.detail, /\/tmp\/test-repo\/\.claude\/worktrees\/[a-f0-9-]+$/);
     assert.equal(launchCalled, false, 'launchWorkItemFn must NOT be invoked on collision');
   });
 
@@ -955,7 +957,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     assert.ok(collisionLine, 'must emit a worktree_collision stdout trace line');
     assert.match(
       collisionLine,
-      /^\[kodo:dispatch\] worktree_collision — KL-42 blocked by existing worktree at \/tmp\/test-repo\/\.bg-shell\/[a-f0-9-]+$/,
+      /^\[kodo:dispatch\] worktree_collision — KL-42 blocked by existing worktree at \/tmp\/test-repo\/\.claude\/worktrees\/[a-f0-9-]+$/,
       `canonical stdout shape mismatch — got: ${collisionLine}`,
     );
   });

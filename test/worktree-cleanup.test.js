@@ -34,8 +34,15 @@ function makeGitFnStub(handler) {
 }
 
 const PROJECT = '/tmp/project';
-const WT = '/tmp/project/.bg-shell/sess-helper-test';
+const WT = '/tmp/project/.claude/worktrees/sess-helper-test';
 const SESSION_ID = 'sess-helper-test';
+
+// KODO-30: `WT` es un path SINTÉTICO — nunca se crea en disco, todo el git está stubeado.
+// El probe de existencia del helper bifurca a `already_gone` cuando el directorio no está,
+// así que estos tests declaran su premisa explícitamente: «el worktree existe». Los tests
+// del camino `already_gone` viven en su propio describe y usan `WT_GONE`.
+const WT_EXISTS = () => true;
+const WT_GONE = () => false;
 
 describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
   it('CLEAN: removes worktree + deletes branch + emits cleanup.ok, returns {removed, branch_deleted}', async () => {
@@ -48,10 +55,10 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     });
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
-    assert.deepEqual(result, { removed: true, moved_to: null, branch_deleted: true });
+    assert.deepEqual(result, { removed: true, moved_to: null, branch_deleted: true, already_gone: false });
 
     const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
     assert.ok(ok, 'must emit worktree.cleanup.ok');
@@ -84,7 +91,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     });
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
     assert.equal(result.removed, false);
@@ -109,7 +116,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     };
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
     assert.equal(result.removed, false);
@@ -129,10 +136,10 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     });
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
-    assert.deepEqual(result, { removed: false, moved_to: null, branch_deleted: false });
+    assert.deepEqual(result, { removed: false, moved_to: null, branch_deleted: false, already_gone: false });
     const statusErr = events.find(
       (e) => e.fields?.event === 'worktree.cleanup.error' && e.fields?.phase === 'status',
     );
@@ -153,7 +160,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     };
 
     await assert.doesNotReject(() => cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     }));
     const pruneErr = events.find(
       (e) => e.fields?.event === 'worktree.cleanup.error' && e.fields?.phase === 'prune',
@@ -172,7 +179,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     };
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
     assert.equal(result.removed, true);
@@ -267,7 +274,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     });
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
     // El worktree SÍ se remueve; lo que se conserva es la rama.
@@ -302,7 +309,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
       return '';
     });
 
-    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger });
+    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS });
 
     const revList = calls.find((c) => c.args[0] === 'rev-list');
     assert.ok(revList, 'must run the merge check before deleting the branch');
@@ -330,7 +337,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
     });
 
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
 
     assert.equal(result.branch_deleted, false);
@@ -354,7 +361,7 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
       return '';
     });
 
-    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger });
+    await cleanupWorktree({ project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS });
 
     assert.equal(calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'), undefined);
     const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
@@ -370,10 +377,221 @@ describe('Phase 41 Plan 01: cleanupWorktree helper — direct unit', () => {
       return '';
     };
     const result = await cleanupWorktree({
-      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_EXISTS,
     });
     // branch read failed → branchName null → remove ok, branch -D skipped
     assert.equal(result.removed, true);
     assert.equal(result.branch_deleted, false);
+  });
+});
+
+// ── KODO-30: el worktree ya no existe cuando corre el cleanup ────────────────
+//
+// Síntoma que cierra esta cobertura (2026-08-22, cierres de ITCLIP-81/82): Claude Code
+// borra el worktree al salir de una sesión `--worktree` limpia, así que el hook SessionEnd
+// se encontraba el directorio ausente. El `status --porcelain` fallaba, `isDirty` quedaba
+// en null y no se ejecutaba ni `worktree remove` ni `branch -D`: un
+// `worktree.cleanup.error{phase:status}` en cada cierre normal y ramas ya mergeadas
+// huérfanas en el repo.
+describe('KODO-30: cleanupWorktree cuando el worktree ya no existe', () => {
+  it('RAMA MERGEADA: prune + branch -D, cleanup.ok{already_gone}, SIN cleanup.error', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-list') return '0'; // gate KODO-21: todo mergeado
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT,
+      worktree: WT,
+      sessionId: SESSION_ID,
+      gitFn,
+      logger,
+      branch: 'feat/itclip-81-piezas-prototipo',
+      existsFn: WT_GONE,
+    });
+
+    assert.deepEqual(result, {
+      removed: false, moved_to: null, branch_deleted: true, already_gone: true,
+    });
+
+    // El síntoma exacto que se corrige: NINGÚN cleanup.error.
+    assert.equal(
+      events.find((e) => e.fields?.event === 'worktree.cleanup.error'),
+      undefined,
+      'un worktree ya borrado NO es un error de cleanup',
+    );
+    const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
+    assert.ok(ok, 'must emit worktree.cleanup.ok');
+    assert.equal(ok.fields.already_gone, true);
+    assert.equal(ok.fields.branch_deleted, true);
+
+    // La rama mergeada SÍ se borra — es la mitad «rama huérfana» del bug.
+    const branchDel = calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D');
+    assert.ok(branchDel, 'must delete the merged branch');
+    assert.equal(branchDel.args[2], 'feat/itclip-81-piezas-prototipo');
+
+    // Sin árbol no se pregunta por el árbol: ni status ni remove ni move.
+    assert.equal(calls.find((c) => c.args.includes('--porcelain')), undefined, 'no status');
+    assert.equal(calls.find((c) => c.args.includes('--show-current')), undefined, 'no branch read');
+    assert.equal(calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'remove'), undefined);
+    assert.equal(calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'move'), undefined);
+  });
+
+  it('ORDEN: prune corre ANTES de branch -D (git suelta la rama del worktree huérfano)', async () => {
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => (args[0] === 'rev-list' ? '0' : ''));
+
+    await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/x', existsFn: WT_GONE,
+    });
+
+    const pruneIdx = calls.findIndex((c) => c.args[0] === 'worktree' && c.args[1] === 'prune');
+    const branchDelIdx = calls.findIndex((c) => c.args[0] === 'branch' && c.args[1] === '-D');
+    assert.ok(pruneIdx >= 0, 'must prune');
+    assert.ok(branchDelIdx > pruneIdx, 'prune ANTES del branch -D (si no, git la ve checked-out)');
+  });
+
+  it('RAMA NO MERGEADA: la conserva + emite worktree.branch.kept (gate KODO-21 intacto)', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-list') return '5\n'; // 5 commits que solo viven aquí
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/con-trabajo', existsFn: WT_GONE,
+    });
+
+    assert.equal(result.branch_deleted, false);
+    assert.equal(result.already_gone, true);
+    assert.equal(
+      calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'),
+      undefined,
+      'el trabajo commiteado JAMÁS se pierde por cerrar la sesión',
+    );
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.branch, 'feat/con-trabajo');
+    assert.equal(kept.fields.unmerged_commits, 5);
+  });
+
+  it('MERGE NO VERIFICABLE: rev-list falla → conserva la rama (fail-safe)', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'rev-list') throw new Error('fatal: bad revision');
+      return '';
+    });
+
+    await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/incierta', existsFn: WT_GONE,
+    });
+
+    assert.equal(calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'), undefined);
+    const kept = events.find((e) => e.fields?.event === 'worktree.branch.kept');
+    assert.ok(kept, 'must emit worktree.branch.kept');
+    assert.equal(kept.fields.unmerged_commits, null);
+  });
+
+  it('SIN RAMA PERSISTIDA: no toca ninguna rama, cierra con cleanup.ok{already_gone}', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub(() => '');
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger, existsFn: WT_GONE,
+    });
+
+    assert.equal(result.already_gone, true);
+    assert.equal(result.branch_deleted, false);
+    // Ni siquiera se pregunta por el merge: no hay rama sobre la que preguntar.
+    assert.equal(calls.find((c) => c.args[0] === 'rev-list'), undefined, 'no merge check');
+    assert.equal(calls.find((c) => c.args[0] === 'branch'), undefined, 'no branch command');
+    const ok = events.find((e) => e.fields?.event === 'worktree.cleanup.ok');
+    assert.ok(ok, 'cierra igual, sin error');
+    assert.equal(ok.fields.already_gone, true);
+  });
+
+  it('PRUNE falla → cleanup.error{phase:prune}, never-throws, y la rama se decide igual', async () => {
+    const { logger, events } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args[0] === 'worktree' && args[1] === 'prune') throw new Error('prune locked');
+      if (args[0] === 'rev-list') return '0';
+      return '';
+    });
+
+    await assert.doesNotReject(() => cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/y', existsFn: WT_GONE,
+    }));
+
+    const err = events.find(
+      (e) => e.fields?.event === 'worktree.cleanup.error' && e.fields?.phase === 'prune',
+    );
+    assert.ok(err, 'must emit cleanup.error{phase:prune}');
+    assert.ok(calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'), 'la rama se decide igual');
+  });
+
+  it('PROBE QUE LANZA: ante la duda NO se toma el atajo — corre el camino normal', async () => {
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return 'feat/z';
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0';
+      return '';
+    });
+    const explodingProbe = () => { throw new Error('EACCES'); };
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/persistida', existsFn: explodingProbe,
+    });
+
+    assert.equal(result.already_gone, false, 'un probe roto NO significa "ya no existe"');
+    assert.ok(calls.find((c) => c.args.includes('--porcelain')), 'sí lee el status');
+    assert.equal(result.removed, true);
+  });
+
+  it('WORKTREE VIVO pero git mudo: la rama persistida cubre el branch read que lanza', async () => {
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) throw new Error('fatal: not a git repository');
+      if (args.includes('--porcelain')) return '';
+      if (args[0] === 'rev-list') return '0';
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/persistida', existsFn: WT_EXISTS,
+    });
+
+    assert.equal(result.branch_deleted, true);
+    const branchDel = calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D');
+    assert.equal(branchDel.args[2], 'feat/persistida');
+  });
+
+  it('DETACHED REAL: --show-current devuelve vacío → NO se sustituye por la persistida', async () => {
+    const { logger } = makeMemLogger();
+    const { gitFn, calls } = makeGitFnStub((cwd, args) => {
+      if (args.includes('--show-current')) return ''; // detached HEAD deliberado
+      if (args.includes('--porcelain')) return '';
+      return '';
+    });
+
+    const result = await cleanupWorktree({
+      project: PROJECT, worktree: WT, sessionId: SESSION_ID, gitFn, logger,
+      branch: 'feat/persistida', existsFn: WT_EXISTS,
+    });
+
+    assert.equal(result.removed, true, 'el worktree limpio se remueve igual');
+    assert.equal(result.branch_deleted, false);
+    assert.equal(
+      calls.find((c) => c.args[0] === 'branch' && c.args[1] === '-D'),
+      undefined,
+      'git dijo "ninguna rama" y se respeta — el vacío no es un fallo de lectura',
+    );
   });
 });

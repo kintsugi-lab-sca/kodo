@@ -16,9 +16,15 @@
 // gitFn de producción antepone `-C <project>`; git acepta múltiples `-C`
 // componibles, así que las lecturas scopeadas al worktree pasan `['-C', wt, ...]`.
 //
-// Orden de operaciones (Pitfall #2 / D-08): branch read (ANTES de remove) →
-// status → remove|move-to-.dirty → merge check → branch -D (solo clean Y
-// mergeada) → prune oportunista.
+// Orden de operaciones (Pitfall #2 / D-08): exists probe (KODO-30) → branch read
+// (ANTES de remove) → status → remove|move-to-.dirty → merge check → branch -D
+// (solo clean Y mergeada) → prune oportunista.
+//
+// El probe de existencia bifurca a un camino propio (`cleanupAlreadyGoneWorktree`,
+// KODO-30) cuando el directorio ya no está: sin árbol no hay `status` ni `remove`,
+// pero la decisión sobre la RAMA sigue siendo la misma y se toma sobre la rama
+// persistida en `state.json`. Ese caso NO es un error — es lo que deja el «Remove
+// worktree» que Claude Code ofrece al salir, y que corre ANTES que este hook.
 //
 // Invariantes de seguridad (T-41-02 + KODO-21):
 //   - NUNCA borrado recursivo forzado, NUNCA `unlinkSync` del worktree.
@@ -86,6 +92,128 @@ export async function countUnmergedCommits({ project, branch, gitFn }) {
 }
 
 /**
+ * ¿Hay ALGO en esta ruta? (KODO-30). Default de `existsFn` para `cleanupWorktree`.
+ *
+ * `lstatSync` y no `existsSync` por el mismo motivo que el pre-check del target `.dirty`
+ * (Phase 19 CR-03): `existsSync` SIGUE symlinks, así que un symlink colgante en la ruta
+ * del worktree se leería como «no existe» y mandaría al camino `already_gone` — que decide
+ * sobre una rama. `lstatSync` mira el enlace en sí: cualquier entrada de directorio, viva o
+ * colgante, cuenta como presente y sigue por el camino normal, donde git es quien manda.
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+function pathPresent(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide sobre la RAMA de una sesión cuyo worktree ya no está en disco (KODO-30).
+ *
+ * Camino explícito, no un fallback silencioso. QUIÉN borra el worktree (observado en el
+ * cierre de KODO-29): al salir de una sesión `--worktree`, Claude Code ofrece «Keep
+ * worktree / Remove worktree»; con Remove borra el directorio Y la rama `worktree-<sid>`
+ * ANTES de que corra `SessionEnd`. Si la sesión renombró su rama —`feat/…`, que es lo que
+ * hace cualquier sesión de kodo— esa NO se borra: sobrevive, y es justo la que quedaba
+ * huérfana en el repo.
+ *
+ * Antes de KODO-30 ese estado llegaba al `status --porcelain` del camino normal, fallaba
+ * con «cannot change to '<wt>': No such file or directory» y dejaba `isDirty = null` → ni
+ * `worktree remove` ni `branch -D`: un `worktree.cleanup.error` en CADA cierre así, y la
+ * rama `feat/…` ya mergeada sin podar.
+ *
+ * Sin directorio no hay `status` que leer ni `worktree remove` que hacer — pero SÍ queda
+ * la decisión que de verdad importa (¿se borra la rama?), y esa no necesita el
+ * directorio: `countUnmergedCommits` solo pide `project` + `branch`. De ahí que la rama
+ * llegue PERSISTIDA desde `state.json` (`session.branch`, sellada por el hook Stop
+ * mientras el worktree aún vivía) en vez de leerse de un `git -C <wt>` que ya no responde.
+ *
+ * Si la rama persistida es la que Claude Code borró (`worktree-<sid>`, sesión que nunca
+ * renombró), `countUnmergedCommits` falla sobre una ref inexistente → `count: null` → se
+ * conserva y se emite `branch.kept`. Ruido inocuo, y el lado seguro del fail-safe.
+ *
+ * Orden LOAD-BEARING: `prune` va ANTES del `branch -D`. Si git todavía tiene registrado
+ * el worktree ausente, considera la rama «checked out» por él y rechaza el borrado; el
+ * prune desregistra la metadata huérfana y desbloquea la decisión.
+ *
+ * Gate KODO-21 INTACTO: la rama solo se borra con `count === 0`. Sin rama persistida no
+ * se borra nada — no se adivina.
+ *
+ * @param {{
+ *   project: string,
+ *   worktree: string,
+ *   sessionId: string,
+ *   branch: string | null,
+ *   gitFn: (cwd: string, args: string[]) => Promise<string> | string,
+ *   logger: import('../logger-events.js').Logger,
+ * }} args
+ * @returns {Promise<{ removed: boolean, moved_to: null, branch_deleted: boolean, already_gone: true }>}
+ */
+async function cleanupAlreadyGoneWorktree({ project, worktree, sessionId, branch, gitFn, logger }) {
+  let branch_deleted = false;
+
+  // 1. Prune PRIMERO (ver docblock): desregistra el worktree ausente para que la rama
+  // deje de constar como checked-out. Fail-open con la misma traza que el camino normal.
+  try {
+    await gitFn(project, ['worktree', 'prune']);
+  } catch (err) {
+    worktreeCleanupError(logger, {
+      session_id: sessionId,
+      worktree_path: worktree,
+      phase: 'prune',
+      reason: /** @type {Error} */ (err).message,
+    });
+  }
+
+  // 2. Decisión sobre la rama — MISMO gate que el camino clean (KODO-21).
+  if (branch) {
+    const { count, reason } = await countUnmergedCommits({ project, branch, gitFn });
+    if (count === 0) {
+      try {
+        await gitFn(project, ['branch', '-D', branch]);
+        branch_deleted = true;
+      } catch (err) {
+        console.error(`[kodo:worktree-cleanup] branch -D ${branch} failed: ${/** @type {Error} */ (err).message}`);
+      }
+    } else {
+      console.error(
+        count === null
+          ? `[kodo] branch_kept_unmerged — ${branch}: no se pudo verificar el merge (${reason}); rama conservada`
+          : `[kodo] branch_kept_unmerged — ${branch}: ${count} commits fuera de main`,
+      );
+      worktreeBranchKept(logger, {
+        session_id: sessionId,
+        worktree_path: worktree,
+        branch,
+        unmerged_commits: count,
+        reason,
+      });
+    }
+  } else {
+    // Sin rama persistida (sesión legacy, o Stop nunca corrió) el directorio ausente ya
+    // no permite averiguarla. Se cierra igual, con traza greppable: la rama sobrevive,
+    // que es el lado seguro del fail-safe.
+    console.error(
+      `[kodo:worktree-cleanup] already_gone sin rama persistida — ${sessionId}: ${worktree} no existe y la sesión no trae branch; no se toca ninguna rama`,
+    );
+  }
+
+  worktreeCleanupOk(logger, {
+    session_id: sessionId,
+    worktree_path: worktree,
+    branch_deleted,
+    already_gone: true,
+  });
+
+  return { removed: false, moved_to: null, branch_deleted, already_gone: true };
+}
+
+/**
  * Sanea un worktree de sesión: lee el branch, decide clean/dirty por
  * `status --porcelain`, y o bien lo remueve (+ borra branch) o lo mueve a
  * `<wt>.dirty` para inspección humana, terminando con un `prune` oportunista.
@@ -98,19 +226,42 @@ export async function countUnmergedCommits({ project, branch, gitFn }) {
  *   sessionId: string,
  *   gitFn: (cwd: string, args: string[]) => Promise<string> | string,
  *   logger: import('../logger-events.js').Logger,
+ *   branch?: string | null,
+ *   existsFn?: (path: string) => boolean,
  * }} args
- * @returns {Promise<{ removed: boolean, moved_to: string | null, branch_deleted: boolean }>}
+ *   `branch` (KODO-30): la rama PERSISTIDA en `state.json` por el hook Stop. Solo se usa
+ *   cuando el worktree no puede contestar — o porque el directorio ya no existe, o porque
+ *   `branch --show-current` lanzó. Con el worktree vivo manda siempre lo que dice git.
+ *   `existsFn`: seam de DI para el probe de existencia (default `pathPresent`, lstat-based).
+ *   El hook `SessionEnd` inyecta el MISMO probe que usó `resolveEffectiveWorktree`, para que
+ *   «cuál es el worktree» y «sigue ahí» no puedan responderse con criterios distintos.
+ * @returns {Promise<{ removed: boolean, moved_to: string | null, branch_deleted: boolean, already_gone: boolean }>}
  *   Resultado estructurado por-item para que doctor (Plan 02) reporte la acción
- *   exacta (D-08): `removed` (clean path OK), `moved_to` (dirty path target) y
- *   `branch_deleted` (clean path borró el branch).
+ *   exacta (D-08): `removed` (clean path OK), `moved_to` (dirty path target),
+ *   `branch_deleted` (se borró el branch) y `already_gone` (KODO-30: no había nada
+ *   que remover, solo se decidió sobre la rama).
  */
-export async function cleanupWorktree({ project, worktree, sessionId, gitFn, logger }) {
+export async function cleanupWorktree({ project, worktree, sessionId, gitFn, logger, branch = null, existsFn = pathPresent }) {
   const wt = worktree;
   const cleanupLog = logger;
 
   let removed = false;
   let moved_to = null;
   let branch_deleted = false;
+
+  // 0. ¿Sigue el worktree en disco? (KODO-30). Un probe que LANZA (EACCES, ENOTDIR, FUSE
+  // caído) NO se interpreta como ausencia: se asume presente y se sigue por el camino
+  // normal, que ya es fail-open. Ante la duda nunca se toma el atajo que decide sobre una
+  // rama sin poder mirar el árbol — simetría con el fail-safe de KODO-21.
+  let worktreeExists = true;
+  try {
+    worktreeExists = Boolean(existsFn(wt));
+  } catch (probeErr) {
+    console.error(`[kodo:worktree-cleanup] exists probe failed on ${wt}: ${/** @type {Error} */ (probeErr).message}`);
+  }
+  if (!worktreeExists) {
+    return await cleanupAlreadyGoneWorktree({ project, worktree: wt, sessionId, branch, gitFn, logger: cleanupLog });
+  }
 
   // 1. Read branch name BEFORE remove (Pitfall #2 / D-08). Fail-open silent.
   // Usamos `-C <wt>` en args (no como cwd) — el gitFn default antepone `-C
@@ -122,6 +273,11 @@ export async function cleanupWorktree({ project, worktree, sessionId, gitFn, log
     branchName = (out || '').trim() || null;
   } catch (err) {
     console.error(`[kodo:worktree-cleanup] branch --show-current failed: ${err.message}`);
+    // KODO-30: la lectura LANZÓ (no devolvió vacío) — el worktree existe pero git no
+    // contesta sobre él. La rama persistida es entonces el mejor dato disponible. Un
+    // `--show-current` vacío es OTRA cosa (detached HEAD deliberado) y NO cae aquí: ahí
+    // se respeta el silencio de git y no se toca rama alguna.
+    branchName = branch || null;
   }
 
   // 2. Dirty check (D-01). Status read failure → emit cleanup.error{phase:status}
@@ -263,5 +419,5 @@ export async function cleanupWorktree({ project, worktree, sessionId, gitFn, log
     });
   }
 
-  return { removed, moved_to, branch_deleted };
+  return { removed, moved_to, branch_deleted, already_gone: false };
 }

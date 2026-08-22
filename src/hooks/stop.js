@@ -9,6 +9,7 @@
 // Also detects when the orchestrator session ends and auto-commits
 // skill changes.
 
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findSession } from '../session/state.js';
@@ -100,6 +101,68 @@ async function readStdin() {
 
 
 /**
+ * Sella en `state.json` la rama sobre la que trabaja la sesión (KODO-30).
+ *
+ * POR QUÉ AQUÍ Y NO AL CERRAR: el nombre de la rama solo se puede leer del worktree, y
+ * para cuando corre `SessionEnd` el worktree puede haber desaparecido — al salir, Claude
+ * Code ofrece «Remove worktree» y, si el operador acepta, borra el directorio ANTES de que
+ * el hook arranque (observado en el cierre de KODO-29). `Stop` dispara al final de CADA
+ * turno, con el directorio todavía vivo, así que es el último punto del ciclo en el que la
+ * pregunta tiene respuesta. Sin este sellado, el cierre de una sesión mergeada deja la
+ * rama huérfana (el cleanup no sabe cuál borrar) y la cola de integración no encola nada
+ * (la captura lee `detached`).
+ *
+ * TAMPOCO al lanzar: la rama la crea `claude --worktree` DESPUÉS del spawn, y su nombre lo
+ * elige el agente (`feat/itclip-81-…`). En `launchWorkItem` todavía no existe.
+ *
+ * Escribe solo cuando el valor CAMBIA — un turno normal no toca `state.json`, y el
+ * `state.session.updated` del logger marca de verdad un cambio de rama.
+ *
+ * FAIL-OPEN de cuerpo entero: ninguna rama de esta función lanza. Un hook JAMÁS debe
+ * crashear Claude Code, y la rama es un dato de conveniencia — sin él, el cleanup degrada
+ * a «no tocar ninguna rama», que es el lado seguro.
+ *
+ * @param {import('../session/state.js').Session} session
+ * @param {{
+ *   gitFn?: (cwd: string, args: string[]) => Promise<string>|string,
+ *   existsFn?: (path: string) => boolean,
+ *   updateSessionFn?: (taskId: string, updates: object, logger?: any) => any,
+ *   logger?: any,
+ * }} [deps]
+ * @returns {Promise<string|null>} La rama persistida en esta llamada, o `null` si no se
+ *   escribió nada (sin worktree, worktree ausente, git mudo, o rama sin cambios).
+ */
+export async function persistSessionBranch(session, deps = {}) {
+  try {
+    // Sin worktree no hay dónde leer (sesión adoptada o proyecto no-git): la captura de
+    // integración ya lee del propio repo en ese caso, así que no hay nada que sellar.
+    if (!session?.worktree_path || !session.project_path || !session.task_id) return null;
+
+    const existsFn = deps.existsFn || existsSync;
+    const { resolveEffectiveWorktree, defaultGitFn } = await import('./terminal-cleanup.js');
+    // MISMA resolución que usan el cleanup y la captura: dos criterios distintos de «cuál
+    // es el worktree de esta sesión» podrían sellar la rama de otro directorio.
+    const wt = resolveEffectiveWorktree(session, existsFn);
+    if (!existsFn(wt)) return null;
+
+    const gitFn = deps.gitFn || defaultGitFn;
+    const out = await gitFn(session.project_path, ['-C', wt, 'branch', '--show-current']);
+    const branch = String(out ?? '').trim();
+    // Vacío = detached HEAD. No se sella: un valor viejo correcto vale más que uno nuevo
+    // vacío, y machacarlo dejaría al cleanup sin rama justo cuando más falta hace.
+    if (!branch || branch === session.branch) return null;
+
+    const { updateSession } = await import('../session/state.js');
+    const updateSessionFn = deps.updateSessionFn || updateSession;
+    updateSessionFn(session.task_id, { branch }, deps.logger);
+    return branch;
+  } catch (err) {
+    console.error(`[kodo:stop] persistSessionBranch failed: ${/** @type {Error} */ (err).message}`);
+    return null;
+  }
+}
+
+/**
  * Test-friendly entry point for the stop hook.
  * Pure-ish function over (input, deps) — used by tests with memSink loggerFactory.
  * Production callers should use main() which parses stdin first.
@@ -118,8 +181,10 @@ async function readStdin() {
  *           ya NO lo consume (los tests legacy aún lo inyectan sin efecto).
  *   - loggerFactory: mandatory para captura de state.transition
  *
- * Phase 58 LIFE-03: `removeSessionFn`/`gitFn` ya NO son deps de Stop — el cleanup
- * destructivo (removeSession/worktree) migró a SessionEnd (session-end.js).
+ * Phase 58 LIFE-03: `removeSessionFn` ya NO es dep de Stop — el cleanup destructivo
+ * (removeSession/worktree) migró a SessionEnd (session-end.js). KODO-30 reintroduce
+ * `gitFn`/`existsFn`, pero solo para LEER: `persistSessionBranch` sella la rama de la
+ * sesión mientras el worktree existe. Ningún camino de Stop borra nada.
  *
  * @param {{session_id: string, cwd?: string, transcript_path?: string}} input
  * @param {{
@@ -128,6 +193,8 @@ async function readStdin() {
  *   loggerFactory?: (binding: {session_id: string, task_id: string}) => any,
  *   listSessionsForPathFn?: (cwd: string) => {id: string, session: any}[],
  *   unmatchedLoggerFactory?: () => any,
+ *   gitFn?: (cwd: string, args: string[]) => Promise<string>|string,
+ *   existsFn?: (path: string) => boolean,
  * }} [deps]
  * @returns {Promise<void>}
  *
@@ -249,6 +316,13 @@ export async function runStopHook(input, deps = {}) {
       // Still fail-open — runStopHook never crashes Claude Code.
       console.error(`[kodo:stop] markSessionStatus failed: ${/** @type {Error} */ (err).message}`);
     }
+
+    // KODO-30: sellar la rama MIENTRAS el worktree existe. Va aquí, en el carril ligero
+    // per-turn, porque es el único momento del ciclo en el que el directorio está vivo
+    // garantizado: al cerrar (`SessionEnd`) Claude Code ya puede haberlo borrado, y
+    // entonces ni el cleanup ni la cola de integración pueden averiguar qué rama era.
+    // Never-throws por contrato — no necesita try/catch aquí.
+    await persistSessionBranch(session, { gitFn: deps.gitFn, existsFn: deps.existsFn, logger: log });
 
     // Phase 58 LIFE-03: el typed session.end event (status done) se MOVIÓ al hook
     // SessionEnd (src/hooks/session-end.js) — refleja el cierre REAL una vez, no el
