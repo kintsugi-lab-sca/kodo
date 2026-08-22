@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PlaneClient } from './client.js';
 import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
-import { KODO_LABEL_ADOPTED } from '../../labels.js';
+import { KODO_LABEL_ADOPTED, isDispatchable } from '../../labels.js';
 
 /**
  * @typedef {{
@@ -459,7 +459,13 @@ export function createPlaneProvider(config, opts = {}) {
           stateMap: stateCache,
         };
         for (const item of pending) {
-          allTasks.push(normalizeWorkItem(item, context));
+          const task = normalizeWorkItem(item, context);
+          // Only what the dispatcher would actually launch: `kodo`-labeled and neither
+          // gsd-child nor adopted. Mirrors the GitHub provider (`labels: ['kodo']` in its
+          // query). Without this cut every work item in the trigger state counted as
+          // pending — `kodo check` fired the orchestrator with nothing to dispatch.
+          if (!isDispatchable(task.labels)) continue;
+          allTasks.push(task);
         }
       }
       return allTasks;

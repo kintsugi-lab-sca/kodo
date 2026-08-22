@@ -160,3 +160,21 @@ export function isAdopted(labels) {
     return typeof name === 'string' && name.toLowerCase() === KODO_LABEL_ADOPTED;
   });
 }
+
+/**
+ * Returns true iff a task with these labels is eligible for auto-dispatch:
+ * carries `kodo` (or any `kodo:*` flag) AND is neither a `kodo:gsd-child`
+ * sub-issue nor a `kodo:adopted` marker. Same three gates the dispatcher
+ * applies (src/triggers/dispatcher.js steps 1b/1c/2), centralized so a
+ * provider's `listPendingTasks()` can return ONLY what the dispatcher would
+ * actually launch. Tolerates `string[]` and `Array<{name: string}>`.
+ *
+ * @param {Array<any>} labels
+ * @returns {boolean}
+ */
+export function isDispatchable(labels) {
+  if (!Array.isArray(labels)) return false;
+  if (isGsdChild(labels) || isAdopted(labels)) return false;
+  const asObjects = labels.map((l) => (typeof l === 'string' ? { name: l } : l));
+  return parseKodoLabels(asObjects).isKodo;
+}

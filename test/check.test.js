@@ -83,6 +83,45 @@ describe('check.js — checkPendingTasks (pure)', () => {
     assert.equal(result.reasons.length, 0);
   });
 
+  it('excludes tasks that already own a live session (by task_id or task_ref) before counting', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => [
+        { id: 'uuid-1', ref: 'KL-1' },
+        { id: 'uuid-2', ref: 'KL-2' },
+        { id: 'uuid-3', ref: 'KL-3' },
+      ],
+    });
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 2,
+      activeSessions: [
+        { task_id: 'uuid-1', task_ref: 'KL-1' },
+        { task_id: 'other', task_ref: 'KL-2' },
+      ],
+      getProviderFn: () => provider,
+    });
+
+    assert.match(result.lines.join('\n'), /1 pending/);
+    assert.ok(result.reasons.some((r) => r.includes('1 tarea')));
+  });
+
+  it('no reasons when every pending task is already running (orchestrator false-positive)', async () => {
+    const provider = createFakeProvider({
+      listPendingTasks: async () => [{ id: 'uuid-1', ref: 'KL-1' }],
+    });
+
+    const result = await checkPendingTasks({
+      config: BASE_CONFIG,
+      runningCount: 1,
+      activeSessions: [{ task_id: 'uuid-1', task_ref: 'KL-1' }],
+      getProviderFn: () => provider,
+    });
+
+    assert.equal(result.reasons.length, 0);
+    assert.equal(result.lines.length, 0);
+  });
+
   it('Test 3: handles provider error gracefully (no throw, includes error in output)', async () => {
     const provider = createFakeProvider({
       listPendingTasks: async () => {

@@ -163,3 +163,32 @@ describe('Phase 76 Plan 01: buildPendingStatusFields (payload shaper, Pitfall 4)
     assert.equal(out.pending_count, out.pending.length);
   });
 });
+
+import { excludeActiveTasks } from '../../src/tasks/pending.js';
+
+describe('excludeActiveTasks (tasks already owned by a live session)', () => {
+  const TASKS = [
+    { id: 'a', ref: 'KL-1' },
+    { id: 'b', ref: 'KL-2' },
+    { id: 'c', ref: 'KL-3' },
+  ];
+
+  it('drops by task_id', () => {
+    assert.deepEqual(excludeActiveTasks(TASKS, [{ task_id: 'a' }]).map((t) => t.ref), ['KL-2', 'KL-3']);
+  });
+
+  it('drops by task_ref', () => {
+    assert.deepEqual(excludeActiveTasks(TASKS, [{ task_ref: 'KL-2' }]).map((t) => t.ref), ['KL-1', 'KL-3']);
+  });
+
+  it('no sessions / null / undefined → same array, untouched', () => {
+    assert.equal(excludeActiveTasks(TASKS, []), TASKS);
+    assert.equal(excludeActiveTasks(TASKS, null), TASKS);
+    assert.equal(excludeActiveTasks(TASKS, undefined), TASKS);
+  });
+
+  it('tolerates sessions without task fields', () => {
+    const out = excludeActiveTasks(TASKS, [{}, null, { task_ref: 'KL-3' }]);
+    assert.deepEqual(out.map((t) => t.ref), ['KL-1', 'KL-2']);
+  });
+});

@@ -12,7 +12,7 @@ import { checkHealth, actOnHealth } from './session/health.js';
 import { initRegistry, getProvider } from './providers/registry.js';
 import { launchOrchestrator } from './orchestrator/launch.js';
 import { createFormatter } from './cli/format.js';
-import { fetchFreshPending } from './tasks/pending.js';
+import { fetchFreshPending, excludeActiveTasks } from './tasks/pending.js';
 // ORCH-07 (D-01): carril orquestador in-process. Importa SOLO `execute` del motor
 // del sidebar doctor (Phase 79) — NUNCA logger.js ni un cliente de provider.
 // Llamar con `deps` sin `logger` resuelve a noopLogger (LOG-12 preservado: el grafo
@@ -27,12 +27,13 @@ import { execute } from './cmux/sidebar-doctor.js';
  * @param {{
  *   config: { provider: string, claude: { max_parallel: number } },
  *   runningCount: number,
+ *   activeSessions?: Array<{ task_id?: string, task_ref?: string }>,
  *   getProviderFn: (name: string) => import('./interface.js').TaskProvider,
  *   formatterFn?: () => import('./cli/format.js').Formatter,
  * }} params
  * @returns {Promise<{ lines: string[], reasons: string[] }>}
  */
-export async function checkPendingTasks({ config, runningCount, getProviderFn, formatterFn }) {
+export async function checkPendingTasks({ config, runningCount, activeSessions, getProviderFn, formatterFn }) {
   const fmt = (formatterFn || (() => createFormatter(process.stdout)))();
   const lines = [];
   const reasons = [];
@@ -43,7 +44,12 @@ export async function checkPendingTasks({ config, runningCount, getProviderFn, f
     // ORCH-05 (D-01): converge on the shared read lane. Consume fetchFreshPending in RAW
     // mode (NOT the resolver) — it propagates the throw, so the try/catch below and its
     // red error line stay byte-identical (D-07 / Pitfall 2).
-    const pending = await fetchFreshPending(() => provider.listPendingTasks());
+    // A task stays in the trigger state while its session runs: drop the ones that
+    // already own a live session so running work is never counted as pending.
+    const pending = excludeActiveTasks(
+      await fetchFreshPending(() => provider.listPendingTasks()),
+      activeSessions,
+    );
     const available = config.claude.max_parallel - runningCount;
     if (pending.length > 0 && available > 0) {
       lines.push(
@@ -104,6 +110,7 @@ export async function runCheck() {
   const pendingResult = await checkPendingTasks({
     config,
     runningCount: running.length,
+    activeSessions: Object.values(state.sessions),
     getProviderFn: getProvider,
   });
   lines.push(...pendingResult.lines);

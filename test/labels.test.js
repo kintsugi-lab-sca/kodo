@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD, isAdopted, KODO_LABEL_ADOPTED } from '../src/labels.js';
+import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD, isAdopted, KODO_LABEL_ADOPTED, isDispatchable } from '../src/labels.js';
 
 describe('parseKodoLabels', () => {
   it('returns isKodo=false when no labels', () => {
@@ -272,5 +272,25 @@ describe('parseKodoLabels — B1 opus model (Phase 72 HYG-06)', () => {
   it('sonnet/haiku still resolve as models (no regression)', () => {
     assert.equal(parseKodoLabels([{ name: 'kodo:sonnet' }]).model, 'sonnet');
     assert.equal(parseKodoLabels([{ name: 'kodo:haiku' }]).model, 'haiku');
+  });
+});
+
+describe('isDispatchable', () => {
+  it('true for `kodo` and for any `kodo:*` flag, strings or {name} objects', () => {
+    assert.equal(isDispatchable(['kodo']), true);
+    assert.equal(isDispatchable(['kodo:yolo']), true);
+    assert.equal(isDispatchable([{ name: 'kodo' }]), true);
+  });
+
+  it('false without a kodo label', () => {
+    assert.equal(isDispatchable([]), false);
+    assert.equal(isDispatchable(['bug']), false);
+    assert.equal(isDispatchable(null), false);
+  });
+
+  it('false for kodo:adopted and kodo:gsd-child, even alongside kodo', () => {
+    assert.equal(isDispatchable([KODO_LABEL_ADOPTED]), false);
+    assert.equal(isDispatchable(['kodo', KODO_LABEL_ADOPTED]), false);
+    assert.equal(isDispatchable(['kodo', KODO_LABEL_GSD_CHILD]), false);
   });
 });

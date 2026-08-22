@@ -883,6 +883,10 @@ describe('project identifier refresh (KODO-13)', () => {
       if (path.endsWith('/states/')) {
         return new Response(JSON.stringify({ results: [{ id: 's1', name: 'In Progress' }] }), { status: 200 });
       }
+      if (path.endsWith('/labels/')) {
+        const labels = (opts.labels || (() => [{ id: 'l-kodo', name: 'kodo' }]))();
+        return new Response(JSON.stringify({ results: labels }), { status: 200 });
+      }
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
     };
     return { restore: () => { globalThis.fetch = original; } };
@@ -899,7 +903,35 @@ describe('project identifier refresh (KODO-13)', () => {
     };
   }
 
-  const WORK_ITEM = () => [{ id: 'wi-1', sequence_id: 1, name: 'Planificación', state: 's1', project: 'p-uuid' }];
+  const WORK_ITEM = () => [
+    { id: 'wi-1', sequence_id: 1, name: 'Planificación', state: 's1', project: 'p-uuid', labels: ['l-kodo'] },
+  ];
+
+  it('listPendingTasks devuelve SOLO tareas dispatchables: con label kodo y sin kodo:adopted', async () => {
+    const stub = stubApi({
+      projects: () => [{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }],
+      labels: () => [
+        { id: 'l-kodo', name: 'kodo' },
+        { id: 'l-adopted', name: 'kodo:adopted' },
+        { id: 'l-bug', name: 'bug' },
+      ],
+      workItems: () => [
+        { id: 'wi-1', sequence_id: 1, name: 'con kodo', state: 's1', project: 'p-uuid', labels: ['l-kodo'] },
+        { id: 'wi-2', sequence_id: 2, name: 'sin label', state: 's1', project: 'p-uuid', labels: [] },
+        { id: 'wi-3', sequence_id: 3, name: 'adoptada', state: 's1', project: 'p-uuid', labels: ['l-adopted'] },
+        { id: 'wi-4', sequence_id: 4, name: 'otra label', state: 's1', project: 'p-uuid', labels: ['l-bug'] },
+      ],
+    });
+    try {
+      const provider = createPlaneProvider(cfg([{ id: 'p-uuid', identifier: 'ITCLIP', name: 'Clipping' }]));
+      await provider.init();
+
+      const refs = (await provider.listPendingTasks()).map((t) => t.ref);
+      assert.deepEqual(refs, ['ITCLIP-1'], 'solo la tarea con label kodo es pendiente de dispatch');
+    } finally {
+      stub.restore();
+    }
+  });
 
   it('init sobrescribe el identifier cacheado con el que devuelve Plane', async () => {
     const stub = stubApi({

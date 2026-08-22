@@ -108,3 +108,29 @@ export function buildPendingStatusFields({ tasks, fetched_at, stale }) {
     pending_fetched_at: fetched_at,
   };
 }
+
+/**
+ * Drop the tasks that already have a live session in `state.sessions` (match by
+ * `task_id` or `task_ref`). Pure, zero-import — the caller passes the sessions.
+ *
+ * Why: `listPendingTasks()` returns every task in the trigger state, and a task
+ * stays in that state while its session runs. Without this cut, `kodo check`
+ * counted the running sessions as "pending" and launched the orchestrator with
+ * nothing to dispatch (false positive, tokens burned), and `/status` reported a
+ * `pending_count` that double-counted the running rows.
+ *
+ * @template {{ id?: string, ref?: string }} T
+ * @param {T[]} tasks
+ * @param {Array<{ task_id?: string, task_ref?: string }> | null | undefined} sessions
+ * @returns {T[]}
+ */
+export function excludeActiveTasks(tasks, sessions) {
+  const ids = new Set();
+  const refs = new Set();
+  for (const s of sessions || []) {
+    if (s?.task_id) ids.add(s.task_id);
+    if (s?.task_ref) refs.add(s.task_ref);
+  }
+  if (ids.size === 0 && refs.size === 0) return tasks;
+  return tasks.filter((t) => !(t.id && ids.has(t.id)) && !(t.ref && refs.has(t.ref)));
+}

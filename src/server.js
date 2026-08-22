@@ -7,7 +7,7 @@ import { initRegistry, getProvider } from './providers/registry.js';
 import { listSessions, listHistory, removeSession, loadState, saveState, updateSession, runUnderStateLock, getOrchestrator } from './session/state.js';
 import { handleWebhookRequest } from './triggers/webhook.js';
 import { createProviderStateResolver } from './server/provider-state.js';
-import { createPendingResolver, buildPendingStatusFields } from './tasks/pending.js';
+import { createPendingResolver, buildPendingStatusFields, excludeActiveTasks } from './tasks/pending.js';
 import { createDismissHandler } from './server/dismiss.js';
 import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken, MAX_BODY_BYTES } from './server/auth.js';
 import * as cmux from './cmux/client.js';
@@ -359,7 +359,12 @@ export async function startServer(opts = {}) {
       // fresh. The warn is generic — no payload, no err.message (D-02 / Pitfall 1 / T-76-01).
       const pendingResult = await pendingResolver.resolve();
       if (pendingResult.stale) console.warn('[kodo] listPendingTasks stale — serving last-known-good');
-      const pendingFields = buildPendingStatusFields(pendingResult);
+      // Drop the tasks already owned by a live session — same cut as `kodo check`, so
+      // /status never double-counts running rows as pending.
+      const pendingFields = buildPendingStatusFields({
+        ...pendingResult,
+        tasks: excludeActiveTasks(pendingResult.tasks, sessions),
+      });
 
       // Enrich sessions with elapsed_min + provider_state. `alive` is the authoritative
       // value written by reconcileTick into state.json (única fuente de verdad, D-04);

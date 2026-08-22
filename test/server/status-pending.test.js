@@ -86,6 +86,15 @@ describe('Phase 76 Plan 02: /status convergence source-guard (D-09)', () => {
     );
   });
 
+  it('server.js drops tasks owned by a live session before shaping the payload (excludeActiveTasks)', () => {
+    const source = readFileSync(SERVER_SOURCE_PATH, 'utf-8');
+    assert.match(
+      source,
+      /excludeActiveTasks\(pendingResult\.tasks,\s*sessions\)/,
+      'server.js must apply the same running-session cut as kodo check',
+    );
+  });
+
   it('server.js no longer declares a module-level pendingCache (inline lane removed, D-09)', () => {
     const source = readFileSync(SERVER_SOURCE_PATH, 'utf-8');
     assert.doesNotMatch(
