@@ -29,8 +29,9 @@
 // Color-isolation (D-12): este módulo NO importa el helper de color del CLI
 // clásico — verificado por el walker extendido de test/format-isolation.test.js.
 //
-// Phase 37 (este archivo): extensión DI mínima — añade `exec` a `deps`, lazy-importa
-// `runFocus` y pasa `onFocus` como prop a `<App />`. CERO modificación al alt-screen toggle
+// Phase 37 (este archivo): extensión DI mínima — añade `exec` a `deps` y pasa `onFocus`
+// como prop a `<App />` (KODO-32: la prop delega en `host.selectWorkspace`, el verbo del
+// contrato WorkspaceHost; el host cmux es quien llama a `runFocus`). CERO modificación al alt-screen toggle
 // (líneas 107/127), CERO loop while(true), CERO mutación de signal handlers (SIGINT/SIGTERM
 // de Phase 34 D-10 preservado al pie de la letra). El verbo `cmux select-workspace` es
 // fire-and-forget RPC al socket Unix (~50ms) — NO toma el TTY (post-C-01).
@@ -158,10 +159,6 @@ export async function runDashboard(deps = {}) {
   const { createElement } = await import('react');
   const App = (await import('./App.js')).default;
 
-  // Phase 37: runFocus (orquestador puro never-throws del verbo cmux select-workspace, Plan 01).
-  // Lazy import mismo patrón que App/ink/react. Cero overhead en arranque del CLI.
-  const { runFocus } = await import('./focus.js');
-
   // Phase 48: runOpen (lanzador puro never-throws de `open <url>`, Plan 02). Mismo patrón lazy.
   const { runOpen } = await import('./open.js');
 
@@ -219,7 +216,7 @@ export async function runDashboard(deps = {}) {
   // El nombre del provider activo (plane/github) decide DOS cosas: (1) qué provider instancia el wrapper
   // never-throws de listProjectsFn, y (2) si listModulesFn construye un PlaneClient o es no-op (Pattern 4
   // — listModules NO está en el contrato TaskProvider, vive SOLO en PlaneClient). loadConfig ya está
-  // cacheado por la lectura de baseUrl/cmuxBin arriba → esta llamada solo re-deserializa en memoria.
+  // cacheado por la lectura de baseUrl/hostBin arriba → esta llamada solo re-deserializa en memoria.
   const providerName = loadConfig().provider;
 
   // listProjectsFn (RESEARCH Pattern 2 — wrapper never-throws DISCRIMINADO {ok:true,projects}|{ok:false,error}).
@@ -292,13 +289,21 @@ export async function runDashboard(deps = {}) {
     // dismissSession, autenticando las CUATRO requests sin cambiar ninguna firma de client.js. El
     // token viaja SOLO en el header Authorization (PERSIST-04/T-69-08 — nunca a render/log).
     fetchFn: makeAuthedFetch(process.env.KODO_API_TOKEN ?? ''),
-    // Phase 37 D-01: fire-and-forget al socket cmux. runFocus es never-throws (Plan 01),
-    // App.js maneja el discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el
-    // lifecycle de runDashboard — ink sigue montado durante toda la invocación (~50ms).
-    onFocus: async (ref) => runFocus({ exec: execImpl, ref, binary: cmuxBin }),
+    // Phase 37 D-01: fire-and-forget al host. never-throws (Plan 01): App.js maneja el
+    // discriminado y mapea a footer-error rojo (Plan 02 D-04/D-05). NO toca el lifecycle de
+    // runDashboard — ink sigue montado durante toda la invocación (~50ms).
+    // KODO-32: se cablea al verbo del CONTRATO `host.selectWorkspace(ref)`, no a `runFocus`
+    // directo. Dos razones: (1) `runFocus` recibía `cmuxBin`, variable que KODO-18 renombró a
+    // `hostBin` — la referencia muerta crasheaba el TUI con ReferenceError en cada Enter/`O`;
+    // (2) `runFocus` habla el dialecto de cmux (`select-workspace --workspace`), así que con
+    // `host=orca` habría invocado el binario de orca con el verbo equivocado. El host cmux
+    // delega en el MISMO runFocus con el MISMO exec/binario (host/cmux.js:250) → carril cmux
+    // idéntico bit a bit; orca enruta a su propio focusWorkspace. Shape del discriminado
+    // preservado ({ok} | {ok:false, code, detail}) — App.js no cambia.
+    onFocus: async (ref) => host.selectWorkspace(ref),
     // Phase 48 D-01/D-06: espejo de onFocus. Reusa el MISMO execImpl (no re-importa
     // node:child_process). NO lee binario de config — open.js defaultea `binary` a 'open'
-    // internamente (D-06, divergencia con cmuxBin). runOpen es never-throws (Plan 02 contract).
+    // internamente (D-06, divergencia con hostBin). runOpen es never-throws (Plan 02 contract).
     onOpen: async (url) => runOpen({ exec: execImpl, url }),
     // Phase 56 D-01/D-03: discovery on-demand, typeof-gated (fail-open a [] si el host no soporta el
     // método — listAgentSurfaces NO está en HOST_METHODS). El handler `a` de App.js diffea el array
