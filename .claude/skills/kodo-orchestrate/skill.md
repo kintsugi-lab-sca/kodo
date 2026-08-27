@@ -716,3 +716,14 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   cambió nada** — repetir el paso (3) con el binario ya autorizado y un socket
   nuevo es lo que lo descarta. No mandes un `sudo` al operador antes de haber
   aislado la variable.
+- [2026-08-27] **No cierres el workspace de una sesión idle hasta que el operador
+  haya leído su resultado.** Cerrar `workspace:58` (ITCLIP-111, review de la PR
+  #41) nada más entrar en Review liberó un slot pero borró la pantalla que el
+  operador aún no había leído — «me has cerrado la tarea de la review, pero no
+  me ha dado tiempo a leerla». El resultado no se pierde (comentario en Plane,
+  review en GitHub, `~/.kodo/plans/<task_id>.md`, transcript en
+  `~/.claude/projects/<cwd>/<sid>.jsonl`), pero la pantalla es la vía de
+  lectura natural del operador. Regla: una sesión idle en Review se **presenta**
+  al operador y se cierra sólo cuando él lo diga o cuando pida el slot; si hace
+  falta un slot y no ha contestado, pregunta antes de cerrar. Excepción: el
+  operador ya dijo explícitamente que la tarea está hecha (caso LIKEN-126).
