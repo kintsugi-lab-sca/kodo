@@ -391,3 +391,42 @@ describe('Phase 41 Plan 02: execute() — sanitize with per-action liveness re-c
     // no throw escaped
   });
 });
+
+// ── KODO-47 ──────────────────────────────────────────────────────────────────────
+//
+// `removeSession` degrada a `{ok:false, reason:'lock-timeout'}` SIN lanzar (D-03), así
+// que el try/catch de la barrida de zombies no lo veía: el zombie seguía en state.json
+// y `--fix` lo contaba como removido.
+describe('KODO-47 execute() — zombie cuyo removeSession no persiste', () => {
+  const zombieState = () => ({
+    schema_version: 3,
+    sessions: { 't-z': { task_id: 't-z', session_id: 's-z', alive: false, project_path: PROJECT } },
+    history: [],
+  });
+
+  it('lock-timeout → NO cuenta como removido y queda registrado en errors', async () => {
+    const { deps } = makeExecDeps({
+      loadState: zombieState,
+      removeSession: () => ({ ok: false, reason: 'lock-timeout' }),
+    });
+
+    const result = await execute(deps, { fix: true });
+
+    assert.equal(result.zombies.removed, 0, 'no se afirma un arreglo que no se escribió');
+    const err = result.errors.find((e) => e.category === 'zombie' && e.target === 't-z');
+    assert.ok(err, 'el operador ve por qué quedó sin arreglar');
+    assert.match(err.reason, /lock-timeout/);
+  });
+
+  it('un mutador que devuelve undefined (contrato previo a WR-01) sigue contando como removido', async () => {
+    const { deps } = makeExecDeps({
+      loadState: zombieState,
+      removeSession: () => undefined,
+    });
+
+    const result = await execute(deps, { fix: true });
+
+    assert.equal(result.zombies.removed, 1);
+    assert.equal(result.errors.find((e) => e.category === 'zombie'), undefined);
+  });
+});
