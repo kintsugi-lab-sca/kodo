@@ -74,7 +74,7 @@ const MAX_STEAL_ATTEMPTS = 8;
 // `test/helpers/lock-race-child.mjs:406`, el mismo orden de magnitud) SÍ es
 // adelantado por edad, y entonces hay dos stealers dentro. Decir «un stealer vivo
 // nunca es roto por edad» afirmaría más de lo que el código sostiene (LOCK-07).
-const STEAL_GUARD_STALE_MS = 5_000;
+export const STEAL_GUARD_STALE_MS = 5_000;
 
 /**
  * Check whether `pid` is alive on the current host.
@@ -391,7 +391,7 @@ function readGuard(guardPath) {
  * @param {string} guardPath
  * @returns {boolean}
  */
-function acquireStealGuard(guardPath) {
+export function acquireStealGuard(guardPath) {
   const tmp = `${guardPath}.tmp.${process.pid}.${randomUUID()}`;
   try {
     writeFileSync(tmp, JSON.stringify({ pid: process.pid, ts: Date.now() }));
@@ -431,7 +431,7 @@ function acquireStealGuard(guardPath) {
  * @param {number} thresholdMs
  * @returns {boolean}
  */
-function guardIsStale(guardPath, thresholdMs) {
+export function guardIsStale(guardPath, thresholdMs) {
   const guard = readGuard(guardPath);
   if (guard && Number.isFinite(guard.pid)) {
     if (!isPidAlive(guard.pid)) return true;
@@ -454,7 +454,7 @@ function guardIsStale(guardPath, thresholdMs) {
  * @param {string} guardPath
  * @returns {void}
  */
-function breakStaleGuard(guardPath) {
+export function breakStaleGuard(guardPath) {
   try {
     unlinkSync(guardPath);
   } catch {

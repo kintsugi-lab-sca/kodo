@@ -18,9 +18,9 @@
 
 import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 
 let sandbox;
 let origHome;
@@ -261,6 +261,89 @@ describe('state-lock primitive (D-01/D-03/D-08)', () => {
 
     stop();
     releaseLock(p, got.token);
+  });
+
+  // ------------------------------------------------------------------
+  // KODO-48 follow-up — el steal guardado. Regresión detectada al integrar: el
+  // CAS anterior movía el lock A UN LADO y lo recreaba después, dejando `lockPath`
+  // inexistente en medio; un contendiente rezagado creaba el suyo en ese hueco y
+  // salían DOS dueños (~8% de las rondas de 5 procesos sobre un lock de PID
+  // muerto). Estos casos fijan la maquinaria que lo cierra, de forma
+  // DETERMINISTA — el test cross-proc solo lo pilla por probabilidad.
+  // ------------------------------------------------------------------
+
+  it('no roba mientras un steal-guard VIVO está tomado', () => {
+    const p = freshLockPath();
+    // Lock robable (PID muerto) pero con un stealer vivo en plena sección crítica.
+    writeFileSync(p, JSON.stringify({ pid: DEAD_PID, acquired_at: Date.now(), token: 'ghost' }));
+    writeFileSync(`${p}.steal-guard`, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+
+    const got = acquireLock(p, { retries: 0 });
+    assert.equal(got, null, 'un guard vivo y en ventana bloquea el robo');
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.equal(held.token, 'ghost', 'y el lock queda intacto, no a medio robar');
+  });
+
+  it('el lock NUNCA queda ausente tras un intento de robo fallido', () => {
+    const p = freshLockPath();
+    writeFileSync(p, JSON.stringify({ pid: DEAD_PID, acquired_at: Date.now(), token: 'ghost' }));
+    writeFileSync(`${p}.steal-guard`, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+
+    acquireLock(p, { retries: 0 });
+    // Ésta es la invariante que la versión anterior rompía: el hueco en el que
+    // `lockPath` no existía era la puerta por la que entraba el segundo dueño.
+    assert.ok(existsSync(p), 'el path del lock sigue ocupado en todo momento');
+  });
+
+  it('un steal-guard huérfano (PID muerto) no deja el lock inrobable', () => {
+    const p = freshLockPath();
+    writeFileSync(p, JSON.stringify({ pid: DEAD_PID, acquired_at: Date.now(), token: 'ghost' }));
+    // Guard abandonado por un stealer que murió a mitad.
+    writeFileSync(`${p}.steal-guard`, JSON.stringify({ pid: DEAD_PID, ts: Date.now() }));
+
+    const got = acquireLock(p, { retries: 3, backoffMs: 1 });
+    assert.ok(got && got.token, 'el guard huérfano se rompe y el robo procede');
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.equal(held.token, got.token, 'el lock es nuestro');
+  });
+
+  it('DENTRO de la sección crítica del robo: el lock sigue puesto y nadie más lo toma', () => {
+    const p = freshLockPath();
+    writeFileSync(p, JSON.stringify({ pid: DEAD_PID, acquired_at: Date.now(), token: 'ghost' }));
+
+    // Éste es EL test de la regresión, y es determinista. La versión anterior
+    // movía el lock a un lado y lo recreaba después: en este preciso punto el
+    // fichero NO existía y un contendiente rezagado obtenía su propio token — dos
+    // dueños. Aparcamos a un stealer aquí y miramos lo que ve el mundo.
+    const observed = { lockExists: null, rivalToken: null };
+    const got = acquireLock(p, {
+      retries: 0,
+      _inStealCriticalSectionFn: () => {
+        observed.lockExists = existsSync(p);
+        // Un segundo contendiente entrando justo ahora (el rezagado de la carrera).
+        const rival = acquireLock(p, { retries: 0 });
+        observed.rivalToken = rival && rival.token;
+      },
+    });
+
+    assert.equal(observed.lockExists, true, 'el lock NUNCA desaparece durante el robo');
+    assert.equal(observed.rivalToken, null, 'un contendiente concurrente no obtiene token');
+    assert.ok(got && got.token, 'y el stealer legítimo sí completa su robo');
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.equal(held.token, got.token, 'el lock acaba en manos de un único dueño');
+  });
+
+  it('un robo con éxito no deja residuos (guard ni tmp)', () => {
+    const p = freshLockPath();
+    writeFileSync(p, JSON.stringify({ pid: DEAD_PID, acquired_at: Date.now(), token: 'ghost' }));
+
+    const got = acquireLock(p, { retries: 0 });
+    assert.ok(got && got.token, 'roba el lock de PID muerto');
+    assert.ok(!existsSync(`${p}.steal-guard`), 'el guard se suelta en el finally');
+    const leftovers = readdirSync(sandbox).filter(
+      (f) => f.startsWith(`${basename(p)}.tmp.`) || f.startsWith(`${basename(p)}.renew.`),
+    );
+    assert.deepEqual(leftovers, [], `sin tmp huérfanos; quedaron: ${leftovers.join(',')}`);
   });
 
   it('el heartbeat se para solo si nos roban el lock (renewLock → false)', async () => {

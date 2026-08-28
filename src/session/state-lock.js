@@ -6,9 +6,16 @@ import {
   renameSync,
   mkdirSync,
 } from 'node:fs';
+import { statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { isPidAlive } from '../gsd/lock.js';
+import {
+  isPidAlive,
+  acquireStealGuard,
+  guardIsStale,
+  breakStaleGuard,
+  STEAL_GUARD_STALE_MS,
+} from '../gsd/lock.js';
 
 /**
  * Reusable advisory-lock primitive (Phase 70, D-01).
@@ -28,7 +35,7 @@ import { isPidAlive } from '../gsd/lock.js';
  * The `token` (a per-acquire randomUUID) makes `releaseLock` ownership-checked.
  *
  * @typedef {{ pid: number, acquired_at: number, token: string }} LockContent
- * @typedef {{ retries?: number, backoffMs?: number, ttlMs?: number, logger?: { warn?: (event: string, meta?: object) => void } }} LockOpts
+ * @typedef {{ retries?: number, backoffMs?: number, ttlMs?: number, logger?: { warn?: (event: string, meta?: object) => void }, _inStealCriticalSectionFn?: () => void }} LockOpts
  */
 
 const DEFAULT_RETRIES = 8;
@@ -45,6 +52,92 @@ const DEFAULT_TTL_MS = 10_000;
 function sleepSync(ms) {
   if (ms <= 0) return;
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Identidad observable del lock: bytes crudos + inodo (KODO-48 follow-up).
+ *
+ * Es la unidad de comparación del compare-and-swap. Bytes E inodo, no uno solo:
+ * comparar solo el inodo queda ciego a la reutilización de inodos tras
+ * `unlink`+create —justo la secuencia de un robo ajeno—, y comparar solo los
+ * bytes queda ciego a un fichero distinto con contenido idéntico. La hora de
+ * modificación se deja FUERA a propósito: es redundante frente a la comparación
+ * de bytes y un `touch` provocaría abortos espurios. Mismo criterio que
+ * `readLockIdentity` en `src/gsd/lock.js`.
+ *
+ * @param {string} lockPath
+ * @returns {{ raw: Buffer|null, ino: number|null, missing: boolean }}
+ */
+function readLockIdentity(lockPath) {
+  let raw = null;
+  let missing = false;
+  try {
+    raw = readFileSync(lockPath);
+  } catch (e) {
+    if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') missing = true;
+    // Presente pero ilegible → raw null con missing false: es un estado
+    // observable y comparable por inodo, no un "no se puede comprobar".
+  }
+  let ino = null;
+  try {
+    ino = statSync(lockPath).ino;
+  } catch {
+    /* desaparecido entre el read y el stat — lo dice `missing`/`raw` */
+  }
+  return { raw, ino, missing };
+}
+
+/**
+ * ¿Cambió la identidad del lock entre `base` y `fresh`? Conservador por diseño:
+ * si no se puede comparar, la respuesta es «sí cambió» y el llamante NO publica.
+ *
+ * @param {{ raw: Buffer|null, ino: number|null, missing: boolean }} base
+ * @param {{ raw: Buffer|null, ino: number|null, missing: boolean }} fresh
+ * @returns {boolean}
+ */
+function identityChanged(base, fresh) {
+  if (base.missing !== fresh.missing) return true;
+  if (base.raw === null || fresh.raw === null) {
+    // Ilegible en ambos extremos con el MISMO inodo → la identidad no cambió.
+    return !(
+      base.raw === null &&
+      fresh.raw === null &&
+      base.ino !== null &&
+      fresh.ino !== null &&
+      fresh.ino === base.ino
+    );
+  }
+  if (!fresh.raw.equals(base.raw)) return true;
+  return base.ino !== null && fresh.ino !== null && fresh.ino !== base.ino;
+}
+
+/**
+ * ¿Es robable el contenido `held` de un lock? Idéntico criterio que antes: dueño
+ * muerto o TTL vencido. Un contenido ilegible NO es robable por sí mismo — puede
+ * ser un escritor a medias.
+ *
+ * @param {LockContent|null} held
+ * @param {number} ttlMs
+ * @returns {boolean}
+ */
+function contentIsStale(held, ttlMs) {
+  if (!held || !Number.isFinite(held.pid)) return false;
+  return !isPidAlive(held.pid) || Date.now() - held.acquired_at > ttlMs;
+}
+
+/**
+ * Parseo defensivo del cuerpo del lock. `null` si falta o es ilegible.
+ *
+ * @param {Buffer|null} raw
+ * @returns {LockContent|null}
+ */
+function parseLockContent(raw) {
+  if (raw === null) return null;
+  try {
+    return /** @type {LockContent} */ (JSON.parse(raw.toString('utf-8')));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -84,76 +177,102 @@ export function acquireLock(lockPath, opts = {}) {
       // TTL exceeded). A corrupt/partial read (e.g. the winner created the file
       // but has not written its bytes yet) is NOT treated as stealable: we fall
       // through to backoff+retry so the create race can never yield two winners.
+      //
+      // KODO-48 (regresión detectada al integrar): el CAS anterior —mover el lock
+      // A UN LADO con `renameSync(lockPath, aside)` y recrearlo después con
+      // `wx`— serializaba a los stealers pero dejaba `lockPath` INEXISTENTE entre
+      // el rename y el create. Esa ventana es la que producía DOS ganadores: un
+      // contendiente rezagado hacía su `wx`-create en el hueco y se llevaba un
+      // token, y la rama de restauración ABA (`renameSync(aside, lockPath)`,
+      // incondicional) volvía a pisar ese lock legítimo. Medido con un reproductor
+      // dirigido: ~8% de las rondas de 5 hijos sobre un lock de PID muerto — y
+      // reproducible IGUAL sobre main sin el heartbeat, así que la ventana es
+      // anterior a él, no suya.
+      //
+      // El arreglo es el idiom que el carril GSD ya maduró en `src/gsd/lock.js`
+      // (Phase 82/86) y que aquí se REUSA por import en vez de reimplementarse,
+      // mismo criterio que `isPidAlive`:
+      //   1. un steal-guard publicado con `linkSync` (atómico en CONTENIDO)
+      //      serializa a los stealers;
+      //   2. dentro de la sección crítica, la sustitución es EN SITIO —
+      //      `renameSync(tmp, lockPath)` intercambia el inodo— así que `lockPath`
+      //      NUNCA desaparece y no hay hueco donde colarse;
+      //   3. el rename no es incondicional: va precedido de un compare-and-swap
+      //      de identidad (bytes + inodo) contra el baseline leído al entrar.
+      // La única creación sigue siendo `O_EXCL`, y solo en la rama en la que el
+      // dueño liberó el lock a mitad del robo.
+      const guardPath = `${lockPath}.steal-guard`;
       try {
-        const held = /** @type {LockContent} */ (
-          JSON.parse(readFileSync(lockPath, 'utf-8'))
-        );
-        const stale =
-          !isPidAlive(held.pid) || Date.now() - held.acquired_at > ttlMs;
-        if (stale) {
-          // Compare-and-swap steal (CR-01, D-08): the previous tmp+rename over
-          // `lockPath` replaced unconditionally (last-writer-wins), so two
-          // processes observing the SAME stale lock could both steal and both
-          // return a token — degrading state.json coordination back to
-          // unsynchronized. Instead, move the CURRENT lock aside: `renameSync`
-          // of a given inode succeeds only ONCE, so exactly one concurrent
-          // stealer wins the move; the losers get ENOENT and fall through to
-          // backoff+retry rather than overwriting a fresh winner.
-          const aside = `${lockPath}.steal.${process.pid}.${randomUUID()}`;
-          let won = false;
-          try {
-            renameSync(lockPath, aside);
-            won = true;
-          } catch (re) {
-            if (/** @type {NodeJS.ErrnoException} */ (re).code !== 'ENOENT') throw re;
-            // Lost the move — someone else took the stale lock; re-contend.
-          }
-          if (won) {
-            // ABA guard: if we moved aside a now-fresh live lock (a winner
-            // created between our read and our rename), restore it and retry
-            // instead of stealing a live owner.
-            let asideContent = null;
+        const held = parseLockContent(readLockIdentity(lockPath).raw);
+        if (contentIsStale(held, ttlMs)) {
+          if (!acquireStealGuard(guardPath)) {
+            // Guard ocupado. Romperlo SOLO si está huérfano (dueño muerto o
+            // envejecido); jamás uno vivo y en ventana — su dueño puede estar
+            // justo en mitad del rename.
+            if (guardIsStale(guardPath, STEAL_GUARD_STALE_MS)) breakStaleGuard(guardPath);
+            // Sin guard no se roba en este turno: backoff + retry (o `null` si el
+            // presupuesto de reintentos era 0, que es lo que debe ver un
+            // contendiente perdedor).
+          } else {
             try {
-              asideContent = /** @type {LockContent} */ (
-                JSON.parse(readFileSync(aside, 'utf-8'))
-              );
-            } catch {
-              /* corrupt/partial → treat as stale */
-            }
-            const asideStale =
-              !asideContent ||
-              !isPidAlive(asideContent.pid) ||
-              Date.now() - asideContent.acquired_at > ttlMs;
-            if (asideStale) {
-              try {
-                // O_EXCL-create ours; if another process filled the empty
-                // window first we lose with EEXIST and re-contend.
-                writeFileSync(lockPath, content, { flag: 'wx' });
-                try {
-                  unlinkSync(aside);
-                } catch {
-                  /* best-effort */
-                }
-                return { token };
-              } catch (ce) {
-                try {
-                  unlinkSync(aside);
-                } catch {
-                  /* best-effort */
-                }
-                if (/** @type {NodeJS.ErrnoException} */ (ce).code !== 'EEXIST') throw ce;
-                // Lost the create race — fall through to backoff+retry.
+              // Seam de inyección para tests de concurrencia (molde literal de
+              // `_afterCriticalReadFn` en `src/gsd/lock.js`): superficie de test,
+              // NO una feature. Por defecto no existe. Permite APARCAR a un stealer
+              // dentro de su sección crítica y comprobar de forma DETERMINISTA la
+              // invariante que la versión anterior rompía —que el lock nunca
+              // desaparece y que nadie más se lleva un token mientras tanto—, en vez
+              // de confiarla a una carrera que solo se manifiesta ~8% de las veces.
+              if (typeof opts._inStealCriticalSectionFn === 'function') {
+                opts._inStealCriticalSectionFn();
               }
-            } else {
-              // Restore the fresh live lock we moved aside, then retry.
-              try {
-                renameSync(aside, lockPath);
-              } catch {
+
+              // Baseline DENTRO del guard: la decisión de robar se re-toma con
+              // datos frescos, no con los de antes de contender por el guard.
+              const base = readLockIdentity(lockPath);
+
+              if (base.missing) {
+                // El dueño liberó a mitad del robo → respetar a un creador fresco
+                // vía O_EXCL en vez de pisarlo.
                 try {
-                  unlinkSync(aside);
-                } catch {
-                  /* best-effort */
+                  writeFileSync(lockPath, content, { flag: 'wx' });
+                  return { token };
+                } catch (ce) {
+                  if (/** @type {NodeJS.ErrnoException} */ (ce).code !== 'EEXIST') throw ce;
+                  // Alguien se adelantó → re-contender.
                 }
+              } else if (contentIsStale(parseLockContent(base.raw), ttlMs)) {
+                // ORDEN INAMOVIBLE (heredado de gsd/lock.js): escribir el tmp →
+                // sonda FRESCA → comparar → renombrar. Comparar antes de escribir
+                // dejaría el coste de la escritura fuera de la ventana vigilada.
+                const tmp = `${lockPath}.tmp.${process.pid}.${randomUUID()}`;
+                try {
+                  writeFileSync(tmp, content);
+                  const fresh = readLockIdentity(lockPath);
+                  if (!identityChanged(base, fresh)) {
+                    renameSync(tmp, lockPath);
+                    return { token };
+                  }
+                  try {
+                    unlinkSync(tmp);
+                  } catch {
+                    /* best-effort */
+                  }
+                  // La identidad cambió bajo nuestros pies → no publicamos nada y
+                  // re-contendemos con el bucle de reintentos existente.
+                } catch (err) {
+                  try {
+                    unlinkSync(tmp);
+                  } catch {
+                    /* best-effort */
+                  }
+                  throw err;
+                }
+              }
+            } finally {
+              try {
+                unlinkSync(guardPath);
+              } catch {
+                /* best-effort */
               }
             }
           }
@@ -220,12 +339,13 @@ export function releaseLock(lockPath, token) {
  * stealer), token ajeno (nos lo robaron y otro proceso es el dueño legítimo), o
  * contenido corrupto. Nunca reescribe un lock que no sea nuestro.
  *
- * Trade-off conocido: entre el read de verificación y el rename hay una ventana
- * TOCTOU de microsegundos, la MISMA forma que ya tiene la rama de steal (leer →
- * decidir stale → renombrar). No la cerramos aquí porque cerrarla exigiría un
- * segundo nivel de CAS sobre una ventana que solo se abre si el lock nos lo roban
- * justo en ese instante — y en ese caso el efecto es un `acquired_at` refrescado
- * con el token del nuevo dueño intacto, no un doble dueño.
+ * El rename NO es incondicional: va precedido del MISMO compare-and-swap de
+ * identidad (bytes + inodo) que la rama de steal. Un `renameSync` a ciegas sería
+ * el pecado que CR-01 cerró, ahora en versión heartbeat: si entre nuestro read de
+ * verificación y el rename otro proceso roba el lock legítimamente, el latido
+ * publicaría NUESTRO token encima del dueño nuevo y habría dos dueños creyéndose
+ * únicos. Con el CAS, ese caso se detecta y devuelve `false`, que es justo la
+ * señal de «deja de renovar».
  *
  * @param {string} lockPath
  * @param {string} token - el token devuelto por `acquireLock`.
@@ -233,10 +353,9 @@ export function releaseLock(lockPath, token) {
  */
 export function renewLock(lockPath, token) {
   try {
-    const held = /** @type {LockContent} */ (
-      JSON.parse(readFileSync(lockPath, 'utf-8'))
-    );
-    if (held.token !== token) return false;
+    const base = readLockIdentity(lockPath);
+    const held = parseLockContent(base.raw);
+    if (!held || held.token !== token) return false;
 
     const tmp = `${lockPath}.renew.${process.pid}.${randomUUID()}`;
     const next = JSON.stringify({
@@ -246,6 +365,16 @@ export function renewLock(lockPath, token) {
     });
     try {
       writeFileSync(tmp, next);
+      // Sonda fresca DESPUÉS de escribir el tmp: el coste de la escritura queda
+      // dentro de la ventana vigilada, no fuera.
+      if (identityChanged(base, readLockIdentity(lockPath))) {
+        try {
+          unlinkSync(tmp);
+        } catch {
+          /* best-effort */
+        }
+        return false;
+      }
       renameSync(tmp, lockPath);
     } catch (e) {
       try {
