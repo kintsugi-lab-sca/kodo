@@ -9,6 +9,7 @@ import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } fro
 import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
+import { stripForPrompt } from '../cli/sanitize.js';
 import { syncSkill } from '../skill/sync.js';
 import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
 
@@ -560,8 +561,31 @@ export async function launchOrchestrator(opts = {}) {
   return { workspace: workspaceRef, existing: false };
 }
 
+// KODO-38: cotas del texto NO confiable que entra al prompt del orquestador.
+// `summary` es literalmente `task.title` del proveedor (`session/manager.js:67`) y
+// `task_ref` su identificador; ambos viajan desde Plane/GitHub sin que kodo los
+// escriba. 120 chars es holgado para un título real (el carril del sidebar corta en
+// 40 y el de la tarjeta en 60) y sigue acotando el relleno de contexto; el ref es un
+// identificador corto (`KL-42`, `#42`), así que 40 sobra.
+const PROMPT_TITLE_MAX = 120;
+const PROMPT_REF_MAX = 40;
+
 /**
  * Build a text summary of current state for the orchestrator
+ *
+ * KODO-38: el título de tarea llega de Plane/GitHub y aquí aterriza en un PROMPT, no
+ * en el terminal. No hay shell-injection (el prompt viaja por fichero temporal,
+ * `writePromptFile`), pero sí prompt-injection: un título con estructura markdown
+ * falsificada o con «ignora las instrucciones anteriores» sesga al supervisor. Por eso
+ * cada campo no confiable pasa por `stripForPrompt` (control chars + saltos aplanados
+ * + longitud acotada) y el título va además envuelto en `<task_title>…</task_title>`,
+ * que marca el límite exacto de lo que kodo no controla. El contrato que dice al
+ * orquestador que ese contenido es DATO y no una orden vive en `prompt.md`
+ * (§«Datos no confiables»): sin él los delimitadores son decoración.
+ *
+ * Lo demás de la línea (`workspace_ref`, `project_path`, elapsed) lo genera kodo o el
+ * operador, no el proveedor, y se deja verbatim a propósito.
+ *
  * @param {import('../session/state.js').Session[]} sessions
  * @param {ReturnType<import('../config.js').loadConfig>} config
  */
@@ -588,7 +612,9 @@ export function buildContextSummary(sessions, config) {
         const inner = mode === 'quick' ? 'quick' : (s.phase_id ? `phase ${s.phase_id}` : 'bootstrap');
         gsdTag = ` \`[GSD ${inner}]\``;
       }
-      lines.push(`- **${s.task_ref}**${gsdTag}: ${s.summary}`);
+      const ref = stripForPrompt(s.task_ref, PROMPT_REF_MAX);
+      const title = stripForPrompt(s.summary, PROMPT_TITLE_MAX);
+      lines.push(`- **${ref}**${gsdTag}: <task_title>${title}</task_title>`);
       lines.push(`  Workspace: ${s.workspace_ref} | ${elapsed}min | ${s.project_path}`);
     }
   }

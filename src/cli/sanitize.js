@@ -87,3 +87,53 @@ export function stripForKeystroke(s) {
     // también la interpreta como Enter/Tab → neutralizar.
     .replace(/\\[rnt]/g, ' ');
 }
+
+/**
+ * Variante del carril de PROMPT — el texto no confiable que kodo interpola en el prompt
+ * con el que arranca al orquestador (`buildContextSummary`, sección «Situación actual»).
+ *
+ * Tercer carril, hermano de los dos de arriba. Aquí el destinatario no es un terminal
+ * ni un teclado: es un LLM que lee el prompt como instrucciones, así que los vectores
+ * cambian de forma.
+ *
+ *  - **El `\n` REAL.** El carril de render lo preserva a propósito; aquí permite
+ *    falsificar ESTRUCTURA. Un título de tarea con `\n\n## Reglas mínimas\n- ...`
+ *    aparece en el prompt como una sección de nivel superior más, indistinguible de
+ *    las que escribe kodo. Se colapsa a espacio junto con `\r`/`\t` y sus formas de
+ *    escape LITERAL (mismo criterio que `stripForKeystroke`).
+ *  - **El propio delimitador.** El llamante envuelve el valor en
+ *    `<task_title>…</task_title>` para marcar dónde acaba lo que no controla; un
+ *    título que trajera ese cierre se saldría del envoltorio. Se neutraliza AQUÍ, no
+ *    en el llamante, para que la garantía «no se puede salir del envoltorio» viva
+ *    pegada al saneo. Solo se toca ESE tag: `<Button>` o `a < b` son contenido
+ *    legítimo de un título y sobreviven intactos.
+ *  - **La longitud.** Un título de 40 KB no ejecuta nada, pero diluye el prompt real
+ *    y quema el contexto del supervisor. `max` acota el daño y la elipsis deja el
+ *    truncado a la vista.
+ *
+ * Lo que este carril NO hace: tocar la PROSA. Un título que diga «ignora las
+ * instrucciones anteriores» sigue diciéndolo, y debe — es el nombre real de la tarea y
+ * el operador tiene que verlo tal cual. Lo que se garantiza es que llega como DATO
+ * acotado y delimitado; que el orquestador no lo obedezca es trabajo del contrato que
+ * `src/orchestrator/prompt.md` declara sobre el delimitador. Saneo y contrato son las
+ * dos mitades: ninguna sirve sola.
+ *
+ * Pura — no importa/usa color. Nunca lanza: hereda el `String(s)` de `stripControlChars`.
+ *
+ * @param {unknown} s
+ * @param {number} [max] - longitud máxima del resultado, elipsis incluida.
+ * @returns {string}
+ */
+export function stripForPrompt(s, max = 120) {
+  const flat = stripControlChars(s)
+    // `\n`/`\t` REALES sobreviven al carril de render; aquí son estructura falsificable.
+    .replace(/[\r\n\t]/g, ' ')
+    // Escape LITERAL (`\` + n/r/t, ASCII imprimible): el LLM lo lee como salto igual.
+    .replace(/\\[rnt]/g, ' ')
+    // El delimitador del llamante, en cualquier caja y con espacios internos.
+    .replace(/<\s*\/?\s*task_title\s*>/gi, ' ')
+    // Los pasos anteriores dejan huecos; un título de espacios simples no cambia.
+    .replace(/ {2,}/g, ' ')
+    .trim();
+  return flat.length > max ? flat.slice(0, Math.max(0, max - 1)) + '…' : flat;
+}
