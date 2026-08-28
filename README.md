@@ -140,6 +140,26 @@ enough to see the network die, without blocking the response for the full sessio
 startup. A dispatch still alive when the window expires answers 200 and continues in
 the background.
 
+#### Development without a secret: `--insecure` requires two signals
+
+`kodo start --insecure` **disables the webhook's HMAC verification**: anyone who
+reaches the port can trigger Claude sessions. So that this does not happen out of
+inertia — a flag copied from a README that ends up in a startup script — the
+flag on its own is not enough: the `KODO_ALLOW_INSECURE=1` environment variable
+is also required.
+
+```bash
+kodo start --insecure                          # exit 1 — the flag alone authorises nothing
+KODO_ALLOW_INSECURE=1 kodo start --insecure    # starts, with a warning visible on every startup
+```
+
+They are two signals from different channels (an ephemeral command line + a
+deliberate environment), and neither takes effect by accident when the other is missing. Only
+the exact value `1` is accepted.
+
+Do not use this outside your local machine: set `KODO_WEBHOOK_SECRET_<PROVIDER>`
+(e.g. `KODO_WEBHOOK_SECRET_PLANE`) in `~/.kodo/.env`.
+
 ### 5. Install Claude Code hooks
 
 ```bash

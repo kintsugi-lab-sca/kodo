@@ -48,7 +48,8 @@ Every time you want a change to reach `brew` users, perform the full ritual:
 - [ ] Tap formula with the new tag's `url` + a real `sha256` (not `0000…`).
 - [ ] **`sha256` ALWAYS computed** with `curl -sL …/archive/refs/tags/<tag>.tar.gz | shasum -a 256` at release time — **never reuse** a previous value (a wrong sha gives `SHA-256 mismatch` on a clean install; the GitHub archive tarball is stable, so the freshly computed value is the correct one).
 - [ ] `service do` invokes `kodo daemon run` — **NEVER `kodo up`** (launchd foreground trap).
-- [ ] No `environment_variables` in the plist (secrets only in `~/.kodo/.env`).
+- [ ] **Only** `PATH` in the plist's `environment_variables` — zero secrets (they live in `~/.kodo/.env`).
+- [ ] `brew style` and `brew audit` clean against the tap's formula.
 
 ## Execution modes (spike scoping decision, Phase 66)
 
@@ -64,11 +65,26 @@ Rule: if you depend on the cmux features, use `kodo up`; `brew services` is for 
 - **PATH shadow:** if you have a `kodo` in `~/.npm-global/bin` or `~/.local/bin`, `kodo`
   by name may NOT invoke the Homebrew one. Check with `which -a kodo`; use the absolute
   path `$(brew --prefix)/opt/kodo/bin/kodo` when you want brew's.
-- **`node` under launchd:** `bin/kodo` uses the shebang `#!/usr/bin/env node`. Under `brew
-  services`, launchd runs with a minimal PATH. If `var/log/kodo.log` shows
-  `env: node: No such file or directory`, add to the formula
-  `EnvironmentVariables { "PATH" => "#{Formula["node"].opt_bin}:#{ENV["PATH"]}" }`
-  (open question A1 from the Phase 66 spike).
+- **PATH under launchd (A1, CLOSED):** launchd does not inherit the login shell's PATH — a
+  LaunchAgent starts with `/usr/bin:/bin:/usr/sbin:/sbin`, and there is nothing from Homebrew there.
+  The formula solves it by declaring the PATH in the plist:
+  ```ruby
+  environment_variables PATH: "#{formula_opt_bin("node")}:#{std_service_path_env}"
+  ```
+  Two clarifications on how A1 was framed:
+  - **The shebang was NOT the problem.** `bin/kodo` uses `#!/usr/bin/env node` in the source
+    tree, but `npm install` rewrites the shebang to the absolute interpreter: the installed
+    file ends up with `#!/opt/homebrew/opt/node/bin/node`. Under launchd's minimal PATH
+    the shim starts anyway (verified, exit 0) — the `env: node: No such file or directory`
+    that was feared does not materialise along that route.
+  - **PATH is still load-bearing** because of the subprocesses the daemon resolves by
+    name: `git` (session worktrees) and `claude` (D-15). Without the line only
+    `/usr/bin/git` is reachable, and only with the Xcode CLT installed.
+
+  The syntax in the original note (`EnvironmentVariables { "PATH" => … }`) is not valid
+  inside `service do`: `EnvironmentVariables` is the **plist** key, which Homebrew
+  renders from the `environment_variables` method. And `ENV["PATH"]` is not used, as it
+  would bake in the PATH of whoever renders the plist (nvm, rbenv, shims) instead of a stable one.
 
 ## Future (automation, non-blocking)
 This ritual is a candidate for a `scripts/release.sh` or a GitHub Action that: bumps the

@@ -1,5 +1,6 @@
 # typed: false
 # frozen_string_literal: true
+
 #
 # kodo Homebrew formula — Phase 66 (DIST-01, DIST-02, D-05 LOCKED).
 #
@@ -20,8 +21,8 @@ class Kodo < Formula
   sha256 "d182f4b6910d480c19bce7965f1f81aac766cd7f2fc7720b3aec4ed7f829d706"
   license "MIT"
 
-  # depends_on node (satisfies package.json's ">=20" engines). The runtime is NOT
-  # bundled: Node is a system dependency, not an embedded binary (D-05).
+  # Node satisfies package.json's ">=20" engines. The runtime is NOT bundled: it is a
+  # system dependency, not an embedded binary (D-05).
   depends_on "node"
 
   def install
@@ -46,10 +47,34 @@ class Kodo < Formula
     log_path var/"log/kodo.log"        # launchd does NOT inherit your terminal → capture stdout
     error_log_path var/"log/kodo.log"  # the same file preserves chronological interleaving
     working_dir var                    # cosmetic; kodo reads ~/.kodo by absolute path
-    # The plist's environment-variables block is deliberately OMITTED: secrets
-    # live in ~/.kodo/.env (0600), loaded at runtime by config.js. The
-    # plist is world-readable under ~/Library/LaunchAgents → never put secrets there
-    # (PERSIST-04 / T-66-08 boundary).
+    # PATH (closes A1). launchd does NOT inherit the login shell's PATH: a LaunchAgent
+    # starts with the bare minimum `/usr/bin:/bin:/usr/sbin:/sbin` (verified: `launchctl
+    # getenv PATH` is empty) → NO Homebrew binary is reachable by name.
+    #
+    # A1 was framed as "bin/kodo's `#!/usr/bin/env node` shebang cannot find
+    # node". That is true in the SOURCE TREE but NOT in the installation: `npm install`
+    # rewrites the bin's shebang to the absolute interpreter, and the installed file
+    # ends up with `#!/opt/homebrew/opt/node/bin/node`. Checked against the installed
+    # shim under launchd's minimal PATH: it starts, exit 0. The crash loop
+    # A1 feared does not materialise along that route.
+    #
+    # The line stays anyway because PATH IS load-bearing for the daemon,
+    # which resolves subprocesses by NAME: `execFileSync('git', …)` when preparing
+    # session worktrees (session/manager.js) and `claude` via PATH (D-15). With
+    # launchd's PATH only `/usr/bin/git` would be reachable (and only with the Xcode CLT
+    # installed); nothing from HOMEBREW_PREFIX/bin. Adding node's keg also covers
+    # the shebang should it ever be installed without npm's rewrite.
+    #
+    # `formula_opt_bin("node")` is the keg's STABLE path (…/opt/node/bin, immune to
+    # version bumps) and only composes the path — unlike
+    # `Formula["node"].opt_bin` it does not instantiate the formula (Homebrew/FormulaPathMethods cop).
+    # `ENV["PATH"]` is NOT used (the form the original note suggested): it is evaluated when
+    # rendering the plist and would bake in the PATH of whoever ran `brew services` (nvm,
+    # rbenv, Homebrew shims) → a plist that is not reproducible across machines.
+    environment_variables PATH: "#{formula_opt_bin("node")}:#{std_service_path_env}"
+    # ONLY PATH lives here. NO secret goes into the plist: they live in ~/.kodo/.env
+    # (0600), loaded at runtime by config.js. The plist is world-readable under
+    # ~/Library/LaunchAgents (PERSIST-04 / T-66-08 boundary).
   end
 
   def caveats
@@ -68,6 +93,17 @@ class Kodo < Formula
   end
 
   test do
+    # 1) The shim starts and commander answers: installed version == the tag's version.
     assert_match version.to_s, shell_output("#{bin}/kodo --version")
+
+    # 2) Smoke test of a REAL subcommand, not just commander's flag: `status` walks
+    #    the dynamic-import graph (cli/stop-status → daemon/lifecycle → cli/format)
+    #    and touches the FS, so a badly installed node_modules in libexec shows up here and not
+    #    in production. `shell_output` without a second argument requires exit 0; `kodo status`
+    #    guarantees it by contract (D-13: a status query never fails).
+    #    `brew test` isolates HOME in a tmpdir (Formula#run_test), so there is no
+    #    ~/.kodo with a PID file → the daemon reports idle and the human output is `stopped`,
+    #    deterministic on any machine.
+    assert_match "stopped", shell_output("#{bin}/kodo status")
   end
 end
