@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TASK_PROVIDER_METHODS } from '../src/interface.js';
+import { TASK_PROVIDER_METHODS } from '../../src/interface.js';
 
 // B12d (Phase 72): para ejercer el factory REAL de github (registrado por
 // initRegistry → registerDefaults, que lee loadConfig), redirigimos HOME a un
@@ -35,11 +35,11 @@ writeFileSync(
   ) + '\n',
 );
 
-/** @type {import('../src/providers/registry.js')['getProvider']} */
+/** @type {import('../../src/providers/registry.js')['getProvider']} */
 let getProvider;
-/** @type {import('../src/providers/registry.js')['registerProvider']} */
+/** @type {import('../../src/providers/registry.js')['registerProvider']} */
 let registerProvider;
-/** @type {import('../src/providers/registry.js')['clearRegistry']} */
+/** @type {import('../../src/providers/registry.js')['clearRegistry']} */
 let clearRegistry;
 
 /**
@@ -100,7 +100,7 @@ function createFakeGitHubClient() {
 
 describe('Provider Registry', () => {
   beforeEach(async () => {
-    ({ getProvider, registerProvider, clearRegistry } = await import('../src/providers/registry.js'));
+    ({ getProvider, registerProvider, clearRegistry } = await import('../../src/providers/registry.js'));
     clearRegistry();
   });
 
@@ -163,7 +163,7 @@ describe('Provider Registry', () => {
   // `registerProvider` (NO initRegistry/registerDefaults) para no disparar
   // loadConfig() — config v0.6 sin clave github haría crash.
   it('getProvider("github") via createGitHubProvider passes TASK_PROVIDER_METHODS gate', async () => {
-    const { createGitHubProvider } = await import('../src/providers/github/provider.js');
+    const { createGitHubProvider } = await import('../../src/providers/github/provider.js');
     registerProvider('github', () =>
       createGitHubProvider(MOCK_GITHUB_CONFIG, { client: createFakeGitHubClient() }),
     );
@@ -174,7 +174,7 @@ describe('Provider Registry', () => {
   });
 
   it('getProvider("github") returns cached singleton across calls', async () => {
-    const { createGitHubProvider } = await import('../src/providers/github/provider.js');
+    const { createGitHubProvider } = await import('../../src/providers/github/provider.js');
     registerProvider('github', () =>
       createGitHubProvider(MOCK_GITHUB_CONFIG, { client: createFakeGitHubClient() }),
     );
@@ -186,7 +186,7 @@ describe('Provider Registry', () => {
   // B12d (Phase 72 HYG-06): el factory REAL de github (vía initRegistry) sobre un
   // config SIN providers.github produce el mensaje canónico, no un TypeError.
   it('getProvider("github") sin providers.github lanza el mensaje canónico (no TypeError)', async () => {
-    const { initRegistry } = await import('../src/providers/registry.js');
+    const { initRegistry } = await import('../../src/providers/registry.js');
     clearRegistry();
     await initRegistry(); // registra el factory REAL leyendo el config B12D (plane-only)
     let thrown;

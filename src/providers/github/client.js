@@ -9,7 +9,7 @@
  *
  *   2. **Fetch inyectable (D-06)** — `opts.fetch ?? globalThis.fetch`. Permite testing sin
  *      `globalThis` mutation (anti-pattern del PlaneClient test, ver
- *      `test/plane-provider.test.js:62-77`).
+ *      `test/providers/plane/provider.test.js:62-77`).
  *
  *   3. **Envelope 304 en `listIssues` (D-19)** — el `request()` privado detecta 304 y devuelve
  *      `{status, items:[], etag, rate_limit_remaining}` SIN throw. Phase 25 persiste etag.
