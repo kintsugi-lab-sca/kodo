@@ -145,4 +145,41 @@ describe('resolvePhase — bootstrap vs error vs phase', () => {
     const r = resolvePhase({ projectPath: tmpDir, task: { title: 'Real' } });
     assert.equal(r.phase_id, '3');
   });
+
+  // KODO-49: el ROADMAP y el titulo de la task vienen de fuentes distintas (fichero
+  // en disco vs tracker), y cada una puede emitir una forma Unicode distinta para el
+  // MISMO acento. Antes del NFC en normalizeTitle esto daba un `no-match` opaco:
+  // los dos strings se imprimen identicos en el log del error.
+  it('matchea titulo NFD (task) contra ROADMAP NFC (KODO-49)', () => {
+    writePlanning(tmpDir, {
+      'PROJECT.md': '# p\n',
+      'ROADMAP.md': '## Phase 7: Configuraci\u00f3n del d\u00e6mon\n',
+    });
+    const r = resolvePhase({ projectPath: tmpDir, task: { title: 'Configuracio\u0301n del d\u00e6mon' } });
+    assert.equal(r.action, 'phase');
+    assert.equal(r.phase_id, '7');
+  });
+
+  it('matchea titulo NFC (task) contra ROADMAP NFD (KODO-49, direccion inversa)', () => {
+    writePlanning(tmpDir, {
+      'PROJECT.md': '# p\n',
+      'ROADMAP.md': '## Phase 8: Migracio\u0301n de estado\n',
+    });
+    const r = resolvePhase({ projectPath: tmpDir, task: { title: 'Migraci\u00f3n de estado' } });
+    assert.equal(r.action, 'phase');
+    assert.equal(r.phase_id, '8');
+  });
+
+  it('multi-match sigue detectandose entre formas Unicode equivalentes (fail-closed D-13)', () => {
+    // Dos fases que solo difieren en la forma Unicode: tras NFC son el MISMO titulo,
+    // asi que el resolver debe rechazar por ambiguo en vez de elegir una al azar.
+    writePlanning(tmpDir, {
+      'PROJECT.md': '# p\n',
+      'ROADMAP.md': '## Phase 1: Sesio\u0301n\n## Phase 2: Sesi\u00f3n\n',
+    });
+    const r = resolvePhase({ projectPath: tmpDir, task: { title: 'Sesi\u00f3n' } });
+    assert.equal(r.action, 'error');
+    assert.equal(r.code, 'multi-match');
+    assert.equal(r.matches?.length, 2);
+  });
 });

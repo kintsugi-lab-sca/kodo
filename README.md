@@ -142,6 +142,26 @@ para ver morir la red, sin bloquear la respuesta durante el arranque completo de
 sesión. Un dispatch que sigue vivo al vencer la ventana responde 200 y continúa en
 segundo plano.
 
+#### Desarrollo sin secret: `--insecure` exige doble señal
+
+`kodo start --insecure` **desactiva la verificación HMAC del webhook**: cualquiera que
+alcance el puerto puede disparar sesiones de Claude. Para que eso no ocurra por
+inercia — un flag copiado de un README que se queda en un script de arranque —, el
+flag por sí solo no basta: hace falta además la variable de entorno
+`KODO_ALLOW_INSECURE=1`.
+
+```bash
+kodo start --insecure                          # exit 1 — el flag solo no autoriza nada
+KODO_ALLOW_INSECURE=1 kodo start --insecure    # arranca, con un warning visible en cada arranque
+```
+
+Son dos señales de canales distintos (línea de comandos efímera + entorno
+deliberado), y ninguna se activa por accidente cuando falta la otra. Solo se acepta
+el valor exacto `1`.
+
+Fuera de tu máquina local no uses esto: configura `KODO_WEBHOOK_SECRET_<PROVIDER>`
+(p. ej. `KODO_WEBHOOK_SECRET_PLANE`) en `~/.kodo/.env`.
+
 ### 5. Instalar hooks de Claude Code
 
 ```bash

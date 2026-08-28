@@ -379,7 +379,9 @@ export async function startServer(opts = {}) {
     if (opts.managed) {
       throw Object.assign(new Error('missing webhook secret'), { code: 'KODO_SETUP_REQUIRED' });
     }
-    console.error(`[kodo] Missing webhook secret. Set ${secretEnv} or use --insecure / KODO_DEV=1`);
+    // KODO-52: `--insecure` ya no basta por sí solo en `kodo start` (exige
+    // KODO_ALLOW_INSECURE=1); el mensaje lo refleja para no mandar a un callejón.
+    console.error(`[kodo] Missing webhook secret. Set ${secretEnv} or use KODO_ALLOW_INSECURE=1 --insecure / KODO_DEV=1`);
     process.exit(1);
   }
 
