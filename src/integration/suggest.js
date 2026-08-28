@@ -1,74 +1,74 @@
 // @ts-check
 //
-// src/integration/suggest.js — KODO-26 (cola de integración): heurística de tier.
+// src/integration/suggest.js — KODO-26 (integration queue): tier heuristic.
 //
-// Hoja PURA de CERO imports: entra el resumen del diff de una rama, sale UNA sugerencia
-// de cómo integrarla. No hace I/O, no llama a git, no lee state.json y no lanza nunca.
-// Quien calcula el diff es `capture.js`; quien decide de verdad es el operador — esto es
-// una SUGERENCIA visible y explicable, no una decisión (invariante del enunciado).
+// PURE leaf with ZERO imports: a branch's diff summary goes in, ONE suggestion of how to
+// integrate it comes out. It does no I/O, does not call git, does not read state.json and never throws.
+// The diff is computed by `capture.js`; the one who really decides is the operator — this is
+// a visible, explainable SUGGESTION, not a decision (invariant of the statement).
 //
-// El mapeo es el de la política de merge de 3 tiers del operador (blast radius):
-//   docs/tests-only            → 'ff'      (Tier 1: riesgo bajo, fast-forward local)
-//   src sin nada sensible      → 'merge'   (Tier 2: feature/refactor)
-//   migraciones/auth/billing   → 'pr'      (Tier 3: riesgo alto, PR + review)
-//   diff grande (> UMBRAL)     → 'pr'      (el tamaño es su propio blast radius)
-//   sin datos inspeccionables  → 'review'  (kodo NO adivina: que lo mire un humano)
+// The mapping is the operator's 3-tier merge policy (blast radius):
+//   docs/tests-only            → 'ff'      (Tier 1: low risk, local fast-forward)
+//   src with nothing sensitive → 'merge'   (Tier 2: feature/refactor)
+//   migrations/auth/billing    → 'pr'      (Tier 3: high risk, PR + review)
+//   large diff (> THRESHOLD)   → 'pr'      (size is its own blast radius)
+//   no inspectable data        → 'review'  (kodo does NOT guess: let a human look)
 //
-// DEGRADACIÓN POR BASE ATRASADA (regla dura, no heurística): un `ff` solo se sugiere si la
-// rama contiene la base entera (`baseOk === true`). Si la base avanzó por debajo, o si no se
-// pudo verificar (`null`), el `ff` NO es aplicable — `git merge --ff-only` fallaría — y la
-// sugerencia baja a 'merge'. Es la única regla que puede pisar al resto, y solo va en esa
-// dirección: jamás sube un tier, jamás convierte un 'pr' en algo más barato.
+// DEGRADATION ON A STALE BASE (hard rule, not a heuristic): an `ff` is only suggested if the
+// branch contains the whole base (`baseOk === true`). If the base moved underneath, or if it could
+// not be verified (`null`), `ff` is NOT applicable — `git merge --ff-only` would fail — and the
+// suggestion drops to 'merge'. It is the only rule that can override the rest, and it only goes in that
+// direction: it never raises a tier, it never turns a 'pr' into something cheaper.
 
 /**
- * Umbral de líneas tocadas (insertions + deletions) a partir del cual el tamaño manda por sí
- * solo: un diff así ya no se revisa de un vistazo en un fast-forward local. Valor deliberado y
- * redondo — no está calibrado sobre ninguna medición, es la línea que el operador puede mover
- * en un sitio. Se compara con `>` (400 exactas todavía no fuerzan PR).
+ * Threshold of touched lines (insertions + deletions) beyond which size alone decides:
+ * a diff that big is no longer reviewed at a glance in a local fast-forward. A deliberate, round
+ * value — it is not calibrated against any measurement, it is the line the operator can move
+ * in one place. Compared with `>` (exactly 400 does not force a PR yet).
  */
 export const BIG_DIFF_LINES = 400;
 
 /**
- * Rutas de alto blast radius (Tier 3). CONSTANTE DE MÓDULO, jamás compilada desde input
- * externo (anti-ReDoS). Alternación plana sin cuantificadores anidados: no hay backtracking
- * catastrófico posible.
+ * High blast-radius paths (Tier 3). MODULE CONSTANT, never compiled from external
+ * input (anti-ReDoS). Flat alternation with no nested quantifiers: no catastrophic
+ * backtracking is possible.
  *
- * Cubre las tres familias que el operador nombra explícitamente — migraciones de esquema,
- * autenticación y cobros — más los ficheros de credenciales, que pertenecen a la misma clase
- * («si esto sale mal, no se arregla con un revert»). El match es por SEGMENTO de ruta
- * (`(^|/)…(/|$)`), no por subcadena: `src/authors/index.js` NO es `auth`, y `db/migrate/…` sí.
+ * It covers the three families the operator names explicitly — schema migrations,
+ * authentication and payments — plus credential files, which belong to the same class
+ * ("if this goes wrong, a revert does not fix it"). The match is per path SEGMENT
+ * (`(^|/)…(/|$)`), not per substring: `src/authors/index.js` is NOT `auth`, and `db/migrate/…` is.
  */
 const RISKY_PATH_RE =
   /(^|\/)(db\/migrate|migrations?|migrate|auth|authentication|authorization|billing|payments?|stripe|subscriptions?|credentials|secrets)(\/|$)|(^|\/)(schema\.rb|structure\.sql|\.env|\.env\.[A-Za-z0-9_.-]+|master\.key)$/i;
 
 /**
- * Documentación y tests (Tier 1). Misma disciplina que `RISKY_PATH_RE`: constante, alternación
- * plana, match por segmento salvo en las extensiones.
+ * Documentation and tests (Tier 1). Same discipline as `RISKY_PATH_RE`: constant, flat
+ * alternation, per-segment match except for the extensions.
  *
- * Incluye `.planning/` y `.compound/` porque en este repo son documentación de proceso, no
- * código — un cambio ahí no puede romper la suite. Incluye los sufijos `*.test.js`,
- * `*.spec.ts`, `*_test.go` y los directorios `test/`, `spec/`, `__tests__/`.
+ * It includes `.planning/` and `.compound/` because in this repo they are process documentation, not
+ * code — a change there cannot break the suite. It includes the suffixes `*.test.js`,
+ * `*.spec.ts`, `*_test.go` and the directories `test/`, `spec/`, `__tests__/`.
  */
 const DOCS_TESTS_PATH_RE =
   /(^|\/)(docs?|documentation|\.planning|\.compound|test|tests|spec|specs|__tests__)(\/|$)|\.(md|mdx|txt|rst|adoc)$|(^|\/)[^/]+[._-](test|spec)\.[A-Za-z0-9]+$/i;
 
 /**
- * Deriva la sugerencia de integración de una rama.
+ * Derives a branch's integration suggestion.
  *
- * PURA y TOTAL: cualquier entrada — incluidas las degeneradas (`files` no-array, `lines`
- * NaN, objeto vacío, `undefined`) — devuelve uno de los cuatro literales. Nunca lanza.
+ * PURE and TOTAL: any input — degenerate ones included (`files` non-array, `lines`
+ * NaN, empty object, `undefined`) — returns one of the four literals. It never throws.
  *
  * @param {{
  *   files?: string[] | null,
  *   lines?: number | null,
  *   baseOk?: boolean | null,
  * }} [input]
- *   `files`: rutas relativas tocadas por la rama respecto de su base. `null` (o no-array) =
- *   NO se pudo inspeccionar el diff — distinto de `[]`, que es «se inspeccionó y no hay
- *   ficheros» (típico de una rama con solo merge commits). Los dos caen a 'review', pero por
- *   razones distintas y ambas legítimas: sin ficheros no hay blast radius que estimar.
- *   `lines`: insertions + deletions. `null` = desconocido → no dispara el corte por tamaño.
- *   `baseOk`: ¿la rama contiene la base entera? Solo `true` habilita el 'ff'.
+ *   `files`: relative paths touched by the branch with respect to its base. `null` (or non-array) =
+ *   the diff could NOT be inspected — different from `[]`, which means "it was inspected and there are no
+ *   files" (typical of a branch with merge commits only). Both fall to 'review', but for
+ *   different and equally legitimate reasons: with no files there is no blast radius to estimate.
+ *   `lines`: insertions + deletions. `null` = unknown → does not trigger the size cut-off.
+ *   `baseOk`: does the branch contain the whole base? Only `true` enables 'ff'.
  * @returns {'ff'|'merge'|'pr'|'review'}
  */
 export function suggestTier(input) {
@@ -78,16 +78,16 @@ export function suggestTier(input) {
     : null;
   const baseOk = input ? input.baseOk : undefined;
 
-  // Sin diff inspeccionable no hay heurística honesta que aplicar. 'review' NO es un fallback
-  // de conveniencia: es el cuarto tier del contrato, y significa exactamente «kodo no sabe».
+  // With no inspectable diff there is no honest heuristic to apply. 'review' is NOT a convenience
+  // fallback: it is the fourth tier of the contract, and it means exactly "kodo does not know".
   if (files === null || files.length === 0) return 'review';
 
   if (files.some((f) => typeof f === 'string' && RISKY_PATH_RE.test(f))) return 'pr';
   if (lines !== null && lines > BIG_DIFF_LINES) return 'pr';
 
   const docsTestsOnly = files.every((f) => typeof f === 'string' && DOCS_TESTS_PATH_RE.test(f));
-  // La degradación va aquí, en el único lane que puede producir 'ff' — no como un
-  // post-proceso sobre el resultado, para que sea imposible degradar un 'pr' por error.
+  // The degradation goes here, in the only lane that can produce 'ff' — not as a
+  // post-process over the result, so that degrading a 'pr' by mistake is impossible.
   if (docsTestsOnly) return baseOk === true ? 'ff' : 'merge';
 
   return 'merge';
