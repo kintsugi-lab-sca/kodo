@@ -1,7 +1,7 @@
 // @ts-check
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resetReplayCache } from '../src/triggers/replay-cache.js';
+import { resetReplayCache } from '../../src/triggers/replay-cache.js';
 
 // KODO-46: la caché anti-replay es de PROCESO y este fichero entrega decenas de webhooks
 // con bodies repetidos entre casos, que la caché tomaría por replays. Se limpia entre

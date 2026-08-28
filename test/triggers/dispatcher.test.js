@@ -1392,7 +1392,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('lock-timeout → el veredicto trae code cleanup_lock_timeout (no una limpieza silenciosa)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps(() => ({ ok: false, reason: 'lock-timeout' })));
@@ -1403,7 +1403,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('limpieza persistida → cleaned SIN code (el camino feliz no cambia)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps((id) => {
@@ -1417,7 +1417,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('un mutador que devuelve undefined (contrato previo a WR-01) se trata como éxito', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps(() => undefined));
