@@ -20,6 +20,8 @@
 // se toca: ya es una señal ambiental explícita, que es justo la fricción que este
 // cambio añade al flag.
 
+import { EXIT_ERROR } from './exit-codes.js';
+
 /** Nombre de la variable de entorno que autoriza el modo inseguro. */
 export const ALLOW_INSECURE_ENV = 'KODO_ALLOW_INSECURE';
 
@@ -84,7 +86,7 @@ export function enforceInsecureGate(insecure) {
   const verdict = checkInsecureGate({ insecure, env: process.env });
   if (verdict.blocked) {
     console.error(verdict.message);
-    process.exit(1);
+    process.exit(EXIT_ERROR);
   }
   if (verdict.message) console.warn(verdict.message);
 }
