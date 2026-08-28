@@ -18,6 +18,9 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as nodeFs from 'node:fs';
 import { findSession, removeSession, upsertTaskHandoff } from '../session/state.js';
+// KODO-36: el marcador que convierte el fail-open del comentario de cierre en un
+// reintento. Hoja fina sobre `withStateLock` — ver el docblock del módulo.
+import { markPendingComment } from '../session/pending-comment.js';
 import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
 import { performTerminalCleanup } from './terminal-cleanup.js';
 import { traceUnmatchedClose } from './close-guard.js';
@@ -100,6 +103,7 @@ async function readStdin() {
  *   now?: () => Date,
  *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
  *   captureIntegrationFn?: typeof import('../integration/capture.js').captureIntegration,
+ *   markPendingCommentFn?: typeof markPendingComment,
  * }} [deps]
  *   `existsFn` (KODO-30) es el seam ESTRECHO del probe de existencia del worktree: lo
  *   consumen la captura de integración y el cleanup terminal (ver `resolveExistsFn`). Gana a
@@ -118,6 +122,10 @@ async function readStdin() {
  *   que un test que no lo inyecte ensucia el HOME del operador en cada `npm test` (T-74-15) y
  *   además mete comandos git propios en cualquier stub de `gitFn` que la suite esté contando.
  *   Sin él, el default es el `captureIntegration` real.
+ *   `markPendingCommentFn` (KODO-36) cierra la MISMA fuga en el último escritor que quedaba:
+ *   el marcador de comentario pendiente. Solo se ejerce cuando el `addComment` del backstop
+ *   falla — o sea, justo en los tests que simulan el provider caído. Fluye tal cual hasta
+ *   `runReviewBackstop`; sin él, el default es el `markPendingComment` real.
  * @returns {Promise<void>}
  */
 /**
@@ -276,6 +284,8 @@ export async function runSessionEndHook(input, deps = {}) {
         // KODO-11: el handoff que acaba de aterrizar (dos bloques más arriba) es lo
         // único que kodo sabe del trabajo hecho cuando el LLM no comentó nada.
         handoff: { next: handoffNext, planPath: handoffPlanPath },
+        // KODO-36: seam del marcador de comentario pendiente (default real dentro).
+        markPendingCommentFn: deps.markPendingCommentFn,
       });
     } catch (err) {
       console.error(`[kodo:session-end] Review backstop error: ${/** @type {Error} */ (err).message}`);
@@ -666,13 +676,18 @@ export function buildBackstopComment(handoff) {
  *   config: any,
  *   log: any,
  *   handoff?: { next?: string|null, planPath?: string|null },
+ *   markPendingCommentFn?: typeof markPendingComment,
  * }} args
  *   `handoff` (KODO-11, opcional): el resultado de `writeHandoff` de esta misma
  *   sesión. Solo alimenta el TEXTO del comentario; su ausencia no cambia ninguna
  *   decisión del backstop.
+ *   `markPendingCommentFn` (KODO-36, opcional): seam del escritor del marcador de
+ *   comentario pendiente. Sin él, el default es el `markPendingComment` real — que
+ *   escribe en el `~/.kodo/state.json` del operador, así que la suite DEBE inyectarlo
+ *   (misma fuga que cerraron `stateWriterFn` y `getOrchestratorFn`, T-74-15).
  * @returns {Promise<void>}
  */
-export async function runReviewBackstop({ session, input, provider, config, log, handoff }) {
+export async function runReviewBackstop({ session, input, provider, config, log, handoff, markPendingCommentFn }) {
   // 1. Capability gate (D-13): guard null-first para que el `typeof` no lance;
   //    un provider sin los 3 métodos degrada a no-op silencioso. (GitHub SÍ los
   //    implementa: su no-op proviene del gate de estado no-terminal en el paso 5b.)
@@ -746,10 +761,42 @@ export async function runReviewBackstop({ session, input, provider, config, log,
 
   // 7. Comentario fail-open: un fallo NO impide el evento (usar addComment —
   //    contrato del provider — NO createComment, que es del cliente).
+  //
+  //    KODO-36: fail-open SÍ, pero ya no fail-SILENT. Hasta aquí un blip de red dejaba
+  //    solo este warn en el NDJSON: la tarea SÍ había transicionado (paso 6, arriba) y el
+  //    humano se encontraba una tarea en revisión sin una línea de contexto. El texto se
+  //    persiste como marcador en `state.pending_comments` y el barrido de huérfanas
+  //    (session/orphan-sweep.js) lo reintenta hasta publicarlo.
+  //
+  //    Solo el COMENTARIO se marca, no la transición: si el paso 6 falla salimos antes de
+  //    llegar aquí y la tarea sigue en `in_progress`, que es un estado del que el sistema
+  //    ya sabe recuperarse. Lo que no tenía segunda oportunidad era el comentario.
+  const comment = buildBackstopComment(handoff);
   try {
-    await provider.addComment(task, buildBackstopComment(handoff));
+    await provider.addComment(task, comment);
   } catch (err) {
     log.warn('session.backstop.comment_failed', { error: /** @type {Error} */ (err).message });
+    // try/catch propio: el marcador es una MEJORA del fail-open, jamás una vía nueva de
+    // crasheo. Si `withStateLock` no puede ni abrir el lock (EACCES/EROFS), el cierre
+    // continúa exactamente como antes de KODO-36.
+    try {
+      const mark = markPendingCommentFn || markPendingComment;
+      mark(
+        {
+          task_id: session.task_id,
+          project_id: session.project_id ?? null,
+          task_url: session.task_url ?? null,
+          task_ref: session.task_ref ?? null,
+          session_id: session.session_id ?? null,
+          text: comment,
+        },
+        log,
+      );
+    } catch (markErr) {
+      log.warn('session.backstop.pending_mark_failed', {
+        error: /** @type {Error} */ (markErr).message,
+      });
+    }
   }
 
   // 8. Evento NDJSON tipado (helper Task 1): SOLO {session_id, task_id, from, to}.
