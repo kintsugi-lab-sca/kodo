@@ -49,6 +49,7 @@ const {
   sessionDismissed,
   webhookReceived,
   webhookRejected,
+  webhookDispatchRetry,
   dispatchDecision,
   dispatchError,
 } = await import('../src/logger-events.js');
@@ -58,7 +59,7 @@ function logPathFor(sessionId) {
 }
 
 describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + Phase 21 skill sync + Phase 23 github client + Phase 25 polling trigger channel + Phase 28 polling.tick.summary)', () => {
-  it('EVENTS is frozen and contains the 42 canonical types (KODO-28 grew 38 → 42: carril webhook.* + dispatch.*)', () => {
+  it('EVENTS is frozen and contains the 43 canonical types (KODO-28 grew 38 → 42: carril webhook.* + dispatch.*; KODO-34 añadió webhook.dispatch.retry)', () => {
     assert.equal(Object.isFrozen(EVENTS), true);
     const types = Object.values(EVENTS).sort();
     assert.deepEqual(types, [
@@ -98,6 +99,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'skill.sync.auto.error',
       'state.migration.v2_to_v3',
       'state.transition',
+      'webhook.dispatch.retry',
       'webhook.received',
       'webhook.rejected',
       'worktree.branch.kept',
@@ -105,7 +107,7 @@ describe('logger-events taxonomy (Phase 7 LOG-09 + Phase 19 worktree cleanup + P
       'worktree.cleanup.error',
       'worktree.cleanup.ok',
     ]);
-    assert.equal(Object.keys(EVENTS).length, 42, 'EVENTS key count must equal 42 post-KODO-28');
+    assert.equal(Object.keys(EVENTS).length, 43, 'EVENTS key count must equal 43 post-KODO-34');
   });
 
   it('sessionStart emits all 6 D-10 contract fields', () => {
@@ -688,6 +690,22 @@ describe('KODO-28: helpers del carril webhook → dispatch', () => {
     assert.equal('raw' in line, false);
     assert.equal('title' in line, false);
     assert.equal(JSON.stringify(line).includes('hunter2'), false);
+  });
+
+  it('KODO-34: webhookDispatchRetry emite warn con {provider, task_ref, error}', () => {
+    const sessionId = 'sess-ev-webhook-retry';
+    const log = createLogger({ sessionId, minLevel: 'info' });
+    webhookDispatchRetry(log, {
+      provider: 'plane',
+      task_ref: 'KODO-34',
+      error: 'Plane API 503: /projects/p/work-items/ — service unavailable',
+    });
+    const line = readAllLines(logPathFor(sessionId)).pop();
+    assert.equal(line.event, EVENTS.WEBHOOK_DISPATCH_RETRY);
+    assert.equal(line.level, 'warn');
+    assert.equal(line.provider, 'plane');
+    assert.equal(line.task_ref, 'KODO-34');
+    assert.equal(line.error, 'Plane API 503: /projects/p/work-items/ — service unavailable');
   });
 
   it('dispatchDecision emite info y omite code/detail cuando no aplican', () => {

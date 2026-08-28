@@ -1,8 +1,57 @@
 // @ts-check
 import { loadConfig, getPlaneApiKey } from '../../config.js';
 
+/** Primer escalón del backoff exponencial (ms). */
+const RETRY_BASE_MS = 1000;
+/** Techo del backoff exponencial (ms) — preexistente, se conserva. */
+const RETRY_CAP_MS = 8000;
+
+/**
+ * Métodos HTTP que se pueden reintentar ante un 5xx sin arriesgar un efecto duplicado.
+ *
+ * POST está FUERA a propósito: un 502/503 significa que la petición SÍ llegó al servidor
+ * (o a su proxy) y pudo haberse aplicado antes de romperse la respuesta — reintentar
+ * duplicaría el comentario / work item / label. PATCH sí entra porque los únicos PATCH del
+ * cliente (`updateWorkItem`) son un set ABSOLUTO de campos: aplicarlo dos veces deja el
+ * mismo estado. Los errores de transporte NO pasan por esta lista (ver `request`).
+ */
+const RETRY_ON_5XX_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'PATCH']);
+
+/**
+ * Espera antes del siguiente intento.
+ *
+ * Prioridad 1 — `Retry-After` del servidor: se respeta TAL CUAL, sin jitter. Si Plane dice
+ * "vuelve en N s", adelantarse reproduce el 429 y retrasarse no aporta nada.
+ *
+ * Prioridad 2 — backoff exponencial con *equal jitter*: la mitad de la espera es fija (el
+ * backoff sigue creciendo: ≥500ms, ≥1s, ≥2s, ≥4s) y la otra mitad es aleatoria. Sin jitter,
+ * N sesiones de kodo que golpean Plane a la vez reintentan en el MISMO milisegundo y se
+ * auto-sincronizan ronda tras ronda (thundering herd) en lugar de dispersarse.
+ *
+ * @param {number} attempt — 0-based.
+ * @param {number} [retryAfterSec] — 0 si el servidor no mandó `Retry-After`.
+ * @param {() => number} [rnd] — inyectable en tests; devuelve [0,1).
+ * @returns {number} ms a esperar.
+ */
+export function computeBackoffMs(attempt, retryAfterSec = 0, rnd = Math.random) {
+  if (retryAfterSec > 0) return retryAfterSec * 1000;
+  const base = Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_CAP_MS);
+  return Math.round(base / 2 + rnd() * (base / 2));
+}
+
 export class PlaneClient {
-  /** @param {{ baseUrl?: string, apiKey?: string, workspaceSlug?: string, logger?: import('../../logger.js').Logger }} [opts] */
+  /**
+   * @param {{
+   *   baseUrl?: string,
+   *   apiKey?: string,
+   *   workspaceSlug?: string,
+   *   logger?: import('../../logger.js').Logger,
+   *   fetch?: typeof fetch,
+   *   sleep?: (ms: number) => Promise<void>,
+   * }} [opts]
+   *   `fetch` y `sleep` son seams de test (mismo patrón D-06 que `GitHubClient`): permiten
+   *   ejercitar el loop de retry sin red y sin esperas reales.
+   */
   constructor(opts = {}) {
     const config = loadConfig();
     // B2 (Phase 72): leer del schema v2 `config.providers.plane.*`. Tras la
@@ -13,6 +62,8 @@ export class PlaneClient {
     this.apiKey = opts.apiKey || getPlaneApiKey();
     this.workspaceSlug = opts.workspaceSlug || planeCfg.workspace_slug;
     this.logger = opts.logger; // undefined if not provided — emission uses optional chain
+    this.fetch = opts.fetch || globalThis.fetch;
+    this.sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
 
     if (!this.apiKey) {
       throw new Error(`Plane API key not found. Set ${planeCfg.api_key_env} env var.`);
@@ -20,8 +71,23 @@ export class PlaneClient {
   }
 
   /**
+   * Transporte HTTP con retry y backoff exponencial + jitter (cap 8s).
+   *
+   * Se reintenta ante:
+   *  - **429** — cualquier método. `Retry-After` del servidor tiene prioridad sobre el backoff.
+   *  - **5xx** — solo métodos de `RETRY_ON_5XX_METHODS`. Un 502/503 de Plane detrás de nginx es
+   *    típicamente transitorio (reinicio, worker saturado) y antes mataba la cadena al primer
+   *    intento; POST queda excluido porque la petición ya llegó al servidor y podría duplicarse.
+   *  - **errores de transporte** — `TypeError: fetch failed` (DNS, ECONNREFUSED, socket cortado)
+   *    y el `TimeoutError` de `AbortSignal.timeout`. Se reintentan para CUALQUIER método, POST
+   *    incluido: sin respuesta, el modo de fallo dominante es que la petición nunca se cursó.
+   *    RIESGO RESIDUAL asumido: un timeout de 10s no garantiza la no-entrega — si Plane sí
+   *    procesó el POST, el reintento duplica el efecto. Se acepta porque los POST de este
+   *    cliente son de bajo daño ante duplicado (comentario repetido) y `createLabel` ya es
+   *    idempotente ante el 409 de nombre.
+   *
    * @param {string} path
-   * @param {{ method?: string, body?: object, params?: Record<string,string> }} [opts]
+   * @param {{ method?: string, body?: object, params?: Record<string,string>, maxRetries?: number }} [opts]
    * @returns {Promise<any>}
    */
   async request(path, opts = {}) {
@@ -33,6 +99,8 @@ export class PlaneClient {
     }
 
     const maxRetries = opts.maxRetries ?? 3;
+    const method = (opts.method || 'GET').toUpperCase();
+    const retryOn5xx = RETRY_ON_5XX_METHODS.has(method);
     let attempt = 0;
 
     // Proactive throttle: if the previous response left us with very few
@@ -41,32 +109,51 @@ export class PlaneClient {
       const waitMs = this._rateReset * 1000 - Date.now();
       if (waitMs > 0 && waitMs < 65_000) {
         console.warn(`[kodo] Plane rate budget low (${this._rateRemaining} left), pausing ${waitMs}ms`);
-        await new Promise((r) => setTimeout(r, waitMs));
+        await this.sleep(waitMs);
       }
     }
 
     while (true) {
       const started = Date.now();
-      const res = await fetch(url, {
-        method: opts.method || 'GET',
-        headers: {
-          'X-API-Key': this.apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
-        signal: AbortSignal.timeout(10_000),
-      });
+      let res;
+      try {
+        res = await this.fetch(url, {
+          method,
+          headers: {
+            'X-API-Key': this.apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: opts.body ? JSON.stringify(opts.body) : undefined,
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch (err) {
+        // Sin respuesta: error de transporte o timeout. Se reintenta para todo método
+        // (ver el contrato en el JSDoc). Agotados los intentos, el error original se
+        // propaga TAL CUAL — envolverlo perdería la `cause` de undici.
+        if (attempt >= maxRetries) throw err;
+        const waitMs = computeBackoffMs(attempt);
+        const detail = err instanceof Error ? err.message : String(err);
+        console.warn(`[kodo] Plane network error on ${method} ${path} (${detail}), retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await this.sleep(waitMs);
+        attempt++;
+        continue;
+      }
 
       const remaining = res.headers.get('x-ratelimit-remaining');
       const reset = res.headers.get('x-ratelimit-reset');
       if (remaining !== null) this._rateRemaining = parseInt(remaining, 10);
       if (reset !== null) this._rateReset = parseInt(reset, 10);
 
-      if (res.status === 429 && attempt < maxRetries) {
-        const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
-        const waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(1000 * 2 ** attempt, 8000);
-        console.warn(`[kodo] Plane rate limit on ${path}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
-        await new Promise((r) => setTimeout(r, waitMs));
+      const isRateLimit = res.status === 429;
+      const isRetryable5xx = res.status >= 500 && res.status <= 599 && retryOn5xx;
+      if ((isRateLimit || isRetryable5xx) && attempt < maxRetries) {
+        // `Retry-After` solo se consulta en el 429: en un 5xx el header, si viene, suele ser
+        // del proxy y no describe una ventana de rate limit.
+        const retryAfter = isRateLimit ? parseInt(res.headers.get('retry-after') || '0', 10) || 0 : 0;
+        const waitMs = computeBackoffMs(attempt, retryAfter);
+        const reason = isRateLimit ? 'rate limit' : `server error ${res.status}`;
+        console.warn(`[kodo] Plane ${reason} on ${method} ${path}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await this.sleep(waitMs);
         attempt++;
         continue;
       }
@@ -81,7 +168,7 @@ export class PlaneClient {
         try {
           const { planeApiCall } = await import('../../logger-events.js');
           planeApiCall(this.logger, {
-            method: opts.method || 'GET',
+            method,
             path,
             status: res.status,
             duration_ms: Date.now() - started,
