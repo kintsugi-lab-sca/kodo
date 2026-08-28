@@ -118,6 +118,28 @@ Settings → Webhooks → nuevo webhook:
 >
 > Ver [Topología multi-nodo](#topología-multi-nodo) para las implicaciones de seguridad.
 
+**Contrato de respuesta de `/webhook`** — Plane reintenta la entrega cuando recibe un
+error, así que el status codifica si el evento merece otro intento:
+
+| Status | Cuándo | Efecto en Plane |
+|--------|--------|-----------------|
+| `200`  | Evento aceptado, ignorado (sin label `kodo`, estado inactivo) o fallo **permanente** del dispatch | No reintenta |
+| `401`  | Firma HMAC inválida o ausente | — |
+| `400` / `413` | Body no-JSON o mayor de 1 MB | — |
+| `503`  | Fallo **transitorio** del dispatch: Plane 5xx/429/408, red caída, timeout | Reintenta la entrega |
+
+Un fallo transitorio se contesta con 503 en vez de tragarse el evento: sin ese
+reintento la tarea se quedaba en In Progress sin sesión y sin explicación. La
+clasificación es *default-closed* — solo lo que se reconoce como reintentable
+devuelve 503; un error de configuración (p. ej. `No configured project`) falla igual
+en cada intento, así que devuelve 200 para no abrir una tormenta de reintentos. Cada
+503 deja un `webhook.dispatch.retry` en `kodo logs`.
+
+El webhook espera al dispatch una ventana corta (2 s) antes de responder: lo justo
+para ver morir la red, sin bloquear la respuesta durante el arranque completo de la
+sesión. Un dispatch que sigue vivo al vencer la ventana responde 200 y continúa en
+segundo plano.
+
 ### 5. Instalar hooks de Claude Code
 
 ```bash
@@ -502,9 +524,11 @@ kodo config --set server.stuck_threshold_min=30     # minutos para considerar st
 ### Rate limit de la API de Plane
 
 Plane limita por defecto a **60 requests/minuto** por API key. kodo cachea
-estados, labels y módulos (TTL 5 min) y reintenta con backoff exponencial ante
-429, pero con varios proyectos concurrentes puedes agotar el cupo. En un Plane
-self-hosted, súbelo en el `.env` del contenedor `api`:
+estados, labels y módulos (TTL 5 min) y reintenta con backoff exponencial (cap
+8s, con jitter aleatorio para que varias sesiones no reintenten a la vez) ante
+429, 5xx transitorios y errores de red, pero con varios proyectos concurrentes
+puedes agotar el cupo. En un Plane self-hosted, súbelo en el `.env` del
+contenedor `api`:
 
 ```env
 API_KEY_RATE_LIMIT=300/minute
