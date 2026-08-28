@@ -1,82 +1,82 @@
 // @ts-check
 //
-// src/integration/queue.js — KODO-26: el store de la cola de integración.
+// src/integration/queue.js — KODO-26: the integration queue store.
 //
-// El problema que resuelve: cada sesión termina pidiendo algo distinto (ff, merge, PR,
-// revisar el diff) y hoy eso viaja SOLO en el nudge efímero del hook Stop. Si el operador no
-// actúa en ese momento, «qué necesita esta rama» se pierde y acaba repasando sesión por
-// sesión de memoria. La cola persiste esa pregunta al lado del resto del estado, para que el
-// orquestador la lea en bloque en cada ronda.
+// The problem it solves: every session ends up asking for something different (ff, merge, PR,
+// review the diff) and today that travels ONLY in the ephemeral nudge from the Stop hook. If the operator does not
+// act right then, "what does this branch need" is lost and they end up reviewing session by
+// session from memory. The queue persists that question alongside the rest of the state, so the
+// orchestrator can read it in one block on every round.
 //
-// CLAVE ADITIVA `state.integration_queue` (array), mismo idiom que `tasks` (Phase 74 D-05) y
-// `orchestrator` (KODO-16): sin bump de `schema_version`, y todo lector usa el guard
-// defensivo `Array.isArray(state.integration_queue) ? … : []` — un state.json previo a esta
-// fase se lee como cola vacía.
+// ADDITIVE KEY `state.integration_queue` (array), same idiom as `tasks` (Phase 74 D-05) and
+// `orchestrator` (KODO-16): no `schema_version` bump, and every reader uses the
+// defensive guard `Array.isArray(state.integration_queue) ? … : []` — a state.json predating this
+// phase reads as an empty queue.
 //
-// INVARIANTES:
-//   - TODA escritura pasa por `withStateLock` (invariante cross-milestone de STATE.md:171).
-//     Este módulo NUNCA hace `saveState` por su cuenta ni escribe state.json a mano.
-//   - Una entrada NUNCA se borra al resolverse: `--ff`, `--merge`, `--pr` y `--drop` la
-//     TRANSICIONAN (`status` + `action` + `outcome` + `sha`). Mismo patrón que el inbox
-//     (CAPT-03): la traza permanente ES el feature.
-//   - Una entrada es de UN repo: la rama vive en `project_path`. Nada cross-repo — la
-//     identidad de una entrada es el par (project_path, branch), no la task_ref sola.
-//   - Este módulo NO llama a git y NO importa `logger.js` (recibe el logger por parámetro,
-//     default el noop, igual que el resto de mutadores de `state.js`).
+// INVARIANTS:
+//   - EVERY write goes through `withStateLock` (cross-milestone invariant, STATE.md:171).
+//     This module NEVER calls `saveState` on its own and never writes state.json by hand.
+//   - An entry is NEVER deleted when resolved: `--ff`, `--merge`, `--pr` and `--drop`
+//     TRANSITION it (`status` + `action` + `outcome` + `sha`). Same pattern as the inbox
+//     (CAPT-03): the permanent trace IS the feature.
+//   - An entry belongs to ONE repo: the branch lives in `project_path`. Nothing cross-repo — an
+//     entry's identity is the pair (project_path, branch), not the task_ref alone.
+//   - This module does NOT call git and does NOT import `logger.js` (it receives the logger as a
+//     parameter, defaulting to the noop, like the rest of `state.js`'s mutators).
 
 import { noopLogger } from '../logger-noop.js';
 import { loadState, withStateLock } from '../session/state.js';
 
 /**
- * Una entrada de la cola de integración.
+ * One integration-queue entry.
  *
- * Las 17 claves están SIEMPRE presentes y en ESTE orden, con `null` donde no aplica. No es
- * cosmético: `kodo integrate --json` serializa la entrada tal cual, y el byte-determinismo del
- * `--json` es invariante del repo (DX-06). Una clave que aparece «solo cuando hay valor»
- * rompería la comparación byte a byte del contrato.
+ * The 17 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
+ * cosmetic: `kodo integrate --json` serialises the entry as-is, and the byte-determinism of
+ * `--json` is a repo invariant (DX-06). A key appearing "only when there is a value"
+ * would break the contract's byte-for-byte comparison.
  *
  * @typedef {{
- *   task_ref: string,              // Referencia humana de la tarea ("KODO-26"). Selector primario del CLI.
- *   task_id: string|null,          // UUID de la tarea en el provider, cuando la sesión lo traía.
- *   project_path: string,          // Repo donde vive la rama. La entrada es de UN repo — nada cross-repo.
- *   branch: string,                // Rama con el trabajo sin integrar.
- *   base_branch: string|null,      // Rama base resuelta (origin/HEAD → main → master), o null si no se pudo resolver.
- *   commits_ahead: number|null,    // Commits que solo viven en `branch` (conteo de KODO-21). null = no verificable.
- *   base_ok: boolean|null,         // ¿`branch` contiene la base entera? null = no verificable. Solo `true` habilita ff.
- *   files_changed: number|null,    // Ficheros tocados respecto de la base. null = diff no inspeccionable.
- *   lines_changed: number|null,    // insertions + deletions. null = diff no inspeccionable.
- *   suggested: 'ff'|'merge'|'pr'|'review',  // Sugerencia de `suggestTier`. NO es una decisión.
- *   status: 'pending'|'done'|'dropped',     // 'pending' hasta que `kodo integrate` la resuelve.
- *   created_at: string,            // ISO 8601 del cierre de sesión que la encoló.
- *   updated_at: string,            // ISO 8601 de la última reescritura (re-captura de la misma rama).
- *   action: 'ff'|'merge'|'pr'|'drop'|null,  // Qué ejecutó el operador. null mientras está pending.
- *   sha: string|null,              // SHA resultante del merge. null en --pr, en --drop y en los fallos.
- *   outcome: string|null,          // Resultado corto y greppable ('merged', 'prepared', 'dropped', 'precondition-failed'…).
- *   resolved_at: string|null,      // ISO 8601 de la resolución. null mientras está pending.
+ *   task_ref: string,              // Human task reference ("KODO-26"). The CLI's primary selector.
+ *   task_id: string|null,          // Task UUID in the provider, when the session carried it.
+ *   project_path: string,          // Repo where the branch lives. The entry belongs to ONE repo — nothing cross-repo.
+ *   branch: string,                // Branch holding the unintegrated work.
+ *   base_branch: string|null,      // Resolved base branch (origin/HEAD → main → master), or null if it could not be resolved.
+ *   commits_ahead: number|null,    // Commits living only in `branch` (KODO-21's count). null = not verifiable.
+ *   base_ok: boolean|null,         // Does `branch` contain the whole base? null = not verifiable. Only `true` enables ff.
+ *   files_changed: number|null,    // Files touched with respect to the base. null = diff not inspectable.
+ *   lines_changed: number|null,    // insertions + deletions. null = diff not inspectable.
+ *   suggested: 'ff'|'merge'|'pr'|'review',  // `suggestTier`'s suggestion. NOT a decision.
+ *   status: 'pending'|'done'|'dropped',     // 'pending' until `kodo integrate` resolves it.
+ *   created_at: string,            // ISO 8601 of the session close that enqueued it.
+ *   updated_at: string,            // ISO 8601 of the last rewrite (re-capture of the same branch).
+ *   action: 'ff'|'merge'|'pr'|'drop'|null,  // What the operator executed. null while pending.
+ *   sha: string|null,              // SHA resulting from the merge. null on --pr, on --drop and on failures.
+ *   outcome: string|null,          // Short, greppable result ('merged', 'prepared', 'dropped', 'precondition-failed'…).
+ *   resolved_at: string|null,      // ISO 8601 of the resolution. null while pending.
  * }} IntegrationEntry
  */
 
 /**
- * Techo de entradas RESUELTAS que se conservan en state.json (FIFO, se evictan las más
- * antiguas). Las `pending` NO cuentan y NUNCA se evictan: la cola pendiente es el trabajo, y
- * perder trabajo por presión de tamaño sería justo el fallo que esta fase evita.
+ * Cap of RESOLVED entries kept in state.json (FIFO, the oldest are evicted).
+ * `pending` ones do NOT count and are NEVER evicted: the pending queue is the work, and
+ * losing work to size pressure would be exactly the failure this phase avoids.
  *
- * Por qué existe el techo, si «una entrada nunca se borra»: la traza PERMANENTE de cada acción
- * es el evento NDJSON `integrate.action` en `~/.kodo/logs/` (registro determinista de lo que se
- * ejecutó, append-only). El bloque de state.json es la ventana reciente que el dashboard y el
- * orquestador leen en cada tick — un array sin cota lo haría crecer sin límite y encarecería
- * cada lectura del TUI. Mismo razonamiento y mismo número que el cap de `history`
+ * Why the cap exists, if "an entry is never deleted": the PERMANENT trace of every action
+ * is the `integrate.action` NDJSON event in `~/.kodo/logs/` (a deterministic, append-only record
+ * of what was executed). The state.json block is the recent window the dashboard and the
+ * orchestrator read on every tick — an unbounded array would grow without limit and make
+ * every TUI read more expensive. Same reasoning and same number as the `history` cap
  * (`state.js:365`).
  */
 export const RESOLVED_CAP = 50;
 
 /**
- * Identidad de una entrada: el par (project_path, branch). NO la task_ref — una misma tarea
- * puede tocar dos repos en dos sesiones, y dos tareas distintas no comparten rama.
+ * An entry's identity: the pair (project_path, branch). NOT the task_ref — one task
+ * can touch two repos in two sessions, and two different tasks do not share a branch.
  *
- * El separador es `\u0000` (NUL): el ÚNICO byte que no puede aparecer ni en un path POSIX ni
- * en un nombre de rama de git, así que la concatenación es inyectiva. Un espacio no serviría —
- * los paths de macOS lo llevan a menudo (`~/Library/Application Support/…`).
+ * The separator is `\u0000` (NUL): the ONLY byte that cannot appear in a POSIX path or
+ * in a git branch name, so the concatenation is injective. A space would not do —
+ * macOS paths often carry one (`~/Library/Application Support/…`).
  *
  * @param {{ project_path?: string, branch?: string }} e
  * @returns {string}
@@ -86,7 +86,7 @@ function entryKey(e) {
 }
 
 /**
- * Lectura defensiva del bloque de cola de un state ya cargado.
+ * Defensive read of the queue block from an already-loaded state.
  * @param {any} state
  * @returns {IntegrationEntry[]}
  */
@@ -95,8 +95,8 @@ function queueOf(state) {
 }
 
 /**
- * Construye una entrada COMPLETA (17 claves, orden fijo) desde el input de captura.
- * Pura — no toca disco ni reloj salvo por el `now` inyectado.
+ * Builds a COMPLETE entry (17 keys, fixed order) from the capture input.
+ * Pure — it touches neither disk nor clock beyond the injected `now`.
  *
  * @param {{
  *   task_ref: string, task_id?: string|null, project_path: string, branch: string,
@@ -130,16 +130,16 @@ function buildEntry(input, ts) {
 }
 
 /**
- * Encola (o REFRESCA) la necesidad de integración de una rama.
+ * Enqueues (or REFRESHES) a branch's integration need.
  *
- * Dedupe por identidad (project_path, branch) contra las entradas `pending`: la segunda sesión
- * que cierra sobre la MISMA rama no crea una fila nueva — actualiza la que ya había con el
- * conteo, la base y la sugerencia frescos, conservando `created_at` (la antigüedad de la
- * espera, que es justo lo que el operador quiere ver) y refrescando `updated_at`.
+ * Dedupe by identity (project_path, branch) against `pending` entries: the second session
+ * closing over the SAME branch does not create a new row — it updates the existing one with a
+ * fresh count, base and suggestion, preserving `created_at` (the age of the
+ * wait, which is exactly what the operator wants to see) and refreshing `updated_at`.
  *
- * Una entrada YA RESUELTA no bloquea el re-encolado: si la rama vuelve a acumular commits tras
- * un merge, eso es una necesidad NUEVA y merece su propia fila (la resuelta se queda como
- * traza).
+ * An ALREADY RESOLVED entry does not block re-enqueuing: if the branch accumulates commits again after
+ * a merge, that is a NEW need and deserves its own row (the resolved one stays as a
+ * trace).
  *
  * @param {{
  *   task_ref: string, task_id?: string|null, project_path: string, branch: string,
@@ -158,8 +158,8 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
   let deduped = false;
 
   const r = withStateLock((state) => {
-    // Guard defensivo de la clave aditiva — espejo de `if (!state.tasks) state.tasks = {}`
-    // (state.js:459). Un state.json anterior a KODO-26 no la trae.
+    // Defensive guard for the additive key — mirror of `if (!state.tasks) state.tasks = {}`
+    // (state.js:459). A state.json predating KODO-26 does not carry it.
     if (!Array.isArray(/** @type {any} */ (state).integration_queue)) {
       /** @type {any} */ (state).integration_queue = [];
     }
@@ -169,8 +169,8 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
 
     if (prev) {
       deduped = true;
-      // Refresco IN PLACE. `created_at` se conserva a propósito: la edad de la entrada mide
-      // cuánto lleva esta rama esperando integración, no cuándo cerró la última sesión.
+      // IN-PLACE refresh. `created_at` is preserved on purpose: the entry's age measures
+      // how long this branch has been waiting for integration, not when the last session closed.
       prev.task_ref = input.task_ref;
       prev.task_id = input.task_id ?? prev.task_id ?? null;
       prev.base_branch = input.base_branch ?? null;
@@ -203,16 +203,16 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
 }
 
 /**
- * Evicta las entradas resueltas más antiguas por encima de `RESOLVED_CAP`. MUTA el array en
- * sitio (corre dentro del mutador del lock). Las `pending` se preservan siempre, sea cual sea
- * su antigüedad.
+ * Evicts the oldest resolved entries above `RESOLVED_CAP`. MUTATES the array in
+ * place (it runs inside the lock's mutator). `pending` ones are always preserved, whatever
+ * their age.
  *
  * @param {IntegrationEntry[]} queue
  */
 function pruneResolved(queue) {
   const resolved = queue.filter((e) => e.status !== 'pending');
   if (resolved.length <= RESOLVED_CAP) return;
-  // El array está en orden de inserción, así que las primeras resueltas son las más antiguas.
+  // The array is in insertion order, so the first resolved ones are the oldest.
   const drop = new Set(resolved.slice(0, resolved.length - RESOLVED_CAP));
   for (let i = queue.length - 1; i >= 0; i--) {
     if (drop.has(queue[i])) queue.splice(i, 1);
@@ -220,14 +220,14 @@ function pruneResolved(queue) {
 }
 
 /**
- * Marca una entrada como resuelta. NO la borra (traza).
+ * Marks an entry as resolved. It does NOT delete it (trace).
  *
- * El selector es el mismo que expone el CLI: `task_ref` exacta o, en su defecto, nombre de
- * rama exacto — para poder resolver una rama cuya tarea no se recuerda. Solo matchea entradas
- * `pending`; una entrada ya resuelta devuelve `not-found` (idempotencia hacia el operador: la
- * segunda ejecución no re-escribe una traza cerrada).
+ * The selector is the same one the CLI exposes: exact `task_ref` or, failing that, exact branch
+ * name — so a branch whose task you cannot remember can still be resolved. It only matches
+ * `pending` entries; an already-resolved entry returns `not-found` (idempotence towards the operator: the
+ * second run does not rewrite a closed trace).
  *
- * @param {string} ref task_ref o nombre de rama.
+ * @param {string} ref task_ref or branch name.
  * @param {{
  *   action: 'ff'|'merge'|'pr'|'drop',
  *   status?: 'done'|'dropped',
@@ -256,9 +256,9 @@ export function resolveIntegration(ref, patch, logger = noopLogger, deps = {}) {
     hit.resolved_at = ts;
     hit.updated_at = ts;
     persisted = hit;
-    // La poda va en LOS DOS escritores, y sobre todo en este: resolver es lo único que CREA
-    // entradas resueltas. Podar solo al encolar dejaba el array una entrada por encima del cap
-    // hasta el siguiente cierre de sesión — cota que se cumple «casi siempre» no es una cota.
+    // Pruning goes in BOTH writers, and above all in this one: resolving is the only thing that CREATES
+    // resolved entries. Pruning only on enqueue left the array one entry above the cap
+    // until the next session close — a bound that holds "almost always" is not a bound.
     pruneResolved(queue);
   });
 
@@ -276,11 +276,11 @@ export function resolveIntegration(ref, patch, logger = noopLogger, deps = {}) {
 }
 
 /**
- * Lista la cola. Lectura pura — nunca escribe.
+ * Lists the queue. Pure read — it never writes.
  *
- * @param {{ all?: boolean }} [opts] `all: true` incluye las resueltas (traza). Default: solo `pending`.
+ * @param {{ all?: boolean }} [opts] `all: true` includes resolved ones (trace). Default: `pending` only.
  * @param {{ loadStateFn?: typeof loadState }} [deps]
- * @returns {IntegrationEntry[]} En orden de inserción (la más antigua primero).
+ * @returns {IntegrationEntry[]} In insertion order (oldest first).
  */
 export function listIntegrationQueue(opts = {}, deps = {}) {
   const load = deps.loadStateFn || loadState;
@@ -288,15 +288,15 @@ export function listIntegrationQueue(opts = {}, deps = {}) {
   try {
     queue = queueOf(load());
   } catch {
-    return []; // never-throws: una cola ilegible es indistinguible de una cola vacía.
+    return []; // never-throws: an unreadable queue is indistinguishable from an empty one.
   }
   return opts.all === true ? queue.slice() : queue.filter((e) => e.status === 'pending');
 }
 
 /**
- * Busca UNA entrada pendiente por task_ref o por nombre de rama (mismo selector que
- * `resolveIntegration`). Lectura pura — el CLI la usa para saber sobre qué repo y qué rama va a
- * operar ANTES de tocar git.
+ * Finds ONE pending entry by task_ref or by branch name (same selector as
+ * `resolveIntegration`). Pure read — the CLI uses it to know which repo and which branch it is going to
+ * operate on BEFORE touching git.
  *
  * @param {string} ref
  * @param {{ loadStateFn?: typeof loadState }} [deps]
