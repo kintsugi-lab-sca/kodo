@@ -196,7 +196,20 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
     if (terminalStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
       const existing = listSessionsFn().find((s) => s.task_id === task.id);
       if (existing) {
-        removeSessionFn(task.id);
+        // KODO-47: `removeSessionFn` degrada a `{ok:false, reason:'lock-timeout'}` sin
+        // lanzar (D-03). El `action` se mantiene en `cleaned` —el veredicto del
+        // dispatcher para esta tarea NO cambia: sigue siendo terminal y no se lanza
+        // nada— pero el `code` distingue el pase que SÍ escribió del que se quedó sin
+        // lock, para que `dispatch.decision` no registre una limpieza inexistente. La
+        // fila sigue en state.json y el próximo evento de esta tarea vuelve a entrar
+        // aquí y reintenta; el `code` es lo único que faltaba para poder verlo.
+        const r = removeSessionFn(task.id);
+        if (r && r.ok === false) {
+          console.warn(
+            `[kodo:dispatch] ${task.ref} — limpieza NO aplicada (${r.reason}); la sesión sigue en state.json`,
+          );
+          return { action: 'cleaned', code: 'cleanup_lock_timeout' };
+        }
         console.log(`[kodo:dispatch] Cleaned session for ${task.ref} — moved to "${task.state}"`);
         return { action: 'cleaned' };
       }

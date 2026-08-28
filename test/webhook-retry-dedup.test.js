@@ -86,6 +86,12 @@ function createScenario(hooks = {}) {
 
     return handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
+      // KODO-46: la caché anti-replay se desactiva a propósito. Lo que este fichero
+      // ejercita es el dedupe del DISPATCHER (lock cross-proceso, inFlight,
+      // session-already-active) frente a entregas repetidas del mismo body — y con la
+      // caché activa esas entregas ni llegarían al dispatcher. Cobertura de la caché:
+      // test/webhook-replay.test.js.
+      replayCache: null,
       dispatchTriggerFn: (event) =>
         dispatchTrigger(event, {}, {
           _logger: null,

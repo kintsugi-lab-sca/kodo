@@ -404,3 +404,75 @@ export async function execute(deps = {}, opts = {}) {
 
   return result;
 }
+
+// ── convergeProject() ────────────────────────────────────────────────────────
+
+/**
+ * @typedef {{ action: 'created' | 'added' | 'none' | 'skipped', group: string | null, reason?: string }} ConvergeResult
+ */
+
+/**
+ * Converge UN solo workspace recién creado a su grupo de proyecto (KODO-54).
+ *
+ * Es la unidad de-un-workspace del par `create`/`add` que `execute()` emite en lote:
+ * misma re-detección FRESCA (D-06 TOCTOU — nunca consume un report externo), mismo
+ * allowlist NO-destructivo (`create --from` / `add`, jamás delete/remove/rename) y el
+ * mismo fail-open never-throws. Lo que NO comparte con `execute()` es la fuente de
+ * verdad: aquí el workspace lo acaba de crear el launch y todavía NO está en
+ * `state.json`, así que el input llega por parámetro en vez de por `scan()`.
+ *
+ * Existe porque el carril de CREACIÓN de grupos vivía SOLO en el pase del doctor que
+ * `kodo check` corre antes de `launchOrchestrator` (check.js): con un orquestador ya
+ * vivo ese pase no se ejecuta, así que el primer proyecto nuevo de la sesión se quedaba
+ * suelto en el sidebar hasta el siguiente arranque en frío.
+ *
+ * Decisión (idéntica a la que `scan()` toma para las 3 categorías):
+ *   - grupo `name` NO existe                        → `create --name <name> --from <ws>`
+ *   - existe y `ws` ya está en member_workspace_refs → no-op (`none`)
+ *   - existe y `ws` está suelto                     → `add --group <ref> --workspace <ws>`
+ *
+ * never-throws: CUALQUIER fallo (cmux caído, JSON ilegible, verbo ausente en el host)
+ * devuelve `action: 'skipped'` con el motivo acotado. El caller decide el log; jamás se
+ * aborta el lanzamiento por la sidebar.
+ *
+ * @param {{ name: string, workspaceRef: string }} target
+ * @param {SidebarDeps} [deps] - en el launch se inyectan los verbos de `host._legacy`
+ *   (cmux confinado a `src/host/`); sin deps caen los defaults lazy de `client.js`.
+ * @returns {Promise<ConvergeResult>}
+ */
+export async function convergeProject({ name, workspaceRef } = {}, deps = {}) {
+  if (!name || !workspaceRef) {
+    return { action: 'skipped', group: null, reason: 'target_incompleto' };
+  }
+  const d = resolveDeps(deps);
+  const log = /** @type {any} */ (d.logger);
+  try {
+    // Re-detección FRESCA: entre el `workspace-group list` del launch y este punto pudo
+    // crearse el grupo (otro lanzamiento concurrente del mismo proyecto). La rama `add`
+    // de abajo es lo que hace la convergencia idempotente en esa carrera.
+    const groupsJson = JSON.parse(await d.listWorkspaceGroupsRaw());
+    const groupRef = resolveWorkspaceGroup(groupsJson, name);
+
+    if (!groupRef) {
+      // `create --from <ws>` NUNCA reutiliza un workspace existente como ancla (KODO-14,
+      // verificado en vivo): levanta un shell nuevo y mete `ws` como MIEMBRO, así que no
+      // roba la fila del sidebar a la sesión que se acaba de lanzar.
+      await d.createWorkspaceGroup({ name, from: [workspaceRef] });
+      sidebarDoctorFix(log, { created: 1, added: 0, ungrouped: 0 });
+      return { action: 'created', group: null };
+    }
+
+    const memberOf = buildMemberIndex(groupsJson);
+    if ((memberOf.get(workspaceRef) || []).includes(groupRef)) {
+      return { action: 'none', group: groupRef }; // ya dentro → cero comandos mutadores
+    }
+
+    await d.addToWorkspaceGroup({ group: groupRef, workspace: workspaceRef });
+    sidebarDoctorFix(log, { created: 0, added: 1, ungrouped: 0 });
+    return { action: 'added', group: groupRef };
+  } catch (err) {
+    const reason = errMsg(err);
+    sidebarDoctorFixError(log, { category: 'converge', reason, target: workspaceRef });
+    return { action: 'skipped', group: null, reason };
+  }
+}
