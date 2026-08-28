@@ -156,6 +156,12 @@
 //                                lock the winner abandoned by exiting.
 //                                `--kind mark` reuses it as the width of the
 //                                read→rename window, held inside the lock)
+//   --hold-async <1>            (dispatch, opcional: mantiene el hold con un
+//                                `setTimeout` en vez de `Atomics.wait`, dejando el
+//                                event loop libre. Necesario para ejercer el
+//                                heartbeat del dedup lock — KODO-48 — que no puede
+//                                latir con el loop bloqueado. Opt-in: los consumidores
+//                                previos no lo pasan y su timing no cambia)
 //   --release <goFile>          (gsd-holder: barrera tras la cual el holder
 //                                ejecuta `releaseGsdLock` y sale)
 //   --resume <goFile>           (gsd-seam: barrera que saca al stealer del seam,
@@ -635,8 +641,18 @@ async function main() {
             // Record the real launch (cross-process marker), then hold the lock so
             // the concurrent sibling's single acquire attempt lands during the hold.
             appendFileSync(launchLog, `${process.pid}\n`);
-            const sab = new Int32Array(new SharedArrayBuffer(4));
-            Atomics.wait(sab, 0, 0, holdMs);
+            if (args['hold-async'] !== undefined) {
+              // Hold ASÍNCRONO (KODO-48). El hold por defecto es `Atomics.wait`, que
+              // bloquea el event loop: con él, el heartbeat del dedup lock jamás
+              // podría latir y el escenario de «launch más largo que el TTL» mediría
+              // otra cosa. Un launch real es IO async (provider + cmux), no un bucle
+              // síncrono, así que esta es la forma fiel para ese caso. Opt-in para no
+              // tocar el timing de los escenarios que ya existen.
+              await new Promise((r) => setTimeout(r, holdMs));
+            } else {
+              const sab = new Int32Array(new SharedArrayBuffer(4));
+              Atomics.wait(sab, 0, 0, holdMs);
+            }
             return {
               workspace_ref: 'w', session_id: 's', task_id: taskId, task_ref: 'KL',
               provider: 'test', project_id: 'p', summary: 'race', status: 'running',

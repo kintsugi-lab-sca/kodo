@@ -8,7 +8,7 @@ import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js
 import { listSessions, removeSession, computeRealWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
-import { acquireLock, releaseLock } from '../session/state-lock.js';
+import { acquireLock, releaseLock, startLockHeartbeat } from '../session/state-lock.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
@@ -16,6 +16,44 @@ import { EVENTS, gsdPhaseResolved, gsdBootstrap, dispatchDecision, dispatchError
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
 const inFlight = new Set();
+
+/**
+ * TTL del dedup lock non-GSD (KODO-48).
+ *
+ * Sube de 120s a 300s. El TTL solo importa para un dueño VIVO: si el proceso murió,
+ * `acquireLock` lo detecta por `isPidAlive` y roba al instante sin esperar plazo
+ * alguno. Así que alargarlo no retrasa la recuperación del caso frecuente (crash),
+ * solo la del raro (proceso vivo pero colgado dentro del launch).
+ *
+ * Es el SUELO, no la defensa principal: la defensa es el heartbeat de abajo, que
+ * mantiene el lock fresco durante todo el launch. El TTL cubre el hueco en que el
+ * latido no puede sonar —event loop bloqueado por trabajo síncrono largo— y ahí
+ * 300s da un margen mucho más honesto que 120s.
+ *
+ * Override por env SOLO para tests (mismo precedente que `KODO_TEST_FORCE_THROW`):
+ * un escenario que quiera ejercer «launch más largo que el TTL» no puede esperar
+ * cinco minutos de reloj.
+ */
+const DISPATCH_LOCK_TTL_MS = Number(process.env.KODO_DISPATCH_LOCK_TTL_MS) || 300_000;
+
+/**
+ * Cadencia del heartbeat: TTL/3 (KODO-48). Tres latidos por ventana de TTL — se
+ * pueden perder dos seguidos (GC largo, IO síncrono) sin que el lock envejezca
+ * hasta stale.
+ */
+const DISPATCH_LOCK_HEARTBEAT_MS = Math.max(50, Math.floor(DISPATCH_LOCK_TTL_MS / 3));
+
+/**
+ * Techo de renovación: 6 × TTL (30 min por defecto).
+ *
+ * El trade-off del heartbeat, explícito: renovar sin límite convierte un launch
+ * colgado-pero-vivo en un lock INMORTAL, y esa tarea no se volvería a despachar
+ * jamás. Pasado este techo el latido calla y el TTL recupera el lock, así que el
+ * bloqueo máximo queda acotado en `maxHold + TTL` (~35 min) en vez de infinito.
+ * Un launch legítimo de media hora no existe; si apareciera, el problema sería el
+ * launch, no el lock.
+ */
+const DISPATCH_LOCK_MAX_HOLD_MS = DISPATCH_LOCK_TTL_MS * 6;
 
 /**
  * KODO-10 (deliverable B): convierte un verdict fail-closed del resolver GSD en una pista
@@ -55,6 +93,7 @@ export function resolverFailureHint(verdict, ctx = {}) {
  *   existsSyncFn?: (path: string) => boolean,
  *   acquireLockFn?: (lockPath: string, opts?: object) => ({ token: string } | null),
  *   releaseLockFn?: (lockPath: string, token: string) => void,
+ *   startLockHeartbeatFn?: (lockPath: string, token: string, opts: { intervalMs: number, maxHoldMs: number }) => (() => void),
  *   dispatchLockDir?: string,
  *   _logger?: any,
  * }} DispatchDeps
@@ -92,6 +131,9 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
   // defaults to `~/.kodo/locks` (KODO_DIR) and is injectable for HOME-isolated tests.
   const acquireLockFn = deps.acquireLockFn || acquireLock;
   const releaseLockFn = deps.releaseLockFn || releaseLock;
+  // KODO-48: heartbeat del dedup lock, inyectable con la misma forma que sus dos
+  // hermanos (acquire/release) para que un test pueda observarlo sin timers reales.
+  const startLockHeartbeatFn = deps.startLockHeartbeatFn || startLockHeartbeat;
   const dispatchLockDir = deps.dispatchLockDir || join(KODO_DIR, 'locks');
 
   // 1. Resolve task via provider
@@ -479,21 +521,34 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
   // acquireGsdLockFn on projectPath (step 3b); this lock is ONLY for `!gsdMode`.
   let dispatchLockPath = null;
   let dispatchLockToken = null;
+  let stopDispatchHeartbeat = null;
   if (!gsdMode) {
     dispatchLockPath = join(dispatchLockDir, `dispatch-${task.id}.lock`);
     // WR-02: the dedup lock is held across `await launchWorkItemFn` (provider +
     // cmux round-trips) which can exceed the primitive's 10s default TTL. With a
     // 10s TTL a duplicate arriving mid-launch would see the lock as TTL-stale,
-    // steal it, and DOUBLE-LAUNCH the same task_id. Give it a TTL that
-    // comfortably exceeds the worst-case launch so an in-flight launch is never
-    // TTL-stolen, while a genuinely-crashed holder is still eventually reclaimed.
+    // steal it, and DOUBLE-LAUNCH the same task_id.
+    //
+    // KODO-48: un TTL fijo —fuera 120s, ahora 300s— no es la respuesta completa,
+    // porque la duración del launch NO está acotada por construcción: siempre
+    // existe un launch más lento que el plazo que elijamos, y ahí el lock queda
+    // stale con su dueño todavía trabajando. Por eso el TTL pasa a ser el suelo y
+    // la defensa real es el heartbeat: mientras dure el launch renovamos
+    // `acquired_at`, así que un duplicado que llegue a mitad NUNCA ve el lock
+    // caducado y se va con `already_active` en vez de robarlo.
     // Keep `retries:0` so a real concurrent duplicate returns already_active now.
-    const held = acquireLockFn(dispatchLockPath, { retries: 0, ttlMs: 120_000 });
+    const held = acquireLockFn(dispatchLockPath, { retries: 0, ttlMs: DISPATCH_LOCK_TTL_MS });
     if (!held) {
       console.log(`[kodo:dispatch] Ignored — ${task.ref} already dispatching (cross-process)`);
       return { action: 'already_active' };
     }
     dispatchLockToken = held.token;
+    // El latido arranca AQUÍ, pegado al acquire, no dentro del `try`: cualquier
+    // camino que salga de aquí en adelante pasa por el `finally` que lo para.
+    stopDispatchHeartbeat = startLockHeartbeatFn(dispatchLockPath, held.token, {
+      intervalMs: DISPATCH_LOCK_HEARTBEAT_MS,
+      maxHoldMs: DISPATCH_LOCK_MAX_HOLD_MS,
+    });
   }
 
   inFlight.add(task.id);
@@ -532,6 +587,15 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
     throw err;
   } finally {
     inFlight.delete(task.id);
+    // KODO-48: parar el latido ANTES de liberar. Al revés dejaría una ventana en la
+    // que el heartbeat puede re-crear con `renameSync` el lock que acabamos de
+    // borrar, y el lock resucitado ya no tendría a nadie que lo liberase: quedaría
+    // hasta que venciera el TTL, bloqueando el siguiente dispatch legítimo.
+    if (stopDispatchHeartbeat) {
+      try { stopDispatchHeartbeat(); } catch {
+        // silent — stop() es idempotente + never-throws en la primitiva
+      }
+    }
     // Phase 70 (D-13): release the per-task_id dedup lock (idempotent, never throws).
     if (dispatchLockToken) {
       try { releaseLockFn(dispatchLockPath, dispatchLockToken); } catch {

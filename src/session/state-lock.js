@@ -199,6 +199,114 @@ export function releaseLock(lockPath, token) {
 }
 
 /**
+ * Renueva el `acquired_at` del lock en `lockPath` SI Y SOLO SI lo posee `token`
+ * (KODO-48).
+ *
+ * El TTL de `acquireLock` mide «cuánto lleva puesto el lock», no «cuánto lleva el
+ * dueño sin dar señales de vida». Para una sección crítica cuya duración no está
+ * acotada por construcción —un `launchWorkItem` con round-trips de provider y de
+ * cmux— eso convierte al TTL en una bomba: pasado el plazo, el lock queda
+ * TTL-stale MIENTRAS su dueño sigue trabajando, y el siguiente contendiente lo
+ * roba legítimamente. `renewLock` es la otra mitad: mueve el reloj hacia delante
+ * para que «vivo y trabajando» y «fresco» vuelvan a ser lo mismo.
+ *
+ * Escritura ATÓMICA (tmp + rename), mismo idiom que el steal de `acquireLock`: un
+ * `writeFileSync` en dos tiempos dejaría una ventana de lectura parcial, y aunque
+ * el camino de acquire trata el JSON ilegible como «reintenta, no robes» (seguro),
+ * no hay razón para producir esa ventana.
+ *
+ * Never-throws y ownership-checked. `false` significa «ya no es tuyo» y el llamante
+ * debe DEJAR de renovar: lock ausente (ENOENT — ya liberado, o apartado por un
+ * stealer), token ajeno (nos lo robaron y otro proceso es el dueño legítimo), o
+ * contenido corrupto. Nunca reescribe un lock que no sea nuestro.
+ *
+ * Trade-off conocido: entre el read de verificación y el rename hay una ventana
+ * TOCTOU de microsegundos, la MISMA forma que ya tiene la rama de steal (leer →
+ * decidir stale → renombrar). No la cerramos aquí porque cerrarla exigiría un
+ * segundo nivel de CAS sobre una ventana que solo se abre si el lock nos lo roban
+ * justo en ese instante — y en ese caso el efecto es un `acquired_at` refrescado
+ * con el token del nuevo dueño intacto, no un doble dueño.
+ *
+ * @param {string} lockPath
+ * @param {string} token - el token devuelto por `acquireLock`.
+ * @returns {boolean} `true` si se renovó; `false` si el lock ya no nos pertenece.
+ */
+export function renewLock(lockPath, token) {
+  try {
+    const held = /** @type {LockContent} */ (
+      JSON.parse(readFileSync(lockPath, 'utf-8'))
+    );
+    if (held.token !== token) return false;
+
+    const tmp = `${lockPath}.renew.${process.pid}.${randomUUID()}`;
+    const next = JSON.stringify({
+      pid: held.pid,
+      acquired_at: Date.now(),
+      token,
+    });
+    try {
+      writeFileSync(tmp, next);
+      renameSync(tmp, lockPath);
+    } catch (e) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* best-effort */
+      }
+      throw e;
+    }
+    return true;
+  } catch {
+    // Lock ausente, ilegible o de otro dueño → no es nuestro, no renovamos.
+    return false;
+  }
+}
+
+/**
+ * Late de `renewLock` mientras dura una sección crítica larga (KODO-48).
+ *
+ * Devuelve un `stop()` idempotente que el llamante DEBE invocar en su `finally`.
+ * El timer va `unref`-ado: un heartbeat jamás mantiene vivo un proceso que ya
+ * terminó su trabajo.
+ *
+ * `maxHoldMs` es el contrapeso del heartbeat. Sin él, un dueño colgado PERO con
+ * event loop sano renovaría para siempre y el recurso quedaría bloqueado sin
+ * recuperación posible: el heartbeat habría cambiado «robo prematuro» por «lock
+ * inmortal». Con él, el latido cesa pasado ese techo y el TTL vuelve a hacer su
+ * trabajo, así que el peor caso queda acotado en `maxHoldMs + ttlMs`.
+ *
+ * Un `renewLock` en `false` (nos robaron el lock, o ya se liberó) también para el
+ * latido: seguir escribiendo sobre un lock ajeno no es tarea de esta función.
+ *
+ * @param {string} lockPath
+ * @param {string} token
+ * @param {{ intervalMs: number, maxHoldMs: number }} opts
+ * @returns {() => void} `stop()` — idempotente, never-throws.
+ */
+export function startLockHeartbeat(lockPath, token, opts) {
+  const { intervalMs, maxHoldMs } = opts;
+  const startedAt = Date.now();
+
+  const timer = setInterval(() => {
+    if (Date.now() - startedAt >= maxHoldMs) {
+      clearInterval(timer);
+      return;
+    }
+    if (!renewLock(lockPath, token)) clearInterval(timer);
+  }, intervalMs);
+
+  if (typeof timer.unref === 'function') timer.unref();
+
+  return () => {
+    try {
+      clearInterval(timer);
+    } catch {
+      /* never-throws */
+    }
+  };
+}
+
+/**
  * Run `fn` while holding the advisory lock at `lockPath`.
  *
  * On success returns `{ ok:true, value: fn() }` and releases in `finally`.

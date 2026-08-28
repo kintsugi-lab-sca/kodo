@@ -27,6 +27,8 @@ let origHome;
 let acquireLock;
 let releaseLock;
 let withFileLock;
+let renewLock;
+let startLockHeartbeat;
 
 const DEAD_PID = 2 ** 31 - 1; // guaranteed not to map to a live process
 
@@ -42,6 +44,8 @@ describe('state-lock primitive (D-01/D-03/D-08)', () => {
     acquireLock = mod.acquireLock;
     releaseLock = mod.releaseLock;
     withFileLock = mod.withFileLock;
+    renewLock = mod.renewLock;
+    startLockHeartbeat = mod.startLockHeartbeat;
   });
 
   after(() => {
@@ -156,5 +160,122 @@ describe('state-lock primitive (D-01/D-03/D-08)', () => {
       warns.some((w) => w.event === 'lock.timeout'),
       'emits a lock.timeout warn (D-03)',
     );
+  });
+
+  // ------------------------------------------------------------------
+  // KODO-48 — renewLock / startLockHeartbeat.
+  // ------------------------------------------------------------------
+
+  it('renewLock adelanta acquired_at y conserva pid + token', () => {
+    const p = freshLockPath();
+    const got = acquireLock(p, { retries: 0 });
+    const before = JSON.parse(readFileSync(p, 'utf-8'));
+
+    // Envejecer el lock a mano: es la única forma determinista de comprobar que el
+    // reloj AVANZA sin depender de que pase tiempo real entre dos escrituras.
+    writeFileSync(p, JSON.stringify({ ...before, acquired_at: before.acquired_at - 60_000 }));
+
+    assert.equal(renewLock(p, got.token), true, 'renueva un lock propio');
+    const after = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.ok(after.acquired_at > before.acquired_at - 60_000, 'acquired_at avanza');
+    assert.equal(after.token, got.token, 'conserva el token');
+    assert.equal(after.pid, before.pid, 'conserva el pid');
+  });
+
+  it('renewLock con token ajeno → false y NO toca el lock', () => {
+    const p = freshLockPath();
+    acquireLock(p, { retries: 0 });
+    const before = readFileSync(p, 'utf-8');
+
+    assert.equal(renewLock(p, 'not-my-token'), false, 'no renueva lo que no es suyo');
+    assert.equal(readFileSync(p, 'utf-8'), before, 'el lock queda byte a byte intacto');
+  });
+
+  it('renewLock sobre un lock ausente o corrupto → false, never-throws', () => {
+    const missing = freshLockPath();
+    assert.equal(renewLock(missing, 'tok'), false, 'ENOENT → false');
+
+    const corrupt = freshLockPath();
+    writeFileSync(corrupt, '{not json');
+    assert.equal(renewLock(corrupt, 'tok'), false, 'JSON ilegible → false');
+    assert.equal(readFileSync(corrupt, 'utf-8'), '{not json', 'no reescribe lo que no puede leer');
+  });
+
+  it('un lock renovado deja de ser TTL-stale para el siguiente acquire', () => {
+    const p = freshLockPath();
+    const got = acquireLock(p, { retries: 0 });
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+
+    // Lock caducado por edad (pid VIVO — es el nuestro): robable.
+    writeFileSync(p, JSON.stringify({ ...held, acquired_at: Date.now() - 60_000 }));
+    const stolen = acquireLock(p, { retries: 0, ttlMs: 1_000 });
+    assert.ok(stolen && stolen.token, 'sin renovar, el lock caducado se roba');
+
+    // Mismo escenario, pero renovando antes de que llegue el contendiente.
+    const p2 = freshLockPath();
+    const got2 = acquireLock(p2, { retries: 0 });
+    const held2 = JSON.parse(readFileSync(p2, 'utf-8'));
+    writeFileSync(p2, JSON.stringify({ ...held2, acquired_at: Date.now() - 60_000 }));
+    assert.equal(renewLock(p2, got2.token), true, 'renovamos justo antes');
+    const blocked = acquireLock(p2, { retries: 0, ttlMs: 1_000 });
+    assert.equal(blocked, null, 'tras renovar ya no es stale: el contendiente rebota');
+  });
+
+  it('startLockHeartbeat renueva de forma periódica y stop() lo detiene', async () => {
+    const p = freshLockPath();
+    const got = acquireLock(p, { retries: 0 });
+    const t0 = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+
+    const stop = startLockHeartbeat(p, got.token, { intervalMs: 20, maxHoldMs: 10_000 });
+    await new Promise((r) => setTimeout(r, 120));
+    const t1 = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+    assert.ok(t1 > t0, `el latido adelanta acquired_at (${t0} → ${t1})`);
+
+    stop();
+    const t2 = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+    await new Promise((r) => setTimeout(r, 120));
+    const t3 = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+    assert.equal(t3, t2, 'tras stop() el lock deja de refrescarse');
+
+    stop(); // idempotente
+    releaseLock(p, got.token);
+  });
+
+  it('startLockHeartbeat deja de renovar pasado maxHoldMs (lock no inmortal)', async () => {
+    const p = freshLockPath();
+    const got = acquireLock(p, { retries: 0 });
+
+    // Techo por debajo del intervalo de reloj que vamos a esperar: el primer tick
+    // que caiga después del techo calla en vez de renovar.
+    const stop = startLockHeartbeat(p, got.token, { intervalMs: 20, maxHoldMs: 40 });
+    await new Promise((r) => setTimeout(r, 150));
+    const tCap = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+    await new Promise((r) => setTimeout(r, 120));
+    const tAfter = JSON.parse(readFileSync(p, 'utf-8')).acquired_at;
+
+    assert.equal(tAfter, tCap, 'pasado el techo el latido está parado');
+    assert.ok(
+      Date.now() - tCap >= 100,
+      'y el lock envejece con normalidad, así que el TTL puede recuperarlo',
+    );
+
+    stop();
+    releaseLock(p, got.token);
+  });
+
+  it('el heartbeat se para solo si nos roban el lock (renewLock → false)', async () => {
+    const p = freshLockPath();
+    const got = acquireLock(p, { retries: 0 });
+
+    const stop = startLockHeartbeat(p, got.token, { intervalMs: 20, maxHoldMs: 10_000 });
+    // Otro proceso roba el lock legítimamente y escribe el suyo.
+    writeFileSync(p, JSON.stringify({ pid: process.pid, acquired_at: 111, token: 'thief' }));
+    await new Promise((r) => setTimeout(r, 120));
+
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.equal(held.token, 'thief', 'el latido no pisa el lock del nuevo dueño');
+    assert.equal(held.acquired_at, 111, 'ni le refresca el reloj');
+
+    stop();
   });
 });
