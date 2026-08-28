@@ -809,6 +809,98 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
   });
 });
 
+// ── KODO-36 ────────────────────────────────────────────────────────────────────
+// El comentario del backstop era fail-open y fail-SILENT: un blip de red dejaba solo un
+// warn en el NDJSON, la tarea YA transicionada a «In review» y al humano sin una línea de
+// contexto. Ahora el texto se persiste como marcador (`state.pending_comments`) para que el
+// barrido de huérfanas lo reintente. Estos casos fijan las dos mitades del contrato: se
+// marca cuando falla, y NO se marca cuando no falla.
+describe('runSessionEndHook — marcador de comentario pendiente (KODO-36)', () => {
+  /** Corre el hook con el seam del marcador cableado y devuelve lo que se marcó. */
+  async function cierreCon({ commentThrows, markThrows = false }) {
+    const session = makeSession();
+    const { logger, events } = makeLogger();
+    const { provider, calls } = makeProvider({ state: 'in_progress', commentThrows });
+    const marcados = [];
+    const removed = [];
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
+          removeSessionFn: (id) => removed.push(id),
+          loggerFactory: () => logger,
+          cmux: makeCmuxStub().stub,
+          provider,
+          config: makeConfig(),
+          markPendingCommentFn: (entry) => {
+            marcados.push(entry);
+            if (markThrows) throw new Error('state.json ilegible');
+            return { ok: true, value: entry };
+          },
+        },
+      ),
+      'el marcador es una mejora del fail-open, jamás una vía nueva de crasheo',
+    );
+    return { session, calls, events, marcados, removed };
+  }
+
+  it('addComment que lanza → persiste el marcador con el TEXTO y el TaskItem completos', async () => {
+    const { session, calls, events, marcados, removed } = await cierreCon({ commentThrows: true });
+
+    assert.equal(calls.updateTaskState.length, 1, 'la transición SÍ ocurrió (paso 6, antes del comentario)');
+    assert.equal(calls.addComment.length, 1, 'se intentó comentar');
+    assert.equal(marcados.length, 1, 'y el fallo dejó exactamente UN marcador');
+
+    const marca = marcados[0];
+    assert.equal(marca.task_id, session.task_id);
+    assert.equal(marca.project_id, session.project_id);
+    assert.equal(marca.task_ref, session.task_ref);
+    assert.equal(marca.session_id, session.session_id);
+    // El texto marcado es BYTE A BYTE el que el provider rechazó: el reintento publica el
+    // mismo comentario, no uno reconstruido más tarde con otro contexto.
+    assert.equal(marca.text, calls.addComment[0].text, 'se marca el texto exacto que falló');
+    assert.match(marca.text, /Cierre automático de kodo/);
+
+    assert.ok(
+      events.some((e) => e.msg === 'session.backstop.comment_failed'),
+      'el warn previo a KODO-36 se conserva',
+    );
+    assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corre igualmente');
+  });
+
+  it('addComment con éxito → NO marca nada (el marcador es solo para el fallo)', async () => {
+    const { calls, marcados } = await cierreCon({ commentThrows: false });
+    assert.equal(calls.addComment.length, 1, 'comentó');
+    assert.deepEqual(marcados, [], 'y no dejó marcador que el barrido reintentaría en vano');
+  });
+
+  it('un writer del marcador que LANZA no crashea el hook ni impide el cleanup', async () => {
+    const { session, events, marcados, removed } = await cierreCon({
+      commentThrows: true,
+      markThrows: true,
+    });
+    assert.equal(marcados.length, 1, 'se intentó marcar');
+    assert.ok(
+      events.some((e) => e.msg === 'session.backstop.pending_mark_failed'),
+      'y el fallo del marcador queda trazado',
+    );
+    assert.deepEqual(removed, [session.task_id], 'el cierre termina igual que antes de KODO-36');
+  });
+
+  it('el hook CONSULTA el markPendingCommentFn inyectado — el seam está cableado, no ignorado', async () => {
+    // Mismo argumento de hermeticidad que el de getOrchestratorFn (KODO-20): una sola
+    // invocación del stub demuestra que el default real —que escribe en el ~/.kodo del
+    // operador— NO entró en juego durante `npm test`.
+    const { marcados } = await cierreCon({ commentThrows: true });
+    assert.equal(marcados.length, 1);
+  });
+});
+
 describe('sessionBackstopReview — evento NDJSON del backstop (DELIV-04, T-25-02)', () => {
   it('emite SOLO {event, session_id, task_id, from, to} y descarta campos extra', () => {
     const { logger, events } = makeLogger();

@@ -30,8 +30,8 @@ import { EVENTS } from './events.js';
 // expuesto al consumer (`kodo logs`); por tanto cualquier filtración aquí
 // persiste en disco.
 //
-// Invariante LOG-12: cero imports nuevos. Los únicos imports del módulo
-// siguen siendo `node:os` + `node:path` declarados en líneas 21-22.
+// Invariante LOG-12: cero imports nuevos. Los únicos imports runtime de todo el
+// subárbol siguen siendo `node:os` + `node:path`, en `logger-events/events.js`.
 
 /**
  * Emitido en cada tick del polling loop por (owner, repo). El consumer
@@ -273,6 +273,30 @@ export function webhookRejected(logger, fields) {
     provider: fields.provider,
     reason: fields.reason,
     bytes: fields.bytes,
+  });
+}
+
+/**
+ * Emitido (warn) cuando el webhook contesta 503 para que el provider REINTENTE
+ * la entrega (KODO-34).
+ *
+ * Es el único rastro de esa decisión: `dispatch.error` ya cuenta que el dispatch
+ * murió, pero no que kodo pidió el reintento en vez de tragarse el evento. Sin
+ * este evento, un 503 solo es visible en el ring buffer in-memory de `/logs`,
+ * que muere con el proceso — exactamente el punto ciego que abrió KODO-28.
+ *
+ * `error` es el `err.message`, que el caller DEBE truncar (mismo contrato de
+ * ≤ 200 chars que `dispatchError` / `pollingError`).
+ *
+ * @param {Logger} logger
+ * @param {{ provider: string, task_ref: string, error: string }} fields
+ */
+export function webhookDispatchRetry(logger, fields) {
+  logger.warn(EVENTS.WEBHOOK_DISPATCH_RETRY, {
+    event: EVENTS.WEBHOOK_DISPATCH_RETRY,
+    provider: fields.provider,
+    task_ref: fields.task_ref,
+    error: fields.error,
   });
 }
 

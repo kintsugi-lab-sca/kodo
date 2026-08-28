@@ -85,6 +85,7 @@ export {
   integrateAction,
   webhookReceived,
   webhookRejected,
+  webhookDispatchRetry,
   dispatchDecision,
   dispatchError,
 } from './logger-events/integration.js';

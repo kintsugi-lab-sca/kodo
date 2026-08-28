@@ -100,6 +100,7 @@ export const EVENTS = Object.freeze({
   SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
   WEBHOOK_RECEIVED:        'webhook.received',
   WEBHOOK_REJECTED:        'webhook.rejected',
+  WEBHOOK_DISPATCH_RETRY:  'webhook.dispatch.retry',
   DISPATCH_DECISION:       'dispatch.decision',
   DISPATCH_ERROR:          'dispatch.error',
 });
