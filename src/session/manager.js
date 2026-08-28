@@ -441,8 +441,12 @@ export async function launchWorkItem(identifier, opts = {}) {
   // worktree_skipped_nongit :312). El groupRef NO se persiste (GRP-04).
   const entry = projects[task.projectId];
   let groupRef = null;
+  // KODO-54: `expectedName` sale del try (antes era `const` local) porque la convergencia
+  // post-newWorkspace lo necesita. Si `deriveExpectedGroupName` lanza, se queda en `null`
+  // y la convergencia se salta sola — mismo fail-open que el groupRef.
+  let expectedName = null;
   try {
-    const expectedName = deriveExpectedGroupName(task, entry, projectPath);
+    expectedName = deriveExpectedGroupName(task, entry, projectPath);
     // IN-04: solo consultar cmux cuando HAY un nombre esperado. Con expectedName null
     // (ref degenerado, proyecto sin identifier) la llamada `workspace-group list` es
     // garantizada-inútil (~50ms/timeout por lanzamiento) → se evita tras el guard.
@@ -472,6 +476,48 @@ export async function launchWorkItem(identifier, opts = {}) {
     { name: workspaceName, cwd: projectPath },
     groupRef,
   );
+
+  // KODO-54: si NO había grupo que resolver, converger el sidebar AQUÍ. Hasta ahora la
+  // creación de grupos vivía solo en el pase del sidebar doctor que `kodo check` corre
+  // antes de `launchOrchestrator` (check.js): con un orquestador ya vivo ese pase no se
+  // ejecuta, así que el primer proyecto nuevo de la sesión se quedaba suelto en el
+  // sidebar hasta el siguiente arranque en frío. La lógica NO se duplica — es el mismo
+  // `convergeProject` del doctor (allowlist no-destructivo create/add, re-detección
+  // fresca TOCTOU dentro). Import DINÁMICO: evita el ciclo estático manager ↔
+  // sidebar-doctor y no carga nada cuando el grupo ya existía. Los verbos van por
+  // `host._legacy` (cmux confinado a src/host/ — walker SC#5); un host sin ellos cae al
+  // guard y degrada a `group_skipped`, igual que hoy. Fail-open TOTAL: never-throws, una
+  // línea de log y la sesión sigue — la sidebar JAMÁS bloquea el lanzamiento.
+  if (expectedName && !groupRef) {
+    try {
+      // Guard de host: orca (y cualquier host sin grupos de sidebar) no expone estos
+      // verbos — degrada a `group_skipped` en vez de reventar con un TypeError.
+      if (!host._legacy?.createWorkspaceGroup
+        || !host._legacy?.addToWorkspaceGroup
+        || !host._legacy?.listWorkspaceGroups) {
+        throw new Error('host_sin_verbos_de_grupo');
+      }
+      const { convergeProject } = await import('../cmux/sidebar-doctor.js');
+      const r = await convergeProject(
+        { name: expectedName, workspaceRef },
+        {
+          listWorkspaceGroupsRaw: () => host._legacy.listWorkspaceGroups(),
+          createWorkspaceGroup: (o) => host._legacy.createWorkspaceGroup(o),
+          addToWorkspaceGroup: (o) => host._legacy.addToWorkspaceGroup(o),
+        },
+      );
+      // `expectedName` es el identifier del proyecto (derivado del ref), no contenido de
+      // usuario — D-11 preservado. `skipped` sale con el mismo prefijo que el fallo de
+      // resolución de arriba para que el carril completo sea greppable por `group_skipped`.
+      if (r.action === 'skipped') {
+        console.log(`[kodo] group_skipped — convergencia_fallo: ${String(r.reason).slice(0, 80)}`);
+      } else if (r.action !== 'none') {
+        console.log(`[kodo] group_converged — ${r.action}: ${expectedName}`);
+      }
+    } catch (err) {
+      console.log(`[kodo] group_skipped — convergencia_fallo: ${String(err?.message).slice(0, 80)}`);
+    }
+  }
 
   // Marca el estado inicial de la sesión en el host. KODO-18: verbo HOST-AGNÓSTICO
   // (`setStatus`) en vez del `setColor` de vocabulario cmux — cada host elige su canal:
