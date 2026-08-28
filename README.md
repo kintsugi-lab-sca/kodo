@@ -123,7 +123,7 @@ error, así que el status codifica si el evento merece otro intento:
 
 | Status | Cuándo | Efecto en Plane |
 |--------|--------|-----------------|
-| `200`  | Evento aceptado, ignorado (sin label `kodo`, estado inactivo) o fallo **permanente** del dispatch | No reintenta |
+| `200`  | Evento aceptado, ignorado (sin label `kodo`, estado inactivo), **reenvío duplicado** o fallo **permanente** del dispatch | No reintenta |
 | `401`  | Firma HMAC inválida o ausente | — |
 | `400` / `413` | Body no-JSON o mayor de 1 MB | — |
 | `503`  | Fallo **transitorio** del dispatch: Plane 5xx/429/408, red caída, timeout | Reintenta la entrega |
@@ -139,6 +139,14 @@ El webhook espera al dispatch una ventana corta (2 s) antes de responder: lo jus
 para ver morir la red, sin bloquear la respuesta durante el arranque completo de la
 sesión. Un dispatch que sigue vivo al vencer la ventana responde 200 y continúa en
 segundo plano.
+
+**Protección anti-replay** — el HMAC de Plane se firma solo sobre el body y Plane no
+envía ningún header temporal, así que un webhook capturado pasaría la verificación de
+firma indefinidamente. kodo recuerda los bodies ya procesados durante una ventana corta
+(5 minutos; ajustable con `KODO_WEBHOOK_REPLAY_TTL_MS`, o `0` para desactivar) y
+descarta el reenvío con `200 {"ok":true,"duplicate":true}` sin lanzar un segundo
+dispatch, dejando un `webhook.replay` en `kodo logs`. Fuera de la ventana el evento se
+procesa con normalidad, y un 503 suelta la marca para no bloquear el reintento legítimo.
 
 ### 5. Instalar hooks de Claude Code
 
