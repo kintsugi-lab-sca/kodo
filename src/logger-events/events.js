@@ -56,6 +56,7 @@ import { join } from 'node:path';
  *   SESSION_CLOSE_UNMATCHED: 'session.close.unmatched',
  *   WEBHOOK_RECEIVED: 'webhook.received',
  *   WEBHOOK_REJECTED: 'webhook.rejected',
+ *   WEBHOOK_REPLAY: 'webhook.replay',
  *   DISPATCH_DECISION: 'dispatch.decision',
  *   DISPATCH_ERROR: 'dispatch.error',
  * }>} */
@@ -101,6 +102,7 @@ export const EVENTS = Object.freeze({
   WEBHOOK_RECEIVED:        'webhook.received',
   WEBHOOK_REJECTED:        'webhook.rejected',
   WEBHOOK_DISPATCH_RETRY:  'webhook.dispatch.retry',
+  WEBHOOK_REPLAY:          'webhook.replay',
   DISPATCH_DECISION:       'dispatch.decision',
   DISPATCH_ERROR:          'dispatch.error',
 });
