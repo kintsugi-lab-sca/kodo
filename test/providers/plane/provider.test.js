@@ -5,7 +5,7 @@ import { createHmac } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TASK_PROVIDER_METHODS } from '../src/interface.js';
+import { TASK_PROVIDER_METHODS } from '../../../src/interface.js';
 
 // B2 (Phase 72): redirigir HOME a un tmpdir ANTES de que config.js se importe
 // (los describe hacen `await import()` en beforeEach → config.js cachea KODO_DIR
@@ -31,7 +31,7 @@ const B2_CONFIG = {
 };
 writeFileSync(join(B2_HOME, '.kodo', 'config.json'), JSON.stringify(B2_CONFIG, null, 2) + '\n');
 
-/** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+/** @type {import('../../../src/providers/plane/provider.js')['createPlaneProvider']} */
 let createPlaneProvider;
 
 const MOCK_CONFIG = {
@@ -45,7 +45,7 @@ const MOCK_CONFIG = {
 
 describe('PlaneProvider', () => {
   beforeEach(async () => {
-    ({ createPlaneProvider } = await import('../src/providers/plane/provider.js'));
+    ({ createPlaneProvider } = await import('../../../src/providers/plane/provider.js'));
   });
 
   it('createPlaneProvider returns object with all TaskProvider methods', () => {
@@ -295,11 +295,11 @@ describe('PlaneProvider', () => {
 });
 
 describe('PlaneClient.createLabel idempotency on name-conflict 409 (Phase 56 Plan 04 UAT gap-fix)', () => {
-  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;
 
   beforeEach(async () => {
-    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+    ({ PlaneClient } = await import('../../../src/providers/plane/client.js'));
   });
 
   // Explicit opts bypass loadConfig() (config.plane is undefined under the v2 schema; passing
@@ -432,10 +432,10 @@ describe('PlaneClient.createLabel idempotency on name-conflict 409 (Phase 56 Pla
 });
 
 describe('PlaneProvider.createTask description_html omission (Phase 56 Plan 05 UAT gap-fix)', () => {
-  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  /** @type {import('../../../src/providers/plane/provider.js')['createPlaneProvider']} */
   let createPlaneProvider;
   beforeEach(async () => {
-    ({ createPlaneProvider } = await import('../src/providers/plane/provider.js'));
+    ({ createPlaneProvider } = await import('../../../src/providers/plane/provider.js'));
   });
 
   /**
@@ -495,10 +495,10 @@ describe('PlaneProvider.createTask description_html omission (Phase 56 Plan 05 U
 });
 
 describe('PlaneProvider.createTask module placement (Phase 57 module-placement gap-fix)', () => {
-  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  /** @type {import('../../../src/providers/plane/provider.js')['createPlaneProvider']} */
   let createPlaneProvider;
   beforeEach(async () => {
-    ({ createPlaneProvider } = await import('../src/providers/plane/provider.js'));
+    ({ createPlaneProvider } = await import('../../../src/providers/plane/provider.js'));
   });
 
   /**
@@ -632,10 +632,10 @@ describe('PlaneProvider.createTask module placement (Phase 57 module-placement g
 });
 
 describe('PlaneClient.addWorkItemToModule (Phase 57 module-placement gap-fix)', () => {
-  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;
   beforeEach(async () => {
-    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+    ({ PlaneClient } = await import('../../../src/providers/plane/client.js'));
   });
   const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
 
@@ -661,10 +661,10 @@ describe('PlaneClient.addWorkItemToModule (Phase 57 module-placement gap-fix)', 
 });
 
 describe('PlaneClient — B2 config.providers.plane.* (Phase 72 HYG-06)', () => {
-  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;
   beforeEach(async () => {
-    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+    ({ PlaneClient } = await import('../../../src/providers/plane/client.js'));
   });
 
   it('sin opts, lee base_url/workspace_slug de config.providers.plane (schema v2)', () => {
@@ -690,10 +690,10 @@ describe('PlaneClient — B2 config.providers.plane.* (Phase 72 HYG-06)', () => 
 });
 
 describe('PlaneClient.resolveIdentifier — B8 dígito interno en el prefijo (Phase 72 HYG-06)', () => {
-  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;
   beforeEach(async () => {
-    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+    ({ PlaneClient } = await import('../../../src/providers/plane/client.js'));
   });
   const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
 
@@ -735,10 +735,10 @@ describe('PlaneClient.resolveIdentifier — B8 dígito interno en el prefijo (Ph
 });
 
 describe('PlaneClient.createLabel — B12c predicado 409 estrecho (Phase 72 HYG-06)', () => {
-  /** @type {import('../src/providers/plane/client.js')['PlaneClient']} */
+  /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;
   beforeEach(async () => {
-    ({ PlaneClient } = await import('../src/providers/plane/client.js'));
+    ({ PlaneClient } = await import('../../../src/providers/plane/client.js'));
   });
   const CLIENT_OPTS = { baseUrl: 'https://test.example.com', apiKey: 'test-key', workspaceSlug: 'test' };
 
@@ -780,10 +780,10 @@ describe('updateTaskState — resolución case-insensitive de nombres de estado'
   // El lookup exacto por nombre rompía updateTaskState (backstop de SessionEnd) en los
   // proyectos cuya capitalización no coincidía con el config. byName normaliza a
   // lowercase (mismo criterio que moduleByName).
-  /** @type {import('../src/providers/plane/provider.js')['createPlaneProvider']} */
+  /** @type {import('../../../src/providers/plane/provider.js')['createPlaneProvider']} */
   let mkProvider;
   beforeEach(async () => {
-    ({ createPlaneProvider: mkProvider } = await import('../src/providers/plane/provider.js'));
+    ({ createPlaneProvider: mkProvider } = await import('../../../src/providers/plane/provider.js'));
   });
 
   /** Stub fetch que captura método+body de los PATCH y cuenta hits por sufijo. */

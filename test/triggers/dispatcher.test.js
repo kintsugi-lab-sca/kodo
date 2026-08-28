@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 
 /**
  * Build a fake TaskProvider with sensible defaults.
- * @param {Partial<import('../src/interface.js').TaskProvider>} overrides
+ * @param {Partial<import('../../src/interface.js').TaskProvider>} overrides
  */
 function createFakeProvider(overrides = {}) {
   return {
@@ -43,7 +43,7 @@ function createFakeProvider(overrides = {}) {
 
 // --- Mocking infrastructure ---
 
-/** @type {import('../src/interface.js').TaskProvider} */
+/** @type {import('../../src/interface.js').TaskProvider} */
 let fakeProvider;
 let launchWorkItemCalls = /** @type {any[]} */ ([]);
 let launchWorkItemResult = /** @type {any} */ ({
@@ -81,7 +81,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 1: valid TriggerEvent + kodo label -> calls launchWorkItem, returns launched', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
     const result = await dispatchTrigger(event, {}, {
@@ -102,7 +102,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 2: task WITHOUT kodo label -> returns ignored, does NOT call launchWorkItem', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const noKodoProvider = createFakeProvider({
       getTask: async () => ({
@@ -133,7 +133,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 3: force=true bypasses label check -> launches even without kodo label', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const noKodoProvider = createFakeProvider({
       getTask: async () => ({
@@ -167,7 +167,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 4: action=manual still checks labels by default (requires kodo label)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const noKodoProvider = createFakeProvider({
       getTask: async () => ({
@@ -198,7 +198,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 5: session already active + workspace alive -> returns already_active', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
     const result = await dispatchTrigger(event, {}, {
@@ -216,7 +216,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 6: session exists but workspace gone -> removes stale session, relaunches', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
     const result = await dispatchTrigger(event, {}, {
@@ -240,7 +240,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 7: model and flags from kodoConfig labels are forwarded to launchWorkItem opts', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const labelProvider = createFakeProvider({
       getTask: async () => ({
@@ -275,7 +275,7 @@ describe('dispatchTrigger', () => {
   });
 
   it('Test 8: model override from opts takes precedence over label-derived model', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
 
     const labelProvider = createFakeProvider({
       getTask: async () => ({
@@ -315,7 +315,7 @@ describe('dispatchTrigger — GSD lock guard (D-08)', () => {
   });
 
   it('returns gsd_locked when lock is held by another session', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const provider = createFakeProvider({
       getTask: async () => ({
         id: 'task-uuid-2',
@@ -348,7 +348,7 @@ describe('dispatchTrigger — GSD lock guard (D-08)', () => {
   });
 
   it('proceeds to launch when lock is acquired', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const provider = createFakeProvider({
       getTask: async () => ({
         id: 'task-uuid-3',
@@ -382,7 +382,7 @@ describe('dispatchTrigger — GSD lock guard (D-08)', () => {
   });
 
   it('skips lock guard for non-GSD tasks', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let lockCalled = false;
     const provider = createFakeProvider();
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
@@ -429,7 +429,7 @@ describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)'
   });
 
   it('D-1: acquireGsdLockFn receives a UUID v4 session_id, never `pending-...`', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let capturedLockInfo = null;
     const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
     await dispatchTrigger(event, {}, {
@@ -450,7 +450,7 @@ describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)'
   });
 
   it('D-2: sessionId passed to acquireGsdLockFn === opts.sessionId passed to launchWorkItemFn', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let lockSessionId = null;
     let launchSessionId = null;
     const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
@@ -476,7 +476,7 @@ describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)'
   });
 
   it('D-3 (WR-01): if launchWorkItemFn throws, releaseGsdLockFn is called with the acquire sessionId, error propagates', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let lockSessionId = null;
     let releaseArgs = null;
     const event = { taskRef: 'KL-501', action: 'state_change', provider: 'test', raw: {} };
@@ -503,7 +503,7 @@ describe('dispatchTrigger — CR-01 regression (session_id identity end-to-end)'
   });
 
   it('D-4 (WR-01 negative): non-GSD task — releaseGsdLockFn is NOT called even if launch throws', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let releaseCalled = false;
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
     await assert.rejects(
@@ -568,7 +568,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     const deps = makeDeps({
       verdict: { action: 'phase', phase_id: '9', match_heading: '### Phase 9: Phase Resolver + Bootstrap', match_reason: 'exact' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'launched');
     const { launchCalledWith } = deps._inspect();
@@ -580,7 +580,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     const deps = makeDeps({
       verdict: { action: 'bootstrap', reason: 'no-planning-dir' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const { launchCalledWith } = deps._inspect();
     assert.ok(launchCalledWith.brief, 'brief should be present');
@@ -592,7 +592,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     const deps = makeDeps({
       verdict: { action: 'error', code: 'no-match' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'resolver_failed');
     assert.equal(result.code, 'no-match');
@@ -605,7 +605,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     const deps = makeDeps({
       verdict: { action: 'error', code: 'multi-match', matches: ['Phase 1: Foo', 'Phase 2: Foo'] },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'resolver_failed');
     assert.equal(result.code, 'multi-match');
@@ -623,7 +623,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
     });
     deps.listSessionsFn = () => [{ task_id: 'task-uuid-9-1', workspace_ref: 'workspace:gone' }];
     deps.listWorkspacesFn = async () => ''; // empty workspace list → stale
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'stale_relaunch');
     const { launchCalledWith } = deps._inspect();
@@ -641,7 +641,7 @@ describe('dispatchTrigger — Phase 9 resolver integration', () => {
       resolverCalled = true;
       return { action: 'phase', phase_id: '9', match_heading: 'x', match_reason: 'x' };
     };
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(resolverCalled, false, 'resolver must not run for non-GSD tasks');
   });
@@ -695,7 +695,7 @@ describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () =>
     const deps = makeQuickDeps({
       verdict: { action: 'phase', phase_id: '9', match_heading: '### Phase 9: Foo', match_reason: 'exact' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'launched');
     const { launchCalledWith } = deps._inspect();
@@ -716,7 +716,7 @@ describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () =>
     const deps = makeQuickDeps({
       verdict: { action: 'error', code: 'no-match' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'launched', 'quick + no-match must NOT abort — continues to launch');
     const { launchCalledWith, releaseCalled } = deps._inspect();
@@ -736,7 +736,7 @@ describe('dispatchTrigger — QUICK-08 — quick mode resolver tolerance', () =>
     const deps = makeQuickDeps({
       verdict: { action: 'error', code: 'roadmap-missing', detail: 'no .planning/ROADMAP.md' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.equal(result.action, 'resolver_failed');
     assert.equal(result.code, 'roadmap-missing');
@@ -796,7 +796,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   const baseEvent = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
   it('Test 1 — worktree_collision shape (GSD): returns {action, code, detail} when path exists', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchCalled = false;
     const result = await dispatchTrigger(baseEvent, {}, {
       getProviderFn: () => makeFakeProvider(gsdTask()),
@@ -819,7 +819,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   });
 
   it('Test 2 — worktree_collision shape (non-GSD, D-06b): returns same shape, no lock involved', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchCalled = false;
     let lockCalled = false;
     const result = await dispatchTrigger(baseEvent, {}, {
@@ -841,7 +841,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   });
 
   it('Test 3 — lock release on collision (GSD): releaseGsdLockFn invoked exactly once before return', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let releaseArgs = null;
     let releaseCount = 0;
     let capturedLockSessionId = null;
@@ -870,7 +870,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   });
 
   it('Test 4 — no collision (GSD happy path): threads gsdSessionId to launchWorkItemFn', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchSessionId = null;
     let lockSessionId = null;
     const result = await dispatchTrigger(baseEvent, {}, {
@@ -896,7 +896,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   });
 
   it('Test 5 — no collision (non-GSD happy path): threads a freshly-generated sessionId', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchSessionId = null;
     const result = await dispatchTrigger(baseEvent, {}, {
       getProviderFn: () => makeFakeProvider(nonGsdTask()),
@@ -922,7 +922,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     const { fileURLToPath } = await import('node:url');
     const { dirname, join } = await import('node:path');
     const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, '..', 'src', 'triggers', 'dispatcher.js'), 'utf-8');
+    const src = readFileSync(join(here, '..', '..', 'src', 'triggers', 'dispatcher.js'), 'utf-8');
     assert.ok(
       /@returns[\s\S]{0,400}worktree_collision/.test(src),
       'dispatchTrigger @returns union must include worktree_collision',
@@ -934,7 +934,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     // gsd_locked y resolver_failed también usan console.log. Si en el futuro
     // se migran TODOS los canonicals a stderr (tech-debt v0.6), actualizar
     // este test en consecuencia.
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const originalLog = console.log;
     const captured = [];
     console.log = (...args) => { captured.push(args.join(' ')); };
@@ -967,7 +967,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     // gsdSessionId — null en non-GSD — saltándose el collision-check.
     // Tras el fix debe threadear dispatchSessionId (UUID v4 validado por
     // collision-check, no null).
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchSessionId = 'NOT_SET';
     const result = await dispatchTrigger(baseEvent, {}, {
       getProviderFn: () => makeFakeProvider(nonGsdTask()),
@@ -998,7 +998,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
   });
 
   it('Test 8 — graceful: when resolveProjectPathFn throws, collision check is skipped (heredado v0.5)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let launchCalled = false;
     let existsSyncCalled = false;
     // resolveProjectPath throws → dispatchProjectPath null → skip collision check
@@ -1025,7 +1025,7 @@ describe('dispatchTrigger — Phase 18 worktree_collision (D-05, D-05b, D-06b)',
     // Direct helper test (Phase 22 fallback per RESEARCH.md IN-02 strategy):
     // assert sobre el helper gsdPhaseResolved importado de logger-events.js, invocado
     // con memSink minimal. No acopla al DI shape de dispatchTrigger.
-    const { gsdPhaseResolved, EVENTS } = await import('../src/logger-events.js');
+    const { gsdPhaseResolved, EVENTS } = await import('../../src/logger-events.js');
     const records = [];
     const sinkLogger = {
       info: (msg, fields) => records.push({ level: 'info', msg, fields }),
@@ -1102,14 +1102,14 @@ describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
 
   it('REPORT-01: returns {action:"ignored", code:"gsd_child"} for kodo:gsd-child task', async () => {
     const deps = makeDeps({ task: childTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
   });
 
   it('REPORT-01: filter cuts BEFORE acquireGsdLock / resolvePhase / launchWorkItem (D-06)', async () => {
     const deps = makeDeps({ task: childTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const { acquireCalled, resolveCalled, launchCalledWith, removeCalled } = deps._inspect();
     assert.equal(acquireCalled, false, 'acquireGsdLock must not be called');
@@ -1120,7 +1120,7 @@ describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
 
   it('REPORT-01: filter applies even under opts.force:true (D-07 hard safety)', async () => {
     const deps = makeDeps({ task: childTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, { force: true }, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
     const { acquireCalled, resolveCalled, launchCalledWith } = deps._inspect();
@@ -1132,7 +1132,7 @@ describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
   it('REPORT-01: filter applies when kodo:gsd-child + kodo:gsd both present (success criterion 2 — child wins structural)', async () => {
     const bothTask = { ...childTask, labels: ['kodo:gsd-child', 'kodo:gsd'] };
     const deps = makeDeps({ task: bothTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'gsd_child' });
   });
@@ -1141,7 +1141,7 @@ describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
     const lines = [];
     t.mock.method(console, 'log', (msg) => { lines.push(String(msg)); });
     const deps = makeDeps({ task: childTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const filterLine = lines.find((l) => /\[kodo:dispatch\] Ignored —/.test(l) && /gsd-child/i.test(l));
     assert.ok(filterLine, `expected [kodo:dispatch] Ignored — ... gsd-child line. Got:\n${lines.join('\n')}`);
@@ -1154,7 +1154,7 @@ describe('REPORT-01 — kodo:gsd-child anti-recursion filter', () => {
       task: gsdTask,
       verdict: { action: 'phase', phase_id: '1', match_heading: '### Phase 1: x', match_reason: 'exact' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const { resolveCalled } = deps._inspect();
     assert.equal(resolveCalled, true, 'kodo:gsd (without -child) must reach the resolver');
@@ -1253,14 +1253,14 @@ describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
 
   it('BIDIR-06: returns {action:"ignored", code:"adopted"} for kodo:adopted task', async () => {
     const deps = makeDeps({ task: adoptedTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
   });
 
   it('BIDIR-06: filter cuts BEFORE acquireGsdLock / resolvePhase / launchWorkItem (D-02)', async () => {
     const deps = makeDeps({ task: adoptedTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const { acquireCalled, resolveCalled, launchCalledWith, removeCalled } = deps._inspect();
     assert.equal(acquireCalled, false, 'acquireGsdLock must not be called');
@@ -1271,7 +1271,7 @@ describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
 
   it('BIDIR-06: filter applies even under opts.force:true (D-02 hard safety — --force does NOT bypass)', async () => {
     const deps = makeDeps({ task: adoptedTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, { force: true }, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
     const { acquireCalled, resolveCalled, launchCalledWith } = deps._inspect();
@@ -1283,7 +1283,7 @@ describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
   it('BIDIR-06: filter applies when kodo:adopted + kodo:gsd both present (marker wins, Pitfall 1)', async () => {
     const bothTask = { ...adoptedTask, labels: ['kodo:adopted', 'kodo:gsd'] };
     const deps = makeDeps({ task: bothTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const result = await dispatchTrigger(baseEvent, {}, deps);
     assert.deepEqual(result, { action: 'ignored', code: 'adopted' });
   });
@@ -1292,7 +1292,7 @@ describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
     const lines = [];
     t.mock.method(console, 'log', (msg) => { lines.push(String(msg)); });
     const deps = makeDeps({ task: adoptedTask });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const filterLine = lines.find((l) => /\[kodo:dispatch\] Ignored —/.test(l) && /adopted/i.test(l));
     assert.ok(filterLine, `expected [kodo:dispatch] Ignored — ... adopted line. Got:\n${lines.join('\n')}`);
@@ -1305,7 +1305,7 @@ describe('BIDIR-06 — kodo:adopted anti-recursion filter', () => {
       task: gsdTask,
       verdict: { action: 'phase', phase_id: '1', match_heading: '### Phase 1: x', match_reason: 'exact' },
     });
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     await dispatchTrigger(baseEvent, {}, deps);
     const { resolveCalled } = deps._inspect();
     assert.equal(resolveCalled, true, 'kodo:gsd (without adopted) must reach the resolver');
@@ -1392,7 +1392,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('lock-timeout → el veredicto trae code cleanup_lock_timeout (no una limpieza silenciosa)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps(() => ({ ok: false, reason: 'lock-timeout' })));
@@ -1403,7 +1403,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('limpieza persistida → cleaned SIN code (el camino feliz no cambia)', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps((id) => {
@@ -1417,7 +1417,7 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
   });
 
   it('un mutador que devuelve undefined (contrato previo a WR-01) se trata como éxito', async () => {
-    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
 
     const result = await dispatchTrigger(event, {}, baseDeps(() => undefined));

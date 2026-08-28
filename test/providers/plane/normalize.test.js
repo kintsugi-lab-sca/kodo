@@ -7,13 +7,13 @@ import {
   parseTriggerEvent,
   stripHtml,
   resolveWorkItemLabels,
-} from '../src/providers/plane/normalize.js';
+} from '../../../src/providers/plane/normalize.js';
 
-import workItemFixture from './fixtures/plane-workitem.json' with { type: 'json' };
-import webhookFixture from './fixtures/plane-webhook.json' with { type: 'json' };
-import labelsFixture from './fixtures/plane-labels.json' with { type: 'json' };
+import workItemFixture from '../../fixtures/plane-workitem.json' with { type: 'json' };
+import webhookFixture from '../../fixtures/plane-webhook.json' with { type: 'json' };
+import labelsFixture from '../../fixtures/plane-labels.json' with { type: 'json' };
 
-/** @type {import('../src/providers/plane/normalize.js').NormalizeContext} */
+/** @type {import('../../../src/providers/plane/normalize.js').NormalizeContext} */
 const defaultContext = {
   labels: labelsFixture,
   projectIdentifier: 'KL',

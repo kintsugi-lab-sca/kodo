@@ -1,7 +1,7 @@
 // @ts-check
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resetReplayCache } from '../src/triggers/replay-cache.js';
+import { resetReplayCache } from '../../src/triggers/replay-cache.js';
 
 // KODO-46: la caché anti-replay es de PROCESO y este fichero entrega decenas de webhooks
 // con bodies repetidos entre casos, que la caché tomaría por replays. Se limpia entre
@@ -13,7 +13,7 @@ beforeEach(() => {
 
 /**
  * Build a fake TaskProvider for webhook tests.
- * @param {Partial<import('../src/interface.js').TaskProvider>} overrides
+ * @param {Partial<import('../../src/interface.js').TaskProvider>} overrides
  */
 function createFakeProvider(overrides = {}) {
   return {
@@ -38,7 +38,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 1: valid signature + recognized event -> calls dispatchTrigger, returns 200', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const provider = createFakeProvider();
     const body = JSON.stringify({ event: 'issue', action: 'updated', data: { id: '1' } });
@@ -62,7 +62,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 2: invalid signature -> returns 401, does NOT call dispatchTrigger', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const provider = createFakeProvider({
       verifySignature: () => false,
@@ -84,7 +84,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 3: invalid JSON -> returns 400', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const provider = createFakeProvider();
     const body = 'not-json{{{';
@@ -104,7 +104,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 4: parseTriggerEvent returns null (unrecognized) -> returns 200 with ignored:true', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const provider = createFakeProvider({
       parseTriggerEvent: () => null,
@@ -127,7 +127,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 5: calls provider.verifySignature(rawBody, headers)', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     let verifyArgs = /** @type {any} */ (null);
     const provider = createFakeProvider({
@@ -150,7 +150,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 6: calls provider.parseTriggerEvent(payload)', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     let parseArg = /** @type {any} */ (null);
     const payload = { event: 'issue', action: 'updated', data: { id: '42' } };
@@ -173,7 +173,7 @@ describe('handleWebhookRequest', () => {
   });
 
   it('Test 7: dispatch errors are caught and logged, do not affect HTTP response', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const provider = createFakeProvider();
     const body = JSON.stringify({ event: 'issue', action: 'updated' });
@@ -218,7 +218,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   }
 
   it('acepta: emite webhook.received con provider, action, task_ref y bytes', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
     const provider = createFakeProvider();
     const body = JSON.stringify({ event: 'issue', action: 'updated' });
@@ -241,7 +241,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   });
 
   it('firma inválida: emite webhook.rejected reason=signature (warn) y NO received', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
     const provider = createFakeProvider({ verifySignature: () => false });
 
@@ -261,7 +261,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   });
 
   it('JSON roto: emite webhook.rejected reason=parse', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
 
     await handleWebhookRequest('not-json{{{', {}, createFakeProvider(), {
@@ -275,7 +275,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   });
 
   it('evento no despachable: emite webhook.rejected reason=payload (no silencio)', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
     const provider = createFakeProvider({ parseTriggerEvent: () => null });
 
@@ -293,7 +293,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   });
 
   it('el audit NUNCA persiste el body — solo su tamaño', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
     const body = JSON.stringify({ event: 'issue', secret_field: 'hunter2' });
 
@@ -307,7 +307,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
   });
 
   it('un logger que lanza no cambia el status ni el body de la respuesta', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const exploding = {
       info: () => { throw new Error('sink caído'); },
       warn: () => { throw new Error('sink caído'); },
@@ -338,7 +338,7 @@ describe('KODO-28: handleWebhookRequest emite el audit estructurado', () => {
 
 describe('KODO-34: classifyDispatchError', () => {
   it('Plane API 5xx → transitorio', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     // Forma EXACTA que lanza PlaneClient.request (client.js:76).
     assert.equal(classify(new Error('Plane API 503: /projects/p/work-items/ — service unavailable')), 'transient');
     assert.equal(classify(new Error('Plane API 500: /projects/p/ — ')), 'transient');
@@ -347,13 +347,13 @@ describe('KODO-34: classifyDispatchError', () => {
   });
 
   it('429 y 408 → transitorio (el servidor pide explícitamente el reintento)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new Error('Plane API 429: /projects/p/ — slow down')), 'transient');
     assert.equal(classify(new Error('Plane API 408: /projects/p/ — request timeout')), 'transient');
   });
 
   it('4xx del cliente → permanente (reintentar no cambia nada)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new Error('Plane API 404: /projects/p/ — not found')), 'permanent');
     assert.equal(classify(new Error('Plane API 401: /projects/p/ — unauthorized')), 'permanent');
     assert.equal(classify(new Error('Plane API 400: /projects/p/ — bad request')), 'permanent');
@@ -361,14 +361,14 @@ describe('KODO-34: classifyDispatchError', () => {
   });
 
   it('errores de config → permanente (el caso KODO-10: evita la tormenta de reintentos)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new Error('No configured project with identifier "UNKNOWN"')), 'permanent');
     assert.equal(classify(new Error('Invalid task ref: xx. Expected format: KL-42')), 'permanent');
     assert.equal(classify(new Error('Plane API key not found. Set PLANE_API_KEY env var.')), 'permanent');
   });
 
   it('códigos de red de Node → transitorio, incluso anidados en err.cause', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(Object.assign(new Error('connect'), { code: 'ECONNREFUSED' })), 'transient');
     assert.equal(classify(Object.assign(new Error('reset'), { code: 'ECONNRESET' })), 'transient');
     assert.equal(classify(Object.assign(new Error('dns'), { code: 'EAI_AGAIN' })), 'transient');
@@ -379,28 +379,28 @@ describe('KODO-34: classifyDispatchError', () => {
   });
 
   it('ENOTFOUND → permanente (una base_url mal configurada falla igual en cada reintento)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(Object.assign(new Error('dns'), { code: 'ENOTFOUND' })), 'permanent');
   });
 
   it('abort/timeout del AbortSignal de PlaneClient → transitorio', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(Object.assign(new Error('aborted'), { name: 'AbortError' })), 'transient');
     assert.equal(classify(Object.assign(new Error('timed out'), { name: 'TimeoutError' })), 'transient');
   });
 
   it('`fetch failed` sin cause utilizable → transitorio (fallo de red de undici)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new TypeError('fetch failed')), 'transient');
   });
 
   it('un status explícito gana al match por mensaje: un 404 cuyo body dice "fetch failed" es permanente', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new Error('Plane API 404: /projects/p/ — fetch failed')), 'permanent');
   });
 
   it('desconocido → permanente (default-closed)', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     assert.equal(classify(new Error('dispatch boom')), 'permanent');
     assert.equal(classify(null), 'permanent');
     assert.equal(classify(undefined), 'permanent');
@@ -408,7 +408,7 @@ describe('KODO-34: classifyDispatchError', () => {
   });
 
   it('never-throws ante una cadena de causes cíclica', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     const a = /** @type {any} */ (new Error('a'));
     const b = /** @type {any} */ (new Error('b'));
     a.cause = b;
@@ -417,7 +417,7 @@ describe('KODO-34: classifyDispatchError', () => {
   });
 
   it('never-throws ante un getter hostil en la cadena', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     const hostile = new Error('boom');
     Object.defineProperty(hostile, 'code', { get() { throw new Error('getter hostil'); } });
     assert.equal(classify(hostile), 'permanent');
@@ -426,14 +426,14 @@ describe('KODO-34: classifyDispatchError', () => {
   it('never-throws cuando el getter hostil está en `cause` (el avance de la cadena)', async () => {
     // Si el throw escapara, subiría hasta server.js y el webhook contestaría un 400
     // espurio en vez de decidir 200/503.
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     const hostile = new Error('boom');
     Object.defineProperty(hostile, 'cause', { get() { throw new Error('getter hostil'); } });
     assert.equal(classify(hostile), 'permanent');
   });
 
   it('un transitorio anidado a profundidad 2 sigue detectándose', async () => {
-    const { classifyDispatchError: classify } = await import('../src/triggers/webhook.js');
+    const { classifyDispatchError: classify } = await import('../../src/triggers/webhook.js');
     const outer = /** @type {any} */ (new Error('launch failed'));
     const middle = /** @type {any} */ (new TypeError('fetch failed'));
     middle.cause = Object.assign(new Error('connect'), { code: 'ETIMEDOUT' });
@@ -452,7 +452,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   }
 
   it('fallo transitorio (Plane 503) → responde 503 para que Plane reintente', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
@@ -466,7 +466,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('fallo transitorio de red (ECONNREFUSED anidado en err.cause) → 503', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
@@ -481,7 +481,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('fallo permanente (proyecto no configurado) → sigue en 200: no hay nada que reintentar', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
@@ -495,7 +495,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('el 503 NUNCA filtra el err.message al body (NET-04)', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
@@ -509,7 +509,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('emite webhook.dispatch.retry (warn) con provider, task_ref y error truncado a 200 chars', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
 
     await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
@@ -532,7 +532,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('un fallo permanente NO emite webhook.dispatch.retry', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const logger = makeSpyLogger();
 
     await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
@@ -548,7 +548,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('un logger que lanza no impide el 503', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     const exploding = {
       info: () => { throw new Error('sink caído'); },
       warn: () => { throw new Error('sink caído'); },
@@ -566,7 +566,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('dispatch lento: la ventana de gracia vence → 200 inmediato y el dispatch sigue vivo', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
     /** @type {any} */
     let openGate;
     const gate = new Promise((r) => { openGate = r; });
@@ -591,7 +591,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   it('un fallo transitorio TARDÍO (fuera de la ventana) no tumba el proceso ni cambia el 200', async () => {
     // Regresión del unhandled rejection: `settled` absorbe el error aunque gane el timer.
     // Sin esa absorción, el rejection tardío mataría el daemon (--unhandled-rejections=throw).
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
@@ -608,7 +608,7 @@ describe('KODO-34: handleWebhookRequest traduce el fallo de dispatch a status HT
   });
 
   it('dispatchGraceMs:0 → fire-and-forget puro (vía de escape al contrato previo)', async () => {
-    const { handleWebhookRequest } = await import('../src/triggers/webhook.js');
+    const { handleWebhookRequest } = await import('../../src/triggers/webhook.js');
 
     const result = await handleWebhookRequest('{"event":"issue"}', {}, createFakeProvider(), {
       logger: null,
