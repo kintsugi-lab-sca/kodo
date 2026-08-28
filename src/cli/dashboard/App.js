@@ -50,183 +50,156 @@
 //
 // Color-isolation (D-12): todo el color sale de props de <Text> de ink; cero import del helper
 // de color del CLI clásico / picocolors. Markup via React.createElement plano (no JSX, no build).
+//
+// ─── KODO-40: reparto de responsabilidades ──────────────────────────────────────────────────
+// App.js era un monolito de ~2100 LOC con 15 sub-máquinas de teclado en un único `useInput`.
+// Los modos con estado propio viven ahora en módulos hermanos, cada uno con SU copy literal y
+// SU(s) handler(s) puro(s) que reciben un `ctx` (el mismo estado + setters que antes capturaban
+// por closure). App.js conserva: el estado, el poll, el pipeline de derivación, el modo LISTA +
+// FILTRO + la rama dismiss del confirm, y el render raíz.
+//
+//   SetupWizard.js    — mode:'setup' (wizard first-run de 4 pasos)          + SETUP_*
+//   OverlayViewer.js  — mode:'overlay' (c/l/L/p) + sus aperturas            + OVERLAY_*
+//   AdoptPicker.js    — picker `a`, mode:'deriving', rama adopt del confirm + ADOPT_*/DERIVE_*
+//   ConfigEditor.js   — mode:'config' y 'config-edit'                       + CONFIG_*/API_KEY_*
+//   ProjectsEditor.js — los 7 modos `projects*` (2 hops async)              + PROJECTS_*
+//
+// Las constantes de esos módulos se RE-EXPORTAN desde aquí (abajo): `SessionTable.js` y los
+// tests `dashboard-*` / `app-*` siguen importándolas de App.js exactamente igual que antes.
+// El RENDER de todos los overlays sigue viviendo en SessionTable.js (sin cambios).
 
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { createElement, useCallback, useEffect, useRef, useState } from 'react';
-import { fetchStatus, fetchComments, fetchLogs, dismissSession, openOrchestrator } from './client.js';
+import { fetchStatus } from './client.js';
 import { usePoll } from './usePoll.js';
-import {
-  sortSessions,
-  applyFilter,
-  parseFilter,
-  resolveSelection,
-  countByStatus,
-  grepLogs,
-  mapDismissResult,
-  deriveAnyGsd,
-  deriveAnyProgress,
-  deriveAnyNext,
-  computeAdoptable,
-  resolveProjectId,
-} from './select.js';
-import { deriveRepo } from './format.js';
-import { stripControlChars } from '../sanitize.js';
-import { readPlan } from './plan.js';
-import { readGsdProgress } from './progress.js';
 import { readTasks } from './tasks.js';
 import { readOpenCaptureCount } from './inbox-count.js';
 import { readPendingIntegrationCount } from './queue-count.js';
-import { existsSync } from 'node:fs';
-import { computeRealWorktreePath } from '../../session/state.js';
-import { resolvePhase } from '../../gsd/resolver.js';
+// KODO-40: pipeline de derivación de filas (sort → enrich → flags → filtro → selección).
+import { deriveRows } from './rows.js';
+// KODO-40: sub-máquinas de teclado extraídas (ver cabecera). Se importan ANTES de SessionTable
+// para que sus módulos estén evaluados cuando el ciclo App↔SessionTable (preexistente) resuelva
+// los re-exports de más abajo.
+import { handleSetupInput } from './SetupWizard.js';
+import {
+  handleOverlayInput,
+  openCommentsOverlay,
+  openLogsOverlay,
+  openLogsAllOverlay,
+  openPlanOverlay,
+} from './OverlayViewer.js';
+import { openAdoptPicker, handleDerivingInput, handleAdoptConfirmInput } from './AdoptPicker.js';
+import {
+  DEFAULT_EDITOR_CONFIG,
+  openConfigEditor,
+  handleConfigInput,
+  handleConfigEditInput,
+} from './ConfigEditor.js';
+import { runProjectsFetch as runProjectsFetchImpl, handleProjectsInput } from './ProjectsEditor.js';
+import {
+  focusRow,
+  openRow,
+  focusOrchestrator,
+  armDismiss,
+  handleDismissConfirmInput,
+} from './RowActions.js';
 import SessionTable from './SessionTable.js';
-import { getEditableFields, validateField, getByPath, setByPath } from '../../config-validate.js';
-// Phase 64 Plan 02 (PROJ-02): validador de ruta-directorio never-throws (módulo adyacente, NO
-// config-validate.js que es 0-I/O — Plan 01). Corre ANTES de saveProjectsFn (T-64-06).
-import { validateExistingDir } from '../../path-validate.js';
-// Phase 64 Plan 02 (D-06): helpers PUROS de forma dual de projects.json (Plan 01). Preservan
-// EXACTAMENTE `string | { default, modules }` que consumen manager.js/adopt.js (T-64-07).
-import { setProjectPath, removeProjectMapping, getProjectPath } from '../../projects-shape.js';
-// Phase 64 Plan 03 (PROJ-04/D-05): helpers de MÓDULOS de forma dual (Plan 01). setModulePath
-// materializa `{ default, modules:{[name]:ruta} }` preservando default y los otros módulos (D-06);
-// getModuleMap lee el mapeo actual de un módulo para precargar el text-input. Ambos PUROS/never-throws.
-import { setModulePath, getModuleMap } from '../../projects-shape.js';
 
-// Phase 37 D-05: mensajes literal-estables del footer-error rojo. Constantes EXPORTADAS
-// para que los tests las importen y asseren equality sin duplicar strings (espejo del
-// patrón Phase 34 NON_TTY_MSG). Cualquier cambio aquí rompe los tests automáticamente —
-// elimina drift entre código y assert.
-export const FOCUS_ERR_ZOMBIE = '[!] workspace gone (alive=false) — press any key';
-export const FOCUS_ERR_ENOENT = '[!] cmux not found in PATH — press any key';
-/**
- * Mensaje paramétrico cuando `runFocus` resuelve con NON_ZERO_EXIT o SPAWN_ERROR. `code`
- * viene de `result.detail` (number en NON_ZERO_EXIT, string/undefined en SPAWN_ERROR);
- * cuando es undefined, el handler pasa la string `'unknown'`.
- * @param {number|string} code
- */
-export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) — press any key`;
-
-// Phase 39 D-07/D-04: copy literal-estable de los dos overlays auxiliares (comentarios + logs).
-// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo patrón
-// que FOCUS_ERR_*). SessionTable.js (Task 2) también las importa para matar el drift
-// code/render. OVERLAY_LOGS_LABEL es LOAD-BEARING (D-04, SC#3): declara honestamente que el grep
-// corre sobre un buffer compartido sin session_id — no es cosmética.
-export const OVERLAY_COMMENTS_EMPTY = 'no comments yet';
-export const OVERLAY_COMMENTS_NOT_FOUND = 'task not found';
-export const OVERLAY_COMMENTS_ERROR = 'error fetching comments';
-// D-08 (TUI-15): mensaje DISTINTO de OVERLAY_COMMENTS_EMPTY. Cuando el server señala
-// `supported:false`, el provider no implementa listComments (estado permanente) — no es
-// que la tarea no tenga comentarios aún. Literal-estable, redundancia textual (legible bajo
-// NO_COLOR, no depende del color para distinguirse del caso vacío).
-export const OVERLAY_COMMENTS_UNSUPPORTED = 'comments not supported by this provider';
-export const OVERLAY_LOGS_EMPTY = 'no log lines match this session';
-export const OVERLAY_LOGS_ERROR = 'error fetching logs';
-export const OVERLAY_LOGS_LABEL = 'grep of shared buffer — may include other sessions';
-// Vista de log GENERAL (`L`): el buffer compartido COMPLETO, sin grep por sesión — para
-// debug del daemon (webhooks, dispatch, lifecycle). La etiqueta es honesta igual que la de
-// `l`: declara que es el buffer compartido con TODOS los eventos (no filtrado).
-export const OVERLAY_LOGS_ALL_LABEL = 'shared buffer — all daemon events (newest first)';
-export const OVERLAY_LOGS_ALL_EMPTY = 'no log lines in buffer yet';
-
-// Phase 44 D-07 (PLAN-02): copy literal-estable del overlay de plan GSD (`p`), espejo léxico de
-// OVERLAY_COMMENTS_*. EXPORTADAS para que tests y SessionTable.js las importen sin duplicar strings
-// (mismo patrón que OVERLAY_COMMENTS_*). El contrato es "DISTINTA por caso" + "honesta" (D-07): el
-// operador distingue de un vistazo "no es GSD / no hay fase" de "la fase aún no tiene PLAN.md" de
-// "es quick pero aún no escribió su plan" de "hubo un error leyendo". Las tres primeras son
-// informativas (dim); ERROR es un fallo real (rojo).
-// Redundancia textual: legibles bajo NO_COLOR, no dependen del color para distinguirse.
-//
-// Phase 46 D-04 (PLAN-04): cuarto caso — sesión quick/non-GSD cuyo artefacto de plan ligero
-// (`~/.kodo/plans/<task_id>.md`) aún no existe (ENOENT). Es NORMAL y esperado (latest-wins: la
-// sesión puede no haber corrido la instrucción todavía), NO un fallo → dim, no rojo. DISTINTA de
-// NO_PHASE ("no es GSD") y de NO_PLAN ("fase sin PLAN.md", GSD-specific que mentiría sobre quick).
-export const OVERLAY_PLAN_NO_PHASE = 'not a GSD session / no phase resolved';
-export const OVERLAY_PLAN_NO_PLAN = 'phase has no PLAN.md yet';
-export const OVERLAY_PLAN_NO_LIGHT = 'session has not written a plan yet';
-export const OVERLAY_PLAN_ERROR = 'error reading plan';
-
-// Phase 42 D-02/D-04/D-09 (DISMISS-02/03/04): copy literal-estable del flujo de dismiss.
-// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
-// patrón que FOCUS_ERR_* / OVERLAY_*). SessionTable.js las importa para matar el drift
-// code/render. La LITERAL copy es el contrato (UI-SPEC §Copywriting); los nombres son guía.
-//
-// DISMISS_GUARD_ALIVE (red) es el guard INVERSO del Enter (alive===true): `d` jamás descarta
-// una sesión viva (DISMISS-04, SC#2). DISMISS_CONFIRM (cyan) es el armed prompt PERSISTENTE
-// (no transitorio, D-03: no hay timer que limpiar). El resto son mensajes transitorios del
-// footer (clear-on-any-input, D-12), con el matiz derivado de actions[] (D-09), no de un color.
-export const DISMISS_GUARD_ALIVE = '[!] session is alive — only dead sessions can be dismissed';
-/** @param {string} taskRef */
-export const DISMISS_CONFIRM = (taskRef) => `dismiss ${taskRef}? press d again · Esc cancel`;
-/** @param {string} taskRef */
-export const DISMISS_OK = (taskRef) => `dismissed ${taskRef}`;
-/** @param {string} taskRef */
-export const DISMISS_PARTIAL_DIRTY = (taskRef) => `dismissed ${taskRef} — worktree preserved (.dirty)`;
-/** @param {string} taskRef */
-export const DISMISS_PARTIAL_WARN = (taskRef) => `dismissed ${taskRef} — completed with warnings`;
-/** @param {string|number} reason */
-export const DISMISS_ERR = (reason) => `[!] dismiss failed (${reason}) — press any key`;
-
-// Phase 48 D-01/D-02/D-05 (OPEN-01/02/03): copy literal-estable del flujo open-in-manager (`o`).
-// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
-// patrón que FOCUS_ERR_* / DISMISS_*). El éxito (OPEN_OK) clona la forma de DISMISS_OK: verde,
-// con ref, SIN prefijo `[!]` — el `o` no produce otro cambio visible en la TUI, así que un
-// footer verde transitorio confirma el lanzamiento (D-01/D-02, diverge del silencio de focus.js).
-//
-// OPEN_ERR_NO_URL es LOCKED (D-05 / SC#2): es la fila sin task_url, un NO-OP benigno (no un
-// error). Por eso NO lleva `[!]` ni `— press any key` — es deliberadamente bare. NO "arreglar"
-// para que matchee el formato de error: la copy es el contrato (UI-SPEC §Copywriting).
-//
-// El resto (ENOENT / BAD_PROTOCOL / openErrFailed) son errores reales → formato `[!] … — press
-// any key`, espejo de FOCUS_ERR_*. OPEN_OK usa el ellipsis de un solo carácter `…` (no `...`).
-/** @param {string} ref */
-export const OPEN_OK = (ref) => `opening ${ref}…`;
-export const OPEN_ERR_NO_URL = 'no task URL for this session';
-export const OPEN_ERR_ENOENT = '[!] open not found in PATH — press any key';
-export const OPEN_ERR_BAD_PROTOCOL = '[!] refused non-http(s) URL — press any key';
-/** @param {number|string} code */
-export const openErrFailed = (code) => `[!] open failed (code ${code}) — press any key`;
-
-// Tecla `O`: ENFOCAR el orquestador (workspace cmux `kodo-orchestrator`). Copy literal-estable,
-// mismo patrón que OPEN_* / FOCUS_*. Contrato resolve-only: el server NO lanza el orquestador
-// (el daemon no tiene TTY / cmux fiable), solo resuelve su ref. Por eso hay tres desenlaces:
-//   ORCH_OK       (verde) — ref resuelto → enfocado.
-//   ORCH_NOT_RUNNING (rojo) — el orquestador no corre → hint accionable `kodo orchestrate`.
-//   ORCH_ERR      (rojo, `[!]`) — la red/HTTP falló (reason honesto en el footer).
-export const ORCH_OK = 'opening orchestrator…';
-export const ORCH_NOT_RUNNING = 'orchestrator not running — run: kodo orchestrate';
-/** @param {string} reason */
-export const ORCH_ERR = (reason) => `[!] orchestrator failed (${reason}) — press any key`;
-
-// Phase 56 D-03/D-05/D-07 (DETECT-02): copy literal-estable del flujo adopt (tecla `a`).
-// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
-// patrón que FOCUS_ERR_* / DISMISS_* / OPEN_*). La LITERAL copy es el contrato (UI-SPEC
-// §Copywriting); los nombres son guía.
-//
-// ADOPT_NONE (informativo, no error): el host no soporta listAgentSurfaces o no hay surfaces
-//   adoptables → footer informativo, mode SIGUE en list (NO abre picker, D-02/D-03). Sin `[!]`.
-// ADOPT_CONFIRM (cyan): armed prompt PERSISTENTE del double-confirm (espejo léxico de
-//   DISMISS_CONFIRM, armado por sessionId — D-04). Se deriva de mode==='confirm' + armedSessionId
-//   (NO de focusError), así el clear-on-any-input no consume el segundo `a` (Pitfall 2/4).
-// ADOPT_OK (verde): éxito transitorio, clona la forma de OPEN_OK (ellipsis de un char `…`, sin `[!]`).
-// ADOPT_NO_PROJECT (rojo, D-05): el reverse-lookup cwd→projectId falló (none/ambiguous) → NO se
-//   shellea; falla ruidoso hacia el escape-hatch del CLI (echo del cwd al TTY local, T-56-08 accept).
-// ADOPT_ERR_ENOENT / adoptErrFailed (rojo): errores reales del shell de `kodo adopt` (espejo OPEN_*).
-export const ADOPT_NONE = 'no adoptable sessions found';
-/** @param {string} ref */
-export const ADOPT_CONFIRM = (ref) => `adopt ${ref}? press a again · Esc cancel`;
-/** @param {string} ref */
-export const ADOPT_OK = (ref) => `adopted ${ref}…`;
-// ADOPT_ALREADY (ámbar/yellow, 56-03): el núcleo devolvió ALREADY_ADOPTED — `kodo adopt` sale 0
-// (idempotente por diseño) pero NO crea fila nueva. Distinto del verde ADOPT_OK para que el
-// footer no mienta ("no ha hecho nada" UAT blocker). Sin `[!]`: no es un error, es un no-op.
-/** @param {string} ref */
-export const ADOPT_ALREADY = (ref) => `already adopted ${ref}`;
-/** @param {string} cwd */
-export const ADOPT_NO_PROJECT = (cwd) =>
-  `[!] no/ambiguous project for ${cwd} — use kodo adopt --project <id>`;
-export const ADOPT_ERR_ENOENT = '[!] kodo not found — press any key';
-/** @param {number|string} code */
-export const adoptErrFailed = (code) => `[!] adopt failed (code ${code}) — press any key`;
+// KODO-40: RE-EXPORTS de compatibilidad. La copy literal-estable de cada modo vive ahora en su
+// módulo, pero App.js sigue siendo su punto de import público — `SessionTable.js` y los ~10 tests
+// `dashboard-*` / `app-*` no cambian ni una línea. Cambiar el literal en su módulo sigue rompiendo
+// los asserts automáticamente (la propiedad anti-drift original se conserva intacta).
+export {
+  OVERLAY_COMMENTS_EMPTY,
+  OVERLAY_COMMENTS_NOT_FOUND,
+  OVERLAY_COMMENTS_ERROR,
+  OVERLAY_COMMENTS_UNSUPPORTED,
+  OVERLAY_LOGS_EMPTY,
+  OVERLAY_LOGS_ERROR,
+  OVERLAY_LOGS_LABEL,
+  OVERLAY_LOGS_ALL_LABEL,
+  OVERLAY_LOGS_ALL_EMPTY,
+  OVERLAY_PLAN_NO_PHASE,
+  OVERLAY_PLAN_NO_PLAN,
+  OVERLAY_PLAN_NO_LIGHT,
+  OVERLAY_PLAN_ERROR,
+  OVERLAY_VIEWPORT,
+} from './OverlayViewer.js';
+export {
+  ADOPT_NONE,
+  ADOPT_CONFIRM,
+  ADOPT_OK,
+  ADOPT_ALREADY,
+  ADOPT_NO_PROJECT,
+  ADOPT_ERR_ENOENT,
+  adoptErrFailed,
+  DERIVE_PROGRESS,
+  ADOPT_DERIVED_CONFIRM,
+  ADOPT_DERIVED_CONFIRM_FALLBACK,
+} from './AdoptPicker.js';
+export {
+  CONFIG_OVERLAY_TITLE,
+  CONFIG_SAVED_RESTART,
+  CONFIG_SAVE_FAILED,
+  API_KEY_LABEL,
+  API_KEY_CONFIGURED,
+  API_KEY_UNSET,
+  API_KEY_SAVED_RESTART,
+  API_KEY_SAVE_FAILED,
+  API_KEY_INVALID,
+  API_KEY_NO_RAWMODE,
+} from './ConfigEditor.js';
+export {
+  SETUP_OVERLAY_TITLE,
+  SETUP_INTRO,
+  SETUP_STEP_PROVIDER,
+  SETUP_STEP_BASE_URL,
+  SETUP_STEP_WORKSPACE,
+  SETUP_STEP_APIKEY,
+  SETUP_PROVIDER_LABEL,
+  SETUP_PROVIDER_HINT,
+  SETUP_GITHUB_REDIRECT,
+  SETUP_BASE_URL_LABEL,
+  SETUP_WORKSPACE_LABEL,
+  SETUP_COMPLETE_RESTART,
+  SETUP_WEBHOOK_NOTE,
+  SETUP_NO_RAWMODE,
+  SETUP_INVALID,
+  SETUP_SAVE_FAILED,
+  SETUP_PROVIDERS,
+} from './SetupWizard.js';
+export {
+  PROJECTS_OVERLAY_TITLE,
+  PROJECTS_LOADING,
+  PROJECTS_UNMAPPED,
+  PROJECTS_SAVED_RESTART,
+  PROJECTS_SAVE_FAILED,
+  PROJECTS_REMOVED,
+  PROJECTS_LOAD_FAILED,
+  PROJECTS_MODULES_TITLE,
+  PROJECTS_NO_MODULES,
+  PROJECTS_DISPATCH_TAG,
+  PROJECTS_MAPPED_ONLY_TAG,
+} from './ProjectsEditor.js';
+export {
+  FOCUS_ERR_ZOMBIE,
+  FOCUS_ERR_ENOENT,
+  focusErrFailed,
+  DISMISS_GUARD_ALIVE,
+  DISMISS_CONFIRM,
+  DISMISS_OK,
+  DISMISS_PARTIAL_DIRTY,
+  DISMISS_PARTIAL_WARN,
+  DISMISS_ERR,
+  OPEN_OK,
+  OPEN_ERR_NO_URL,
+  OPEN_ERR_ENOENT,
+  OPEN_ERR_BAD_PROTOCOL,
+  openErrFailed,
+  ORCH_OK,
+  ORCH_NOT_RUNNING,
+  ORCH_ERR,
+} from './RowActions.js';
 
 // Phase 69 Plan 03 (NET-02, D-08): mensaje literal-estable del estado 401 "no autorizado".
 // EXPORTADO para que tests y SessionTable.js lo importen y asseren equality sin duplicar strings
@@ -235,146 +208,6 @@ export const adoptErrFailed = (code) => `[!] adopt failed (code ${code}) — pre
 // {yellow (recomendado), red}, jamás cyan/green). El 401 es una degradación VISIBLE y accionable
 // (revisa el token en ~/.kodo/.env) — nunca una pantalla vacía silenciosa (D-08).
 export const UNAUTHORIZED_MESSAGE = '⚠ no autorizado — revisa KODO_API_TOKEN';
-
-// Phase 62 D-08/D-09 (ORCH-02): copy literal-estable del flujo derive-then-confirm de la tecla `a`.
-// EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo patrón
-// que ADOPT_* de Phase 56). La LITERAL copy es el contrato (UI-SPEC §Copywriting, español); los
-// nombres son guía. Mezcla consciente de idioma (las ADOPT_* de Phase 56 quedan en inglés, las
-// nuevas en español — aceptado por UI-SPEC).
-//
-// DERIVE_PROGRESS (dimColor, spinner NEUTRAL): estado transitorio `mode==='deriving'` mientras
-//   onDerive corre. dimColor (NO cyan, reservado al prompt armado). Ellipsis `…` (un char, NO `...`).
-// ADOPT_DERIVED_CONFIRM (cyan): confirm CON propuesta derivada (espejo léxico de ADOPT_CONFIRM, pero
-//   precedido de las líneas título:/desc: en SessionTable). Se deriva de mode==='confirm' +
-//   armedSessionId + armedSurface.title presente.
-// ADOPT_DERIVED_CONFIRM_FALLBACK (cyan): confirm DEGRADADO (fail-open T4) — onDerive resolvió {} o
-//   sin title → NO se renderizan líneas título:/desc:; el copy avisa "(título por defecto)". NO rojo.
-export const DERIVE_PROGRESS = 'derivando título…';
-/** @param {string} ref */
-export const ADOPT_DERIVED_CONFIRM = (ref) => `adoptar ${ref}? pulsa a de nuevo · Esc cancela`;
-/** @param {string} ref */
-export const ADOPT_DERIVED_CONFIRM_FALLBACK = (ref) =>
-  `adoptar ${ref} (título por defecto)? pulsa a de nuevo · Esc cancela`;
-
-// Phase 63 D-10/D-12/UX-01 (Plan 02): copy literal-estable del editor de config. EXPORTADAS para que
-// los tests y SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón que
-// OVERLAY_* / DISMISS_* / ADOPT_*). La LITERAL copy es el contrato (UI-SPEC §Copywriting, español).
-//
-// CONFIG_OVERLAY_TITLE: cabecera del overlay de configuración (UX-01/D-02).
-// CONFIG_SAVED_RESTART (ámbar/yellow, PERSIST-03/D-10): aviso transitorio tras guardar con éxito —
-//   los procesos vivos (server/daemon) no recargan en caliente, hay que reiniciarlos para aplicar.
-// CONFIG_SAVE_FAILED (rojo, UX-04/D-12): la escritura falló; el config.json previo queda intacto
-//   (never-throws, PERSIST-05). Va en configEditError (estado dedicado), no en focusError (Pitfall 2).
-export const CONFIG_OVERLAY_TITLE = 'configuración de kodo';
-export const CONFIG_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
-export const CONFIG_SAVE_FAILED = '[!] no se pudo guardar la config — el archivo previo quedó intacto';
-
-// Phase 67 Plan 02 (SETUP-03/04 — masked API-key field, D-05/D-06/D-07/D-09). Copy literal-estable
-// EXPORTADA para que tests y SessionTable.js la importen y asseren equality sin duplicar strings
-// (mismo patrón CONFIG_*/PROJECTS_*). La API key vive en un renglón DEDICADO del overlay de config
-// (append tras los 12 campos de getEditableFields — los secretos NUNCA entran a config.json ni a
-// getEditableFields; PERSIST-04 intacto). El renglón enruta el save a `onSaveApiKey` → `writeEnvVar`.
-//   - API_KEY_LABEL: etiqueta del renglón (NUNCA el nombre de la env var ni el valor — Pitfall 11).
-//   - API_KEY_CONFIGURED / API_KEY_UNSET: indicador de PRESENCIA (D-09) — jamás el valor.
-//   - API_KEY_SAVED_RESTART (ámbar): aviso transitorio tras guardar — sin hot-reload, hay que reiniciar.
-//   - API_KEY_SAVE_FAILED (rojo): writeEnvVar devolvió false (fallo I/O) — el .env previo quedó intacto.
-//   - API_KEY_INVALID (rojo): la key/valor no pasó validateEnvKey/validateEnvValue (Pitfall 14).
-//   - API_KEY_NO_RAWMODE (dim): degradación non-TTY (Pitfall 16) — never-throws, no cuelga el first-run.
-export const API_KEY_LABEL = 'API key del provider';
-export const API_KEY_CONFIGURED = '[configurado]';
-export const API_KEY_UNSET = '[sin configurar]';
-export const API_KEY_SAVED_RESTART = 'API key guardada — reinicia el server/daemon para aplicar';
-export const API_KEY_SAVE_FAILED = '[!] no se pudo guardar la API key — el .env previo quedó intacto';
-export const API_KEY_INVALID = 'API key inválida (no puede estar vacía ni contener espacios, # o =)';
-export const API_KEY_NO_RAWMODE = 'Usa `kodo config` para editar la API key';
-
-// Phase 68 Plan 02 (SETUP-01/02, D-04/D-05/D-06/D-08/D-12/D-13): copy literal-estable del MODO SETUP
-// (onboarding first-run, pantalla guiada lineal de 4 pasos). EXPORTADAS para que tests y
-// SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/
-// API_KEY_*/PROJECTS_*). Español. NUNCA incluyen el valor del secreto ni el nombre de la env var en
-// ninguna cadena user-facing (Pitfall 11). El literal de SETUP_COMPLETE_RESTART preserva D-08 (SC#4).
-export const SETUP_OVERLAY_TITLE = 'configuración inicial de kodo';
-export const SETUP_INTRO = 'Bienvenido a kodo. Configura tu provider para empezar.';
-export const SETUP_STEP_PROVIDER = 'paso 1/4 · provider';
-export const SETUP_STEP_BASE_URL = 'paso 2/4 · base_url';
-export const SETUP_STEP_WORKSPACE = 'paso 3/4 · workspace_slug';
-export const SETUP_STEP_APIKEY = 'paso 4/4 · API key';
-export const SETUP_PROVIDER_LABEL = 'provider activo';
-export const SETUP_PROVIDER_HINT = '↑/↓ para elegir · Enter para confirmar';
-export const SETUP_GITHUB_REDIRECT = 'GitHub se configura con `kodo config` — el asistente guiado cubre solo Plane';
-export const SETUP_BASE_URL_LABEL = 'base_url';
-export const SETUP_WORKSPACE_LABEL = 'workspace_slug';
-export const SETUP_COMPLETE_RESTART = 'config guardada — reinicia kodo (`kodo up`) para aplicar';
-export const SETUP_WEBHOOK_NOTE = 'nota: el webhook secret del provider se configura por fuera del asistente';
-export const SETUP_NO_RAWMODE = 'Terminal no interactiva — usa `kodo config` para completar la configuración inicial';
-export const SETUP_INVALID = 'valor inválido (no puede estar vacío ni contener espacios, # o =)';
-export const SETUP_SAVE_FAILED = '[!] no se pudo guardar — el archivo previo quedó intacto';
-
-// Phase 68 Plan 02 (D-05/D-06): los dos providers ofrecidos por el guiado. `plane` continúa el
-// wizard estructural; `github` se remite a `kodo config` (D-06) — cero gate estructural en el guiado.
-export const SETUP_PROVIDERS = ['plane', 'github'];
-
-// Phase 64 Plan 02 (D-01/D-02/D-07): copy literal-estable del editor de PROYECTOS. EXPORTADAS para
-// que los tests las importen y asseren equality sin duplicar strings (mismo patrón CONFIG_*/OVERLAY_*).
-// SessionTable.js (Task 3) también las importa → mata el drift code/render.
-//   - PROJECTS_OVERLAY_TITLE / PROJECTS_LOADING: cabecera + estado transitorio del fetch async.
-//   - PROJECTS_UNMAPPED: estado de fila sin ruta (espejo del wizard `cli.js:667`).
-//   - PROJECTS_SAVED_RESTART (ámbar): aviso transitorio tras guardar — el server/daemon no recarga
-//     en caliente (PERSIST-03/D-06). Va en focusError/footerColor (transitorio, ya de vuelta en projects).
-//   - PROJECTS_REMOVED(ref) (ámbar): feedback de quitar un mapeo (PROJ-03).
-//   - PROJECTS_SAVE_FAILED (rojo): la escritura local falló; projects.json previo intacto (defensa en
-//     profundidad — saveProjects es síncrono atómico). Va en projectsEditError (estado dedicado).
-//   - PROJECTS_LOAD_FAILED(reason) (rojo): el fetch de la lista remota falló — dirige projects-error
-//     con la pista de teclas r/Esc (PROJ-05/D-07). LOAD-BEARING: distingue 0-proyectos de error de red.
-export const PROJECTS_OVERLAY_TITLE = 'proyectos de kodo';
-export const PROJECTS_LOADING = 'cargando proyectos…';
-export const PROJECTS_UNMAPPED = '[sin mapear]';
-export const PROJECTS_SAVED_RESTART = 'guardado — reinicia el server/daemon para aplicar los cambios';
-export const PROJECTS_SAVE_FAILED = '[!] no se pudo guardar projects.json — el archivo previo quedó intacto';
-/** @param {string} ref - identifier del proyecto cuyo mapeo se quitó. */
-export const PROJECTS_REMOVED = (ref) => `mapeo de ${ref} quitado — reinicia el server/daemon para aplicar`;
-/** @param {string} reason - mensaje del fallo de fetch (red/timeout/HTTP). */
-export const PROJECTS_LOAD_FAILED = (reason) =>
-  `[!] no se pudo cargar la lista de proyectos (${reason}) — r reintentar · Esc salir`;
-
-// Phase 64 Plan 03 (PROJ-04/D-05): copy literal-estable del sub-editor de MÓDULOS. EXPORTADAS para
-// que tests y SessionTable.js las importen y asseren equality sin duplicar strings (mismo patrón
-// PROJECTS_*). El soporte de módulos es un SEGUNDO hop async (listModulesFn) espejo del wizard
-// (`cli.js:700-740`).
-//   - PROJECTS_MODULES_TITLE: cabecera del sub-overlay de módulos.
-//   - PROJECTS_NO_MODULES (informativo, no error): el provider no expone módulos (GitHub) o la lista
-//     viene vacía → footer no-op, never-throws, se vuelve a la lista de proyectos sin abrir el
-//     sub-overlay (espejo `cli.js:711-714`). Se muestra vía focusError en mode:'projects' (transitorio).
-export const PROJECTS_MODULES_TITLE = 'módulos del proyecto';
-export const PROJECTS_NO_MODULES = 'este provider no tiene módulos';
-
-// KODO-10: tags de estado de DISPATCH por proyecto en el overlay. El dashboard listaba TODOS los
-// proyectos del workspace (listProjects) con el mapeo de projects.json superpuesto, sin distinguir
-// los que el daemon REALMENTE despacha (los de config.providers.<provider>.projects) de los que
-// solo están mapeados — la trampa del caso SCP (mapeado pero no configurado → webhooks a UNKNOWN).
-//   - PROJECTS_DISPATCH_TAG (verde): el proyecto está en config → el daemon despacha sus webhooks.
-//   - PROJECTS_MAPPED_ONLY_TAG (ámbar): mapeado en projects.json pero AUSENTE de config → sus
-//     webhooks morirán con "No configured project" (UNKNOWN). Ejecuta `kodo doctor`.
-export const PROJECTS_DISPATCH_TAG = '⚡ dispatch';
-export const PROJECTS_MAPPED_ONLY_TAG = '⚠ solo-mapeado';
-
-// Default INERTE de loadConfigFn para los tests del módulo sin DI (el runtime real inyecta `loadConfig`
-// de src/config.js, y los tests de integración inyectan su propio fixture). Shape mínimo que satisface
-// getEditableFields (provider + los 12 paths editables) — sin secretos. NO es la fuente de verdad de
-// runtime, solo evita un crash si App se renderiza sin la prop.
-const DEFAULT_EDITOR_CONFIG = {
-  provider: 'plane',
-  providers: { plane: { states: { trigger: 'In Progress', review: 'In review', done: 'Done' } } },
-  cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
-  claude: { default_model: 'opus', orchestrator_model: 'fable', max_parallel: 3 },
-  server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
-};
-
-// Phase 39 D-06: altura del viewport del body scrollable del overlay. ÚNICA fuente de verdad —
-// SessionTable.js la importa para el slice del render y App.js la usa para el clamp de scrollOffset
-// (sin esto, el clamp y el render divergen: WR-01). El snapshot congelado se sliceа
-// [scrollOffset, scrollOffset+VIEWPORT) → el render nunca pinta miles de líneas (mitiga T-39-04).
-export const OVERLAY_VIEWPORT = 18;
 
 /**
  * Componente root del dashboard TUI.
@@ -404,71 +237,43 @@ export const OVERLAY_VIEWPORT = 18;
  *   `runOpen({exec, url})`. El handler de `o` lo `await`a tras el guard no-URL (D-05) y mapea
  *   `result.code` a OPEN_ERR_ENOENT / OPEN_ERR_BAD_PROTOCOL / openErrFailed; en éxito muestra
  *   el footer verde OPEN_OK (D-01/D-02). SIN guard alive (D-04: alive/zombie/dismissed por igual).
+ *
+ * KODO-40 — los callbacks DI de abajo los CONSUME una sub-máquina extraída, no App. App solo los
+ * declara (siguen siendo props del componente) y los mete en el `ctx` del router de teclado. El
+ * porqué de cada contrato (guards, orden, fail-open, pitfalls) vive junto al código que lo aplica,
+ * en el módulo indicado — aquí queda el contrato mínimo: tipo, semántica y default.
+ *
  * @param {() => Promise<Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>>} [props.onAdoptDiscover]
- *   Phase 56 D-01/D-03: callback never-throws inyectado por `runDashboard` (index.js) que invoca
- *   `host.listAgentSurfaces()` typeof-gated (fail-open a `[]` si el host no lo soporta). El handler
- *   de `a` lo `await`a, diffea contra el snapshot vivo de `/status` (computeAdoptable, D-02) y abre
- *   el picker overlay con las adoptables; vacío/unsupported → footer ADOPT_NONE, mode sigue list.
+ *   → AdoptPicker.js. `host.listAgentSurfaces()` typeof-gated, never-throws (fail-open a `[]`).
  * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
- *   Phase 56 D-06/D-07: callback never-throws inyectado por `runDashboard` que invoca
- *   `runAdopt({exec, execPath, kodoBin, ...})`. El segundo `a` del double-confirm lo `await`a y mapea
- *   `result.code` a ADOPT_OK (verde) / ADOPT_ERR_ENOENT / adoptErrFailed (rojo). never-throws (D-07).
- *   Phase 62 ORCH-02: el `args` lleva ahora `title`/`description` derivados por onDerive (fusión).
+ *   → AdoptPicker.js. `runAdopt({exec, execPath, kodoBin, …})`, never-throws (discriminado `{ok}`).
  * @param {(args: { cwd: string, sessionId: string }) => Promise<{ title?: string, description?: string }>} [props.onDerive]
- *   Phase 62 D-08/D-11 (ORCH-02): callback never-throws inyectado por `runDashboard` (index.js) que
- *   invoca `deriveAdoptionMeta(...)` (Plan 01). El handler `a` del picker entra en `mode==='deriving'`
- *   y lo `await`a entre el armado y el confirm; el `{title, description}` resuelto se fusiona en
- *   `armedSurface` (T4 fail-open a {} conserva surface.title). Never-throws — el panel sigue montado.
+ *   → AdoptPicker.js. `deriveAdoptionMeta(…)`, never-throws (fail-open a `{}`).
  * @param {Record<string, string>} [props.projects]
- *   Phase 56 D-05: mapa `projectId → path` (de `loadProjects()`, inyectado por index.js). El reverse-
- *   lookup `resolveProjectId(surface.cwd, projects)` resuelve el `--project` del adopt al armar;
- *   none/ambiguous → footer ADOPT_NO_PROJECT y NO se shellea. Default `{}` (tests del módulo sin DI).
+ *   → AdoptPicker.js. Mapa `projectId → path` de `loadProjects()`; alimenta el reverse-lookup
+ *   cwd→projectId del `--project`. Default `{}` (tests del módulo sin DI).
  * @param {() => any} [props.loadConfigFn]
- *   Phase 63 D-09 (Plan 02): lee el snapshot de config al abrir el editor (`e`). Inyectado por
- *   `runDashboard` (Plan 03) con `loadConfig` de src/config.js. El handler `e` lo deep-clona
- *   (`structuredClone`, Pitfall 1) antes de editar — NUNCA muta el objeto devuelto (su spread
- *   superficial `{...DEFAULT_CONFIG}` aliasea el DEFAULT_CONFIG del módulo). Default inerte para
- *   tests del módulo sin DI (espejo de onAdopt/onDerive).
+ *   → ConfigEditor.js / SetupWizard.js. Snapshot de config al abrir. SIEMPRE se deep-clona antes de
+ *   editar (Pitfall 1). Default `DEFAULT_EDITOR_CONFIG` (inerte, sin secretos).
  * @param {(config: any) => Promise<{ ok: boolean, error?: any }>} [props.onSaveConfig]
- *   Phase 63 D-10/UX-04 (Plan 02): escribe el config editado, never-throws. Inyectado por
- *   `runDashboard` con un wrapper de `saveConfig` (escritura atómica temp+rename, PERSIST-05). El
- *   Enter de config-edit lo `await`a tras validar; `{ok:false}` → footer CONFIG_SAVE_FAILED (el
- *   archivo previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
+ *   → ConfigEditor.js / SetupWizard.js. Wrapper never-throws de `saveConfig` (atómico temp+rename).
  * @param {(key: string, value: string) => Promise<{ ok: boolean, error?: any }>} [props.onSaveApiKey]
- *   Phase 67 D-05 (Plan 02, SETUP-03): escribe la API key del provider a `~/.kodo/.env`, never-throws.
- *   Inyectado por `runDashboard` con un wrapper de `writeEnvVar` (atómico + chmod 0600 pre-rename,
- *   Plan 01) que además actualiza `process.env[key]` (cache) para que el indicador `[configurado]` se
- *   refleje al instante. Escritura EN-PROCESO SIEMPRE, jamás shell-out (`execFile kodo …` — Pitfall 11).
- *   El Enter del renglón de API key en config-edit lo `await`a; `{ok:false}` → footer API_KEY_SAVE_FAILED
- *   (el .env previo queda intacto). Default `async () => ({ ok: true })` (tests del módulo sin DI).
+ *   → ConfigEditor.js / SetupWizard.js. Wrapper never-throws de `writeEnvVar` (atómico + chmod 0600
+ *   pre-rename) que además refresca `process.env[key]`. Escritura EN-PROCESO SIEMPRE, jamás
+ *   shell-out (Pitfall 11).
  * @param {(providerName?: string) => boolean} [props.isApiKeyConfiguredFn]
- *   Phase 67 D-09 (Plan 02, SETUP-04): prueba de PRESENCIA de la API key (jamás el valor — Pitfall 11).
- *   Inyectado con `isApiKeyConfigured` de src/config.js; el overlay lo consulta al render para pintar
- *   `[configurado]` / `[sin configurar]`. Default `() => false` (tests del módulo sin DI).
+ *   Prueba de PRESENCIA de la API key (JAMÁS el valor — Pitfall 11); la consulta el render de
+ *   SessionTable para pintar `[configurado]`/`[sin configurar]`. Default `() => false`.
  * @param {() => Promise<{ ok: true, projects: Array<{ id: string, identifier: string, name: string }> } | { ok: false, error: string }>} [props.listProjectsFn]
- *   Phase 64 D-01/D-08 (Plan 02, PROJ-01/05): fetch async de la lista de proyectos del provider.
- *   Inyectado por `runDashboard` (Plan 04) con un wrapper NEVER-THROWS que devuelve un DISCRIMINADO
- *   `{ok}` (NO fail-open a `[]` como onDerive — necesario para distinguir 0-proyectos de error de
- *   red, PROJ-05/A4). El handler `m` lo `await`a bajo un guard de request-token (projectsReqRef):
- *   `{ok:true}` → mode:'projects'; `{ok:false}` → mode:'projects-error'. Default inerte para tests
- *   del módulo sin DI.
+ *   → ProjectsEditor.js. 1.er hop async. DISCRIMINADO `{ok}` (NO fail-open a `[]` como onDerive:
+ *   distinguir 0-proyectos de error de red es LOAD-BEARING, PROJ-05/A4).
  * @param {() => Record<string, any>} [props.loadProjectsFn]
- *   Phase 64 D-08 (Plan 02): lee el mapa local `projects.json` (100% local, never-throws → `{}`).
- *   Se fusiona con la lista remota en el snapshot CONGELADO al abrir. Inyectado con `loadProjects`
- *   de src/config.js. Default `() => ({})` (tests del módulo sin DI).
+ *   → ProjectsEditor.js. Mapa local `projects.json` (100% local, never-throws → `{}`).
  * @param {(map: Record<string, any>) => void} [props.saveProjectsFn]
- *   Phase 64 D-06/D-08 (Plan 02, PROJ-02/03): persiste el mapa editado (síncrono atómico vía
- *   `saveProjects`/`writeFileAtomic`). Solo se llama en los carriles de ESCRITURA (editar ruta
- *   válida, quitar mapeo) — JAMÁS en projects-error (carril de LECTURA, PROJ-05). Default inerte.
+ *   → ProjectsEditor.js. Persiste el mapa editado (síncrono atómico). Solo en carriles de ESCRITURA.
  * @param {(projectId: string) => Promise<{ ok: true, modules: Array<{ id: string, name: string }> } | { ok: false, error: string }>} [props.listModulesFn]
- *   Phase 64 D-05 (Plan 03, PROJ-04): SEGUNDO hop async — lista los módulos de un proyecto del
- *   provider. ASIMETRÍA (RESEARCH Pattern 4): `listModules` NO está en el contrato TaskProvider, solo
- *   en PlaneClient — el cableado CONDICIONAL (plane sí, github no) vive en index.js (Plan 04); App solo
- *   consume el DISCRIMINADO `{ok}` (espejo de listProjectsFn, NO fail-open). El handler `m` de
- *   mode:'projects' lo `await`a bajo el MISMO guard de request-token (projectsReqRef, Pitfall 3 — dos
- *   hops, un ref dedicado): `{ok:true, modules:[...]}` → mode:'projects-modules'; `{ok:true, modules:[]}`
- *   (github/sin módulos) → footer PROJECTS_NO_MODULES no-op; `{ok:false}` → footer error. Todo
- *   never-throws. Default inerte `async () => ({ ok: true, modules: [] })` (tests del módulo sin DI).
+ *   → ProjectsEditor.js. 2.º hop async, espejo de listProjectsFn. ASIMETRÍA: `listModules` NO está
+ *   en el contrato TaskProvider, solo en PlaneClient — el cableado condicional vive en index.js.
  * @returns {import('react').ReactElement}
  */
 export default function App({
@@ -568,20 +373,16 @@ export default function App({
   const [armedTaskId, setArmedTaskId] = useState(/** @type {string | null} */ (null));
   const [armedTaskRef, setArmedTaskRef] = useState(/** @type {string | null} */ (null));
 
-  // Phase 56 D-04 (DETECT-02): target ARMADO del confirm de ADOPT, capturado por IDENTIDAD
-  // (sessionId de la surface elegida — NUNCA un índice ni un snapshot de fila). Es un estado
-  // SEPARADO de armedTaskId/armedTaskRef (el dismiss arma por task_id; la surface ad-hoc NO es una
-  // fila de /status → no tiene task_id). Pitfall 2: la rama mode==='confirm' rutea la segunda tecla
-  // por cuál armed-id está set (armedSessionId → `a` ejecuta adopt; armedTaskId → `d` ejecuta
-  // dismiss). `armedSurface` stashea {workspaceRef,cwd,sessionId,projectId} resuelto al armar, para
-  // pasárselo a onAdopt en el confirm sin re-resolver. `null` cuando no hay adopt armado.
+  // Phase 56 D-03/D-04 (DETECT-02) — estado del carril ADOPT (lógica en AdoptPicker.js).
+  // armedSessionId/armedSurface son estado SEPARADO de armedTaskId/armedTaskRef: el dismiss arma
+  // por task_id, la surface ad-hoc NO es una fila de /status y no tiene task_id. Pitfall 2: la
+  // rama mode==='confirm' rutea la segunda tecla por cuál armed-id está set (armedSessionId → `a`
+  // ejecuta adopt; armedTaskId → `d` ejecuta dismiss). adoptCursor es el cursor SELECCIONABLE del
+  // picker (distinto de scrollOffset, que es lectura).
   const [armedSessionId, setArmedSessionId] = useState(/** @type {string | null} */ (null));
   const [armedSurface, setArmedSurface] = useState(
     /** @type {{ workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string } | null} */ (null),
   );
-  // Phase 56 D-03/Pitfall 3: cursor SELECCIONABLE del picker de adopt (índice clamped sobre
-  // overlaySnapshot.adoptable, [0, len-1] sin wrap — molde de resolveSelection). Distinto de
-  // scrollOffset (lectura): ↑/↓ MUEVEN este cursor cuando overlaySnapshot.kind==='adopt'.
   const [adoptCursor, setAdoptCursor] = useState(0);
 
   // Phase 36: lista cruda de sesiones (keep-last-good en fallo, misma disciplina que lastGoodCount)
@@ -597,21 +398,21 @@ export default function App({
   const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup'} */ (setup ? 'setup' : 'list'));
   const [query, setQuery] = useState('');
 
-  // Phase 68 Plan 02 (SETUP-01/02, D-04/D-05): sub-máquina del modo setup (wizard lineal de 4 pasos).
-  //   - setupStep: paso activo del guiado. 'complete' es el estado terminal (aviso de reinicio honesto,
-  //     D-08) tras guardar la API key — reusa el text-input (buffer/cursor/maskValue) de config-edit y
-  //     el configSnapshot congelado para los saves estructurales (structuredClone + setByPath).
-  //   - providerCursor: cursor del selector de provider (índice sobre SETUP_PROVIDERS, clamp sin wrap).
+  // Phase 68 Plan 02 (SETUP-01/02) — estado del wizard first-run (lógica en SetupWizard.js).
+  // 'complete' es el estado TERMINAL (aviso de reinicio honesto, D-08). El wizard REUSA el
+  // text-input (buffer/cursor/maskValue) y el configSnapshot de config-edit — cero estado propio
+  // más allá de estos dos. providerCursor indexa SETUP_PROVIDERS con clamp sin wrap.
   const [setupStep, setSetupStep] = useState(/** @type {'provider' | 'base_url' | 'workspace_slug' | 'apikey' | 'complete'} */ ('provider'));
   const [providerCursor, setProviderCursor] = useState(0);
 
-  // Phase 63 Plan 02 (UX-01/02, D-01/D-03/D-04/D-05): estado del editor de config.
-  //   - configSnapshot: clon CONGELADO del config al abrir (`e` → structuredClone(loadConfigFn()),
-  //     Pitfall 1). Todas las ediciones mutan SOLO clones de este objeto, jamás DEFAULT_CONFIG.
-  //   - fieldCursor: índice del campo seleccionado en mode:'config' (clamp [0, fields.length-1]).
-  //   - buffer/cursor: text-input controlado de mode:'config-edit' (inserción en `cursor`, NO append).
-  //   - configEditError: error de validación/escritura. Estado DEDICADO (NO focusError) — el
-  //     clear-on-any-input (línea ~510) consumiría la siguiente tecla si fuera focusError (Pitfall 2).
+  // Phase 63 Plan 02 (UX-01/02) — estado del editor de config (lógica en ConfigEditor.js), COMPARTIDO
+  // con el wizard de setup y con el editor de proyectos:
+  //   - configSnapshot: clon CONGELADO al abrir (structuredClone, Pitfall 1). Toda edición muta SOLO
+  //     clones de este objeto, jamás DEFAULT_CONFIG.
+  //   - fieldCursor: campo/fila seleccionada (clamp sin wrap). Lo reusan projects y projects-modules.
+  //   - buffer/cursor: text-input controlado (inserción EN `cursor`, NO append ciego).
+  //   - configEditError: error de validación/escritura. Estado DEDICADO, NO focusError — el
+  //     clear-on-any-input de más abajo consumiría la siguiente tecla si fuera focusError (Pitfall 2).
   const [configSnapshot, setConfigSnapshot] = useState(/** @type {any} */ (null));
   const [fieldCursor, setFieldCursor] = useState(0);
   const [buffer, setBuffer] = useState('');
@@ -628,60 +429,44 @@ export default function App({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setup]);
 
-  // Phase 67 Plan 02 (SETUP-03, D-05/D-06/Pitfall 11): flag de RENDER del text-input enmascarado.
-  // `maskValue === true` SOLO mientras se edita el renglón de API key en config-edit → SessionTable
-  // deriva `•` por carácter (el buffer sigue guardando el VALOR REAL en memoria; solo la pintura se
-  // enmascara). Se pone a `true` al entrar al renglón de API key y a `false` al salir (save/cancel) o
-  // al entrar a cualquier campo normal — así ningún campo no-secreto se enmascara por estado colgado.
+  // Phase 67 Plan 02 (SETUP-03, Pitfall 11): flag de RENDER del text-input enmascarado. `true` SOLO
+  // mientras se edita el renglón de API key → SessionTable deriva `•` por carácter (el buffer sigue
+  // guardando el VALOR REAL en memoria; solo la PINTURA se enmascara). Se apaga al salir o al entrar
+  // a cualquier campo normal — ningún campo no-secreto se enmascara por estado colgado.
   const [maskValue, setMaskValue] = useState(false);
 
-  // Phase 64 Plan 02 (D-01/D-02/D-07): estado del editor de PROYECTOS (carril async).
-  //   - projectsSnapshot: { remote, map } CONGELADO al abrir (la lista remota fusionada con el mapa
-  //     local de loadProjectsFn). null cuando el editor está cerrado. El poll /status sigue por
-  //     debajo sin tocar este snapshot (molde overlaySnapshot, D-04 de 63).
-  //   - projectsError: mensaje del fallo de fetch (string|null). Dirige projects-error. Estado
-  //     DEDICADO (NO focusError) — el clear-on-any-input consumiría la tecla `r`/Esc (Pitfall 2).
-  //   - projectsEditError: error de validación de ruta / escritura inline (string|null). Estado
-  //     DEDICADO (NO focusError ni projectsError) — la siguiente tecla edita, no limpia (Pitfall 2).
-  // Reusa `fieldCursor` (cursor de la lista, clamp sin wrap) y `buffer`/`cursor` (text-input).
-  // Phase 64 Plan 03 (PROJ-04): el snapshot se EXTIENDE (no se duplica estado) con la lista de
-  // MÓDULOS congelada + el activeProjectId al abrir el sub-editor de módulos (2º hop). `fieldCursor`
-  // se reutiliza para la lista de módulos (se reinicia a 0 al entrar). Ambos campos son opcionales:
-  // sólo están presentes mientras el sub-overlay de módulos está abierto.
+  // Phase 64 Plan 02/03 — estado del editor de PROYECTOS/MÓDULOS (lógica en ProjectsEditor.js).
+  //   - projectsSnapshot: { remote, map, dispatch } CONGELADO al abrir; el poll /status sigue por
+  //     debajo sin tocarlo. Se EXTIENDE (no se duplica estado) con { modules, activeProjectId } al
+  //     abrir el sub-editor de módulos (2.º hop) — ambos opcionales, solo presentes mientras está
+  //     abierto. Reusa `fieldCursor` para la lista y `buffer`/`cursor` para el text-input.
+  //   - projectsError / projectsEditError: estados DEDICADOS (ni focusError ni el uno al otro) — si
+  //     fueran focusError, el clear-on-any-input consumiría la tecla `r`/Esc o la de edición (Pitfall 2).
   const [projectsSnapshot, setProjectsSnapshot] = useState(
     /** @type {{ remote: Array<{ id: string, identifier: string, name: string }>, map: Record<string, any>, modules?: Array<{ id: string, name: string }>, activeProjectId?: string } | null} */ (null),
   );
   const [projectsError, setProjectsError] = useState(/** @type {string | null} */ (null));
   const [projectsEditError, setProjectsEditError] = useState(/** @type {string | null} */ (null));
   const prevIndexRef = useRef(0);
-  // Phase 39 CR-01: token de generación de apertura de overlay. Los handlers `c`/`l` son async
-  // (await fetch). Si el operador encola un segundo `c`/`l` o cierra con Esc mientras una request
-  // está en vuelo, el setMode('overlay') del post-await reabriría un overlay obsoleto. Cada apertura
-  // toma un reqId incrementando este ref; al cerrar (Esc) o reabrir, el ref avanza e invalida la
-  // request en vuelo, que tras el await comprueba `overlayReqRef.current !== reqId` y se descarta.
+  // DOS tokens de generación, deliberadamente SEPARADOS (Phase 39 CR-01 + Phase 64 Anti-pattern):
+  //   - overlayReqRef: aperturas async de overlay (c/l/L), picker de adopt y deriving. Cada apertura
+  //     toma un reqId incrementándolo; al cerrar con Esc o reabrir, el ref avanza y la request en
+  //     vuelo se descarta tras el await (`ref.current !== reqId`) en vez de reabrir un overlay obsoleto.
+  //   - projectsReqRef: DEDICADO a los dos hops del editor de proyectos. NO reusa overlayReqRef — un
+  //     Esc en projects-loading que lo avanzara invalidaría un overlay c/l legítimo en vuelo.
   const overlayReqRef = useRef(0);
-
-  // Phase 64 Plan 02 (D-01, RESEARCH Anti-pattern): token de generación DEDICADO del carril de
-  // proyectos. NO reusa overlayReqRef (lo comparten c/l/adopt/deriving): un Esc en projects-loading
-  // que avanzara overlayReqRef invalidaría un overlay c/l legítimo en vuelo. Cada apertura/retry de
-  // listProjectsFn toma un reqId incrementando este ref; tras el await se descarta si quedó obsoleto
-  // (Esc o 2ª apertura durante el fetch — T-64-08 staleness, molde deriving T5).
   const projectsReqRef = useRef(0);
 
-  // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa por session_id → último
-  // { n, m, completed } leído con status 'ok' (re-keyed en 50.1 desde task_id, ver DG-07 más
-  // abajo: el enrich hace .set(sessionId) / .get(sessionId)). Vive en un useRef (memoria entre polls, NO dispara
-  // re-render): ante un fallo transiente de lectura ('error') con un last-good presente, el enrich
-  // expone el último N/M conocido (progCell pinta N/M, no '?'). Sin last-good, expone 'error' (→'?').
+  // Phase 50 (PROG-03, D-09): keep-last-good del progreso vivo. Mapa session_id → último
+  // { n, m, completed } leído con status 'ok'. Vive en un useRef (memoria ENTRE polls, NO dispara
+  // re-render); lo lee y escribe el enrich de rows.js: ante un fallo transiente ('error') con
+  // last-good presente expone el último N/M conocido (progCell pinta N/M, no '?').
   const progressLastGoodRef = useRef(/** @type {Map<string, { n: number, m: number, completed: boolean }>} */ (new Map()));
 
-  // Phase 39 (TUI-15/TUI-16): estado de los overlays auxiliares (comentarios `c` / logs `l`).
-  //   - overlayKind: qué overlay está abierto ('comments'|'logs'|null).
-  //   - scrollOffset: índice de la primera línea visible del body scrollable (D-06, ↑/↓ scrollean).
-  //   - overlaySnapshot: contenido CONGELADO al abrir (D-05). El poll de la tabla sigue por debajo
-  //     pero este objeto NO se re-escribe por onResult → el texto del overlay no salta bajo el lector.
-  //     Forma: { kind, taskRef, status:'ok'|'empty'|'not-found'|'error', lines: string[] } donde
-  //     `lines` ya viene proyectado a strings (comentarios o `msg` de cada log entry).
+  // Phase 39 (TUI-15/TUI-16) — estado de los overlays de LECTURA (lógica en OverlayViewer.js).
+  // `overlaySnapshot` es el contenido CONGELADO al abrir (D-05): el poll de la tabla sigue por
+  // debajo pero onResult NO lo re-escribe → el texto no salta bajo el lector. `lines` ya viene
+  // proyectado a strings; `adoptable` solo está presente cuando kind==='adopt' (picker).
   const [overlayKind, setOverlayKind] = useState(/** @type {'comments'|'logs'|'logs-all'|'plan'|'adopt'|null} */ (null));
   const [scrollOffset, setScrollOffset] = useState(0);
   const [overlaySnapshot, setOverlaySnapshot] = useState(
@@ -722,26 +507,6 @@ export default function App({
     { schedule, cancel, scheduleTimeout, cancelTimeout, baseMs, maxMs },
   );
 
-  // Pipeline de derivación OBLIGATORIO (orden fijo — Pitfall 3 / D-16). La query EN VIVO (no '')
-  // alimenta el filtro cada render (D-13): teclear re-filtra al instante. El clamp de D-06 usa el
-  // índice posicional previo (prevIndexRef) para caer al vecino correcto si la fila desaparece.
-  //   sortSessions (copia, DESC, tiebreak task_id) → applyFilter (AND, String.includes) →
-  //   resolveSelection (índice derivado por identidad, clamp fallback).
-  const sorted = sortSessions(sessions);
-  // Phase 50.1 (PROG-03, DG-03/DG-04/DG-06/DG-07): enrich CLIENT-SIDE del progreso vivo, mold del
-  // handler `p`/readPlan (App.js:544) — lectura filesystem SÍNCRONA never-throws en el render, SIN
-  // await, SIN server.js (cero endpoints nuevos, DG-06). La FUENTE es el bloque `progress:` del
-  // STATE.md que GSD mantiene dentro del worktree REAL de la sesión (`.claude/worktrees/<session_id>`),
-  // localizado con computeRealWorktreePath(project_path, session_id) — NUNCA `row.worktree_path`
-  // persistido (apunta a la ruta `.bg-shell` equivocada, Pitfall 1). Solo las filas GSD
-  // (`row.gsd === true`, DG-03) se leen; las no-GSD → '—'. Se enriquece ANTES de
-  // deriveAnyProgress/applyFilter para que `row.progress` esté presente en deriveAnyProgress, el
-  // filtro y rowCells.
-  //
-  // Keep-last-good (DG-07): re-keyed por `session_id`. Un fallo transiente ('error') con un last-good
-  // en el ref expone el último N/M conocido (progCell pinta N/M, no '?'); sin last-good, expone
-  // 'error' (→'?'). Un 'ok' refresca el ref. Un 'no-progress' (ENOENT / STATE.md parcial) → '—'.
-  const lastGood = progressLastGoodRef.current;
   // Phase 75 (LIVE-05, D-02): lee el bloque `tasks` de ~/.kodo/state.json. Esta lectura vive en
   // el cuerpo del componente, que React re-ejecuta en CADA render (75/WR-02) — no solo en los
   // ticks de usePoll: cada pulsación de tecla en filtro, cada scroll de overlay y cada cambio de
@@ -750,116 +515,26 @@ export default function App({
   // ese tick. never-throws → {} (Pitfall 1: readTasks NO importa loadState, no escribe .bak). El
   // NEXT: es dato de la TAREA (por task_id), no de la sesión; ausente → celda vacía.
   const tasks = readTasksFn({});
-  // Phase 84 (CAPT-07, D-21): conteo de capturas sin enrutar. Vive AQUÍ, junto a `tasks`, y no
-  // junto a los flags `anyGsd`/`anyProgress`/`anyNext`: el conteo NO se deriva del conjunto de
-  // sesiones sino del filesystem, así que no tiene el problema de parpadeo bajo filtro que
-  // obligó a derivar esos flags sobre el set SIN filtrar. De los `any*` hereda la política de
-  // COLAPSO en el render (0 → no se pinta, D-23), no el lugar del cálculo. Misma cadencia que
-  // `readTasksFn`: piggyback sobre el ciclo de render que el tick de usePoll ya redispara —
-  // cero timers nuevos, cero cambios en el scheduler. never-throws → 0 (D-20).
+  // Phase 84 (CAPT-07, D-21) + KODO-26: las dos presiones ambient del operador — capturas sin triar
+  // por un lado, ramas sin integrar por el otro. Se calculan AQUÍ, junto a `tasks`, y no dentro de
+  // deriveRows: NO se derivan del conjunto de sesiones (una rama sobrevive a su sesión), así que no
+  // tienen el problema de parpadeo bajo filtro que obliga a derivar los `any*` sobre el set sin
+  // filtrar. De los `any*` heredan solo la política de COLAPSO en el render (0 → no se pinta,
+  // D-23). Misma cadencia que `readTasksFn` (piggyback sobre el render que redispara el tick de
+  // usePoll — cero timers nuevos). Ambas never-throws → 0 (D-20).
   const inboxOpen = inboxCountFn({});
-  // KODO-26: mismo sitio, misma cadencia y misma política de colapso en 0 que `inboxOpen` — es
-  // la otra presión ambient del operador: capturas sin triar por un lado, ramas sin integrar por
-  // el otro. Tampoco se deriva del conjunto de sesiones (la rama sobrevive a su sesión), así que
-  // no tiene el problema de parpadeo bajo filtro que obliga a derivar los `any*` sobre el set
-  // sin filtrar. never-throws → 0.
   const queuePending = queueCountFn({});
-  const enriched = sorted.map((rawRow) => {
-    // WR-03/M4: el contenido externo NO confiable del provider (task_ref renderizado en la
-    // columna task_ref; summary usado en filtro/plan y como task.title) pasa por
-    // stripControlChars en su punto de proyección al render — mismo patrón que los comentarios.
-    // Neutraliza OSC-52/CSI/C1 antes de que cualquier consumidor downstream (rowCells, select,
-    // readPlan) lo toque. Known-limitation: cmux.notify(body: session.summary) en session-end.js
-    // NO se sanea aquí (fuera del render del dashboard, ver REVIEW WR-03).
-    // Phase 75 (LIVE-05, T-75-01): el NEXT: es dato de la TAREA (por task_id), no de la sesión.
-    // Se toma tasks[task_id]?.next SOLO si task_id es truthy; el contenido es LLM (state.json),
-    // así que pasa por stripControlChars — mismo saneo que task_ref/summary — cuando es string
-    // no vacío, neutralizando OSC-52/CSI/C1 ANTES de proyectarse a la celda. Cualquier otro caso
-    // (ausente / null / no-string) colapsa a null → celda vacía (nextCell → '').
-    const rawNext = rawRow.task_id ? tasks[rawRow.task_id]?.next : null;
-    const next = typeof rawNext === 'string' && rawNext.length > 0 ? stripControlChars(rawNext) : null;
-    const row = {
-      ...rawRow,
-      ...(rawRow.task_ref != null ? { task_ref: stripControlChars(rawRow.task_ref) } : {}),
-      ...(rawRow.summary != null ? { summary: stripControlChars(rawRow.summary) } : {}),
-      next,
-    };
-    const projectPath = row.project_path;
-    const sessionId = row.session_id;
-    // DG-04: la ruta del STATE.md se deriva de project_path + session_id, NUNCA de
-    // row.worktree_path (Pitfall 1). Guard anti-traversal del sessionId ANTES de construir la ruta
-    // (T-501-traversal, defensa en profundidad): String.includes, NO regex (anti-ReDoS, mold
-    // plan.js:120-121). El session_id es UUID por construcción (manager.js); falta o no usable → '—'.
-    const usable =
-      sessionId &&
-      projectPath &&
-      !sessionId.includes('/') &&
-      !sessionId.includes('\\') &&
-      !sessionId.includes('..');
-    if (!usable) return { ...row, progress: { status: 'no-progress' } };
-    // Phase 61 (PROG-04, D-2): resolución de path con FALLBACK. Sesión LANZADA por kodo →
-    // su STATE.md vive en el worktree aislado (`.claude/worktrees/<sid>`, computeRealWorktreePath,
-    // preserva Pitfall 1). Sesión ADOPTADA → no tiene worktree de kodo; su STATE.md vive en
-    // `<project_path>/.planning/STATE.md`. Si el dir del worktree existe usamos ese; si no, project_path.
-    const worktreeBase = computeRealWorktreePath(projectPath, sessionId);
-    const base = existsSync(worktreeBase) ? worktreeBase : projectPath;
-    // Phase 61 (PROG-04, D-1): gate DINÁMICO. El progreso se muestra si hay un STATE.md GSD legible
-    // en el path resuelto, SIN depender del flag `gsd` persistido (una sesión adoptada que se vuelve
-    // GSD después se enciende sola). readGsdProgress es never-throws: 'no-progress' (ENOENT / sin
-    // progress:) → '—'; 'error' → keep-last-good; 'ok' → N/M. Reemplaza el corte por flag (DG-03).
-    const res = readGsdProgress(base, {}); // never-throws (mold readLightPlan)
-    if (res.status === 'ok') {
-      lastGood.set(sessionId, { n: res.n, m: res.m, completed: res.completed });
-      return { ...row, progress: res };
-    }
-    if (res.status === 'error') {
-      const prev = lastGood.get(sessionId);
-      // last-good presente → sobrevive el N/M (status 'ok'); ausente → 'error' (progCell pinta '?').
-      return { ...row, progress: prev ? { status: 'ok', ...prev } : { status: 'error' } };
-    }
-    return { ...row, progress: res }; // 'no-progress' → '—'
+  // KODO-40: el pipeline de derivación (sort → enrich → flags → filtro → selección) vive en
+  // rows.js. Corre en CADA render, igual que cuando estaba inline. `progressLastGoodRef.current`
+  // es la memoria del keep-last-good del progreso ENTRE polls (un ref, no dispara re-render).
+  const { filtered, anyGsd, anyProgress, anyNext, sel, counts, hasQuery } = deriveRows({
+    sessions,
+    query,
+    selectedTaskId,
+    prevIndex: prevIndexRef.current,
+    tasks,
+    lastGood: progressLastGoodRef.current,
   });
-  // TUI-18/D-08: flag estructural de presencia GSD derivado del set SIN filtrar (`sorted`),
-  // NO de `filtered` (Pitfall 4): la columna phase/mode no debe parpadear cuando una query `/`
-  // vacía temporalmente las filas GSD del subconjunto visible.
-  const anyGsd = deriveAnyGsd(enriched);
-  // Phase 50 (PROG-03, D-06 / Pitfall 5): espejo de deriveAnyGsd — flag estructural sobre el set
-  // SIN filtrar (`enriched`, no `filtered`). La columna `prog` no parpadea bajo `/`.
-  const anyProgress = deriveAnyProgress(enriched);
-  // Phase 75 (LIVE-05, Pitfall 4): espejo de anyProgress — flag estructural sobre el set SIN
-  // filtrar (`enriched`, no `filtered`). La columna `next` no parpadea al teclear una query `/`.
-  const anyNext = deriveAnyNext(enriched);
-  const filtered = applyFilter(enriched, parseFilter(query), deriveRepo);
-  const sel = resolveSelection(filtered, selectedTaskId, prevIndexRef.current);
-  const counts = countByStatus(filtered);
-  // hasQuery distingue los dos estados vacíos en SessionTable (D-12): `no sessions match` (hay
-  // query activa que oculta todo) vs `no active sessions` (lista realmente vacía).
-  const hasQuery = query.trim().length > 0;
-
-  // Phase 64 Plan 02 (D-01, RESEARCH Pattern 1+2): apertura/retry del editor de proyectos. Compartido
-  // por el handler `m` (mode:'list') y por `r` (mode:'projects-error') — el carril es idéntico. Entra a
-  // projects-loading, captura un reqId DEDICADO (projectsReqRef), `await`a el fetch never-throws
-  // discriminado, y tras el await DESCARTA el resultado si el ref avanzó (Esc/2ª apertura, T-64-08).
-  // Éxito → snapshot CONGELADO { remote, map=loadProjectsFn() } + mode:'projects'. Fallo → projects-error
-  // (PROJ-05). NO toca selectedTaskId (UX-03: resolveSelection re-deriva la fila al volver).
-  const runProjectsFetch = useCallback(async () => {
-    setMode('projects-loading');
-    const reqId = ++projectsReqRef.current;
-    const result = await listProjectsFn();
-    if (projectsReqRef.current !== reqId) return; // T-64-08: cancelada/superada durante el await
-    if (result && result.ok) {
-      // KODO-10: congela también el set dispatch-enabled (estable durante la sesión) para marcar
-      // cada fila dispatch vs solo-mapeado sin re-leer config en cada render.
-      setProjectsSnapshot({ remote: result.projects ?? [], map: loadProjectsFn(), dispatch: new Set(dispatchProjectIdsFn()) });
-      setFieldCursor(0);
-      setProjectsError(null);
-      setProjectsEditError(null);
-      setMode('projects');
-    } else {
-      setProjectsError((result && result.error) || 'error desconocido');
-      setMode('projects-error');
-    }
-  }, [listProjectsFn, loadProjectsFn, dispatchProjectIdsFn]);
 
   // useInput mode-gated (TUI-08/TUI-12). Declarado DESPUÉS del pipeline para que el closure capture
   // `filtered`/`sel` actuales (su índice derivado es la base del movimiento clamp del cursor).
@@ -868,6 +543,12 @@ export default function App({
   // `await onFocus(...)` (ink permite handlers async — no awaitea el return; los state
   // updates del setFocusError llegan cuando la promise resuelve). Simétrico con el patrón
   // `await fetchStatus(...)` de usePoll (Phase 35 D-07).
+  //
+  // KODO-40: las sub-máquinas con estado propio (setup / overlay+picker / deriving / config /
+  // projects) viven en módulos hermanos. Este callback es el ROUTER: construye un `ctx` con el
+  // mismo estado + setters que esas ramas capturaban por closure y delega. El orden de los
+  // mode-gates es IDÉNTICO al del monolito (setup → overlay → deriving → confirm → config →
+  // projects → filter → list): cambiarlo alteraría la semántica (Pitfall 0 de Phase 64).
   useInput(
     async (input, key) => {
       // Phase 37 D-04: cualquier tecla limpia focusError ANTES de procesar el resto del
@@ -880,296 +561,90 @@ export default function App({
         setFocusError(null);
         return;
       }
-      // Phase 68 Plan 02 (SETUP-01/02, D-04/D-05/D-06/D-08): SUB-MÁQUINA del modo setup (wizard lineal
-      // de 4 pasos, first-run). Va ANTES del resto de mode-gates — el setup es un modo terminal sin
-      // tabla debajo. never-throws: Esc cierra a list SIN escribir; en apikey limpia buffer+máscara
-      // (el secreto no persiste en memoria, Pitfall 6). Los saves estructurales usan structuredClone
-      // (configSnapshot)+setByPath+onSaveConfig (molde config-edit); el apikey reusa LITERAL el flujo
-      // de Phase 67 (onSaveApiKey → writeEnvVar in-proceso). El text-input usa substring puro (anti-ReDoS).
+
+      // KODO-40: contexto compartido con las sub-máquinas extraídas. Se construye por pulsación
+      // (no por render) — es un objeto plano con el estado VIVO y los setters, exactamente lo que
+      // esas ramas leían del closure cuando vivían dentro de este mismo callback.
+      const ctx = {
+        baseUrl,
+        fetchFn,
+        sessions,
+        projects,
+        setMode,
+        setFocusError,
+        setFooterColor,
+        // acciones de fila (RowActions.js): runners never-throws + armado del dismiss
+        onFocus,
+        onOpen,
+        armedTaskId,
+        setArmedTaskId,
+        armedTaskRef,
+        setArmedTaskRef,
+        // text-input compartido (config-edit / projects-edit / setup)
+        buffer,
+        setBuffer,
+        cursor,
+        setCursor,
+        setMaskValue,
+        // editor de config + wizard de setup
+        configSnapshot,
+        setConfigSnapshot,
+        setConfigEditError,
+        fieldCursor,
+        setFieldCursor,
+        loadConfigFn,
+        onSaveConfig,
+        onSaveApiKey,
+        setupStep,
+        setSetupStep,
+        providerCursor,
+        setProviderCursor,
+        // editor de proyectos/módulos (dos hops async bajo projectsReqRef)
+        projectsSnapshot,
+        setProjectsSnapshot,
+        setProjectsError,
+        setProjectsEditError,
+        projectsReqRef,
+        listProjectsFn,
+        loadProjectsFn,
+        saveProjectsFn,
+        listModulesFn,
+        dispatchProjectIdsFn,
+        // overlays de lectura + picker de adopt
+        overlayReqRef,
+        overlaySnapshot,
+        setOverlaySnapshot,
+        setOverlayKind,
+        setScrollOffset,
+        adoptCursor,
+        setAdoptCursor,
+        armedSurface,
+        setArmedSurface,
+        setArmedSessionId,
+        onAdoptDiscover,
+        onAdopt,
+        onDerive,
+      };
+
+      // Phase 68 Plan 02 (SETUP-01/02): el wizard first-run es un modo TERMINAL sin tabla debajo →
+      // va ANTES del resto de mode-gates. Handler en SetupWizard.js (KODO-40).
       if (mode === 'setup') {
-        // Fail-open defensivo: el efecto de montaje ya congeló configSnapshot, pero si por timing aún
-        // es null se clona uno fresco (never-throws — un save sobre un clon nuevo es idéntico).
-        const snap = configSnapshot ?? structuredClone(loadConfigFn());
-        if (key.escape) {
-          // Cancela el guiado sin escribir. En apikey limpia el secreto de memoria (Pitfall 6).
-          if (setupStep === 'apikey') {
-            setBuffer('');
-            setMaskValue(false);
-          }
-          setConfigEditError(null);
-          setMode('list');
-          return;
-        }
-        // Paso 1/4 — selector de provider (D-05/D-06): ↑/↓ clamp sin wrap, Enter confirma.
-        if (setupStep === 'provider') {
-          if (key.upArrow) {
-            setProviderCursor((i) => Math.max(0, i - 1));
-            return;
-          }
-          if (key.downArrow) {
-            setProviderCursor((i) => Math.min(SETUP_PROVIDERS.length - 1, i + 1));
-            return;
-          }
-          if (key.return) {
-            const chosen = SETUP_PROVIDERS[providerCursor];
-            if (chosen === 'github') {
-              // D-06: github se remite a `kodo config`; NO continúa el guiado ni escribe estructurales.
-              // El aviso va en focusError/footerColor (transitorio, ya de vuelta en el paso provider).
-              setFocusError(SETUP_GITHUB_REDIRECT);
-              setFooterColor('yellow');
-              return;
-            }
-            // plane: guarda provider y avanza a base_url (deep-clone ANTES de mutar — Pitfall 1).
-            const next = structuredClone(snap);
-            setByPath(next, 'provider', 'plane');
-            try {
-              const result = await onSaveConfig(next);
-              if (!result || result.ok !== false) {
-                setConfigSnapshot(next);
-                setConfigEditError(null);
-                setBuffer('');
-                setCursor(0);
-                setSetupStep('base_url');
-              } else {
-                setConfigEditError(SETUP_SAVE_FAILED);
-              }
-            } catch {
-              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
-            }
-            return;
-          }
-          return; // traga el resto mientras elige el provider
-        }
-        // Pasos 2/4 y 3/4 — base_url / workspace_slug (text-input controlado, molde config-edit).
-        if (setupStep === 'base_url' || setupStep === 'workspace_slug') {
-          if (key.leftArrow) {
-            setCursor((c) => Math.max(0, c - 1));
-            return;
-          }
-          if (key.rightArrow) {
-            setCursor((c) => Math.min(buffer.length, c + 1));
-            return;
-          }
-          if (key.backspace || key.delete) {
-            if (cursor > 0) {
-              setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-              setCursor((c) => c - 1);
-            }
-            return;
-          }
-          if (key.return) {
-            // Validación no-vacío + sin espacios/#/= (substring puro — jamás compila regex del input).
-            if (buffer.length === 0 || buffer.includes(' ') || buffer.includes('#') || buffer.includes('=')) {
-              setConfigEditError(SETUP_INVALID);
-              return;
-            }
-            const path = setupStep === 'base_url' ? 'providers.plane.base_url' : 'providers.plane.workspace_slug';
-            const nextStep = setupStep === 'base_url' ? 'workspace_slug' : 'apikey';
-            const next = structuredClone(snap);
-            setByPath(next, path, buffer);
-            try {
-              const result = await onSaveConfig(next);
-              if (!result || result.ok !== false) {
-                setConfigSnapshot(next);
-                setConfigEditError(null);
-                setBuffer('');
-                setCursor(0);
-                if (nextStep === 'apikey') setMaskValue(true); // el paso 4/4 enmascara la entrada (D-11)
-                setSetupStep(nextStep);
-              } else {
-                setConfigEditError(SETUP_SAVE_FAILED);
-              }
-            } catch {
-              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
-            }
-            return;
-          }
-          if (input && !key.ctrl && !key.meta) {
-            setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
-            setCursor((c) => c + input.length);
-            return;
-          }
-          return; // traga el resto (teclas de control no mapeadas)
-        }
-        // Paso 4/4 — API key (campo enmascarado — reuso LITERAL de Phase 67, D-11/Pitfall 11). El
-        // buffer guarda el VALOR REAL en memoria; solo la pintura se enmascara (renderSetupOverlay).
-        if (setupStep === 'apikey') {
-          if (key.leftArrow) {
-            setCursor((c) => Math.max(0, c - 1));
-            return;
-          }
-          if (key.rightArrow) {
-            setCursor((c) => Math.min(buffer.length, c + 1));
-            return;
-          }
-          if (key.backspace || key.delete) {
-            if (cursor > 0) {
-              setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-              setCursor((c) => c - 1);
-            }
-            return;
-          }
-          if (key.return) {
-            if (buffer.length === 0) {
-              setConfigEditError(API_KEY_INVALID);
-              return;
-            }
-            const apiKeyEnv = snap?.providers?.plane?.api_key_env;
-            try {
-              const result = await onSaveApiKey(apiKeyEnv, buffer);
-              if (!result || result.ok !== false) {
-                // Éxito (D-08/Pitfall 6): limpia buffer+máscara (el secreto no persiste en memoria) y
-                // pasa al estado terminal 'complete' → aviso de reinicio honesto (SETUP_COMPLETE_RESTART
-                // + SETUP_WEBHOOK_NOTE). D-09: NO se re-invoca loadEnvFile para reconfirmar la key recién
-                // escrita — la confirmación se apoya en el process.env in-proceso (onSaveApiKey, index.js).
-                setBuffer('');
-                setMaskValue(false);
-                setConfigEditError(null);
-                setSetupStep('complete');
-              } else {
-                setConfigEditError(SETUP_SAVE_FAILED);
-              }
-            } catch {
-              setConfigEditError(SETUP_SAVE_FAILED); // never-throws de respaldo
-            }
-            return;
-          }
-          if (input && !key.ctrl && !key.meta) {
-            setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
-            setCursor((c) => c + input.length);
-            return;
-          }
-          return; // traga el resto (teclas de control no mapeadas)
-        }
-        // Paso terminal 'complete' (D-08): cualquier tecla cierra el guiado a list (Esc ya cubierto).
-        setMode('list');
+        await handleSetupInput(input, key, ctx);
         return;
       }
-      // Phase 39 (TUI-15/TUI-16 — D-05/D-06): SUB-MODO overlay. Va ANTES del mode-gate de filtro:
-      // mientras un overlay está abierto, ↑/↓ SCROLLEAN el contenido (no navegan filas) y Esc cierra
-      // restaurando mode:'list' SIN tocar selectedTaskId (cursor preservado GRATIS — resolveSelection
-      // re-deriva la misma fila al volver). Cualquier otra tecla se traga (early return) mientras se lee.
+      // Phase 39 (TUI-15/TUI-16 — D-05/D-06): el overlay va ANTES del mode-gate de filtro: mientras
+      // está abierto, ↑/↓ SCROLLEAN el contenido (no navegan filas) y Esc cierra a list SIN tocar
+      // selectedTaskId. Handler en OverlayViewer.js, que a su vez delega el sub-modo picker de
+      // adopt (overlaySnapshot.kind === 'adopt') en AdoptPicker.js (KODO-40).
       if (mode === 'overlay') {
-        if (key.escape) {
-          overlayReqRef.current++; // CR-01: invalida cualquier apertura `c`/`l` aún en vuelo
-          setMode('list');
-          setOverlayKind(null);
-          return;
-        }
-        // Phase 56 D-03/D-04/Pitfall 3: SUB-MODO picker de adopt. Diverge del overlay c/l/p de
-        // lectura: ↑/↓ mueven un CURSOR seleccionable sobre adoptable[] (no scroll); `a` ARMA el
-        // adopt de la surface bajo el cursor (resuelve projectId; none/ambiguous → ADOPT_NO_PROJECT
-        // + cierra picker, no arma). Cualquier otra tecla se traga mientras se elige.
-        if (overlaySnapshot && overlaySnapshot.kind === 'adopt') {
-          const adoptable = overlaySnapshot.adoptable ?? [];
-          if (key.upArrow) {
-            setAdoptCursor((i) => Math.max(0, i - 1)); // clamp [0,len-1] sin wrap (molde resolveSelection)
-            return;
-          }
-          if (key.downArrow) {
-            setAdoptCursor((i) => Math.min(adoptable.length - 1, i + 1));
-            return;
-          }
-          if (input === 'a') {
-            // Arma el adopt de la surface bajo el cursor. D-05: el reverse-lookup cwd→projectId es el
-            // ÚNICO punto que puede impedir el shell — none/ambiguous → footer ADOPT_NO_PROJECT (rojo)
-            // + cierra el picker, NUNCA arma (cero onAdopt). Match único → arma por sessionId (D-04) y
-            // stashea el payload resuelto para el confirm.
-            const surface = adoptable[adoptCursor];
-            if (!surface) {
-              overlayReqRef.current++;
-              setMode('list');
-              setOverlayKind(null);
-              return;
-            }
-            const r = resolveProjectId(surface.cwd, projects);
-            if ('error' in r) {
-              setFocusError(ADOPT_NO_PROJECT(surface.cwd));
-              setFooterColor('red');
-              overlayReqRef.current++; // cierra el picker
-              setMode('list');
-              setOverlayKind(null);
-              return;
-            }
-            // Match único: arma el confirm por IDENTIDAD (sessionId) + stashea el payload. NO se setea
-            // footer al entrar en confirm/deriving (Pitfall 4): el copy se DERIVA de mode+armedSurface
-            // en SessionTable, así el clear-on-any-input no consume el segundo `a`.
-            setArmedSessionId(surface.sessionId);
-            setOverlayKind(null);
-            // Phase 62 D-08 (ORCH-02): derive-then-confirm. Entre el armado y el confirm se interpone
-            // el estado transitorio 'deriving': armamos el payload BASE (con el title de la surface
-            // como fallback), entramos en 'deriving' (spinner DERIVE_PROGRESS), y await onDerive. El
-            // handler ya es async (usa await onAdopt en el confirm) → el await es legal. onDerive es
-            // never-throws (Plan 01 contract / D-11): el try/catch fail-open a {} es defensa en
-            // profundidad (el contrato es que NUNCA lanza, pero si lo hiciera el panel sigue montado).
-            setArmedSurface({
-              workspaceRef: surface.workspaceRef,
-              cwd: surface.cwd,
-              sessionId: surface.sessionId,
-              projectId: r.projectId,
-              // Phase 56-06: el título auto-derivado de cmux (← AgentSurface.title) es el FALLBACK del
-              // título derivado (T4 fail-open conserva surface.title). Ausente → onAdopt lo omite.
-              title: surface.title,
-            });
-            setMode('deriving');
-            // Phase 62 D-09/T5: token de generación (reusa overlayReqRef, espejo del CR-01 de c/l).
-            // Esc en deriving avanza el ref → el resultado tardío se descarta tras el await.
-            const reqId = ++overlayReqRef.current;
-            /** @type {{ title?: string, description?: string }} */
-            let derived = {};
-            try {
-              derived = (await onDerive?.({ cwd: surface.cwd, sessionId: surface.sessionId })) ?? {};
-            } catch {
-              derived = {}; // never-throws / fail-open (D-11): defensa en profundidad
-            }
-            // T5: si overlayReqRef avanzó durante el await (Esc en deriving u otra apertura), esta
-            // derivación quedó OBSOLETA → se descarta sin reabrir el confirm.
-            if (overlayReqRef.current !== reqId) return;
-            // Fusión: el {title, description} derivado entra en armedSurface. T4 fail-open conserva
-            // surface.title cuando derived.title es undefined; description undefined cuando no hay.
-            setArmedSurface({
-              workspaceRef: surface.workspaceRef,
-              cwd: surface.cwd,
-              sessionId: surface.sessionId,
-              projectId: r.projectId,
-              title: derived.title ?? surface.title,
-              description: derived.description,
-            });
-            setMode('confirm');
-            return;
-          }
-          return; // traga el resto mientras el operador elige en el picker
-        }
-        if (key.upArrow) {
-          setScrollOffset((o) => Math.max(0, o - 1));
-          return;
-        }
-        if (key.downArrow) {
-          // Clamp superior: el último scroll deja el viewport LLENO (no una sola línea). WR-01: usar
-          // `lines.length - OVERLAY_VIEWPORT` (el mismo VIEWPORT del slice de SessionTable), no `- 1`.
-          const max = overlaySnapshot
-            ? Math.max(0, overlaySnapshot.lines.length - OVERLAY_VIEWPORT)
-            : 0;
-          setScrollOffset((o) => Math.min(max, o + 1));
-          return;
-        }
-        return; // traga el resto mientras el operador lee el overlay
+        await handleOverlayInput(input, key, ctx);
+        return;
       }
-      // Phase 62 D-09 (ORCH-02): SUB-MODO deriving. Va ANTES del confirm: mientras onDerive está en
-      // vuelo el footer muestra el spinner DERIVE_PROGRESS (derivado de mode==='deriving' en
-      // SessionTable). Esc CANCELA e invalida la derivación en vuelo (avanza overlayReqRef → el
-      // resultado tardío se descarta tras el await, T5) y vuelve a list, limpiando el armado. Una
-      // segunda `a` (o cualquier otra tecla) se TRAGA: NO encola un segundo onDerive (la derivación
-      // ya está corriendo). El poll de /status sigue por debajo (T-62-09: no bloquea el panel).
+      // Phase 62 D-09 (ORCH-02): el estado transitorio `deriving` va ANTES del confirm. Handler en
+      // AdoptPicker.js (KODO-40).
       if (mode === 'deriving') {
-        if (key.escape) {
-          overlayReqRef.current++; // T5: invalida la derivación en vuelo (resultado tardío descartado)
-          setArmedSessionId(null);
-          setArmedSurface(null);
-          setMode('list');
-          return;
-        }
-        return; // traga el resto (incl. `a`) mientras la derivación está en vuelo
+        handleDerivingInput(key, ctx);
+        return;
       }
       // Phase 42 D-01/D-02/D-04 (DISMISS-02): SUB-MODO confirm. Va DESPUÉS del clear-on-any-input
       // y del overlay, ANTES de filter/list. CRÍTICO (RESEARCH Pitfall 4): entrar en `confirm` NO
@@ -1179,516 +654,34 @@ export default function App({
       if (mode === 'confirm') {
         // Phase 56 Pitfall 2 (DETECT-02): el confirm tiene DOS consumidores que esperan teclas
         // distintas (dismiss=`d`, adopt=`a`). Se rutea por cuál armed-id está set — armedSessionId
-        // != null → flujo ADOPT (solo `a` ejecuta; cualquier otra tecla, incl. `d`/Esc, cancela).
-        // Esto va ANTES de la rama dismiss para que una `a` NUNCA dispare un dismiss y una `d` NUNCA
-        // dispare un adopt. El dismiss arma por task_id; el adopt por sessionId — estados disjuntos.
+        // != null → flujo ADOPT (AdoptPicker.js: solo `a` ejecuta; cualquier otra tecla, incl.
+        // `d`/Esc, cancela). Esto va ANTES de la rama dismiss para que una `a` NUNCA dispare un
+        // dismiss y una `d` NUNCA dispare un adopt. El dismiss arma por task_id; el adopt por
+        // sessionId — estados disjuntos.
         if (armedSessionId != null) {
-          if (input === 'a') {
-            // Segundo `a` → ejecuta. onAdopt es never-throws (Plan 01 contract / D-07) → el `await`
-            // es legal sin try/catch (ningún throw llega a React, el panel ink sigue montado). El `?.`
-            // cubre el contexto degradado sin onAdopt (tests del módulo sin DI). WR guard: si por bug
-            // de estado armedSurface es null, aborta silenciosamente.
-            if (!armedSurface) {
-              setArmedSessionId(null);
-              setMode('list');
-              return;
-            }
-            const ref = armedSurface.workspaceRef;
-            const result = await onAdopt?.(armedSurface);
-            if (result?.code === 'ALREADY_ADOPTED') {
-              // 56-03: `kodo adopt` salió 0 pero el discriminante --json es un no-op idempotente
-              // (la sesión ya estaba adoptada). NO es éxito (no se crea fila) ni error — footer
-              // ámbar distinto, para no mostrar el verde engañoso "adopted" del UAT blocker. Va
-              // ANTES del check de éxito genérico (result.ok !== false) para no caer en verde.
-              setFocusError(ADOPT_ALREADY(ref));
-              setFooterColor('yellow');
-            } else if (!result || result.ok !== false) {
-              // Éxito (o contexto degradado sin onAdopt): footer verde transitorio (D-07). REF =
-              // workspaceRef (el identificador legible de la surface ad-hoc, no hay task_ref aún).
-              setFocusError(ADOPT_OK(ref));
-              setFooterColor('green');
-            } else if (result.code === 'ENOENT') {
-              setFocusError(ADOPT_ERR_ENOENT);
-              setFooterColor('red');
-            } else {
-              // NON_ZERO_EXIT (`detail` = exit code 1/2 de kodo adopt) o SPAWN_ERROR (`detail` =
-              // Error.message). El dashboard NO reinterpreta la semántica — muestra el código (D-07).
-              const n = result.detail ?? 'unknown';
-              setFocusError(adoptErrFailed(n));
-              setFooterColor('red');
-            }
-            setArmedSessionId(null);
-            setArmedSurface(null);
-            setMode('list');
-            return;
-          }
-          // Cualquier otra tecla (Esc, `d`, etc.) cancela el adopt. Sin mensaje, sin timer (D-04).
-          setArmedSessionId(null);
-          setArmedSurface(null);
-          setMode('list');
+          await handleAdoptConfirmInput(input, ctx);
           return;
         }
-        if (input === 'd') {
-          // D-02: segunda `d` → ejecuta. dismissSession es never-throws (D-10) → el `await` es legal
-          // sin try/catch (ningún throw llega a React, SC#4). El re-check TOCTOU autoritativo vive
-          // server-side (D-07/D-08): un 409 'alive' vuelve como {ok:false,error:'alive'} y se pinta rojo.
-          // WR-01 guard: si por bug de estado armedTaskId es null/vacío, abortar silenciosamente.
-          if (!armedTaskId) {
-            setArmedTaskRef(null);
-            setMode('list');
-            return;
-          }
-          const res = await dismissSession(baseUrl, armedTaskId, fetchFn);
-          const ref = armedTaskRef ?? armedTaskId ?? '';
-          // D-09: el matiz se DERIVA de actions[] (mapDismissResult puro), no de un color lookup.
-          const m = mapDismissResult(res, ref);
-          let text;
-          if (m.kind === 'ok') text = DISMISS_OK(ref);
-          else if (m.kind === 'dirty') text = DISMISS_PARTIAL_DIRTY(ref);
-          else if (m.kind === 'warn') text = DISMISS_PARTIAL_WARN(ref);
-          else text = DISMISS_ERR(m.reason ?? 'error');
-          setFocusError(text);
-          setFooterColor(m.color);
-          setArmedTaskId(null);
-          setArmedTaskRef(null);
-          setMode('list');
-          return;
-        }
-        // D-04: Esc Y cualquier otra tecla cancelan (solo `d` ejecuta). Sin mensaje, sin timer (D-03).
-        setArmedTaskId(null);
-        setArmedTaskRef(null);
-        setMode('list');
+        // Rama DISMISS (RowActions.js): solo `d` ejecuta; Esc y cualquier otra tecla cancelan.
+        await handleDismissConfirmInput(input, ctx);
         return;
       }
-      // Phase 63 Plan 02 (D-03): SUB-MODO config (lista de campos navegable, valor read-only). Va
-      // ENTRE el bloque confirm y el de filter (espejo del orden D-03 "antes del mode-gate de filtro").
-      // Esc → list SIN tocar selectedTaskId (UX-03). ↑/↓ mueven fieldCursor con clamp sin wrap (molde
-      // adoptCursor). Enter → precarga el valor del campo en el buffer y entra a config-edit.
+      // Phase 63 Plan 02 (D-03): editor de config, ENTRE el bloque confirm y el de filter (espejo
+      // del orden D-03 "antes del mode-gate de filtro"). Handlers en ConfigEditor.js (KODO-40).
       if (mode === 'config') {
-        const fields = getEditableFields(configSnapshot);
-        if (key.escape) {
-          setMode('list'); // UX-03: selectedTaskId intacto → el cursor de la tabla se conserva
-          return;
-        }
-        if (key.upArrow) {
-          setFieldCursor((i) => Math.max(0, i - 1));
-          return;
-        }
-        if (key.downArrow) {
-          // Phase 67 Plan 02: el clamp sube a `fields.length` (NO length-1) para alcanzar el renglón
-          // APPEND de la API key (índice = fields.length, fuera de getEditableFields — PERSIST-04).
-          setFieldCursor((i) => Math.min(fields.length, i + 1));
-          return;
-        }
-        if (key.return) {
-          // Phase 67 Plan 02 (SETUP-03, D-05/D-06/Pitfall 6/11): el renglón de API key (índice
-          // fields.length) entra a config-edit ENMASCARADO con el buffer VACÍO — jamás se precarga el
-          // secreto (ni se lee ni se pinta el valor actual). maskValue=true activa la pintura `•`.
-          if (fieldCursor === fields.length) {
-            setBuffer(''); // NUNCA precargar el secreto (Pitfall 6/11)
-            setCursor(0);
-            setMaskValue(true);
-            setConfigEditError(null);
-            setMode('config-edit');
-            return;
-          }
-          // Campo normal: precarga el valor ACTUAL (D-05). String(...) porque positiveInt es number en
-          // el snapshot — el buffer es siempre texto. cursor al final ("append natural"). maskValue a
-          // false por si venía colgado de una edición previa de la API key.
-          const field = fields[fieldCursor];
-          if (!field) return;
-          const current = String(getByPath(configSnapshot, field.path) ?? '');
-          setBuffer(current);
-          setCursor(current.length);
-          setMaskValue(false);
-          setConfigEditError(null);
-          setMode('config-edit');
-          return;
-        }
-        return; // traga el resto mientras navega la lista
+        handleConfigInput(input, key, ctx);
+        return;
       }
-      // Phase 63 Plan 02 (D-01/D-05, RESEARCH Pattern 1): SUB-MODO config-edit (text-input controlado).
-      // Esc cancela SIN guardar (vuelve a config). ←/→ mueven el cursor con clamp. backspace||delete
-      // borra el char anterior al cursor (ambos juntos — Pitfall 3, muchos terminales mandan delete).
-      // Char imprimible se INSERTA en `cursor` (NO append ciego). Enter valida → inválido pinta el
-      // error (estado dedicado, sigue en config-edit) → válido guarda sobre un deep-clone y avisa.
       if (mode === 'config-edit') {
-        const fields = getEditableFields(configSnapshot);
-        const field = fields[fieldCursor];
-        // Phase 67 Plan 02: el renglón de API key es el APPEND en el índice fields.length (field
-        // undefined ahí — se enruta antes del guard `!field`).
-        const isApiKeyRow = fieldCursor === fields.length;
-        if (key.escape) {
-          // Phase 67 Plan 02 (Pitfall 6): al cancelar la edición de la API key, limpia el buffer y el
-          // flag de máscara — el secreto tecleado no debe quedar en memoria ni reaparecer en scrollback.
-          if (isApiKeyRow) {
-            setBuffer('');
-            setMaskValue(false);
-          }
-          setMode('config'); // cancela sin guardar (D-05)
-          return;
-        }
-        if (key.leftArrow) {
-          setCursor((c) => Math.max(0, c - 1));
-          return;
-        }
-        if (key.rightArrow) {
-          setCursor((c) => Math.min(buffer.length, c + 1));
-          return;
-        }
-        if (key.backspace || key.delete) {
-          if (cursor > 0) {
-            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-            setCursor((c) => c - 1);
-          }
-          return;
-        }
-        if (key.return) {
-          // Phase 67 Plan 02 (SETUP-03, D-05/Pitfall 11): guardar la API key. Escritura EN-PROCESO vía
-          // el callback DI `onSaveApiKey` → `writeEnvVar` (jamás shell-out). NO se duplica la validación
-          // aquí: `writeEnvVar` valida (Pitfall 14) y el wrapper never-throws colapsa cualquier fallo a
-          // {ok:false} — solo se hace un guard trivial de buffer vacío para no lanzar un save inútil.
-          if (isApiKeyRow) {
-            if (buffer.length === 0) {
-              setConfigEditError(API_KEY_INVALID);
-              return;
-            }
-            const provider = configSnapshot?.provider;
-            const apiKeyEnv = configSnapshot?.providers?.[provider]?.api_key_env;
-            try {
-              const result = await onSaveApiKey(apiKeyEnv, buffer);
-              if (!result || result.ok !== false) {
-                // Éxito (D-06/Pitfall 6): limpia el buffer + la máscara (el secreto no persiste en
-                // memoria), aviso de reinicio transitorio (sin hot-reload) y de vuelta a config. El
-                // indicador [configurado] se recalcula solo (isApiKeyConfiguredFn lee process.env, que
-                // el wrapper actualizó).
-                setBuffer('');
-                setMaskValue(false);
-                setConfigEditError(null);
-                setFocusError(API_KEY_SAVED_RESTART);
-                setFooterColor('yellow');
-                setMode('config');
-              } else {
-                // writeEnvVar devolvió false (fallo I/O) o input inválido → el .env previo quedó intacto.
-                // En configEditError (NO focusError) para que siga visible mientras se reintenta (Pitfall 2).
-                setConfigEditError(API_KEY_SAVE_FAILED);
-              }
-            } catch {
-              setConfigEditError(API_KEY_SAVE_FAILED); // never-throws de respaldo (defensa en profundidad)
-            }
-            return;
-          }
-          if (!field) {
-            setMode('config');
-            return;
-          }
-          // Validación PURA never-throws (src/config-validate.js). Un inválido NUNCA alcanza el disco
-          // (CFG-05/D-05): se guarda en configEditError (estado dedicado, Pitfall 2) y se sigue en
-          // config-edit — la siguiente tecla edita, no se gasta limpiando el error.
-          const res = validateField(field, buffer);
-          if (!res.ok) {
-            setConfigEditError(res.error);
-            return;
-          }
-          // Pitfall 1: deep-clone ANTES de mutar — setByPath escribe sobre el clon, jamás el snapshot
-          // congelado ni DEFAULT_CONFIG. onSaveConfig es never-throws (D-10 contract); el try/catch es
-          // defensa en profundidad (si lanzara, el panel ink sigue montado — UX-04/D-12).
-          const next = structuredClone(configSnapshot);
-          setByPath(next, field.path, res.value);
-          try {
-            const result = await onSaveConfig(next);
-            if (!result || result.ok !== false) {
-              // Éxito: el snapshot adopta el valor guardado; aviso de reinicio transitorio (PERSIST-03/
-              // D-10). El aviso va en focusError/footerColor (transitorio, ya de vuelta en config) — el
-              // clear-on-any-input lo descarta con la próxima tecla, comportamiento deseado.
-              setConfigSnapshot(next);
-              setConfigEditError(null);
-              setFocusError(CONFIG_SAVED_RESTART);
-              setFooterColor('yellow');
-              setMode('config');
-            } else {
-              // Escritura fallida (PERSIST-05: el config previo quedó intacto). En configEditError (NO
-              // focusError) → sigue visible mientras el operador sigue en el editor (UX-04/D-12).
-              setConfigEditError(CONFIG_SAVE_FAILED);
-            }
-          } catch {
-            setConfigEditError(CONFIG_SAVE_FAILED); // never-throws de respaldo (defensa en profundidad)
-          }
-          return;
-        }
-        // Char imprimible: inserta en la posición del cursor (NO append ciego — RESEARCH Pattern 1).
-        if (input && !key.ctrl && !key.meta) {
-          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
-          setCursor((c) => c + input.length);
-          return;
-        }
-        return; // traga el resto (teclas de control no mapeadas)
+        await handleConfigEditInput(input, key, ctx);
+        return;
       }
-      // Phase 64 Plan 02 (D-01/D-02/D-07): SUB-MÁQUINA del editor de PROYECTOS. Va ENTRE config-edit
-      // y filter (espejo del orden D-02 "antes del mode-gate de filtro"). Cuatro modos: el transitorio
-      // projects-loading (fetch en vuelo), la lista navegable projects, el text-input projects-edit y
-      // la degradación projects-error (PROJ-05). Todos never-throws — el panel ink jamás se desmonta.
-      if (mode === 'projects-loading') {
-        // Esc CANCELA e invalida el fetch en vuelo: avanza projectsReqRef → el resultado tardío se
-        // descarta tras el await (T-64-08, molde deriving ~682). selectedTaskId intacto (UX-03).
-        if (key.escape) {
-          projectsReqRef.current++;
-          setMode('list');
-          return;
-        }
-        return; // traga el resto mientras carga
-      }
-      if (mode === 'projects') {
-        const items = projectsSnapshot?.remote ?? [];
-        if (key.escape) {
-          setMode('list'); // UX-03: selectedTaskId intacto → el cursor de la tabla se conserva
-          return;
-        }
-        if (key.upArrow) {
-          setFieldCursor((i) => Math.max(0, i - 1)); // clamp sin wrap (molde adoptCursor)
-          return;
-        }
-        if (key.downArrow) {
-          setFieldCursor((i) => Math.min(items.length - 1, i + 1));
-          return;
-        }
-        if (key.return) {
-          // Precarga la ruta ACTUAL del proyecto (forma dual D-06: string|{default}|sin mapear → '')
-          // y entra a projects-edit con el cursor al final. El id se re-deriva del snapshot en edit.
-          const item = items[fieldCursor];
-          if (!item) return;
-          const current = getProjectPath(projectsSnapshot.map[item.id]);
-          setBuffer(current);
-          setCursor(current.length);
-          setProjectsEditError(null);
-          setMode('projects-edit');
-          return;
-        }
-        if (input === 'x') {
-          // PROJ-03/D-03/D-06: quitar el mapeo DIRECTO (sin modal — re-mapeable, no destructivo).
-          // removeProjectMapping es puro (clon sin la key); saveProjectsFn persiste el mapa nuevo.
-          // El aviso transitorio va en focusError/footerColor (molde config D-10).
-          const item = items[fieldCursor];
-          if (!item) return;
-          const next = removeProjectMapping(projectsSnapshot.map, item.id);
-          saveProjectsFn(next);
-          setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
-          setFocusError(PROJECTS_REMOVED(item.identifier));
-          setFooterColor('yellow');
-          return;
-        }
-        if (input === 'm') {
-          // Phase 64 Plan 03 (PROJ-04/D-05): SEGUNDO hop async. `m` en mode:'projects' abre los módulos
-          // del proyecto bajo el cursor. NO colisiona con el `m` de mode:'list' (esta rama se evalúa
-          // ANTES, Pitfall 0). Reusa el MISMO projectsReqRef (Pitfall 3 — dos hops, un ref dedicado):
-          // cada apertura captura su reqId y descarta el resultado si el ref avanzó (Esc en loading).
-          const item = items[fieldCursor];
-          if (!item) return;
-          const id = item.id;
-          setMode('projects-modules-loading');
-          const reqId = ++projectsReqRef.current;
-          const result = await listModulesFn(id);
-          if (projectsReqRef.current !== reqId) return; // T-64-12: cancelada/superada durante el await
-          if (result && result.ok && Array.isArray(result.modules) && result.modules.length) {
-            // Congela la lista de módulos + el proyecto activo en el snapshot (sin duplicar estado).
-            setProjectsSnapshot((s) => (s ? { ...s, modules: result.modules, activeProjectId: id } : s));
-            setFieldCursor(0); // el cursor de la lista de módulos arranca en 0
-            setProjectsEditError(null);
-            setMode('projects-modules');
-          } else if (result && result.ok) {
-            // Lista vacía (github / provider sin módulos): footer informativo no-op, NO abre el
-            // sub-overlay, NO escribe (PROJECTS_NO_MODULES, never-throws — T-64-10/D-05).
-            setFocusError(PROJECTS_NO_MODULES);
-            setFooterColor('yellow');
-            setMode('projects');
-          } else {
-            // Fallo del 2º hop: footer error + vuelve a projects (never-throws, no escribe).
-            setFocusError(PROJECTS_LOAD_FAILED((result && result.error) || 'error desconocido'));
-            setFooterColor('red');
-            setMode('projects');
-          }
-          return;
-        }
-        return; // traga el resto mientras navega la lista
-      }
-      if (mode === 'projects-edit') {
-        // Mismo molde de text-input que config-edit (~818-886): Esc cancela sin guardar; ←/→ clamp
-        // cursor; backspace||delete (juntos, Pitfall 3) borra char anterior; char imprimible inserta
-        // en cursor; Enter valida con validateExistingDir ANTES de saveProjectsFn (PROJ-02/T-64-06).
-        const items = projectsSnapshot?.remote ?? [];
-        const item = items[fieldCursor];
-        if (key.escape) {
-          setMode('projects'); // cancela sin guardar (D-03)
-          return;
-        }
-        if (key.leftArrow) {
-          setCursor((c) => Math.max(0, c - 1));
-          return;
-        }
-        if (key.rightArrow) {
-          setCursor((c) => Math.min(buffer.length, c + 1));
-          return;
-        }
-        if (key.backspace || key.delete) {
-          if (cursor > 0) {
-            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-            setCursor((c) => c - 1);
-          }
-          return;
-        }
-        if (key.return) {
-          if (!item) {
-            setMode('projects');
-            return;
-          }
-          // Validación con I/O never-throws (src/path-validate.js). Un inválido NUNCA alcanza el disco
-          // (PROJ-02/T-64-06): se guarda en projectsEditError (dedicado, Pitfall 2) y se sigue en
-          // projects-edit — la siguiente tecla edita, no se gasta limpiando el error.
-          const res = validateExistingDir(buffer);
-          if (!res.ok) {
-            setProjectsEditError(res.error);
-            return;
-          }
-          // setProjectPath es puro y preserva la forma dual (modules INTACTO si la entrada es objeto,
-          // D-06/T-64-07). saveProjectsFn es síncrono atómico; el try/catch es defensa en profundidad
-          // (never-throws — si lanzara, el panel ink sigue montado, D-07).
-          const next = setProjectPath(projectsSnapshot.map, item.id, res.value);
-          try {
-            saveProjectsFn(next);
-            setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
-            setProjectsEditError(null);
-            setFocusError(PROJECTS_SAVED_RESTART);
-            setFooterColor('yellow');
-            setMode('projects');
-          } catch {
-            setProjectsEditError(PROJECTS_SAVE_FAILED); // never-throws de respaldo
-          }
-          return;
-        }
-        // Char imprimible: inserta en la posición del cursor (NO append ciego, molde config-edit).
-        if (input && !key.ctrl && !key.meta) {
-          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
-          setCursor((c) => c + input.length);
-          return;
-        }
-        return; // traga el resto (teclas de control no mapeadas)
-      }
-      if (mode === 'projects-error') {
-        // PROJ-05/D-07: `r` re-dispara el fetch (mismo carril que `m`); Esc sale a list. saveProjectsFn
-        // JAMÁS se llama aquí (carril de LECTURA remota — projects.json intacto).
-        if (input === 'r') {
-          await runProjectsFetch();
-          return;
-        }
-        if (key.escape) {
-          setMode('list');
-          return;
-        }
-        return; // traga el resto
-      }
-      // Phase 64 Plan 03 (PROJ-04/D-05): SUB-MÁQUINA del editor de MÓDULOS (2º hop). Tres modos espejo
-      // del carril base: el transitorio projects-modules-loading (listModulesFn en vuelo), la lista
-      // navegable projects-modules y el text-input projects-modules-edit. Todos never-throws.
-      if (mode === 'projects-modules-loading') {
-        // Esc CANCELA e invalida el fetch del 2º hop en vuelo: avanza projectsReqRef → el resultado
-        // tardío se descarta tras el await (T-64-12) + vuelve a projects (no a list — el sub-editor se
-        // abrió DESDE projects).
-        if (key.escape) {
-          projectsReqRef.current++;
-          setMode('projects');
-          return;
-        }
-        return; // traga el resto mientras carga
-      }
-      if (mode === 'projects-modules') {
-        const modules = projectsSnapshot?.modules ?? [];
-        if (key.escape) {
-          setMode('projects'); // vuelve a la lista de proyectos
-          return;
-        }
-        if (key.upArrow) {
-          setFieldCursor((i) => Math.max(0, i - 1)); // clamp sin wrap (molde projects)
-          return;
-        }
-        if (key.downArrow) {
-          setFieldCursor((i) => Math.min(modules.length - 1, i + 1));
-          return;
-        }
-        if (key.return) {
-          // Precarga la ruta ACTUAL del módulo (getModuleMap del proyecto activo) en el text-input.
-          const mod = modules[fieldCursor];
-          if (!mod) return;
-          const activeId = projectsSnapshot?.activeProjectId;
-          const current = getModuleMap(projectsSnapshot?.map?.[activeId])[mod.name] ?? '';
-          setBuffer(current);
-          setCursor(current.length);
-          setProjectsEditError(null);
-          setMode('projects-modules-edit');
-          return;
-        }
-        return; // traga el resto mientras navega la lista de módulos
-      }
-      if (mode === 'projects-modules-edit') {
-        // Mismo molde de text-input que projects-edit: Esc cancela; ←/→ clamp cursor; backspace||delete
-        // borra char anterior; char imprimible inserta en cursor; Enter valida con validateExistingDir
-        // ANTES de setModulePath + saveProjectsFn (PROJ-04/T-64-11 reuso del validador del carril base).
-        const modules = projectsSnapshot?.modules ?? [];
-        const mod = modules[fieldCursor];
-        if (key.escape) {
-          setMode('projects-modules'); // cancela sin guardar, vuelve a la lista de módulos
-          return;
-        }
-        if (key.leftArrow) {
-          setCursor((c) => Math.max(0, c - 1));
-          return;
-        }
-        if (key.rightArrow) {
-          setCursor((c) => Math.min(buffer.length, c + 1));
-          return;
-        }
-        if (key.backspace || key.delete) {
-          if (cursor > 0) {
-            setBuffer((b) => b.slice(0, cursor - 1) + b.slice(cursor));
-            setCursor((c) => c - 1);
-          }
-          return;
-        }
-        if (key.return) {
-          if (!mod) {
-            setMode('projects-modules');
-            return;
-          }
-          // Validación FS never-throws ANTES de tocar el disco (PROJ-04): inválida → projectsEditError
-          // (dedicado, Pitfall 2) + sigue editando, NUNCA escribe.
-          const res = validateExistingDir(buffer);
-          if (!res.ok) {
-            setProjectsEditError(res.error);
-            return;
-          }
-          // setModulePath materializa { default, modules } preservando default y los OTROS módulos
-          // (D-06/T-64-13). La KEY es mod.name del provider (no input libre — T-64-11). saveProjectsFn
-          // es síncrono atómico; el try/catch es defensa en profundidad (never-throws).
-          const activeId = projectsSnapshot?.activeProjectId;
-          const next = setModulePath(projectsSnapshot.map, activeId, mod.name, res.value);
-          try {
-            saveProjectsFn(next);
-            setProjectsSnapshot((s) => (s ? { ...s, map: next } : s));
-            setProjectsEditError(null);
-            setFocusError(PROJECTS_SAVED_RESTART);
-            setFooterColor('yellow');
-            setMode('projects-modules');
-          } catch {
-            setProjectsEditError(PROJECTS_SAVE_FAILED); // never-throws de respaldo
-          }
-          return;
-        }
-        // Char imprimible: inserta en la posición del cursor (NO append ciego, molde projects-edit).
-        if (input && !key.ctrl && !key.meta) {
-          setBuffer((b) => b.slice(0, cursor) + input + b.slice(cursor));
-          setCursor((c) => c + input.length);
-          return;
-        }
-        return; // traga el resto (teclas de control no mapeadas)
+      // Phase 64 Plan 02/03: los SIETE modos del editor de proyectos/módulos, ENTRE config-edit y
+      // filter (espejo del orden D-02). Todos llevan el prefijo `projects` — un único gate los cubre.
+      // Handler en ProjectsEditor.js (KODO-40).
+      if (mode.startsWith('projects')) {
+        await handleProjectsInput(mode, input, key, ctx);
+        return;
       }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
@@ -1726,15 +719,9 @@ export default function App({
         return;
       }
       if (input === 'e') {
-        // Phase 63 Plan 02 D-02/UX-01: abre el editor de config SIN salir del dashboard. Pitfall 1:
-        // deep-clone OBLIGATORIO — `loadConfig` sin fichero devuelve `{...DEFAULT_CONFIG}` (spread
-        // superficial), así que mutar campos anidados aliasearía el DEFAULT_CONFIG del módulo. El
-        // structuredClone congela un snapshot propio del editor. NO se toca selectedTaskId (UX-03 gratis:
-        // resolveSelection re-deriva la misma fila al volver). fieldCursor a 0, error limpio.
-        setConfigSnapshot(structuredClone(loadConfigFn()));
-        setFieldCursor(0);
-        setConfigEditError(null);
-        setMode('config');
+        // Phase 63 Plan 02 D-02/UX-01: abre el editor de config SIN salir del dashboard (deep-clone
+        // OBLIGATORIO del snapshot — Pitfall 1). Implementación en ConfigEditor.js (KODO-40).
+        openConfigEditor(ctx);
         return;
       }
       if (input === 'm') {
@@ -1743,249 +730,69 @@ export default function App({
         // ignorado — RESEARCH Pitfall 0). Dispara el fetch async token-guarded (runProjectsFetch):
         // entra a projects-loading, await listProjectsFn, ramifica a projects (snapshot congelado) o
         // projects-error (PROJ-05). NO toca selectedTaskId (UX-03 gratis al volver).
-        await runProjectsFetch();
+        await runProjectsFetchImpl(ctx);
         return;
       }
+      // Los cuatro overlays de LECTURA (c/l/L/p) viven en OverlayViewer.js (KODO-40). Los tres
+      // asíncronos (c/l/L) llevan dentro el reqId-guard CR-01 anti-reapertura-obsoleta; `p` es
+      // síncrono y por tanto ATÓMICO (no lo necesita — ver la nota en openPlanOverlay).
       if (input === 'c') {
-        // TUI-15/SC#1: overlay de comentarios de la fila seleccionada (resueltos por task_id, D-02).
-        // fetchComments es never-throws (Plan 39-01): mapeamos su discriminante a un snapshot CONGELADO.
+        // TUI-15/SC#1: comentarios de la fila seleccionada (resueltos por task_id, D-02).
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
-        const res = await fetchComments(baseUrl, row.task_id, fetchFn);
-        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
-        let status;
-        /** @type {string[]} */
-        let lines = [];
-        if (res.ok) {
-          // D-08: `supported === false` (server señala que el provider no implementa listComments)
-          // gana sobre la lógica ok/empty — es un estado PERMANENTE, distinto de "sin comentarios aún".
-          if (res.data.supported === false) {
-            status = 'unsupported';
-          } else {
-            const comments = res.data.comments;
-            if (comments.length > 0) {
-              status = 'ok';
-              // Proyección a strings: prefijo de autor opcional + cuerpo (body|text|message); si no hay
-              // ningún campo de texto reconocido, JSON de respaldo (never-throws sobre shapes raras).
-              // HYG-07/M4 (T-72-12/T-72-13): el contenido externo NO confiable
-              // (comentarios de Plane) pasa por stripControlChars antes del <Text> —
-              // neutraliza OSC-52/escape injection. Las TRES ramas (fallback JSON incluido)
-              // se sanean. WR-03: task_ref/summary del provider tienen el mismo vector y se
-              // sanean en su punto de proyección (enriched map, ~:717) — éste NO es el único.
-              lines = comments.map((c) => {
-                const body = c.body ?? c.text ?? c.message;
-                if (body == null) return stripControlChars(JSON.stringify(c));
-                return stripControlChars(c.author ? `${c.author}: ${body}` : String(body));
-              });
-            } else {
-              status = 'empty';
-            }
-          }
-        } else if (res.code === 'not-found') {
-          status = 'not-found';
-        } else {
-          status = 'error';
-        }
-        // D-05: snapshot congelado al abrir. NO se toca selectedTaskId (cursor GRATIS al volver, D-06).
-        setOverlaySnapshot({ kind: 'comments', taskRef: row.task_ref ?? '', status, lines });
-        setOverlayKind('comments');
-        setScrollOffset(0);
-        setMode('overlay');
+        await openCommentsOverlay(row, ctx);
         return;
       }
       if (input === 'l') {
-        // TUI-16/SC#2: overlay de logs por grep substring (task_ref/workspace_ref) sobre el buffer
-        // compartido de /logs. fetchLogs never-throws; grepLogs es el filtro puro anti-ReDoS (Plan 39-01).
+        // TUI-16/SC#2: logs por grep substring (task_ref/workspace_ref) del buffer compartido.
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
-        const res = await fetchLogs(baseUrl, fetchFn);
-        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
-        let status;
-        /** @type {string[]} */
-        let lines = [];
-        if (res.ok) {
-          const matched = grepLogs(res.data.logs, {
-            task_ref: row.task_ref,
-            workspace_ref: row.workspace_ref,
-          });
-          status = matched.length ? 'ok' : 'empty';
-          // Proyección: `[ts] level  msg` (los campos ausentes se omiten sin romper el render).
-          lines = matched.map((e) =>
-            `${e.ts ? `${e.ts} ` : ''}${e.level ? `${e.level} ` : ''}${e.msg ?? ''}`.trim(),
-          );
-        } else {
-          status = 'error';
-        }
-        // D-05: snapshot congelado. D-06: selectedTaskId intacto.
-        setOverlaySnapshot({ kind: 'logs', taskRef: row.task_ref ?? '', status, lines });
-        setOverlayKind('logs');
-        setScrollOffset(0);
-        setMode('overlay');
+        await openLogsOverlay(row, ctx);
         return;
       }
       if (input === 'L') {
-        // Vista de log GENERAL: el buffer compartido COMPLETO, sin grep por sesión (espejo de `l`,
-        // para debug del daemon: webhooks/dispatch/lifecycle). NO requiere fila seleccionada.
-        // Mismo guard CR-01 anti-reapertura-obsoleta que `l` (fetch async).
-        const reqId = ++overlayReqRef.current;
-        const res = await fetchLogs(baseUrl, fetchFn);
-        if (overlayReqRef.current !== reqId) return; // cerrada/superada durante el await
-        let status;
-        /** @type {string[]} */
-        let lines = [];
-        if (res.ok) {
-          // SIN grep: se proyectan TODAS las líneas del buffer (newest-first, como lo sirve /logs).
-          lines = res.data.logs.map((e) =>
-            `${e.ts ? `${e.ts} ` : ''}${e.level ? `${e.level} ` : ''}${e.msg ?? ''}`.trim(),
-          );
-          status = lines.length ? 'ok' : 'empty';
-        } else {
-          status = 'error';
-        }
-        setOverlaySnapshot({ kind: 'logs-all', taskRef: '', status, lines });
-        setOverlayKind('logs-all');
-        setScrollOffset(0);
-        setMode('overlay');
+        // Vista de log GENERAL: el buffer compartido COMPLETO, sin grep por sesión. NO requiere
+        // fila seleccionada (es debug del daemon: webhooks/dispatch/lifecycle).
+        await openLogsAllOverlay(ctx);
         return;
       }
       if (input === 'p') {
-        // Phase 44 PLAN-01/PLAN-02 (D-02/D-05): overlay del/los PLAN.md de la fase GSD de la fila
-        // seleccionada (resuelta por task_id, D-02). CUARTO consumidor del mode:'overlay' junto a c/l.
-        //
-        // DIVERGENCIA CRÍTICA respecto a c/l (Pitfall 1 / RESEARCH:203-205): readPlan es SÍNCRONO —
-        // NO hay await window. setOverlaySnapshot/setMode corren en el MISMO tick que el keypress, así
-        // que NO existe carrera de "reapertura obsoleta": la apertura es ATÓMICA. Por eso este handler
-        // NO captura `const reqId = ++overlayReqRef.current` ni hace el check post-await `if
-        // (overlayReqRef.current !== reqId) return` de c/l — sería código muerto y engañoso. La rama de
-        // cierre con Esc (mode:'overlay') ya incrementa overlayReqRef para invalidar OTRAS aperturas
-        // c/l aún en vuelo; aquí no se toca. readPlan es never-throws (D-05): sin try/catch necesario.
+        // Phase 44 PLAN-01/PLAN-02 (D-02/D-05): el/los PLAN.md de la fase GSD de la fila seleccionada.
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        const res = readPlan(row, { resolvePhaseFn: resolvePhase });
-        // D-05: snapshot congelado al abrir. NO se toca selectedTaskId (cursor GRATIS al volver, D-06).
-        // Phase 75 (D-07): threadea `render` verbatim del resultado — SessionTable ramifica por él
-        // (markdown → mini-renderer del carril light; plain/ausente → <Text> plano GSD byte-idéntico).
-        setOverlaySnapshot({ kind: 'plan', taskRef: row.task_ref ?? '', status: res.status, lines: res.lines, render: res.render });
-        setOverlayKind('plan');
-        setScrollOffset(0);
-        setMode('overlay');
+        openPlanOverlay(row, ctx);
         return;
       }
+      // Las acciones sobre la fila seleccionada (d/o/O/Enter) viven en RowActions.js (KODO-40):
+      // todas mapean un runner never-throws al footer transitorio. El no-op sin fila se resuelve
+      // AQUÍ (el módulo recibe siempre una fila real).
       if (input === 'd') {
-        // Phase 42 D-01/D-07-TUI (DISMISS-02/04): handler de dismiss. Espejo de c/l (no-op si no
-        // hay fila) + el guard INVERSO del Enter (alive===true en vez de alive===false).
+        // Phase 42 D-01/D-07-TUI (DISMISS-02/04): primera `d` — guard INVERSO del Enter (rechaza
+        // alive===true) y armado del double-confirm por IDENTIDAD (task_id).
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        if (row.alive === true) {
-          // DISMISS-04/SC#2: `d` JAMÁS descarta una sesión viva. NO entra en confirm, NO manda
-          // DELETE — guard de UX (la autoridad TOCTOU es server-side, D-08). Mensaje rojo transitorio.
-          setFocusError(DISMISS_GUARD_ALIVE);
-          setFooterColor('red');
-          return;
-        }
-        // D-02/D-13: arma capturando la IDENTIDAD (task_id) + el ref legible para el copy. El poll
-        // sigue corriendo bajo confirm (D-05) — el target stale lo caza el 409 server-side al confirmar.
-        setArmedTaskId(row.task_id);
-        setArmedTaskRef(row.task_ref ?? row.task_id);
-        setMode('confirm');
+        armDismiss(row, ctx);
         return;
       }
       if (input === 'o') {
-        // Phase 48 D-01/D-02/D-04/D-05 (OPEN-01/02/03): handler open-in-manager. Lee
-        // `row.task_url` (ya persistido al lanzar — NO fetch, distinto de c/l). DIVERGENCIAS
-        // respecto al Enter handler:
-        //   - SIN guard alive (D-04): `o` funciona sobre alive/zombie/dismissed por igual.
-        //   - El ÚNICO guard es no-URL (D-05): sin task_url → footer BARE `no task URL for this
-        //     session` (no `[!]`, no `— press any key`) y onOpen NUNCA se invoca (open jamás
-        //     recibe un arg falsy/basura). Es un no-op benigno, no un error.
-        //   - En éxito: footer VERDE transitorio OPEN_OK(ref) (D-01/D-02) — diverge del silencio
-        //     de focus.js porque la TUI no muestra otro cambio visible.
-        // runOpen es never-throws (Plan 01 contract); el `?.` cubre el contexto degradado sin
-        // onOpen (tests del módulo sin DI), espejo de onFocus. El footer transitorio se limpia
-        // con el clear-on-any-input (D-03 — sin timer dedicado).
+        // Phase 48 (OPEN-01/02/03): open-in-manager. Lee `row.task_url` ya persistido (NO fetch,
+        // distinto de c/l). SIN guard alive (D-04): funciona sobre alive/zombie/dismissed por igual.
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        if (!row.task_url) {
-          setFocusError(OPEN_ERR_NO_URL);
-          setFooterColor('red');
-          return;
-        }
-        const result = await onOpen?.(row.task_url);
-        if (!result || result.ok !== false) {
-          // Éxito (o contexto degradado sin onOpen): footer verde de confirmación. REF =
-          // task_ref (el mismo identificador que muestra la tabla), fallback a task_id.
-          setFocusError(OPEN_OK(row.task_ref ?? row.task_id));
-          setFooterColor('green');
-        } else if (result.code === 'ENOENT') {
-          setFocusError(OPEN_ERR_ENOENT);
-          setFooterColor('red');
-        } else if (result.code === 'BAD_PROTOCOL') {
-          setFocusError(OPEN_ERR_BAD_PROTOCOL);
-          setFooterColor('red');
-        } else {
-          // NON_ZERO_EXIT (`detail` = exit code numérico) o SPAWN_ERROR (`detail` = Error.message).
-          const n = result.detail ?? 'unknown';
-          setFocusError(openErrFailed(n));
-          setFooterColor('red');
-        }
+        await openRow(row, ctx);
         return;
       }
       if (input === 'O') {
-        // ENFOCAR el orquestador — NO requiere fila seleccionada (no es una sesión de tarea,
-        // vive en el workspace cmux `kodo-orchestrator`). Contrato resolve-only, never-throws:
-        //   1. openOrchestrator → el server RESUELVE el `workspace:N` (NO lanza: el daemon no
-        //      tiene TTY/cmux fiable). workspace_ref === null ⇒ el orquestador no corre.
-        //   2. onFocus(ref) → cmux select-workspace (mismo mecanismo que Enter).
-        // Feedback transitorio en el footer (clear-on-any-input, sin timer), espejo de `o`/Enter.
-        const res = await openOrchestrator(baseUrl, fetchFn);
-        if (!res.ok) {
-          setFocusError(ORCH_ERR(res.error));
-          setFooterColor('red');
-          return;
-        }
-        if (!res.workspace_ref) {
-          // Resuelto OK pero el orquestador no está corriendo: hint accionable, no es un error.
-          setFocusError(ORCH_NOT_RUNNING);
-          setFooterColor('red');
-          return;
-        }
-        const fr = await onFocus?.(res.workspace_ref);
-        if (fr && !fr.ok) {
-          if (fr.code === 'ENOENT') setFocusError(FOCUS_ERR_ENOENT);
-          else setFocusError(focusErrFailed(fr.detail ?? 'unknown'));
-          setFooterColor('red');
-        } else {
-          // Éxito (o contexto degradado sin onFocus): footer verde.
-          setFocusError(ORCH_OK);
-          setFooterColor('green');
-        }
+        // ENFOCAR el orquestador — NO requiere fila seleccionada (no es una sesión de tarea, vive
+        // en el workspace cmux `kodo-orchestrator`). Contrato resolve-only + focus, never-throws.
+        await focusOrchestrator(ctx);
         return;
       }
       if (input === 'a') {
-        // Phase 56 D-01/D-02/D-03 (DETECT-02): handler de adopt. Descubre surfaces ad-hoc ON-DEMAND
-        // (NO poll loop) vía onAdoptDiscover (typeof-gated upstream en index.js, fail-open a []),
-        // diffea contra el snapshot vivo de /status (computeAdoptable, keyeado por sessionId — D-02)
-        // y abre el picker overlay con las adoptables. Vacío/unsupported → footer ADOPT_NONE y mode
-        // SIGUE en list (NO abre overlay, D-03). Mold del `o` handler (async never-throws) + del `c`/`l`
-        // reqId-guard alrededor del await (CR-01: una apertura encolada/Esc invalida la post-await).
-        const reqId = ++overlayReqRef.current; // CR-01: marca esta apertura
-        const surfaces = (await onAdoptDiscover?.()) ?? [];
-        if (overlayReqRef.current !== reqId) return; // CR-01: cerrada/superada durante el await
-        const adoptable = computeAdoptable(surfaces, sessions);
-        if (adoptable.length === 0) {
-          // D-02/D-03: set adoptable vacío / host sin soporte → footer informativo, NO abre picker.
-          setFocusError(ADOPT_NONE);
-          setFooterColor('yellow');
-          return;
-        }
-        // D-03: abre el picker congelado con el cursor en 0. El poll sigue corriendo por debajo
-        // (snapshot congelado en overlaySnapshot.adoptable, mold c/l/p).
-        setOverlaySnapshot({ kind: 'adopt', taskRef: '', status: 'ok', lines: [], adoptable });
-        setAdoptCursor(0);
-        setOverlayKind('adopt');
-        setMode('overlay');
+        // Phase 56 D-01/D-02/D-03 (DETECT-02): descubre surfaces ad-hoc ON-DEMAND, las diffea contra
+        // el snapshot vivo de /status y abre el picker. Vacío/unsupported → footer ADOPT_NONE y mode
+        // SIGUE en list. Implementación (con su reqId-guard CR-01) en AdoptPicker.js (KODO-40).
+        await openAdoptPicker(ctx);
         return;
       }
       if (key.upArrow) {
@@ -2000,37 +807,14 @@ export default function App({
         return;
       }
       if (key.return) {
-        // Phase 37 D-02 + D-06: handler de Enter — guard alive===false + invocación
-        // never-throws de onFocus + mapeo del discriminated union a los 3 mensajes
-        // literal-estables D-05.
+        // Phase 37 D-02 + D-06: Enter — guard alive===false + onFocus never-throws.
         //
         // `resolveSelection` retorna `{index, taskId}` SIN `.row` — leemos la fila del
         // array filtrado por índice (cf. select.js:74-80). Si la lista está vacía,
         // `sel.index === -1` y `filtered[-1]` es undefined → no-op.
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
-        if (row.alive === false) {
-          // D-02: cero invocación de cmux sobre workspaces muertos. La marca textual
-          // `(zombie)` ya pinta el estado (Phase 36 D-09); este mensaje confirma el
-          // rechazo en el footer para que el operador vea por qué Enter no hizo nada.
-          setFocusError(FOCUS_ERR_ZOMBIE);
-          return;
-        }
-        // D-06: runFocus es never-throws (Plan 01 D-01 contract) — siempre resuelve con
-        // el discriminado, jamás una excepción. El `?.` cubre el caso donde el caller no
-        // inyectó onFocus (tests del módulo sin DI, contexto degradado).
-        const result = await onFocus?.(row.workspace_ref);
-        if (result && !result.ok) {
-          if (result.code === 'ENOENT') {
-            setFocusError(FOCUS_ERR_ENOENT);
-          } else {
-            // NON_ZERO_EXIT (`detail` = code numérico de exit) o SPAWN_ERROR
-            // (`detail` = string del Error.message). En ambos casos, el operador ve
-            // la pista útil (`code N` o `code unknown`) en el footer.
-            const n = result.detail ?? 'unknown';
-            setFocusError(focusErrFailed(n));
-          }
-        }
+        await focusRow(row, ctx);
         return;
       }
       // key.escape: DELIBERADAMENTE ignorado en modo lista (reservado Phase 38 — D-11/D-15).

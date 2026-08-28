@@ -357,6 +357,9 @@ describe('SETUP-04 — boundary de fuga (Pitfall 11): writeEnvVar es in-proceso'
 describe('PERSIST-04 — el modo setup (68-02) no amplía la superficie de fuga (5 sinks)', () => {
   const tableSrc = readFileSync(new URL('../src/cli/dashboard/SessionTable.js', import.meta.url), 'utf-8');
   const appSrc = readFileSync(new URL('../src/cli/dashboard/App.js', import.meta.url), 'utf-8');
+  // KODO-40: el wizard de setup salió de App.js a su propio módulo. El recorte del handler y el
+  // grep de loadEnvFile lo siguen hasta SetupWizard.js — los asserts de los 5 sinks son idénticos.
+  const setupSrc = readFileSync(new URL('../src/cli/dashboard/SetupWizard.js', import.meta.url), 'utf-8');
 
   // Cuerpo de renderSetupOverlay: sink de "overlay-snapshot" (lo que ink pinta a lastFrame).
   const renderBody = tableSrc.slice(
@@ -367,9 +370,9 @@ describe('PERSIST-04 — el modo setup (68-02) no amplía la superficie de fuga 
   // Handler del paso apikey del wizard (desde el ancla del comentario "Paso 4/4"
   // hasta el cierre del save → estado terminal). onSaveConfig del setup vive ANTES
   // (pasos base_url/workspace_slug), fuera de este recorte por diseño.
-  const apiHandlerStart = appSrc.indexOf('Paso 4/4');
-  const completeIdx = appSrc.indexOf("setSetupStep('complete')", apiHandlerStart);
-  const apiHandler = appSrc.slice(apiHandlerStart, appSrc.indexOf('return;', completeIdx));
+  const apiHandlerStart = setupSrc.indexOf('Paso 4/4');
+  const completeIdx = setupSrc.indexOf("setSetupStep('complete')", apiHandlerStart);
+  const apiHandler = setupSrc.slice(apiHandlerStart, setupSrc.indexOf('return;', completeIdx));
 
   it('sink overlay: el paso apikey enmascara SIEMPRE (•.repeat), el buffer raw jamás se pinta', () => {
     // El valor real vive en el buffer en memoria; el render deriva la máscara.
@@ -402,13 +405,16 @@ describe('PERSIST-04 — el modo setup (68-02) no amplía la superficie de fuga 
     assert.doesNotMatch(apiHandler, /console\./, 'el handler del paso apikey no debe loguear el valor con console.*');
   });
 
-  it('D-09: App.js no re-invoca loadEnvFile (única mención = comentario que lo prohíbe)', () => {
+  it('D-09: App.js/SetupWizard.js no re-invocan loadEnvFile (única mención = comentario que lo prohíbe)', () => {
     // Sin comentarios de línea/bloque no debe quedar NINGUNA invocación de loadEnvFile.
-    const appCode = appSrc
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n')
-      .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
-      .join('\n');
-    assert.doesNotMatch(appCode, /loadEnvFile\s*\(/, 'App.js no debe llamar loadEnvFile (D-09: sin re-lectura mentirosa del .env)');
+    // KODO-40: se cubren los DOS ficheros del carril — el wizard vive ahora en SetupWizard.js.
+    const strip = (/** @type {string} */ src) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
+        .join('\n');
+    assert.doesNotMatch(strip(appSrc), /loadEnvFile\s*\(/, 'App.js no debe llamar loadEnvFile (D-09: sin re-lectura mentirosa del .env)');
+    assert.doesNotMatch(strip(setupSrc), /loadEnvFile\s*\(/, 'SetupWizard.js no debe llamar loadEnvFile (D-09: sin re-lectura mentirosa del .env)');
   });
 });
