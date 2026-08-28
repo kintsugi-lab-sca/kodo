@@ -22,7 +22,10 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+// KODO-43: `src/paths.js` es HOJA de solo builtins, sin I/O ni side-effects, y `kodoDir` es una
+// FUNCIÓN (lazy) — importarlo no reintroduce la evaluación eager de `homedir()` que este fichero
+// prohíbe arriba. Ver la cabecera de paths.js.
+import { kodoDir as resolveKodoDir } from '../../paths.js';
 
 /**
  * Cuenta las entradas PENDIENTES de la cola de integración — las ramas que siguen esperando un
@@ -51,7 +54,7 @@ export function readPendingIntegrationCount(deps = {}) {
     // PEREZOSO: `homedir()` se evalúa AQUÍ, jamás en el cuerpo del módulo. Dentro del try
     // porque la propia resolución del path puede lanzar (un `kodoDir` no-string haría estallar
     // a `join`), y un throw aquí tumba el árbol de ink entero.
-    const kodoDir = deps.kodoDir || join((deps.homedirFn || homedir)(), '.kodo');
+    const kodoDir = deps.kodoDir || resolveKodoDir(deps.homedirFn);
     const state = JSON.parse(readFileFn(join(kodoDir, 'state.json')));
     const queue = state && Array.isArray(state.integration_queue) ? state.integration_queue : [];
     let n = 0;

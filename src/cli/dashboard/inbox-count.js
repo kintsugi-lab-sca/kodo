@@ -36,7 +36,10 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+// KODO-43: `src/paths.js` es HOJA de solo builtins, sin I/O ni side-effects, y `kodoDir` es una
+// FUNCIÓN (lazy) — importarlo no reintroduce la evaluación eager de `homedir()` que la
+// prohibición de arriba veta en `config.js`. Ver la cabecera de paths.js.
+import { kodoDir as resolveKodoDir } from '../../paths.js';
 
 /**
  * Especialización a línea ABIERTA de `LINE_RE` (`src/inbox/store.js:126`): la MISMA gramática,
@@ -94,8 +97,9 @@ const OPEN_LINE_RE =
  *
  * @param {{ readFileFn?: (p: string) => string, kodoDir?: string, homedirFn?: () => string }} [deps]
  *   `readFileFn`/`kodoDir`/`homedirFn` aíslan el HOME real en tests SIN tocar `process.env`
- *   (molde `tasks.js:39-41`); sin ellos, default `readFileSync` + `join(homedir(), '.kodo')`,
- *   que replica `defaultInboxPaths` (`src/inbox/store.js:141`) sin importarlo.
+ *   (molde `tasks.js:39-41`); sin ellos, default `readFileSync` + `resolveKodoDir()` de
+ *   `src/paths.js`, la MISMA fuente de la que `defaultInboxPaths` (`src/inbox/store.js`) deriva
+ *   la suya — desde KODO-43 ya no es una réplica, es la definición canónica compartida.
  * @returns {number} capturas abiertas, o 0 ante cualquier fallo.
  */
 export function readOpenCaptureCount(deps = {}) {
@@ -108,7 +112,7 @@ export function readOpenCaptureCount(deps = {}) {
     // `homedirFn` inyectado que falle, o un `kodoDir` que no sea string y haga estallar a
     // `join`. Resolverla fuera dejaba una grieta en el never-throws de cuerpo entero (D-20)
     // que este mismo JSDoc promete, y un throw aquí tumba el árbol de ink entero.
-    const kodoDir = deps.kodoDir || join((deps.homedirFn || homedir)(), '.kodo');
+    const kodoDir = deps.kodoDir || resolveKodoDir(deps.homedirFn);
     const raw = readFileFn(join(kodoDir, 'inbox.md'));
     let n = 0;
     for (const line of raw.split('\n')) if (OPEN_LINE_RE.test(line)) n++;

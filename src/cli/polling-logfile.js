@@ -42,8 +42,11 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+// KODO-43: la raíz `~/.kodo` sale de `src/paths.js` (hoja de solo builtins, sin I/O). `kodoPath`
+// es lazy — resuelve `homedir()` EN LA LLAMADA, que es justo lo que exige el Pitfall #11 de
+// arriba; importarlo no reintroduce la evaluación en module-load que este fichero evita.
+import { kodoPath } from '../paths.js';
 
 /**
  * Retención default (D-15): 7 días.
@@ -76,7 +79,7 @@ export function resolveLogfilePath(opts = {}) {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
-  return join(homedir(), '.kodo', 'logs', `polling-${y}-${m}-${d}.log`);
+  return kodoPath('logs', `polling-${y}-${m}-${d}.log`);
 }
 
 /**
@@ -90,7 +93,7 @@ export function resolveLogfilePath(opts = {}) {
  * @returns {void}
  */
 export function ensureLogsDir() {
-  mkdirSync(join(homedir(), '.kodo', 'logs'), { recursive: true, mode: 0o700 });
+  mkdirSync(kodoPath('logs'), { recursive: true, mode: 0o700 });
 }
 
 /**
@@ -117,7 +120,7 @@ export function ensureLogsDir() {
  * @returns {void}
  */
 export function sweepRetention(opts = {}) {
-  const dir = join(homedir(), '.kodo', 'logs');
+  const dir = kodoPath('logs');
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const nowMs = opts.now ? opts.now().getTime() : Date.now();
   const cutoffMs = nowMs - retentionDays * MS_PER_DAY;

@@ -4,7 +4,9 @@
 //
 // Reader LEAF, SÍNCRONO y NEVER-THROWS del bloque `tasks` de `~/.kodo/state.json`.
 // Molde LITERAL de `readLightPlan` (plan.js:65-78): never-throws + DI de HOME
-// (`kodoDir`/`homedirFn`/`readFileFn`). Importa SOLO builtins (node:fs/node:path/node:os).
+// (`kodoDir`/`homedirFn`/`readFileFn`). Importa builtins (node:fs/node:path) y `src/paths.js`,
+// que es una HOJA de solo builtins sin I/O ni side-effects — la leaf-isolation se preserva
+// (KODO-43; ver la cabecera de paths.js para por qué `kodoDir` es función y no constante).
 //
 // PROHIBIDO importar `loadState`/`src/config.js`: `loadState` llama a
 // `migrateStateIfNeeded()` que ESCRIBE en disco (`.bak`) en CADA tick de poll
@@ -21,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { kodoDir as resolveKodoDir } from '../../paths.js';
 
 /**
  * Lee el bloque `tasks` de `~/.kodo/state.json`. Síncrono, never-throws.
@@ -32,13 +34,13 @@ import { homedir } from 'node:os';
  *
  * @param {{ readFileFn?: (p: string) => string, kodoDir?: string, homedirFn?: () => string }} [deps]
  *   `readFileFn`/`kodoDir`/`homedirFn` aíslan el HOME real en tests (D-08); sin ellos,
- *   default `readFileSync` + `join(homedir(), '.kodo')` (misma convención que plan.js:69).
+ *   default `readFileSync` + `resolveKodoDir()` de `src/paths.js` (misma convención que plan.js).
  * @returns {Record<string, { plan_path: string, next: string|null, updated_at: string }>}
  *   El objeto `tasks` de state.json, o `{}` si ausente/ilegible/malformado.
  */
 export function readTasks(deps = {}) {
   const readFileFn = deps.readFileFn || ((p) => readFileSync(p, 'utf-8'));
-  const kodoDir = deps.kodoDir || join((deps.homedirFn || homedir)(), '.kodo');
+  const kodoDir = deps.kodoDir || resolveKodoDir(deps.homedirFn);
   try {
     const state = JSON.parse(readFileFn(join(kodoDir, 'state.json')));
     return state && typeof state.tasks === 'object' && state.tasks !== null ? state.tasks : {};
