@@ -6,6 +6,20 @@
 // The thrown message (which may carry DB errors / internal detail) goes to the log
 // only — it must never appear in the response body. We exercise the /comments path:
 // a seeded session + a provider whose listComments throws a secret-bearing error.
+//
+// KODO-39 extends the file to the SECOND route that synthesizes its own 500 body:
+// DELETE /sessions/{id} (dismiss). Its body is built by the pure handler in
+// src/server/dismiss.js and serialized verbatim by the thin adapter in server.js
+// (`res.end(JSON.stringify(body))`), so asserting the handler's body — plus the
+// exact bytes the adapter would write — covers the wire contract without needing
+// doctor.execute to throw for real (it is never-throws by design, Phase 41).
+//
+// IMPORT-ORDER LANDMINE: src/server/dismiss.js pulls in src/session/state.js, which
+// freezes STATE_PATH from process.env.HOME AT MODULE LOAD. A static import here would
+// resolve it against the real HOME before the /comments suite's before() hook points
+// HOME at the tmp dir — the module cache is shared, so the seeded session would be
+// invisible and /comments would 404 instead of 500. Hence the dynamic import inside
+// each dismiss test (the handler is fully DI'd, so it never reads the real state).
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -97,5 +111,78 @@ describe('server error hygiene (NET-04, T-69-05)', () => {
     assert.deepEqual(JSON.parse(text), { error: 'internal error' });
     assert.doesNotMatch(text, /hunter2/, 'the thrown secret must not appear in the body');
     assert.equal(text.includes(SECRET_MESSAGE), false, 'no thrown message text in the response body');
+  });
+});
+
+
+/**
+ * Swap console.error for a capturing stub: NET-04 requires the thrown detail to
+ * survive server-side, so the log is part of the contract under test (and the
+ * expected error line must not pollute the test output).
+ */
+function captureConsoleError() {
+  const lines = [];
+  const original = console.error;
+  console.error = (...args) => { lines.push(args.join(' ')); };
+  return { lines, restore() { console.error = original; } };
+}
+
+/** A DoctorResult with every counter at zero (mirror doctor.js emptyResult). */
+function emptyDoctorResult() {
+  return {
+    worktrees: { removed: 0, moved: 0, pruned: 0, skipped: 0 },
+    zombies: { removed: 0 },
+    locks: { stolen: 0, kept: 0 },
+    errors: [],
+  };
+}
+
+describe('dismiss error hygiene — DELETE /sessions/{id} (NET-04, KODO-39)', () => {
+  it('a throwing executeFn → 500 with a neutral body and NO thrown detail leaked', async () => {
+    const { createDismissHandler } = await import('../src/server/dismiss.js');
+    const dismiss = createDismissHandler({
+      loadState: () => ({ sessions: { [TASK_ID]: { task_id: TASK_ID, alive: false } } }),
+      executeFn: async () => { throw new Error(SECRET_MESSAGE); },
+    });
+
+    const logged = captureConsoleError();
+    let status, body;
+    try {
+      ({ status, body } = await dismiss(TASK_ID));
+    } finally {
+      logged.restore();
+    }
+
+    assert.equal(status, 500);
+    assert.deepEqual(body, { ok: false, error: 'internal error' });
+    // The exact bytes server.js writes on the wire (thin adapter, server.js:512-514).
+    const wire = JSON.stringify(body);
+    assert.doesNotMatch(wire, /hunter2/, 'the thrown secret must not appear in the body');
+    assert.equal(wire.includes(SECRET_MESSAGE), false, 'no thrown message text in the response body');
+    // …but it MUST survive server-side, same as /comments (console.error).
+    assert.match(logged.lines.join('\n'), /hunter2/, 'the thrown detail must reach the server log');
+  });
+
+  it('a throwing loadState → 500 with a neutral body, execute never runs', async () => {
+    let executed = false;
+    const { createDismissHandler } = await import('../src/server/dismiss.js');
+    const dismiss = createDismissHandler({
+      loadState: () => { throw new Error(SECRET_MESSAGE); },
+      executeFn: async () => { executed = true; return emptyDoctorResult(); },
+    });
+
+    const logged = captureConsoleError();
+    let status, body;
+    try {
+      ({ status, body } = await dismiss(TASK_ID));
+    } finally {
+      logged.restore();
+    }
+
+    assert.equal(status, 500);
+    assert.deepEqual(body, { ok: false, error: 'internal error' });
+    assert.equal(JSON.stringify(body).includes(SECRET_MESSAGE), false);
+    assert.match(logged.lines.join('\n'), /hunter2/, 'the thrown detail must reach the server log');
+    assert.equal(executed, false, 'a thrown loadState must short-circuit before execute');
   });
 });

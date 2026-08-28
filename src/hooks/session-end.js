@@ -45,8 +45,37 @@ import * as cmux from '../cmux/client.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 import { colorForStatus } from '../cmux/colors.js';
 import { buildStopNudgeText } from './stop.js';
+// KODO-53: la bandeja del orquestador y su aviso de una línea. `inbox.js` es el mutador
+// de `state.orchestrator_inbox` (puro-ish, sin host); `notify.js` es el único de los dos
+// que tiene efectos sobre el terminal, y recibe el cliente del host por parámetro.
+import { enqueueOrchestratorEvent, resolveNudgeMode } from '../orchestrator/inbox.js';
+import { maybeNotifyOrchestrator } from '../orchestrator/notify.js';
 
 const STDIN_TIMEOUT = 3000;
+
+/**
+ * Resuelve el config del que sale `orchestrator.nudges` (KODO-53).
+ *
+ * Independiente del `config` que resuelve el bloque del review backstop (:249): aquel
+ * vive dentro de su propio `try`, y ampliarle el alcance para reusar la variable ataría
+ * el carril de avisos al del backstop — un fallo del provider dejaría el modo sin
+ * resolver. Aquí solo hace falta un objeto plano.
+ *
+ * FAIL-SAFE a `{}` → `resolveNudgeMode` cae a `'inbox'`, el default. Never-throws: el
+ * aviso es una conveniencia y jamás debe impedir que un cierre termine.
+ *
+ * @param {{ config?: any }} deps
+ * @returns {Promise<any>}
+ */
+async function resolveNudgeConfig(deps) {
+  if (deps?.config !== undefined) return deps.config;
+  try {
+    const { loadConfig } = await import('../config.js');
+    return loadConfig();
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Resuelve el probe «¿existe esta ruta?» que usan las DOS mitades del cierre (KODO-30):
@@ -104,6 +133,8 @@ async function readStdin() {
  *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
  *   captureIntegrationFn?: typeof import('../integration/capture.js').captureIntegration,
  *   markPendingCommentFn?: typeof markPendingComment,
+ *   enqueueOrchestratorEventFn?: typeof import('../orchestrator/inbox.js').enqueueOrchestratorEvent,
+ *   maybeNotifyOrchestratorFn?: typeof import('../orchestrator/notify.js').maybeNotifyOrchestrator,
  * }} [deps]
  *   `existsFn` (KODO-30) es el seam ESTRECHO del probe de existencia del worktree: lo
  *   consumen la captura de integración y el cleanup terminal (ver `resolveExistsFn`). Gana a
@@ -122,10 +153,19 @@ async function readStdin() {
  *   que un test que no lo inyecte ensucia el HOME del operador en cada `npm test` (T-74-15) y
  *   además mete comandos git propios en cualquier stub de `gitFn` que la suite esté contando.
  *   Sin él, el default es el `captureIntegration` real.
- *   `markPendingCommentFn` (KODO-36) cierra la MISMA fuga en el último escritor que quedaba:
- *   el marcador de comentario pendiente. Solo se ejerce cuando el `addComment` del backstop
- *   falla — o sea, justo en los tests que simulan el provider caído. Fluye tal cual hasta
+ *   `markPendingCommentFn` (KODO-36) cierra la MISMA fuga por cuarta vez: el marcador de
+ *   comentario pendiente. Solo se ejerce cuando el `addComment` del backstop falla — o sea,
+ *   justo en los tests que simulan el provider caído. Fluye tal cual hasta
  *   `runReviewBackstop`; sin él, el default es el `markPendingComment` real.
+ *   `enqueueOrchestratorEventFn`/`maybeNotifyOrchestratorFn` (KODO-53) la cierran por quinta
+ *   y sexta vez, sobre el bloque nuevo `state.orchestrator_inbox`: sin ellos, cada cierre de
+ *   la suite ENCOLA un evento en el `~/.kodo/state.json` real del operador y, si además tiene
+ *   un orquestador idle, le TECLEA un aviso en su terminal. Sin ellos, los defaults son
+ *   `enqueueOrchestratorEvent` y `maybeNotifyOrchestrator`.
+ *
+ *   El patrón se repite porque la causa es estructural: `config.js` evalúa `homedir()` en
+ *   module-load, así que CADA escritor nuevo de `state.json` que entre a este hook reabre la
+ *   fuga por su cuenta y necesita su propio seam. Si añades uno, añade el seam con él.
  * @returns {Promise<void>}
  */
 /**
@@ -407,25 +447,68 @@ export async function runSessionEndHook(input, deps = {}) {
       });
     } catch {}
 
-    // 3. Nudge al orquestador si está corriendo. buildStopNudgeText importado desde
-    //    stop.js. KODO-16: el destinatario ya no sale solo del match por título del
-    //    código original de stop.js — se prefiere el ref registrado en state.json. Este
-    //    es el ÚNICO nudge por-evento que sobrevivió a la Phase 73, y era el que se
-    //    perdía en silencio cuando un reinicio del daemon renombraba la tab.
-    //    KODO-20: `deps.getOrchestratorFn` se threadea explícitamente. Sin él,
+    // 3. Aviso al orquestador — KODO-53. Hasta aquí, este bloque TECLEABA
+    //    `buildStopNudgeText` en el prompt del orquestador vía `cmuxClient.send`, y ese
+    //    era el problema: el hook corre al cerrar, pero la ronda ya había leído el
+    //    comentario final en el provider y la pantalla, así que el nudge contaba algo
+    //    sabido — a veces con la tarea ya mergeada y en Done. Y si el orquestador estaba
+    //    en un turno largo, los nudges se acumulaban y aparecían todos juntos,
+    //    desordenados respecto de la realidad, en el prompt del operador.
+    //
+    //    Ahora el texto largo va a la BANDEJA (`state.orchestrator_inbox`), que la ronda
+    //    lee en el mismo `cat state.json` del paso 1, y el teclado se reserva para un
+    //    aviso de UNA línea que solo sale si el orquestador está IDLE (con debounce de
+    //    30 s, para que tres cierres seguidos sean un aviso y no tres).
+    //
+    //    `buildStopNudgeText` NO cambia: sigue pura, con sus goldens, y su salida es
+    //    ahora el `text` del evento. Es contenido para LEER en la ronda, no para teclear.
+    //
+    //    KODO-20 (intacto): `deps.getOrchestratorFn` se threadea explícitamente. Sin él,
     //    `resolveOrchestratorTargets` cae a su default (el `getOrchestrator` real) y el
     //    hook LEE el state.json del operador — con un orquestador vivo, el stub de
     //    `listWorkspaces` de los tests pierde frente al registro y la suite se vuelve
     //    dependiente de la máquina. Mismo motivo que `plansDir`/`stateWriterFn`.
     try {
-      const workspaces = await cmuxClient.listWorkspaces().catch(() => '');
-      await sendToOrchestrator(
-        (opts) => cmuxClient.send(opts),
-        resolveOrchestratorTargets(workspaces, { getOrchestratorFn: deps.getOrchestratorFn }),
-        // Phase 75 LIVE-07: threadeamos el NEXT: efectivo capturado del handoff.
-        // Con next → línea concreta; sin next → texto byte-idéntico al genérico (D-09).
-        buildStopNudgeText(session, handoffNext),
-      );
+      // Phase 75 LIVE-07 (intacto): el NEXT: efectivo capturado del handoff. Con next →
+      // línea concreta; sin next → texto byte-idéntico al genérico (D-09).
+      const nudgeText = buildStopNudgeText(session, handoffNext);
+      const mode = resolveNudgeMode(await resolveNudgeConfig(deps));
+
+      if (mode === 'keystroke') {
+        // Carril LEGACY, opt-in explícito: el texto largo se teclea tal cual y NO pasa por
+        // la bandeja. Comportamiento byte-idéntico al previo a KODO-53 para quien lo
+        // quiera de vuelta.
+        const workspaces = await cmuxClient.listWorkspaces().catch(() => '');
+        await sendToOrchestrator(
+          (opts) => cmuxClient.send(opts),
+          resolveOrchestratorTargets(workspaces, { getOrchestratorFn: deps.getOrchestratorFn }),
+          nudgeText,
+        );
+      } else {
+        // `inbox` (default) y `off` comparten la ESCRITURA: el evento se persiste siempre.
+        // La bandeja es el estado, no la notificación — «off» apaga el teclado, no la
+        // memoria (si apagara ambas, un cierre durante una ausencia se perdería, que es
+        // justo lo contrario de lo que KODO-53 arregla).
+        const enqueueFn = deps.enqueueOrchestratorEventFn || enqueueOrchestratorEvent;
+        enqueueFn(
+          {
+            kind: 'session-end',
+            task_ref: session.task_ref,
+            session_id: session.session_id,
+            text: nudgeText,
+          },
+          log,
+        );
+
+        if (mode === 'inbox') {
+          const notifyFn = deps.maybeNotifyOrchestratorFn || maybeNotifyOrchestrator;
+          await notifyFn({
+            hostClient: cmuxClient,
+            getOrchestratorFn: deps.getOrchestratorFn,
+            logger: log,
+          });
+        }
+      }
     } catch {}
   } catch (err) {
     console.error(`[kodo] SessionEnd hook error: ${/** @type {Error} */ (err).message}`);

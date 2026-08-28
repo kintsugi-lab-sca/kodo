@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import * as realFs from 'node:fs';
 import { writeHandoff, runSessionEndHook } from '../../src/hooks/session-end.js';
 import { buildStopNudgeText } from '../../src/hooks/stop.js';
+// KODO-53: seams de aislamiento de la bandeja del orquestador (ver docblock del helper).
+import { ORCH_INBOX_SEAMS, recordingInboxSeams } from '../helpers/orchestrator-inbox-seams.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -567,6 +569,10 @@ function makeTracingFs(calls) {
 /** Deps base del hook: hermético (sin red, sin registry, sin HOME real). */
 function makeHookDeps({ session, calls, plansDir: dir, logger, writer, fs }) {
   return {
+    // KODO-53: la bandeja del orquestador. Misma razón y mismo sitio que `getOrchestratorFn`
+    // más abajo — sin el stub, el bloque de efectos de cierre encola en el
+    // `~/.kodo/state.json` real y puede teclear un aviso en el terminal del operador.
+    ...ORCH_INBOX_SEAMS,
     findSessionFn: () => ({ id: session.task_id, session }),
     captureIntegrationFn: noCapture,
     removeSessionFn: (id) => { calls.push({ fn: 'removeSession', id }); },
@@ -739,7 +745,15 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
     };
   }
 
-  it('LIVE-07: con un NEXT: persistido, el nudge al orquestador incluye la línea concreta (no genérico)', async () => {
+  // KODO-53: el observable de LIVE-07 se MUEVE, la propiedad NO. El `next` efectivo
+  // seguía threadeándose a `buildStopNudgeText`; lo que cambia es que su salida ya no se
+  // teclea con `cmuxClient.send`, sino que viaja como `text` del evento de la bandeja. Los
+  // dos casos se re-apuntan al argumento del encolado, que es donde el texto aterriza
+  // ahora — y lo hace VERBATIM (la normalización del store corre después, y su cobertura
+  // vive en test/orchestrator-inbox.test.js), así que la byte-identidad de D-09 se
+  // comprueba igual de fuerte que antes.
+
+  it('LIVE-07: con un NEXT: persistido, el evento de la bandeja incluye la línea concreta (no genérico)', async () => {
     const session = makeSession();
     const { logger } = makeLogger();
     // El upsert devuelve el next efectivo persistido.
@@ -753,17 +767,19 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         ...makeHookDeps({ session, calls, plansDir, logger, writer }),
+        ...recordingInboxSeams(calls),
         cmux: makeCmuxStubWithOrch(calls),
       },
     );
 
-    const send = calls.find((c) => c.fn === 'send');
-    assert.ok(send, 'se envió el nudge al orquestador');
-    assert.match(send.args.text, /Siguiente paso sugerido por la sesión: desplegar el hotfix/, 'el nudge lleva la línea del NEXT:');
-    assert.equal(send.args.workspace, 'workspace:99', 'al workspace del orquestador matcheado');
+    const enqueue = calls.find((c) => c.fn === 'enqueue');
+    assert.ok(enqueue, 'el evento se encoló en la bandeja del orquestador');
+    assert.match(enqueue.args.text, /Siguiente paso sugerido por la sesión: desplegar el hotfix/, 'el evento lleva la línea del NEXT:');
+    assert.equal(enqueue.args.task_ref, session.task_ref, 'con la ref de la sesión que cerró');
+    assert.equal(calls.filter((c) => c.fn === 'send').length, 0, 'y NO se teclea nada (KODO-53)');
   });
 
-  it('LIVE-07: cierre mecánico SIN NEXT: previo → el nudge queda genérico (byte-idéntico, D-09)', async () => {
+  it('LIVE-07: cierre mecánico SIN NEXT: previo → el texto queda genérico (byte-idéntico, D-09)', async () => {
     const session = makeSession();
     const { logger } = makeLogger();
     // Mock por defecto: espeja el entry; el bloque mecánico manda next:null → efectivo null.
@@ -774,18 +790,20 @@ describe('runSessionEndHook — seam del handoff en :97 (LIVE-01, D-07)', () => 
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
         ...makeHookDeps({ session, calls, plansDir, logger, writer }),
+        ...recordingInboxSeams(calls),
         cmux: makeCmuxStubWithOrch(calls),
       },
     );
 
-    const send = calls.find((c) => c.fn === 'send');
-    assert.ok(send, 'se envió el nudge');
-    assert.ok(!send.args.text.includes('Siguiente paso sugerido'), 'sin NEXT: el nudge no gana la línea');
-    // Byte-idéntico al texto por-modo original (no-GSD → default).
+    const enqueue = calls.find((c) => c.fn === 'enqueue');
+    assert.ok(enqueue, 'el evento se encoló');
+    assert.ok(!enqueue.args.text.includes('Siguiente paso sugerido'), 'sin NEXT: el texto no gana la línea');
+    // Byte-idéntico al texto por-modo original (no-GSD → default). El hook pasa la salida
+    // de buildStopNudgeText TAL CUAL al encolado: la byte-identidad de D-09 sigue viva.
     assert.equal(
-      send.args.text,
+      enqueue.args.text,
       buildStopNudgeText(session),
-      'sin next el nudge es byte-idéntico al buildStopNudgeText(session) de una sola arg',
+      'sin next el texto es byte-idéntico al buildStopNudgeText(session) de una sola arg',
     );
   });
 

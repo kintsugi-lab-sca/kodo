@@ -15,6 +15,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSessionEndHook } from '../../src/hooks/session-end.js';
 import { sessionBackstopReview, EVENTS } from '../../src/logger-events.js';
+// KODO-53: seams de aislamiento de la bandeja del orquestador. Obligatorios en TODA
+// invocacion del hook — sin ellos la suite escribe en el state.json real y puede teclear
+// avisos en el terminal del operador (ver el docblock del helper).
+import { ORCH_INBOX_SEAMS, recordingInboxSeams } from '../helpers/orchestrator-inbox-seams.js';
 
 // ── Aislamiento del HOME (Phase 74, T-74-15) ───────────────────────────────────
 // OBLIGATORIO, no cosmético. Este fichero NO aísla HOME — no lo necesitaba, porque
@@ -127,6 +131,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -150,6 +155,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         // Simula una sesión ya archivada (Stop espurio, SessionEnd previo, doctor).
         findSessionFn: () => ({ id: session.task_id, session, source: 'history' }),
         captureIntegrationFn: noCapture,
@@ -171,6 +177,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
     await runSessionEndHook(
       { session_id: 'unknown', cwd: '/tmp/elsewhere' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => null,
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -192,6 +199,7 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
@@ -207,20 +215,19 @@ describe('runSessionEndHook — cleanup terminal (LIFE-03)', () => {
   });
 });
 
-describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', () => {
-  it('dispara setColor(review) + notify + nudge DESPUÉS del cleanup terminal', async () => {
+describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/aviso)', () => {
+  it('dispara setColor(review) + notify + el aviso al orquestador DESPUÉS del cleanup terminal', async () => {
+    // KODO-53: el tercer efecto dejó de ser un `send` con el texto largo. Ahora encola el
+    // evento en la bandeja y delega el aviso — el `send`, si lo hay, sale de
+    // `maybeNotifyOrchestrator` y solo si el orquestador está idle.
     const session = makeSession();
     const { logger, events } = makeLogger();
     const { stub: cmuxStub, calls } = makeCmuxStub();
-    // listWorkspaces devuelve el orquestador para que el nudge dispare el send.
-    cmuxStub.listWorkspaces = async () => {
-      calls.push({ fn: 'listWorkspaces' });
-      return 'workspace:9 kodo-orchestrator\n';
-    };
     const removed = [];
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...recordingInboxSeams(calls),
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -229,21 +236,164 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
         removeSessionFn: (id) => removed.push(id),
         loggerFactory: () => logger,
         cmux: cmuxStub,
+        config: {},
       },
     );
 
     const setColor = calls.find((c) => c.fn === 'setColor');
     const notify = calls.find((c) => c.fn === 'notify');
-    const send = calls.find((c) => c.fn === 'send');
+    const enqueue = calls.find((c) => c.fn === 'enqueue');
+    const maybeNotify = calls.find((c) => c.fn === 'maybeNotify');
     assert.ok(setColor, 'invoca setColor(review) en SessionEnd');
     assert.equal(setColor.args.workspace, session.workspace_ref, 'colorea el workspace de la sesión');
     assert.ok(notify, 'invoca notify de cierre en SessionEnd');
     assert.equal(notify.args.title, `kodo: ${session.task_ref} cerrada`, 'título de cierre');
-    assert.ok(send, 'invoca el nudge (send) al orquestador');
-    assert.equal(send.args.workspace, 'workspace:9', 'usa el ref del orquestador resuelto');
-    assert.match(send.args.text, /está en Review/, 'el texto del nudge proviene de buildStopNudgeText');
+    assert.ok(enqueue, 'encola el evento en la bandeja del orquestador');
+    assert.equal(enqueue.args.kind, 'session-end');
+    assert.equal(enqueue.args.task_ref, session.task_ref);
+    assert.equal(enqueue.args.session_id, session.session_id);
+    assert.match(enqueue.args.text, /está en Review/, 'el texto del evento sale de buildStopNudgeText');
+    assert.ok(maybeNotify, 'delega la decisión de avisar al carril del idle');
     // El cleanup (removeSession) corre ANTES de los efectos cosméticos.
     assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió');
+  });
+
+  it('KODO-53: en modo `inbox` (default) NO teclea el texto largo — ese era el ruido a retirar', async () => {
+    // El caso concreto que motivó KODO-53: el nudge llegaba tarde, duplicaba lo que la
+    // ronda ya sabía y ensuciaba el prompt del operador. Con la bandeja, `cmuxClient.send`
+    // no se toca desde el hook: el único envío posible viene de `maybeNotifyOrchestrator`,
+    // y es de una línea.
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    cmuxStub.listWorkspaces = async () => {
+      calls.push({ fn: 'listWorkspaces' });
+      return 'workspace:9 kodo-orchestrator\n';
+    };
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...recordingInboxSeams(calls),
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+        config: {},
+      },
+    );
+    assert.equal(calls.filter((c) => c.fn === 'send').length, 0, 'CERO keystrokes desde el hook');
+    assert.equal(calls.filter((c) => c.fn === 'enqueue').length, 1, 'el evento sí se persiste');
+  });
+
+  it('KODO-53: modo `keystroke` restaura el carril legacy — teclea el texto largo y NO encola', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    cmuxStub.listWorkspaces = async () => {
+      calls.push({ fn: 'listWorkspaces' });
+      return 'workspace:9 kodo-orchestrator\n';
+    };
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...recordingInboxSeams(calls),
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+        config: { orchestrator: { nudges: 'keystroke' } },
+      },
+    );
+    const send = calls.find((c) => c.fn === 'send');
+    assert.ok(send, 'el opt-in explícito recupera el keystroke');
+    assert.equal(send.args.workspace, 'workspace:9', 'usa el ref del orquestador resuelto');
+    assert.match(send.args.text, /está en Review/, 'con el texto de buildStopNudgeText');
+    assert.equal(calls.filter((c) => c.fn === 'enqueue').length, 0, 'el carril legacy NO pasa por la bandeja');
+  });
+
+  it('KODO-53: modo `off` persiste el evento pero NUNCA teclea (apaga el aviso, no la memoria)', async () => {
+    // `off` apaga el teclado, no la bandeja: si apagara ambas, un cierre durante una
+    // ausencia del operador se perdería — justo lo contrario de lo que KODO-53 arregla.
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...recordingInboxSeams(calls),
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+        config: { orchestrator: { nudges: 'off' } },
+      },
+    );
+    assert.equal(calls.filter((c) => c.fn === 'enqueue').length, 1, 'el evento se persiste igual');
+    assert.equal(calls.filter((c) => c.fn === 'maybeNotify').length, 0, 'ni se plantea avisar');
+    assert.equal(calls.filter((c) => c.fn === 'send').length, 0, 'cero keystrokes');
+  });
+
+  it('KODO-53: un `nudges` desconocido cae al default `inbox` en vez de dejar el carril indefinido', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        ...recordingInboxSeams(calls),
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: noOrchestrator,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: cmuxStub,
+        config: { orchestrator: { nudges: 'a-gritos' } },
+      },
+    );
+    assert.equal(calls.filter((c) => c.fn === 'enqueue').length, 1);
+    assert.equal(calls.filter((c) => c.fn === 'maybeNotify').length, 1);
+    assert.equal(calls.filter((c) => c.fn === 'send').length, 0);
+  });
+
+  it('KODO-53 never-throws: un enqueue que LANZA no impide que el hook termine', async () => {
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub: cmuxStub, calls } = makeCmuxStub();
+    const removed = [];
+    await assert.doesNotReject(
+      runSessionEndHook(
+        { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+        {
+          enqueueOrchestratorEventFn: () => { throw new Error('state.json ilegible'); },
+          maybeNotifyOrchestratorFn: async () => ({ sent: false, reason: 'nothing-unseen' }),
+          findSessionFn: () => ({ id: session.task_id, session }),
+          captureIntegrationFn: noCapture,
+          plansDir: handoffTmpdir,
+          stateWriterFn: noopStateWriter,
+          getOrchestratorFn: noOrchestrator,
+          removeSessionFn: (id) => removed.push(id),
+          loggerFactory: () => logger,
+          cmux: cmuxStub,
+          config: {},
+        },
+      ),
+      'un fallo de la bandeja JAMÁS bloquea el cierre de Claude Code',
+    );
+    assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió igual');
   });
 
   it('KODO-18: prefiere setStatus(review) cuando el host lo expone (host-agnóstico)', async () => {
@@ -263,6 +413,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -289,6 +440,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -325,6 +477,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -340,21 +493,22 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     assert.deepEqual(seq, ['backstop', 'setColor', 'notify'], 'orden LOCKED: backstop → setColor → notify (D-08)');
   });
 
-  it('never-throws: un setColor que lanza NO impide notify, send ni el cleanup', async () => {
+  it('never-throws: un setColor que lanza NO impide notify, el aviso ni el cleanup', async () => {
     const session = makeSession();
     const { logger } = makeLogger();
     const calls = [];
     const cmuxStub = {
-      setColor: async () => { calls.push('setColor'); throw new Error('cmux down'); },
-      notify: async () => { calls.push('notify'); },
-      listWorkspaces: async () => { calls.push('listWorkspaces'); return 'workspace:9 kodo-orchestrator\n'; },
-      send: async () => { calls.push('send'); },
+      setColor: async () => { calls.push({ fn: 'setColor' }); throw new Error('cmux down'); },
+      notify: async () => { calls.push({ fn: 'notify' }); },
+      listWorkspaces: async () => { calls.push({ fn: 'listWorkspaces' }); return 'workspace:9 kodo-orchestrator\n'; },
+      send: async () => { calls.push({ fn: 'send' }); },
     };
     const removed = [];
     await assert.doesNotReject(
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          ...recordingInboxSeams(calls),
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
@@ -363,13 +517,17 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
           removeSessionFn: (id) => removed.push(id),
           loggerFactory: () => logger,
           cmux: cmuxStub,
+          config: {},
         },
       ),
       'un fallo de setColor nunca crashea el hook (never-throws individual)',
     );
-    assert.ok(calls.includes('setColor'), 'intentó setColor');
-    assert.ok(calls.includes('notify'), 'notify corre pese al fallo de setColor');
-    assert.ok(calls.includes('send'), 'el nudge corre pese al fallo de setColor');
+    const fns = calls.map((c) => c.fn);
+    assert.ok(fns.includes('setColor'), 'intentó setColor');
+    assert.ok(fns.includes('notify'), 'notify corre pese al fallo de setColor');
+    // KODO-53: el tercer efecto ya no es un `send` — es el encolado en la bandeja. La
+    // propiedad que se vigila no cambia: un fallo del primer efecto no cancela los demás.
+    assert.ok(fns.includes('enqueue'), 'la bandeja se escribe pese al fallo de setColor');
     assert.deepEqual(removed, [session.task_id], 'el cleanup terminal corrió antes de los efectos');
   });
 
@@ -385,6 +543,7 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/nudge)', 
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -440,8 +599,19 @@ function makeConfig(reviewState = 'In review') {
 // más, para que `npm test` dé el mismo resultado con y sin orquestador vivo en la máquina.
 // Antes del fix, el primero de ellos fallaba en cualquier máquina con orquestador
 // registrado y pasaba en CI: exactamente el modo de fallo que motivó la tarea.
-describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)', () => {
-  /** Corre el hook con el nudge cableado y devuelve el ref al que se envió (o null). */
+describe('runSessionEndHook — hermeticidad del aviso al orquestador (KODO-20)', () => {
+  // La invariante de KODO-20 no cambia con KODO-53: el hook JAMÁS resuelve al orquestador
+  // leyendo el `~/.kodo/state.json` de la máquina. Lo que cambió es DÓNDE se ejerce.
+  //   · modo `keystroke` — el hook sigue llamando a `resolveOrchestratorTargets` él mismo,
+  //     así que el seam se observa igual que antes: por el ref del `send`.
+  //   · modo `inbox` (default) — la resolución vive en `maybeNotifyOrchestrator`, y lo que
+  //     hay que demostrar es que el hook le PASA el seam en vez de dejar que caiga a su
+  //     default real. Se observa sobre el argumento que recibe el stub.
+  // Ambos carriles se cubren: comprobar solo uno dejaría el otro leyendo el HOME real.
+
+  /**
+   * Corre el hook en modo `keystroke` y devuelve el ref al que se tecleó (o null).
+   */
   async function nudgeRefCon({ getOrchestratorFn, workspaceList }) {
     const session = makeSession();
     const { logger } = makeLogger();
@@ -450,6 +620,7 @@ describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)'
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -458,12 +629,13 @@ describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)'
         removeSessionFn: () => {},
         loggerFactory: () => logger,
         cmux: stub,
+        config: { orchestrator: { nudges: 'keystroke' } },
       },
     );
     return calls.find((c) => c.fn === 'send')?.args.workspace ?? null;
   }
 
-  it('el hook CONSULTA el getOrchestratorFn inyectado — el seam está cableado, no ignorado', async () => {
+  it('el carril keystroke CONSULTA el getOrchestratorFn inyectado — el seam está cableado, no ignorado', async () => {
     // El assert que de verdad importa: `resolveOrchestratorTargets` resuelve
     // `deps.getOrchestratorFn || getOrchestrator`, así que una sola invocación del stub
     // demuestra que el default real (el que lee ~/.kodo/state.json) NO entró en juego.
@@ -503,6 +675,36 @@ describe('runSessionEndHook — hermeticidad del nudge al orquestador (KODO-20)'
     const ref = await nudgeRefCon({ getOrchestratorFn: noOrchestrator, workspaceList: '' });
     assert.equal(ref, null);
   });
+
+  it('KODO-53: en modo `inbox` el seam se THREADEA a maybeNotifyOrchestrator (no cae a su default real)', async () => {
+    // Sin este threading, el aviso resolvería al orquestador por el `getOrchestrator` real
+    // y la suite volvería a depender de si la máquina tiene uno vivo — exactamente el
+    // fallo no determinista que KODO-20 cerró, reabierto un piso más abajo.
+    const session = makeSession();
+    const { logger } = makeLogger();
+    const { stub } = makeCmuxStub();
+    const seam = () => ({ workspace_ref: 'workspace:303' });
+    let recibido = null;
+    await runSessionEndHook(
+      { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
+      {
+        enqueueOrchestratorEventFn: () => ({ ok: true, value: { id: 'x' } }),
+        maybeNotifyOrchestratorFn: async (o) => { recibido = o; return { sent: false, reason: 'busy' }; },
+        findSessionFn: () => ({ id: session.task_id, session }),
+        captureIntegrationFn: noCapture,
+        plansDir: handoffTmpdir,
+        stateWriterFn: noopStateWriter,
+        getOrchestratorFn: seam,
+        removeSessionFn: () => {},
+        loggerFactory: () => logger,
+        cmux: stub,
+        config: {},
+      },
+    );
+    assert.ok(recibido, 'el carril del aviso se invocó');
+    assert.equal(recibido.getOrchestratorFn, seam, 'con el MISMO seam que recibió el hook');
+    assert.equal(recibido.hostClient, stub, 'y con el cliente del host inyectado, nunca cmux directo');
+  });
 });
 
 describe('runSessionEndHook — review backstop (DELIV-04)', () => {
@@ -514,6 +716,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -552,6 +755,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -578,6 +782,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -604,6 +809,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
@@ -634,6 +840,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
@@ -659,6 +866,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -690,6 +898,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -731,6 +940,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -761,6 +971,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         plansDir: handoffTmpdir,
@@ -790,6 +1001,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,
@@ -797,7 +1009,7 @@ describe('runSessionEndHook — review backstop (DELIV-04)', () => {
           getOrchestratorFn: noOrchestrator,
           removeSessionFn: () => {},
           loggerFactory: () => logger,
-        cmux: makeCmuxStub().stub,
+          cmux: makeCmuxStub().stub,
           provider,
           // states.done no-string y review no-terminal: el gate debe tolerarlo sin lanzar.
           config: { provider: 'plane', providers: { plane: { states: { review: 'In review', done: 123 } } } },
@@ -827,6 +1039,12 @@ describe('runSessionEndHook — marcador de comentario pendiente (KODO-36)', () 
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          // KODO-53 (añadido al mergear): estos casos llegan al bloque de efectos de
+          // cierre, así que necesitan también los seams de la bandeja del orquestador —
+          // sin ellos encolan en el `~/.kodo/state.json` real y, con un orquestador idle
+          // en la máquina, le teclean un aviso. Misma clase de fuga que el
+          // `markPendingCommentFn` que este mismo bloque inyecta.
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           plansDir: handoffTmpdir,

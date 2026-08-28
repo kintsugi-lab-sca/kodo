@@ -1020,41 +1020,56 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 78 (WR-01/WR-02): el nudge de "Nueva sesión lanzada" al orquestador sanea task.ref/task.title/projectPath vía stripForKeystroke', () => {
+  it('KODO-53: el aviso de "Nueva sesión lanzada" YA NO va por el carril de teclado — va a la bandeja', () => {
+    // ESTE GATE SUSTITUYE al de la Phase 78 (WR-01/WR-02), que exigía envolver
+    // task.ref/task.title/projectPath con `stripForKeystroke` en el texto de un
+    // `host._legacy.send`. Ya no hay tal send: KODO-53 lo retiró por completo porque su
+    // contenido era vacío por construcción — cuando el lanzamiento lo hace el orquestador
+    // (el caso normal, `kodo launch` desde su propia ronda) le anunciaba algo que acababa
+    // de ejecutar él mismo.
+    //
+    // La invariante de saneo NO se relaja, se MUEVE: el texto entra a la bandeja y su
+    // saneo vive ahora en `buildOrchestratorEvent` (orchestrator/inbox.js), que aplica el
+    // MISMO `stripForKeystroke` al `text` y al `task_ref` enteros — y es el sitio correcto,
+    // porque el resumen de una línea que sale de ahí SÍ se teclea. Su cobertura está en
+    // test/orchestrator-inbox.test.js §'SANEA task_ref y text'.
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // El helper de saneo debe estar importado desde el carril canónico (cli/sanitize.js),
-    // el MISMO que usa buildStopNudgeText en stop.js. NO se importa cmux/client.js
-    // (invariante cmux-isolation — verificado por su walker). WR-02: el carril de
-    // keystroke usa stripForKeystroke (no stripControlChars), que además neutraliza `\n`.
-    // Phase 87 (ISO-02): el carril canónico dejó de ser `cli/format.js` — los saneadores
-    // se movieron VERBATIM a `cli/sanitize.js`, una hoja de cero imports, para que el TUI
-    // deje de arrastrar picocolors por vía transitiva. El assert conserva TODAS sus
-    // condiciones; lo único que cambia es a qué carril se ancla.
+    // Lección de la Phase 83-02, aplicada aquí: los gates negativos filtran los COMENTARIOS
+    // antes de buscar. Los dos símbolos retirados se NOMBRAN en el comentario que explica
+    // por qué se fueron, y un comentario que documenta la regla no puede poner roja la
+    // suite — si no, la única salida es borrar la explicación.
+    const code = source.replace(/^\s*\/\/.*$/gm, '');
+
+    // 1. Nada del texto de lanzamiento puede viajar por un `send`.
     assert.ok(
-      /import\s*\{[^}]*\bstripForKeystroke\b[^}]*\}\s*from\s*['"]\.\.\/cli\/sanitize\.js['"]/.test(source),
-      'manager.js debe importar stripForKeystroke desde ../cli/sanitize.js (carril de keystroke, WR-02)',
+      !/sendToOrchestrator/.test(code),
+      'manager.js NO debe teclear nada al orquestador (sendToOrchestrator retirado, KODO-53)',
     );
-    // Los tres campos derivados de provider (no confiable) que se interpolan en el
-    // texto enviado al terminal del orquestador vía host._legacy.send DEBEN pasar por
-    // stripForKeystroke — mismo modelo de amenaza (inyección CSI/OSC/C0/C1) MÁS el vector
-    // newline (WR-02). Sin saneo, un título de tarea con OSC-52/CSI/`\n` se teclea crudo.
     assert.ok(
-      /Nueva sesión lanzada: \$\{stripForKeystroke\(task\.ref\)\} \(\$\{stripForKeystroke\(task\.title\)\}\)[\s\S]*?Path: \$\{stripForKeystroke\(projectPath\)\}/.test(source),
-      'el nudge de lanzamiento debe envolver task.ref, task.title y projectPath con stripForKeystroke (WR-02)',
+      !/resolveOrchestratorTargets/.test(code),
+      'sin keystroke no hay destinatario que resolver — resolveOrchestratorTargets fuera del código',
     );
-    // Regresión negativa: los campos crudos sin sanear NO deben reaparecer en ese send.
+
+    // 2. El evento SÍ existe: se encola, con su kind y sus tres campos.
     assert.ok(
-      !/Nueva sesión lanzada: \$\{task\.ref\}/.test(source),
-      'task.ref crudo (sin sanear) NO debe interpolarse en el nudge de lanzamiento (WR-01)',
+      /import\s*\{[^}]*\benqueueOrchestratorEvent\b[^}]*\}\s*from\s*['"]\.\.\/orchestrator\/inbox\.js['"]/.test(source),
+      'manager.js debe importar enqueueOrchestratorEvent desde ../orchestrator/inbox.js',
     );
-    // WR-02 con dientes: el saneador de RENDER (stripControlChars, que preserva `\n`)
-    // NO debe usarse EN ESTE CARRIL de keystroke — sería el residuo de inyección newline.
-    // Scope acotado al propio send (`Nueva sesión lanzada: …` hasta el backtick de cierre):
-    // el carril de RENDER (nombre de workspace / body de notify, IN-04) SÍ usa
-    // stripControlChars legítimamente, así que el check no puede ser source-wide.
     assert.ok(
-      !/Nueva sesión lanzada:[^`]*stripControlChars/.test(source),
-      'el carril de keystroke (nudge de lanzamiento) NO debe usar stripControlChars (preserva `\\n` → Enter espurio, WR-02)',
+      /kind:\s*'session-launched'/.test(source),
+      'el evento de lanzamiento debe encolarse con kind session-launched',
+    );
+    assert.ok(
+      /Nueva sesión lanzada: \$\{task\.ref\} \(\$\{task\.title\}\)[\s\S]*?Path: \$\{projectPath\}/.test(source),
+      'el texto del evento conserva los mismos tres campos que llevaba el nudge',
+    );
+
+    // 3. El seam de aislamiento sobre la ESCRITURA: sin él, un test de ejecución de
+    //    launchWorkItem encolaría en el ~/.kodo/state.json real (la fuga que KODO-20 cerró
+    //    sobre la LECTURA, ahora en el otro sentido).
+    assert.ok(
+      /opts\.enqueueOrchestratorEventFn\s*\|\|\s*enqueueOrchestratorEvent/.test(source),
+      'el encolado debe pasar por el seam opts.enqueueOrchestratorEventFn',
     );
   });
 

@@ -702,6 +702,60 @@ inbox
     }
   });
 
+// --- kodo inbox-orch [ack] --- (KODO-53: la bandeja del ORQUESTADOR)
+//
+// NOMBRE SEPARADO A PROPÓSITO, no un subcomando de `kodo inbox`. Son dos bandejas con dos
+// almacenes, dos productores y dos consumidores distintos: `kodo inbox` son las capturas
+// del OPERADOR en `~/.kodo/inbox.md`; esto son los eventos del ciclo de vida hacia el
+// ORQUESTADOR en `state.orchestrator_inbox`. Colgarlo de `inbox` sugeriría que
+// `kodo inbox --all` las lista todas, y no es así.
+//
+// Misma forma que `inbox`: el padre lista, el subcomando cierra. El consumidor habitual es
+// la RONDA del orquestador —que ya lee la bandeja en el `cat state.json` del paso 1 y aquí
+// solo viene a ackear—, así que `ack --all` es el camino corto y esperado.
+//
+// NO `ensureConfig()`: la bandeja es estado local y no toca ningún provider. Mismo
+// precedente que `inbox`, `integrate`, `skill sync` y `gsd doctor`.
+const inboxOrch = program
+  .command('inbox-orch')
+  .description('Bandeja del orquestador (state.orchestrator_inbox): eventos de ciclo de vida sin ver')
+  .option('--all', 'Incluir también los eventos ya vistos (la traza)')
+  .option('--json', 'Emitir el listado como JSON (scriptable, byte-determinista)')
+  .action(async (opts) => {
+    try {
+      const { runInboxOrchListCli } = await import('./cli/inbox-orch.js');
+      process.exitCode = runInboxOrchListCli({ all: opts.all || false, json: opts.json || false });
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+inboxOrch
+  .command('ack [ids...]')
+  .description('Marcar eventos como vistos (nunca los borra: cerrar es una transición de estado)')
+  .option('--all', 'Marcar TODOS los eventos sin ver — el camino normal al cerrar una ronda')
+  .action(async (ids, opts, cmd) => {
+    try {
+      // COLISIÓN DE FLAG LARGO, verificada en vivo sobre commander 13.1.0: cuando el
+      // comando PADRE declara el mismo `--all` (y aquí lo declara, para el listado), el
+      // `--all` tecleado DESPUÉS del subcomando aterriza en las opciones del padre y el
+      // `opts` del subcomando llega VACÍO — sin error de opción desconocida, o sea en
+      // silencio. `kodo inbox-orch ack --all` marcaba cero eventos y salía con 2.
+      //
+      // Se lee de los DOS niveles en vez de renombrar uno de los flags: `--all` es el
+      // nombre correcto en ambos sitios, y `optsWithGlobals()` es justo el lector que
+      // commander expone para este caso. Efecto lateral aceptado: `kodo inbox-orch --all
+      // ack` también acka todo — misma frase, mismo resultado.
+      const all = opts?.all === true || cmd?.optsWithGlobals?.()?.all === true;
+      const { runInboxOrchAckCli } = await import('./cli/inbox-orch.js');
+      process.exitCode = runInboxOrchAckCli(ids || [], { all });
+    } catch (err) {
+      console.error(`Error: ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
 // --- kodo integrate --- (KODO-26: cola de integración)
 //
 // MISMA forma que `inbox` y por la MISMA razón: el padre lista, y la acción sobre una entrada
