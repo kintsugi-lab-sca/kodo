@@ -133,18 +133,40 @@ export function buildOrphanComment({ taskRef, sessionId, deadSince, next, planPa
  * comentario en el siguiente arranque — duplicar una señal es recuperable; perderla
  * es exactamente el bug que este módulo cierra.
  *
+ * KODO-47 — el sello es lo que cierra el ciclo, no el comentario. `updateSessionFn`
+ * degrada a `{ok:false, reason:'lock-timeout'}` sin lanzar, y hasta ahora su retorno se
+ * ignoraba: en lock-timeout el sweep contaba `reported` con la marca sin escribir, y el
+ * tick siguiente volvía a ver la sesión como candidata y RE-COMENTABA en el provider.
+ * `sweptGuard` cierra ese hueco dentro del proceso: las sesiones ya comentadas cuyo
+ * sello no persistió entran ahí y en los ticks siguientes solo se reintenta la marca.
+ * Si el proceso muere el guard se pierde y el comentario se duplica — el mismo caso ya
+ * asumido arriba para la muerte entre `addComment` y la marca, y por la misma razón.
+ *
  * @param {object} deps
  * @param {() => { sessions: Record<string, Session>, tasks?: Record<string, any> }} deps.loadStateFn
  * @param {(taskId: string, updates: object) => any} deps.updateSessionFn
  * @param {{ getTaskState?: Function, addComment?: Function }} deps.provider
  * @param {() => number} deps.now - clock inyectable (ms).
  * @param {{ info?: Function, warn?: Function, debug?: Function }} [deps.logger]
+ * @param {Set<string>} [deps.sweptGuard] - memoria ENTRE ticks de los comentarios ya
+ *   posteados cuyo sello cayó por lock-timeout. La crea `startOrphanSweepLoop` (una por
+ *   loop) y se inyecta para no compartir estado global entre llamadas ni entre tests.
+ *   Sin ella cada pase es independiente: se comporta como antes de KODO-47.
  * @returns {Promise<{ candidates: number, reported: number, resolved: number, deferred: number }>}
- *   `reported` = comentarios posteados; `resolved` = candidatas que ya no estaban en
- *   `in_progress` (nada que señalar); `deferred` = aplazadas por fallo del provider.
+ *   `reported` = comentarios posteados Y sellados; `resolved` = candidatas que ya no
+ *   estaban en `in_progress` (nada que señalar); `deferred` = aplazadas por fallo del
+ *   provider o por un sello que no llegó a disco.
  */
-export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, now, logger }) {
+export async function runOrphanSweep({
+  loadStateFn,
+  updateSessionFn,
+  provider,
+  now,
+  logger,
+  sweptGuard,
+}) {
   const stats = { candidates: 0, reported: 0, resolved: 0, deferred: 0 };
+  const guard = sweptGuard instanceof Set ? sweptGuard : new Set();
 
   // Capability gate (mismo criterio que runReviewBackstop): sin lectura de estado o
   // sin comentario no hay señal que dar. Un provider sin estos métodos → no-op.
@@ -171,8 +193,36 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
   const tasks = (state && state.tasks) || {};
 
   for (const [taskId, session] of Object.entries(sessions)) {
-    if (!isOrphanCandidate(session, at)) continue;
+    if (!isOrphanCandidate(session, at)) {
+      // La marca terminal ya está en disco (la escribió el reintento de un tick
+      // anterior, o cualquier otro escritor): el guard ya no tiene nada que proteger
+      // y su entrada se retira. Es también la poda que evita que el Set crezca.
+      guard.delete(taskId);
+      continue;
+    }
     stats.candidates += 1;
+
+    // KODO-47: el comentario de ESTA sesión YA se posteó en un tick anterior y lo
+    // único que faltó fue el sello (`orphan_swept_at` cayó por lock-timeout, así que
+    // la sesión sigue siendo candidata). Volver a comentar duplicaría la señal al
+    // provider por un fallo de lock, que es justo lo que este guard corta: aquí solo
+    // se reintenta la marca, nunca `addComment`.
+    if (guard.has(taskId)) {
+      if (!markSweep(updateSessionFn, taskId, session, 'orphan_swept_at', at, logger)) {
+        stats.deferred += 1;
+        continue;
+      }
+      guard.delete(taskId);
+      stats.reported += 1;
+      if (logger && typeof logger.info === 'function') {
+        sessionOrphanDetected(/** @type {any} */ (logger), {
+          session_id: session.session_id,
+          task_id: session.task_id,
+          state: 'in_progress',
+        });
+      }
+      continue;
+    }
 
     // Shape combinado {id, projectId, url, ref}: cubre Plane ({id, projectId}) y
     // GitHub ({ref}) sin ramificar por provider (espejo de runReviewBackstop).
@@ -188,7 +238,10 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
       providerState = await provider.getTaskState(task);
     } catch (err) {
       stats.deferred += 1;
-      updateSessionFn(taskId, { orphan_attempt_at: new Date(at).toISOString() });
+      // El aplazamiento ya está contado; si la marca no persiste, el único efecto es
+      // perder el backoff de 10 min (se repreguntará el estado en el próximo tick).
+      // No duplica nada en el provider — `getTaskState` es lectura.
+      markSweep(updateSessionFn, taskId, session, 'orphan_attempt_at', at, logger);
       logger?.warn?.('session.orphan.getstate_failed', {
         session_id: session.session_id,
         task_id: session.task_id,
@@ -200,8 +253,13 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
     // La tarea ya avanzó (el LLM cerró, o el backstop de SessionEnd, o un humano):
     // nada que señalar. Se sella igual para no volver a preguntar cada minuto.
     if (providerState !== 'in_progress') {
-      stats.resolved += 1;
-      updateSessionFn(taskId, { orphan_swept_at: new Date(at).toISOString() });
+      // Sin sello no hay ciclo resuelto: cuenta como aplazada (se repreguntará), no
+      // como `resolved`, que afirmaría una marca que no está en disco.
+      if (markSweep(updateSessionFn, taskId, session, 'orphan_swept_at', at, logger)) {
+        stats.resolved += 1;
+      } else {
+        stats.deferred += 1;
+      }
       continue;
     }
 
@@ -218,7 +276,9 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
       await provider.addComment(task, comment);
     } catch (err) {
       stats.deferred += 1;
-      updateSessionFn(taskId, { orphan_attempt_at: new Date(at).toISOString() });
+      // Mismo caso que el fallo de `getTaskState`: el comentario NO salió, así que un
+      // reintento inmediato no duplica; solo se pierde el backoff.
+      markSweep(updateSessionFn, taskId, session, 'orphan_attempt_at', at, logger);
       logger?.warn?.('session.orphan.comment_failed', {
         session_id: session.session_id,
         task_id: session.task_id,
@@ -227,8 +287,17 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
       continue;
     }
 
+    // KODO-47: el sello se escribe ANTES de contar el éxito. Si el lock cae, el
+    // comentario ya está posteado pero el ciclo NO está cerrado: no es `reported`
+    // (era la telemetría que mentía) y la sesión entra en el guard para que el
+    // próximo tick reintente el sello sin volver a comentar.
+    if (!markSweep(updateSessionFn, taskId, session, 'orphan_swept_at', at, logger)) {
+      guard.add(taskId);
+      stats.deferred += 1;
+      continue;
+    }
+
     stats.reported += 1;
-    updateSessionFn(taskId, { orphan_swept_at: new Date(at).toISOString() });
     // El helper llama `logger.info` sin guardas: un logger parcial (los stubs de
     // otros loops solo traen `warn`) lo haría lanzar dentro del bucle.
     if (logger && typeof logger.info === 'function') {
@@ -241,6 +310,39 @@ export async function runOrphanSweep({ loadStateFn, updateSessionFn, provider, n
   }
 
   return stats;
+}
+
+/**
+ * Escribe una marca del sweep en `state.json` y avisa si el lock no la dejó persistir
+ * (KODO-47). PURA respecto al sweep: no toca `stats` — cada call-site decide qué
+ * significa el fallo en SU contador, porque no es lo mismo perder el backoff de un
+ * reintento que dejar sin sellar un comentario ya posteado.
+ *
+ * Los mutadores de `state.js` degradan a `{ok:false, reason:'lock-timeout'}` sin lanzar
+ * (D-03), así que el retorno es la ÚNICA señal de que no se escribió nada. Un escritor
+ * inyectado que devuelva `undefined` (los stubs de los tests, y el contrato previo a
+ * WR-01) se trata como éxito: solo un `ok === false` explícito cuenta como fallo.
+ *
+ * @param {(taskId: string, updates: object) => any} updateSessionFn
+ * @param {string} taskId
+ * @param {Session} session
+ * @param {'orphan_swept_at'|'orphan_attempt_at'} field
+ * @param {number} at - timestamp ms del pase.
+ * @param {{ info?: Function, warn?: Function, debug?: Function }} [logger]
+ * @returns {boolean} `true` si la marca está en disco.
+ */
+function markSweep(updateSessionFn, taskId, session, field, at, logger) {
+  const r = updateSessionFn(taskId, { [field]: new Date(at).toISOString() });
+  if (r && r.ok === false) {
+    logger?.warn?.('session.orphan.mark_failed', {
+      session_id: session.session_id,
+      task_id: session.task_id,
+      mark: field,
+      reason: r.reason,
+    });
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -392,6 +494,9 @@ export function startOrphanSweepLoop(deps) {
   const clearIv = deps.clearInterval ?? clearInterval;
   const now = deps.now ?? (() => Date.now());
   let running = false;
+  // KODO-47: una memoria POR LOOP (no module-level) de los comentarios ya posteados
+  // cuyo sello cayó por lock-timeout. Vive lo que vive el loop; su teardown se la lleva.
+  const sweptGuard = new Set();
 
   const handle = setIv(async () => {
     if (running) return; // single-flight: un sweep lento no se solapa consigo mismo
@@ -406,6 +511,7 @@ export function startOrphanSweepLoop(deps) {
           provider: deps.provider,
           now,
           logger: deps.logger,
+          sweptGuard,
         });
         // Solo se loguea el pase que HIZO algo: el heartbeat vacío es el caso común
         // (cero sesiones dead) y inflaría el NDJSON igual que el tick de reconcile.

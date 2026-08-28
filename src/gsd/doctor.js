@@ -83,7 +83,7 @@ const MS_PER_HOUR = 3600_000;
  *   listLogFiles?: () => LogFile[],
  *   statFile?: (path: string) => { mtimeMs: number },
  *   listWorktreeDirs?: () => WorktreeDir[],
- *   removeSession?: (taskId: string, logger?: any) => void,
+ *   removeSession?: (taskId: string, logger?: any) => any,
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
  *   cleanupWorktree?: (args: any) => Promise<{ removed: boolean, moved_to: string|null, branch_deleted: boolean }>,
  *   unlinkFile?: (path: string) => void,
@@ -541,8 +541,17 @@ export async function execute(deps = {}, opts = {}) {
       if (!s || s.alive !== false) continue;
       if (taskId && tid !== taskId) continue;
       try {
-        d.removeSession(tid, log);
-        result.zombies.removed++;
+        // KODO-47: `removeSession` NO lanza en lock-timeout — degrada a
+        // `{ok:false, reason:'lock-timeout'}` (D-03). Sin este chequeo el zombie
+        // seguía en state.json y el doctor lo contaba como removido: el `--fix`
+        // reportaba un arreglo que nunca ocurrió. Va a `errors` (no a `removed`),
+        // que es donde el operador ya mira lo que quedó sin arreglar.
+        const r = d.removeSession(tid, log);
+        if (r && r.ok === false) {
+          pushError(result, log, 'zombie', tid, `no persistido: ${r.reason}`);
+        } else {
+          result.zombies.removed++;
+        }
       } catch (err) {
         pushError(result, log, 'zombie', tid, errMsg(err));
       }
