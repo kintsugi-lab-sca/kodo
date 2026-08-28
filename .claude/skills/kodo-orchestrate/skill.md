@@ -727,3 +727,24 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   al operador y se cierra sólo cuando él lo diga o cuando pida el slot; si hace
   falta un slot y no ha contestado, pregunta antes de cerrar. Excepción: el
   operador ya dijo explícitamente que la tarea está hecha (caso LIKEN-126).
+- [2026-08-28] **`cmux send` escribe texto; `cmux send-key` pulsa teclas. No
+  existe `send --key`.** Un `cmux send --workspace X "texto" --key Enter` pega el
+  literal `--key Enter` al final del prompt y no lo envía: la sesión queda con el
+  texto escrito y sin ejecutar (pasó en tres sesiones a la vez el 28-ago). El
+  nudge correcto son dos llamadas: `cmux send --workspace X "texto"` y después
+  `cmux send-key --workspace X Enter`. Si un prompt quedó sucio,
+  `cmux send-key --workspace X ctrl+u` lo vacía antes de reenviar. Verifica
+  siempre con `read-screen` que la sesión está «pensando» y no que el texto
+  sigue en el prompt.
+- [2026-08-28] **Cuando una migración entra en `main`, todas las ramas vivas que
+  nacieron antes rompen CI con el mismo error.** #43 (ITCLIP-109) sustituyó
+  `Impact.audience` por `audience_digital`/`circulation` y las tres PRs abiertas
+  del día (#44, #45, #46) fallaron en cadena con `AttributeError: 'Impact' object
+  has no attribute 'audience'`, cada una en un fichero distinto. Al mergear una
+  PR con migración de modelo: (1) avisa en la misma ronda a TODAS las sesiones
+  con rama abierta para que hagan `git merge origin/main` + suite, no una a una
+  según vaya fallando el CI; (2) en el lanzamiento, si dos tareas del mismo repo
+  tocan el mismo modelo, secuéncialas o dilo en la descripción de la segunda.
+  Corolario ya conocido: la BD de desarrollo compartida entre worktrees queda
+  migrada por la primera rama y las demás no arrancan contra ella (108, 94, 118
+  lo reportaron); las sesiones deben usar BD propia para verificar.
