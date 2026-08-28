@@ -21,6 +21,7 @@ import {
   resolveListenHost,
   resolveClientHost,
   formatHostForUrl,
+  isWildcardHost,
 } from '../src/net-host.js';
 
 /** Config mínimo con el bind pedido. `undefined` omite la clave por completo. */
@@ -127,5 +128,28 @@ describe('formatHostForUrl', () => {
   it('el resultado es una URL parseable por `new URL`', () => {
     const url = `http://${formatHostForUrl('fd7a:115c:a1e0::1')}:9090`;
     assert.equal(new URL(url).port, '9090');
+  });
+});
+
+// KODO-45: el mismo listado de wildcards que colapsa `resolveClientHost` alimenta
+// ahora el aviso de arranque del server. Un solo origen, dos consumidores.
+describe('isWildcardHost', () => {
+  it('los dos wildcards de escucha son los únicos true', () => {
+    assert.equal(isWildcardHost('0.0.0.0'), true);
+    assert.equal(isWildcardHost('::'), true);
+  });
+
+  it('loopback y direcciones concretas son false', () => {
+    assert.equal(isWildcardHost('127.0.0.1'), false);
+    assert.equal(isWildcardHost('::1'), false, 'el loopback IPv6 escucha en una sola interfaz');
+    assert.equal(isWildcardHost('100.64.1.2'), false);
+    assert.equal(isWildcardHost('localhost'), false);
+  });
+
+  it('es coherente con resolveClientHost: lo que colapsa al fallback es lo que avisa', () => {
+    for (const bind of ['0.0.0.0', '::']) {
+      assert.equal(isWildcardHost(resolveListenHost(cfg(bind))), true);
+      assert.equal(resolveClientHost(cfg(bind), 'localhost'), 'localhost');
+    }
   });
 });
