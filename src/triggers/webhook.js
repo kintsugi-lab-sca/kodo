@@ -1,6 +1,7 @@
 // @ts-check
 import { dispatchTrigger } from './dispatcher.js';
-import { webhookReceived, webhookRejected, webhookDispatchRetry } from '../logger-events.js';
+import { webhookReceived, webhookRejected, webhookDispatchRetry, webhookReplay } from '../logger-events.js';
+import { getReplayCache, keyForBody } from './replay-cache.js';
 
 /**
  * @typedef {{
@@ -8,6 +9,7 @@ import { webhookReceived, webhookRejected, webhookDispatchRetry } from '../logge
  *   logger?: import('../logger.js').Logger,
  *   providerName?: string,
  *   dispatchGraceMs?: number,
+ *   replayCache?: import('./replay-cache.js').ReplayCache | null,
  * }} WebhookDeps
  */
 
@@ -268,6 +270,43 @@ export async function handleWebhookRequest(rawBody, headers, provider, deps = {}
     return { status: 200, body: { ok: true, ignored: true } };
   }
 
+  // 3b. Anti-replay (KODO-46). El HMAC de Plane se firma SOLO sobre el body y no hay
+  // header temporal que lo ate a un instante, así que un webhook capturado se puede
+  // reenviar indefinidamente y pasa el paso 1 siempre. La caché de idempotencia recuerda
+  // los bodies ya procesados durante una ventana corta y descarta el reenvío. Ver el
+  // porqué de la clave (hash del body, no `task_ref+action`) en replay-cache.js.
+  //
+  // Va DESPUÉS del parseo para que el descarte se pueda loguear con `task_ref`/`action`
+  // (un hash suelto no es accionable para el operador), y para que un payload no
+  // despachable no ocupe entrada en la caché.
+  //
+  // `replayCache: null` desactiva la protección — vía de escape simétrica a
+  // `dispatchGraceMs: 0`, usada por los tests que reenvían el mismo body a propósito.
+  const replayCache = deps.replayCache !== undefined ? deps.replayCache : getReplayCache();
+  const replayKey = replayCache ? keyForBody(rawBody) : null;
+  if (replayCache && replayKey) {
+    const claimed = replayCache.claim(replayKey);
+    if (!claimed.fresh) {
+      if (log) {
+        try {
+          webhookReplay(log, {
+            provider: triggerEvent.provider,
+            action: triggerEvent.action,
+            task_ref: triggerEvent.taskRef,
+            bytes,
+            age_ms: claimed.ageMs,
+          });
+        } catch {
+          // never-throws — el audit no altera la respuesta.
+        }
+      }
+      // 200, no 4xx: el evento ya se procesó, así que la entrega es un éxito desde la
+      // óptica del provider. Un 4xx invitaría a Plane a marcar el webhook como fallido
+      // (y, en un reintento suyo legítimo, a insistir sobre algo ya despachado).
+      return { status: 200, body: { ok: true, duplicate: true } };
+    }
+  }
+
   if (log) {
     try {
       webhookReceived(log, {
@@ -348,6 +387,11 @@ export async function handleWebhookRequest(rawBody, headers, provider, deps = {}
         // never-throws — el audit no altera la respuesta.
       }
     }
+    // KODO-46: soltar la marca de idempotencia ANTES de pedir el reintento. El reintento
+    // trae el MISMO body, y sin revocar la caché lo tomaría por replay y se tragaría el
+    // evento — justo lo que KODO-34 vino a arreglar. Neto: solo una entrega efectivamente
+    // procesada (200) deja marca.
+    if (replayCache && replayKey) replayCache.revoke(replayKey);
     // 503: el provider debe REINTENTAR la entrega. El reintento vuelve a entrar por
     // este mismo handler y no puede duplicar sesión — el dispatcher dedupe por
     // task_id in-process (`inFlight`), cross-proceso (`dispatch-<task_id>.lock`) y
