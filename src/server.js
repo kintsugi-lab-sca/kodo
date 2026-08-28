@@ -39,6 +39,12 @@ const PENDING_CACHE_TTL_MS = 30 * 1000;
 // al superarlo: no hay rama de código que escribir para ese caso.
 const MAX_HEADER_BYTES = 8 * 1024;
 
+// KODO-45: ventana entre dos avisos de rate limit. Sin throttle, el propio flood
+// escribiría una línea por petición rechazada: barrería el ring buffer de 200 líneas
+// que sirve `/logs` y convertiría el log en el amplificador del ataque. Con la
+// ventana queda constancia del episodio sin que el volumen dependa del atacante.
+const RATE_LIMIT_LOG_INTERVAL_MS = 60 * 1000;
+
 function pushLog(level, args) {
   const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
   logBuffer.push({ ts: new Date().toISOString(), level, msg });
@@ -355,6 +361,8 @@ export async function startServer(opts = {}) {
   // que no puede crearse por request). Solo lo consulta `POST /webhook`: el resto del
   // carril exige bearer, y limitar a quien ya presentó el token no aporta nada.
   const webhookRateLimiter = createRateLimiter();
+  // Marca del último aviso de rate limit emitido (ver RATE_LIMIT_LOG_INTERVAL_MS).
+  let lastRateLimitLogAt = 0;
 
   // Webhook secret check — provider-specific env var with legacy fallback
   const secretEnv = `KODO_WEBHOOK_SECRET_${config.provider.toUpperCase()}`;
@@ -607,10 +615,14 @@ export async function startServer(opts = {}) {
       const rate = webhookRateLimiter.check(clientIp);
       if (!rate.allowed) {
         req.resume();
-        // El cuerpo es neutro y la IP NO se registra: el ring buffer de /logs lo lee
-        // cualquiera con el bearer, y un flood escribiría una línea por petición
-        // (el propio log sería el amplificador del ataque).
-        console.warn('[kodo] Webhook rate limited');
+        // Aviso throttleado y sin la IP: el ring buffer de /logs lo lee cualquiera con
+        // el bearer, y un aviso por petición haría que el volumen del log lo eligiera
+        // el atacante. Una línea por minuto basta para ver el episodio en `kodo logs`.
+        const nowMs = Date.now();
+        if (nowMs - lastRateLimitLogAt >= RATE_LIMIT_LOG_INTERVAL_MS) {
+          lastRateLimitLogAt = nowMs;
+          console.warn('[kodo] Webhook rate limited (más peticiones de las permitidas por IP)');
+        }
         res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(rate.retryAfterSec) });
         res.end(JSON.stringify({ error: 'too many requests' }));
         return;

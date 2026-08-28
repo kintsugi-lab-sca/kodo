@@ -66,6 +66,7 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
   /** @type {Record<string, string | undefined>} */ let saved;
   /** @type {any} */ let handle;
   /** @type {string} */ let base;
+  /** @type {any} */ let mod;
 
   before(async () => {
     tmpHome = mkdtempSync(join(tmpdir(), 'kodo-auth-'));
@@ -84,7 +85,7 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     delete process.env.KODO_WEBHOOK_SECRET_PLANE;
 
     const port = await getFreePort();
-    const mod = await import(`../src/server.js?auth-${Date.now()}`);
+    mod = await import(`../src/server.js?auth-${Date.now()}`);
     handle = await mod.startServer({
       managed: true, insecure: true, port,
       _loadConfig: () => fakeConfig(port), _provider: fakeProvider,
@@ -237,6 +238,13 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
       statuses.length - limited.length,
       'exactamente las peticiones NO limitadas llegan al HMAC',
     );
+
+    // El log NO lo escribe el atacante: el aviso está throttleado a uno por minuto,
+    // así que un flood de 60 peticiones deja UNA línea, no 30 (si no, el flood barre
+    // el ring buffer de 200 líneas que sirve /logs y borra el resto del historial).
+    const rateLogs = mod.getLogBuffer().filter((l) => l.msg.includes('rate limited'));
+    assert.equal(rateLogs.length, 1, `el aviso va throttleado (había ${rateLogs.length} líneas)`);
+    assert.doesNotMatch(rateLogs[0].msg, /127\.0\.0\.1/, 'el aviso no vuelca la IP en un buffer legible con el bearer');
 
     // El daemon sigue en pie y el resto del carril no se ve afectado por el flood.
     const health = await fetch(`${base}/health`);
