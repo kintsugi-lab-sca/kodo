@@ -48,11 +48,16 @@ function fakeConfig(port) {
 // Fake provider: fully offline. verifySignature:false so a bad-signature webhook
 // resolves via the HMAC lane (401 'Invalid signature'), distinct from the bearer
 // 401 'unauthorized' — that distinction is what proves /webhook is NOT bearer-gated.
+// KODO-45: `verifySignature` cuenta llamadas. El flood del final del fichero afirma
+// que las peticiones limitadas NO llegan a computar el HMAC — que es el trabajo de
+// CPU que el token-bucket existe para no pagar.
+let verifyCalls = 0;
+
 const fakeProvider = {
   init: async () => {},
   listPendingTasks: async () => [],
   getTaskState: async () => null,
-  verifySignature: () => false,
+  verifySignature: () => { verifyCalls++; return false; },
   parseTriggerEvent: () => null,
 };
 
@@ -61,6 +66,7 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
   /** @type {Record<string, string | undefined>} */ let saved;
   /** @type {any} */ let handle;
   /** @type {string} */ let base;
+  /** @type {any} */ let mod;
 
   before(async () => {
     tmpHome = mkdtempSync(join(tmpdir(), 'kodo-auth-'));
@@ -79,7 +85,7 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     delete process.env.KODO_WEBHOOK_SECRET_PLANE;
 
     const port = await getFreePort();
-    const mod = await import(`../src/server.js?auth-${Date.now()}`);
+    mod = await import(`../src/server.js?auth-${Date.now()}`);
     handle = await mod.startServer({
       managed: true, insecure: true, port,
       _loadConfig: () => fakeConfig(port), _provider: fakeProvider,
@@ -189,5 +195,75 @@ describe('server bearer guard (NET-02, D-04/D-05)', () => {
     const res = await fetch(`${base}/status`, { headers: { Authorization: `Bearer ${TOKEN}` } });
     assert.equal(res.status, 200);
     assert.ok(Array.isArray((await res.json()).sessions));
+  });
+
+  // --- KODO-45: rate limit del carril abierto (/webhook) ---
+  //
+  // ÚLTIMO test del fichero A PROPÓSITO: agota el bucket de 127.0.0.1 para el resto de
+  // la vida de este server, así que cualquier test de /webhook que corriera después
+  // vería 429. El bucket es por proceso-servidor, no global: los demás ficheros de test
+  // arrancan el suyo.
+
+  it('un flood a /webhook responde 429 sin tumbar el daemon, y las limitadas no llegan al HMAC', async () => {
+    const beforeVerify = verifyCalls;
+    const FLOOD = 60; // el doble de la capacidad por defecto (30)
+
+    // Secuencial, no en paralelo: el token-bucket depende del reloj y con 60 fetch
+    // concurrentes el resultado dependería del scheduler. Secuencial es determinista.
+    const statuses = [];
+    for (let i = 0; i < FLOOD; i++) {
+      const res = await fetch(`${base}/webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-plane-signature': 'bad' },
+        body: JSON.stringify({ event: 'noop', i }),
+      });
+      await res.arrayBuffer(); // drenar: undici mantiene viva la conexión si no
+      statuses.push(res.status);
+    }
+
+    const limited = statuses.filter((s) => s === 429);
+    assert.ok(limited.length > 0, `el flood debe encontrar el límite (respuestas: ${JSON.stringify(statuses)})`);
+    assert.ok(
+      statuses.every((s) => s === 429 || s === 401),
+      'toda respuesta es o el 429 del límite o el 401 del HMAC — ningún 5xx, ninguna conexión rota',
+    );
+    // Un 429 no cuesta un HMAC: las verificaciones son estrictamente menos que las
+    // peticiones enviadas, que es la propiedad de ahorro de CPU que se quiere.
+    assert.ok(
+      verifyCalls - beforeVerify < FLOOD,
+      'las peticiones limitadas no deben computar la firma',
+    );
+    assert.equal(
+      verifyCalls - beforeVerify,
+      statuses.length - limited.length,
+      'exactamente las peticiones NO limitadas llegan al HMAC',
+    );
+
+    // El log NO lo escribe el atacante: el aviso está throttleado a uno por minuto,
+    // así que un flood de 60 peticiones deja UNA línea, no 30 (si no, el flood barre
+    // el ring buffer de 200 líneas que sirve /logs y borra el resto del historial).
+    const rateLogs = mod.getLogBuffer().filter((l) => l.msg.includes('rate limited'));
+    assert.equal(rateLogs.length, 1, `el aviso va throttleado (había ${rateLogs.length} líneas)`);
+    assert.doesNotMatch(rateLogs[0].msg, /127\.0\.0\.1/, 'el aviso no vuelca la IP en un buffer legible con el bearer');
+
+    // El daemon sigue en pie y el resto del carril no se ve afectado por el flood.
+    const health = await fetch(`${base}/health`);
+    assert.equal(health.status, 200, 'el daemon sobrevive al flood');
+    const status = await fetch(`${base}/status`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    assert.equal(status.status, 200, 'el rate limit del webhook no toca el carril con bearer');
+  });
+
+  it('la respuesta 429 trae un Retry-After entero de segundos', async () => {
+    // El bucket sigue agotado del test anterior (mismo server, misma IP).
+    const res = await fetch(`${base}/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-plane-signature': 'bad' },
+      body: JSON.stringify({ event: 'noop' }),
+    });
+    assert.equal(res.status, 429);
+    assert.deepEqual(await res.json(), { error: 'too many requests' });
+    const retryAfter = res.headers.get('retry-after');
+    assert.match(retryAfter || '', /^\d+$/, 'Retry-After debe ser un entero de segundos');
+    assert.ok(Number(retryAfter) >= 1, 'Retry-After 0 significaría "reintenta ya"');
   });
 });

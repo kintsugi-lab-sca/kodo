@@ -126,6 +126,8 @@ error, así que el status codifica si el evento merece otro intento:
 | `200`  | Evento aceptado, ignorado (sin label `kodo`, estado inactivo), **reenvío duplicado** o fallo **permanente** del dispatch | No reintenta |
 | `401`  | Firma HMAC inválida o ausente | — |
 | `400` / `413` | Body no-JSON o mayor de 1 MB | — |
+| `415` / `431` | `Content-Type` que no es `application/json`, o cabeceras > 8 KB | — |
+| `429`  | Rate limit por IP alcanzado (ráfaga > 30 o > 1 req/s sostenido) | Reintenta la entrega |
 | `503`  | Fallo **transitorio** del dispatch: Plane 5xx/429/408, red caída, timeout | Reintenta la entrega |
 
 Un fallo transitorio se contesta con 503 en vez de tragarse el evento: sin ese
@@ -610,6 +612,33 @@ La exposición **no** relaja la autenticación:
 > param: el `?token=` existía solo para el dashboard web, retirado. Si sospechas que
 > se ha filtrado, borra la línea `KODO_API_TOKEN` de `~/.kodo/.env` (se regenera al
 > arrancar) y reinicia (`kodo stop && kodo up`).
+
+Arrancar con `server.bind` en `0.0.0.0` o `::` imprime un aviso en los logs de
+arranque (`kodo logs`) recordando que el puerto queda expuesto en todas las
+interfaces. Es un recordatorio, no un bloqueo: el opt-in sigue siendo tuyo.
+
+### Límites de la capa HTTP
+
+`/webhook` es la única ruta abierta con trabajo criptográfico detrás (verifica el
+HMAC de cada payload), así que lleva límites propios que se aplican **antes** de
+gastar CPU en la firma:
+
+| Límite                    | Valor           | Respuesta |
+| ------------------------- | --------------- | --------- |
+| Peticiones a `/webhook`   | ráfaga de 30, 1/s sostenido **por IP** | `429` + `Retry-After` |
+| `Content-Type` en `/webhook` | solo `application/json` (o `…+json`) | `415` |
+| Tamaño del body           | 1 MB            | `413` |
+| Tamaño de las cabeceras   | 8 KB            | `431` |
+
+El rate limit es un token-bucket en memoria del propio daemon, sin persistencia:
+reiniciar limpia los contadores. Los tres límites restantes son estáticos.
+
+> **Ojo con un proxy inverso delante.** El límite se aplica por IP de origen, y
+> detrás de un proxy todas las entregas llegan con la IP del proxy: el bucket pasa a
+> ser uno compartido para todo el tráfico. Si expones kodo tras nginx/Caddy, pon el
+> rate limit en el frontal (que sí ve la IP real) en lugar de confiar en este.
+
+Ninguno de los cuatro afecta al carril con bearer que consume el TUI.
 
 ## Supervisión: vigilante + orquestador
 
