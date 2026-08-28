@@ -45,6 +45,17 @@ function makeSpyLogger() {
   };
 }
 
+/**
+ * Swap console.error for a capturing stub so the NET-04 server-side detail can be
+ * asserted (and the expected error line does not pollute the test output).
+ */
+function captureConsoleError() {
+  const lines = [];
+  const original = console.error;
+  console.error = (...args) => { lines.push(args.join(' ')); };
+  return { lines, restore() { console.error = original; } };
+}
+
 describe('Phase 42 Plan 01: translateToActions (DISMISS-01 / DRIFT #1)', () => {
   it('removed worktree + removed state → [{worktree,removed},{state,removed}]', () => {
     const r = emptyResult();
@@ -164,27 +175,42 @@ describe('Phase 42 Plan 01: createDismissHandler (DISMISS-01, DISMISS-04)', () =
     assert.deepEqual(opts, { taskId: 'GONE', fix: true });
   });
 
-  it('never-throws: executeFn that rejects → {status:500, body:{ok:false, error}}, no throw escapes', async () => {
+  it('never-throws: executeFn that rejects → {status:500, body:{ok:false, error:\'internal error\'}}, no throw escapes', async () => {
     const loadState = () => ({ sessions: { 'T-1': { task_id: 'T-1', alive: false } } });
     const executeFn = async () => { throw new Error('boom'); };
     const dismiss = createDismissHandler({ loadState, executeFn });
 
-    const { status, body } = await dismiss('T-1');
+    const logged = captureConsoleError();
+    let status, body;
+    try {
+      ({ status, body } = await dismiss('T-1'));
+    } finally {
+      logged.restore();
+    }
     assert.equal(status, 500);
     assert.equal(body.ok, false);
-    assert.equal(body.error, 'boom');
+    // NET-04 (T-69-05): neutral body, detail only in the server-side log.
+    assert.equal(body.error, 'internal error');
+    assert.match(logged.lines.join('\n'), /boom/, 'the thrown detail must reach the log');
   });
 
-  it('never-throws: loadState that throws → {status:500, body:{ok:false, error}}, no throw escapes', async () => {
+  it('never-throws: loadState that throws → {status:500, body:{ok:false, error:\'internal error\'}}, no throw escapes', async () => {
     const loadState = () => { throw new Error('state read failed'); };
     let executed = false;
     const executeFn = async () => { executed = true; return emptyResult(); };
     const dismiss = createDismissHandler({ loadState, executeFn });
 
-    const { status, body } = await dismiss('T-1');
+    const logged = captureConsoleError();
+    let status, body;
+    try {
+      ({ status, body } = await dismiss('T-1'));
+    } finally {
+      logged.restore();
+    }
     assert.equal(status, 500);
     assert.equal(body.ok, false);
-    assert.equal(body.error, 'state read failed');
+    assert.equal(body.error, 'internal error');
+    assert.match(logged.lines.join('\n'), /state read failed/, 'the thrown detail must reach the log');
     assert.equal(executed, false, 'a thrown loadState must short-circuit before execute');
   });
 
