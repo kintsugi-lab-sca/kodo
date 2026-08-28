@@ -29,8 +29,9 @@
 // puede ser peor que el statu quo).
 
 import { closeSync, openSync, renameSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+// KODO-43: raíz `~/.kodo` desde `src/paths.js` (hoja de solo builtins, sin I/O). `kodoPath` es
+// lazy — resuelve `homedir()` en la llamada, preservando el Pitfall #11 documentado abajo.
+import { kodoPath } from '../paths.js';
 
 import { ensureLogsDir } from '../cli/polling-logfile.js';
 
@@ -51,7 +52,7 @@ export const DAEMON_LOG_MAX_BYTES = 5 * 1024 * 1024;
  * @returns {string}
  */
 export function resolveDaemonLogPath() {
-  return join(homedir(), '.kodo', 'logs', 'daemon.log');
+  return kodoPath('logs', 'daemon.log');
 }
 
 /**

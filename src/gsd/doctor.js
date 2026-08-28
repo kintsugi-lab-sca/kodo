@@ -27,14 +27,19 @@
 //
 // LOG-12 invariant: este módulo NO importa `logger.js`. El `logger` se inyecta
 // via deps; `logger-events.js` (pure transform) sí es importable estáticamente.
-// El único acoplamiento estático a node es a `node:fs`/`node:os`/`node:path`/
-// `node:child_process` para los defaults lazy de las primitivas DI (espejo de
-// gsd-inspect.js:58-65 y del wrapper gitFn de stop.js:122-126).
+// El único acoplamiento estático a node es a `node:fs`/`node:path`/`node:child_process` para los
+// defaults lazy de las primitivas DI (espejo de gsd-inspect.js:58-65 y del wrapper gitFn de
+// stop.js:122-126). El `node:os` que había aquí lo sustituye `src/paths.js` (KODO-43), que es una
+// hoja de esos mismos builtins sin I/O — el acoplamiento no crece, solo cambia de nombre.
 
 import { readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+// KODO-43: raíz `~/.kodo` desde `src/paths.js` (hoja de solo builtins, sin I/O). Sustituye el
+// acoplamiento directo a `node:os` que la cabecera de arriba enumeraba; `kodoPath` sigue siendo
+// lazy, así que el default DI se resuelve en la llamada como hasta ahora.
+import { kodoPath } from '../paths.js';
 
 import { isPidAlive as realIsPidAlive, readLock as realReadLock, LOCK_FILE, DEFAULT_TTL_HOURS } from './lock.js';
 import { loadState as realLoadState, computeWorktreePath, removeSession as realRemoveSession } from '../session/state.js';
@@ -83,7 +88,7 @@ const MS_PER_HOUR = 3600_000;
  *   listLogFiles?: () => LogFile[],
  *   statFile?: (path: string) => { mtimeMs: number },
  *   listWorktreeDirs?: () => WorktreeDir[],
- *   removeSession?: (taskId: string, logger?: any) => void,
+ *   removeSession?: (taskId: string, logger?: any) => any,
  *   gitFn?: (cwd: string, args: string[]) => Promise<string> | string,
  *   cleanupWorktree?: (args: any) => Promise<{ removed: boolean, moved_to: string|null, branch_deleted: boolean }>,
  *   unlinkFile?: (path: string) => void,
@@ -96,7 +101,7 @@ const MS_PER_HOUR = 3600_000;
 
 /** Enumera `~/.kodo/logs/*.ndjson` → [{ sessionId, path, mtimeMs }]. */
 function defaultListLogFiles() {
-  const dir = join(homedir(), '.kodo', 'logs');
+  const dir = kodoPath('logs');
   let names;
   try {
     names = readdirSync(dir);
@@ -541,8 +546,17 @@ export async function execute(deps = {}, opts = {}) {
       if (!s || s.alive !== false) continue;
       if (taskId && tid !== taskId) continue;
       try {
-        d.removeSession(tid, log);
-        result.zombies.removed++;
+        // KODO-47: `removeSession` NO lanza en lock-timeout — degrada a
+        // `{ok:false, reason:'lock-timeout'}` (D-03). Sin este chequeo el zombie
+        // seguía en state.json y el doctor lo contaba como removido: el `--fix`
+        // reportaba un arreglo que nunca ocurrió. Va a `errors` (no a `removed`),
+        // que es donde el operador ya mira lo que quedó sin arreglar.
+        const r = d.removeSession(tid, log);
+        if (r && r.ok === false) {
+          pushError(result, log, 'zombie', tid, `no persistido: ${r.reason}`);
+        } else {
+          result.zombies.removed++;
+        }
       } catch (err) {
         pushError(result, log, 'zombie', tid, errMsg(err));
       }

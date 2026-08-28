@@ -40,8 +40,12 @@ import {
   appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync,
   realpathSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+
+// KODO-43: raíz `~/.kodo` desde `src/paths.js` (hoja de solo builtins, sin I/O). `kodoDir` es una
+// FUNCIÓN lazy, así que `defaultInboxPaths` sigue resolviendo el HOME en la llamada — la razón
+// entera por la que este fichero no importa `src/config.js` (ver el JSDoc de abajo).
+import { kodoDir } from '../paths.js';
 
 import { stripForKeystroke } from '../cli/sanitize.js';
 import { resolveProjectId } from '../cli/dashboard/select.js';
@@ -139,7 +143,7 @@ const LINE_RE =
  * @returns {{ inboxPath: string, lockPath: string }}
  */
 export function defaultInboxPaths() {
-  const dir = join(homedir(), '.kodo');
+  const dir = kodoDir();
   return {
     inboxPath: join(dir, INBOX_FILENAME),
     lockPath: join(dir, INBOX_LOCK_FILENAME),

@@ -123,7 +123,7 @@ error, so the status encodes whether the event deserves another attempt:
 
 | Status | When | Effect in Plane |
 |--------|------|-----------------|
-| `200`  | Event accepted, ignored (no `kodo` label, inactive state) or **permanent** dispatch failure | No retry |
+| `200`  | Event accepted, ignored (no `kodo` label, inactive state), **duplicate redelivery** or **permanent** dispatch failure | No retry |
 | `401`  | Invalid or missing HMAC signature | — |
 | `400` / `413` | Non-JSON body or larger than 1 MB | — |
 | `503`  | **Transient** dispatch failure: Plane 5xx/429/408, network down, timeout | Retries delivery |
@@ -139,6 +139,14 @@ The webhook waits on the dispatch for a short window (2 s) before responding: ju
 enough to see the network die, without blocking the response for the full session
 startup. A dispatch still alive when the window expires answers 200 and continues in
 the background.
+
+**Anti-replay protection** — Plane's HMAC is signed over the body alone and Plane sends
+no temporal header, so a captured webhook would pass signature verification
+indefinitely. kodo remembers already-processed bodies for a short window
+(5 minutes; tunable with `KODO_WEBHOOK_REPLAY_TTL_MS`, or `0` to disable) and
+discards the redelivery with `200 {"ok":true,"duplicate":true}` without firing a second
+dispatch, leaving a `webhook.replay` entry in `kodo logs`. Outside the window the event is
+processed normally, and a 503 releases the mark so it does not block the legitimate retry.
 
 #### Development without a secret: `--insecure` requires two signals
 

@@ -1,8 +1,27 @@
 // @ts-check
+//
+// src/cli.js — la SUPERFICIE del CLI: qué comandos existen, qué flags aceptan y a qué
+// módulo de `cli/` delega cada uno. Nada más (KODO-42).
+//
+// Reglas de este fichero:
+//   - La lógica de cada acción vive en `src/cli/<comando>.js` y DEVUELVE un exit code;
+//     nunca se escribe aquí inline.
+//   - Los códigos de salida son las constantes de `cli/exit-codes.js` — cero literales
+//     numéricos, para poder cruzar el contrato del README con un grep.
+//   - `exitWithCode` / `setExitCode` (cli/action.js) eligen el carril de salida. NO son
+//     intercambiables: el bloque del inbox y el writer de `config` usan `setExitCode`
+//     porque un exit inmediato trunca stdout canalizado a 65536 bytes.
+//   - Los imports de los módulos de acción son DINÁMICOS dentro de cada handler: el
+//     arranque del CLI no paga el coste de un stack (ink, polling, git) que no va a usar.
+
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+
+import { exitWithCode, setExitCode } from './cli/action.js';
+import { EXIT_ERROR } from './cli/exit-codes.js';
+import { ensureConfig } from './cli/config-cmd.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -21,77 +40,26 @@ program
   .option('--show', 'Show current config')
   .option('--set <key=value>', 'Set a config value (dot notation: plane.workspace_slug=klab)')
   .option('--map-project <projectId:path>', 'Map a Plane project ID to a local path')
-  .action(async (opts) => {
-    const { loadConfig, loadRawConfig, saveConfig, loadProjects, saveProjects } = await import('./config.js');
-    const { setNestedValue, parseSetArg, parseMapProjectArg } = await import('./cli/config-args.js');
-
-    if (opts.show) {
-      const config = loadConfig();
-      const projects = loadProjects();
-      console.log('Config:', JSON.stringify(config, null, 2));
-      console.log('\nProject mappings:', JSON.stringify(projects, null, 2));
-      return;
-    }
-
-    if (opts.set) {
-      // M14: parseo por indexOf → el value preserva `=` internos (token=a=b=c).
-      const { key, value } = parseSetArg(opts.set);
-      if (!key || value === undefined) {
-        console.error('Usage: --set key=value (e.g. plane.workspace_slug=klab)');
-        process.exit(1);
-      }
-      // WR-05: se lee/muta/guarda el config CRUDO de disco (loadRawConfig), NO loadConfig().
-      // Tras B7, loadConfig() devuelve el merge completo con DEFAULT_CONFIG; persistir ESO
-      // congelaría todos los defaults en ~/.kodo/config.json (pinning: los cambios futuros de
-      // DEFAULT_CONFIG dejarían de aplicar, y amplificaría CR-01 persistiendo el host hardcodeado).
-      // Config ausente → {} (solo se persiste la clave puesta; loadConfig mergea en runtime).
-      const config = loadRawConfig() ?? {};
-      try {
-        // M3: setNestedValue rechaza __proto__/constructor/prototype (prototype pollution).
-        setNestedValue(config, key, value);
-      } catch (err) {
-        console.error(`Error: ${err.message}`);
-        process.exit(1);
-      }
-      saveConfig(config);
-      console.log(`Set ${key} = ${value}`);
-      return;
-    }
-
-    if (opts.mapProject) {
-      // M14: parseo por indexOf → localPath preserva `:` internos (rutas absolutas).
-      const { projectId, localPath } = parseMapProjectArg(opts.mapProject);
-      if (!projectId || !localPath) {
-        console.error('Usage: --map-project projectId:/local/path');
-        process.exit(1);
-      }
-      const projects = loadProjects();
-      projects[projectId] = localPath;
-      saveProjects(projects);
-      console.log(`Mapped project ${projectId} → ${localPath}`);
-      return;
-    }
-
-    // Interactive config: list Plane projects and let user map them
-    await interactiveConfig();
-  });
+  .action(setExitCode(async (opts) => {
+    const { runConfigCli } = await import('./cli/config-cmd.js');
+    return runConfigCli(opts);
+  }));
 
 // --- kodo up --- (Phase 66 / UP-01 / D-01 LOCKED)
 // Comando NUEVO (no toca `kodo start`, D-03): arranca el daemon detached en
 // background (server + polling vía `daemon run` hidden) y engancha el dashboard
 // como VISOR. Al cerrar el dashboard el daemon PERSISTE (modelo LOCKED): runUp NO
 // registra handlers que señalen al daemon — su aislamiento de process group lo da
-// `detached:true` en startDaemon (lifecycle.js). Mismo estilo lazy-import que el
-// bloque `dashboard` (aísla ink/lifecycle a este subcomando).
+// `detached:true` en startDaemon (lifecycle.js).
+//
+// SIN ensureConfig(): el wizard/first-run es Phase 68 (D-01) — `up` no debe forzar setup
+// aquí. SIN salida explícita: el daemon queda vivo en su propio process group y runUp
+// retorna al cerrar el visor. runUp es never-throws/fail-open y resuelve baseUrl
+// config-driven internamente (resolveBaseUrl → DEFAULT_CONFIG.server.port).
 program
   .command('up')
   .description('Arranca el daemon en background y engancha el dashboard como visor')
   .action(async () => {
-    // SIN ensureConfig(): el wizard/first-run es Phase 68 (D-01) — `up` no debe
-    // forzar setup aquí. runUp es never-throws/fail-open y resuelve baseUrl
-    // config-driven internamente (resolveBaseUrl → DEFAULT_CONFIG.server.port).
-    // NO se llama process.exit tras runUp: el daemon queda vivo en su propio
-    // process group (D-01) y runUp retorna al cerrar el visor.
     const { runUp } = await import('./cli/up.js');
     await runUp();
   });
@@ -132,16 +100,15 @@ program
   .option('--dry-run', 'Only report, don\'t launch orchestrator')
   .action(async (opts) => {
     await ensureConfig();
-    if (opts.dryRun) {
-      const { runCheck } = await import('./check.js');
-      const result = await runCheck();
-      console.log(result.summary);
-      if (result.needsOrchestrator) {
-        console.log(`Would launch orchestrator: ${result.reasons.join('; ')}`);
-      }
-    } else {
-      const { runCheckAndAct } = await import('./check.js');
+    const { runCheck, runCheckAndAct } = await import('./check.js');
+    if (!opts.dryRun) {
       await runCheckAndAct();
+      return;
+    }
+    const result = await runCheck();
+    console.log(result.summary);
+    if (result.needsOrchestrator) {
+      console.log(`Would launch orchestrator: ${result.reasons.join('; ')}`);
     }
   });
 
@@ -164,6 +131,8 @@ program
   });
 
 // --- kodo orchestrate --- (Phase 26 Plan 03 / CFG-04 / D-16..19 / W-5 LOCKED)
+// El orden LOCKED (handlers de señal → polling setup → launch → block-forever) vive
+// entero en `cli/orchestrate.js`: aquí solo se declara la superficie.
 program
   .command('orchestrate')
   .description('Launch the orchestrator Claude session')
@@ -176,76 +145,13 @@ program
     'Descarta un registro de orquestador hecho bajo OTRO cliente y lanza uno nuevo en el activo (KODO-18). Úsalo solo tras comprobar que el del cliente anterior está cerrado: dos supervisores comparten state.json y la cola.',
   )
   .action(async (opts) => {
-    // W-5 LOCKED — ORDEN ESTRICTO:
-    //   PASO 0: SIGINT/SIGTERM handlers ANTES de cualquier setup async (T-26-04 race mitigation).
-    //   PASO 1: runOrchestratePollingSetup({...}) ANTES de launchOrchestrator.
-    //   PASO 2: launchOrchestrator(opts) DESPUÉS de polling activo.
-    //   PASO 3: outer catch limpia pollingHandle?.stop() antes de process.exit(1).
-    //   PASO 4: cleanup() handler invoca pollingHandle?.stop() + process.exit(0); idempotente.
-    /** @type {{ stop: () => void } | null} */
-    let pollingHandle = null;
-
-    // PASO 0: instalar SIGINT/SIGTERM handlers antes de cualquier async work.
-    // Idempotente: si SIGINT llega antes de `pollingHandle = await ...`, el handler
-    // ve `pollingHandle === null` y solo hace process.exit(0). Si llega después,
-    // invoca handle.stop() envuelto en try/catch (T-26-CRASH).
-    const cleanup = () => {
-      try { if (pollingHandle) pollingHandle.stop(); } catch { /* idempotent */ }
-      process.exit(0);
-    };
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
-
-    try {
-      // PASO 1: polling setup ANTES de launchOrchestrator (W-5 LOCKED).
-      // Razón: si SIGINT llega durante launchOrchestrator setup, cleanup ya limpia polling.
-      if (opts.polling) {
-        const { runOrchestratePollingSetup } = await import('./cli/orchestrate.js');
-        try {
-          pollingHandle = await runOrchestratePollingSetup({ polling: true });
-        } catch (e) {
-          // exitCode propagated por el helper (2 si config gate, undefined si crash).
-          if (e && /** @type {any} */ (e).exitCode) {
-            console.error(`Error: ${e.message}`);
-            process.exit(/** @type {any} */ (e).exitCode);
-          }
-          throw e;
-        }
-      }
-
-      // PASO 2: launchOrchestrator — el polling YA está corriendo en este punto.
-      // Si --polling está activo, un fallo de launchOrchestrator NO debe matar el
-      // polling: el operador pidió polling integrado explícitamente; orchestrator
-      // session es la capa opcional. Log + continuamos al block-forever (Pattern D).
-      // Sin --polling, comportamiento idéntico a hoy (D-19 zero breaking change).
-      try {
-        const { launchOrchestrator } = await import('./orchestrator/launch.js');
-        const result = await launchOrchestrator({ force: opts.force });
-        if (result.existing) {
-          console.log(`Orchestrator already running at ${result.workspace}`);
-        } else {
-          console.log(`✓ Orchestrator launched at ${result.workspace}`);
-        }
-      } catch (launchErr) {
-        if (!opts.polling) throw launchErr; // D-19: comportamiento idéntico sin --polling.
-        // Con --polling: log + sigue. El polling ya está activo y SIGINT lo limpiará.
-        console.error(`Warning: orchestrator launch failed (${launchErr.message}); polling continúa activo.`);
-      }
-
-      // Si --polling, mantener el proceso vivo hasta SIGINT/SIGTERM (Pattern D).
-      // El cleanup() handler instalado en PASO 0 hará process.exit(0) cuando llegue.
-      if (opts.polling) {
-        await new Promise(() => { /* block forever — cleanup() exit drains it */ });
-      }
-    } catch (err) {
-      // W-5 LOCKED PASO 3+4: outer catch limpia pollingHandle antes de exit 1.
-      try { if (pollingHandle) pollingHandle.stop(); } catch { /* idempotent */ }
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
+    const { runOrchestrateCli } = await import('./cli/orchestrate.js');
+    await runOrchestrateCli(opts);
   });
 
 // --- kodo launch ---
+// ensureConfig() FUERA del handler delegado (contrato previo a KODO-42): un fallo del
+// gate no se reescribe como el `Error: <mensaje>` del launch.
 program
   .command('launch <ref>')
   .description('Launch a Claude Code session for a task (e.g. KL-42)')
@@ -254,41 +160,8 @@ program
   .option('--force', 'Skip kodo label requirement')
   .action(async (ref, opts) => {
     await ensureConfig();
-    try {
-      const { initRegistry, getProvider } = await import('./providers/registry.js');
-      const { loadConfig } = await import('./config.js');
-      const { dispatchTrigger } = await import('./triggers/dispatcher.js');
-
-      const config = loadConfig();
-      await initRegistry();
-
-      const event = {
-        taskRef: ref.toUpperCase(),
-        action: 'manual',
-        provider: config.provider,
-        raw: { source: 'cli', model: opts.model, yolo: opts.yolo },
-      };
-
-      const result = await dispatchTrigger(event, {
-        model: opts.model || null,
-        flags: opts.yolo ? ['yolo'] : [],
-        force: opts.force || false,
-      });
-
-      if (result.action === 'launched' || result.action === 'stale_relaunch') {
-        console.log(`\u2713 Launched session for ${ref.toUpperCase()}`);
-        console.log(`  Workspace: ${result.session.workspace_ref}`);
-        console.log(`  Session ID: ${result.session.session_id}`);
-        console.log(`  Path: ${result.session.project_path}`);
-      } else if (result.action === 'ignored') {
-        console.log(`Ignored: ${ref.toUpperCase()} \u2014 no kodo label (use --force to override)`);
-      } else if (result.action === 'already_active') {
-        console.log(`Session already active for ${ref.toUpperCase()}`);
-      }
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
+    const { runLaunchCli } = await import('./cli/launch.js');
+    await runLaunchCli(ref, opts);
   });
 
 // --- kodo adopt ---
@@ -305,28 +178,22 @@ program
   .option('--task-url <url>', 'Recovery: task_url from a prior PERSIST_FAILED, to reconcile without a second createTask')
   .option('--task-id <id>', 'Recovery: task_id from a prior PERSIST_FAILED')
   .option('--json', 'Emit the discriminant as JSON (scriptable, byte-deterministic)')
-  .action(async (opts) => {
-    try {
-      await ensureConfig();
-      const { runAdoptCli } = await import('./cli/adopt.js');
-      const code = await runAdoptCli({
-        workspaceRef: opts.workspace,
-        cwd: opts.cwd,
-        sessionId: opts.sessionId,
-        projectId: opts.project,
-        title: opts.title,
-        description: opts.description,
-        module: opts.module,
-        taskUrl: opts.taskUrl,
-        taskId: opts.taskId,
-        json: opts.json || false,
-      });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    await ensureConfig();
+    const { runAdoptCli } = await import('./cli/adopt.js');
+    return runAdoptCli({
+      workspaceRef: opts.workspace,
+      cwd: opts.cwd,
+      sessionId: opts.sessionId,
+      projectId: opts.project,
+      title: opts.title,
+      description: opts.description,
+      module: opts.module,
+      taskUrl: opts.taskUrl,
+      taskId: opts.taskId,
+      json: opts.json || false,
+    });
+  }));
 
 // --- kodo comment ---
 program
@@ -334,21 +201,11 @@ program
   .description('Post a summary comment on an existing task (backfill enrichment, deterministic, 0-token)')
   .requiredOption('--body <text>', 'Comment body (markdown; sanitized by the core before POST)')
   .option('--json', 'Emit the result as JSON (scriptable)')
-  .action(async (ref, opts) => {
-    try {
-      await ensureConfig();
-      const { runCommentCli } = await import('./cli/comment.js');
-      const code = await runCommentCli({
-        ref,
-        body: opts.body,
-        json: opts.json || false,
-      });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (ref, opts) => {
+    await ensureConfig();
+    const { runCommentCli } = await import('./cli/comment.js');
+    return runCommentCli({ ref, body: opts.body, json: opts.json || false });
+  }));
 
 // --- kodo status --- (Phase 66 / UP-05 / D-04 LOCKED)
 // DAEMON-FIRST: reporta el estado del daemon 'kodo' (running/stopped) vía
@@ -367,6 +224,8 @@ program
   });
 
 // --- kodo logs ---
+// Sin salida explícita en éxito: `--follow` bloquea y el dump termina cuando el runtime
+// vacía el event loop (stdout drena entero al canalizarlo).
 program
   .command('logs [session-id]')
   .description('Inspect a session log (dump, tail, filter)')
@@ -390,18 +249,18 @@ program
       });
     } catch (err) {
       console.error(`Error: ${err.message}`);
-      process.exit(1);
+      process.exit(EXIT_ERROR);
     }
   });
 
 // --- kodo dashboard ---
+// Sin gate de provider (D-07) — el dashboard resuelve baseUrl en memoria y no
+// requiere provider configurado en Phase 34. Lazy import aísla ink al subcomando.
 program
   .command('dashboard')
   .description('Live TUI dashboard of active kodo sessions')
   .option('--url <baseUrl>', 'Base URL del server kodo (default: http://localhost:<config.server.port>)')
   .action(async (opts) => {
-    // Sin gate de provider (D-07) — el dashboard resuelve baseUrl en memoria y no
-    // requiere provider configurado en Phase 34. Lazy import aísla ink al subcomando.
     const { runDashboard } = await import('./cli/dashboard/index.js');
     await runDashboard({ url: opts.url });
   });
@@ -418,20 +277,14 @@ program
   .option('--states', 'Also verify each configured project has the required states (trigger/review/done) — hits the provider API')
   .option('--identifiers', 'Also verify each configured project identifier still matches the provider (stale cache → phantom refs) — hits the provider API')
   .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
-  .action(async (opts) => {
-    try {
-      const { runDoctor } = await import('./cli/doctor.js');
-      const code = await runDoctor({
-        states: opts.states || false,
-        identifiers: opts.identifiers || false,
-        json: opts.json || false,
-      });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    const { runDoctor } = await import('./cli/doctor.js');
+    return runDoctor({
+      states: opts.states || false,
+      identifiers: opts.identifiers || false,
+      json: opts.json || false,
+    });
+  }));
 
 // --- kodo gsd <subcommand> ---
 const gsd = program.command('gsd').description('GSD subcommands (inspect resolver, etc.)');
@@ -440,52 +293,34 @@ gsd
   .command('inspect <task-id>')
   .description('Dry-run the phase resolver for a task (read-only, no lock/state/cmux)')
   .option('--json', 'Emit structured verdict as JSON (scriptable)')
-  .action(async (taskId, opts) => {
-    try {
-      await ensureConfig();
-      const { runGsdInspect } = await import('./cli/gsd-inspect.js');
-      const code = await runGsdInspect({ taskId, json: opts.json || false });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (taskId, opts) => {
+    await ensureConfig();
+    const { runGsdInspect } = await import('./cli/gsd-inspect.js');
+    return runGsdInspect({ taskId, json: opts.json || false });
+  }));
 
 gsd
   .command('verify <session-id>')
   .description('Verify phase closure: parses VERIFICATION.md, posts verdict comment and transitions task to Review on pass (idempotent — duplicates accepted, CONTEXT Deferred)')
   .option('--json', 'Emit structured verdict as JSON (scriptable)')
-  .action(async (sessionId, opts) => {
-    try {
-      await ensureConfig();
-      const { runGsdVerifyCli } = await import('./cli/gsd-verify.js');
-      const code = await runGsdVerifyCli({ sessionId, json: opts.json || false });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (sessionId, opts) => {
+    await ensureConfig();
+    const { runGsdVerifyCli } = await import('./cli/gsd-verify.js');
+    return runGsdVerifyCli({ sessionId, json: opts.json || false });
+  }));
 
 gsd
   .command('doctor')
   .description('Detect (dry-run) and sanitize (--fix) session lifecycle garbage: orphan worktrees, zombie sessions, hung locks, old logs')
   .option('--fix', 'Sanitize the detected garbage (the only opt-in to mutate; no prompt)')
   .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
-  .action(async (opts) => {
-    try {
-      // NOTE: NO `ensureConfig()` — doctor sanea el filesystem local (worktrees,
-      // locks, logs, state.json) y NO toca ningún provider (D-02 / CONTEXT línea
-      // 104). Mismo precedente que `skill sync` y `polling start`.
-      const { runGsdDoctor } = await import('./cli/gsd-doctor.js');
-      const code = await runGsdDoctor({ fix: opts.fix || false, json: opts.json || false });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    // NOTE: NO `ensureConfig()` — doctor sanea el filesystem local (worktrees,
+    // locks, logs, state.json) y NO toca ningún provider (D-02 / CONTEXT línea
+    // 104). Mismo precedente que `skill sync` y `polling start`.
+    const { runGsdDoctor } = await import('./cli/gsd-doctor.js');
+    return runGsdDoctor({ fix: opts.fix || false, json: opts.json || false });
+  }));
 
 // --- kodo sidebar <subcommand> ---
 const sidebar = program
@@ -497,19 +332,13 @@ sidebar
   .description('Detect (dry-run) and fix (--fix) workspace-group drift: missing/dissolved groups, loose workspaces, empty groups')
   .option('--fix', 'Converge the sidebar (the only opt-in to mutate; non-destructive allowlist, no prompt)')
   .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
-  .action(async (opts) => {
-    try {
-      // NOTE: NO `ensureConfig()` — el doctor lee state.json/projects.json/cmux y
-      // NO toca ningún provider (preserva el 0-provider de SDR-03). Mismo
-      // precedente que `gsd doctor` (cli.js arriba).
-      const { runSidebarDoctor } = await import('./cli/sidebar-doctor.js');
-      const code = await runSidebarDoctor({ fix: opts.fix || false, json: opts.json || false });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    // NOTE: NO `ensureConfig()` — el doctor lee state.json/projects.json/cmux y
+    // NO toca ningún provider (preserva el 0-provider de SDR-03). Mismo
+    // precedente que `gsd doctor`.
+    const { runSidebarDoctor } = await import('./cli/sidebar-doctor.js');
+    return runSidebarDoctor({ fix: opts.fix || false, json: opts.json || false });
+  }));
 
 // --- kodo skill <subcommand> ---
 const skill = program.command('skill').description('Skill management subcommands (sync, etc.)');
@@ -519,18 +348,12 @@ skill
   .description('Sync kodo distributable skills (kodo-orchestrate, kodo-capture) from <repo>/.claude/skills/ → ~/.claude/skills/')
   .option('--prune', 'Remove foreign files in home that are not in repo (destructive; opt-in)')
   .option('--json', 'Emit structured result as JSON (scriptable)')
-  .action(async (opts) => {
-    try {
-      // NOTE: NO `ensureConfig()` — kodo skill sync no requiere provider configurado
-      // (RESEARCH §Open Question 1; gate D-07 exit 2 sustituye al check de config).
-      const { runSkillSyncCli } = await import('./cli/skill-sync.js');
-      const code = await runSkillSyncCli({ prune: opts.prune || false, json: opts.json || false });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    // NOTE: NO `ensureConfig()` — kodo skill sync no requiere provider configurado
+    // (RESEARCH §Open Question 1; gate D-07 exit 2 sustituye al check de config).
+    const { runSkillSyncCli } = await import('./cli/skill-sync.js');
+    return runSkillSyncCli({ prune: opts.prune || false, json: opts.json || false });
+  }));
 
 // --- kodo polling <subcommand> --- (Plan 26-02 / CFG-03 / D-09..15)
 const polling = program.command('polling').description('GitHub polling daemon (start/stop/status)');
@@ -545,52 +368,36 @@ polling
     'Emit polling.tick.summary line per tick to stdout (foreground) or logfile (daemon). Orthogonal to --daemon. Phase 28 DAEMON-01.',
     false,
   )
-  .action(async (opts) => {
-    try {
-      // NO ensureConfig() — el handler tiene su propio gate D-14 exit 2 para
-      // config missing (providers.github.repos vacío o GITHUB_TOKEN no set).
-      const { runPollingStartCli } = await import('./cli/polling.js');
-      const code = await runPollingStartCli({
-        // commander: `--no-daemon` se exposes como `opts.daemon === false`.
-        noDaemon: opts.daemon === false,
-        json: opts.json || false,
-        // Phase 28 D-07/D-08: --verbose is orthogonal to --daemon.
-        verbose: opts.verbose || false,
-      });
-      process.exit(code);
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    // NO ensureConfig() — el handler tiene su propio gate D-14 exit 2 para
+    // config missing (providers.github.repos vacío o GITHUB_TOKEN no set).
+    const { runPollingStartCli } = await import('./cli/polling.js');
+    return runPollingStartCli({
+      // commander: `--no-daemon` se exposes como `opts.daemon === false`.
+      noDaemon: opts.daemon === false,
+      json: opts.json || false,
+      // Phase 28 D-07/D-08: --verbose is orthogonal to --daemon.
+      verbose: opts.verbose || false,
+    });
+  }));
 
 polling
   .command('stop')
   .description('Stop polling daemon via PID file (SIGTERM + 5s wait + SIGKILL fallback)')
   .option('--json', 'Emit structured result as JSON (scriptable)')
-  .action(async (opts) => {
-    try {
-      const { runPollingStopCli } = await import('./cli/polling.js');
-      process.exit(await runPollingStopCli({ json: opts.json || false }));
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    const { runPollingStopCli } = await import('./cli/polling.js');
+    return runPollingStopCli({ json: opts.json || false });
+  }));
 
 polling
   .command('status')
   .description('Show polling daemon status (running|idle); --json byte-deterministic')
   .option('--json', 'Emit structured result as JSON (scriptable)')
-  .action(async (opts) => {
-    try {
-      const { runPollingStatusCli } = await import('./cli/polling.js');
-      process.exit(await runPollingStatusCli({ json: opts.json || false }));
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exit(1);
-    }
-  });
+  .action(exitWithCode(async (opts) => {
+    const { runPollingStatusCli } = await import('./cli/polling.js');
+    return runPollingStatusCli({ json: opts.json || false });
+  }));
 
 // --- kodo daemon <subcommand> --- (Plan 65-04 / D-02 / UP-04)
 // Grupo INTERNO: `kodo up` (detached, Phase 66) y launchd/`brew services` (directo,
@@ -602,26 +409,17 @@ daemon
   .command('run', { hidden: true })
   .description('Run the composed daemon (server + polling) in the foreground')
   .action(async () => {
-    // Lazy import (mirror del grupo polling): el parent CLI no paga el coste del
-    // stack daemon para comandos no relacionados. La action SÓLO awaita runDaemon —
-    // NO llama process.exit: runDaemon bloquea para siempre y es el ÚNICO dueño del
-    // exit (D-05); un process.exit aquí derrotaría el foreground funnel supervisable.
+    // La action SÓLO awaita runDaemon — NO fija ni fuerza código de salida: runDaemon
+    // bloquea para siempre y es el ÚNICO dueño del exit (D-05); terminar aquí
+    // derrotaría el foreground funnel supervisable.
     const { runDaemon } = await import('./daemon/run.js');
     await runDaemon();
   });
 
 // --- kodo capture --- (Phase 83 / CAPT-01 / D-15, D-16, D-17)
-//
-// DRENAJE DE LA SALIDA ESTÁNDAR — aplica a los CUATRO handlers del bloque del inbox (`capture`,
-// el padre `inbox`, `inbox route` y `inbox discard`), y SOLO a ellos (Plan 83-05 / GAP-2 / CR-01):
-// cuando la salida no es un terminal sino una pipe, las escrituras a stdout son ASÍNCRONAS.
-// Terminar el proceso de forma inmediata tras escribir aborta el buffer pendiente y entrega
-// exactamente 65536 bytes — JSON truncado e inválido en el carril que se anuncia como scriptable
-// (DX-06). Reproducido: 4000 capturas canalizadas → 65536 bytes y `JSON.parse` falla. Por eso
-// estos handlers FIJAN el código de salida y dejan que el runtime termine cuando el event loop se
-// vacía: el buffer drena entero y el código se preserva. El resto de comandos de este fichero
-// (`polling`, `daemon`, `gsd`, `sidebar`, `skill`) queda deliberadamente fuera de este cierre de
-// gaps — sus payloads están acotados muy por debajo del umbral.
+// `setExitCode` (no `exitWithCode`) en los CUATRO handlers del bloque del inbox y en los de
+// `inbox-orch` e `integrate`: fijan el código y dejan drenar stdout. El porqué, con el bug
+// reproducido, está en la cabecera de `cli/action.js` (Plan 83-05 / GAP-2 / CR-01).
 program
   .command('capture')
   .description('Capturar una idea al inbox (~/.kodo/inbox.md) sin salir de lo que estás haciendo')
@@ -636,17 +434,12 @@ program
     'Origen de la captura — USO INTERNO (lo fija el skill de captura al shellear a este mismo writer); default: cli',
     'cli',
   )
-  .action(async (text, opts) => {
-    try {
-      // NOTE: NO `ensureConfig()` — el inbox es filesystem local (~/.kodo/inbox.md) y NO toca
-      // ningún provider. Mismo precedente que `skill sync`, `gsd doctor` y `sidebar doctor`.
-      const { runCaptureCli } = await import('./cli/capture.js');
-      process.exitCode = runCaptureCli({ text, origin: opts.origin });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (text, opts) => {
+    // NOTE: NO `ensureConfig()` — el inbox es filesystem local (~/.kodo/inbox.md) y NO toca
+    // ningún provider. Mismo precedente que `skill sync`, `gsd doctor` y `sidebar doctor`.
+    const { runCaptureCli } = await import('./cli/capture.js');
+    return runCaptureCli({ text, origin: opts.origin });
+  }));
 
 // --- kodo inbox [route|discard] --- (Phase 83 / CAPT-03, CAPT-06 / D-09..D-14)
 //
@@ -664,16 +457,10 @@ const inbox = program
   .description('Triage del inbox de capturas (~/.kodo/inbox.md): lista, enruta y descarta')
   .option('--all', 'Incluir también las capturas cerradas (la traza permanente)')
   .option('--json', 'Emitir el listado como JSON (scriptable, byte-determinista)')
-  .action(async (opts) => {
-    try {
-      // NOTE: NO `ensureConfig()` — mismo precedente que `skill sync` / `gsd doctor`.
-      const { runInboxListCli } = await import('./cli/inbox.js');
-      process.exitCode = runInboxListCli({ all: opts.all || false, json: opts.json || false });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (opts) => {
+    const { runInboxListCli } = await import('./cli/inbox.js');
+    return runInboxListCli({ all: opts.all || false, json: opts.json || false });
+  }));
 
 inbox
   .command('route <id>')
@@ -682,28 +469,18 @@ inbox
     '--dest <ref>',
     'Trace pointer al destino: ref OPACA best-effort — kodo no la valida, no la resuelve y no la interpreta',
   )
-  .action(async (id, opts) => {
-    try {
-      const { runInboxMarkCli } = await import('./cli/inbox.js');
-      process.exitCode = runInboxMarkCli(id, 'enrutada', { dest: opts.dest });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (id, opts) => {
+    const { runInboxMarkCli } = await import('./cli/inbox.js');
+    return runInboxMarkCli(id, 'enrutada', { dest: opts.dest });
+  }));
 
 inbox
   .command('discard <id>')
   .description('Marcar una captura como descartada (nunca la borra: la traza permanente es el feature)')
-  .action(async (id) => {
-    try {
-      const { runInboxMarkCli } = await import('./cli/inbox.js');
-      process.exitCode = runInboxMarkCli(id, 'descartada', {});
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (id) => {
+    const { runInboxMarkCli } = await import('./cli/inbox.js');
+    return runInboxMarkCli(id, 'descartada', {});
+  }));
 
 // --- kodo inbox-orch [ack] --- (KODO-53: la bandeja del ORQUESTADOR)
 //
@@ -724,40 +501,30 @@ const inboxOrch = program
   .description('Bandeja del orquestador (state.orchestrator_inbox): eventos de ciclo de vida sin ver')
   .option('--all', 'Incluir también los eventos ya vistos (la traza)')
   .option('--json', 'Emitir el listado como JSON (scriptable, byte-determinista)')
-  .action(async (opts) => {
-    try {
-      const { runInboxOrchListCli } = await import('./cli/inbox-orch.js');
-      process.exitCode = runInboxOrchListCli({ all: opts.all || false, json: opts.json || false });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (opts) => {
+    const { runInboxOrchListCli } = await import('./cli/inbox-orch.js');
+    return runInboxOrchListCli({ all: opts.all || false, json: opts.json || false });
+  }));
 
 inboxOrch
   .command('ack [ids...]')
   .description('Marcar eventos como vistos (nunca los borra: cerrar es una transición de estado)')
   .option('--all', 'Marcar TODOS los eventos sin ver — el camino normal al cerrar una ronda')
-  .action(async (ids, opts, cmd) => {
-    try {
-      // COLISIÓN DE FLAG LARGO, verificada en vivo sobre commander 13.1.0: cuando el
-      // comando PADRE declara el mismo `--all` (y aquí lo declara, para el listado), el
-      // `--all` tecleado DESPUÉS del subcomando aterriza en las opciones del padre y el
-      // `opts` del subcomando llega VACÍO — sin error de opción desconocida, o sea en
-      // silencio. `kodo inbox-orch ack --all` marcaba cero eventos y salía con 2.
-      //
-      // Se lee de los DOS niveles en vez de renombrar uno de los flags: `--all` es el
-      // nombre correcto en ambos sitios, y `optsWithGlobals()` es justo el lector que
-      // commander expone para este caso. Efecto lateral aceptado: `kodo inbox-orch --all
-      // ack` también acka todo — misma frase, mismo resultado.
-      const all = opts?.all === true || cmd?.optsWithGlobals?.()?.all === true;
-      const { runInboxOrchAckCli } = await import('./cli/inbox-orch.js');
-      process.exitCode = runInboxOrchAckCli(ids || [], { all });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
-    }
-  });
+  .action(setExitCode(async (ids, opts, cmd) => {
+    // COLISIÓN DE FLAG LARGO, verificada en vivo sobre commander 13.1.0: cuando el
+    // comando PADRE declara el mismo `--all` (y aquí lo declara, para el listado), el
+    // `--all` tecleado DESPUÉS del subcomando aterriza en las opciones del padre y el
+    // `opts` del subcomando llega VACÍO — sin error de opción desconocida, o sea en
+    // silencio. `kodo inbox-orch ack --all` marcaba cero eventos y salía con 2.
+    //
+    // Se lee de los DOS niveles en vez de renombrar uno de los flags: `--all` es el
+    // nombre correcto en ambos sitios, y `optsWithGlobals()` es justo el lector que
+    // commander expone para este caso. Efecto lateral aceptado: `kodo inbox-orch --all
+    // ack` también acka todo — misma frase, mismo resultado.
+    const all = opts?.all === true || cmd?.optsWithGlobals?.()?.all === true;
+    const { runInboxOrchAckCli } = await import('./cli/inbox-orch.js');
+    return runInboxOrchAckCli(ids || [], { all });
+  }));
 
 // --- kodo integrate --- (KODO-26: cola de integración)
 //
@@ -780,265 +547,19 @@ program
   .option('--pr', 'Preparar la rama para PR: valida y DEVUELVE el comando gh listo. NO hace push ni crea la PR')
   .option('--drop', 'Descartar la entrada de la cola SIN tocar la rama')
   .option('--test <cmd>', 'Correr esta suite en el repo antes de integrar; si falla, no se integra nada')
-  .action(async (ref, opts) => {
-    try {
-      const mod = await import('./cli/integrate.js');
-      if (!ref) {
-        process.exitCode = mod.runIntegrateListCli({ all: opts.all || false, json: opts.json || false });
-        return;
-      }
-      process.exitCode = await mod.runIntegrateActionCli(ref, {
-        ff: opts.ff || false,
-        merge: opts.merge || false,
-        pr: opts.pr || false,
-        drop: opts.drop || false,
-        json: opts.json || false,
-        test: opts.test,
-      });
-    } catch (err) {
-      console.error(`Error: ${err.message}`);
-      process.exitCode = 1;
+  .action(setExitCode(async (ref, opts) => {
+    const mod = await import('./cli/integrate.js');
+    if (!ref) {
+      return mod.runIntegrateListCli({ all: opts.all || false, json: opts.json || false });
     }
-  });
+    return mod.runIntegrateActionCli(ref, {
+      ff: opts.ff || false,
+      merge: opts.merge || false,
+      pr: opts.pr || false,
+      drop: opts.drop || false,
+      json: opts.json || false,
+      test: opts.test,
+    });
+  }));
 
 program.parse();
-
-// --- Helpers ---
-
-/**
- * Checks if config.json exists. If not, launches the interactive wizard.
- * Used as a guard at the top of commands that need a provider.
- */
-async function ensureConfig() {
-  const { existsSync } = await import('node:fs');
-  const { CONFIG_PATH } = await import('./config.js');
-
-  if (!existsSync(CONFIG_PATH)) {
-    console.log('Primera vez? Vamos a configurar kodo.\n');
-    await interactiveConfig();
-
-    if (!existsSync(CONFIG_PATH)) {
-      console.error('Config requerida.');
-      process.exit(1);
-    }
-  }
-}
-
-async function interactiveConfig() {
-  const { createInterface } = await import('node:readline');
-  const { existsSync } = await import('node:fs');
-  const { loadConfig, saveConfig, loadProjects, saveProjects, getProviderApiKey } = await import('./config.js');
-  const config = loadConfig();
-
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
-
-  console.log('\n  kodo config\n');
-
-  // Step 1: Select provider
-  const availableProviders = ['plane', 'github'];  // D-01 (Phase 26)
-  console.log('  Proveedores disponibles:');
-  for (let i = 0; i < availableProviders.length; i++) {
-    console.log(`    ${i + 1}. ${availableProviders[i]}`);
-  }
-  const providerChoice = await ask(`\n  Selecciona proveedor [1]: `);
-  const providerIndex = parseInt(providerChoice.trim() || '1', 10) - 1;
-  const selectedProvider = availableProviders[providerIndex] || availableProviders[0];
-  config.provider = selectedProvider;
-
-  console.log(`\n  Proveedor: ${selectedProvider}\n`);
-
-  // Step 2: Provider-specific config
-  if (!config.providers) config.providers = {};
-  if (!config.providers[selectedProvider]) {
-    config.providers[selectedProvider] = {};
-  }
-  const providerConfig = config.providers[selectedProvider];
-
-  // API key env var
-  const defaultEnvVar = providerConfig.api_key_env || `${selectedProvider.toUpperCase()}_API_KEY`;
-  const envVarName = await ask(`  Variable de entorno para API key [${defaultEnvVar}]: `);
-  providerConfig.api_key_env = envVarName.trim() || defaultEnvVar;
-
-  // Check API key is set
-  const apiKey = getProviderApiKey(selectedProvider);
-  if (!apiKey) {
-    console.log(`\n  ✗ ${providerConfig.api_key_env} no esta configurada.`);
-    console.log(`  Configura la variable y vuelve a ejecutar kodo config.\n`);
-    rl.close();
-    return;
-  }
-  console.log(`  ✓ API key configurada\n`);
-
-  // ── Phase 26 D-01..D-06: provider:github branch ──
-  // Delegado a helper exportado en src/cli/polling.js (DI-zable para tests).
-  // D-20 LOCKED: TODOS los outputs user-facing del branch van via createFormatter
-  // (color isolation invariante v0.5). Cero `console.log` raw aquí.
-  // D-08: providers.github se inicializa SOLO en runtime (no en DEFAULT_CONFIG).
-  if (selectedProvider === 'github') {
-    const { configureGithubProvider } = await import('./cli/polling.js');
-    const { getDefaultGithubProviderConfig } = await import('./config.js');
-    const { createFormatter } = await import('./cli/format.js');
-    const fmt = createFormatter(process.stdout);
-
-    // D-08 runtime-only inject (NO modificar DEFAULT_CONFIG)
-    config.providers.github = config.providers.github || getDefaultGithubProviderConfig();
-    // Preservar api_key_env ya capturado en la línea 378 (gate pre-check)
-    config.providers.github.api_key_env = providerConfig.api_key_env;
-    await configureGithubProvider({ ask, providerConfig: config.providers.github });
-
-    // D-05 resumen final — todos los outputs via fmt.* (D-20 LOCKED)
-    process.stdout.write('\n  ' + fmt.cyan('Resumen:') + '\n');
-    for (const r of config.providers.github.repos) {
-      process.stdout.write('    ' + fmt.dim('- ') + r.owner + '/' + r.repo + '\n');
-    }
-    process.stdout.write('  ' + fmt.dim('poll_interval: ') + config.providers.github.poll_interval + 's\n');
-
-    const okRaw = await ask('\n  Guardar? [S/n]: ');
-    const okAns = okRaw.trim().toLowerCase();
-    if (okAns !== '' && okAns !== 's') {
-      process.stdout.write('  ' + fmt.warn('Abortado sin guardar.') + '\n');
-      rl.close();
-      return;
-    }
-    saveConfig(config);
-    process.stdout.write('  ' + fmt.ok('Configuracion guardada en ~/.kodo/') + '\n');
-    rl.close();
-    return;  // Pattern H — NO caer al Plane projects listing, NO recursión
-  }
-
-  // Workspace slug (provider-specific)
-  if (selectedProvider === 'plane') {
-    const defaultSlug = providerConfig.workspace_slug || '';
-    const slug = await ask(`  Workspace slug [${defaultSlug}]: `);
-    providerConfig.workspace_slug = slug.trim() || defaultSlug;
-
-    // Base URL
-    const defaultUrl = providerConfig.base_url || 'https://tasks.kintsugi-lab.com';
-    const baseUrl = await ask(`  Base URL [${defaultUrl}]: `);
-    providerConfig.base_url = baseUrl.trim() || defaultUrl;
-  }
-
-  // States config (defaults)
-  if (!providerConfig.states) {
-    providerConfig.states = { trigger: 'In Progress', review: 'In review', done: 'Done' };
-  }
-
-  // Step 3: Validate connection
-  console.log('\n  Validando conexion...');
-  try {
-    const { initRegistry, getProvider } = await import('./providers/registry.js');
-    await initRegistry();
-    const provider = getProvider(selectedProvider);
-    await provider.init();
-    console.log('  ✓ Conexion validada\n');
-
-    // Step 4: List projects
-    const remoteProjects = await provider.listProjects();
-    const projects = loadProjects();
-
-    console.log(`  Encontrados ${remoteProjects.length} proyectos:\n`);
-
-    for (let i = 0; i < remoteProjects.length; i++) {
-      const p = remoteProjects[i];
-      const current = projects[p.id];
-      const label = current ? `[${current}]` : '[sin mapear]';
-      console.log(`    ${i + 1}. ${p.identifier} — ${p.name} ${label}`);
-    }
-
-    const selection = await ask(`\n  Proyectos a seguir (numeros separados por coma, Enter para todos): `);
-    let selectedProjects;
-    if (selection.trim()) {
-      const indices = selection.split(',').map((s) => parseInt(s.trim(), 10) - 1);
-      selectedProjects = indices
-        .filter((i) => i >= 0 && i < remoteProjects.length)
-        .map((i) => remoteProjects[i]);
-    } else {
-      selectedProjects = remoteProjects;
-    }
-
-    // Map project paths (with optional module support)
-    for (const p of selectedProjects) {
-      const current = projects[p.id];
-      const currentDisplay = typeof current === 'string' ? current : current?.default || null;
-      const path = await ask(`    Path local para ${p.identifier} (Enter para ${currentDisplay ? 'mantener' : 'saltar'}): `);
-
-      if (path.trim()) {
-        if (!existsSync(path.trim())) {
-          console.log(`    ✗ "${path.trim()}" no existe, ignorado\n`);
-          continue;
-        }
-        projects[p.id] = path.trim();
-        console.log(`    ✓ Mapeado`);
-      } else if (!currentDisplay) {
-        console.log('');
-        continue;
-      }
-
-      // Ask about modules
-      const mapModules = await ask(`    ¿Tiene módulos con carpetas independientes? (s/N): `);
-      if (mapModules.trim().toLowerCase() === 's') {
-        try {
-          const { PlaneClient } = await import('./providers/plane/client.js');
-          const planeClient = new PlaneClient({
-            baseUrl: providerConfig.base_url,
-            apiKey: process.env[providerConfig.api_key_env],
-            workspaceSlug: providerConfig.workspace_slug,
-          });
-          const modules = await planeClient.listModules(p.id);
-          if (modules.length === 0) {
-            console.log(`    No se encontraron módulos en ${p.identifier}\n`);
-            continue;
-          }
-
-          console.log(`\n    Módulos de ${p.identifier}:`);
-          for (let j = 0; j < modules.length; j++) {
-            console.log(`      ${j + 1}. ${modules[j].name}`);
-          }
-
-          const defaultPath = typeof projects[p.id] === 'string' ? projects[p.id] : projects[p.id]?.default || path.trim();
-          const moduleMap = {};
-
-          for (const mod of modules) {
-            const modPath = await ask(`      Path para ${mod.name} (Enter para saltar): `);
-            if (modPath.trim()) {
-              if (existsSync(modPath.trim())) {
-                moduleMap[mod.name] = modPath.trim();
-                console.log(`      ✓ ${mod.name} mapeado`);
-              } else {
-                console.log(`      ✗ "${modPath.trim()}" no existe, ignorado`);
-              }
-            }
-          }
-
-          if (Object.keys(moduleMap).length > 0) {
-            projects[p.id] = { default: defaultPath, modules: moduleMap };
-            console.log(`    ✓ ${Object.keys(moduleMap).length} módulo(s) mapeados\n`);
-          } else {
-            console.log('');
-          }
-        } catch (err) {
-          console.log(`    ✗ Error listando módulos: ${err.message}\n`);
-        }
-      } else {
-        console.log('');
-      }
-    }
-
-    saveProjects(projects);
-
-    // Save selected projects to provider config
-    providerConfig.projects = selectedProjects.map((p) => ({ id: p.id, identifier: p.identifier, name: p.name }));
-    saveConfig(config);
-    console.log('  ✓ Configuracion guardada en ~/.kodo/\n');
-  } catch (err) {
-    console.error(`\n  ✗ Error validando conexion: ${err.message}`);
-    const retry = await ask('  Reintentar? (s/N): ');
-    if (retry.trim().toLowerCase() === 's') {
-      rl.close();
-      return interactiveConfig();
-    }
-  }
-
-  rl.close();
-}

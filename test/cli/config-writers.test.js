@@ -22,7 +22,9 @@ import { readFileSync } from 'node:fs';
 // el nombre literal de la env var del secreto ni su valor en las cadenas del test.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const source = readFileSync(new URL('../../src/cli.js', import.meta.url), 'utf-8');
+// KODO-42: el wizard se movió de `src/cli.js` (que quedó como superficie declarativa)
+// a `src/cli/config-cmd.js`. El invariante SETUP-05 no cambia — solo el fichero donde vive.
+const source = readFileSync(new URL('../../src/cli/config-cmd.js', import.meta.url), 'utf-8');
 
 // `interactiveConfig` es la última función del módulo: el cuerpo va desde su
 // declaración hasta el final del fichero (mismo molde de recorte por índice que
@@ -41,8 +43,8 @@ const bodyCode = body
   .join('\n');
 
 describe('SETUP-05 — interactiveConfig converge en los escritores compartidos', () => {
-  it('la función interactiveConfig existe en src/cli.js (contrato del wizard)', () => {
-    assert.ok(startIdx >= 0, 'no se encontró async function interactiveConfig en src/cli.js');
+  it('la función interactiveConfig existe en src/cli/config-cmd.js (contrato del wizard)', () => {
+    assert.ok(startIdx >= 0, 'no se encontró async function interactiveConfig en src/cli/config-cmd.js');
   });
 
   it('persiste config/proyectos SOLO vía saveConfig/saveProjects (no writers directos)', () => {

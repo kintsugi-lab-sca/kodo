@@ -326,3 +326,173 @@ describe('KODO-11 startOrphanSweepLoop', () => {
     assert.equal(cleared.ms, 1234, 'el teardown limpia el intervalo registrado');
   });
 });
+
+// ── KODO-47 — lock-timeout de los mutadores de state.json ────────────────────────
+//
+// Los mutadores degradan a `{ok:false, reason:'lock-timeout'}` SIN lanzar (D-03), así
+// que el retorno es la única señal de que no se escribió nada. El sweep lo ignoraba:
+// contaba `reported` con el sello sin persistir y, como la sesión seguía siendo
+// candidata (sin `orphan_swept_at`), el tick siguiente RE-COMENTABA en el provider.
+
+/**
+ * Store cuyo escritor simula el lock ocupado. `unlockAfter` = nº de llamadas fallidas
+ * antes de empezar a persistir (Infinity = el lock nunca se libera).
+ */
+function makeLockTimeoutStore(sessions, tasks = {}, { unlockAfter = Infinity } = {}) {
+  const state = { sessions, tasks };
+  const updates = [];
+  let failures = 0;
+  return {
+    state,
+    updates,
+    loadStateFn: () => state,
+    updateSessionFn: (taskId, patch) => {
+      updates.push({ taskId, patch });
+      if (failures < unlockAfter) {
+        failures += 1;
+        return { ok: false, reason: 'lock-timeout' };
+      }
+      if (state.sessions[taskId]) Object.assign(state.sessions[taskId], patch);
+      return { ok: true };
+    },
+  };
+}
+
+describe('KODO-47 runOrphanSweep — el sello no persistido NO es un éxito', () => {
+  const deps = (store, provider, logger, sweptGuard) => ({
+    loadStateFn: store.loadStateFn,
+    updateSessionFn: store.updateSessionFn,
+    provider,
+    now: () => T0,
+    logger,
+    sweptGuard,
+  });
+
+  it('comentario posteado + sello en lock-timeout → NO cuenta reported, avisa y no emite orphan.detected', async () => {
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ state: 'in_progress' });
+    const logger = makeSpyLogger();
+
+    const stats = await runOrphanSweep(deps(store, provider, logger, new Set()));
+
+    assert.equal(provider.calls.addComment.length, 1, 'el comentario SÍ salió');
+    assert.deepEqual(stats, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+    assert.equal(
+      store.state.sessions['task-uuid-1'].orphan_swept_at,
+      undefined,
+      'la marca no está en disco: el ciclo NO se cerró',
+    );
+
+    const warn = logger.records.find((r) => r.event === 'session.orphan.mark_failed');
+    assert.ok(warn, 'avisa del sello perdido');
+    assert.equal(warn.fields.mark, 'orphan_swept_at');
+    assert.equal(warn.fields.reason, 'lock-timeout');
+    assert.equal(
+      logger.records.find((r) => r.fields?.event === 'session.orphan.detected'),
+      undefined,
+      'sin sello no se emite la telemetría de éxito',
+    );
+  });
+
+  it('CRITERIO DE ÉXITO: el tick siguiente NO repite el comentario al proveedor', async () => {
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ state: 'in_progress' });
+    const guard = new Set();
+
+    await runOrphanSweep(deps(store, provider, makeSpyLogger(), guard));
+    const stats2 = await runOrphanSweep(deps(store, provider, makeSpyLogger(), guard));
+    const stats3 = await runOrphanSweep(deps(store, provider, makeSpyLogger(), guard));
+
+    assert.equal(provider.calls.addComment.length, 1, 'UN solo comentario pese a 3 pases');
+    assert.equal(provider.calls.getTaskState.length, 1, 'ni siquiera repregunta el estado');
+    assert.deepEqual(stats2, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+    assert.deepEqual(stats3, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+  });
+
+  it('liberado el lock, el reintento sella, cuenta reported UNA vez y emite orphan.detected', async () => {
+    // El primer pase falla el sello; a partir del segundo el lock está libre.
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() }, {}, { unlockAfter: 1 });
+    const provider = makeProvider({ state: 'in_progress' });
+    const guard = new Set();
+
+    const stats1 = await runOrphanSweep(deps(store, provider, makeSpyLogger(), guard));
+    const logger2 = makeSpyLogger();
+    const stats2 = await runOrphanSweep(deps(store, provider, logger2, guard));
+    const stats3 = await runOrphanSweep(deps(store, provider, makeSpyLogger(), guard));
+
+    assert.deepEqual(stats1, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+    assert.deepEqual(stats2, { candidates: 1, reported: 1, resolved: 0, deferred: 0 });
+    assert.ok(store.state.sessions['task-uuid-1'].orphan_swept_at, 'el sello llegó a disco');
+    assert.ok(
+      logger2.records.find((r) => r.fields?.event === 'session.orphan.detected'),
+      'la telemetría de éxito se emite cuando el ciclo se cierra de verdad',
+    );
+    assert.equal(provider.calls.addComment.length, 1, 'sigue habiendo UN solo comentario');
+    // Sellada y fuera: el guard se vació y el tercer pase no la mira siquiera.
+    assert.deepEqual(stats3, { candidates: 0, reported: 0, resolved: 0, deferred: 0 });
+    assert.equal(guard.size, 0, 'el guard se poda al dejar de ser candidata');
+  });
+
+  it('tarea ya avanzada + sello en lock-timeout → deferred, NO resolved', async () => {
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ state: 'in_review' });
+    const logger = makeSpyLogger();
+
+    const stats = await runOrphanSweep(deps(store, provider, logger, new Set()));
+
+    assert.deepEqual(stats, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+    assert.equal(store.state.sessions['task-uuid-1'].orphan_swept_at, undefined);
+    assert.ok(logger.records.find((r) => r.event === 'session.orphan.mark_failed'));
+  });
+
+  it('provider caído + marca de aplazamiento en lock-timeout → sigue siendo deferred, pero avisa', async () => {
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ getStateThrows: true });
+    const logger = makeSpyLogger();
+
+    const stats = await runOrphanSweep(deps(store, provider, logger, new Set()));
+
+    assert.deepEqual(stats, { candidates: 1, reported: 0, resolved: 0, deferred: 1 });
+    assert.equal(store.state.sessions['task-uuid-1'].orphan_attempt_at, undefined);
+    const warn = logger.records.find((r) => r.event === 'session.orphan.mark_failed');
+    assert.ok(warn, 'el backoff perdido también deja traza');
+    assert.equal(warn.fields.mark, 'orphan_attempt_at');
+    assert.ok(logger.records.find((r) => r.event === 'session.orphan.getstate_failed'));
+  });
+
+  it('un escritor que devuelve undefined (contrato previo a WR-01) se sigue tratando como éxito', async () => {
+    const store = makeStateStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ state: 'in_progress' });
+    const stats = await runOrphanSweep({
+      loadStateFn: store.loadStateFn,
+      updateSessionFn: () => undefined,
+      provider,
+      now: () => T0,
+      logger: makeSpyLogger(),
+      sweptGuard: new Set(),
+    });
+    assert.deepEqual(stats, { candidates: 1, reported: 1, resolved: 0, deferred: 0 });
+  });
+
+  it('startOrphanSweepLoop cablea el guard: dos ticks del MISMO loop, un solo comentario', async () => {
+    const store = makeLockTimeoutStore({ 'task-uuid-1': makeDeadSession() });
+    const provider = makeProvider({ state: 'in_progress' });
+    let tickFn = null;
+
+    const stop = startOrphanSweepLoop({
+      loadStateFn: store.loadStateFn,
+      updateSessionFn: store.updateSessionFn,
+      provider,
+      logger: makeSpyLogger(),
+      now: () => T0,
+      setInterval: (cb) => { tickFn = cb; return { unref() {} }; },
+      clearInterval: () => {},
+    });
+
+    await tickFn();
+    await tickFn();
+
+    assert.equal(provider.calls.addComment.length, 1, 'el guard vive en el loop, no en el pase');
+    stop();
+  });
+});
