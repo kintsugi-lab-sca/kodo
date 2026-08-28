@@ -125,6 +125,10 @@ function liveForSession(live, session) {
  * exigir una muerte OBSERVADA, solo barremos sesiones cuya detección demostró
  * funcionar al menos una vez.
  *
+ * KODO-49: esa misma exigencia deja abierto el caso simétrico — una sesión que SÍ se
+ * vio viva y después cambió de cmdline (`--resume` / adopt) sin morir. Ver el docblock
+ * de `deriveTargetForeign`, donde el falso `dead` no tiene segunda señal que lo frene.
+ *
  * @param {Session & { process_dead_since?: string|null }} session
  * @param {number} now - timestamp ms (inyectado).
  * @returns {boolean}
@@ -175,6 +179,53 @@ function deriveTarget(session, live, now) {
  *
  * Sin evidencia concluyente devuelve el estado ACTUAL, que en el caller significa
  * «estable» → ni transición ni escritura.
+ *
+ * ---------------------------------------------------------------------------
+ * EDGE CASE CONOCIDO (KODO-49): falso `dead` por cmdline que dejó de casar
+ * ---------------------------------------------------------------------------
+ * La única señal de esta función — `process_alive` — no observa el proceso: observa
+ * si su CMDLINE casa `pgrep -f "session-id <id>"`. Son cosas distintas, y se separan
+ * cuando la cmdline cambia bajo un proceso que sigue vivo:
+ *
+ *   1. la sesión se lanzó con `--session-id <id>` → pgrep casa → `process_alive:true`;
+ *   2. el agente se reanuda (`claude --resume <uuid>`) o lo re-adopta `adopt.js`. El
+ *      proceso NUEVO no lleva `--session-id` en su cmdline;
+ *   3. el siguiente tick ve `true → false`. Para `runReconcileTick` esa transición es
+ *      una muerte OBSERVADA, así que arranca `process_dead_since`;
+ *   4. pasados PROCESS_DEAD_GRACE_MS (2 min), `isProcessDeadBeyondGrace` devuelve true
+ *      y esta función declara `dead` — una sesión que está viva y trabajando.
+ *
+ * El guard de `isProcessDeadBeyondGrace` NO cubre esto: protege a las sesiones que
+ * NUNCA se vieron vivas (nacidas ya sin `--session-id`), exigiendo `process_alive ===
+ * true` estricto antes de arrancar el reloj. Aquí la sesión SÍ estuvo viva, y esa
+ * misma condición — la que cierra el otro agujero — es la que dispara este.
+ *
+ * Duele más en el camino EXTRANJERO que en `deriveTarget`: ahí la tab es una segunda
+ * señal que puede contradecir al pgrep; aquí `process_alive` es la ÚNICA evidencia, y
+ * un falso `dead` va directo a comentario de cierre + sellado a `closed`.
+ *
+ * VALORACIÓN de las salidas (ninguna implementada, KODO-49 solo documenta):
+ *   · flag `cmdline_matchable` persistido en la sesión, consultado antes de arrancar
+ *     el reloj. Cubre solo la mitad: alguien tiene que ponerlo a false al reanudar, y
+ *     eso solo ocurre si el resume pasa por código de kodo (`adopt.js`). Un
+ *     `claude --resume` que el operador lanza a mano deja el flag mintiendo en `true`,
+ *     que es exactamente el caso que rompe hoy. Además añade un campo de state cuya
+ *     verdad hay que mantener sincronizada con un proceso que no controlamos.
+ *   · relajar el patrón a `pgrep -f "<uuid>"` (casaría también `--resume <uuid>`):
+ *     más simple, pero introduce falsos POSITIVOS peores que el negativo actual — los
+ *     worktrees de sesión llevan el uuid EN EL PATH (`.claude/worktrees/<uuid>/`), así
+ *     que cualquier proceso lanzado ahí dentro casaría y mantendría viva para siempre
+ *     una sesión muerta, reteniendo su slot de `max_parallel`.
+ *   · señal independiente de la cmdline: mtime del transcript
+ *     (`resolveTranscriptPath(project_path, session_id)`, ya existente en
+ *     logger-events), que sobrevive al resume porque el fichero se indexa por
+ *     session_id. Es la más robusta y la más cara — cambia la semántica de
+ *     `process_alive` de «existe el proceso» a «hubo actividad reciente», con su propio
+ *     umbral que calibrar. Candidata si el falso `dead` se observa en producción.
+ *
+ * Mitigación vigente: ninguna automática. La gracia de 2 min acota la ventana pero no
+ * el desenlace. En la práctica un tick posterior NO lo corrige, porque la cmdline ya no
+ * volverá a casar mientras dure ese proceso reanudado.
  *
  * @param {Session} session
  * @param {number} now - timestamp ms (inyectado).
