@@ -32,6 +32,20 @@ export const LOOPBACK = '127.0.0.1';
 const WILDCARD_HOSTS = new Set(['0.0.0.0', '::']);
 
 /**
+ * Is `host` a listen wildcard (every interface)?
+ *
+ * KODO-45: the server queries it at startup to warn via `console.warn` that
+ * the bind exposes the daemon beyond loopback. It shares the same `WILDCARD_HOSTS`
+ * as `resolveClientHost` — one list, two consumers.
+ *
+ * @param {string} host - already-resolved host (e.g. from `resolveListenHost`).
+ * @returns {boolean} true if it listens on every interface.
+ */
+export function isWildcardHost(host) {
+  return WILDCARD_HOSTS.has(host);
+}
+
+/**
  * Normalises `config.server.bind` into a usable string, or `null` when absent.
  *
  * WR-04 (inherited from server.js): an empty or whitespace-only string is treated as

@@ -126,6 +126,8 @@ error, so the status encodes whether the event deserves another attempt:
 | `200`  | Event accepted, ignored (no `kodo` label, inactive state), **duplicate redelivery** or **permanent** dispatch failure | No retry |
 | `401`  | Invalid or missing HMAC signature | — |
 | `400` / `413` | Non-JSON body or larger than 1 MB | — |
+| `415` / `431` | `Content-Type` other than `application/json`, or headers > 8 KB | — |
+| `429`  | Per-IP rate limit reached (burst > 30 or > 1 req/s sustained) | Retries delivery |
 | `503`  | **Transient** dispatch failure: Plane 5xx/429/408, network down, timeout | Retries delivery |
 
 A transient failure answers with 503 instead of swallowing the event: without that
@@ -615,6 +617,33 @@ Exposure does **not** relax authentication:
 > param: `?token=` existed only for the web dashboard, which has been retired. If you suspect
 > it has leaked, delete the `KODO_API_TOKEN` line from `~/.kodo/.env` (it is regenerated on
 > startup) and restart (`kodo stop && kodo up`).
+
+Starting with `server.bind` set to `0.0.0.0` or `::` prints a warning in the startup
+logs (`kodo logs`) reminding you that the port is exposed on every
+interface. It is a reminder, not a block: the opt-in is still yours.
+
+### HTTP layer limits
+
+`/webhook` is the only open route with cryptographic work behind it (it verifies the
+HMAC of every payload), so it carries its own limits, applied **before** spending
+CPU on the signature:
+
+| Limit                        | Value           | Response |
+| ---------------------------- | --------------- | -------- |
+| Requests to `/webhook`       | burst of 30, 1/s sustained **per IP** | `429` + `Retry-After` |
+| `Content-Type` on `/webhook` | `application/json` only (or `…+json`) | `415` |
+| Body size                    | 1 MB            | `413` |
+| Header size                  | 8 KB            | `431` |
+
+The rate limit is a token bucket in the daemon's own memory, with no persistence:
+restarting clears the counters. The other three limits are static.
+
+> **Watch out for a reverse proxy in front.** The limit is applied per source IP, and
+> behind a proxy every delivery arrives with the proxy's IP: the bucket becomes
+> a single one shared by all traffic. If you expose kodo behind nginx/Caddy, put the
+> rate limit on the front end (which does see the real IP) instead of relying on this one.
+
+None of the four affects the bearer lane the TUI consumes.
 
 ## Supervision: watchdog + orchestrator
 

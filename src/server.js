@@ -10,10 +10,13 @@ import { createProviderStateResolver } from './server/provider-state.js';
 import { createPendingResolver, buildPendingStatusFields, excludeActiveTasks } from './tasks/pending.js';
 import { createDismissHandler } from './server/dismiss.js';
 import { parseBearer, timingSafeTokenEqual, isOpenRoute, getOrCreateApiToken, MAX_BODY_BYTES } from './server/auth.js';
+// KODO-45: token-bucket por IP para la única ruta abierta con trabajo criptográfico
+// detrás (`POST /webhook`). Módulo puro con reloj inyectable.
+import { createRateLimiter } from './server/rate-limit.js';
 // KODO-29: la normalización del bind vive en un módulo puro compartido con el tooling
 // local (dashboard, sonda de puerto de `kodo up`) — antes era exclusiva de este fichero
 // y por eso el cliente asumía loopback fijo aunque el server escuchara en otra IP.
-import { resolveListenHost, resolveClientHost, formatHostForUrl } from './net-host.js';
+import { resolveListenHost, resolveClientHost, formatHostForUrl, isWildcardHost } from './net-host.js';
 import * as cmux from './cmux/client.js';
 
 const PID_PATH = join(KODO_DIR, 'server.pid');
@@ -26,6 +29,21 @@ const logBuffer = [];
 // itself now lives in the createPendingResolver closure (src/tasks/pending.js); this
 // constant remains the ONLY source of the TTL literal (D-03).
 const PENDING_CACHE_TTL_MS = 30 * 1000;
+
+// KODO-45: techo explícito de la sección de cabeceras de una petición. Node trae
+// 16 KB por defecto; kodo no necesita ni de lejos eso — la petición más pesada del
+// carril API lleva un `Authorization: Bearer <64 hex>` y poco más, y Plane firma el
+// webhook con una cabecera de 64 hex. 8 KB deja margen de sobra y recorta a la mitad
+// lo que un cliente puede hacer que el parser acumule ANTES de que exista un
+// handler al que aplicar cualquier límite nuestro. Node responde 431 por su cuenta
+// al superarlo: no hay rama de código que escribir para ese caso.
+const MAX_HEADER_BYTES = 8 * 1024;
+
+// KODO-45: ventana entre dos avisos de rate limit. Sin throttle, el propio flood
+// escribiría una línea por petición rechazada: barrería el ring buffer de 200 líneas
+// que sirve `/logs` y convertiría el log en el amplificador del ataque. Con la
+// ventana queda constancia del episodio sin que el volumen dependa del atacante.
+const RATE_LIMIT_LOG_INTERVAL_MS = 60 * 1000;
 
 function pushLog(level, args) {
   const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
@@ -136,6 +154,44 @@ function readBody(req) {
     const declared = Number(req.headers['content-length']);
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) rejectTooLarge();
   });
+}
+
+/**
+ * ¿Declara la petición un cuerpo `application/json`? (KODO-45)
+ *
+ * Puro. Acepta el tipo con parámetros (`application/json; charset=utf-8`) y los
+ * subtipos estructurados con sufijo `+json`, case-insensitive, porque eso es lo que
+ * un cliente HTTP correcto puede enviar legítimamente. Todo lo demás —incluida la
+ * AUSENCIA de la cabecera— es false: `/webhook` no tiene otro formato de entrada,
+ * así que adivinar el tipo solo sirve para gastar CPU parseando y firmando bytes que
+ * de todas formas no son un evento del provider.
+ *
+ * @param {unknown} headerValue - valor crudo de `Content-Type`.
+ * @returns {boolean}
+ */
+export function isJsonContentType(headerValue) {
+  if (typeof headerValue !== 'string') return false;
+  // El tipo va antes del primer `;`; los parámetros (charset, boundary…) no importan.
+  const mediaType = headerValue.split(';')[0].trim().toLowerCase();
+  return mediaType === 'application/json' || mediaType.endsWith('+json');
+}
+
+/**
+ * Aviso de arranque cuando el bind escucha en TODAS las interfaces (KODO-45).
+ *
+ * Puro: devuelve el texto a emitir, o `null` si el bind no es un wildcard. El README
+ * ya documenta que exponer el bind es un opt-in explícito que debe ir con una ACL
+ * delante; esto lo hace visible en el sitio donde el operador sí mira —los logs de
+ * arranque— en lugar de solo en la documentación que leyó una vez.
+ *
+ * @param {string} host - host resuelto que se pasó a `server.listen`.
+ * @returns {string|null} línea de aviso, o null si el bind no expone nada.
+ */
+export function wildcardBindWarning(host) {
+  if (!isWildcardHost(host)) return null;
+  return `[kodo] AVISO: server.bind=${host} escucha en TODAS las interfaces. `
+    + 'Pon una ACL/firewall delante del puerto o bindea a una IP concreta '
+    + '(kodo config --set server.bind=<ip>).';
 }
 
 /**
@@ -299,6 +355,14 @@ export async function startServer(opts = {}) {
     minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
   }).child({ component: 'dismiss' });
   const dismissHandler = createDismissHandler({ logger: dismissLogger });
+
+  // KODO-45: UN limitador para toda la vida del server (mismo patrón que los
+  // resolvers de arriba — el estado del bucket debe sobrevivir entre peticiones, así
+  // que no puede crearse por request). Solo lo consulta `POST /webhook`: el resto del
+  // carril exige bearer, y limitar a quien ya presentó el token no aporta nada.
+  const webhookRateLimiter = createRateLimiter();
+  // Marca del último aviso de rate limit emitido (ver RATE_LIMIT_LOG_INTERVAL_MS).
+  let lastRateLimitLogAt = 0;
 
   // Webhook secret check — provider-specific env var with legacy fallback
   const secretEnv = `KODO_WEBHOOK_SECRET_${config.provider.toUpperCase()}`;
@@ -544,6 +608,37 @@ export async function startServer(opts = {}) {
     }
 
     if (req.method === 'POST' && pathname === '/webhook') {
+      // KODO-45, guard 1 — rate limit por IP. Va ANTES de leer el body y antes del
+      // HMAC: el coste que se quiere evitar es justo el SHA-256 sobre cada payload
+      // de un flood, así que un 429 que llegara después no ahorraría nada. `resume()`
+      // drena lo que quede subiendo por la misma razón que el 413 de readBody — sin
+      // drenar, el cliente ve un reset en vez de leer esta respuesta (Pitfall NET-03).
+      const clientIp = req.socket?.remoteAddress || 'unknown';
+      const rate = webhookRateLimiter.check(clientIp);
+      if (!rate.allowed) {
+        req.resume();
+        // Aviso throttleado y sin la IP: el ring buffer de /logs lo lee cualquiera con
+        // el bearer, y un aviso por petición haría que el volumen del log lo eligiera
+        // el atacante. Una línea por minuto basta para ver el episodio en `kodo logs`.
+        const nowMs = Date.now();
+        if (nowMs - lastRateLimitLogAt >= RATE_LIMIT_LOG_INTERVAL_MS) {
+          lastRateLimitLogAt = nowMs;
+          console.warn('[kodo] Webhook rate limited (más peticiones de las permitidas por IP)');
+        }
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(rate.retryAfterSec) });
+        res.end(JSON.stringify({ error: 'too many requests' }));
+        return;
+      }
+
+      // KODO-45, guard 2 — Content-Type. Un payload que no se declara JSON no puede
+      // ser un evento del provider: se rechaza con 415 sin leerlo ni firmarlo.
+      if (!isJsonContentType(req.headers['content-type'])) {
+        req.resume();
+        res.writeHead(415, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unsupported media type' }));
+        return;
+      }
+
       try {
         const rawBody = await readBody(req);
         // KODO-28: el audit del webhook vive ahora en el NDJSON estructurado
@@ -585,7 +680,10 @@ export async function startServer(opts = {}) {
   // escapes a route branch becomes a neutral 500 instead of an unhandled rejection
   // that kills the long-lived daemon (Node default --unhandled-rejections=throw).
   // NET-04 hygiene: err.message goes to the log only, never to the response body.
-  const server = createServer(async (req, res) => {
+  // KODO-45: `maxHeaderSize` explícito (8 KB) en vez del default de 16 KB de Node.
+  // Es el ÚNICO límite que no puede vivir en el handler: cuando el handler corre, las
+  // cabeceras ya están parseadas y acumuladas. Superarlo lo responde Node con 431.
+  const server = createServer({ maxHeaderSize: MAX_HEADER_BYTES }, async (req, res) => {
     try {
       await handleRequest(req, res);
     } catch (err) {
@@ -598,6 +696,17 @@ export async function startServer(opts = {}) {
       }
     }
   });
+
+  // Las tres líneas de arranque estaban duplicadas literalmente en las dos ramas de
+  // listen (managed / legacy); KODO-45 añade una cuarta (el aviso de bind wildcard) y
+  // duplicarla otra vez solo abre la puerta a que ambas ramas diverjan.
+  const announceListening = () => {
+    console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
+    console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
+    console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
+    const warning = wildcardBindWarning(host);
+    if (warning) console.warn(warning);
+  };
 
   if (opts.managed) {
     // Points 2 + 3 (D-03): register 'error' BEFORE listen so EADDRINUSE surfaces as
@@ -616,9 +725,7 @@ export async function startServer(opts = {}) {
       server.on('error', onError);
       server.listen(port, host, () => {
         server.removeListener('error', onError);
-        console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
-        console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
-        console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
+        announceListening();
 
         // Point 3: managed skips its own server.pid (daemon owns kodo.pid).
 
@@ -628,9 +735,7 @@ export async function startServer(opts = {}) {
     });
   } else {
     server.listen(port, host, () => {
-      console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
-      console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
-      console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
+      announceListening();
 
       writeFileSync(PID_PATH, String(process.pid));
 
@@ -750,4 +855,4 @@ export function stopServer() {
   }
 }
 
-export { PID_PATH, makeSafeConsoleWriter, getLogBuffer };
+export { PID_PATH, makeSafeConsoleWriter, getLogBuffer, MAX_HEADER_BYTES };
