@@ -1,346 +1,351 @@
 # kodo 心動
 
-Sesiones de Claude Code automatizadas desde tu kanban. Mueves una tarea a "In Progress" → kodo lanza [Claude Code](https://claude.ai/code) en un workspace de [cmux](https://cmux.dev) o de [Orca](https://www.onorca.dev) → al terminar, la tarea vuelve como "In Review".
+Automated Claude Code sessions driven from your kanban board. Move a task to "In Progress" → kodo launches [Claude Code](https://claude.ai/code) in a [cmux](https://cmux.dev) or [Orca](https://www.onorca.dev) workspace → when it finishes, the task comes back as "In Review".
 
-Providers soportados: [Plane](https://plane.so) (webhook) y GitHub Issues (polling).
+Supported providers: [Plane](https://plane.so) (webhook) and GitHub Issues (polling).
 
-## Cómo funciona
+## How it works
 
 ```
 Plane (kanban)          kodo (daemon)              cmux (terminal)
 ─────────────           ─────────────              ────────────────
 
-Tarea → In Progress ──webhook──→ kodo
+Task → In Progress ──webhook──→ kodo
                                   │
-                        ¿tiene label "kodo"?
-                          │ no → ignorar
-                          │ sí ↓
-                        crea workspace ──────────→ KL-42 [Amber]
-                        lanza claude ────────────→ claude --model opus ...
+                        has the "kodo" label?
+                          │ no → ignore
+                          │ yes ↓
+                        create workspace ────────→ KL-42 [Amber]
+                        launch claude ───────────→ claude --model opus ...
                                                      │
-                                                   Claude trabaja
+                                                   Claude works
                                                      │
-                                                   sesión se cierra
-                                                   (Ctrl+C, /exit, cerrar)
+                                                   session closes
+                                                   (Ctrl+C, /exit, close)
                                                      │
                         SessionEnd ←─────────────────┘
                           │
                         backstop → In Review       KL-42 [Blue]
-                        evento → bandeja del orq.
+                        event → orchestrator inbox
                           │
-                        humano/orquestador revisa
+                        human/orchestrator reviews
                           │
                         Plane → Done               KL-42 [Green]
 ```
 
-## Instalación
+## Installation
 
-Requiere macOS, Node ≥ 20 y [cmux](https://cmux.dev).
+Requires macOS, Node ≥ 20 and [cmux](https://cmux.dev).
 
-### Homebrew (recomendado)
+### Homebrew (recommended)
 
 ```bash
 brew tap kintsugi-lab-sca/kodo
 brew install kodo
 ```
 
-### Desde el código
+### From source
 
 ```bash
 git clone https://github.com/kintsugi-lab-sca/kodo.git
 cd kodo
 npm install
-npm link   # hace "kodo" disponible globalmente
+npm link   # makes "kodo" available globally
 ```
 
-## Puesta en marcha
+## Getting started
 
-### 1. Credenciales
+### 1. Credentials
 
 ```bash
 mkdir -p ~/.kodo
 cat > ~/.kodo/.env << 'EOF'
-PLANE_API_KEY=plane_api_tu_token_aqui
-PLANE_WEBHOOK_SECRET=plane_wh_tu_secret_aqui
+PLANE_API_KEY=plane_api_your_token_here
+PLANE_WEBHOOK_SECRET=plane_wh_your_secret_here
 EOF
 ```
 
-- `PLANE_API_KEY`: en Plane → perfil → **API tokens**.
-- `PLANE_WEBHOOK_SECRET`: lo obtienes al crear el webhook (paso 4).
-- `KODO_API_TOKEN` (auth de la API) se genera solo en el primer arranque — no hace falta crearlo.
+- `PLANE_API_KEY`: in Plane → profile → **API tokens**.
+- `PLANE_WEBHOOK_SECRET`: you get it when creating the webhook (step 4).
+- `KODO_API_TOKEN` (API auth) is generated automatically on first startup — you don't need to create it.
 
-### 2. Configurar y mapear proyectos
+### 2. Configure and map projects
 
 ```bash
-kodo config   # wizard interactivo: conecta con Plane, lista proyectos, pide paths locales
+kodo config   # interactive wizard: connects to Plane, lists projects, asks for local paths
 ```
 
-Crea `~/.kodo/config.json` y `~/.kodo/projects.json` (proyecto de Plane → path del repo local).
+Creates `~/.kodo/config.json` and `~/.kodo/projects.json` (Plane project → local repo path).
 
-### 3. Crear labels en Plane
+### 3. Create labels in Plane
 
-En cada proyecto que quieras automatizar:
+In every project you want to automate:
 
-| Label | Efecto |
+| Label | Effect |
 |---|---|
-| `kodo` | Activa la automatización. Modelo por defecto: Opus |
-| `kodo:sonnet` / `kodo:haiku` | Cambia el modelo |
-| `kodo:yolo` | Añade `--dangerously-skip-permissions` |
-| `kodo:gsd` / `kodo:gsd-quick` | Modo GSD (workflow de planificación estructurada); implica yolo |
+| `kodo` | Enables automation. Default model: Opus |
+| `kodo:sonnet` / `kodo:haiku` | Changes the model |
+| `kodo:yolo` | Adds `--dangerously-skip-permissions` |
+| `kodo:gsd` / `kodo:gsd-quick` | GSD mode (structured planning workflow); implies yolo |
 
-Solo las tareas con label `kodo` (o `kodo:*`) se automatizan.
+Only tasks labelled `kodo` (or `kodo:*`) are automated.
 
-> **Contrato `kodo:gsd` (modo full).** El resolver casa la tarea con una fase de
-> `.planning/ROADMAP.md` por **título exacto**: el título de la tarea debe coincidir con el
-> título de una fase, y el heading debe tener el formato canónico **`## Phase N: Título`** o
-> **`### Phase N: Título`** (también `## Phase N — Título`). Cualquier **sufijo entre el número y
-> los dos puntos** — p. ej. `### Phase 0 (MVP): Setup` — hace la fase **invisible** para el
-> resolver y la tarea fallará con `no-match`. Para tareas puntuales sin fase de ROADMAP usa
-> `kodo:gsd-quick`. Cuando un dispatch falle, `kodo logs` explica el motivo con una pista accionable.
+> **`kodo:gsd` contract (full mode).** The resolver matches the task against a phase in
+> `.planning/ROADMAP.md` by **exact title**: the task title must match a phase title, and the
+> heading must follow the canonical format **`## Phase N: Title`** or
+> **`### Phase N: Title`** (`## Phase N — Title` also works). Any **suffix between the number and
+> the colon** — e.g. `### Phase 0 (MVP): Setup` — makes the phase **invisible** to the resolver
+> and the task will fail with `no-match`. For one-off tasks with no ROADMAP phase, use
+> `kodo:gsd-quick`. When a dispatch fails, `kodo logs` explains why with an actionable hint.
 
-### 4. Configurar el webhook en Plane
+### 4. Configure the webhook in Plane
 
-Settings → Webhooks → nuevo webhook:
+Settings → Webhooks → new webhook:
 
-- **URL**: `http://<ip-alcanzable-desde-plane>:9090/webhook`
+- **URL**: `http://<ip-reachable-from-plane>:9090/webhook`
 - **Events**: Work Items
-- **Secret**: cópialo a `PLANE_WEBHOOK_SECRET` en `~/.kodo/.env`
+- **Secret**: copy it into `PLANE_WEBHOOK_SECRET` in `~/.kodo/.env`
 
-> ⚠️ Por defecto kodo escucha **solo en `127.0.0.1`**. Si Plane corre en otra
-> máquina, expón el bind (p. ej. tu IP de Tailscale) o el webhook nunca llegará:
+> ⚠️ By default kodo listens **only on `127.0.0.1`**. If Plane runs on another
+> machine, expose the bind (e.g. your Tailscale IP) or the webhook will never arrive:
 >
 > ```bash
 > kodo config --set server.bind=100.x.y.z
 > ```
 >
-> Las herramientas locales (`kodo up`, `kodo dashboard`) siguen el bind
-> automáticamente: no hace falta `0.0.0.0` ni pasar `--url`.
+> Local tooling (`kodo up`, `kodo dashboard`) follows the bind
+> automatically: no need for `0.0.0.0` and no need to pass `--url`.
 >
-> Ver [Topología multi-nodo](#topología-multi-nodo) para las implicaciones de seguridad.
+> See [Multi-node topology](#multi-node-topology) for the security implications.
 
-**Contrato de respuesta de `/webhook`** — Plane reintenta la entrega cuando recibe un
-error, así que el status codifica si el evento merece otro intento:
+**`/webhook` response contract** — Plane retries delivery when it receives an
+error, so the status encodes whether the event deserves another attempt:
 
-| Status | Cuándo | Efecto en Plane |
-|--------|--------|-----------------|
-| `200`  | Evento aceptado, ignorado (sin label `kodo`, estado inactivo) o fallo **permanente** del dispatch | No reintenta |
-| `401`  | Firma HMAC inválida o ausente | — |
-| `400` / `413` | Body no-JSON o mayor de 1 MB | — |
-| `503`  | Fallo **transitorio** del dispatch: Plane 5xx/429/408, red caída, timeout | Reintenta la entrega |
+| Status | When | Effect in Plane |
+|--------|------|-----------------|
+| `200`  | Event accepted, ignored (no `kodo` label, inactive state) or **permanent** dispatch failure | No retry |
+| `401`  | Invalid or missing HMAC signature | — |
+| `400` / `413` | Non-JSON body or larger than 1 MB | — |
+| `503`  | **Transient** dispatch failure: Plane 5xx/429/408, network down, timeout | Retries delivery |
 
-Un fallo transitorio se contesta con 503 en vez de tragarse el evento: sin ese
-reintento la tarea se quedaba en In Progress sin sesión y sin explicación. La
-clasificación es *default-closed* — solo lo que se reconoce como reintentable
-devuelve 503; un error de configuración (p. ej. `No configured project`) falla igual
-en cada intento, así que devuelve 200 para no abrir una tormenta de reintentos. Cada
-503 deja un `webhook.dispatch.retry` en `kodo logs`.
+A transient failure answers with 503 instead of swallowing the event: without that
+retry the task would sit in In Progress with no session and no explanation. The
+classification is *default-closed* — only what is recognised as retryable returns
+503; a configuration error (e.g. `No configured project`) fails the same way on
+every attempt, so it returns 200 to avoid opening a retry storm. Every 503 leaves a
+`webhook.dispatch.retry` entry in `kodo logs`.
 
-El webhook espera al dispatch una ventana corta (2 s) antes de responder: lo justo
-para ver morir la red, sin bloquear la respuesta durante el arranque completo de la
-sesión. Un dispatch que sigue vivo al vencer la ventana responde 200 y continúa en
-segundo plano.
+The webhook waits on the dispatch for a short window (2 s) before responding: just
+enough to see the network die, without blocking the response for the full session
+startup. A dispatch still alive when the window expires answers 200 and continues in
+the background.
 
-### 5. Instalar hooks de Claude Code
-
-```bash
-kodo install   # registra SessionStart y Stop hooks en ~/.claude/settings.json
-```
-
-### 6. Arrancar
+### 5. Install Claude Code hooks
 
 ```bash
-kodo up   # arranca el daemon en background y abre el dashboard TUI
+kodo install   # registers SessionStart and Stop hooks in ~/.claude/settings.json
 ```
 
-Con Homebrew puedes dejarlo como servicio de arranque automático:
+### 6. Start it
+
+```bash
+kodo up   # starts the daemon in the background and opens the TUI dashboard
+```
+
+With Homebrew you can leave it as a service that starts automatically:
 
 ```bash
 brew services start kodo
 ```
 
-## Uso
+## Usage
 
-### Automático (webhook)
+### Automatic (webhook)
 
-1. Añade el label `kodo` a una tarea en Plane
-2. Muévela a "In Progress"
-3. kodo crea el workspace cmux y lanza Claude
-4. Claude trabaja y documenta su progreso como comentarios en la tarea
-5. Al cerrar la sesión → la tarea pasa a "In Review"
-6. Tú (o el orquestador) revisáis y movéis a "Done"
+1. Add the `kodo` label to a task in Plane
+2. Move it to "In Progress"
+3. kodo creates the cmux workspace and launches Claude
+4. Claude works and documents its progress as comments on the task
+5. When the session closes → the task moves to "In Review"
+6. You (or the orchestrator) review it and move it to "Done"
 
-Los nombres de estado son configurables (`plane.states.trigger/review/done`); por defecto `In Progress` / `In review` / `Done`.
+State names are configurable (`plane.states.trigger/review/done`); by default `In Progress` / `In review` / `Done`.
 
 ### Manual
 
 ```bash
-kodo launch KL-42   # lanza una tarea específica sin pasar por el webhook
-kodo orchestrate    # lanza la sesión supervisora
+kodo launch KL-42   # launches a specific task without going through the webhook
+kodo orchestrate    # launches the supervising session
 ```
 
 ### Dashboard
 
 ```bash
-kodo dashboard   # TUI en vivo (también se abre con kodo up)
+kodo dashboard   # live TUI (also opened by kodo up)
 ```
 
-Teclas: `↑↓` mover · `c` comentarios · `l` logs de la sesión · `L` log general del daemon · `p` plan · `/` filtrar · `d` descartar sesión muerta · `o` abrir tarea en el navegador · `O` enfocar el orquestador · `a` adoptar sesión ad-hoc · `e` config · `m` proyectos · `q` salir
+Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `e` config · `m` projects · `q` quit
 
-## Comandos
+> **Note on runtime strings.** kodo's own output — the dashboard header, console
+> messages, the config editor labels — is still rendered in Spanish. Wherever this
+> README quotes that output it reproduces it **verbatim**, so what you read here is
+> what you will see on screen. Translating the runtime UI is tracked separately.
+
+## Commands
 
 ```
-kodo up                  # arranca daemon + dashboard (comando principal)
-kodo stop                # para el daemon
-kodo status              # estado del daemon (running|stopped)
-kodo dashboard           # TUI de sesiones activas
-kodo capture "<texto>"   # captura una idea al inbox global (~/.kodo/inbox.md)
-kodo inbox               # triage del inbox (--all, --json, route <id>, discard <id>)
-kodo inbox-orch          # bandeja del orquestador: eventos sin ver (--all, --json, ack --all)
-kodo integrate           # cola de integración: qué ramas esperan ff/merge/PR (--all, --json)
-kodo config              # wizard de configuración / --show / --set clave=valor
-kodo launch <REF>        # lanza una tarea manualmente (ej: KL-42)
-kodo check               # vigilante: revisa estado y lanza orquestador si hace falta (0 tokens)
-kodo orchestrate         # lanza la sesión orquestadora (usa tokens)
-kodo adopt               # adopta una sesión ad-hoc de cmux como tarea trackeada
-kodo comment <REF>       # postea un comentario resumen en una tarea existente
-kodo logs [session-id]   # inspecciona logs de sesión (dump, tail, filtro)
-kodo doctor              # diagnostica la alineación config.json ↔ projects.json (--states, --identifiers, --json)
-kodo install / uninstall # registra/elimina hooks de Claude Code
+kodo up                  # starts daemon + dashboard (main command)
+kodo stop                # stops the daemon
+kodo status              # daemon state (running|stopped)
+kodo dashboard           # TUI of active sessions
+kodo capture "<text>"    # captures an idea into the global inbox (~/.kodo/inbox.md)
+kodo inbox               # inbox triage (--all, --json, route <id>, discard <id>)
+kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
+kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
+kodo config              # configuration wizard / --show / --set key=value
+kodo launch <REF>        # launches a task manually (e.g. KL-42)
+kodo check               # watchdog: reviews state and launches the orchestrator if needed (0 tokens)
+kodo orchestrate         # launches the orchestrating session (spends tokens)
+kodo adopt               # adopts an ad-hoc cmux session as a tracked task
+kodo comment <REF>       # posts a summary comment on an existing task
+kodo logs [session-id]   # inspects session logs (dump, tail, filter)
+kodo doctor              # diagnoses config.json ↔ projects.json alignment (--states, --identifiers, --json)
+kodo install / uninstall # registers/removes Claude Code hooks
 ```
 
-### `kodo capture` / `kodo inbox` — el inbox de capturas
+### `kodo capture` / `kodo inbox` — the capture inbox
 
-Un **único buffer de captura global** en `~/.kodo/inbox.md`. La idea es separar dos actos que
-normalmente se mezclan y se estorban: **capturar es instantáneo y tonto** (una línea, cero
-preguntas, cero decisiones), y **triar es un paso deliberado y aparte**, que haces cuando te
-apetece y no cuando la idea te interrumpe.
+A **single global capture buffer** at `~/.kodo/inbox.md`. The idea is to separate two acts that
+usually get mixed up and get in each other's way: **capturing is instant and dumb** (one line, zero
+questions, zero decisions), and **triaging is a deliberate, separate step** you do when you feel
+like it and not when the idea interrupts you.
 
 ```bash
-kodo capture "probar el nuevo resolver de estados antes de v0.19"
+kodo capture "try the new state resolver before v0.19"
 
-# Si el texto empieza por guion, antepón el separador de argumentos:
-kodo capture -- "-3 % de conversión en el checkout tras el rediseño"
+# If the text starts with a dash, prepend the argument separator:
+kodo capture -- "-3 % checkout conversion after the redesign"
 ```
 
-Superficie completa:
+Full surface:
 
-| Comando | Qué hace | Exit codes |
+| Command | What it does | Exit codes |
 |---|---|---|
-| `kodo capture "<texto>"` | Appendea una línea al inbox. El fichero se crea al vuelo en la primera captura | `0` ok · `1` error de fs · `2` texto vacío tras el saneo |
-| `kodo inbox` | Lista las capturas abiertas con su `<id>` corto | `0` siempre — el lector nunca lanza |
-| `kodo inbox --all` | Incluye además las ya cerradas, con su estado | `0` siempre |
-| `kodo inbox --json` | El mismo listado como una sola línea JSON, determinista y sin color | `0` siempre |
-| `kodo inbox route <id>` | Marca la captura como **enrutada** | `0` ok · `1` error de fs, lock ocupado o escritura concurrente · `2` id inexistente o captura ya cerrada |
-| `kodo inbox route <id> --dest <ref>` | Igual, añadiendo un puntero de traza a dónde acabó | idem |
-| `kodo inbox discard <id>` | Marca la captura como **descartada** | idem |
+| `kodo capture "<text>"` | Appends a line to the inbox. The file is created on the fly on the first capture | `0` ok · `1` fs error · `2` empty text after sanitising |
+| `kodo inbox` | Lists open captures with their short `<id>` | `0` always — the reader never throws |
+| `kodo inbox --all` | Also includes the already-closed ones, with their status | `0` always |
+| `kodo inbox --json` | The same listing as a single JSON line, deterministic and colourless | `0` always |
+| `kodo inbox route <id>` | Marks the capture as **routed** | `0` ok · `1` fs error, lock held or concurrent write · `2` unknown id or capture already closed |
+| `kodo inbox route <id> --dest <ref>` | Same, adding a trace pointer to where it ended up | same |
+| `kodo inbox discard <id>` | Marks the capture as **discarded** | same |
 
-#### El enrutado lo decide `gsd-capture`, no kodo
+#### Routing is decided by `gsd-capture`, not by kodo
 
-kodo **no decide a dónde va una idea**. Ese trabajo es del skill `gsd-capture` de Claude Code, que
-es quien conoce los destinos reales (todos estructurados, notas, backlog, semillas). El flujo son
-tres pasos, y el del medio ocurre **fuera de kodo**:
+kodo **does not decide where an idea goes**. That job belongs to Claude Code's `gsd-capture` skill,
+which is the one that knows the real destinations (all structured: notes, backlog, seeds). The flow
+has three steps, and the middle one happens **outside kodo**:
 
 ```
-1. kodo inbox                          → lista las abiertas con su <id>
-2. /gsd-capture …                      → enruta la idea (kodo NO participa)
-3. kodo inbox route <id> --dest <ref>  → marca enrutada + puntero de traza (si hay ref)
+1. kodo inbox                          → lists the open ones with their <id>
+2. /gsd-capture …                      → routes the idea (kodo does NOT take part)
+3. kodo inbox route <id> --dest <ref>  → marks it routed + trace pointer (if there is a ref)
 ```
 
-Esto es deliberado y es una frontera dura del diseño: **kodo no invoca, no importa y no
-reimplementa** la lógica de destinos. El «a dónde va» vive fuera, así que kodo no puede quedarse
-desfasado respecto a ella. Consecuencias prácticas:
+This is deliberate and it is a hard design boundary: **kodo does not invoke, does not import and does
+not reimplement** the destination logic. The "where it goes" lives outside, so kodo cannot fall out of
+sync with it. Practical consequences:
 
-- `--dest` es **opcional y best-effort**. Es una ref opaca —`999.4`, `SEED-012`, un path
-  relativo, lo que sea— que kodo guarda tal cual sin validar que exista ni interpretar su forma.
-- Sin ref, `kodo inbox route <id>` cierra la captura igualmente. La falta de puntero **nunca**
-  bloquea el marcado.
+- `--dest` is **optional and best-effort**. It is an opaque ref — `999.4`, `SEED-012`, a relative
+  path, whatever — that kodo stores verbatim without validating that it exists or interpreting its shape.
+- Without a ref, `kodo inbox route <id>` closes the capture all the same. A missing pointer **never**
+  blocks the marking.
 
-#### El fichero es tuyo
+#### The file is yours
 
-`~/.kodo/inbox.md` es markdown plano y está pensado para que lo abras y lo edites a mano:
+`~/.kodo/inbox.md` is plain markdown and is meant to be opened and edited by hand:
 
-- **kodo nunca borra una captura.** Cerrar es solo una transición de estado: la línea sigue ahí,
-  con su id, su texto y su fecha. La traza permanente es el objetivo, no un efecto secundario.
-- **Toda línea que kodo no reconoce se conserva intacta**, byte a byte —encabezados, notas
-  sueltas, líneas en blanco— y simplemente se omite del listado. El marcado de una captura no
-  reescribe ninguna otra línea del fichero.
+- **kodo never deletes a capture.** Closing is only a state transition: the line is still there,
+  with its id, its text and its date. The permanent trace is the goal, not a side effect.
+- **Every line kodo does not recognise is preserved intact**, byte for byte — headings, loose notes,
+  blank lines — and is simply omitted from the listing. Marking one capture does not rewrite any
+  other line in the file.
 
-### `kodo inbox-orch` — la bandeja del orquestador
+### `kodo inbox-orch` — the orchestrator inbox
 
-**No confundir con `kodo inbox`.** Aquel son las capturas del operador
-(`~/.kodo/inbox.md`); esta son los eventos del ciclo de vida que van hacia el orquestador
-(`state.orchestrator_inbox`): cierres de sesión con su verdict y su `NEXT:`, lanzamientos.
+**Not to be confused with `kodo inbox`.** That one holds the operator's captures
+(`~/.kodo/inbox.md`); this one holds the lifecycle events headed for the orchestrator
+(`state.orchestrator_inbox`): session closures with their verdict and their `NEXT:`, and launches.
 
-Antes, esos eventos se **tecleaban** en el prompt del orquestador (`cmux send`), que Claude
-Code encola como si los hubiera escrito el operador. Eso fallaba por diseño, no por volumen:
-el hook dispara al CERRAR, pero la ronda de supervisión ya había leído el comentario final en
-el provider y la pantalla — el aviso nacía caducado. Medido sobre dos días de orquestación
-intensiva (13 sesiones, 9 PRs): de ~10 nudges, **ninguno** aportó algo que la ronda no
-tuviera, y varios llegaron con la tarea mergeada y en Done. Peor: durante un turno largo se
-acumulaban y aparecían todos juntos, desordenados respecto de la realidad, y el operador los
-borraba a mano.
+Previously those events were **typed** into the orchestrator's prompt (`cmux send`), which Claude
+Code queues as if the operator had written them. That failed by design, not by volume:
+the hook fires on CLOSE, but the supervision round had already read the final comment in
+the provider and on screen — the notice was born stale. Measured over two days of intensive
+orchestration (13 sessions, 9 PRs): out of ~10 nudges, **none** contributed anything the round
+did not already have, and several arrived with the task merged and Done. Worse: during a long turn
+they piled up and appeared all at once, out of order with respect to reality, and the operator
+deleted them by hand.
 
-Ahora el evento se **persiste** y la ronda lo lee en el mismo `cat ~/.kodo/state.json` que ya
-hacía. El teclado queda para un aviso de **una línea**, y solo si el orquestador está idle:
+Now the event is **persisted** and the round reads it in the same `cat ~/.kodo/state.json` it was
+already doing. The keyboard is left for a **one-line** notice, and only if the orchestrator is idle:
 
 ```
 [kodo] 2 eventos nuevos — ITCLIP-119 en Review, ITCLIP-121 lanzada. Ronda.
 ```
 
 ```bash
-kodo inbox-orch              # lo que está sin ver
-kodo inbox-orch --all        # incluida la traza de lo ya visto
-kodo inbox-orch --json       # el listado como una línea JSON, determinista y sin color
-kodo inbox-orch ack --all    # marcar todo visto al cerrar la ronda
-kodo inbox-orch ack <id>...  # marcar entradas concretas
+kodo inbox-orch              # what is unseen
+kodo inbox-orch --all        # including the trace of what has been seen
+kodo inbox-orch --json       # the listing as one JSON line, deterministic and colourless
+kodo inbox-orch ack --all    # mark everything seen when closing the round
+kodo inbox-orch ack <id>...  # mark specific entries
 ```
 
-Las tres reglas que lo gobiernan:
+The three rules that govern it:
 
-- **Si el orquestador está pensando, no se le teclea nada.** La sonda de idle es
-  fail-closed: pantalla vacía, ilegible, o un prompt con un borrador a medias cuentan como
-  «ocupado». El evento ya está en la bandeja y la siguiente ronda lo verá igual.
-- **Debounce de 30 s.** Tres cierres seguidos producen un aviso, no tres.
-- **Un `ack` nunca borra.** Transiciona a `seen` con su `seen_at`, igual que el inbox de
-  capturas y la cola de integración. Solo las entradas YA VISTAS se evictan por FIFO (tope
-  50); las que están sin ver no se evictan jamás.
+- **If the orchestrator is thinking, nothing gets typed at it.** The idle probe is
+  fail-closed: an empty screen, an unreadable one, or a prompt with a half-written draft all count
+  as "busy". The event is already in the inbox and the next round will see it anyway.
+- **30 s debounce.** Three closures in a row produce one notice, not three.
+- **An `ack` never deletes.** It transitions to `seen` with its `seen_at`, just like the capture
+  inbox and the integration queue. Only entries ALREADY SEEN are evicted by FIFO (cap
+  50); unseen ones are never evicted.
 
-El carril se elige con `orchestrator.nudges` en `~/.kodo/config.json`:
+The lane is chosen with `orchestrator.nudges` in `~/.kodo/config.json`:
 
-| Valor | Qué hace |
+| Value | What it does |
 |---|---|
-| `inbox` (default) | Persiste el evento y teclea el aviso de una línea solo si el orquestador está idle |
-| `keystroke` | Recupera el comportamiento anterior para el cierre de sesión: teclea el texto largo, sin pasar por la bandeja |
-| `off` | Persiste el evento y **no teclea nunca**. Apaga el aviso, no la memoria |
+| `inbox` (default) | Persists the event and types the one-line notice only if the orchestrator is idle |
+| `keystroke` | Restores the previous behaviour for session closure: types the long text, bypassing the inbox |
+| `off` | Persists the event and **never types**. Turns off the notice, not the memory |
 
-El aviso de «Nueva sesión lanzada» **no vuelve al teclado en ningún modo**: cuando el
-lanzamiento lo hace el propio orquestador con `kodo launch`, avisarle era anunciarle algo que
-acababa de ejecutar. Sigue entrando a la bandeja para cubrir el lanzamiento desde el
-dashboard o el dispatcher.
+The "New session launched" notice **never goes back to the keyboard in any mode**: when the
+launch is done by the orchestrator itself with `kodo launch`, notifying it meant announcing
+something it had just executed. It still enters the inbox to cover launches from the
+dashboard or the dispatcher.
 
-Lo que **no** cambia: `kodo check`, que lanza un orquestador cuando no hay ninguno. Ese es el
-despertador de verdad —el caso del operador ausente— y es un camino distinto de este.
+What does **not** change: `kodo check`, which launches an orchestrator when there is none. That is
+the real alarm clock — the absent-operator case — and it is a different path from this one.
 
-### `kodo integrate` — la cola de integración
+### `kodo integrate` — the integration queue
 
-Cada sesión termina pidiendo algo distinto: esta rama es un fast-forward, esta otra merece un
-merge commit, esta hay que mirarla antes. Antes esa información viajaba solo en el nudge
-efímero del hook Stop: si no actuabas en ese momento, se perdía y acababas repasando sesión por
-sesión de memoria. (El mismo razonamiento llevó después a la bandeja del orquestador, arriba:
-persistir en vez de teclear.)
+Every session ends up asking for something different: this branch is a fast-forward, that one deserves
+a merge commit, this one needs a look first. That information used to travel only in the ephemeral
+nudge from the Stop hook: if you did not act right then, it was lost and you ended up reviewing session
+by session from memory. (The same reasoning later led to the orchestrator inbox, above:
+persist instead of typing.)
 
-Ahora, **al cerrar una sesión cuya rama tiene commits que no están en ninguna otra referencia**
-(el mismo cálculo que decide conservar la rama), kodo persiste una entrada en
-`~/.kodo/state.json`. Una sesión que cierra ya mergeada no deja nada.
+Now, **when a session closes whose branch has commits that are not in any other reference**
+(the same calculation that decides whether to keep the branch), kodo persists an entry in
+`~/.kodo/state.json`. A session that closes already merged leaves nothing behind.
 
 ```bash
-kodo integrate                    # la cola pendiente, en bloque
-kodo integrate --all --json       # incluida la traza de lo ya resuelto, como JSON
-kodo integrate KODO-26 --ff       # fast-forward (falla si no es posible)
-kodo integrate KODO-26 --merge    # merge commit explícito (--no-ff)
-kodo integrate KODO-26 --pr       # prepara la rama y DEVUELVE el comando gh listo
-kodo integrate KODO-26 --drop     # descarta la entrada sin tocar la rama
-kodo integrate KODO-26 --merge --test 'npm test'   # suite antes de integrar
+kodo integrate                    # the pending queue, in one block
+kodo integrate --all --json       # including the trace of what is already resolved, as JSON
+kodo integrate KODO-26 --ff       # fast-forward (fails if not possible)
+kodo integrate KODO-26 --merge    # explicit merge commit (--no-ff)
+kodo integrate KODO-26 --pr       # prepares the branch and RETURNS the ready-to-run gh command
+kodo integrate KODO-26 --drop     # discards the entry without touching the branch
+kodo integrate KODO-26 --merge --test 'npm test'   # test suite before integrating
 ```
 
 ```
@@ -349,83 +354,83 @@ KODO-26 · worktree-5b1f809 · 3       · sí   · merge    · 2h   ·
 KODO-24 · worktree-ae91f22 · 1       · NO   · merge    · 3d   ·
 ```
 
-**La sugerencia es una sugerencia.** Sale de una heurística simple y visible, y la confirma
-quien integra:
+**The suggestion is a suggestion.** It comes out of a simple, visible heuristic, and it is confirmed
+by whoever integrates:
 
-| Qué toca la rama | Sugerencia |
+| What the branch touches | Suggestion |
 |---|---|
-| Solo documentación y tests | `ff` |
-| `src/` sin nada sensible | `merge` |
-| Migraciones, auth, billing, credenciales, o un diff de más de 400 líneas | `pr` |
-| Diff no inspeccionable (sin base resoluble, o solo merge commits) | `review` |
+| Documentation and tests only | `ff` |
+| `src/` with nothing sensitive | `merge` |
+| Migrations, auth, billing, credentials, or a diff over 400 lines | `pr` |
+| Non-inspectable diff (no resolvable base, or merge commits only) | `review` |
 
-La columna **base** es `merge-base` en una palabra: `sí` significa que la rama contiene la base
-entera; `NO`, que `main` avanzó por debajo mientras la sesión trabajaba. Con `NO` (o con `?`, no
-verificable) el `ff` **nunca** se sugiere — `git merge --ff-only` fallaría.
+The **base** column is `merge-base` in one word: `sí` means the branch contains the whole base;
+`NO` means `main` moved underneath while the session was working. With `NO` (or with `?`, not
+verifiable) `ff` is **never** suggested — `git merge --ff-only` would fail.
 
-Lo que este comando **no** hace, por contrato:
+What this command does **not** do, by contract:
 
-- **Nunca hace `git push` ni crea PRs.** `--pr` valida la rama, marca la entrada y te imprime el
-  `git push … && gh pr create …` listo para pegar. Publicar sigue siendo tuyo.
-- **Nunca cambia de rama.** Si el repo no está en la base, aborta con código 1 y te lo dice; no
-  hace `switch` por debajo.
-- **Nunca borra la rama** tras integrar (eso es del cleanup, que ya sabe verificar) **ni borra la
-  entrada** de la cola: al resolverla queda con su `status`, `action`, `sha` y `outcome` como
-  traza, igual que el inbox.
-- **Nunca integra sobre un worktree sucio.** Es la primera precondición que comprueba.
+- **It never runs `git push` and never creates PRs.** `--pr` validates the branch, marks the entry and
+  prints the `git push … && gh pr create …` ready for you to paste. Publishing is still yours.
+- **It never switches branches.** If the repo is not on the base, it aborts with exit code 1 and tells
+  you; it does not `switch` behind your back.
+- **It never deletes the branch** after integrating (that belongs to cleanup, which already knows how
+  to verify) **and never deletes the entry** from the queue: once resolved it keeps its `status`,
+  `action`, `sha` and `outcome` as a trace, just like the inbox.
+- **It never integrates on top of a dirty worktree.** That is the first precondition it checks.
 
-Exit codes: `0` la acción se ejecutó · `1` falló (worktree sucio, base no checkouteada, merge
-rechazado, suite en rojo) · `2` uso incorrecto o ref que no está pendiente en la cola. Solo el
-`0` saca la entrada de pendiente.
+Exit codes: `0` the action ran · `1` it failed (dirty worktree, base not checked out, merge
+rejected, test suite red) · `2` incorrect usage or a ref that is not pending in the queue. Only
+`0` takes the entry out of pending.
 
-Cada acción —incluido `--drop`— deja además una línea NDJSON en
-`~/.kodo/logs/integrate.ndjson` con `{action, task_ref, branch, sha, outcome}`, en éxito y en
-fallo. Ese es el registro permanente de lo que se ejecutó; si el log no es escribible, la acción
-sigue igual.
+Every action — `--drop` included — also leaves an NDJSON line in
+`~/.kodo/logs/integrate.ndjson` with `{action, task_ref, branch, sha, outcome}`, on success and on
+failure. That is the permanent record of what was executed; if the log is not writable, the action
+proceeds anyway.
 
-El listado no hace **ni una** llamada a git: todo se calculó al cerrar la sesión y vive en
-`state.json`, así que el orquestador puede presentar la cola entera en cada ronda gratis. El
-dashboard lo refleja como `N por integrar` en la cabecera, y `kodo status` lista el bloque.
+The listing makes **not a single** git call: everything was computed when the session closed and lives
+in `state.json`, so the orchestrator can present the whole queue on every round for free. The
+dashboard reflects it as `N por integrar` in the header, and `kodo status` lists the block.
 
-### `kodo doctor` — alineación config ↔ projects
+### `kodo doctor` — config ↔ projects alignment
 
-El dashboard lista **todos** los proyectos del workspace de Plane con el mapeo de `projects.json`
-superpuesto, pero el daemon solo despacha webhooks de los proyectos presentes en
-`config.providers.<provider>.projects`. Un proyecto **mapeado pero no configurado** parece
-operativo y sin embargo todos sus webhooks mueren con `No configured project ... UNKNOWN`.
+The dashboard lists **every** project in the Plane workspace with the `projects.json` mapping
+overlaid, but the daemon only dispatches webhooks for the projects present in
+`config.providers.<provider>.projects`. A project that is **mapped but not configured** looks
+operational and yet all its webhooks die with `No configured project ... UNKNOWN`.
 
-`kodo doctor` cruza los dos ficheros y reporta la desalineación (exit code 1 si hay problemas):
+`kodo doctor` cross-checks the two files and reports the misalignment (exit code 1 if there are problems):
 
-- **mapeado pero no en config** (ERROR): sus webhooks morirán con `UNKNOWN` → añádelo a `config.json`.
-- **en config pero sin ruta local** (WARN): el launch fallará al resolver el path → mapéalo.
-- **identifier `UNKNOWN`** / **paths duplicados** (WARN): ruido de config.
+- **mapped but not in config** (ERROR): its webhooks will die with `UNKNOWN` → add it to `config.json`.
+- **in config but with no local path** (WARN): the launch will fail to resolve the path → map it.
+- **`UNKNOWN` identifier** / **duplicate paths** (WARN): config noise.
 
-`--states` además consulta la API y verifica que cada proyecto configurado tiene los estados
-`trigger` / `review` / `done` (por nombre exacto, case-insensitive) — el segundo fallo del caso
-SCP: sin el estado `In review` el cierre del flujo también falla. El editor de proyectos del
-dashboard (`m`) marca cada fila **⚡ dispatch** (en config) o **⚠ solo-mapeado** (la trampa).
+`--states` additionally queries the API and verifies that every configured project has the
+`trigger` / `review` / `done` states (by exact name, case-insensitive) — the second failure of the
+SCP case: without the `In review` state, closing the flow also fails. The dashboard's project editor
+(`m`) marks each row **⚡ dispatch** (in config) or **⚠ solo-mapeado** (mapped-only — the trap).
 
-`--identifiers` consulta la API y compara el `identifier` cacheado en `config.json` con el real
-del provider. Renombrar un proyecto en Plane deja el cache obsoleto y el ref pasa a apuntar a un
-proyecto que no existe allí (`ITROMAN-1` para lo que Plane llama `ITCLIP`). El provider ya se
-realinea solo en cada `init()` —el ref siempre sale del identifier de Plane—, pero este check
-hace visible la divergencia persistida en disco para poder corregirla con `kodo config`.
+`--identifiers` queries the API and compares the `identifier` cached in `config.json` with the real
+one from the provider. Renaming a project in Plane leaves the cache stale and the ref ends up pointing
+at a project that does not exist there (`ITROMAN-1` for what Plane calls `ITCLIP`). The provider
+already realigns itself on every `init()` — the ref always comes from Plane's identifier — but this
+check makes the divergence persisted on disk visible so it can be fixed with `kodo config`.
 
-## GitHub como provider
+## GitHub as a provider
 
-kodo también puede operar contra GitHub Issues (sin webhook: polling integrado en el daemon).
+kodo can also operate against GitHub Issues (no webhook: polling built into the daemon).
 
 ```bash
-# En ~/.kodo/.env
+# In ~/.kodo/.env
 GITHUB_TOKEN=ghp_...
 ```
 
-Configura `provider: "github"` vía `kodo config`. El trigger son issues con el label `kodo`; al terminar, la sesión reporta con un comentario y el estado de revisión es el cierre del issue.
+Set `provider: "github"` via `kodo config`. The trigger is issues labelled `kodo`; when finished, the session reports with a comment and the review state is closing the issue.
 
-## Orca como cliente
+## Orca as a client
 
-Además de [cmux](https://cmux.dev), kodo puede correr sus sesiones en
-[Orca](https://www.onorca.dev). El cliente se elige con **una sola clave** en
+Besides [cmux](https://cmux.dev), kodo can run its sessions in
+[Orca](https://www.onorca.dev). The client is chosen with **a single key** in
 `~/.kodo/config.json`:
 
 ```bash
@@ -433,53 +438,53 @@ kodo config --set host=orca        # 'cmux' (default) | 'orca'
 kodo config --set orca.binary=/usr/local/bin/orca
 ```
 
-Es una propiedad de la **instalación**, no del proyecto ni de la tarea: un kodo
-apunta a un cliente, igual que apunta a un solo binario de cmux. No hay migración —
-las instalaciones existentes siguen en cmux sin tocar nada.
+It is a property of the **installation**, not of the project or the task: one kodo
+points at one client, the same way it points at a single cmux binary. There is no migration —
+existing installations stay on cmux without touching anything.
 
-### Qué cambia con Orca
+### What changes with Orca
 
 | | cmux | Orca |
 |---|---|---|
-| Unidad de trabajo | tab (`workspace:N`, ref reciclado) | worktree (`<repoId>::<path>`, ref estable) |
-| Aislamiento git | `claude --worktree` → `.bg-shell/<id>` | lo crea Orca en `~/orca/workspaces/<repo>/<slug>` |
-| Estado de la sesión | color de tab (Amber/Blue/…) | columna del tablero (`in-progress`/`in-review`/…) |
-| Marca kodo | `set-description` | comentario de la tarjeta |
-| Nombre | título libre | rama git → se slugifica; el título humano va a `--display-name` |
+| Unit of work | tab (`workspace:N`, recycled ref) | worktree (`<repoId>::<path>`, stable ref) |
+| git isolation | `claude --worktree` → `.bg-shell/<id>` | created by Orca in `~/orca/workspaces/<repo>/<slug>` |
+| Session state | tab colour (Amber/Blue/…) | board column (`in-progress`/`in-review`/…) |
+| kodo marking | `set-description` | card comment |
+| Name | free-form title | git branch → slugified; the human title goes to `--display-name` |
 
-Con Orca, kodo **no** emite `claude --worktree`: el aislamiento ya lo pone el propio
-Orca al crear el worktree. Lo verás en el log como `worktree_skipped_host`.
+With Orca, kodo does **not** emit `claude --worktree`: the isolation is already provided by Orca
+itself when it creates the worktree. You will see it in the log as `worktree_skipped_host`.
 
-**Los worktrees de Orca no se borran solos.** Con cmux, kodo crea
-`<repo>/.bg-shell/<id>` y lo limpia al cerrar la sesión. Con Orca el checkout es *tu*
-workspace —tiene su tarjeta en el tablero y su rama— así que kodo no lo toca: es donde
-revisas el trabajo cuando el agente termina. Lo cierras tú, desde la app o con
-`orca worktree rm`. Ninguna ruta de kodo ejecuta ese comando, y hay un test que falla
-si alguien lo cablea.
+**Orca worktrees are not deleted automatically.** With cmux, kodo creates
+`<repo>/.bg-shell/<id>` and cleans it up when the session closes. With Orca the checkout is *your*
+workspace — it has its card on the board and its branch — so kodo does not touch it: it is where
+you review the work when the agent finishes. You close it yourself, from the app or with
+`orca worktree rm`. No kodo code path runs that command, and there is a test that fails
+if anyone wires it in.
 
-Las columnas del tablero se ajustan igual que los colores de cmux:
+Board columns are adjusted the same way as cmux colours:
 
 ```bash
 kodo config --set orca.statuses.review=in-review
 ```
 
-### Cambiar de cliente con sesiones vivas
+### Switching client with live sessions
 
-Cada sesión guarda bajo qué cliente se lanzó. Es lo que permite que conmutar `host`
-**no toque** las sesiones del cliente anterior: sus workspaces no aparecen en el
-snapshot del nuevo, y sin ese sello kodo las leería como «tab desaparecida» y las
-degradaría a idle/dead estando perfectamente vivas. Ausencia de evidencia no es
-evidencia de muerte: se quedan intactas hasta que vuelvas a su cliente.
+Every session records which client it was launched under. That is what allows switching `host`
+to **leave alone** the sessions of the previous client: their workspaces do not appear in the
+new client's snapshot, and without that stamp kodo would read them as "tab gone" and
+downgrade them to idle/dead while they are perfectly alive. Absence of evidence is not
+evidence of death: they stay intact until you go back to their client.
 
-Las sesiones lanzadas antes de v0.19 no llevan el sello y sí se evalúan como antes.
+Sessions launched before v0.19 do not carry the stamp and are evaluated as before.
 
-### Cambiar de cliente con un orquestador vivo
+### Switching client with a live orchestrator
 
-Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador del
-cliente anterior queda **fuera del alcance** del nuevo: su workspace no aparece ahí, y
-esa ausencia es *estructural* — no significa que haya muerto. kodo **no lanza otro por
-su cuenta**: dos supervisores sobre el mismo `state.json` despachan la misma tarea dos
-veces, se pisan la bandeja y duplican comentarios en el provider.
+If you switch `host` while `kodo orchestrate` is running, the previous client's orchestrator is
+left **out of reach** of the new one: its workspace does not appear there, and
+that absence is *structural* — it does not mean it has died. kodo does **not launch another one
+on its own**: two supervisors over the same `state.json` dispatch the same task twice,
+step on each other's inbox and duplicate comments in the provider.
 
 ```
 [kodo] Orchestrator registrado en … pertenece al host 'cmux' y el host activo es
@@ -488,194 +493,194 @@ veces, se pisan la bandeja y duplican comentarios en el provider.
 abierto, ciérralo; después: kodo orchestrate --force
 ```
 
-La decisión es tuya porque eres el único que puede mirar el otro cliente. Comprueba que
-el anterior está cerrado y lanza el nuevo con `--force`.
+The decision is yours because you are the only one who can look at the other client. Check that
+the previous one is closed and launch the new one with `--force`.
 
-### Límites conocidos (v0.19)
+### Known limits (v0.19)
 
-Orca no expone en su CLI algunas cosas que cmux sí, y kodo degrada **fail-open** en
-todas ellas — nada aborta un lanzamiento:
+Orca does not expose some things in its CLI that cmux does, and kodo degrades **fail-open** in
+all of them — nothing aborts a launch:
 
-- **Notificaciones de sistema**: Orca no tiene `notify`. Los avisos de sesión
-  atascada salen solo por consola y por el dashboard.
-- **Grupos de sidebar**: Orca organiza por linaje (padre/hijo, carpetas), no por
-  grupos nombrados. `kodo sidebar doctor` no aplica.
-- **Adopción de sesiones ad-hoc** (`kodo adopt` desde el descubrimiento del
-  dashboard): requiere el `session_id` de Claude Code, que cmux publica en
-  `surface resume show` y Orca no. La adopción explícita por ref sigue funcionando.
-- **Marca del propio daemon**: `kodo server` renombra y colorea su tab partiendo de
-  `CMUX_WORKSPACE_ID`, que solo existe dentro de cmux. Con Orca el bloque se salta —
-  es cosmética del daemon, no del ciclo de vida de las sesiones.
-- **`needs-input`**: se deriva de `agents[].state` de Orca (`done` = el agente
-  terminó su turno y espera). Requiere los hooks de agente: actívalos con
-  `orca agent hooks on`; sin ellos las sesiones nunca se marcan como «esperando».
+- **System notifications**: Orca has no `notify`. Stuck-session warnings come out only through
+  the console and the dashboard.
+- **Sidebar groups**: Orca organises by lineage (parent/child, folders), not by named
+  groups. `kodo sidebar doctor` does not apply.
+- **Adopting ad-hoc sessions** (`kodo adopt` from the dashboard's discovery): requires
+  Claude Code's `session_id`, which cmux publishes in
+  `surface resume show` and Orca does not. Explicit adoption by ref still works.
+- **The daemon's own marking**: `kodo server` renames and colours its tab based on
+  `CMUX_WORKSPACE_ID`, which only exists inside cmux. With Orca the block is skipped —
+  it is daemon cosmetics, not session lifecycle.
+- **`needs-input`**: derived from Orca's `agents[].state` (`done` = the agent
+  finished its turn and is waiting). It requires the agent hooks: enable them with
+  `orca agent hooks on`; without them sessions are never marked as "waiting".
 
-## Configuración
+## Configuration
 
 ```bash
-kodo config --show                                  # ver configuración actual
-kodo config --set claude.max_parallel=5             # sesiones simultáneas (default 3)
-kodo config --set claude.default_model=opus         # modelo de las sesiones de trabajo
-kodo config --set claude.orchestrator_model=fable   # modelo del orquestador (default fable)
-kodo config --set server.idle_threshold_min=5       # minutos para considerar idle
-kodo config --set server.stuck_threshold_min=30     # minutos para considerar stuck
+kodo config --show                                  # show current configuration
+kodo config --set claude.max_parallel=5             # concurrent sessions (default 3)
+kodo config --set claude.default_model=opus         # model for work sessions
+kodo config --set claude.orchestrator_model=fable   # orchestrator model (default fable)
+kodo config --set server.idle_threshold_min=5       # minutes before considering a session idle
+kodo config --set server.stuck_threshold_min=30     # minutes before considering a session stuck
 ```
 
-### Rate limit de la API de Plane
+### Plane API rate limit
 
-Plane limita por defecto a **60 requests/minuto** por API key. kodo cachea
-estados, labels y módulos (TTL 5 min) y reintenta con backoff exponencial (cap
-8s, con jitter aleatorio para que varias sesiones no reintenten a la vez) ante
-429, 5xx transitorios y errores de red, pero con varios proyectos concurrentes
-puedes agotar el cupo. En un Plane self-hosted, súbelo en el `.env` del
-contenedor `api`:
+Plane limits to **60 requests/minute** per API key by default. kodo caches
+states, labels and modules (TTL 5 min) and retries with exponential backoff (cap
+8s, with random jitter so that several sessions do not retry at the same time) on
+429, transient 5xx and network errors, but with several concurrent projects you
+can exhaust the quota. On a self-hosted Plane, raise it in the `.env` of the
+`api` container:
 
 ```env
 API_KEY_RATE_LIMIT=300/minute
 ```
 
-## Topología multi-nodo
+## Multi-node topology
 
-Por defecto el servidor escucha en **`127.0.0.1`** (loopback): la superficie de
-red queda cerrada salvo que la abras deliberadamente. Para recibir el webhook
-desde otra máquina, expón el bind de forma consciente:
+By default the server listens on **`127.0.0.1`** (loopback): the network surface
+stays closed unless you deliberately open it. To receive the webhook
+from another machine, expose the bind consciously:
 
 ```bash
-kodo config --set server.bind=100.x.y.z   # p. ej. tu IP de Tailscale
+kodo config --set server.bind=100.x.y.z   # e.g. your Tailscale IP
 ```
 
-Exponer el bind es un **opt-in explícito** y debe ir acompañado de una ACL o
-firewall que restrinja quién alcanza el puerto `:9090` (ACLs de Tailscale,
-`pf`/`ufw`). No dejes `0.0.0.0` sin control de acceso delante.
+Exposing the bind is an **explicit opt-in** and must come with an ACL or
+firewall restricting who can reach port `:9090` (Tailscale ACLs,
+`pf`/`ufw`). Do not leave `0.0.0.0` without access control in front of it.
 
-### El tooling local sigue el bind
+### Local tooling follows the bind
 
-`kodo up` y `kodo dashboard` derivan a qué host conectarse del propio
-`server.bind`, así que un bind a una interfaz concreta funciona tal cual:
+`kodo up` and `kodo dashboard` derive which host to connect to from
+`server.bind` itself, so a bind to a specific interface works as is:
 
-| `server.bind`            | dónde escucha el daemon | a qué se conectan `up` / `dashboard` |
-| ------------------------ | ----------------------- | ------------------------------------ |
-| ausente (default)        | `127.0.0.1`             | `http://localhost:<port>`            |
-| `0.0.0.0` / `::`         | todas las interfaces    | `http://localhost:<port>`            |
-| `100.x.y.z` (Tailscale)  | `100.x.y.z`             | `http://100.x.y.z:<port>`            |
+| `server.bind`            | where the daemon listens | what `up` / `dashboard` connect to |
+| ------------------------ | ------------------------ | ---------------------------------- |
+| absent (default)         | `127.0.0.1`              | `http://localhost:<port>`          |
+| `0.0.0.0` / `::`         | all interfaces           | `http://localhost:<port>`          |
+| `100.x.y.z` (Tailscale)  | `100.x.y.z`              | `http://100.x.y.z:<port>`          |
 
-Conectar a una IP asignada a esta misma máquina no sale del kernel, así que el
-dashboard funciona igual de rápido que contra loopback. **No hace falta bindear a
-`0.0.0.0` ni añadir reglas de firewall solo para que el dashboard hable con el
-daemon**, y `kodo status` no toca la red en ningún caso (resuelve por PID).
+Connecting to an IP assigned to this same machine never leaves the kernel, so the
+dashboard is just as fast as it is against loopback. **There is no need to bind to
+`0.0.0.0` or to add firewall rules just so the dashboard can talk to the
+daemon**, and `kodo status` never touches the network at all (it resolves by PID).
 
-`--url` queda reservado para lo que el bind no describe: apuntar el dashboard a un
-daemon que corre en **otra** máquina.
+`--url` is reserved for what the bind does not describe: pointing the dashboard at a
+daemon running on **another** machine.
 
 ```bash
 kodo dashboard --url http://100.x.y.z:9090
 ```
 
-La exposición **no** relaja la autenticación:
+Exposure does **not** relax authentication:
 
-- El carril no-webhook (la API que consume el TUI) sigue exigiendo el **bearer token**
-  (`KODO_API_TOKEN`) en la cabecera `Authorization` — sin token responde `401`.
-- `/webhook` conserva su verificación **HMAC** con el webhook secret.
-- `/health` permanece abierto (probe de salud sin auth).
+- The non-webhook lane (the API the TUI consumes) still requires the **bearer token**
+  (`KODO_API_TOKEN`) in the `Authorization` header — without a token it answers `401`.
+- `/webhook` keeps its **HMAC** verification with the webhook secret.
+- `/health` stays open (health probe without auth).
 
-> **Nota — el token va siempre en cabecera.** No hay ruta que lo acepte como query
-> param: el `?token=` existía solo para el dashboard web, retirado. Si sospechas que
-> se ha filtrado, borra la línea `KODO_API_TOKEN` de `~/.kodo/.env` (se regenera al
-> arrancar) y reinicia (`kodo stop && kodo up`).
+> **Note — the token always goes in a header.** There is no route that accepts it as a query
+> param: `?token=` existed only for the web dashboard, which has been retired. If you suspect
+> it has leaked, delete the `KODO_API_TOKEN` line from `~/.kodo/.env` (it is regenerated on
+> startup) and restart (`kodo stop && kodo up`).
 
-## Supervisión: vigilante + orquestador
+## Supervision: watchdog + orchestrator
 
-Dos niveles separados: mecánico (0 tokens) y cognitivo (LLM).
+Two separate levels: mechanical (0 tokens) and cognitive (LLM).
 
-### Vigilante (`kodo check`)
+### Watchdog (`kodo check`)
 
-Script puro que revisa el estado del sistema — sesiones stuck, tareas en
-"In Review" esperando aprobación, tareas pendientes con slots libres — y lanza
-el orquestador **solo si detecta algo que requiere juicio**.
+A pure script that reviews system state — stuck sessions, tasks in
+"In Review" awaiting approval, pending tasks with free slots — and launches
+the orchestrator **only if it detects something that requires judgement**.
 
 ```bash
-kodo check              # revisa y actúa
-kodo check --dry-run    # solo reporta
+kodo check              # review and act
+kodo check --dry-run    # report only
 ```
 
-### Orquestador (`kodo orchestrate`)
+### Orchestrator (`kodo orchestrate`)
 
-Sesión de Claude Code supervisora: lee los screens de las sesiones activas vía
-cmux, evalúa tareas en "In Review" y decide si pasan a "Done", desbloquea
-sesiones stuck, lanza nuevas tareas si hay slots, y documenta sus decisiones en
-Plane. Desde el dashboard se enfoca con la tecla `O`.
+A supervising Claude Code session: it reads the screens of active sessions via
+cmux, evaluates tasks in "In Review" and decides whether they move to "Done", unblocks
+stuck sessions, launches new tasks if there are slots, and documents its decisions in
+Plane. From the dashboard it is focused with the `O` key.
 
-Arranca **siempre con `fable`** (`claude.orchestrator_model`), independiente del
-modelo de las sesiones de trabajo (`claude.default_model`, Opus por defecto): su
-trabajo es supervisar y despachar, no implementar. Se cambia con
-`kodo config --set claude.orchestrator_model=opus` o desde el editor del
-dashboard (`e` → "Modelo del orquestador").
+It **always starts with `fable`** (`claude.orchestrator_model`), independently of the
+model used by work sessions (`claude.default_model`, Opus by default): its
+job is to supervise and dispatch, not to implement. Change it with
+`kodo config --set claude.orchestrator_model=opus` or from the dashboard's
+editor (`e` → "Modelo del orquestador").
 
-Su skill (`.claude/skills/kodo-orchestrate/`) acumula conocimiento entre
-sesiones: quirks de la API, mapeos descubiertos, procesos validados. Antes de
-cerrar, el orquestador actualiza la skill y el stop hook auto-commitea los
-cambios — pero solo en la sesión orquestadora (marcada con la env var
-`KODO_ORCHESTRATOR`) y acotado al pathspec `.claude/skills/kodo-orchestrate/`,
-de modo que la siguiente sesión arranca con todo el contexto previo sin
-arrastrar otros cambios staged.
+Its skill (`.claude/skills/kodo-orchestrate/`) accumulates knowledge across
+sessions: API quirks, discovered mappings, validated processes. Before
+closing, the orchestrator updates the skill and the stop hook auto-commits the
+changes — but only in the orchestrating session (marked with the `KODO_ORCHESTRATOR`
+env var) and scoped to the `.claude/skills/kodo-orchestrate/` pathspec,
+so that the next session starts with all the previous context without
+dragging along other staged changes.
 
-## Visibilidad del progreso
+## Progress visibility
 
-Todo queda documentado en Plane como comentarios, sin abrir cmux:
+Everything is documented in Plane as comments, without opening cmux:
 
-- **Durante la sesión** — Claude comenta su plan al empezar, hitos intermedios y un resumen final.
-- **Al cerrar** — al cierre real de la sesión (`/exit`), el hook `SessionEnd` ejecuta un backstop mecánico: si la tarea sigue en curso la mueve a "In Review" y comenta el cierre automático junto con el handoff de la sesión (la sesión activa suele haberlo hecho ya; el backstop solo cubre el hueco).
-- **Si la sesión muere sin cerrar** — cerrar la tab, un kill o un reinicio no disparan `SessionEnd`, así que el backstop no llega a correr. El barrido de huérfanas del server detecta la sesión muerta y, si la tarea sigue en "In Progress", comenta el cierre incompleto con el último handoff conocido. **No** cambia el estado: kodo no puede saber si el trabajo quedó completo. Una tarea nunca se queda en curso sin rastro — o cierra, o queda marcada como incompleta.
-- **Con el orquestador activo** — rondas de supervisión que documentan el estado observado.
+- **During the session** — Claude comments its plan at the start, intermediate milestones and a final summary.
+- **On close** — at the real close of the session (`/exit`), the `SessionEnd` hook runs a mechanical backstop: if the task is still in progress it moves it to "In Review" and comments the automatic closure together with the session handoff (the active session has usually done this already; the backstop only covers the gap).
+- **If the session dies without closing** — closing the tab, a kill or a reboot do not fire `SessionEnd`, so the backstop never runs. The server's orphan sweep detects the dead session and, if the task is still in "In Progress", comments the incomplete closure with the last known handoff. It does **not** change the state: kodo cannot know whether the work was finished. A task is never left in progress with no trace — it either closes, or it is marked as incomplete.
+- **With the orchestrator active** — supervision rounds that document the observed state.
 
-## Arquitectura
+## Architecture
 
-| Módulo | Qué hace |
+| Module | What it does |
 |---|---|
-| `src/server.js` | Servidor HTTP `:9090` — webhook (HMAC) + API JSON autenticada |
-| `src/daemon/` | Ciclo de vida del daemon (`kodo up/stop/status`, `daemon run` para launchd) |
-| `src/triggers/` | Dispatch de eventos: webhook (Plane), polling (GitHub) |
-| `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
-| `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
-| `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación, barrido de sesiones huérfanas |
-| `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/evento a la bandeja del orquestador al cierre real) |
-| `src/integration/` | Cola de integración: captura al cerrar sesión, heurística de tier y store sobre `state.json` |
-| `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
-| `src/cli/dashboard/` | Dashboard TUI (Ink/React) |
+| `src/server.js` | HTTP server on `:9090` — webhook (HMAC) + authenticated JSON API |
+| `src/daemon/` | Daemon lifecycle (`kodo up/stop/status`, `daemon run` for launchd) |
+| `src/triggers/` | Event dispatch: webhook (Plane), polling (GitHub) |
+| `src/providers/` | Plane and GitHub clients (REST, normalisation, states) |
+| `src/cmux/` + `src/host/` | cmux CLI wrapper: workspaces, screens, colours |
+| `src/session/` | Session manager, state store (`~/.kodo/state.json`), reconciliation loop, orphan-session sweep |
+| `src/hooks/` | SessionStart (injects task context), Stop (lightweight per-turn state: idle + lock released) and SessionEnd (backstop "In Review" + terminal cleanup + colour/notify/event to the orchestrator inbox on real close) |
+| `src/integration/` | Integration queue: capture on session close, tier heuristic and store over `state.json` |
+| `src/orchestrator/` | Orchestrator launch + its prompt |
+| `src/cli/dashboard/` | TUI dashboard (Ink/React) |
 
-## Archivos
+## Files
 
 ```
 ~/.kodo/
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
-├── config.json        # provider, estados, servidor, claude
-├── projects.json      # proyecto del provider → path local
-├── state.json         # sesiones activas + registro del orquestador (`.orchestrator`) + cola de integración (`.integration_queue`)
-├── inbox.md           # capturas rápidas (markdown plano, editable a mano)
-├── inbox.lock         # lock advisory del inbox (efímero: se libera al terminar)
-├── plans/             # planes de acción por tarea
-└── logs/              # logs NDJSON por sesión
+├── config.json        # provider, states, server, claude
+├── projects.json      # provider project → local path
+├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`)
+├── inbox.md           # quick captures (plain markdown, hand-editable)
+├── inbox.lock         # advisory inbox lock (ephemeral: released on exit)
+├── plans/             # per-task action plans
+└── logs/              # per-session NDJSON logs
 ```
 
-## Estado de la sesión en el cliente
+## Session state in the client
 
-Con `host: cmux` — color de la tab:
+With `host: cmux` — tab colour:
 
-| Color | Significado |
+| Colour | Meaning |
 |---|---|
-| Amber | Sesión corriendo |
-| Blue | En review |
-| Green | Completada |
+| Amber | Session running |
+| Blue | In review |
+| Green | Completed |
 | Crimson | Error |
-| Indigo | kodo service / orquestador |
+| Indigo | kodo service / orchestrator |
 
-Con `host: orca` — columna del tablero (`orca.statuses`):
+With `host: orca` — board column (`orca.statuses`):
 
-| Columna | Significado |
+| Column | Meaning |
 |---|---|
-| `in-progress` | Sesión corriendo (y también error: Orca no tiene columna de fallo, y esconder la tarjeta justo cuando hay que mirarla sería peor) |
-| `in-review` | En review |
-| `completed` | Completada |
+| `in-progress` | Session running (and errors too: Orca has no failure column, and hiding the card exactly when it needs looking at would be worse) |
+| `in-review` | In review |
+| `completed` | Completed |
 
 ## Tests
 
@@ -683,6 +688,6 @@ Con `host: orca` — columna del tablero (`orca.statuses`):
 npm test
 ```
 
-## Licencia
+## License
 
 MIT

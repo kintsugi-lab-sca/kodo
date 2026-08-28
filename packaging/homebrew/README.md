@@ -1,77 +1,77 @@
-# Distribución Homebrew de kodo
+# kodo Homebrew distribution
 
-kodo se distribuye por un **tap de Homebrew**. Este directorio contiene el **espejo
-in-tree** de la fórmula (`Formula/kodo.rb`), lintable y versionado junto al código.
-La fórmula que `brew` realmente lee vive en un repo **separado**:
+kodo is distributed through a **Homebrew tap**. This directory holds the **in-tree
+mirror** of the formula (`Formula/kodo.rb`), lintable and versioned alongside the code.
+The formula `brew` actually reads lives in a **separate** repo:
 
-- **Tap (lo que lee `brew`):** `kintsugi-lab-sca/homebrew-kodo` → `Formula/kodo.rb`
-  - Usuarios: `brew tap kintsugi-lab-sca/kodo && brew install kodo`
-- **Fuente (de donde sale el tarball):** `kintsugi-lab-sca/kodo` — **debe ser PÚBLICO**
-  (Homebrew descarga el tarball de forma **anónima**; un repo privado da 404).
+- **Tap (what `brew` reads):** `kintsugi-lab-sca/homebrew-kodo` → `Formula/kodo.rb`
+  - Users: `brew tap kintsugi-lab-sca/kodo && brew install kodo`
+- **Source (where the tarball comes from):** `kintsugi-lab-sca/kodo` — **must be PUBLIC**
+  (Homebrew downloads the tarball **anonymously**; a private repo returns 404).
 
-## ⚠ Invariante de release (NO se nos puede pasar)
+## ⚠ Release invariant (must not be missed)
 
-> **`brew` NUNCA sigue `main`.** Los usuarios de Homebrew solo reciben lo que hay en el
-> **tag** referenciado por la `url` de la fórmula del tap. Un cambio de código NO llega
-> a los usuarios de brew hasta que se **corta un tag nuevo Y se actualiza la fórmula del
-> tap** (`url` + `sha256`).
+> **`brew` NEVER follows `main`.** Homebrew users only get what is in the
+> **tag** referenced by the `url` of the tap's formula. A code change does NOT reach
+> brew users until a **new tag is cut AND the tap's formula is updated**
+> (`url` + `sha256`).
 
-Cada vez que quieras que un cambio llegue a los usuarios de `brew`, haz el ritual completo:
+Every time you want a change to reach `brew` users, perform the full ritual:
 
-### Ritual de release (por cada versión que se publique)
+### Release ritual (for every published version)
 
-1. **Bump de versión** en `package.json` (`kodo --version` lo lee vía commander, y el
-   `test do` de la fórmula asierta `kodo --version` == versión del tag).
-2. **Commit + tag + push** al repo fuente público:
+1. **Version bump** in `package.json` (`kodo --version` reads it via commander, and the
+   formula's `test do` asserts `kodo --version` == the tag's version).
+2. **Commit + tag + push** to the public source repo:
    ```bash
-   git tag -a vX.Y.Z -m "vX.Y.Z <resumen>"
+   git tag -a vX.Y.Z -m "vX.Y.Z <summary>"
    git push kintsugi main
-   git push kintsugi vX.Y.Z          # GitHub genera el tarball en /archive/refs/tags/vX.Y.Z.tar.gz
+   git push kintsugi vX.Y.Z          # GitHub generates the tarball at /archive/refs/tags/vX.Y.Z.tar.gz
    ```
-3. **sha256** del tarball (requiere el repo fuente PÚBLICO):
+3. **sha256** of the tarball (requires the source repo to be PUBLIC):
    ```bash
    curl -sL https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256
    ```
-4. **Actualizar la fórmula del TAP** (`kintsugi-lab-sca/homebrew-kodo` → `Formula/kodo.rb`):
-   - `url` → el nuevo tag `vX.Y.Z`
-   - `sha256` → el hash del paso 3
-   - Si cambió algo más de la fórmula (deps, service block), **copia desde este espejo
-     in-tree** (`packaging/homebrew/Formula/kodo.rb`) y luego ajusta `url`/`sha256`.
+4. **Update the TAP's formula** (`kintsugi-lab-sca/homebrew-kodo` → `Formula/kodo.rb`):
+   - `url` → the new `vX.Y.Z` tag
+   - `sha256` → the hash from step 3
+   - If anything else in the formula changed (deps, service block), **copy it from this
+     in-tree mirror** (`packaging/homebrew/Formula/kodo.rb`) and then adjust `url`/`sha256`.
    ```bash
    cd <clone>/homebrew-kodo && git commit -am "kodo vX.Y.Z" && git push
    ```
-5. **Usuarios actualizan:** `brew update && brew upgrade kodo`.
+5. **Users update:** `brew update && brew upgrade kodo`.
 
-### Checklist mínimo antes de anunciar una release
-- [ ] `package.json` version == tag (sin la `v`).
-- [ ] Repo fuente **público** y tag pusheado (tarball 200 anónimo).
-- [ ] Fórmula del tap con `url` del tag nuevo + `sha256` real (no `0000…`).
-- [ ] **`sha256` calculado SIEMPRE** con `curl -sL …/archive/refs/tags/<tag>.tar.gz | shasum -a 256` en el momento del release — **nunca reusar** un valor previo (un sha equivocado da `SHA-256 mismatch` en instalación limpia; el tarball de GitHub archive es estable, así que el valor recién calculado es el bueno).
-- [ ] `service do` invoca `kodo daemon run` — **NUNCA `kodo up`** (launchd foreground trap).
-- [ ] Sin `environment_variables` en el plist (secretos solo en `~/.kodo/.env`).
+### Minimum checklist before announcing a release
+- [ ] `package.json` version == tag (without the `v`).
+- [ ] Source repo **public** and tag pushed (anonymous tarball returns 200).
+- [ ] Tap formula with the new tag's `url` + a real `sha256` (not `0000…`).
+- [ ] **`sha256` ALWAYS computed** with `curl -sL …/archive/refs/tags/<tag>.tar.gz | shasum -a 256` at release time — **never reuse** a previous value (a wrong sha gives `SHA-256 mismatch` on a clean install; the GitHub archive tarball is stable, so the freshly computed value is the correct one).
+- [ ] `service do` invokes `kodo daemon run` — **NEVER `kodo up`** (launchd foreground trap).
+- [ ] No `environment_variables` in the plist (secrets only in `~/.kodo/.env`).
 
-## Modo de ejecución (decisión de alcance del spike, Phase 66)
+## Execution modes (spike scoping decision, Phase 66)
 
-kodo tiene dos formas de arrancar, con alcance distinto:
+kodo has two ways to start, with different scope:
 
-- **`brew services start kodo`** (launchd, login) → **modo SERVER-ONLY**: webhook + polling reaccionando a triggers en segundo plano. Las funciones acopladas a **cmux** (liveness/adopción de sesiones) quedan **inertes** — cmux no es alcanzable en el contexto headless de launchd. El daemon degrada limpio (never-throws; el ruido de cmux ya no contamina el log — gaps 66-05/66-06).
-- **`kodo up`** desde una terminal DENTRO de una sesión cmux → **modo pleno cmux-aware**: daemon en background + dashboard como visor, con liveness/adopción operativas.
+- **`brew services start kodo`** (launchd, at login) → **SERVER-ONLY mode**: webhook + polling reacting to triggers in the background. The functions coupled to **cmux** (session liveness/adoption) are **inert** — cmux is not reachable in launchd's headless context. The daemon degrades cleanly (never-throws; cmux noise no longer pollutes the log — gaps 66-05/66-06).
+- **`kodo up`** from a terminal INSIDE a cmux session → **full cmux-aware mode**: daemon in the background + dashboard as the viewer, with liveness/adoption operational.
 
-Regla: si dependes de las features de cmux, usa `kodo up`; `brew services` es para el rol server/webhook desatendido.
+Rule: if you depend on the cmux features, use `kodo up`; `brew services` is for the unattended server/webhook role.
 
-## Notas de entorno (macOS)
+## Environment notes (macOS)
 
-- **PATH shadow:** si tienes un `kodo` en `~/.npm-global/bin` o `~/.local/bin`, `kodo`
-  por nombre puede NO invocar el de Homebrew. Verifica con `which -a kodo`; usa la ruta
-  absoluta `$(brew --prefix)/opt/kodo/bin/kodo` cuando quieras el de brew.
-- **`node` bajo launchd:** `bin/kodo` usa shebang `#!/usr/bin/env node`. Bajo `brew
-  services`, launchd corre con un PATH mínimo. Si `var/log/kodo.log` muestra
-  `env: node: No such file or directory`, añade a la fórmula
+- **PATH shadow:** if you have a `kodo` in `~/.npm-global/bin` or `~/.local/bin`, `kodo`
+  by name may NOT invoke the Homebrew one. Check with `which -a kodo`; use the absolute
+  path `$(brew --prefix)/opt/kodo/bin/kodo` when you want brew's.
+- **`node` under launchd:** `bin/kodo` uses the shebang `#!/usr/bin/env node`. Under `brew
+  services`, launchd runs with a minimal PATH. If `var/log/kodo.log` shows
+  `env: node: No such file or directory`, add to the formula
   `EnvironmentVariables { "PATH" => "#{Formula["node"].opt_bin}:#{ENV["PATH"]}" }`
-  (open question A1 del spike de Phase 66).
+  (open question A1 from the Phase 66 spike).
 
-## Futuro (automatización, no bloqueante)
-Este ritual es candidato a un `scripts/release.sh` o un GitHub Action que: bumpee la
-versión, corte el tag, compute el sha256 y abra un PR al tap automáticamente — para que
-"subir el tag y alimentar la fórmula" deje de ser manual. Diferido; documentado aquí
-mientras sea manual.
+## Future (automation, non-blocking)
+This ritual is a candidate for a `scripts/release.sh` or a GitHub Action that: bumps the
+version, cuts the tag, computes the sha256 and opens a PR to the tap automatically — so that
+"push the tag and feed the formula" stops being manual. Deferred; documented here
+while it remains manual.

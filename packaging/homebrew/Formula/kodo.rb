@@ -1,18 +1,18 @@
 # typed: false
 # frozen_string_literal: true
 #
-# Fórmula Homebrew de kodo — Phase 66 (DIST-01, DIST-02, D-05 LOCKED).
+# kodo Homebrew formula — Phase 66 (DIST-01, DIST-02, D-05 LOCKED).
 #
-# Fuente in-tree del formula: espejo EXACTO de la ruta `Formula/kodo.rb` del tap
-# `kintsugi-lab-sca/homebrew-kodo` (owner confirmado por el operador en el spike, D-05).
-# Se mantiene aquí para ser lintable/revisable en el árbol de kodo; el ciclo real de
-# `brew install` + `brew services` (no unit-testable) se valida en el checkpoint del
-# Plan 66-04.
+# In-tree source of the formula: EXACT mirror of the `Formula/kodo.rb` path in the
+# `kintsugi-lab-sca/homebrew-kodo` tap (owner confirmed by the operator during the spike, D-05).
+# It is kept here so it stays lintable/reviewable inside the kodo tree; the real
+# `brew install` + `brew services` cycle (not unit-testable) is validated at the
+# Plan 66-04 checkpoint.
 #
-# Forma canónica VERIFICADA (docs.brew.sh Node-for-Formula-Authors +
-# docs.brew.sh/rubydoc/Homebrew/Service.html), corregida a la realidad enviada en
-# Phase 65: el entrypoint foreground supervisado es `kodo daemon run` (subcomando
-# hidden en cli.js), NUNCA el comando interactivo top-level (que se auto-desvincula).
+# VERIFIED canonical form (docs.brew.sh Node-for-Formula-Authors +
+# docs.brew.sh/rubydoc/Homebrew/Service.html), corrected against what actually shipped in
+# Phase 65: the supervised foreground entrypoint is `kodo daemon run` (a hidden
+# subcommand in cli.js), NEVER the top-level interactive command (which self-detaches).
 class Kodo < Formula
   desc "Automated Claude Code sessions from task-management systems"
   homepage "https://github.com/kintsugi-lab-sca/kodo"
@@ -20,50 +20,50 @@ class Kodo < Formula
   sha256 "d182f4b6910d480c19bce7965f1f81aac766cd7f2fc7720b3aec4ed7f829d706"
   license "MIT"
 
-  # depends_on node (satisface engines ">=20" de package.json). NO se bundlea el
-  # runtime: Node es dependencia del sistema, no un binario embebido (D-05).
+  # depends_on node (satisfies package.json's ">=20" engines). The runtime is NOT
+  # bundled: Node is a system dependency, not an embedded binary (D-05).
   depends_on "node"
 
   def install
-    # std_npm_args SIN `prefix: false` = forma CLI-app: instala paquete + deps a
-    # libexec (node_modules aislado), con los ejecutables en libexec/bin.
+    # std_npm_args WITHOUT `prefix: false` = CLI-app form: installs the package + deps
+    # into libexec (isolated node_modules), with the executables in libexec/bin.
     system "npm", "install", *std_npm_args
-    # Expone `kodo` en el PATH de Homebrew vía symlink, manteniendo node_modules
-    # aislado en libexec (sin polución global).
+    # Exposes `kodo` on Homebrew's PATH via a symlink, keeping node_modules
+    # isolated in libexec (no global pollution).
     bin.install_symlink libexec.glob("bin/*")
   end
 
-  # Homebrew renderiza el plist launchd desde este bloque `service do` — NUNCA se
-  # escribe `def plist` / XML a mano (deprecado, frágil entre /opt/homebrew e Intel).
+  # Homebrew renders the launchd plist from this `service do` block — NEVER hand-write
+  # `def plist` / XML (deprecated, fragile across /opt/homebrew and Intel).
   service do
-    # CRÍTICO (Pitfall 6, load-bearing): el proceso que launchd supervisa DEBE ser el
-    # entrypoint foreground `daemon run`. El comando interactivo self-detach jamás va
-    # aquí: se auto-desvincula, el shim sale 0 al instante y launchd + keep_alive
-    # entraría en crash-loop (~10s ThrottleInterval). `opt_bin` es el path ESTABLE
-    # que resuelve Apple Silicon (/opt/homebrew) vs Intel (/usr/local) por arquitectura.
+    # CRITICAL (Pitfall 6, load-bearing): the process launchd supervises MUST be the
+    # `daemon run` foreground entrypoint. The self-detaching interactive command never goes
+    # here: it detaches itself, the shim exits 0 instantly and launchd + keep_alive
+    # would enter a crash loop (~10s ThrottleInterval). `opt_bin` is the STABLE path
+    # that resolves Apple Silicon (/opt/homebrew) vs Intel (/usr/local) per architecture.
     run [opt_bin/"kodo", "daemon", "run"]
-    keep_alive true                    # launchd reinicia el daemon si muere (es el supervisor)
-    log_path var/"log/kodo.log"        # launchd NO hereda tu terminal → captura stdout
-    error_log_path var/"log/kodo.log"  # mismo fichero preserva interleaving cronológico
-    working_dir var                    # cosmético; kodo lee ~/.kodo por path absoluto
-    # Se OMITE deliberadamente el bloque de variables de entorno del plist: los
-    # secretos viven en ~/.kodo/.env (0600), cargados en runtime por config.js. El
-    # plist es world-readable en ~/Library/LaunchAgents → nunca meter secretos ahí
-    # (boundary PERSIST-04 / T-66-08).
+    keep_alive true                    # launchd restarts the daemon if it dies (it is the supervisor)
+    log_path var/"log/kodo.log"        # launchd does NOT inherit your terminal → capture stdout
+    error_log_path var/"log/kodo.log"  # the same file preserves chronological interleaving
+    working_dir var                    # cosmetic; kodo reads ~/.kodo by absolute path
+    # The plist's environment-variables block is deliberately OMITTED: secrets
+    # live in ~/.kodo/.env (0600), loaded at runtime by config.js. The
+    # plist is world-readable under ~/Library/LaunchAgents → never put secrets there
+    # (PERSIST-04 / T-66-08 boundary).
   end
 
   def caveats
     <<~EOS
-      Bajo `brew services`, kodo corre en modo SERVER-ONLY (webhook + polling): reacciona
-      a triggers de tu gestor de tareas en segundo plano. Las funciones acopladas a cmux
-      (liveness y adopción de sesiones) NO operan bajo launchd, porque cmux no es alcanzable
-      en el contexto headless del servicio.
+      Under `brew services`, kodo runs in SERVER-ONLY mode (webhook + polling): it reacts
+      to triggers from your task manager in the background. The functions coupled to cmux
+      (session liveness and adoption) do NOT operate under launchd, because cmux is not
+      reachable in the service's headless context.
 
-      Para el modo completo (cmux-aware), lanza desde una terminal DENTRO de una sesión cmux:
+      For the full (cmux-aware) mode, launch from a terminal INSIDE a cmux session:
         kodo up
 
-      Los secretos se leen de ~/.kodo/.env (nunca del plist). Config: `kodo config` o `kodo up`
-      (setup en el dashboard, próximamente).
+      Secrets are read from ~/.kodo/.env (never from the plist). Config: `kodo config` or `kodo up`
+      (dashboard setup, coming soon).
     EOS
   end
 
