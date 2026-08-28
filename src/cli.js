@@ -69,8 +69,11 @@ program
   .command('start')
   .description('Start the webhook server')
   .option('-p, --port <port>', 'Port to listen on')
-  .option('--insecure', 'Skip webhook secret verification (development only)')
+  .option('--insecure', 'Skip webhook secret verification (requires KODO_ALLOW_INSECURE=1)')
   .action(async (opts) => {
+    // KODO-52: doble señal para el modo inseguro (flag + KODO_ALLOW_INSECURE=1).
+    // Va ANTES de ensureConfig() para que el rechazo sea inmediato y sin ruido.
+    (await import('./cli/insecure-gate.js')).enforceInsecureGate(opts.insecure);
     await ensureConfig();
     const { startServer } = await import('./server.js');
     await startServer({ port: opts.port ? parseInt(opts.port, 10) : undefined, insecure: opts.insecure });
