@@ -12,6 +12,11 @@ import { execSync } from 'node:child_process';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// KODO-53: seams de aislamiento de la bandeja del orquestador. Obligatorios en TODA
+// invocacion del hook (ver el docblock del helper). El helper es una hoja de datos: no
+// importa nada del arbol de src/, asi que no reabre la arista que el comentario de abajo
+// cierra.
+import { ORCH_INBOX_SEAMS } from './helpers/orchestrator-inbox-seams.js';
 
 // NO importar stop.js estáticamente: arrastra state.js → config.js (KODO_DIR al
 // module-load → ~/.kodo REAL). Aunque estos tests inyectan findSessionFn/
@@ -124,6 +129,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -153,6 +159,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -176,6 +183,7 @@ describe('KODO-18: el worktree del HOST no se borra jamás', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -205,6 +213,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -244,6 +253,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -274,6 +284,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -309,6 +320,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           existsFn: WORKTREE_EXISTS,
@@ -337,6 +349,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -364,6 +377,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -402,6 +416,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           existsFn: WORKTREE_EXISTS,
@@ -443,6 +458,7 @@ describe('Phase 19 WT-04: worktree cleanup — unit (gitFn stub)', () => {
       await runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path },
         {
+          ...ORCH_INBOX_SEAMS,
           findSessionFn: () => ({ id: session.task_id, session }),
           captureIntegrationFn: noCapture,
           existsFn: WORKTREE_EXISTS,
@@ -501,6 +517,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: repo },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -532,6 +549,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: repo },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -570,6 +588,7 @@ describe('Phase 19 WT-04: worktree cleanup — E2E smoke (git real)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: repo },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_EXISTS,
@@ -611,6 +630,7 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_GONE,
@@ -648,6 +668,7 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_GONE,
@@ -675,6 +696,7 @@ describe('KODO-30: SessionEnd con el worktree ya borrado', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path },
       {
+        ...ORCH_INBOX_SEAMS,
         findSessionFn: () => ({ id: session.task_id, session }),
         captureIntegrationFn: noCapture,
         existsFn: WORKTREE_GONE,

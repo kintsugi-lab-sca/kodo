@@ -153,6 +153,27 @@ const DEFAULT_CONFIG = {
     idle_threshold_min: 5,
     stuck_threshold_min: 30,
   },
+  // KODO-53 — cómo llegan al orquestador los eventos del ciclo de vida (fin de sesión,
+  // sesión lanzada). Bloque PROPIO y no una clave dentro de `claude.*`: aquel describe
+  // cómo se INVOCA a Claude (modelo, paralelismo, flags), esto describe cómo se le HABLA
+  // al supervisor.
+  //
+  //   'inbox'     (default) — el evento se persiste en `state.orchestrator_inbox` y la
+  //                ronda lo lee; solo si el orquestador está IDLE se le teclea un aviso
+  //                de UNA línea, con debounce de 30 s.
+  //   'keystroke' — restaura el comportamiento previo a KODO-53 para el nudge de FIN de
+  //                sesión: el texto largo se teclea directamente, sin pasar por la
+  //                bandeja. (El nudge de «sesión lanzada» NO vuelve ni con esto: avisaba
+  //                al orquestador de algo que acababa de ejecutar él mismo.)
+  //   'off'       — el evento se persiste en la bandeja y NUNCA se teclea nada. Para
+  //                quien hace rondas a mano y no quiere que le toquen el prompt jamás.
+  //
+  // El default `'inbox'` llega a los `~/.kodo/config.json` ya existentes vía el
+  // deep-merge de `loadConfig`, sin migración ni backup (CFG-02 zero-breaking-change).
+  // Se cambia con: `kodo config set orchestrator.nudges keystroke`.
+  orchestrator: {
+    nudges: 'inbox',
+  },
 };
 
 function ensureDir() {

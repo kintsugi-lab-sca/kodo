@@ -7,10 +7,15 @@ import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
 import { addSession, listSessions, updateSession, computeRealWorktreePath } from './state.js';
-import { resolveOrchestratorTargets, sendToOrchestrator } from '../orchestrator/target.js';
+// KODO-53: el aviso de lanzamiento ya no se TECLEA — se encola en la bandeja del
+// orquestador. Por eso este módulo dejó de importar `orchestrator/target.js`
+// (`resolveOrchestratorTargets`/`sendToOrchestrator` resolvían el destinatario del
+// keystroke) y `stripForKeystroke` (el saneo del texto vive ahora en
+// `buildOrchestratorEvent`, el punto de composición de la entrada de la bandeja).
+import { enqueueOrchestratorEvent } from '../orchestrator/inbox.js';
 import { writePromptFile } from './prompt-file.js';
 import { stateTransition } from '../logger-events.js';
-import { stripForKeystroke, stripControlChars } from '../cli/sanitize.js';
+import { stripControlChars } from '../cli/sanitize.js';
 
 /**
  * Build the session record saved to state from a resolved TaskItem.
@@ -629,26 +634,43 @@ export async function launchWorkItem(identifier, opts = {}) {
     workspace: workspaceRef,
   });
 
-  // Notify orchestrator if running.
-  // KODO-16: el destinatario sale de `resolveOrchestratorTargets` — ref registrado
-  // primero, título después. El match por título solo no bastaba: es mutable y
-  // window-scoped, así que tras un reinicio del daemon este aviso se perdía en silencio.
-  // KODO-20: `opts.getOrchestratorFn` es el seam de aislamiento, gemelo del de
-  // `session-end.js`. Sin él, resolver el destinatario LEE el `~/.kodo/state.json` real:
-  // hoy nadie ejecuta `launchWorkItem` en la suite (solo hay tests de source-hygiene), así
-  // que la fuga es LATENTE, pero el primer test de ejecución que se escriba heredaría
-  // exactamente el fallo no determinista que KODO-20 arregló en el hook. Ausente → default
-  // al `getOrchestrator` real, comportamiento en producción idéntico.
-  // Capturado FUERA del try: dentro, el `(opts) => host._legacy.send(opts)` shadowa el
-  // `opts` de la función, y leer el seam desde ahí sería un bug silencioso.
-  const getOrchestratorFn = opts.getOrchestratorFn;
+  // Avisar al orquestador — KODO-53.
+  //
+  // Aquí vivía un `sendToOrchestrator(... "Nueva sesión lanzada: …")` que TECLEABA el
+  // aviso en el prompt del orquestador. Se retira del carril de teclado POR COMPLETO, y
+  // no por volumen sino porque su contenido era vacío por construcción: cuando el
+  // lanzamiento lo hace el orquestador —el caso normal, `kodo launch` desde su propia
+  // ronda— le estaba anunciando algo que acababa de ejecutar él mismo. Cuando lo hace el
+  // dashboard o el dispatcher, sí es información nueva, y por eso el evento no
+  // desaparece: pasa a la BANDEJA como cualquier otro, y la ronda lo lista.
+  //
+  // A diferencia del cierre de sesión (`hooks/session-end.js`), este productor NO consulta
+  // `config.orchestrator.nudges`: no hay carril de teclado que restaurar, así que el modo
+  // `keystroke` no le aplica. El evento se encola siempre.
+  //
+  // KODO-16/KODO-20 (histórico): `resolveOrchestratorTargets` y el seam
+  // `opts.getOrchestratorFn` resolvían el DESTINATARIO del keystroke, y su fuga de
+  // aislamiento era leer el `~/.kodo/state.json` real desde la suite. Sin keystroke no hay
+  // destinatario que resolver, así que ambos desaparecen de este camino — la fuga la cierra
+  // ahora `opts.enqueueOrchestratorEventFn`, que es su equivalente sobre la ESCRITURA de la
+  // bandeja. El aviso de una línea, si toca, lo emite `orchestrator/notify.js` al cerrar.
+  //
+  // FAIL-OPEN: `enqueueOrchestratorEvent` nunca lanza, pero el try/catch se conserva —
+  // ningún fallo de la bandeja puede abortar un launch que ya tiene la sesión persistida
+  // y el proceso Claude arrancado.
   try {
-    const workspaces = await host._legacy.listWorkspaces().catch(() => '');
-    await sendToOrchestrator(
-      (opts) => host._legacy.send(opts),
-      resolveOrchestratorTargets(workspaces, { getOrchestratorFn }),
-      `Nueva sesión lanzada: ${stripForKeystroke(task.ref)} (${stripForKeystroke(task.title)}) en ${workspaceRef}. Path: ${stripForKeystroke(projectPath)}\\n`,
-    );
+    const enqueueFn = opts.enqueueOrchestratorEventFn || enqueueOrchestratorEvent;
+    enqueueFn({
+      kind: 'session-launched',
+      task_ref: task.ref,
+      session_id: sessionId,
+      // Mismos campos que llevaba el nudge tecleado. Se saneaban con `stripForKeystroke`
+      // en la composición y se siguen saneando — ahora dentro de `buildOrchestratorEvent`,
+      // que aplica el MISMO saneador al `text` entero (invariante STATE.md:176: el
+      // contenido no confiable que puede acabar en el terminal se sanea en el punto de
+      // composición, y el resumen de una línea sale del carril de keystroke).
+      text: `Nueva sesión lanzada: ${task.ref} (${task.title}) en ${workspaceRef}. Path: ${projectPath}`,
+    });
   } catch {}
 
   return session;
