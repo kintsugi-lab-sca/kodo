@@ -21,6 +21,23 @@ const STATE_PATH = join(KODO_DIR, 'state.json');
 const STATE_LOCK_PATH = STATE_PATH + '.lock';
 
 /**
+ * Profundidad del lock global sostenido POR ESTE PROCESO (KODO-37).
+ *
+ * El lock de `state-lock.js` es un fichero `O_EXCL` — NO es reentrante: un
+ * segundo `acquireLock` desde el mismo proceso choca con su propio EEXIST,
+ * agota los retries y degrada a `{ok:false, reason:'lock-timeout'}`. Como
+ * `withStateLock` llama a `loadState()` DENTRO del lock, y `loadState` puede
+ * disparar la migración, la migración necesita distinguir «nadie sostiene el
+ * lock, lo tomo yo» de «ya lo sostengo, sigo dentro de la misma sección
+ * crítica». Este contador lo dice: lo incrementa `runUnderStateLock` (el único
+ * punto de adquisición del lock de state) y lo consulta `migrateStateIfNeeded`.
+ *
+ * Es estrictamente INTRA-proceso: la exclusión entre procesos la sigue dando el
+ * fichero de lock, no esta variable.
+ */
+let stateLockDepth = 0;
+
+/**
  * @typedef {{
  *   workspace_ref: string,
  *   workspace_id?: string|null,  // KODO-22: UUID del workspace en el host (`tree --all --json`.windows[].workspaces[].id, == CMUX_WORKSPACE_ID dentro de la tab). IDENTIDAD ESTABLE de la sesión — `workspace_ref` se RECICLA (cmux reusa los `workspace:N`). Lo sella buildSessionFromTask en el mismo addSession PRE-spawn del launch. `null` = la sesión se lanzó pero el host no resolvió el UUID (fail-open never-throws); AUSENTE = sesión legacy anterior a KODO-22. Consumers (hoy shouldBrandWorkspace, server.js) deben tolerar ambos y degradar al match por workspace_ref. Aditivo opcional — sin bump de schema_version, mismo idiom que worktree_path (Phase 18 D-03c).
@@ -225,35 +242,49 @@ export function computeRealWorktreePath(projectPath, sessionId) {
 }
 
 /**
- * Lee el state.json del disco; si es schema < 3, crea backup timestamped y migra
- * encadenando v1→v2→v3 (Phase 38 D-05). Idempotente: si ya es v3, retorna sin
- * tocar disco (no crea backup redundante).
+ * Ejecuta la migración v1/v2 → v3 releyendo el fichero FRESH.
  *
- * @param {import('../logger.js').Logger} [logger] - opcional; si se provee se
- *   emite `state.migration.v2_to_v3` (D-13). NO se importa logger.js aquí
- *   (LOG-12 walker) — el caller lo inyecta. Sin logger, console.log fallback.
+ * PRECONDICIÓN (KODO-37): con `persist: true` el llamante DEBE sostener ya el
+ * lock global. La re-lectura es parte del contrato anti-clobber — entre el peek
+ * barato de `migrateStateIfNeeded` y la adquisición del lock, otro proceso pudo
+ * migrar (o escribir) el fichero, así que lo que se migra es lo que hay en disco
+ * DENTRO de la sección crítica, nunca el snapshot de antes de esperar.
+ *
+ * @param {import('../logger.js').Logger|undefined} logger
+ * @param {{ persist: boolean }} opts - `persist:false` migra SOLO en memoria y
+ *   no toca el disco (ni el estado ni el backup): es el fail-safe de
+ *   lock-timeout, donde escribir significaría pisar a quien sí tiene el lock.
+ * @returns {State|null} el state ya en v3, o `null` si el fichero desapareció o
+ *   es ilegible (el caller degrada a su default).
  * @private
  */
-function migrateStateIfNeeded(logger) {
-  if (!existsSync(STATE_PATH)) return;
+function runStateMigration(logger, { persist }) {
   let raw;
   try {
     raw = JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
   } catch {
-    return;
+    return null;
   }
+  // Doble-check bajo lock: otro proceso pudo migrarlo mientras esperábamos.
   // Idempotencia: ya en v3 → nada que migrar, ningún backup (D-05 + R-1).
-  if (raw.schema_version === 3) return;
-
-  // Backup ANTES de migrar (D-05 + R-1). Timestamp sortable YYYYMMDDTHHMMSS.
-  const ts = new Date().toISOString().replace(/[:.-]/g, '').slice(0, 15);
-  writeFileSync(STATE_PATH + '.bak.' + ts, JSON.stringify(raw, null, 2) + '\n');
+  if (raw.schema_version === 3) return raw;
 
   // Encadenar: v1 (sin schema_version) → v2 → v3. v2 → v3 directo.
   const v2 = raw.schema_version === 2 ? raw : migrateState(raw);
   const fromCount = Object.keys(v2.sessions || {}).length;
   const newState = migrateStateV2toV3(v2);
-  writeFileSync(STATE_PATH, JSON.stringify(newState, null, 2) + '\n');
+  if (!persist) return newState;
+
+  // Backup ANTES de publicar (D-05 + R-1). Timestamp sortable YYYYMMDDTHHMMSS.
+  // Escribe a un path PROPIO (`.bak.<ts>`), nunca a STATE_PATH: no necesita el
+  // patrón tmp+rename porque ningún lector lo consume.
+  const ts = new Date().toISOString().replace(/[:.-]/g, '').slice(0, 15);
+  writeFileSync(STATE_PATH + '.bak.' + ts, JSON.stringify(raw, null, 2) + '\n');
+
+  // KODO-37: publicación ATÓMICA, el mismo tmp+rename único (PID+UUID) de
+  // saveState. Antes era un writeFileSync directo sobre STATE_PATH — la única
+  // ruta de escritura del fichero fuera del patrón WR-02.
+  publishStateAtomically(newState);
 
   // Logger event (D-13). rescued/sealed son 0 en Plan 02 (rescate vive en Plan 04).
   if (logger) {
@@ -272,11 +303,85 @@ function migrateStateIfNeeded(logger) {
   } else {
     console.log('[kodo] State migrado a schema_version 3 (backup: state.json.bak.' + ts + ')');
   }
+  return newState;
+}
+
+/**
+ * Lee el state.json del disco; si es schema < 3, crea backup timestamped y migra
+ * encadenando v1→v2→v3 (Phase 38 D-05). Idempotente: si ya es v3, retorna sin
+ * tocar disco (no crea backup redundante).
+ *
+ * ─── KODO-37: la migración publica bajo lock y con tmp+rename ───────────────
+ * La migración era la ÚNICA escritura de `state.json` fuera del patrón atómico
+ * WR-02 y fuera del lock global. Los escritores nunca la ejercitaban desnuda
+ * (`withStateLock` → `runUnderStateLock` → `loadState` → aquí, ya bajo lock),
+ * pero un LECTOR PURO sí: cualquier `loadState()` suelto (server, hooks,
+ * dashboard) migraba y hacía `writeFileSync` directo sobre `STATE_PATH`. Un
+ * lector recién arrancado sobre un state v2 podía así publicar su propia
+ * migración ENCIMA del `saveState` de un escritor concurrente, perdiendo la
+ * mutación de éste, y un lector podía leer bytes a medio escribir.
+ *
+ * Ahora hay tres caminos, y ninguno escribe sin lock:
+ *   1. `stateLockDepth > 0` — ya estamos dentro del lock (caso de todos los
+ *      mutadores): migra y publica directamente, sin re-adquirir (el lock es
+ *      O_EXCL, no reentrante — re-adquirir sería un auto-deadlock degradado a
+ *      timeout).
+ *   2. Sin lock — lo adquiere, relee FRESH dentro y publica con tmp+rename.
+ *   3. Lock-timeout — fail-safe: migra SOLO en memoria y devuelve el resultado
+ *      al caller sin tocar disco. El lector obtiene su v3 correcto, quien tiene
+ *      el lock no es pisado, y la migración se persistirá en la siguiente
+ *      llamada que sí consiga el lock (o en el propio `withStateLock` del
+ *      escritor). Nunca se degrada a devolver un v2 crudo: eso reabriría la
+ *      pérdida silenciosa de claves aditivas descrita en `loadState`.
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * @param {import('../logger.js').Logger} [logger] - opcional; si se provee se
+ *   emite `state.migration.v2_to_v3` (D-13). NO se importa logger.js aquí
+ *   (LOG-12 walker) — el caller lo inyecta. Sin logger, console.log fallback.
+ * @returns {State|null} el state ya en v3 listo para el caller, o `null` cuando
+ *   no hay nada legible que devolver (fichero ausente o JSON corrupto).
+ * @private
+ */
+function migrateStateIfNeeded(logger) {
+  if (!existsSync(STATE_PATH)) return null;
+
+  // Peek barato SIN lock: el 99.9% de las lecturas encuentran un v3 ya migrado,
+  // y ese camino no debe pagar un acquire+release de lockfile por cada
+  // `loadState`. Solo el caso «hay algo que migrar» entra en la sección crítica.
+  try {
+    const peek = JSON.parse(readFileSync(STATE_PATH, 'utf-8'));
+    if (peek.schema_version === 3) return peek;
+  } catch {
+    return null;
+  }
+
+  // (1) Ya sostenemos el lock — misma sección crítica, sin re-adquirir.
+  if (stateLockDepth > 0) return runStateMigration(logger, { persist: true });
+
+  // (2) Adquirirlo. `runStateMigration` relee dentro por si otro ganó la carrera.
+  const held = withFileLock(STATE_LOCK_PATH, () => {
+    stateLockDepth++;
+    try {
+      return runStateMigration(logger, { persist: true });
+    } finally {
+      stateLockDepth--;
+    }
+  });
+  if (held.ok) return held.value;
+
+  // (3) Lock-timeout — migración en memoria, cero escrituras.
+  return runStateMigration(logger, { persist: false });
 }
 
 /** @returns {State} */
 export function loadState() {
-  migrateStateIfNeeded();
+  // KODO-37: la migración devuelve el state ya en v3 en vez de dejarlo
+  // implícito en disco. Dos motivos: (a) ahorra una re-lectura del fichero que
+  // acabamos de escribir, y (b) en el fail-safe de lock-timeout la migración es
+  // solo-en-memoria — el disco sigue en v2 a propósito, así que releerlo aquí
+  // devolvería justo la forma vieja que la migración existe para evitar.
+  const migrated = migrateStateIfNeeded();
+  if (migrated) return migrated;
   // KODO-26: el default de fichero-ausente es v3, igual que el de fichero-corrupto de tres
   // líneas más abajo (que ya lo era). Antes devolvía la forma **v2**, y eso abría una vía de
   // PÉRDIDA SILENCIOSA de las claves aditivas sobre un HOME limpio: un escritor bajo
@@ -297,14 +402,24 @@ export function loadState() {
   }
 }
 
-/** @param {State} state */
-export function saveState(state) {
-  // WR-02: unique temp name per write (pid + UUID) so two concurrent writers
-  // never share a single '.tmp' file and clobber each other's PARTIAL bytes.
-  // The final rename remains atomic (no torn reader); byte-identical final
-  // serialization preserved. On success the tmp is consumed by renameSync; on a
-  // write/rename failure we best-effort clean the stray tmp so no '.tmp.*'
-  // residue is left behind.
+/**
+ * Publica `state` en STATE_PATH de forma atómica (tmp único + rename).
+ *
+ * WR-02: unique temp name per write (pid + UUID) so two concurrent writers
+ * never share a single '.tmp' file and clobber each other's PARTIAL bytes.
+ * The final rename remains atomic (no torn reader); byte-identical final
+ * serialization preserved. On success the tmp is consumed by renameSync; on a
+ * write/rename failure we best-effort clean the stray tmp so no '.tmp.*'
+ * residue is left behind.
+ *
+ * KODO-37: extraído de `saveState` para que la migración publique EXACTAMENTE
+ * igual. Es el único punto del módulo que escribe STATE_PATH — cualquier
+ * `writeFileSync(STATE_PATH, ...)` nuevo es, por definición, un bug.
+ *
+ * @param {State} state
+ * @private
+ */
+function publishStateAtomically(state) {
   const tmp = STATE_PATH + '.tmp.' + process.pid + '.' + randomUUID();
   try {
     writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
@@ -313,6 +428,11 @@ export function saveState(state) {
     rmSync(tmp, { force: true });
     throw err;
   }
+}
+
+/** @param {State} state */
+export function saveState(state) {
+  publishStateAtomically(state);
 }
 
 /**
@@ -331,7 +451,17 @@ export function saveState(state) {
  * @returns {{ ok: true, value: T } | { ok: false, reason: 'lock-timeout' }}
  */
 export function runUnderStateLock(fn) {
-  return withFileLock(STATE_LOCK_PATH, fn);
+  // KODO-37: marcar la profundidad mientras `fn` corre. Es lo que permite a la
+  // migración disparada desde el `loadState()` interior saber que el lock YA
+  // está en nuestras manos y no intentar re-adquirirlo (O_EXCL, no reentrante).
+  return withFileLock(STATE_LOCK_PATH, () => {
+    stateLockDepth++;
+    try {
+      return fn();
+    } finally {
+      stateLockDepth--;
+    }
+  });
 }
 
 /**
