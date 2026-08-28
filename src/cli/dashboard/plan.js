@@ -22,8 +22,8 @@
 // la fila lleva un `task_id`, readPlan delega en `readLightPlan` que lee el artefacto de Phase 45
 // (`~/.kodo/plans/<task_id>.md`). GSD tiene prioridad (D-02): el fallback solo dispara en la rama
 // phaseId==null; las filas con phase_id siguen leyendo su PLAN.md exactamente igual. Mapeo D-05:
-// contenido→'ok', ENOENT→'no-light-plan', otro→'error'. Leaf-isolation preservada (D-07): se importa
-// `homedir` de `node:os` (builtin), NO `src/config.js` — se replica la convención `join(homedir(),'.kodo')`.
+// contenido→'ok', ENOENT→'no-light-plan', otro→'error'. Leaf-isolation preservada (D-07): la raíz
+// `~/.kodo` sale de `src/paths.js` (hoja de solo builtins), NO de `src/config.js` (KODO-43).
 //
 // NEVER-THROWS (D-05): TODA lectura de filesystem (readdir, readFile) Y la llamada al
 // fallback `resolvePhaseFn` está envuelta de modo que ningún error llegue a React. Un
@@ -40,9 +40,11 @@
 
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-// D-07: node:os es builtin → preserva la leaf-isolation. Misma convención que config.js:4,6
-// (`join(homedir(), '.kodo')`). NO se importa src/config.js para no acoplar el leaf a su I/O.
-import { homedir } from 'node:os';
+// D-07 (actualizado en KODO-43): la raíz `~/.kodo` ya no se reconstruye aquí — sale de
+// `src/paths.js`, HOJA de solo builtins sin I/O ni side-effects, cuyo `kodoDir` es una FUNCIÓN
+// lazy. La leaf-isolation se preserva y SIGUE sin importarse `src/config.js`, que es el que
+// acopla I/O y evalúa `homedir()` en module-load. Ver la cabecera de paths.js.
+import { kodoDir as resolveKodoDir } from '../../paths.js';
 
 /**
  * @typedef {{ status: 'ok'|'no-phase'|'no-plan'|'no-light-plan'|'error', lines: string[], render?: 'markdown'|'plain' }} PlanResult
@@ -62,14 +64,15 @@ import { homedir } from 'node:os';
  *
  * @param {string} taskId  UUID del provider (sin separadores de ruta; validado por el caller).
  * @param {{ readFileFn?: (p: string) => string, kodoPlansDir?: string, homedirFn?: () => string }} deps
- *   `kodoPlansDir` aísla el HOME en tests (D-08); sin él, default `join(homedir(), '.kodo', 'plans')`.
+ *   `kodoPlansDir` aísla el HOME en tests (D-08); sin él, default `join(resolveKodoDir(), 'plans')`.
  * @returns {PlanResult}
  */
 function readLightPlan(taskId, deps) {
   const readFileFn = deps.readFileFn || ((p) => readFileSync(p, 'utf-8'));
   // Ruta CONSTRUIDA (no derivada de input por regex, D-09). Byte-idéntica al productor
-  // session-start.js:85,145: join(homedir(), '.kodo', 'plans', `${task_id}.md`).
-  const plansDir = deps.kodoPlansDir || join((deps.homedirFn || homedir)(), '.kodo', 'plans');
+  // session-start.js:85,145: join(KODO_DIR, 'plans', `${task_id}.md`) — desde KODO-43 ambos
+  // extremos derivan la raíz del MISMO `src/paths.js`, así que la identidad ya no es de palabra.
+  const plansDir = deps.kodoPlansDir || join(resolveKodoDir(deps.homedirFn), 'plans');
   try {
     const md = readFileFn(join(plansDir, `${taskId}.md`));
     // Phase 75 (D-05/D-07): el carril light es el ÚNICO que se pasa por el mini-renderer.

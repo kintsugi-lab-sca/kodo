@@ -37,8 +37,11 @@ import {
   existsSync,
   chmodSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
+// KODO-43: la raíz `~/.kodo` sale de `src/paths.js` (hoja de solo builtins, sin I/O). `kodoPath`
+// es lazy — resuelve `homedir()` EN LA LLAMADA, que es justo lo que exige el Pitfall #11 de
+// arriba; importarlo no reintroduce la evaluación en module-load que este fichero evita.
+import { kodoPath } from '../paths.js';
 
 /**
  * Computa el path canonical del PID file de forma lazy.
@@ -49,14 +52,14 @@ import { join, dirname } from 'node:path';
  * El daemon kodo (Plan 03) pasa `'kodo'` → `~/.kodo/kodo.pid`, distinto del legacy
  * `server.pid` (self-PID del server) y del standalone `polling.pid`.
  *
- * El path resultante es `join(homedir(), '.kodo', `${name}.pid`)`
- * — donde `join(homedir(), '.kodo')` === `KODO_DIR` per `src/config.js:6`.
+ * El path resultante es `kodoPath(`${name}.pid`)` — misma raíz que el `KODO_DIR` de
+ * `src/config.js`, porque desde KODO-43 ambos la derivan de `src/paths.js`.
  *
  * @param {string} [name='polling'] — basename del PID file sin extensión.
  * @returns {string}
  */
 export function getPidPath(name = 'polling') {
-  return join(homedir(), '.kodo', `${name}.pid`);
+  return kodoPath(`${name}.pid`);
 }
 
 /**

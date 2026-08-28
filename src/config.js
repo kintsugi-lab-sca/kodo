@@ -1,14 +1,20 @@
 // @ts-check
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
 // B7 (D-10): validación de loadConfig REUTILIZA config-validate.js — no se duplica.
 // Import seguro sin ciclo: config-validate.js es puro (0 imports de este módulo).
 import { validateField, getEditableFields, getByPath, setByPath } from './config-validate.js';
 // WR-01: mismas claves prohibidas que M3 (config-args.js es puro, 0 imports de este módulo → sin ciclo).
 import { FORBIDDEN_KEYS } from './cli/config-args.js';
+// KODO-43: el literal `'.kodo'` vive SOLO en paths.js. Hoja pura (node:os + node:path) → sin ciclo.
+import { kodoDir } from './paths.js';
 
-const KODO_DIR = join(homedir(), '.kodo');
+// EAGER A PROPÓSITO, sin cambio de semántica en KODO-43: `kodoDir()` se llama UNA vez, aquí, y
+// el resultado queda cacheado al importar el módulo — exactamente lo que hacía el `join(homedir(),
+// '.kodo')` que sustituye. La fuga que eso implica (un test que pise HOME después del import ya
+// no puede redirigirla) sigue siendo la razón por la que los leafs del dashboard prohíben
+// importar este fichero y llaman a `kodoDir()` por su cuenta; ver la cabecera de `src/paths.js`.
+const KODO_DIR = kodoDir();
 const CONFIG_PATH = join(KODO_DIR, 'config.json');
 const PROJECTS_PATH = join(KODO_DIR, 'projects.json');
 const ENV_PATH = join(KODO_DIR, '.env');

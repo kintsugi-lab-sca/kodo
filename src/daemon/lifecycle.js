@@ -32,8 +32,11 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { homedir } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
+
+// KODO-43: raíz `~/.kodo` desde `src/paths.js`. `kodoPath` es lazy (resuelve `homedir()` en la
+// llamada), así que los tests HOME-isolated siguen apuntando a su sandbox.
+import { kodoPath } from '../paths.js';
 
 import { isPidAlive } from '../gsd/lock.js';
 import { acquireLock, releaseLock } from '../session/state-lock.js';
@@ -176,7 +179,7 @@ export async function startDaemon(name, argv, deps = {}) {
   // homedir() se resuelve lazy para que los tests HOME-isolated apunten al sandbox.
   const acquireLockFn = deps._acquireLock || acquireLock;
   const releaseLockFn = deps._releaseLock || releaseLock;
-  const startLockPath = deps._startLockPath || join(homedir(), '.kodo', `${name}.start.lock`);
+  const startLockPath = deps._startLockPath || kodoPath(`${name}.start.lock`);
   // Retry corto: si el ganador aún está en su sección crítica (spawn+bounded wait),
   // el perdedor reintenta unos ms; si el ganador ya liberó, el perdedor adquiere y el
   // pre-flight de abajo ve el daemon vivo → alreadyRunning. Ambos caminos → un daemon.

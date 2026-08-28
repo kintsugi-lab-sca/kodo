@@ -3,7 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+// `homedir` sigue aquí para las rutas de `~/.claude/` (skill sync). La raíz `~/.kodo` ya no:
+// sale de `src/paths.js` (KODO-43).
 import { homedir } from 'node:os';
+import { kodoDir, kodoPath } from '../paths.js';
 import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
 import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
 import { getHost, resolveHostName } from '../host/interface.js';
@@ -21,7 +24,10 @@ export const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
 // consultar cmux en vivo: `cmux workspace list` es window-scoped (limitación P-4) y el daemon
 // detached vive en otro window, así que una consulta en vivo jamás vería el ref del orquestador.
 // launchOrchestrator (que SÍ corre en el window correcto, con TTY) lo escribe al lanzar/refrescar.
-export const ORCHESTRATOR_REF_PATH = join(homedir(), '.kodo', 'orchestrator.json');
+// EAGER, sin cambio de semántica en KODO-43: se evalúa al importar el módulo, igual que el
+// `join(homedir(), '.kodo', …)` que sustituye. `test/orchestrator-find-ref.test.js:85` ya
+// depende de esa evaluación en module-load y sigue haciéndolo.
+export const ORCHESTRATOR_REF_PATH = kodoPath('orchestrator.json');
 
 /**
  * Cliente de lifecycle del host ACTIVO (KODO-18).
@@ -553,7 +559,7 @@ export async function launchOrchestrator(opts = {}) {
       workspaceRef,
       sessionId,
       projectPath: process.cwd(),
-      kodoDir: join(homedir(), '.kodo'),
+      kodoDir: kodoDir(),
       taskRef: ORCHESTRATOR_WORKSPACE_NAME,
     });
   }
