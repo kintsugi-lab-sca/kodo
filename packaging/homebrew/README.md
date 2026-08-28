@@ -48,7 +48,8 @@ Cada vez que quieras que un cambio llegue a los usuarios de `brew`, haz el ritua
 - [ ] Fórmula del tap con `url` del tag nuevo + `sha256` real (no `0000…`).
 - [ ] **`sha256` calculado SIEMPRE** con `curl -sL …/archive/refs/tags/<tag>.tar.gz | shasum -a 256` en el momento del release — **nunca reusar** un valor previo (un sha equivocado da `SHA-256 mismatch` en instalación limpia; el tarball de GitHub archive es estable, así que el valor recién calculado es el bueno).
 - [ ] `service do` invoca `kodo daemon run` — **NUNCA `kodo up`** (launchd foreground trap).
-- [ ] Sin `environment_variables` en el plist (secretos solo en `~/.kodo/.env`).
+- [ ] En `environment_variables` del plist **solo** `PATH` — cero secretos (viven en `~/.kodo/.env`).
+- [ ] `brew style` y `brew audit` limpios sobre la fórmula del tap.
 
 ## Modo de ejecución (decisión de alcance del spike, Phase 66)
 
@@ -64,11 +65,26 @@ Regla: si dependes de las features de cmux, usa `kodo up`; `brew services` es pa
 - **PATH shadow:** si tienes un `kodo` en `~/.npm-global/bin` o `~/.local/bin`, `kodo`
   por nombre puede NO invocar el de Homebrew. Verifica con `which -a kodo`; usa la ruta
   absoluta `$(brew --prefix)/opt/kodo/bin/kodo` cuando quieras el de brew.
-- **`node` bajo launchd:** `bin/kodo` usa shebang `#!/usr/bin/env node`. Bajo `brew
-  services`, launchd corre con un PATH mínimo. Si `var/log/kodo.log` muestra
-  `env: node: No such file or directory`, añade a la fórmula
-  `EnvironmentVariables { "PATH" => "#{Formula["node"].opt_bin}:#{ENV["PATH"]}" }`
-  (open question A1 del spike de Phase 66).
+- **PATH bajo launchd (A1, CERRADO):** launchd no hereda el PATH del login shell — un
+  LaunchAgent arranca con `/usr/bin:/bin:/usr/sbin:/sbin` y ahí no hay nada de Homebrew.
+  La fórmula lo resuelve declarando el PATH en el plist:
+  ```ruby
+  environment_variables PATH: "#{formula_opt_bin("node")}:#{std_service_path_env}"
+  ```
+  Dos precisiones sobre cómo estaba planteado A1:
+  - **El shebang NO era el problema.** `bin/kodo` usa `#!/usr/bin/env node` en el árbol
+    fuente, pero `npm install` reescribe el shebang al intérprete absoluto: el fichero
+    instalado queda con `#!/opt/homebrew/opt/node/bin/node`. Con el PATH mínimo de launchd
+    el shim arranca igual (verificado, exit 0) — el `env: node: No such file or directory`
+    que se temía no se materializa por esa vía.
+  - **El PATH sigue siendo load-bearing** por los subprocesos que el daemon resuelve por
+    nombre: `git` (worktrees de sesión) y `claude` (D-15). Sin la línea solo se alcanza
+    `/usr/bin/git`, y solo con las Xcode CLT instaladas.
+
+  La sintaxis de la nota original (`EnvironmentVariables { "PATH" => … }`) no es válida
+  dentro de `service do`: `EnvironmentVariables` es la clave del **plist**, que Homebrew
+  renderiza a partir del método `environment_variables`. Y no se usa `ENV["PATH"]`, que
+  hornearía el PATH de quien renderiza el plist (nvm, rbenv, shims) en vez de uno estable.
 
 ## Futuro (automatización, no bloqueante)
 Este ritual es candidato a un `scripts/release.sh` o un GitHub Action que: bumpee la
