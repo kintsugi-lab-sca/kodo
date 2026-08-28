@@ -16,6 +16,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runSessionEndHook } from '../../src/hooks/session-end.js';
+// KODO-53: seams de aislamiento de la bandeja del orquestador (ver docblock del helper).
+import { ORCH_INBOX_SEAMS } from '../helpers/orchestrator-inbox-seams.js';
 
 let plansDir;
 before(() => { plansDir = mkdtempSync(join(tmpdir(), 'kodo-send-int-')); });
@@ -56,6 +58,10 @@ function makeLogger() {
  */
 function baseDeps(session, calls) {
   return {
+    // KODO-53: la bandeja del orquestador. Va en las deps BASE por la misma razón que
+    // `plansDir` y `getOrchestratorFn` — sin el stub, cada cierre de esta suite encola un
+    // evento en el `~/.kodo/state.json` REAL (medido: 4 entradas `KODO-26` por pasada).
+    ...ORCH_INBOX_SEAMS,
     findSessionFn: () => ({ id: session.task_id, session }),
     removeSessionFn: () => { calls.push('removeSession'); },
     loggerFactory: () => makeLogger(),

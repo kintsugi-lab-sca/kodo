@@ -26,7 +26,7 @@ Tarea → In Progress ──webhook──→ kodo
                         SessionEnd ←─────────────────┘
                           │
                         backstop → In Review       KL-42 [Blue]
-                        notifica orquestador
+                        evento → bandeja del orq.
                           │
                         humano/orquestador revisa
                           │
@@ -195,6 +195,7 @@ kodo status              # estado del daemon (running|stopped)
 kodo dashboard           # TUI de sesiones activas
 kodo capture "<texto>"   # captura una idea al inbox global (~/.kodo/inbox.md)
 kodo inbox               # triage del inbox (--all, --json, route <id>, discard <id>)
+kodo inbox-orch          # bandeja del orquestador: eventos sin ver (--all, --json, ack --all)
 kodo integrate           # cola de integración: qué ramas esperan ff/merge/PR (--all, --json)
 kodo config              # wizard de configuración / --show / --set clave=valor
 kodo launch <REF>        # lanza una tarea manualmente (ej: KL-42)
@@ -264,12 +265,69 @@ desfasado respecto a ella. Consecuencias prácticas:
   sueltas, líneas en blanco— y simplemente se omite del listado. El marcado de una captura no
   reescribe ninguna otra línea del fichero.
 
+### `kodo inbox-orch` — la bandeja del orquestador
+
+**No confundir con `kodo inbox`.** Aquel son las capturas del operador
+(`~/.kodo/inbox.md`); esta son los eventos del ciclo de vida que van hacia el orquestador
+(`state.orchestrator_inbox`): cierres de sesión con su verdict y su `NEXT:`, lanzamientos.
+
+Antes, esos eventos se **tecleaban** en el prompt del orquestador (`cmux send`), que Claude
+Code encola como si los hubiera escrito el operador. Eso fallaba por diseño, no por volumen:
+el hook dispara al CERRAR, pero la ronda de supervisión ya había leído el comentario final en
+el provider y la pantalla — el aviso nacía caducado. Medido sobre dos días de orquestación
+intensiva (13 sesiones, 9 PRs): de ~10 nudges, **ninguno** aportó algo que la ronda no
+tuviera, y varios llegaron con la tarea mergeada y en Done. Peor: durante un turno largo se
+acumulaban y aparecían todos juntos, desordenados respecto de la realidad, y el operador los
+borraba a mano.
+
+Ahora el evento se **persiste** y la ronda lo lee en el mismo `cat ~/.kodo/state.json` que ya
+hacía. El teclado queda para un aviso de **una línea**, y solo si el orquestador está idle:
+
+```
+[kodo] 2 eventos nuevos — ITCLIP-119 en Review, ITCLIP-121 lanzada. Ronda.
+```
+
+```bash
+kodo inbox-orch              # lo que está sin ver
+kodo inbox-orch --all        # incluida la traza de lo ya visto
+kodo inbox-orch --json       # el listado como una línea JSON, determinista y sin color
+kodo inbox-orch ack --all    # marcar todo visto al cerrar la ronda
+kodo inbox-orch ack <id>...  # marcar entradas concretas
+```
+
+Las tres reglas que lo gobiernan:
+
+- **Si el orquestador está pensando, no se le teclea nada.** La sonda de idle es
+  fail-closed: pantalla vacía, ilegible, o un prompt con un borrador a medias cuentan como
+  «ocupado». El evento ya está en la bandeja y la siguiente ronda lo verá igual.
+- **Debounce de 30 s.** Tres cierres seguidos producen un aviso, no tres.
+- **Un `ack` nunca borra.** Transiciona a `seen` con su `seen_at`, igual que el inbox de
+  capturas y la cola de integración. Solo las entradas YA VISTAS se evictan por FIFO (tope
+  50); las que están sin ver no se evictan jamás.
+
+El carril se elige con `orchestrator.nudges` en `~/.kodo/config.json`:
+
+| Valor | Qué hace |
+|---|---|
+| `inbox` (default) | Persiste el evento y teclea el aviso de una línea solo si el orquestador está idle |
+| `keystroke` | Recupera el comportamiento anterior para el cierre de sesión: teclea el texto largo, sin pasar por la bandeja |
+| `off` | Persiste el evento y **no teclea nunca**. Apaga el aviso, no la memoria |
+
+El aviso de «Nueva sesión lanzada» **no vuelve al teclado en ningún modo**: cuando el
+lanzamiento lo hace el propio orquestador con `kodo launch`, avisarle era anunciarle algo que
+acababa de ejecutar. Sigue entrando a la bandeja para cubrir el lanzamiento desde el
+dashboard o el dispatcher.
+
+Lo que **no** cambia: `kodo check`, que lanza un orquestador cuando no hay ninguno. Ese es el
+despertador de verdad —el caso del operador ausente— y es un camino distinto de este.
+
 ### `kodo integrate` — la cola de integración
 
 Cada sesión termina pidiendo algo distinto: esta rama es un fast-forward, esta otra merece un
-merge commit, esta hay que mirarla antes. Hasta ahora esa información viajaba solo en el nudge
+merge commit, esta hay que mirarla antes. Antes esa información viajaba solo en el nudge
 efímero del hook Stop: si no actuabas en ese momento, se perdía y acababas repasando sesión por
-sesión de memoria.
+sesión de memoria. (El mismo razonamiento llevó después a la bandeja del orquestador, arriba:
+persistir en vez de teclear.)
 
 Ahora, **al cerrar una sesión cuya rama tiene commits que no están en ninguna otra referencia**
 (el mismo cálculo que decide conservar la rama), kodo persiste una entrada en
@@ -421,7 +479,7 @@ Si conmutas `host` mientras `kodo orchestrate` está corriendo, el orquestador d
 cliente anterior queda **fuera del alcance** del nuevo: su workspace no aparece ahí, y
 esa ausencia es *estructural* — no significa que haya muerto. kodo **no lanza otro por
 su cuenta**: dos supervisores sobre el mismo `state.json` despachan la misma tarea dos
-veces, se pisan los nudges y duplican comentarios en el provider.
+veces, se pisan la bandeja y duplican comentarios en el provider.
 
 ```
 [kodo] Orchestrator registrado en … pertenece al host 'cmux' y el host activo es
@@ -580,7 +638,7 @@ Todo queda documentado en Plane como comentarios, sin abrir cmux:
 | `src/providers/` | Clientes de Plane y GitHub (REST, normalización, estados) |
 | `src/cmux/` + `src/host/` | Wrapper del CLI de cmux: workspaces, screens, colores |
 | `src/session/` | Manager de sesiones, state store (`~/.kodo/state.json`), loop de reconciliación, barrido de sesiones huérfanas |
-| `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/nudge al cierre real) |
+| `src/hooks/` | SessionStart (inyecta contexto de la tarea), Stop (estado ligero per-turn: idle + lock liberado) y SessionEnd (backstop "In Review" + cleanup terminal + color/notify/evento a la bandeja del orquestador al cierre real) |
 | `src/integration/` | Cola de integración: captura al cerrar sesión, heurística de tier y store sobre `state.json` |
 | `src/orchestrator/` | Lanzamiento del orquestador + su prompt |
 | `src/cli/dashboard/` | Dashboard TUI (Ink/React) |

@@ -20,8 +20,18 @@ Ejecuta estos pasos en orden al arrancar la sesión:
    skill se carga en un repo sin config válida o sin la clave `provider`,
    pregunta al usuario antes de continuar.
 
-2. **Leer estado de sesiones** — `cat ~/.kodo/state.json` para ver sesiones
-   activas, su `gsd` / `gsd_mode`, `task_ref`, `workspace_ref` y `status`.
+2. **Leer estado de sesiones Y la bandeja** — `cat ~/.kodo/state.json` para ver
+   sesiones activas, su `gsd` / `gsd_mode`, `task_ref`, `workspace_ref` y
+   `status`. **En ese MISMO fichero viene `orchestrator_inbox`**: los eventos del
+   ciclo de vida (cierres de sesión con su verdict/`NEXT:`, lanzamientos) que
+   ocurrieron mientras no estabas mirando. Lee las entradas con `seen: false`,
+   incorpóralas a tu ronda y márcalas vistas con `kodo inbox-orch ack --all`
+   antes de cerrar la ronda. Cero llamadas extra: la bandeja ya venía en el `cat`.
+
+   No confundir con `kodo inbox`, que es el inbox de CAPTURAS del operador
+   (`~/.kodo/inbox.md`, §"Triage del inbox de capturas"). Son dos bandejas
+   distintas: `inbox-orch` son eventos de máquina hacia ti; `inbox` son ideas
+   del humano hacia el backlog.
 
 3. **Descubrir tareas elegibles** — Usa las tools `mcp__<provider>__*` que
    exponga tu provider para listar proyectos y work items. Filtra por la label
@@ -99,17 +109,53 @@ equivale a `'full'` (compat con sesiones legacy de v0.3).
   soporta (son one-shot, sin `VERIFICATION.md`). Revísalas manualmente como
   cualquier sesión no-GSD: lee el comentario final del agente y decide.
 
-### Stop nudge
+### Cierre de sesión: la bandeja, no el nudge (v0.20, KODO-53)
 
-Cuando una sesión termina, el hook Stop (`src/hooks/stop.js`) envía un nudge
-al workspace del orquestador. El texto varía según el modo:
+Cuando una sesión termina, el hook `SessionEnd` **ya no te teclea nada en el
+prompt**. Escribe el evento en `state.orchestrator_inbox`, con el mismo texto
+que antes viajaba como nudge (`buildStopNudgeText`, `src/hooks/stop.js`), que
+sigue variando según el modo:
 
 - **Full**: `Es una sesión GSD (fase N). Ejecuta \`kodo gsd verify <session-id>\`...`
 - **Quick**: `Es una sesión GSD quick (one-shot, sin VERIFICATION.md). Revísala manualmente...`
 - **No-GSD**: `Revisa el resultado y decide si pasa a Done o necesita más trabajo.`
 
-Cuando recibas un nudge → ejecuta una ronda de supervisión inmediatamente, no
-esperes al siguiente ciclo.
+Ese texto es para **leerlo en la ronda** (paso 2 del proceso de inicio), no para
+recibirlo tecleado. **Por qué cambió**: los nudges llegaban DESPUÉS de que la
+ronda ya hubiera leído el comentario final en el provider y la pantalla, así que
+contaban algo sabido —a veces con la tarea ya mergeada y en Done—; y si estabas
+en un turno largo se acumulaban y aparecían todos juntos, desordenados respecto
+de la realidad, en el prompt del operador, que acababa borrándolos a mano.
+
+Lo que SÍ puede llegarte tecleado es **un aviso de UNA línea**, y solo si tu
+pantalla está idle (prompt vacío o `[kodo:idle]`) y hay algo sin ver:
+
+```
+[kodo] 2 eventos nuevos — ITCLIP-119 en Review, ITCLIP-121 lanzada. Ronda.
+```
+
+**Cuando llegue ese aviso → ejecuta una ronda inmediatamente**, no esperes al
+siguiente ciclo. Lleva debounce de ~30 s: tres cierres seguidos producen UN
+aviso, no tres. Si estabas pensando, no se envía nada — el evento sigue en la
+bandeja y lo verás en tu próxima ronda igual.
+
+El aviso de «Nueva sesión lanzada» **desapareció del teclado por completo**:
+cuando el lanzamiento lo haces tú con `kodo launch`, avisarte era anunciarte algo
+que acababas de ejecutar. Sigue entrando a la bandeja para cubrir el caso en que
+lo lanza el dashboard o el dispatcher.
+
+Comandos:
+
+- `kodo inbox-orch` — lista lo que está sin ver (o `--json` para consumirlo).
+- `kodo inbox-orch --all` — incluye la traza de lo ya visto.
+- `kodo inbox-orch ack --all` — márcalo todo visto al cerrar la ronda. Nunca
+  borra: cerrar es una transición de estado, igual que en el inbox de capturas
+  y en la cola de integración.
+
+El operador puede cambiar el carril con
+`kodo config set orchestrator.nudges keystroke|off` (default `inbox`).
+`keystroke` recupera el nudge largo tecleado; `off` apaga el aviso pero **no** la
+bandeja — el evento se persiste siempre.
 
 ## Adopción asistida (sesión → tarea)
 
@@ -520,11 +566,13 @@ contexto — no tienes que abrir ficheros a mano ni re-derivar qué sigue.
   pisa). Además `state.json` persiste, por tarea, el puntero al plan y el `NEXT:`
   de una línea. Cuando supervises o relances una tarea, lee ese `NEXT:` como
   contexto de qué toca a continuación en vez de reconstruirlo.
-- **Superficie del `NEXT:` — dashboard y nudge (Phase 75).** El dashboard lista
-  el `NEXT:` por tarea leyéndolo de `state.json` (sin abrir N planes), y el
-  **stop nudge** que recibes usa ese `NEXT:` como contexto concreto en vez del
-  genérico. Si una tarea no tiene `NEXT:` (recién creada, handoff mecánico sin
-  `NEXT:`, plan ausente) todo degrada limpio: celda vacía, nudge sin contexto.
+- **Superficie del `NEXT:` — dashboard y bandeja (Phase 75 + KODO-53).** El
+  dashboard lista el `NEXT:` por tarea leyéndolo de `state.json` (sin abrir N
+  planes), y el texto del evento de cierre usa ese `NEXT:` como contexto concreto
+  en vez del genérico. Desde KODO-53 ese texto ya no te llega tecleado: viaja en
+  `orchestrator_inbox` y lo lees en la ronda (§"Cierre de sesión"). Si una tarea
+  no tiene `NEXT:` (recién creada, handoff mecánico sin `NEXT:`, plan ausente)
+  todo degrada limpio: celda vacía, texto sin contexto.
 - **Conteo `pending` con frescura discriminada (Phase 76).** `/status` expone
   `pending_stale` y `pending_fetched_at` junto al conteo, y converge con el
   `pending` que reporta `kodo check` (mismo camino de lectura). Con el provider
@@ -558,6 +606,26 @@ orquestadora vía `handleOrchestratorStop`. No necesitas hacer `git commit`
 manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
+
+- [2026-08-28] **Un aviso por evento a un agente que trabaja por rondas es ruido
+  por construcción, no por volumen.** Los nudges de fin de sesión y de
+  lanzamiento se enviaban por el carril de teclado (`cmux send`), que Claude Code
+  encola como si lo hubiera escrito el operador. Medido sobre dos días de
+  orquestación intensiva en ITCLIP (13 sesiones, 9 PRs): de ~10 nudges recibidos,
+  **ninguno** aportó información que la ronda no tuviera ya, y varios llegaron con
+  la tarea mergeada y en Done. La causa no es la frecuencia: es que el hook `Stop`
+  dispara al CERRAR, mientras que la ronda ya había leído el comentario final en
+  el provider y la pantalla — el evento nace caducado. Y en un turno largo se
+  acumulan y aparecen desordenados respecto de la realidad. Arreglado en KODO-53
+  separando las dos preguntas que el nudge confundía: **el QUÉ** va a una bandeja
+  persistida (`state.orchestrator_inbox`, leída en el mismo `cat state.json` del
+  paso 2, ackeada con `kodo inbox-orch ack --all`) y **el CUÁNDO** a un aviso de
+  UNA línea que solo sale si tu pantalla está idle, con debounce de 30 s.
+  Corolario general: **antes de notificar a un agente, pregúntate si su bucle ya
+  iba a descubrirlo solo**. Si la respuesta es sí, la notificación no es
+  información — es una interrupción. Persístela y deja que la lea cuando mire.
+  El despertador de verdad (`kodo check → needsOrchestrator`, para cuando NADIE
+  está haciendo rondas) es otra cosa y no se tocó.
 
 - [2026-08-18] **El identifier de `config.json` era un cache que nunca se
   revalidaba; el ref lo manda el provider.** `init()` del provider de Plane solo

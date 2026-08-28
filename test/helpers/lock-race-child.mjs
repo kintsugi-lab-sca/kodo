@@ -10,6 +10,7 @@
 //   - test/daemon/polling-start-race.test.js       (--kind polling)
 //   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
 //   - test/state/handoff-concurrency.test.js       (--kind handoff)
+//   - test/state/migration-concurrency.test.js     (--kind migrator, --kind writer)
 //   - test/inbox-concurrency.test.js               (--kind capture, --kind mark)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
@@ -125,8 +126,8 @@
 // PROBAR que la rama del CAS se ejerció, en vez de suponerlo. Never-throws.
 //
 // argv:
-//   --kind   state|gsd|gsd-holder|gsd-seam|writer|polling|dispatch|handoff|capture|mark
-//                                (required)
+//   --kind   state|gsd|gsd-holder|gsd-seam|writer|migrator|polling|dispatch|handoff|
+//            capture|mark        (required)
 //   --lock   <path>             (state: the lockfile path)
 //   --repo   <path>             (gsd/gsd-holder/gsd-seam: the fake repo dir)
 //   --idx    <n>                (writer/handoff/capture: this writer's index)
@@ -302,6 +303,27 @@ async function main() {
       written = false;
     }
     process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Migrator mode (KODO-37): LECTOR PURO. Dynamic-import state.js AFTER HOME is
+  // set by the parent (env) y una sola llamada a `loadState()` — nada de
+  // mutadores, nada de `withStateLock`. Es exactamente la ruta que el bug
+  // exponía: sobre un state.json v2, `loadState` dispara la migración, y ésta
+  // era la única escritura del fichero fuera del lock y fuera del tmp+rename, de
+  // modo que un lector recién arrancado podía publicar su migración ENCIMA del
+  // `saveState` de un escritor concurrente. Imprime `v<schema>:<nSesiones>` (o
+  // `failed`) y nunca lanza. Ignora --lock/--repo.
+  if (args.kind === 'migrator') {
+    let verdict = 'failed';
+    try {
+      const { loadState } = await import('../../src/session/state.js');
+      const state = loadState();
+      verdict = 'v' + state.schema_version + ':' + Object.keys(state.sessions || {}).length;
+    } catch {
+      verdict = 'failed';
+    }
+    process.stdout.write(verdict);
     process.exit(0);
   }
 

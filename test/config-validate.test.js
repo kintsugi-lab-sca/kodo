@@ -11,9 +11,11 @@ import {
   setByPath,
   getEditableFields,
   validateHostName,
+  validateNudgeMode,
   MODELS,
   CMUX_COLORS,
   HOST_NAMES,
+  NUDGE_MODES,
 } from '../src/config-validate.js';
 import { DEFAULT_CONFIG, mergeAndValidateConfig } from '../src/config.js';
 
@@ -203,11 +205,15 @@ describe('getByPath / setByPath — dot-walk puro', () => {
 describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () => {
   const fields = getEditableFields(DEFAULT_CONFIG);
 
-  it('devuelve EXACTAMENTE 13 descriptores', () => {
+  it('devuelve EXACTAMENTE 14 descriptores', () => {
     // KODO-18: 12 → 13. El +1 es `host` (el selector de cliente). Los 4 campos de
     // presentación por estado NO suman: se resuelven contra el host ACTIVO (4 colores
     // de cmux O 4 columnas de Orca, nunca los 8) — el editor no crece por host nuevo.
-    assert.equal(fields.length, 13);
+    // KODO-53: 13 → 14. El +1 es `orchestrator.nudges` (bandeja / teclado / nada). Entra
+    // en el registro por la validación al CARGAR —`mergeAndValidateConfig` recorre esta
+    // misma lista— para que un valor escrito a mano caiga al default con un warn, en vez
+    // de dejar el carril de avisos en un estado que solo se descubriría al cerrar sesión.
+    assert.equal(fields.length, 14);
   });
 
   it('cada descriptor tiene {path,label,kind}', () => {
@@ -298,6 +304,54 @@ describe('KODO-18 — validateHostName (selector de cliente)', () => {
   });
 });
 
+describe('KODO-53 — validateNudgeMode (carril de avisos al orquestador)', () => {
+  it('acepta los tres modos', () => {
+    assert.deepEqual(validateNudgeMode('inbox'), { ok: true, value: 'inbox' });
+    assert.deepEqual(validateNudgeMode('keystroke'), { ok: true, value: 'keystroke' });
+    assert.deepEqual(validateNudgeMode('off'), { ok: true, value: 'off' });
+  });
+
+  it('recorta espacios alrededor del valor', () => {
+    assert.deepEqual(validateNudgeMode(' off '), { ok: true, value: 'off' });
+  });
+
+  it('rechaza un modo desconocido con un mensaje que lista los válidos', () => {
+    const res = validateNudgeMode('todos');
+    assert.equal(res.ok, false);
+    assert.match(res.error, /inbox, keystroke, off/);
+  });
+
+  it('never-throws ante cualquier tipo', () => {
+    for (const raw of [undefined, null, 42, {}, []]) {
+      assert.doesNotThrow(() => validateNudgeMode(raw));
+      assert.equal(validateNudgeMode(raw).ok, false);
+    }
+  });
+
+  it('NUDGE_MODES es la fuente única: exactamente inbox, keystroke y off', () => {
+    assert.deepEqual([...NUDGE_MODES], ['inbox', 'keystroke', 'off']);
+  });
+
+  it("DEFAULT_CONFIG.orchestrator.nudges es 'inbox' — el carril nuevo es el default", () => {
+    assert.equal(DEFAULT_CONFIG.orchestrator.nudges, 'inbox');
+  });
+
+  it('un config SIN la clave la recibe por deep-merge — sin migración, igual que `host` (KODO-18)', () => {
+    const merged = mergeAndValidateConfig({ provider: 'plane', providers: { plane: {} } });
+    assert.equal(merged.orchestrator.nudges, 'inbox');
+  });
+
+  it('un valor escrito a mano e inválido cae al default en vez de dejar el carril indefinido', () => {
+    const merged = mergeAndValidateConfig({ orchestrator: { nudges: 'gritos' } });
+    assert.equal(merged.orchestrator.nudges, 'inbox');
+  });
+
+  it('un `keystroke` explícito SÍ se respeta (es la vuelta atrás opt-in)', () => {
+    const merged = mergeAndValidateConfig({ orchestrator: { nudges: 'keystroke' } });
+    assert.equal(merged.orchestrator.nudges, 'keystroke');
+  });
+});
+
 describe('KODO-18 — `host` en el config: default, merge y fallback', () => {
   it("DEFAULT_CONFIG.host es 'cmux' (cero regresión para instalaciones existentes)", () => {
     assert.equal(DEFAULT_CONFIG.host, 'cmux');
@@ -338,9 +392,15 @@ describe('KODO-18 — getEditableFields resuelve la presentación contra el host
     assert.ok(!paths.some((p) => p.startsWith('cmux.')), 'un usuario de Orca no ve colores de cmux');
   });
 
-  it('el total NO crece con el host: 13 en ambos casos', () => {
-    assert.equal(getEditableFields({ host: 'cmux' }).length, 13);
-    assert.equal(getEditableFields({ host: 'orca' }).length, 13);
+  it('el total NO crece con el host: 14 en ambos casos', () => {
+    assert.equal(getEditableFields({ host: 'cmux' }).length, 14);
+    assert.equal(getEditableFields({ host: 'orca' }).length, 14);
+  });
+
+  it('KODO-53 — `orchestrator.nudges` es editable y su kind es nudgeMode', () => {
+    const field = getEditableFields(DEFAULT_CONFIG).find((f) => f.path === 'orchestrator.nudges');
+    assert.ok(field, 'el carril de avisos al orquestador debe ser editable');
+    assert.equal(field.kind, 'nudgeMode');
   });
 
   it('`host` es editable y su kind es hostName', () => {

@@ -19,7 +19,7 @@
  */
 
 /**
- * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'nonEmpty'|'cmuxColor'|'hostName' }} EditableField
+ * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'nonEmpty'|'cmuxColor'|'hostName'|'nudgeMode' }} EditableField
  */
 
 // Set estricto de modelos soportados por kodo (D-07). kodo pasa este valor literal
@@ -47,6 +47,12 @@ const CMUX_COLORS = new Set([
 // config.js, que sí importa a este). `'null'` NO está: es un host mock-only del
 // contract test, jamás una elección del operador.
 const HOST_NAMES = Object.freeze(['cmux', 'orca']);
+
+// KODO-53: cómo llegan al orquestador los eventos del ciclo de vida. FUENTE ÚNICA DE
+// VERDAD del set — `config.js` documenta la SEMÁNTICA de cada modo en el default;
+// aquí vive solo el alfabeto válido, para que el validador no dependa de config.js
+// (este módulo es puro, 0 imports → sin ciclo).
+const NUDGE_MODES = Object.freeze(['inbox', 'keystroke', 'off']);
 
 /**
  * Valida un entero estrictamente positivo (>= 1). Cubre `max_parallel`,
@@ -131,6 +137,24 @@ export function validateHostName(raw) {
 }
 
 /**
+ * Valida el modo de aviso al orquestador (KODO-53): `inbox` | `keystroke` | `off`.
+ *
+ * Está en `getEditableFields` por la MISMA consecuencia deseada que `host`:
+ * `mergeAndValidateConfig` lo valida al CARGAR, así que un `"nudges": "todos"` escrito a
+ * mano cae al default `'inbox'` con un warn NDJSON en vez de dejar el carril de avisos en
+ * un estado indefinido que solo se descubriría al cerrar una sesión.
+ *
+ * @param {any} raw
+ * @returns {ValidationResult}
+ */
+export function validateNudgeMode(raw) {
+  const s = String(raw).trim();
+  return NUDGE_MODES.includes(s)
+    ? { ok: true, value: s }
+    : { ok: false, error: `nudges debe ser uno de: ${NUDGE_MODES.join(', ')}` };
+}
+
+/**
  * Despacha la validación según `field.kind`. Never-throws ante field/raw arbitrarios.
  *
  * @param {EditableField} field
@@ -144,6 +168,7 @@ export function validateField(field, raw) {
     case 'nonEmpty':    return validateNonEmpty(raw);
     case 'cmuxColor':   return validateCmuxColor(raw);
     case 'hostName':    return validateHostName(raw);
+    case 'nudgeMode':   return validateNudgeMode(raw);
     default:            return { ok: false, error: 'campo no editable' };
   }
 }
@@ -190,7 +215,7 @@ export function setByPath(obj, dotted, value) {
 }
 
 /**
- * Devuelve el REGISTRO de los 13 campos editables del editor de config (D-11/PERSIST-04).
+ * Devuelve el REGISTRO de los 14 campos editables del editor de config (D-11/PERSIST-04).
  *
  * La lista está restringida EXPLÍCITAMENTE por construcción: NUNCA incluye descriptores
  * de `api_key_env`, `base_url`, `workspace_slug` ni `provider` (esas keys viven solo en
@@ -200,12 +225,16 @@ export function setByPath(obj, dotted, value) {
  * KODO-18: `host` sí es editable (es el selector de cliente), y los 4 campos de
  * presentación por estado se resuelven contra el host ACTIVO — misma discreción A3 que
  * `states.*` con el provider. Un usuario de cmux ve sus 4 colores; uno de Orca, sus 4
- * columnas de tablero. El total se mantiene en 13 en ambos casos: el editor no crece
+ * columnas de tablero. El total se mantiene en 14 en ambos casos: el editor no crece
  * con cada host nuevo.
+ *
+ * KODO-53: 13 → 14. El +1 es `orchestrator.nudges` — el carril por el que los eventos del
+ * ciclo de vida llegan al orquestador. Entra en el registro por la validación al cargar,
+ * no por vocación de crecer la lista: un valor inválido debe caer al default con un warn.
  *
  * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
  *   `config.provider` y `config.host`).
- * @returns {EditableField[]} exactamente 13 descriptores `{path,label,kind}`.
+ * @returns {EditableField[]} exactamente 14 descriptores `{path,label,kind}`.
  */
 export function getEditableFields(config) {
   const provider = config?.provider ?? 'plane';
@@ -236,8 +265,10 @@ export function getEditableFields(config) {
     { path: `providers.${provider}.states.done`, label: 'Estado: done', kind: 'nonEmpty' },
     { path: 'server.idle_threshold_min', label: 'Umbral idle (min)', kind: 'positiveInt' },
     { path: 'server.stuck_threshold_min', label: 'Umbral stuck (min)', kind: 'positiveInt' },
+    // KODO-53: carril de avisos al orquestador (bandeja / teclado / nada).
+    { path: 'orchestrator.nudges', label: 'Avisos al orquestador', kind: 'nudgeMode' },
     ...stateFields,
   ];
 }
 
-export { MODELS, CMUX_COLORS, HOST_NAMES };
+export { MODELS, CMUX_COLORS, HOST_NAMES, NUDGE_MODES };

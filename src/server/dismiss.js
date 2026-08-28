@@ -133,10 +133,16 @@ export function createDismissHandler(deps = {}) {
     } catch (err) {
       // never-throws top-level: a thrown loadState/executeFn collapses to a
       // structured error response (mirror the provider-state fail-open discipline).
+      //
+      // NET-04 (T-69-05, D-09): the thrown message may carry internal detail (state
+      // paths, git/doctor stderr fragments). Log it server-side and return a FIXED
+      // neutral body — never echo err.message to an external client. Same discipline
+      // as /comments and /orchestrator in server.js.
       const message = err && /** @type {any} */ (err).message
         ? /** @type {any} */ (err).message
         : String(err);
-      return { status: 500, body: { ok: false, error: message } };
+      console.error(`[kodo] /sessions DELETE (dismiss) error: ${message}`);
+      return { status: 500, body: { ok: false, error: 'internal error' } };
     }
   };
 }
