@@ -85,6 +85,42 @@ describe('normalizeTitle', () => {
     // @ts-expect-error
     assert.equal(normalizeTitle(42), '42');
   });
+
+  describe('KODO-49 — normalizacion Unicode NFC', () => {
+    // NFC: 'e' con acento precompuesto (U+00E9). NFD: 'e' + combining acute (U+0301).
+    // Se IMPRIMEN igual; `===` sobre los strings crudos los declara distintos.
+    const NFC = 'Configuraci\u00f3n';
+    const NFD = 'Configuracio\u0301n';
+
+    it('las dos formas son strings DISTINTOS antes de normalizar (premisa del bug)', () => {
+      assert.notEqual(NFC, NFD);
+      assert.equal(NFC.length, 13);
+      assert.equal(NFD.length, 14);
+    });
+
+    it('equipara compuesto y descompuesto', () => {
+      assert.equal(normalizeTitle(NFC), normalizeTitle(NFD));
+    });
+
+    it('devuelve siempre la forma compuesta (NFC)', () => {
+      assert.equal(normalizeTitle(NFD), 'configuraci\u00f3n');
+    });
+
+    it('normaliza combinado con trim, collapse y lowercase', () => {
+      assert.equal(normalizeTitle('  A\u0301   B\t\tC  '), '\u00e1 b c');
+    });
+
+    it('normaliza secuencias de varias marcas combinantes (hangul/vietnamita)', () => {
+      // 'e' + circumflex (U+0302) + acute (U+0301) -> U+1EBF
+      assert.equal(normalizeTitle('Ti\u00ea\u0301ng'), normalizeTitle('Ti\u1ebfng'));
+    });
+
+    it('NO equipara letras distintas ni compatibilidad NFKC (D-07 sigue estricto)', () => {
+      assert.notEqual(normalizeTitle('Fase'), normalizeTitle('F\u00e1se'));
+      // Ligadura fi (U+FB01) vs 'fi': NFKC las fusionaria, NFC no.
+      assert.notEqual(normalizeTitle('\ufb01n'), normalizeTitle('fin'));
+    });
+  });
 });
 
 describe('parseRoadmap — M12 separador en-dash/em-dash (Phase 72 HYG-06)', () => {

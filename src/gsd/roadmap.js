@@ -47,13 +47,27 @@ export function parseRoadmap(md) {
 
 /**
  * Normalize a title for strict 1:1 matching (D-07).
- * Rules: trim + collapse whitespace runs + lowercase. Nothing else.
+ * Rules: trim + collapse whitespace runs + lowercase + Unicode NFC. Nothing else.
  * Keeps punctuation (`:`, `.`, `,`) and backticks (`` ` ``) intact to keep
  * matching strict — two titles that differ only in punctuation are NOT equal.
+ *
+ * KODO-49 (NFC): un mismo acento tiene DOS representaciones Unicode — compuesta
+ * (`é` = U+00E9, lo que teclea un humano) y descompuesta (`é` = `e` + U+0301, lo
+ * que producen macOS/HFS y algunos exports). Son visualmente idénticas y
+ * `===` las declara distintas. Sin esta línea, un `## Phase 7: Configuración` en
+ * ROADMAP.md no casa con la task «Configuración» del tracker cuando cada lado
+ * viene de una fuente distinta, y el resolver devuelve `no-match` — un fallo
+ * invisible al leer el diff, porque los dos strings se IMPRIMEN iguales.
+ * NFC va la ÚLTIMA a propósito: `toLowerCase()` puede emitir secuencias
+ * descompuestas (p. ej. `İ` U+0130 → `i` + U+0307), así que normalizar antes
+ * dejaría escapar justo lo que se quería cerrar.
+ * Esto NO relaja D-07: NFC canonicaliza la MISMA letra, no equipara letras
+ * distintas (`e` y `é` siguen sin casar, igual que la compatibilidad NFKC —
+ * que sí fusionaría `ﬁ`/`fi` — queda deliberadamente fuera).
  *
  * @param {string} s
  * @returns {string}
  */
 export function normalizeTitle(s) {
-  return String(s).trim().replace(/\s+/g, ' ').toLowerCase();
+  return String(s).trim().replace(/\s+/g, ' ').toLowerCase().normalize('NFC');
 }
