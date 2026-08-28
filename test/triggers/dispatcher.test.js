@@ -1349,3 +1349,80 @@ describe('BIDIR-06 — dispatcher.js adopted source hygiene', () => {
     );
   });
 });
+
+// ── KODO-47 ──────────────────────────────────────────────────────────────────────
+//
+// `removeSessionFn` degrada a `{ok:false, reason:'lock-timeout'}` SIN lanzar (D-03).
+// El dispatcher lo ignoraba y logueaba "Cleaned session" con la fila aún en state.json,
+// dejando a `dispatch.decision` afirmando una limpieza inexistente.
+describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupado', () => {
+  // Los espías son módulo-level y el `beforeEach` que los resetea vive en el describe
+  // de arriba: sin este propio, las aserciones dependerían del orden de ejecución.
+  beforeEach(() => {
+    launchWorkItemCalls = [];
+    removeSessionCalls = [];
+  });
+
+  /** Provider cuya tarea ya está en un estado terminal (Cancelled no necesita config). */
+  const cancelledProvider = () => createFakeProvider({
+    getTask: async () => ({
+      id: 'task-uuid-1',
+      ref: 'KL-42',
+      title: 'Test task',
+      description: 'desc',
+      labels: ['kodo'],
+      projectId: 'proj-1',
+      projectName: 'Test Project',
+      groups: [],
+      url: 'https://example.com/KL-42',
+      priority: 'medium',
+      state: 'Cancelled',
+    }),
+  });
+
+  const baseDeps = (removeSessionFn) => ({
+    getProviderFn: () => cancelledProvider(),
+    launchWorkItemFn: async (ref, opts) => {
+      launchWorkItemCalls.push({ ref, opts });
+      return launchWorkItemResult;
+    },
+    listSessionsFn: () => [{ task_id: 'task-uuid-1', workspace_ref: 'workspace:5', status: 'running' }],
+    listWorkspacesFn: async () => 'workspace:5  KL-42',
+    removeSessionFn,
+  });
+
+  it('lock-timeout → el veredicto trae code cleanup_lock_timeout (no una limpieza silenciosa)', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+
+    const result = await dispatchTrigger(event, {}, baseDeps(() => ({ ok: false, reason: 'lock-timeout' })));
+
+    assert.equal(result.action, 'cleaned', 'el veredicto para la tarea NO cambia: sigue siendo terminal');
+    assert.equal(result.code, 'cleanup_lock_timeout', 'pero queda la traza de que no se escribió');
+    assert.equal(launchWorkItemCalls.length, 0, 'una tarea terminal jamás relanza');
+  });
+
+  it('limpieza persistida → cleaned SIN code (el camino feliz no cambia)', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+
+    const result = await dispatchTrigger(event, {}, baseDeps((id) => {
+      removeSessionCalls.push(id);
+      return { ok: true };
+    }));
+
+    assert.equal(result.action, 'cleaned');
+    assert.equal(result.code, undefined);
+    assert.deepEqual(removeSessionCalls, ['task-uuid-1']);
+  });
+
+  it('un mutador que devuelve undefined (contrato previo a WR-01) se trata como éxito', async () => {
+    const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+
+    const result = await dispatchTrigger(event, {}, baseDeps(() => undefined));
+
+    assert.equal(result.action, 'cleaned');
+    assert.equal(result.code, undefined);
+  });
+});

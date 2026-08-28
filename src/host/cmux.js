@@ -417,6 +417,20 @@ export function createCmuxHost(opts = {}) {
       return (await import('../cmux/client.js')).listWorkspaceGroups();
     },
     /**
+     * Los DOS verbos MUTADORES del allowlist no-destructivo de grupos (KODO-54). El
+     * launch los inyecta en `convergeProject` para crear el grupo del proyecto nuevo
+     * sin importar `cmux/client.js` desde `src/session/` (walker SC#5). `ungroup` NO
+     * se expone: el launch jamás disuelve grupos — eso es del pase del doctor.
+     * @param {{ name?: string, from?: string[] }} opts @returns {Promise<string>}
+     */
+    async createWorkspaceGroup(opts) {
+      return (await import('../cmux/client.js')).createWorkspaceGroup(opts);
+    },
+    /** @param {{ group: string, workspace: string }} opts @returns {Promise<string>} */
+    async addToWorkspaceGroup(opts) {
+      return (await import('../cmux/client.js')).addToWorkspaceGroup(opts);
+    },
+    /**
      * Vista CROSS-WINDOW (`cmux tree --all --json`) — la ÚNICA que expone el UUID de
      * cada workspace (la identidad estable; los `workspace:N` se reciclan).
      * Dos consumidores, ambos sin importar `cmux/client.js` (invariante

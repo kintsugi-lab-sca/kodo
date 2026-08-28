@@ -1020,6 +1020,46 @@ describe('manager.js source hygiene', () => {
     );
   });
 
+  it('KODO-54: sin grupo resuelto, launchWorkItem converge el sidebar TRAS crear el workspace (fail-open, vía host._legacy)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    // La convergencia NO duplica la lógica del doctor: reusa su `convergeProject`.
+    assert.ok(
+      /import\(\s*'\.\.\/cmux\/sidebar-doctor\.js'\s*\)/.test(source),
+      'la convergencia debe reusar convergeProject de src/cmux/sidebar-doctor.js (no duplicar el doctor)',
+    );
+    // Import DINÁMICO: evita el ciclo estático manager ↔ sidebar-doctor y no carga nada
+    // cuando el grupo ya existía. Un `import ... from '../cmux/sidebar-doctor.js'`
+    // estático reintroduciría el ciclo.
+    assert.ok(
+      !/^\s*import\s+[\s\S]*?from\s+'\.\.\/cmux\/sidebar-doctor\.js'/m.test(source),
+      'sidebar-doctor.js debe importarse DINÁMICAMENTE (ciclo manager ↔ doctor)',
+    );
+    // Gate de ejecución: solo cuando había nombre esperado y NO se resolvió grupo.
+    assert.ok(
+      /if\s*\(\s*expectedName\s*&&\s*!groupRef\s*\)/.test(source),
+      'la convergencia debe estar guardada por `if (expectedName && !groupRef)` (cero coste si el grupo ya existía)',
+    );
+    // Orden: DESPUÉS de crear el workspace (necesita el ref recién nacido).
+    const wsIdx = source.indexOf('const workspaceRef = await newWorkspaceWithGroupFallback(');
+    const convIdx = source.indexOf('if (expectedName && !groupRef)');
+    assert.ok(wsIdx > 0 && convIdx > wsIdx, 'la convergencia debe ir DESPUÉS del newWorkspaceWithGroupFallback');
+    // SC#5: los verbos mutadores salen de host._legacy, jamás de cmux/client.js.
+    assert.ok(
+      /host\._legacy\?\.createWorkspaceGroup/.test(source) && /host\._legacy\?\.addToWorkspaceGroup/.test(source),
+      'los verbos create/add deben salir de host._legacy (walker cmux-isolation SC#5)',
+    );
+    // Allowlist no-destructivo: el launch jamás disuelve grupos.
+    assert.ok(
+      !/ungroupWorkspaceGroup/.test(source),
+      'launchWorkItem no debe emitir ungroup — disolver grupos es del pase del doctor',
+    );
+    // Fail-open: todo el bloque en try/catch con log de una línea; nunca aborta el launch.
+    assert.ok(
+      /group_skipped — convergencia_fallo/.test(source),
+      'el fallo de convergencia debe loguear `group_skipped — convergencia_fallo` (D-11, sin user content)',
+    );
+  });
+
   it('KODO-53: el aviso de "Nueva sesión lanzada" YA NO va por el carril de teclado — va a la bandeja', () => {
     // ESTE GATE SUSTITUYE al de la Phase 78 (WR-01/WR-02), que exigía envolver
     // task.ref/task.title/projectPath con `stripForKeystroke` en el texto de un
@@ -1119,19 +1159,37 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('Phase 77 (GRP-04): manager.js NO ejecuta verbos de gestión de grupos — solo list es admisible', () => {
+  it('Phase 77 GRP-04 · KODO-54: manager.js solo emite el allowlist NO-destructivo de grupos, y siempre vía host._legacy', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // Regex negativo: de la familia workspace-group solo `list` es read-only admisible.
-    // create/rename/delete/add/ungroup son gestión de grupos → PROHIBIDOS (GRP-04).
+    // Sigue PROHIBIDO construir argv crudo de cmux: el vocabulario del binario vive en
+    // src/cmux/client.js, y manager.js habla el contrato del host (SC#5).
     assert.ok(
       !/workspace-group['"\s]*[,\s]+['"]?(create|rename|delete|add|ungroup)/.test(source),
-      'manager.js NO debe ejecutar workspace-group create/rename/delete/add/ungroup (GRP-04)',
+      'manager.js NO debe construir argv `workspace-group <verbo>` (el argv vive en cmux/client.js)',
     );
-    // Defensa por nombre de método del passthrough: solo listWorkspaceGroups existe.
+    // KODO-54 abre GRP-04 de forma ESTRECHA: el launch converge el grupo del proyecto
+    // nuevo, así que `createWorkspaceGroup`/`addToWorkspaceGroup` pasan a ser admisibles.
+    // Los DESTRUCTIVOS siguen fuera — disolver/renombrar/borrar grupos jamás es del launch.
     assert.ok(
-      !/\b(createWorkspaceGroup|renameWorkspaceGroup|deleteWorkspaceGroup|addToWorkspaceGroup|ungroupWorkspace)\b/.test(source),
-      'manager.js NO debe invocar ningún método de gestión de grupos (solo listWorkspaceGroups)',
+      !/\b(renameWorkspaceGroup|deleteWorkspaceGroup|ungroupWorkspaceGroup|ungroupWorkspace)\b/.test(source),
+      'manager.js NO debe invocar verbos destructivos de grupos (rename/delete/ungroup)',
     );
+    // Y los dos admisibles SOLO pueden llegar por el passthrough del host: un uso suelto
+    // (import de cmux/client.js, execFile propio) reabriría el leak que cierra el walker.
+    for (const verb of ['createWorkspaceGroup', 'addToWorkspaceGroup']) {
+      const uses = source.match(new RegExp(verb, 'g')) || [];
+      const viaHost = source.match(new RegExp('host\\._legacy\\??\\.' + verb, 'g')) || [];
+      // La otra forma admisible es la CLAVE del objeto de deps que se le pasa a
+      // convergeProject (`createWorkspaceGroup: (o) => host._legacy...`): es el nombre
+      // del slot de DI del doctor, no una invocación a cmux.
+      const asDepKey = source.match(new RegExp(verb + '\\s*:\\s*\\(', 'g')) || [];
+      assert.ok(uses.length > 0, `${verb} debe usarse (la convergencia KODO-54 lo necesita)`);
+      assert.equal(
+        uses.length,
+        viaHost.length + asDepKey.length,
+        `cada uso de ${verb} en manager.js debe salir de host._legacy.${verb} o ser la clave de deps (SC#5)`,
+      );
+    }
   });
 
   it('Phase 77 (GRP-04): buildSessionFromTask NO gana ningún campo de grupo (nada se persiste)', () => {

@@ -102,19 +102,39 @@ export async function checkHealth() {
 
 /**
  * Act on health reports — clean up gone sessions, notify on stuck
+ *
+ * KODO-47: `removeSessionFn` se inyecta (default = el real) solo para poder ejercitar
+ * el lock-timeout en test. El repo no usa `mock.module` (ver la nota de
+ * test/dashboard-poll.test.js), así que la DI por parámetro es la única vía hermética.
+ *
  * @param {HealthReport[]} reports
+ * @param {{ removeSessionFn?: (taskId: string) => any }} [deps]
  */
-export async function actOnHealth(reports) {
+export async function actOnHealth(reports, deps = {}) {
+  const removeSessionFn = deps.removeSessionFn || removeSession;
   // Phase 38 SC#5: notify vía host._legacy (passthrough fiel del cliente del host).
   // KODO-18: en orca `notify` es un no-op documentado (su CLI no expone notificaciones
   // de SO) — el aviso de sesión atascada sigue saliendo por consola.
   const host = getHost(resolveHostName());
   for (const report of reports) {
     switch (report.health) {
-      case 'gone':
-        console.log(`[kodo:health] ${report.ref} — workspace gone, cleaning up`);
-        removeSession(report.taskId);
+      case 'gone': {
+        // KODO-47: el log de limpieza va DESPUÉS del mutador y condicionado a su
+        // retorno. `removeSession` degrada a `{ok:false, reason:'lock-timeout'}` sin
+        // lanzar (D-03): anunciar "cleaning up" antes de llamar dejaba una traza que
+        // afirmaba una limpieza que nunca se escribió. El siguiente tick de health
+        // vuelve a ver la sesión como `gone` y reintenta — el fallo es recuperable,
+        // lo que no lo era es la mentira en el log.
+        const r = removeSessionFn(report.taskId);
+        if (r && r.ok === false) {
+          console.warn(
+            `[kodo:health] ${report.ref} — workspace gone, limpieza NO aplicada (${r.reason}); se reintenta en el próximo tick`,
+          );
+        } else {
+          console.log(`[kodo:health] ${report.ref} — workspace gone, cleaned up`);
+        }
         break;
+      }
 
       case 'stuck':
         console.log(`[kodo:health] ${report.ref} — stuck (${report.elapsed_min}min)`);

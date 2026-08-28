@@ -301,6 +301,34 @@ export function webhookDispatchRetry(logger, fields) {
 }
 
 /**
+ * Emitido (warn) cuando un webhook con firma VÁLIDA se descarta por ser un
+ * reenvío del mismo body dentro de la ventana de idempotencia (KODO-46).
+ *
+ * Es el único rastro del descarte: la respuesta es 200 (no queremos que el
+ * provider reintente algo que ya se procesó), así que sin este evento un replay
+ * sería indistinguible de una entrega normal en el audit. Que se emita como
+ * `warn` y no `info` es deliberado: un replay repetido es señal de que alguien
+ * está reenviando tráfico capturado, y merece saltar en una consulta por nivel.
+ *
+ * `age_ms` es cuánto hace que se vio el body original — sitúa el reenvío dentro
+ * de la ventana sin exponer nada del payload (misma invariante que el resto del
+ * carril: ni body, ni título, ni labels).
+ *
+ * @param {Logger} logger
+ * @param {{ provider: string, action: string, task_ref: string, bytes: number, age_ms: number }} fields
+ */
+export function webhookReplay(logger, fields) {
+  logger.warn(EVENTS.WEBHOOK_REPLAY, {
+    event: EVENTS.WEBHOOK_REPLAY,
+    provider: fields.provider,
+    action: fields.action,
+    task_ref: fields.task_ref,
+    bytes: fields.bytes,
+    age_ms: fields.age_ms,
+  });
+}
+
+/**
  * Emitido en CADA return de `dispatchTrigger` — el veredicto del dispatcher.
  * `action` es el discriminante del propio return (`launched`, `ignored`,
  * `already_active`, `stale_relaunch`, `cleaned`, `gsd_locked`,
