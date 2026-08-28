@@ -681,12 +681,19 @@ export async function startServer(opts = {}) {
     sessionId: 'reconcile',
     minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
   }).child({ component: 'orphan-sweep' });
+  // KODO-36: el mismo loop reintenta además los comentarios de cierre que el backstop de
+  // `SessionEnd` no pudo postear (marcador en `state.pending_comments`). Los escritores del
+  // marcador se inyectan igual que `updateSession` — ya serializan por `withStateLock`
+  // internamente y solo tocan su propia clave aditiva.
+  const { deferPendingComment, clearPendingComment } = await import('./session/pending-comment.js');
   const stopOrphanSweep = startOrphanSweepLoop({
     loadStateFn: loadState,
     // `updateSession` ya serializa por `withStateLock` internamente — el sweep escribe
     // solo su marca de idempotencia, jamás campos del ciclo de vida (`alive`/`state`
     // siguen siendo propiedad exclusiva de reconcileTick, D-04).
     updateSessionFn: updateSession,
+    deferPendingFn: (taskId, at) => deferPendingComment(taskId, at, orphanSweepLogger),
+    clearPendingFn: (taskId) => clearPendingComment(taskId, orphanSweepLogger),
     provider,
     logger: orphanSweepLogger,
   });
