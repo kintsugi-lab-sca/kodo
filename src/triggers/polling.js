@@ -15,6 +15,14 @@
  *     Cuando este módulo usa el path directo `client.listIssues` debe replicar
  *     el filtro `if (issue.pull_request) continue;` (Pitfall #2).
  *
+ * KODO-60 — el carril deja de ser «el polling de GitHub» y pasa a ser EL carril de
+ * polling, con Plane como segundo inquilino. Nada de un segundo loop ni un segundo
+ * daemon: lo que era específico de GitHub estaba en tres sitios y los tres se
+ * parametrizan (`scopes[].id` para la clave del cursor, `providerName` para el
+ * TriggerEvent, `catchUp` para el arranque en frío). El path `client` —`since`+`etag`,
+ * filtro de PRs, rate limit— es y sigue siendo exclusivo de GitHub; Plane entra por
+ * el path provider-only, que ya era agnóstico.
+ *
  * Path híbrido (Open Q #2 RESOLVED — HYBRID con `client` priority):
  *   - Si `opts.client` presente → ruta optimizada `client.listIssues` con
  *     `since` + `etag` (envelope `{status, items, etag, rate_limit_remaining}`).
@@ -177,12 +185,22 @@ function saveStateCache(cache, path = DEFAULT_STATE_PATH) {
  * normalizado (path provider-only). Ambos exponen `updated_at` ISO string
  * post-Phase-28 (D-02 GitHub, D-03 Plane), así que el cuerpo es idéntico.
  *
+ * KODO-60 (`catchUp`): el centinela es lo ÚNICO que separa «arranque en frío» de
+ * «régimen permanente», así que es también el único sitio donde `--catch-up` tiene
+ * algo que decir. Con `catchUp === true` el primer tick de un scope SÍ dispara lo
+ * que ya estaba en el estado trigger — es la orden explícita de «ponte al día con el
+ * backlog» que un operador da al activar polling con tareas ya asignadas esperando.
+ * Es opt-in e inerte por construcción: en cuanto el scope queda `observed:true` este
+ * parámetro no vuelve a cambiar ninguna decisión.
+ *
  * @param {{ updated_at: string }} task
  * @param {{ last_updated_at?: string, observed?: boolean }} prev
+ * @param {boolean} [catchUp]
  * @returns {boolean}
  */
-function shouldDispatch(task, prev) {
-  if (prev.observed !== true) return false; // first-tick skip por centinela (T-25-04 / D-04)
+function shouldDispatch(task, prev, catchUp = false) {
+  // first-tick skip por centinela (T-25-04 / D-04), salvo catch-up explícito.
+  if (prev.observed !== true && catchUp !== true) return false;
   return task.updated_at > (prev.last_updated_at || '');
 }
 
@@ -241,12 +259,22 @@ function sleep(clock, ms) {
  *   - provider-only path: synthetic envelope built locally has no
  *     `rate_limit_remaining`, so `result.rate_limit_remaining ?? null` → null.
  *
+ * KODO-60: el par `{owner, repo}` sigue siendo lo que se LOGUEA (la NDJSON no cambia
+ * de forma), pero la clave de cache y el filtro del path provider pasan a ser `key`,
+ * que decide el caller. Para GitHub es `owner/repo` como siempre; para Plane es el
+ * UUID del proyecto, que es lo que trae `TaskItem.projectId` y por tanto lo único
+ * contra lo que el filtro puede comparar.
+ *
  * @param {{
  *   owner: string,
  *   repo: string,
+ *   key: string,
  *   cache: Record<string, { last_updated_at?: string, etag?: string, observed?: boolean }>,
  *   client?: import('../providers/github/client.js').GitHubClient,
  *   provider?: import('../interface.js').TaskProvider,
+ *   listTasksFn?: () => Promise<import('../interface.js').TaskItem[]>,
+ *   providerName: string,
+ *   catchUp: boolean,
  *   dispatchFn: (event: import('../interface.js').TriggerEvent, opts?: object) => Promise<any>,
  *   clock: Clock,
  *   logger?: import('../logger.js').Logger,
@@ -259,9 +287,13 @@ function sleep(clock, ms) {
 async function processRepo({
   owner,
   repo,
+  key,
   cache,
   client,
   provider,
+  listTasksFn,
+  providerName,
+  catchUp,
   dispatchFn,
   clock,
   logger,
@@ -292,7 +324,6 @@ async function processRepo({
     });
   }
 
-  const key = `${owner}/${repo}`;
   const prev = cache[key] || {};
   let attempt = 0;
 
@@ -340,11 +371,20 @@ async function processRepo({
           ...(prev.last_updated_at ? { since: prev.last_updated_at } : {}),
           ...(prev.etag ? { etag: prev.etag } : {}),
         });
-      } else if (provider) {
+      } else if (listTasksFn || provider) {
         // Hybrid path B: provider-agnostic — synthetic envelope from listPendingTasks.
         // Phase 24 D-25 already filters PRs internally — no need to repeat the
         // `pull_request` check on this path.
-        const tasks = await provider.listPendingTasks();
+        //
+        // KODO-60: `listTasksFn` es la MISMA llamada memoizada por tick (ver
+        // `makeTickTaskLoader`). Con varios scopes —el caso normal en Plane, un
+        // operador con 3 o 4 proyectos— la versión anterior pedía la lista entera
+        // una vez POR SCOPE, y `listPendingTasks` ya itera internamente todos los
+        // proyectos configurados: N² peticiones por tick contra un provider con
+        // rate limit documentado. Ahora es una por tick, y cada scope solo filtra.
+        const tasks = listTasksFn
+          ? await listTasksFn()
+          : await /** @type {any} */ (provider).listPendingTasks();
         const itemsForRepo = tasks.filter((t) => t.projectId === key);
         result = { status: 200, items: itemsForRepo, etag: undefined };
       } else {
@@ -390,7 +430,7 @@ async function processRepo({
 
         // DELIV-01/D-01: el updated_at solo avanza el watermark si el issue NO
         // requiere dispatch (ya visto / primer tick) o si su dispatch CONFIRMÓ.
-        if (!shouldDispatch(issue, prev)) {
+        if (!shouldDispatch(issue, prev, catchUp)) {
           if (issue.updated_at && issue.updated_at > maxUpdatedAt) {
             maxUpdatedAt = issue.updated_at;
           }
@@ -422,7 +462,10 @@ async function processRepo({
           {
             taskRef: task.ref,
             action: 'polling',
-            provider: 'github',
+            // KODO-60: el provider ya no se asume 'github'. `dispatchTrigger` lo usa
+            // para resolver el adaptador con el que RE-LEE la tarea (`getTask`), así
+            // que un valor equivocado aquí manda la consulta al provider que no es.
+            provider: providerName,
             raw: issue,
           },
           clock,
@@ -529,10 +572,17 @@ async function processRepo({
 }
 
 /**
+ * @typedef {{ owner: string, repo: string, id?: string }} PollScope
+ */
+
+/**
  * @typedef {{
  *   provider?: import('../interface.js').TaskProvider,
  *   client?: import('../providers/github/client.js').GitHubClient,
- *   repos: Array<{ owner: string, repo: string }>,
+ *   repos?: Array<PollScope>,
+ *   scopes?: Array<PollScope>,
+ *   providerName?: string,
+ *   catchUp?: boolean,
  *   intervalSec?: number,
  *   clock?: Clock,
  *   logger?: import('../logger.js').Logger,
@@ -541,6 +591,31 @@ async function processRepo({
  *   dispatchTimeoutMs?: number,
  * }} StartPollingOpts
  */
+
+/**
+ * Memoiza `provider.listPendingTasks()` durante UN tick (KODO-60).
+ *
+ * Una sola petición por tick, compartida por todos los scopes. Si la promesa
+ * RECHAZA, el memo se borra antes de re-lanzar: así el retry con backoff de
+ * `processRepo` vuelve a pedir de verdad en vez de re-await sobre un rechazo ya
+ * consumido (que convertiría los 3 reintentos en un no-op instantáneo).
+ *
+ * @param {import('../interface.js').TaskProvider} provider
+ * @returns {() => Promise<import('../interface.js').TaskItem[]>}
+ */
+function makeTickTaskLoader(provider) {
+  /** @type {Promise<any> | null} */
+  let inflight = null;
+  return () => {
+    if (!inflight) {
+      inflight = provider.listPendingTasks().catch((err) => {
+        inflight = null;
+        throw err;
+      });
+    }
+    return inflight;
+  };
+}
 
 /**
  * Start the polling trigger loop. Returns a `{stop}` handle.
@@ -553,6 +628,13 @@ async function processRepo({
  * Validation (fail-fast): at least one of `opts.provider` or `opts.client` must
  * be present. Without either, the loop has no way to discover issues; throw at
  * startup rather than per-tick.
+ *
+ * KODO-60 — `scopes` vs `repos`: son el MISMO parámetro con dos nombres. `repos`
+ * es el histórico (GitHub, donde una unidad de polling es literalmente un repo) y
+ * se conserva intacto; `scopes` es el nombre generalizado que usa Plane, donde la
+ * unidad es un proyecto y la clave de cursor es su UUID (`id`), no `owner/repo`.
+ * No hay un tercer comportamiento: `scopes` gana si viene, y el resto del loop es
+ * idéntico.
  *
  * @param {StartPollingOpts} opts
  * @returns {{ stop: () => void }}
@@ -569,11 +651,14 @@ export function startPolling(opts) {
   // DELIV-01/D-03: timeout de confirmación de dispatch. Default sensato 30s;
   // inyectable para que los tests usen un valor pequeño con el clock virtual.
   const dispatchTimeoutMs = opts.dispatchTimeoutMs ?? 30000;
+  const scopes = opts.scopes || opts.repos || [];
+  const providerName = opts.providerName || 'github';
+  const catchUp = opts.catchUp === true;
 
   let stopped = false;
   /** @type {any} */
   let timer = null;
-  /** Track which (owner, repo) pairs have completed their first tick this run. */
+  /** Track which scope keys have completed their first tick this run. */
   const firstTickPerRepo = new Set();
 
   async function tick() {
@@ -595,17 +680,52 @@ export function startPolling(opts) {
     /** @type {string[]} */
     const reposPolled = [];
 
-    for (const { owner, repo } of opts.repos) {
+    // KODO-60: memo POR TICK, creado aquí y desechado al terminar — nunca cachea
+    // entre ticks (eso sería un segundo watermark encubierto). Solo se arma en el
+    // path provider-only; con `client` presente cada scope tiene su propia petición
+    // condicional con `since`+`etag`, que es más barata que una lista completa.
+    const listTasksFn =
+      !opts.client && opts.provider ? makeTickTaskLoader(opts.provider) : undefined;
+
+    // KODO-60: refresco de caches ANTES de leer. `listPendingTasks` de Plane decide
+    // qué está en el estado trigger comparando contra un cache de estados y etiquetas
+    // que solo se puebla en `init()`. Un daemon que arranca una vez y vive días se
+    // quedaría leyendo el tablero con el vocabulario del día que arrancó — una etiqueta
+    // `kodo` creada después sería invisible. `init()` ya trae su propio TTL de 5 min
+    // (provider.js), así que llamarlo cada tick es un no-op en el 99% de los ticks y
+    // una revalidación cada cinco minutos en el resto. Never-throws: si el refresco
+    // falla seguimos con los caches anteriores, que es mejor que saltarse el tick.
+    if (listTasksFn && typeof opts.provider?.init === 'function') {
+      try {
+        await opts.provider.init();
+      } catch (err) {
+        if (opts.logger) {
+          opts.logger.warn('polling.init.failed', {
+            error: err && /** @type {any} */ (err).message ? /** @type {any} */ (err).message : String(err),
+          });
+        }
+      }
+    }
+
+    for (const scope of scopes) {
       if (stopped) break;
-      const key = `${owner}/${repo}`;
-      reposPolled.push(key);
+      const { owner, repo } = scope;
+      // La clave del cursor: el `id` del scope si lo trae (Plane → UUID de proyecto,
+      // que es lo que compara `TaskItem.projectId`), si no el `owner/repo` de siempre.
+      const key = scope.id || `${owner}/${repo}`;
+      // Lo que va a la NDJSON sigue siendo legible aunque la clave sea un UUID.
+      reposPolled.push(`${owner}/${repo}`);
       const isFirstTick = !firstTickPerRepo.has(key);
       const repoSummary = await processRepo({
         owner,
         repo,
+        key,
         cache,
         client: opts.client,
         provider: opts.provider,
+        listTasksFn,
+        providerName,
+        catchUp,
         dispatchFn,
         clock,
         logger: opts.logger,

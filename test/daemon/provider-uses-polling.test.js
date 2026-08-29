@@ -41,3 +41,32 @@ describe('providerUsesPolling(config)', () => {
     assert.equal(providerUsesPolling(null), false);
   });
 });
+
+// KODO-60: el segundo motivo para arrancar el loop. Es INDEPENDIENTE del provider —
+// un operador de Plane sin URL pública activa `polling.enabled` y el mismo daemon deja
+// de depender del webhook.
+describe('providerUsesPolling(config) — polling.enabled (KODO-60)', () => {
+  it('plane + polling.enabled:true → true', () => {
+    assert.equal(providerUsesPolling({ provider: 'plane', polling: { enabled: true } }), true);
+  });
+
+  it('plane + polling.enabled:false → false (default, cero regresión)', () => {
+    assert.equal(providerUsesPolling({ provider: 'plane', polling: { enabled: false } }), false);
+  });
+
+  it('github + polling.enabled:false → true (el provider manda, el knob no lo apaga)', () => {
+    assert.equal(providerUsesPolling({ provider: 'github', polling: { enabled: false } }), true);
+  });
+
+  it('polling.enabled:"false" (string) → false — el trap booleano de KODO-58 no vuelve', () => {
+    assert.equal(providerUsesPolling({ provider: 'plane', polling: { enabled: 'false' } }), false);
+  });
+
+  it('polling.enabled:"true" (string) tampoco activa: solo el booleano === true', () => {
+    assert.equal(providerUsesPolling({ provider: 'plane', polling: { enabled: 'true' } }), false);
+  });
+
+  it('polling:null → false (never-throws sobre el optional chaining)', () => {
+    assert.equal(providerUsesPolling({ provider: 'plane', polling: null }), false);
+  });
+});
