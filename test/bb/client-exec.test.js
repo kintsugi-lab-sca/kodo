@@ -261,6 +261,63 @@ describe('KODO-31 — entorno del proceso hijo', () => {
   });
 });
 
+describe('KODO-31 — doctor(): el diagnóstico del runtime de BB', () => {
+  test('servidor que responde + claude-code available → todo verde', async () => {
+    host.setResponse({
+      stdout: JSON.stringify([
+        { id: 'codex', available: true },
+        { id: 'claude-code', available: true },
+      ]),
+    });
+    const r = await bb.doctor({ fetchFn: async () => ({ ok: true, status: 200 }) });
+    assert.equal(r.serverUrl, 'http://127.0.0.1:39999', 'la URL sale de la config de kodo');
+    assert.equal(r.serverUp, true);
+    assert.equal(r.providerAvailable, true);
+    assert.deepEqual(host.argv(), ['provider', 'list', '--json']);
+  });
+
+  test('CUALQUIER respuesta HTTP cuenta como alcanzable (un 404 en / no es «caído»)', async () => {
+    // Tratar un 404 como caído mandaría al operador a arrancar un servidor que ya corre.
+    host.setResponse({ stdout: '[{"id":"claude-code","available":true}]' });
+    const r = await bb.doctor({ fetchFn: async () => ({ ok: false, status: 404 }) });
+    assert.equal(r.serverUp, true);
+  });
+
+  test('servidor inalcanzable → NO se pregunta por el provider (ruido evitado)', async () => {
+    const r = await bb.doctor({
+      fetchFn: async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:39999');
+      },
+    });
+    assert.equal(r.serverUp, false);
+    assert.equal(r.providerAvailable, null, 'indeterminado, no false');
+    assert.match(r.detail, /ECONNREFUSED/);
+    assert.deepEqual(host.calls(), [], 'con el servidor caído no se invoca el binario');
+  });
+
+  test('claude-code presente pero NO disponible → providerAvailable false', async () => {
+    // El fallo silencioso que este check existe para hacer visible: BB contesta, kodo
+    // lanza el thread, y el thread muere porque no hay binario `claude` en esa máquina.
+    host.setResponse({ stdout: '[{"id":"claude-code","available":false}]' });
+    const r = await bb.doctor({ fetchFn: async () => ({ ok: true }) });
+    assert.equal(r.providerAvailable, false);
+  });
+
+  test('claude-code AUSENTE del catálogo → false, no un crash', async () => {
+    host.setResponse({ stdout: '[{"id":"codex","available":true}]' });
+    const r = await bb.doctor({ fetchFn: async () => ({ ok: true }) });
+    assert.equal(r.providerAvailable, false);
+  });
+
+  test('la consulta del provider falla → indeterminado (never-throws)', async () => {
+    host.setResponse({ stderr: 'unauthorized', code: 1 });
+    const r = await bb.doctor({ fetchFn: async () => ({ ok: true }) });
+    assert.equal(r.serverUp, true);
+    assert.equal(r.providerAvailable, null, 'no se afirma sobre lo que no se pudo leer');
+    assert.match(r.detail, /unauthorized/);
+  });
+});
+
 describe('KODO-31 — los NO-OP no tocan el binario (es su contrato entero)', () => {
   test('notify resuelve null sin invocar bb', async () => {
     assert.equal(await bb.notify({ title: 'x', body: 'y' }), null);

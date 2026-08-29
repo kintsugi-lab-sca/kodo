@@ -32,23 +32,12 @@
 // El binario habla con el servidor de BB por HTTP; la URL sale de `BB_SERVER_URL`, que
 // este cliente inyecta en el entorno del hijo desde `~/.kodo/config.json` → `bb.server_url`.
 import { execFile } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { loadConfig } from '../config.js';
-import { kodoPath } from '../paths.js';
 
 /** Timeout por defecto. Como orca (20s): el binario habla con el servidor de BB por HTTP. */
 const TIMEOUT_MS = 20_000;
 /** `thread spawn --new-environment worktree` materializa un checkout git — necesita aire. */
 const SPAWN_TIMEOUT_MS = 120_000;
-
-/**
- * Caché local de la resolución `project_path` → `bb project id`. Fichero PROPIO y no una
- * clave dentro de `~/.kodo/projects.json`: aquel tiene un shape validado
- * (`src/projects-shape.js`) que describe los proyectos del PROVIDER (Plane/GitHub), y
- * mezclar en él la identidad de un host distinto lo convertiría en dos cosas a la vez.
- */
-const PROJECTS_CACHE_PATH = kodoPath('bb-projects.json');
 
 function getBbBinary() {
   return loadConfig().bb?.binary || 'bb';
@@ -217,40 +206,15 @@ export function findProjectIdByPath(projects, path) {
 }
 
 /**
- * Lee la caché `~/.kodo/bb-projects.json`. never-throws → `{}` si no existe o no parsea.
- * @returns {Record<string, string>}
- */
-function readProjectsCache() {
-  try {
-    const parsed = JSON.parse(readFileSync(PROJECTS_CACHE_PATH, 'utf-8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Escribe la caché de proyectos. never-throws: la caché es una OPTIMIZACIÓN (evita un
- * `project list` por lanzamiento), nunca la fuente de verdad — si el disco falla, el
- * siguiente lanzamiento vuelve a preguntarle a BB.
- * @param {Record<string, string>} cache
- */
-function writeProjectsCache(cache) {
-  try {
-    mkdirSync(dirname(PROJECTS_CACHE_PATH), { recursive: true });
-    writeFileSync(PROJECTS_CACHE_PATH, JSON.stringify(cache, null, 2) + '\n');
-  } catch {
-    /* la caché es prescindible */
-  }
-}
-
-/**
  * Resuelve (y crea si hace falta) el proyecto de BB que corresponde al repo de kodo.
  *
- * Orden: caché local → `project list` (REVALIDANDO la caché contra el listado) →
- * `project create --root`. La revalidación no es paranoia: el operador puede borrar el
- * proyecto desde la app de BB y la caché quedaría apuntando a un id fantasma con el que
- * todo `thread spawn` fallaría.
+ * SIN CACHÉ, y es una decisión, no un olvido. La ficha proponía cachear la resolución en
+ * `~/.kodo/projects.json` o equivalente, pero una caché aquí solo ahorra algo si se
+ * CONFÍA en ella sin revalidar — y un id de proyecto borrado desde la app de BB haría
+ * fallar todo `thread spawn` posterior con un error que no apunta a la causa. Revalidarla
+ * exige el mismo `project list` que se quería evitar, así que la caché queda en un
+ * fichero más, un modo de fallo más y cero ahorro. Esta llamada corre UNA vez por
+ * LANZAMIENTO (no en el bucle de reconcile) y va contra loopback.
  *
  * @param {string} projectPath - path absoluto del repo (el `project_path` de kodo).
  * @param {{ logger?: any }} [opts]
@@ -260,13 +224,8 @@ export async function resolveProjectId(projectPath, opts = {}) {
   const path = String(projectPath ?? '');
   if (!path) throw new Error('bb resolveProjectId: `projectPath` es obligatorio');
 
-  const projects = await runJson(['project', 'list'], opts);
-  const found = findProjectIdByPath(projects, path);
-  if (found) {
-    const cache = readProjectsCache();
-    if (cache[path] !== found) writeProjectsCache({ ...cache, [path]: found });
-    return found;
-  }
+  const found = findProjectIdByPath(await runJson(['project', 'list'], opts), path);
+  if (found) return found;
 
   // Sin proyecto registrado para este repo → se crea. `--name` es el basename del path
   // (lo mismo que muestra la app), `--root` la source local.
@@ -276,7 +235,6 @@ export async function resolveProjectId(projectPath, opts = {}) {
   if (typeof id !== 'string' || !id) {
     throw new Error('bb project create: la respuesta no trae id');
   }
-  writeProjectsCache({ ...readProjectsCache(), [path]: id });
   return id;
 }
 
@@ -521,8 +479,12 @@ export async function doctor(deps = {}) {
   let serverUp = false;
   let detail;
   try {
+    // CUALQUIER respuesta HTTP prueba lo que aquí se pregunta: que kodo ALCANZA el
+    // servidor. No se mira `res.ok` — un 404 o un 500 en `/` significan «BB está ahí y
+    // contesta», y tratarlos como caído mandaría al operador a arrancar un servidor que
+    // ya está arrancado. Si BB está roto por dentro, lo delata el check del provider.
     const res = await doFetch(serverUrl, { signal: AbortSignal.timeout(3000) });
-    serverUp = !!res && res.ok !== false;
+    serverUp = !!res;
   } catch (err) {
     detail = String(/** @type {any} */ (err)?.message || '').slice(0, 200);
   }
