@@ -7,6 +7,8 @@ import {
   parseTriggerEvent,
   stripHtml,
   resolveWorkItemLabels,
+  toCommentHtml,
+  unescapeHtmlEntities,
 } from '../../../src/providers/plane/normalize.js';
 
 import workItemFixture from '../../fixtures/plane-workitem.json' with { type: 'json' };
@@ -203,5 +205,69 @@ describe('parseTriggerEvent', () => {
     const result = parseTriggerEvent(payload, labelsFixture);
     assert.ok(result !== null);
     assert.equal(result.taskRef, 'KL-42');
+  });
+});
+
+// KODO-62 — los comentarios de las sesiones llegaban a Plane con el HTML escapado
+// (`&lt;p&gt;` literal en la tarea). Estos tests fijan los tres carriles de
+// `toCommentHtml`: des-escape de un body escapado ENTERO, passthrough del HTML crudo,
+// y la envoltura histórica del texto plano.
+describe('toCommentHtml (KODO-62)', () => {
+  it('texto plano: envuelve en <p> y convierte \\n en <br> (comportamiento histórico)', () => {
+    assert.equal(toCommentHtml('hola\nmundo'), '<p>hola<br>mundo</p>');
+  });
+
+  it('body HTML crudo: se manda TAL CUAL, sin re-envolver en <p>', () => {
+    const html = '<p>uno</p><ul><li>dos</li></ul>';
+    assert.equal(toCommentHtml(html), html);
+  });
+
+  it('body escapado ENTERO: se des-escapa una vez y NO se re-envuelve', () => {
+    const escaped = '&lt;p&gt;resumen&lt;/p&gt;&lt;ul&gt;&lt;li&gt;uno&lt;/li&gt;&lt;/ul&gt;';
+    assert.equal(toCommentHtml(escaped), '<p>resumen</p><ul><li>uno</li></ul>');
+  });
+
+  it('des-escape de UN solo nivel: &amp;lt; sigue siendo &lt; (no se convierte en <)', () => {
+    // `&amp;lt;p&amp;gt;` es cómo se escribe un `<p>` que debe VERSE literal en la tarea.
+    const escaped = '&lt;p&gt;usa &amp;lt;p&amp;gt; para párrafos&lt;/p&gt;';
+    assert.equal(toCommentHtml(escaped), '<p>usa &lt;p&gt; para párrafos</p>');
+  });
+
+  it('body MIXTO (HTML crudo + entidades): NO se des-escapa — las entidades son contenido', () => {
+    const mixed = '<p>escribe &lt;p&gt; así</p>';
+    assert.equal(toCommentHtml(mixed), mixed);
+  });
+
+  it('texto plano que MENCIONA una entidad no arranca el des-escape (no empieza por etiqueta)', () => {
+    assert.equal(toCommentHtml('el tag &lt;p&gt; se ve raro'), '<p>el tag &lt;p&gt; se ve raro</p>');
+  });
+
+  it('comentario Markdown de kodo (emoji + negritas): carril de texto plano, intacto', () => {
+    const md = '⚠️ **Cierre incompleto detectado por kodo**\n\nNEXT: revisar';
+    assert.equal(toCommentHtml(md), '<p>⚠️ **Cierre incompleto detectado por kodo**<br><br>NEXT: revisar</p>');
+  });
+
+  it('body vacío / no-string: no lanza, produce un <p> vacío', () => {
+    assert.equal(toCommentHtml(''), '<p></p>');
+    assert.equal(toCommentHtml(null), '<p></p>');
+    assert.equal(toCommentHtml(undefined), '<p></p>');
+  });
+
+  it('tolera whitespace y mayúsculas antes de la etiqueta escapada', () => {
+    assert.equal(toCommentHtml('\n  &lt;P&gt;hola&lt;/P&gt;'), '\n  <P>hola</P>');
+  });
+});
+
+describe('unescapeHtmlEntities (KODO-62)', () => {
+  it('des-escapa las cinco entidades básicas', () => {
+    assert.equal(unescapeHtmlEntities('&lt;a&gt; &quot;x&quot; &#39;y&#39; &amp;'), '<a> "x" \'y\' &');
+  });
+
+  it('&amp; se resuelve el ÚLTIMO: &amp;lt; → &lt;, nunca <', () => {
+    assert.equal(unescapeHtmlEntities('&amp;lt;'), '&lt;');
+  });
+
+  it('acepta la forma hexadecimal del apóstrofo', () => {
+    assert.equal(unescapeHtmlEntities('&#x27;x&#x27;'), "'x'");
   });
 });

@@ -58,6 +58,16 @@ export function buildSessionContext(session, config) {
     '',
     '**2. Durante el trabajo** — comenta hitos importantes: features completadas, bugs encontrados, decisiones técnicas tomadas, blockers detectados.',
     '',
+    // KODO-62: el camino MCP no pasa por `addComment`, así que el backstop de kodo
+    // (providers/plane/normalize.js toCommentHtml) no puede rescatarlo — la única
+    // corrección posible es que la sesión escriba bien el `comment_html`. Solo para
+    // Plane: GitHub recibe Markdown LITERAL (D-24) y una instrucción de HTML lo rompería.
+    ...(providerName === 'plane'
+      ? [
+          '**Formato de todos esos comentarios** — el `comment_html` de Plane se guarda y se renderiza TAL CUAL: escribe HTML crudo (`<p>texto</p>`, `<ul><li>…</li></ul>`, `<code>x</code>`), nunca entidades escapadas (`&lt;p&gt;`) ni Markdown. Nadie des-escapa por ti en el camino, así que un `&lt;p&gt;` enviado es un `&lt;p&gt;` literal visible en la tarea.',
+          '',
+        ]
+      : []),
     '**3. Al terminar** — antes de cerrar la sesión, haz en orden:',
     '',
     '   a. **Escribe un comentario final de resumen** con:',
