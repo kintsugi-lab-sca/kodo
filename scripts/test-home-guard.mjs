@@ -32,6 +32,21 @@ const REPO = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const WATCHED = join(homedir(), '.kodo', 'config.json');
 
 /**
+ * Credenciales de provider que NO deben llegar a los tests (`api_key_env` de cada
+ * provider en src/config.js). `loadEnvFile` las mete en `process.env` al importar
+ * config.js desde el `~/.kodo/.env` del operador, y de ahí las hereda la suite.
+ *
+ * Por qué importa: DEFAULT_CONFIG apunta a la instancia REAL (`base_url:
+ * https://tasks.kintsugi-lab.com`, `workspace_slug: k-lab`, src/config.js:78). Un test
+ * que aísla HOME pero no escribe config en el sandbox hereda ese destino — y con la key
+ * en el entorno, sus peticiones salen AUTENTICADAS contra producción. Se han visto
+ * `GET /projects/`, `GET /users/me/` y hasta PATCH de work-items durante `npm test`.
+ * Un test que de verdad necesite una key debe inyectarla él (ver
+ * test/cli/insecure-gate.test.js), no heredarla de la máquina.
+ */
+const SCRUBBED_ENV = ['PLANE_API_KEY', 'GITHUB_TOKEN'];
+
+/**
  * @typedef {{ exists: boolean, mtimeMs?: number, size?: number }} Snapshot
  */
 
@@ -94,8 +109,11 @@ function main() {
   const args = process.argv.slice(2);
   const files = args.length > 0 ? args : discoverTests(join(REPO, 'test'));
 
+  const env = { ...process.env };
+  for (const k of SCRUBBED_ENV) delete env[k];
+
   const before = snapshot(WATCHED);
-  const run = spawnSync(process.execPath, ['--test', ...files], { cwd: REPO, stdio: 'inherit' });
+  const run = spawnSync(process.execPath, ['--test', ...files], { cwd: REPO, stdio: 'inherit', env });
   const after = snapshot(WATCHED);
 
   const change = describeChange(before, after);

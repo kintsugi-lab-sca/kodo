@@ -215,16 +215,30 @@ describe('gate de max_parallel — reserva bajo lock (KODO-55)', () => {
 describe('liberación de la reserva (KODO-55)', () => {
   let sandbox;
   let originalHome;
+  let originalApiKey;
 
   beforeEach(() => {
     originalHome = process.env.HOME;
     sandbox = mkdtempSync(join(tmpdir(), 'kodo-slot-release-'));
     mkdirSync(join(sandbox, '.kodo'), { recursive: true });
     process.env.HOME = sandbox;
+    // KODO-57: el HOME aislado NO basta. `launchWorkItem` resuelve el provider REAL, y
+    // `resolveOperator` (src/providers/plane/provider.js:97) hace un `GET /users/me`
+    // contra `providers.plane.base_url`. Un sandbox sin bloque `plane` hereda el default
+    // `https://tasks.kintsugi-lab.com` (src/config.js:78) y la `PLANE_API_KEY` que
+    // `loadEnvFile` dejó en `process.env` desde el `~/.kodo/.env` del operador: el test
+    // salía a la instancia de producción con credenciales reales, resolvía la identidad
+    // de verdad y la cacheaba. Escribía en el sandbox por los pelos — bastaría con que
+    // el HOME se restaurase un instante antes para escribir el config REAL.
+    // Se corta por los dos lados: sin key en el env y con un base_url inalcanzable.
+    originalApiKey = process.env.PLANE_API_KEY;
+    delete process.env.PLANE_API_KEY;
   });
 
   afterEach(() => {
     process.env.HOME = originalHome;
+    if (originalApiKey === undefined) delete process.env.PLANE_API_KEY;
+    else process.env.PLANE_API_KEY = originalApiKey;
     rmSync(sandbox, { recursive: true, force: true });
   });
 
@@ -234,7 +248,12 @@ describe('liberación de la reserva (KODO-55)', () => {
     // en vez de contra el provider.
     writeFileSync(
       join(sandbox, ...CONFIG_REL),
-      JSON.stringify({ claude: { max_parallel: 1 } }, null, 2) + '\n',
+      JSON.stringify({
+        claude: { max_parallel: 1 },
+        // Loopback muerto: si algún día vuelve a haber credenciales en el env, la
+        // resolución del provider falla contra un puerto cerrado, no contra Plane.
+        providers: { plane: { base_url: 'http://127.0.0.1:1', workspace_slug: 'test', projects: [] } },
+      }, null, 2) + '\n',
     );
 
     const { launchWorkItem } = await import('../../src/session/manager.js');
