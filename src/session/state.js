@@ -66,6 +66,7 @@ let stateLockDepth = 0;
  *   alive?: boolean,           // Phase 38 D-11: booleano agregado de compat (= state ∈ {running, idle, needs-input}). Poblado por migrateStateV2toV3; consumers que ya lo leen siguen funcionando.
  *   dead_since?: string,       // Phase 38 D-07: ISO 8601 del tick donde la session transicionó a 'dead'. Lo fija reconcileTick; se usa para sellar a 'closed' tras 30 días.
  *   process_dead_since?: string|null,  // KODO-15: ISO 8601 del tick donde se OBSERVÓ morir el proceso claude (transición process_alive true→false), o null si el proceso está vivo / nunca se le vio vivo. Lo fija y limpia runReconcileTick; deriveTarget lo usa para mandar a 'dead' una sesión zombi (proceso muerto sostenido con la tab aún abierta). Aditivo opcional, sin bump de schema_version.
+ *   agent?: string,            // KODO-19: id del agente CLI que abrió la sesión ('claude-code'|'opencode'), del registro `config.agents.registry`. Lo fija buildSessionFromTask a partir de las etiquetas `kodo:cc`/`kodo:oc`. AUSENTE = sesión legacy o lanzada sin etiqueta de agente → los consumers resuelven contra `config.agents.default`, que es el comportamiento previo exacto. NO es cosmético: `runReconcileTick` lo necesita para elegir el patrón `pgrep` correcto (`process_match`), porque el de Claude Code (`session-id <sid>`) jamás casaría con un proceso de OpenCode y la sesión se leería muerta al primer tick. Aditivo opcional, sin bump de schema_version.
  * }} Session
  *
  * @typedef {{

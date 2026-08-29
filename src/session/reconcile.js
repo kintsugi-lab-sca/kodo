@@ -294,6 +294,28 @@ function resolveActiveHostName() {
 }
 
 /**
+ * Patrón `pgrep -f` del agente que abrió una sesión (KODO-19).
+ *
+ * Carga perezosa por `createRequire`, igual que `resolveActiveHostName` justo arriba y
+ * por el mismo motivo (LOG-12): este módulo evita imports estáticos más allá de
+ * `execFileSync`, para que la derivación pura siga siendo testeable sin arrastrar
+ * config ni host. `undefined` deja que `isSessionProcessAlive` aplique su default, que
+ * es el literal histórico.
+ *
+ * @param {string|undefined} agentName - `session.agent` persistido, o `undefined` en
+ *   sesiones legacy / sin etiqueta de agente (→ `config.agents.default`).
+ * @returns {string|undefined}
+ */
+function resolveAgentMatchPattern(agentName) {
+  try {
+    const cfg = createRequire(import.meta.url)('../config.js');
+    return cfg.getAgentDef(cfg.loadConfig(), agentName).process_match;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Aplica un tick de reconciliación. PURA: no muta `state` (clona lo que cambia)
  * ni hace I/O. never-throws.
  *
@@ -538,21 +560,39 @@ const RECONCILE_INTERVAL_MS = 2500;
  * derivaba en producción → la transición running→idle nunca disparaba.)
  *
  * El proceso Claude se lanza con `--session-id <session_id>` (ver
- * manager.js buildClaudeCommand), así que `pgrep -f "session-id <id>"` lo
+ * manager.js buildAgentCommand), así que `pgrep -f "session-id <id>"` lo
  * localiza. fail-safe hacia MUERTO: si pgrep no encuentra match sale con código
  * 1 (execFileSync lanza) → tratamos como muerto. Marcar idle algo vivo por error
  * es seguro — el siguiente tick lo corrige cuando pgrep vuelva a encontrarlo
  * (debouncing 2-tick además amortigua un falso negativo puntual).
  *
+ * KODO-19: el patrón deja de ser un literal y pasa a ser un parámetro, porque no todos
+ * los agentes ponen el session id en su argv. OpenCode no admite fijarlo (`--session
+ * <id>` continúa una sesión existente, no la crea), así que su patrón es el UUID a
+ * secas: viaja dentro del prompt —que `buildAgentCommand` le inyecta con el bloque de
+ * contexto— y el `"$(cat …)"` lo expande en el argv del proceso. Buscar `session-id
+ * <sid>` contra un proceso de OpenCode no casaría NUNCA, y la sesión se leería muerta
+ * en el primer tick.
+ *
+ * El default preserva el literal histórico byte a byte: un caller que no pase patrón
+ * (tests previos incluidos) se comporta exactamente igual que antes.
+ *
  * @param {string} sessionId
- * @param {(sessionId: string) => string} [pgrep] - inyectable (tests). Default execFileSync pgrep.
+ * @param {(pattern: string) => string} [pgrep] - inyectable (tests). Default execFileSync pgrep.
+ *   KODO-19: recibe el patrón YA RESUELTO (`'session-id <uuid>'`), no el session id pelado —
+ *   es lo que recibiría `pgrep -f`, y es lo que hace observable en test qué se está buscando.
+ *   Para el agente por defecto el patrón resuelto CONTIENE el session id, así que un doble
+ *   inyectado que solo lo buscaba dentro del argumento sigue viendo lo mismo.
+ * @param {string} [matchPattern] - KODO-19: plantilla `pgrep -f` con `<sid>` como marcador
+ *   del session id. Sale de `process_match` en el registro de agentes.
  * @returns {boolean}
  */
-export function isSessionProcessAlive(sessionId, pgrep) {
-  const run = pgrep || ((sid) =>
-    execFileSync('pgrep', ['-f', `session-id ${sid}`], { encoding: 'utf-8', timeout: 3000 }));
+export function isSessionProcessAlive(sessionId, pgrep, matchPattern = 'session-id <sid>') {
+  const pattern = String(matchPattern || 'session-id <sid>').replaceAll('<sid>', sessionId);
+  const run = pgrep || ((p) =>
+    execFileSync('pgrep', ['-f', p], { encoding: 'utf-8', timeout: 3000 }));
   try {
-    const out = run(sessionId);
+    const out = run(pattern);
     return String(out || '').trim().length > 0;
   } catch {
     // pgrep exit 1 (sin match) u otro error → conservador: muerto.
@@ -619,9 +659,17 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
   /** @type {Map<string, boolean>} */
   const aliveBySessionId = new Map();
   if (liveRefs !== null) {
+    // KODO-19: el patrón de `pgrep` sale del agente que abrió CADA sesión (`s.agent`,
+    // persistido por buildSessionFromTask). Una sesión sin el campo —legacy, o lanzada
+    // sin etiqueta de agente— resuelve contra `config.agents.default` y recupera el
+    // literal de siempre, así que el comportamiento previo queda intacto.
     for (const s of Object.values(loadState().sessions)) {
       if (s.session_id && !aliveBySessionId.has(s.session_id)) {
-        aliveBySessionId.set(s.session_id, isSessionProcessAlive(s.session_id, pgrep));
+        const pattern = resolveAgentMatchPattern(s.agent || undefined);
+        aliveBySessionId.set(
+          s.session_id,
+          isSessionProcessAlive(s.session_id, pgrep, pattern || 'session-id <sid>'),
+        );
       }
     }
   }

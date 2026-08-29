@@ -808,28 +808,33 @@ describe('manager.js source hygiene', () => {
     );
   });
 
-  it('KODO-9 (supersedes Phase 18 WT-01): buildClaudeCommand emits --worktree ${sessionId} gated by isGitRepo', () => {
+  it('KODO-9 (supersedes Phase 18 WT-01): buildAgentCommand emits <worktree_flag> ${sessionId} gated by isGitRepo', () => {
     const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
-    // El flag sigue existiendo verbatim en la plantilla (ahora dentro del
-    // worktreeFlag condicional). KODO-9 lo OMITE en proyectos no-git.
+    // KODO-19: el literal `--worktree` se movió al registro de agentes
+    // (`agents.registry['claude-code'].worktree_flag`) porque OpenCode no tiene
+    // equivalente; la plantilla lo interpola. El invariante KODO-9 sobrevive intacto:
+    // el flag sigue emitiéndose con el sessionId como arg POSICIONAL explícito, y
+    // sigue gobernado por isGitRepo — si vuelve a ser incondicional, los proyectos
+    // no-git vuelven a romperse al arrancar. Los golden bytes del literal viven en
+    // los tests de runtime de este mismo describe (`--worktree abc-123`).
     assert.ok(
-      /--worktree\s+\$\{sessionId\}/.test(source),
-      'buildClaudeCommand template must contain `--worktree ${sessionId}` verbatim',
-    );
-    // KODO-9: el flag debe derivar de isGitRepo — NO incondicional. Si vuelve a
-    // ser incondicional, los proyectos no-git vuelven a romperse al arrancar.
-    assert.ok(
-      /isGitRepo\s*\?\s*`--worktree \$\{sessionId\}`\s*:\s*''/.test(source),
-      'el --worktree debe estar gobernado por `isGitRepo ? `--worktree ${sessionId}` : \'\'` (KODO-9)',
+      /isGitRepo\s*&&\s*agent\.worktree_flag\s*\?\s*`\$\{agent\.worktree_flag\} \$\{sessionId\}`\s*:\s*''/.test(source),
+      'el worktree flag debe ser `isGitRepo && agent.worktree_flag ? `${agent.worktree_flag} ${sessionId}` : \'\'` (KODO-9 + KODO-19)',
     );
     // Order check (runtime): el flag de session-id precede al worktreeFlag en el
     // header (golden-bytes QUICK-07 preservado — con isGitRepo=true el orden es
     // idéntico). Post config.agents: el flag sale del registro de agentes
     // (`agent.session_id_flag`, que para claude-code ES `--session-id`), así que
-    // la plantilla lo interpola en vez de llevar el literal.
+    // la plantilla lo interpola en vez de llevar el literal. KODO-19: el par
+    // flag+valor se precomputa en `sessionIdPart`, porque un agente puede no admitir
+    // fijar el id (OpenCode) y entonces DESAPARECE entero en vez de emitirse a medias.
     assert.ok(
-      /\$\{agent\.session_id_flag\}\s+\$\{sessionId\}\s+\$\{worktreeFlag\}/.test(source),
-      '${agent.session_id_flag} ${sessionId} must precede ${worktreeFlag} in the header template',
+      /sessionIdPart\s*=\s*agent\.session_id_flag\s*\?\s*`\$\{agent\.session_id_flag\} \$\{sessionId\}`\s*:\s*''/.test(source),
+      'sessionIdPart debe derivar de agent.session_id_flag y omitirse entero cuando es null (KODO-19)',
+    );
+    assert.ok(
+      /\$\{sessionIdPart\}\s+\$\{worktreeFlag\}/.test(source),
+      '${sessionIdPart} must precede ${worktreeFlag} in the header template',
     );
   });
 
@@ -852,10 +857,12 @@ describe('manager.js source hygiene', () => {
       /hostOwnsWorktree\s*=\s*hostIsolatesWorktree\(\s*hostName\s*\)/.test(source),
       'hostOwnsWorktree debe salir de hostIsolatesWorktree(hostName) — no de un literal por host',
     );
-    // ...y pasarlo como 8º arg a buildClaudeCommand.
+    // ...y pasarlo como 8º arg a buildAgentCommand (KODO-19: renombrado desde
+    // buildClaudeCommand, que dejó de ser cierto cuando el builder aprendió a montar
+    // la línea de OpenCode; el 9º y 10º args son el agente y el SessionRecord).
     assert.ok(
-      /buildClaudeCommand\([^)]*,\s*isolateWithClaude\s*\)/.test(source),
-      'buildClaudeCommand debe recibir isolateWithClaude como último argumento',
+      /buildAgentCommand\([^)]*,\s*isolateWithClaude\s*,\s*agentName\s*,\s*session\s*\)/.test(source),
+      'buildAgentCommand debe recibir isolateWithClaude, agentName y session en ese orden',
     );
     // Y worktreePath solo se computa cuando el aislamiento lo pone claude (no cleanup
     // fantasma ni en no-git ni cuando el worktree lo crea el host).

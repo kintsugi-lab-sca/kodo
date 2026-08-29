@@ -304,6 +304,27 @@ describe('isSessionProcessAlive — derivación de process_alive por session_id'
     //  que el siguiente tick corrige cuando pgrep vuelva a encontrarlo).
     assert.equal(isSessionProcessAlive('x', () => { throw new Error('no match'); }), false);
   });
+
+  // KODO-19: el patrón deja de ser un literal. Sin esto, una sesión de OpenCode —que no
+  // admite fijar su session id y por tanto no lo lleva en argv como `--session-id <uuid>`—
+  // se leería MUERTA en el primer tick, y el barrido de huérfanas la mataría viva.
+  it('KODO-19: sin patrón se busca el literal histórico `session-id <uuid>`', () => {
+    let seen = null;
+    isSessionProcessAlive('2731b953-548f', (p) => { seen = p; return '1\n'; });
+    assert.equal(seen, 'session-id 2731b953-548f');
+  });
+
+  it('KODO-19: con el patrón de opencode se busca el UUID a secas', () => {
+    let seen = null;
+    isSessionProcessAlive('2731b953-548f', (p) => { seen = p; return '1\n'; }, '<sid>');
+    assert.equal(seen, '2731b953-548f');
+  });
+
+  it('KODO-19: un patrón vacío o nulo degrada al literal histórico (never-throws)', () => {
+    let seen = null;
+    isSessionProcessAlive('sid-1', (p) => { seen = p; return ''; }, /** @type {any} */ (null));
+    assert.equal(seen, 'session-id sid-1');
+  });
 });
 
 describe('runReconcileTick — deriva process_alive del proceso real (cierra gap Plan 04)', () => {
