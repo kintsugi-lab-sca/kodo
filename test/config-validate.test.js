@@ -353,15 +353,21 @@ describe('KODO-53 — validateNudgeMode (carril de avisos al orquestador)', () =
 });
 
 describe('KODO-18 — `host` en el config: default, merge y fallback', () => {
-  it("DEFAULT_CONFIG.host es 'cmux' (cero regresión para instalaciones existentes)", () => {
-    assert.equal(DEFAULT_CONFIG.host, 'cmux');
+  // KODO-56: el default de `host` dejó de ser el literal `'cmux'` y pasa a depender de la
+  // plataforma (cmux es una app de macOS; fuera de ella el único host que existe es orca).
+  // El mapeo se re-escribe aquí a mano, sin importar el resolvedor, para que estos asserts
+  // sigan siendo una verificación independiente y no una tautología.
+  const EXPECTED_HOST = process.platform === 'darwin' ? 'cmux' : 'orca';
+
+  it('DEFAULT_CONFIG.host es el host de la plataforma (cero regresión en macOS: cmux)', () => {
+    assert.equal(DEFAULT_CONFIG.host, EXPECTED_HOST);
   });
 
   it('un config SIN la clave `host` la recibe por deep-merge — no hace falta migración', () => {
     // Este es el argumento entero de por qué KODO-18 no añade un migrateConfig:
     // loadConfig ya mergea sobre los defaults.
     const merged = mergeAndValidateConfig({ provider: 'plane', providers: { plane: {} } });
-    assert.equal(merged.host, 'cmux');
+    assert.equal(merged.host, EXPECTED_HOST);
     assert.equal(typeof merged.orca?.binary, 'string');
     assert.equal(merged.orca.statuses.review, 'in-review');
   });
@@ -369,7 +375,7 @@ describe('KODO-18 — `host` en el config: default, merge y fallback', () => {
   it('un `host` escrito a mano e inválido cae al default en vez de reventar el daemon', () => {
     // Sin este fallback, getHost() lanzaría `Unknown host` al arrancar el server.
     const merged = mergeAndValidateConfig({ host: 'tmux', providers: { plane: {} } });
-    assert.equal(merged.host, 'cmux');
+    assert.equal(merged.host, EXPECTED_HOST);
   });
 
   it("host:'orca' sobrevive al merge y arrastra su bloque", () => {

@@ -8,6 +8,10 @@ import { validateField, getEditableFields, getByPath, setByPath } from './config
 import { FORBIDDEN_KEYS } from './cli/config-args.js';
 // KODO-43: el literal `'.kodo'` vive SOLO en paths.js. Hoja pura (node:os + node:path) → sin ciclo.
 import { kodoDir } from './paths.js';
+// KODO-56: defaults dependientes de plataforma (host, binario de Orca). Hoja PURA (0 imports)
+// → sin ciclo. Ver la cabecera de platform-defaults.js: el default de Orca en Linux NO puede
+// ser `orca` (es el lector de pantalla de GNOME: no falla, ejecuta otro programa).
+import { platformDefaults } from './platform-defaults.js';
 
 // EAGER A PROPÓSITO, sin cambio de semántica en KODO-43: `kodoDir()` se llama UNA vez, aquí, y
 // el resultado queda cacheado al importar el módulo — exactamente lo que hacía el `join(homedir(),
@@ -15,6 +19,11 @@ import { kodoDir } from './paths.js';
 // no puede redirigirla) sigue siendo la razón por la que los leafs del dashboard prohíben
 // importar este fichero y llaman a `kodoDir()` por su cuenta; ver la cabecera de `src/paths.js`.
 const KODO_DIR = kodoDir();
+// EAGER como `KODO_DIR`, y por la misma razón: `DEFAULT_CONFIG` es un literal de módulo, así
+// que sus valores por plataforma se resuelven aquí, UNA vez. La plataforma —a diferencia del
+// HOME— no la pisa ningún test: quien quiera verificar la otra rama llama a
+// `platformDefaults('linux' | 'darwin')` directamente (test/platform-defaults.test.js).
+const PLATFORM_DEFAULTS = platformDefaults();
 const CONFIG_PATH = join(KODO_DIR, 'config.json');
 const PROJECTS_PATH = join(KODO_DIR, 'projects.json');
 const ENV_PATH = join(KODO_DIR, '.env');
@@ -89,8 +98,14 @@ const DEFAULT_CONFIG = {
   // defaults, así que los `~/.kodo/config.json` ya existentes (que no traen la clave)
   // siguen resolviendo a cmux sin migración ni backup.
   //
+  // KODO-56: ese default es `'cmux'` SOLO en macOS. cmux es una app de macOS; fuera de ella
+  // el default de fábrica apuntaba a `/Applications/cmux.app/…`, así que un first-run en
+  // Linux nacía con un host imposible. En no-darwin el default es `'orca'` — el único host
+  // que existe ahí. La cero-regresión se mantiene íntegra: en macOS el valor no cambia, y
+  // un config que YA traiga la clave gana siempre sobre el default (deep-merge).
+  //
   // Se cambia con: `kodo config set host orca` (o `bb`).
-  host: 'cmux',
+  host: PLATFORM_DEFAULTS.host,
   cmux: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/cmux',
     colors: {
@@ -107,7 +122,12 @@ const DEFAULT_CONFIG = {
     // deja vacío o mueve el binario. AVISO (documentado por el propio CLI de Orca): en
     // Linux, fuera de una terminal gestionada por Orca, `orca` a secas resuelve al
     // LECTOR DE PANTALLA de GNOME — ahí hay que apuntar esto a `orca-ide`.
-    binary: '/usr/local/bin/orca',
+    //
+    // KODO-56: ese aviso dejó de ser solo un aviso. El default es ahora `orca-ide` (por
+    // PATH) en no-darwin y `/usr/local/bin/orca` en macOS. Antes, un operador de Linux que
+    // no leyera este comentario no obtenía un ENOENT que le pusiera sobre la pista: kodo
+    // ejecutaba el lector de pantalla de GNOME, callando.
+    binary: PLATFORM_DEFAULTS.orcaBinary,
     // Equivalente semántico de `cmux.colors`: dónde aterriza cada estado de sesión en
     // el tablero de Orca. Los ids son los de las columnas por defecto (`todo`,
     // `in-progress`, `in-review`, `completed`); un tablero con columnas propias se
@@ -269,6 +289,28 @@ const DEFAULT_CONFIG = {
   // Se cambia con: `kodo config set orchestrator.nudges keystroke`.
   orchestrator: {
     nudges: 'inbox',
+  },
+  // KODO-58 — reglas de ELEGIBILIDAD del dispatch. Bloque propio y no una clave dentro
+  // de `claude.*`: aquel describe cómo se invoca al agente, esto describe QUÉ tareas son
+  // de esta máquina.
+  //
+  //   `require_assignee: true` (default) — una tarea se lanza aquí solo si sus
+  //   `assignees` incluyen al dueño de la API key con la que este daemon firma. Es lo
+  //   que permite que dos operadores compartan proyecto sin que cada evento lance la
+  //   sesión en las DOS máquinas: `max_parallel` y `state.json` no ayudan ahí — son por
+  //   máquina, y cada una cree tener el trabajo para ella sola.
+  //
+  //   `false` — comportamiento anterior a KODO-58, exacto. Para el operador solitario
+  //   que no quiere tener que asignarse las tareas.
+  //
+  // El default `true` llega a los `~/.kodo/config.json` ya existentes vía el deep-merge
+  // de `loadConfig`, sin migración ni backup (CFG-02 zero-breaking-change). Y es INERTE
+  // mientras no haya identidad conocida: sin `providers.<p>.operator.id` cacheado, el
+  // gate deja pasar todo (fail-open, ver src/operator.js).
+  //
+  // Se cambia con: `kodo config set dispatch.require_assignee false`.
+  dispatch: {
+    require_assignee: true,
   },
 };
 
@@ -495,6 +537,50 @@ export function loadRawConfig() {
 export function saveConfig(config) {
   ensureDir();
   writeFileAtomic(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+}
+
+/**
+ * Persiste la identidad cacheada del operador (KODO-58) en
+ * `providers.<provider>.operator = { id, display_name }`.
+ *
+ * Escribe sobre el config CRUDO (`loadRawConfig`), NUNCA sobre `loadConfig()`: tras el
+ * deep-merge, éste devuelve el objeto completo con TODOS los defaults, y persistirlo
+ * congelaría en disco valores que hoy son defaults vivos (mismo razonamiento WR-05 que
+ * `kodo config --set`). Solo se toca la clave `operator`; el resto del fichero se
+ * conserva verbatim.
+ *
+ * IDEMPOTENTE y silencioso ante no-cambio: si el `id` cacheado ya coincide, no se
+ * reescribe nada. Esto es lo que mantiene el `init()` del provider sin I/O en régimen
+ * permanente, y lo que hace que dos procesos de kodo (daemon + CLI) no se pisen el
+ * fichero salvo el primer arranque.
+ *
+ * NEVER-THROWS (devuelve boolean): la identidad es una OPTIMIZACIÓN cacheada, no un
+ * requisito. Un disco lleno o un config de solo-lectura degradan a «se vuelve a pedir
+ * la próxima vez», jamás a un dispatch caído.
+ *
+ * @param {string} providerName - p.ej. 'plane'.
+ * @param {{ id: string, display_name?: string }} operator
+ * @returns {boolean} true si se escribió; false si no hacía falta o si falló el I/O.
+ */
+export function saveOperatorCache(providerName, operator) {
+  if (!providerName || !operator?.id) return false;
+  try {
+    const config = loadRawConfig() ?? {};
+    config.providers = config.providers || {};
+    config.providers[providerName] = config.providers[providerName] || {};
+    const current = config.providers[providerName].operator;
+    if (current?.id === operator.id && current?.display_name === operator.display_name) {
+      return false; // ya cacheado e idéntico — no se toca el disco
+    }
+    config.providers[providerName].operator = {
+      id: operator.id,
+      display_name: operator.display_name || operator.id,
+    };
+    saveConfig(/** @type {any} */ (config));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** @returns {Record<string, string>} projectId -> local path */

@@ -26,12 +26,13 @@ import { loadRawConfig, loadProjects } from '../config.js';
 import { createFormatter } from './format.js';
 
 /**
- * @typedef {{ json?: boolean, states?: boolean, identifiers?: boolean }} RunDoctorOpts
+ * @typedef {{ json?: boolean, states?: boolean, identifiers?: boolean, operator?: boolean }} RunDoctorOpts
  * @typedef {{
  *   loadRawConfigFn?: () => any,
  *   loadProjectsFn?: () => Record<string, any>,
  *   listStatesFn?: (projectId: string) => Promise<string[]>,
  *   listProjectsFn?: () => Promise<Array<any>>,
+ *   refreshOperatorFn?: () => Promise<{id: string, display_name?: string}|null>,
  *   readSettingsFn?: () => any,
  *   bbDoctorFn?: () => Promise<any>,
  *   writeFn?: (s: string) => void,
@@ -83,6 +84,15 @@ export async function runDoctor(opts, deps = {}) {
     identifiers = await runIdentifiersCheck({ config, provider: providerName, listProjectsFn: deps.listProjectsFn });
   }
 
+  // 2c. Identidad del operador (opt-in --operator, KODO-58). Re-pregunta al provider
+  //     quién es el dueño de la API key y REESCRIBE la caché de `providers.<p>.operator`.
+  //     Opt-in y no siempre-activo por la misma razón que los dos checks de arriba: toca
+  //     la red, y el doctor es offline por defecto. never-throws → `null` si falla.
+  let operator = null;
+  if (opts.operator) {
+    operator = await runOperatorCheck({ provider: providerName, refreshOperatorFn: deps.refreshOperatorFn });
+  }
+
   // 3. Deriva instalación↔settings de hooks (SIEMPRE activa — la invisibilidad fue la
   //    causa raíz de G-74-4; un flag opt-in que nadie pasa no previene nada). Lectura
   //    never-throws → objeto o null; el checker es puro y never-throws incluso con null.
@@ -105,8 +115,12 @@ export async function runDoctor(opts, deps = {}) {
 
   const hasStateProblems = !!states && states.problems.length > 0;
   const hasIdentifierProblems = !!identifiers && identifiers.problems.length > 0;
+  // KODO-58: pedir `--operator` y no poder resolver la identidad SÍ es un problema — es
+  // el mismo criterio que un `--states` que no puede consultar un proyecto. Sin el flag
+  // no influye en nada (el check ni siquiera corre).
+  const hasOperatorProblem = !!opts.operator && !operator;
   const exitCode =
-    alignment.hasIssues || hasStateProblems || hasIdentifierProblems || hasHookDrift || hasBbProblems
+    alignment.hasIssues || hasStateProblems || hasIdentifierProblems || hasHookDrift || hasBbProblems || hasOperatorProblem
       ? 1
       : 0;
 
@@ -118,11 +132,13 @@ export async function runDoctor(opts, deps = {}) {
       ...(identifiers ? { identifiers } : {}),
       hooks: { readable: settingsReadable, registered: hooks.registered, missing: hooks.missing },
       ...(bb ? { bb } : {}),
+      ...(operator ? { operator } : {}),
     };
     write(JSON.stringify(payload, null, 2) + '\n');
   } else {
     renderHuman({ alignment, states, identifiers, hooks, settingsReadable, provider: providerName, write, fmt });
     renderBb({ bb, write, fmt });
+    renderOperator({ operator, enabled: !!opts.operator, write, fmt });
   }
 
   return exitCode;
@@ -173,6 +189,55 @@ function renderBb({ bb, write, fmt }) {
   } else {
     write(`${fmt.yellow('parcial')} — servidor en pie; no se pudo consultar el provider${bb.detail ? `: ${bb.detail}` : ''}\n`);
   }
+}
+
+/**
+ * Refresca la identidad del operador contra el provider y reescribe su caché en
+ * `~/.kodo/config.json` (KODO-58). never-throws → `null` si no se pudo resolver.
+ *
+ * `null` cubre DOS casos distintos a propósito, y los dos significan lo mismo para el
+ * operador: el filtro por asignado queda inerte. O el provider no expone identidad
+ * (`refreshOperator` no implementado — hoy, GitHub), o la llamada falló.
+ *
+ * El trabajo real lo hace `provider.refreshOperator()`, que es quien sabe pedir y
+ * persistir; aquí solo se resuelve el provider y se envuelve en el contrato never-throws
+ * del doctor. `refreshOperatorFn` es DI para tests (mismo patrón que `listStatesFn`).
+ *
+ * @param {{ provider: string, refreshOperatorFn?: () => Promise<any> }} params
+ * @returns {Promise<{id: string, display_name?: string}|null>}
+ */
+async function runOperatorCheck({ provider, refreshOperatorFn }) {
+  try {
+    if (refreshOperatorFn) return (await refreshOperatorFn()) || null;
+    const { initRegistry, getProvider } = await import('../providers/registry.js');
+    await initRegistry();
+    const p = getProvider(provider);
+    if (typeof (/** @type {any} */ (p).refreshOperator) !== 'function') return null;
+    return (await /** @type {any} */ (p).refreshOperator()) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Render humano del bloque de operador. No-op sin `--operator`, así que la salida por
+ * defecto del doctor no cambia ni un byte.
+ *
+ * @param {{ operator: any, enabled: boolean, write: (s: string) => void, fmt: any }} params
+ */
+function renderOperator({ operator, enabled, write, fmt }) {
+  if (!enabled) return;
+  write(`\n─── operador (multi-operador, KODO-58) ───\n`);
+  if (operator?.id) {
+    write(
+      `${fmt.ok('clean')} — este daemon firma como ${operator.display_name || operator.id} (${operator.id}); solo lanzará tareas asignadas a esa cuenta\n`,
+    );
+    return;
+  }
+  write(`${fmt.error('sin identidad')} — no se pudo resolver el dueño de la API key\n`);
+  write(
+    `${fmt.dim('  el filtro por asignado queda INACTIVO: este daemon lanzará cualquier tarea elegible, incluidas las de otros operadores')}\n`,
+  );
 }
 
 /**

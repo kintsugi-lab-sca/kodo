@@ -276,12 +276,14 @@ program
   .description('Diagnose config.json ↔ projects.json alignment (dispatch-enabled vs mapped-only); --states also checks trigger/review/done per project')
   .option('--states', 'Also verify each configured project has the required states (trigger/review/done) — hits the provider API')
   .option('--identifiers', 'Also verify each configured project identifier still matches the provider (stale cache → phantom refs) — hits the provider API')
+  .option('--operator', 'Re-resolve the API key owner and refresh the cached operator identity used by the assignee filter — hits the provider API')
   .option('--json', 'Emit the structured report as JSON (scriptable, byte-deterministic)')
   .action(exitWithCode(async (opts) => {
     const { runDoctor } = await import('./cli/doctor.js');
     return runDoctor({
       states: opts.states || false,
       identifiers: opts.identifiers || false,
+      operator: opts.operator || false,
       json: opts.json || false,
     });
   }));

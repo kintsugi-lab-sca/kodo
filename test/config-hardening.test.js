@@ -56,6 +56,29 @@ describe('M14 (T-72-07) — parseSetArg/parseMapProjectArg preservan separadores
     assert.deepEqual(parseSetArg('=valor'), { key: '', value: 'valor' });
   });
 
+  it('KODO-58: `=true` / `=false` se coaccionan a booleano (un "false" string es TRUTHY)', () => {
+    assert.deepEqual(parseSetArg('dispatch.require_assignee=false'), {
+      key: 'dispatch.require_assignee',
+      value: false,
+    });
+    assert.deepEqual(parseSetArg('dispatch.require_assignee=true'), {
+      key: 'dispatch.require_assignee',
+      value: true,
+    });
+  });
+
+  it('KODO-58: la coerción es ESTRECHA — nada más se toca', () => {
+    // Variantes que NO son el literal exacto siguen siendo strings…
+    for (const raw of ['True', 'FALSE', ' false', 'false ', 'falsey']) {
+      assert.equal(typeof parseSetArg(`k=${raw}`).value, 'string', raw);
+    }
+    // …y los números siguen guardándose como string, igual que antes de KODO-58.
+    assert.deepEqual(parseSetArg('claude.max_parallel=5'), {
+      key: 'claude.max_parallel',
+      value: '5',
+    });
+  });
+
   it('--map-project id:/home/a:b:c → localPath `/home/a:b:c` (ruta con `:` preservada)', () => {
     assert.deepEqual(parseMapProjectArg('PROJ:/home/a:b:c'), {
       projectId: 'PROJ',

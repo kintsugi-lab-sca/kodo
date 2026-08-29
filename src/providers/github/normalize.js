@@ -71,11 +71,15 @@ export function extractPriority(labels) {
  *
  * Pure function — no API calls, no side effects (D-06).
  *
- * The returned object has EXACTLY the 13 canonical TaskItem fields (D-18 reformulado
- * por Phase 28 D-01): id, ref, title, description, labels, projectId, projectName,
- * groups, url, priority, state, updated_at, created_at. No GitHub-only fields
- * (pull_request, assignees, milestone, user, comments, locked, state_reason,
+ * The returned object has EXACTLY the 14 canonical TaskItem fields (D-18 reformulado
+ * por Phase 28 D-01 y por KODO-58): id, ref, title, description, labels, projectId,
+ * projectName, groups, url, priority, assignees, state, updated_at, created_at. No
+ * GitHub-only fields (pull_request, milestone, user, comments, locked, state_reason,
  * reactions, etc.) leak through.
+ *
+ * KODO-58: `assignees` DEJA de ser un campo GitHub-only y pasa al contrato — pero
+ * NORMALIZADO a `string[]` de logins, no el array de objetos usuario crudo. Lo que
+ * sube al TaskItem es el id de persona, no el payload del provider.
  *
  * @param {object} issue - Raw GitHub API issue payload (response from /repos/:owner/:repo/issues/:number)
  * @param {NormalizeContext} context - Resolution context (projectId = 'owner/repo')
@@ -90,6 +94,16 @@ export function normalizeIssue(issue, context) {
         .filter(Boolean)
     : [];
 
+  // KODO-58: `assignees` llega como array de objetos usuario; el id con el que GitHub
+  // identifica a una persona en un issue es el `login`, no el `id` numérico — es lo que
+  // el operador escribe en config y lo que se ve en el tablero. Defensivo con la forma
+  // string por el mismo criterio que `labels` justo arriba.
+  const assignees = Array.isArray(issue.assignees)
+    ? issue.assignees
+        .map((a) => (typeof a === 'string' ? a : a?.login))
+        .filter(Boolean)
+    : [];
+
   return {
     id: issue.node_id,                              // D-07: node_id (NOT numeric id)
     ref: `${context.projectId}#${issue.number}`,    // D-08: owner/repo#number
@@ -101,6 +115,7 @@ export function normalizeIssue(issue, context) {
     groups: [],                                     // D-14: hardcoded empty (milestone NOT extracted)
     url: issue.html_url,                            // D-15
     priority: extractPriority(issue.labels),        // D-17
+    assignees,                                      // KODO-58: logins
     state: issue.state,                             // D-16: 'open'|'closed' literal
     updated_at: issue.updated_at,                   // D-02 Phase 28: ISO 8601 (always present)
     created_at: issue.created_at,                   // D-02 Phase 28: ISO 8601 (always present)

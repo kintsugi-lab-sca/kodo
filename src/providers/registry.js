@@ -24,7 +24,7 @@ async function registerDefaults() {
   defaultsRegistered = true;
 
   try {
-    const { loadConfig, getPlaneApiKey } = await import('../config.js');
+    const { loadConfig, getPlaneApiKey, saveOperatorCache } = await import('../config.js');
     const { createPlaneProvider } = await import('./plane/provider.js');
 
     factories.set('plane', () => {
@@ -44,6 +44,16 @@ async function registerDefaults() {
         projects: plane.projects || [],
         states: plane.states,
         webhookSecret,
+        // KODO-58: identidad cacheada (si la hay) + el knob de elegibilidad. El knob es
+        // GLOBAL (`dispatch.*`, no `providers.plane.*`) porque describe cómo despacha
+        // ESTA máquina, no una propiedad del provider; se traduce aquí a la forma
+        // camelCase que consume el factory, igual que el resto del bloque.
+        operator: plane.operator,
+        requireAssignee: config.dispatch?.require_assignee !== false,
+      }, {
+        // El provider NO importa config.js para escribir: recibe el escritor. Así un
+        // test lo instancia sin arriesgarse a tocar el ~/.kodo/config.json real.
+        persistOperatorFn: (operator) => saveOperatorCache('plane', operator),
       });
     });
   } catch {
@@ -78,7 +88,17 @@ async function registerDefaults() {
       // cual; sin transformación a camelCase (divergencia justificada vs plane).
       // logger se inyecta vía opts en callers (precedente PlaneProvider — el
       // registry no construye logger aquí).
-      return createGitHubProvider(github);
+      //
+      // KODO-58: la ÚNICA clave derivada que se añade al passthrough es
+      // `require_assignee`, y se añade porque el knob es global (`dispatch.*`, una
+      // propiedad de esta MÁQUINA) y el provider no puede leerlo por su cuenta sin
+      // importar config.js. Se conserva el snake_case del bloque para no romper la
+      // regla de forma. Un `require_assignee` explícito dentro de `providers.github`
+      // NO gana: el knob vive en un solo sitio a propósito.
+      return createGitHubProvider({
+        ...github,
+        require_assignee: config.dispatch?.require_assignee !== false,
+      });
     });
   } catch {
     // Config or provider module not available — skip github registration

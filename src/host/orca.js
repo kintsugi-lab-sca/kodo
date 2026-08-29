@@ -28,6 +28,9 @@
 //     descubrimiento de adopción degrada a `[]` sin romper nada.
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../config.js';
+// KODO-56: hoja PURA (0 imports, 0 side-effects) — no toca el grafo que vigila
+// test/host/orca-isolation.test.js.
+import { platformDefaults } from '../platform-defaults.js';
 
 const TIMEOUT_MS = 20_000;
 
@@ -178,7 +181,9 @@ export function normalizeWorkspaces(psResult) {
  * @returns {Object} WorkspaceHost (4 métodos) + _legacy (lifecycle Orca-specific).
  */
 export function createOrcaHost(opts = {}) {
-  const binary = opts.binary || loadConfig().orca?.binary || 'orca';
+  // KODO-56: el último fallback ya NO es el literal `'orca'`. En Linux eso resuelve al lector
+  // de pantalla de GNOME (no falla: ejecuta otro programa); el resolvedor devuelve `orca-ide`.
+  const binary = opts.binary || loadConfig().orca?.binary || platformDefaults().orcaBinary;
   const run = opts.run || makeRun(opts.execSync || execFileSync, binary);
   const logger = opts.logger;
 
