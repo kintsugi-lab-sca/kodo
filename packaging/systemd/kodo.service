@@ -1,0 +1,47 @@
+# kodo — systemd user unit (KODO-59).
+#
+# Generado por `kodo install --systemd`. Editarlo a mano funciona, pero la próxima
+# instalación lo sobrescribe: los cambios permanentes van en `~/.kodo/config.json`.
+#
+# Instalar / refrescar:  kodo install --systemd
+# Ver el log:            journalctl --user-unit kodo.service -f
+# Que sobreviva al logout: loginctl enable-linger $USER
+#
+# NOTA sobre el ordenado: una unidad de USUARIO no puede depender de targets del sistema
+# como network-online.target (el manager de usuario tiene su propio namespace), así que aquí
+# no hay After=. No hace falta: el daemon es never-throws al arrancar y Restart=always cubre
+# el caso de haber arrancado antes que la red.
+
+[Unit]
+Description=kodo daemon (webhook + polling)
+Documentation=https://github.com/kintsugi-lab-sca/kodo
+# Freno del bucle infinito. Una config incompleta (típicamente KODO_WEBHOOK_SECRET_<PROVIDER>
+# ausente en ~/.kodo/.env) hace que `daemon run` salga con 1, y Restart=always lo relanzaría
+# para siempre sin más señal que el journal. Con este límite, 5 arranques en 300s dejan la
+# unidad en `failed` — que `kodo status` SÍ enseña y el operador puede accionar.
+#
+# La ventana es de 300s y NO de 60s por una medida, no por gusto: un arranque fallido por
+# config incompleta tarda ~10s (los reintentos de red del provider) más los 5s de RestartSec,
+# o sea ~15s por intento. Cinco intentos son ~75s, así que con una ventana de 60s el contador
+# se reseteaba antes de llegar al quinto y el bucle era, en la práctica, infinito.
+# Recuperarse de `failed`: arregla el .env y vuelve a correr `kodo install --systemd`
+# (hace `reset-failed` antes de arrancar).
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# SIEMPRE `daemon run` (foreground supervisable), NUNCA el comando interactivo: ese se
+# auto-detacha, systemd vería exit 0 inmediato y entraría en bucle de reinicios.
+ExecStart=%h/.local/bin/kodo daemon run
+Restart=always
+RestartSec=5
+# PATH explícito: systemd no hereda el del shell de login. Lo necesitan el shebang
+# `#!/usr/bin/env node` del binario de npm Y los subprocesos que el daemon resuelve por
+# nombre (`git` para los worktrees, `claude` para lanzar la sesión).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Solo PATH. Los secretos viven en ~/.kodo/.env (0600) y los carga config.js en runtime;
+# este fichero es legible y no es sitio para una API key.
+
+[Install]
+WantedBy=default.target

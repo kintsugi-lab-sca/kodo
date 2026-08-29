@@ -35,14 +35,26 @@ Task → In Progress ──webhook──→ kodo
 
 ## Installation
 
-Requires macOS, Node ≥ 20 and [cmux](https://cmux.dev).
+Requires Node ≥ 20 and a terminal client: [cmux](https://cmux.dev) (macOS only) or
+[Orca](https://www.onorca.dev) (macOS, Linux). Windows is out of scope — the code refuses it
+explicitly.
 
-### Homebrew (recommended)
+### Homebrew — macOS (recommended)
 
 ```bash
 brew tap kintsugi-lab-sca/kodo
 brew install kodo
 ```
+
+### npm + systemd — Linux
+
+```bash
+npm install -g github:kintsugi-lab-sca/kodo#v0.21.0
+kodo install --systemd   # user unit in ~/.config/systemd/user, enabled and started
+```
+
+Step-by-step guide for Pop!_OS / Ubuntu 22.04 (Node, Orca, the `orca` vs `orca-ide` trap, the
+service, and troubleshooting): **[`packaging/linux/README.md`](packaging/linux/README.md)**.
 
 ### From source
 
@@ -216,11 +228,17 @@ kodo install   # registers SessionStart and Stop hooks in ~/.claude/settings.jso
 kodo up   # starts the daemon in the background and opens the TUI dashboard
 ```
 
-With Homebrew you can leave it as a service that starts automatically:
+You can also leave it as a service that starts automatically:
 
 ```bash
-brew services start kodo
+brew services start kodo      # macOS (launchd)
+kodo install --systemd        # Linux (systemd user unit)
 ```
+
+Both supervise the same process, `kodo daemon run`. On Linux, `kodo status`, `kodo up` and
+`kodo stop` are systemd-aware: `stop` stops the unit (a SIGTERM would just make
+`Restart=always` bring it back) and `up` starts the unit instead of spawning a daemon systemd
+does not know about.
 
 ## Usage
 

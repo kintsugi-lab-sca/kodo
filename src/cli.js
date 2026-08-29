@@ -113,10 +113,19 @@ program
   });
 
 // --- kodo install ---
+// Dos carriles bajo el mismo verbo: por defecto instala los hooks de Claude Code, y con
+// `--systemd` instala la unidad de usuario que supervisa el daemon en Linux (KODO-59) —
+// el equivalente de `brew services start kodo` en macOS. Son instalaciones independientes:
+// ninguna implica la otra.
 program
   .command('install')
   .description('Install kodo hooks into Claude Code settings')
-  .action(async () => {
+  .option('--systemd', 'Instead: install/refresh the systemd user unit and enable it (Linux only)')
+  .action(async (opts) => {
+    if (opts.systemd) {
+      const { runInstallSystemd } = await import('./cli/systemd.js');
+      process.exit(await runInstallSystemd());
+    }
     const { installHooks } = await import('./hooks/install.js');
     installHooks();
   });

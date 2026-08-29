@@ -127,7 +127,9 @@ export async function waitForHealth(baseUrl, { timeoutMs = 10000, intervalMs = 2
  *       probePort (SECUNDARIO). Solo si NO corre Y el puerto está libre → startDaemon
  *       detached. Si ya corre o el puerto está ocupado → ATTACH directo (cero spawn,
  *       evita EADDRINUSE / Pitfall 3). startDaemon ok:false → aviso a stderr + return
- *       (never-throws, sin process.exit).
+ *       (never-throws, sin process.exit). KODO-59: en Linux con la unidad systemd
+ *       instalada, el arranque va por `systemctl --user start` — el dueño del ciclo de
+ *       vida es systemd y un detached paralelo sería un daemon que él no conoce.
  *   (3) health-wait: waitForHealth bounded/never-throws. false → aviso + CONTINÚA
  *       (fail-open).
  *   (4) attach: runDashboard({url}) — visor HTTP puro; owns nothing.
@@ -148,6 +150,8 @@ export async function waitForHealth(baseUrl, { timeoutMs = 10000, intervalMs = 2
  *   _resolveBaseUrl?: (args: any) => string,
  *   _process?: { on: (sig: string, fn: (...a: any[]) => void) => any },
  *   _stderr?: { write: (s: string) => any },
+ *   _unitState?: (deps?: any) => { installed: boolean, active: string | null, enabled: string | null },
+ *   _systemctlStart?: () => { ok: boolean, message?: string },
  * }} [deps]
  * @returns {Promise<void | any>}
  */
@@ -212,12 +216,35 @@ export async function runUp(deps = {}) {
   const status = statusDaemonFn('kodo');
   const portBusy = await probePortFn(port, probeHost);
   if (status.status !== 'running' && !portBusy) {
-    // Daemon frío: arranca detached (['daemon','run'] → runDaemon foreground en el hijo).
-    const res = await startDaemonFn('kodo', ['daemon', 'run']);
-    if (res && res.ok === false) {
-      // never-throws / sin process.exit: avisa y retorna.
-      stderr.write(`kodo up: ${res.message ?? 'no se pudo arrancar el daemon'}\n`);
-      return;
+    // (2a) KODO-59, solo Linux: si la unidad systemd está INSTALADA, el dueño del ciclo de
+    // vida es systemd, y arrancar aquí un daemon detached rompería esa propiedad — sería un
+    // proceso que systemd no conoce, y el siguiente `systemctl --user start` moriría con
+    // EADDRINUSE contra el daemon del propio operador. Se delega el arranque en la unidad.
+    // El módulo hace guard de plataforma, así que en macOS esto no cuesta ni un stat.
+    let startedByUnit = false;
+    try {
+      const sd = await import('./systemd.js');
+      const unit = (deps._unitState || sd.unitState)();
+      if (unit.installed) {
+        const r = (deps._systemctlStart || sd.systemctlStartUnit)();
+        if (!r.ok) {
+          stderr.write(`kodo up: systemctl --user start ${sd.UNIT_NAME}: ${r.message}\n`);
+          return;
+        }
+        startedByUnit = true;
+      }
+    } catch {
+      /* fail-open: sin systemd (o con él roto) queda el arranque detached de siempre */
+    }
+
+    if (!startedByUnit) {
+      // Daemon frío: arranca detached (['daemon','run'] → runDaemon foreground en el hijo).
+      const res = await startDaemonFn('kodo', ['daemon', 'run']);
+      if (res && res.ok === false) {
+        // never-throws / sin process.exit: avisa y retorna.
+        stderr.write(`kodo up: ${res.message ?? 'no se pudo arrancar el daemon'}\n`);
+        return;
+      }
     }
   }
   // Si el daemon YA corre (status running) o el puerto está ocupado → ATTACH directo

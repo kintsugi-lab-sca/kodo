@@ -42,6 +42,12 @@ import { createFormatter } from './format.js';
  * never-throws (convención repo): el fallback se envuelve defensivamente — un
  * `stopServer` que lance NO propaga como crash del handler.
  *
+ * CARRIL SYSTEMD (KODO-59, Linux): si la unidad de usuario `kodo.service` está ACTIVA, el
+ * daemon lo supervisa systemd con `Restart=always`. Mandarle SIGTERM al PID no lo para: lo
+ * reinicia. `kodo stop` reportaría éxito con el daemon vivo — una mentira, no una
+ * degradación. Por eso, y SOLO en ese caso, el stop va por `systemctl --user stop`. Si la
+ * unidad no existe o no está activa, el camino es el de siempre, byte por byte.
+ *
  * @param {{}} [opts] — sin opciones por ahora; presente por paridad de firma con status.
  * @param {{
  *   _stopDaemon?: (name: string, deps?: any) => Promise<any>,
@@ -49,6 +55,8 @@ import { createFormatter } from './format.js';
  *   _write?: (s: string) => any,
  *   _err?: (s: string) => any,
  *   _fmt?: import('./format.js').Formatter,
+ *   _unitState?: (deps?: any) => { installed: boolean, active: string | null, enabled: string | null },
+ *   _systemctlStop?: () => { ok: boolean, message?: string },
  * }} [deps]
  * @returns {Promise<number>} exit code (0 = éxito; stop es best-effort/never-fail).
  */
@@ -58,6 +66,26 @@ export async function runStopUnified(opts = {}, deps = {}) {
   const err = deps._err || ((s) => process.stderr.write(s));
   // Formatter TTY-aware; useColor se resuelve eager contra process.stdout (D-04 format).
   const fmt = deps._fmt || createFormatter(process.stdout);
+
+  // Carril systemd. El import es lazy y el módulo hace guard de plataforma en su primera
+  // línea, así que en macOS esto no llega ni a tocar el FS. Envuelto never-throws: un
+  // systemctl raro no puede impedir que `kodo stop` intente el camino normal.
+  try {
+    const sd = await import('./systemd.js');
+    const unit = (deps._unitState || sd.unitState)();
+    if (unit.installed && (unit.active === 'active' || unit.active === 'activating')) {
+      const stopUnit = deps._systemctlStop || (() => sd.systemctlStopUnit());
+      const r = stopUnit();
+      if (r.ok) {
+        write(`${fmt.ok('stopped')} vía systemd (${sd.UNIT_NAME})\n`);
+        return 0;
+      }
+      err(`${fmt.warn('not stopped')} — systemctl --user stop ${sd.UNIT_NAME}: ${r.message}\n`);
+      return 1;
+    }
+  } catch {
+    /* fail-open: sin systemd (o con él roto) sigue el camino de siempre */
+  }
 
   const res = await stopDaemonFn('kodo');
 
@@ -130,6 +158,7 @@ export async function runStopUnified(opts = {}, deps = {}) {
  *   _stdout?: { isTTY?: boolean },
  *   _listQueue?: (opts?: { all?: boolean }) => Array<{ task_ref: string, branch: string, suggested: string, commits_ahead: number|null, created_at: string }>,
  *   _now?: () => Date,
+ *   _unitState?: (deps?: any) => { installed: boolean, active: string | null, enabled: string | null },
  * }} [deps]
  *   `_listQueue` (KODO-26) es el seam de aislamiento del HOME: sin él, el default lee el
  *   `~/.kodo/state.json` real y la salida de la suite pasaría a depender de la cola de quien
@@ -155,6 +184,23 @@ export async function runStatusUnified(opts = {}, deps = {}) {
     write(`${fmt.ok('running')} pid: ${st.pid}\n`);
   } else {
     write(`${fmt.dim('stopped')}\n`);
+  }
+
+  // Línea de systemd (KODO-59, solo Linux con la unidad instalada). Responde la pregunta que
+  // el booleano del daemon NO responde: *quién* lo supervisa — y por tanto si un `kodo stop`
+  // lo va a parar de verdad o systemd lo va a resucitar. La rama `--json` de arriba NO la ve
+  // a propósito: sus 2 claves están congeladas por DX-06 y por un test byte-exacto; el carril
+  // scriptable de systemd es `systemctl --user is-active kodo`, que ya existe.
+  try {
+    const { unitState, UNIT_NAME } = await import('./systemd.js');
+    const unit = (deps._unitState || unitState)();
+    if (unit.installed) {
+      const active = unit.active ?? 'desconocido';
+      const paint = active === 'active' ? fmt.ok : active === 'failed' ? fmt.fail : fmt.dim;
+      write(`${fmt.dim('systemd:')} ${paint(active)} (${unit.enabled ?? 'desconocido'}) ${UNIT_NAME}\n`);
+    }
+  } catch {
+    /* fail-open: el estado del daemon ya se reportó y es lo que el comando promete */
   }
 
   // Bloque de la cola. Envuelto en try/catch además del never-throws del store: `kodo status`
