@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   test:
-    name: node 20 · ${{ matrix.os }}
+    name: node 22 · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: proyecto-sin-nombre/package-lock.json
 

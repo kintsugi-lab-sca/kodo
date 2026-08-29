@@ -37,7 +37,7 @@ Task → In Progress ──webhook──→ kodo
 
 ## Installation
 
-Requires **Node ≥ 20** and a terminal client. Which client, which install route and which
+Requires **Node ≥ 22** and a terminal client. Which client, which install route and which
 supervisor depend on the platform:
 
 | Platform | Terminal client | Install | Service |

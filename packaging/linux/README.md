@@ -17,19 +17,19 @@ sin contrapartida.
 
 ---
 
-## 1. Node 20
+## 1. Node 22
 
 Usa **NodeSource**, no nvm, si vas a correr kodo como servicio:
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs git
-node --version   # v20.x
+node --version   # v22.x
 ```
 
 **Por qué NodeSource y no nvm:** la unidad systemd lleva un `PATH` explícito que incluye el
 directorio del node con el que instalaste. Con nvm ese directorio es
-`~/.nvm/versions/node/v20.19.0/bin` — **versionado**, así que el día que hagas `nvm install 22`
+`~/.nvm/versions/node/v22.22.0/bin` — **versionado**, así que el día que hagas `nvm install 24`
 la unidad apunta a un node que ya no existe. Con NodeSource es `/usr/bin`, estable.
 
 Si aun así usas nvm: funciona, pero **vuelve a correr `kodo install --systemd` después de cada
