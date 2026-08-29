@@ -334,3 +334,121 @@ describe('runDoctor --identifiers', () => {
     assert.match(sink.out.s, /solo aplica al provider plane/);
   });
 });
+
+// ── KODO-31: check del runtime de BB ─────────────────────────────────────────
+//
+// Corre SIEMPRE con `host: 'bb'` y NUNCA con otro host. No es un flag opt-in por el mismo
+// motivo que la deriva de hooks: con bb, un servidor caído o un provider `claude-code` no
+// disponible dejan a kodo lanzando threads que mueren al arrancar — invisible desde el
+// resto del sistema. Y no rompe el default offline del doctor: la llamada es a loopback.
+describe('runDoctor: host bb (KODO-31)', () => {
+  const BB_CONFIG = { ...ALIGNED_CONFIG, host: 'bb' };
+  const deps = (sink, bbDoctorFn) => ({
+    loadRawConfigFn: () => BB_CONFIG,
+    loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+    bbDoctorFn,
+    ...sink,
+  });
+
+  it('servidor en pie + claude-code disponible → exit 0 y "clean"', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({}, deps(sink, async () => ({
+      serverUrl: 'http://127.0.0.1:38886',
+      serverUp: true,
+      providerAvailable: true,
+    })));
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /host bb \(http:\/\/127\.0\.0\.1:38886\)/);
+    assert.match(sink.out.s, /provider claude-code disponible/);
+  });
+
+  it('servidor caído → exit 1 y la pista de cómo arrancarlo', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({}, deps(sink, async () => ({
+      serverUrl: 'http://127.0.0.1:38886',
+      serverUp: false,
+      providerAvailable: null,
+      detail: 'connect ECONNREFUSED',
+    })));
+    assert.equal(code, 1, 'un servidor caído es un problema, no un aviso');
+    assert.match(sink.out.s, /el servidor de BB no responde: connect ECONNREFUSED/);
+    assert.match(sink.out.s, /npx bb-app@latest/);
+  });
+
+  it('servidor en pie pero claude-code NO disponible → exit 1', async () => {
+    // El fallo que este check existe para hacer visible: BB responde, kodo lanza el
+    // thread, y el thread muere porque no hay binario `claude` en esa máquina.
+    const sink = makeSink();
+    const code = await runDoctor({}, deps(sink, async () => ({
+      serverUrl: 'http://x',
+      serverUp: true,
+      providerAvailable: false,
+    })));
+    assert.equal(code, 1);
+    assert.match(sink.out.s, /claude-code no está disponible/);
+  });
+
+  it('provider indeterminado (servidor en pie, consulta fallida) → parcial SIN exit 1', async () => {
+    // No se puede afirmar una deriva sobre lo que no se pudo leer — mismo criterio que el
+    // `settings ilegible` de la deriva de hooks.
+    const sink = makeSink();
+    const code = await runDoctor({}, deps(sink, async () => ({
+      serverUrl: 'http://x',
+      serverUp: true,
+      providerAvailable: null,
+      detail: 'timeout',
+    })));
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /parcial/);
+  });
+
+  it('el check NO corre con otro host: la salida queda idéntica a la de siempre', async () => {
+    for (const host of ['cmux', 'orca', undefined]) {
+      const sink = makeSink();
+      let called = false;
+      const code = await runDoctor({}, {
+        loadRawConfigFn: () => ({ ...ALIGNED_CONFIG, host }),
+        loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+        bbDoctorFn: async () => {
+          called = true;
+          return { serverUrl: 'x', serverUp: false, providerAvailable: null };
+        },
+        ...sink,
+      });
+      assert.equal(called, false, `host=${host} no debe disparar el check de bb`);
+      assert.equal(code, 0);
+      assert.ok(!sink.out.s.includes('host bb'), 'no debe renderizarse el bloque de bb');
+    }
+  });
+
+  it('--json incluye el bloque `bb` solo cuando el check aplicó', async () => {
+    const sink = makeSink();
+    await runDoctor({ json: true }, deps(sink, async () => ({
+      serverUrl: 'http://127.0.0.1:38886',
+      serverUp: true,
+      providerAvailable: true,
+    })));
+    assert.deepEqual(JSON.parse(sink.out.s).bb, {
+      serverUrl: 'http://127.0.0.1:38886',
+      serverUp: true,
+      providerAvailable: true,
+    });
+
+    const sink2 = makeSink();
+    await runDoctor({ json: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink2,
+    });
+    assert.equal(JSON.parse(sink2.out.s).bb, undefined);
+  });
+
+  it('un check que LANZA degrada a «sin check», nunca tumba el doctor', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({}, deps(sink, async () => {
+      throw new Error('el cliente bb no está instalado');
+    }));
+    assert.equal(code, 0);
+    assert.ok(!sink.out.s.includes('host bb'));
+  });
+});

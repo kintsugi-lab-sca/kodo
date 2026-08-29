@@ -7,7 +7,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { findSession } from '../session/state.js';
+import { findSession, updateSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { KODO_DIR } from '../config.js';
 import { getSessionMode } from '../labels.js';
@@ -233,6 +233,37 @@ export function buildGsdContext(session, opts = {}) {
   return lines.join('\n');
 }
 
+/**
+ * Deja traza del rebind de identidad de una sesión BB (KODO-31). Best-effort y
+ * never-throws: el logger se carga LAZY y un fallo suyo jamás debe tumbar el arranque de
+ * Claude Code — mismo criterio que el bloque de `sessionStart` de más abajo.
+ *
+ * Merece traza propia porque es el ÚNICO punto del sistema donde el `session_id` de una
+ * sesión cambia después de persistirse. Sin este rastro, un `state.json` cuyo session_id
+ * no coincide con el que kodo generó al lanzar parecería corrupción.
+ *
+ * @param {{ session: any, newSessionId: string, threadId: string, persisted: boolean }} params
+ */
+async function emitRebindEvent({ session, newSessionId, threadId, persisted }) {
+  try {
+    const { createLogger } = await import('../logger.js');
+    const log = createLogger({
+      sessionId: newSessionId,
+      minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+    }).child({ component: 'hook', task_id: session.task_id });
+    log.info('session.rebind', {
+      task_ref: session.task_ref,
+      thread_id: threadId,
+      from_session_id: session.session_id,
+      to_session_id: newSessionId,
+      host: session.host,
+      persisted,
+    });
+  } catch {
+    // silent — never crash Claude Code
+  }
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -261,7 +292,50 @@ async function main() {
     // Claude Code con `--session-id`, así que la sesión lanzada por kodo sigue
     // recibiendo su contexto igual que antes. Una sesión ad-hoc no adoptada sale en
     // silencio, que es lo correcto: no hay tarea que inyectar.
-    const result = findSession({ sessionId });
+    let result = findSession({ sessionId });
+
+    // KODO-31 — fallback ACOTADO por BB_THREAD_ID, y su rebind.
+    //
+    // El host bb rompe la premisa sobre la que se construyó el lookup por identidad: kodo
+    // NO controla el `--session-id`. BB arranca Claude Code por el Agent SDK y genera el
+    // suyo, así que el `session_id` que kodo persistió al lanzar NUNCA coincidirá con el
+    // que llega por stdin — la sesión saldría en silencio y arrancaría sin contexto de
+    // tarea, que es exactamente el fallo que este hook existe para evitar.
+    //
+    // Lo que SÍ controla kodo es el ref: el id del thread, que BB exporta en el entorno del
+    // proceso hijo como `BB_THREAD_ID` (verificado en vivo) y que kodo guardó como
+    // `workspace_ref`. Ese es el puente, y es identidad REAL —no una heurística por cwd
+    // como el fallback que KODO-27 eliminó—: un thread pertenece a una sola sesión.
+    //
+    // Tres guardas, todas necesarias:
+    //   1. Solo si el lookup por session_id ya falló (cero cambio para cmux/orca).
+    //   2. Solo con `BB_THREAD_ID` presente: sin la variable el hook sigue saliendo en
+    //      silencio, así que una sesión ad-hoc no adoptada no matchea por accidente.
+    //   3. Solo sobre `state.sessions` y con `host === 'bb'`: una entry de history no se
+    //      reabre, y una sesión de otro host no se toca aunque su ref colisionara.
+    //
+    // El REBIND es la mitad importante: se reescribe `session_id` con el real del hijo. A
+    // partir de ahí `stop.js` y `session-end.js` matchean por session_id SIN cambio alguno,
+    // y el `pgrep -f "session-id <sid>"` del reconcile encuentra el proceso — BB lanza
+    // `claude … --session-id <ese mismo id>`, así que la detección de proceso vivo vuelve a
+    // funcionar. Sin el rebind, kodo tendría el contexto pero no podría cerrar la sesión.
+    if (!result && process.env.BB_THREAD_ID) {
+      const byThread = findSession({ workspaceRef: process.env.BB_THREAD_ID });
+      if (byThread && byThread.source === 'sessions' && byThread.session.host === 'bb') {
+        const upd = updateSession(byThread.id, { session_id: sessionId });
+        // Un lock-timeout NO invalida el contexto: el prompt se inyecta igual (es lo más
+        // valioso y es idempotente). Lo que se pierde es el rebind, y el siguiente
+        // SessionStart —BB reanuda con `source=resume`— lo reintenta.
+        result = { ...byThread, session: { ...byThread.session, session_id: sessionId } };
+        await emitRebindEvent({
+          session: byThread.session,
+          newSessionId: sessionId,
+          threadId: process.env.BB_THREAD_ID,
+          persisted: !(upd && upd.ok === false),
+        });
+      }
+    }
+
     if (!result) {
       // No tracked session for this session_id — silent exit
       process.exit(0);

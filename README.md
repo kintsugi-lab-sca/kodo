@@ -1,6 +1,6 @@
 # kodo 心動
 
-Automated Claude Code sessions driven from your kanban board. Move a task to "In Progress" → kodo launches [Claude Code](https://claude.ai/code) in a [cmux](https://cmux.dev) or [Orca](https://www.onorca.dev) workspace → when it finishes, the task comes back as "In Review".
+Automated Claude Code sessions driven from your kanban board. Move a task to "In Progress" → kodo launches [Claude Code](https://claude.ai/code) in a [cmux](https://cmux.dev), [Orca](https://www.onorca.dev) or [BB](https://github.com/get-bb/bb) workspace → when it finishes, the task comes back as "In Review".
 
 Supported providers: [Plane](https://plane.so) (webhook) and GitHub Issues (polling).
 
@@ -545,6 +545,87 @@ all of them — nothing aborts a launch:
   finished its turn and is waiting). It requires the agent hooks: enable them with
   `orca agent hooks on`; without them sessions are never marked as "waiting".
 
+## BB as a client
+
+[BB](https://github.com/get-bb/bb) is the third client. Unlike cmux and Orca it is **not a
+terminal**: it does not open a shell where kodo types `claude …` — it launches Claude Code
+through the Agent SDK on a *thread* of its own. Everything else is the same single key:
+
+```bash
+kodo config --set host=bb          # 'cmux' (default) | 'orca' | 'bb'
+kodo config --set bb.binary=bb     # resolved through PATH by default
+kodo config --set bb.server_url=http://127.0.0.1:38886
+```
+
+### What changes with BB
+
+| | cmux | Orca | BB |
+|---|---|---|---|
+| Unit of work | tab (`workspace:N`, recycled ref) | worktree (`<repoId>::<path>`) | thread (`thr_…`, stable ref) |
+| git isolation | `claude --worktree` → `.bg-shell/<id>` | Orca's worktree | `thread spawn --new-environment worktree` |
+| How the prompt arrives | typed into the shell | typed into the shell | `thread spawn --prompt` |
+| Who owns the `--session-id` | kodo | kodo | **BB** (see below) |
+| Session state | tab colour | board column | no channel (kodo's dashboard only) |
+| End of session | human closes the tab | human closes the tab | kodo runs `bb thread stop` |
+
+Like Orca, BB brings its own worktree, so kodo does **not** emit `claude --worktree`
+(`worktree_skipped_host` in the log).
+
+### The two things that are genuinely different
+
+**BB owns the session id.** kodo generates a `--session-id` for every session and matches its
+hooks against it. BB does not accept one: it generates its own. What kodo *does* control is the
+thread id, which BB exports into the child process as `BB_THREAD_ID`. So `SessionStart` falls
+back to that variable, finds the session by its `workspace_ref`, and **rewrites** the stored
+`session_id` with the real one (event `session.rebind`). From that point on `Stop` and
+`SessionEnd` match by `session_id` with no special casing. Without `BB_THREAD_ID` the hook
+still exits silently — the fallback never fires on its own.
+
+**Sessions close themselves.** When a turn ends BB leaves the thread `idle` with the `claude`
+process still alive, and `SessionEnd` only fires on `bb thread stop`. So kodo runs that stop
+itself: once a session has been idle, with no pending interaction, for longer than the grace
+period, the reconcile loop stops the thread and the existing close path takes over (cleanup,
+handoff, "In Review" backstop, orchestrator nudge). It is logged as `session.autoclose`.
+
+```bash
+kodo config --set bb.idle_close_grace_s=90   # default 90 s
+```
+
+A session with a **pending interaction is never closed**, however long it waits: the agent is
+holding a question for you. `bb thread stop` only releases the runtime — it does not archive the
+thread and does not touch the worktree, so the `bb/…` branch stays under kodo's integration
+gate (merged → deleted; not merged → kept). Reopening is just `bb thread tell`, which resumes
+the thread.
+
+### Requirements
+
+BB is an **optional runtime dependency**: kodo does not bundle it and nothing breaks if it is
+absent — it is only needed when `host: bb`. It ships as an npm package with native addons
+(`better-sqlite3`, `node-pty`), so install it the way you prefer:
+
+```bash
+npx bb-app@latest              # server + CLI, no global install
+```
+
+`kodo doctor` checks it **automatically whenever the active host is `bb`** (no flag): that the
+server answers at `bb.server_url` and that BB reports `claude-code` as available. Both failures
+are invisible from the rest of the system — a launch would create threads that die on startup —
+so they exit with code 1.
+
+### Known limits
+
+- **No presentation channel**: BB has neither cmux's tab colour nor Orca's board column, so
+  `setStatus`/`setColor`/`setDescription` are documented no-ops. Session state lives in kodo's
+  dashboard and in the provider.
+- **Adopting ad-hoc sessions**: same reason as Orca — BB does not publish Claude Code's
+  `session_id` in its CLI. Explicit adoption by ref still works.
+- **Sidebar groups**: BB organises by sections, an axis kodo does not model. `kodo sidebar
+  doctor` does not apply.
+- **One provider**: kodo always spawns with `--provider claude-code`. BB's other providers
+  (codex, cursor, pi) do not emit the hooks kodo's whole lifecycle depends on.
+- **Remote machines** (`--machine`) are out of scope: kodo assumes the worktree is reachable
+  on the local filesystem.
+
 ## Configuration
 
 ```bash
@@ -738,6 +819,10 @@ With `host: orca` — board column (`orca.statuses`):
 | `in-progress` | Session running (and errors too: Orca has no failure column, and hiding the card exactly when it needs looking at would be worse) |
 | `in-review` | In review |
 | `completed` | Completed |
+
+With `host: bb` — **no channel**. BB has neither colours nor columns per thread, so kodo does not
+invent one: the state lives in kodo's own dashboard and in the provider, and `setStatus` is a
+documented no-op.
 
 ## Tests
 

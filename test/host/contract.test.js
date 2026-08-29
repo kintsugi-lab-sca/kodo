@@ -18,11 +18,17 @@ import {
   validateHost,
   resolveHostName,
   hostIsolatesWorktree,
+  hostDeliversPrompt,
 } from '../../src/host/interface.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(__dirname, '..', 'fixtures', 'cmux');
 const ORCA_FIXTURES = join(__dirname, '..', 'fixtures', 'orca');
+const BB_FIXTURES = join(__dirname, '..', 'fixtures', 'bb');
+
+// KODO-31 — golden fixture de `bb thread list --json` (shape verbatim de una instancia
+// real de bb-app: array PLANO, sin sobre; ids anonimizados).
+const BB_LIST_FIXTURE = readFileSync(join(BB_FIXTURES, 'thread-list.json'), 'utf-8');
 
 // KODO-18 — golden fixtures de orca 1.4.184 (shape verbatim, paths anonimizados).
 const ORCA_PS_FIXTURE = readFileSync(join(ORCA_FIXTURES, 'worktree-ps.json'), 'utf-8');
@@ -46,7 +52,7 @@ function surfaceShowFor(argv) {
   return entry ? JSON.stringify(entry) : '';
 }
 
-const IMPLS = ['cmux', 'orca', 'null'];
+const IMPLS = ['cmux', 'orca', 'bb', 'null'];
 
 /**
  * Leak-guard exec: stub loud-on-call si la impl olvidó usar el inyectable.
@@ -100,6 +106,16 @@ function assertWorkspaceInfoShape(item, label) {
  * Para 'null' instancia directa sin DI.
  */
 function instantiateHost(name, runOverride) {
+  if (name === 'bb') {
+    // El host bb habla SOLO por `run`: una única llamada `thread list --json` alimenta
+    // listWorkspaces/isAlive/needsInput.
+    return getHost('bb', {
+      run:
+        runOverride ||
+        (async (args) => ((args || []).join(' ').includes('thread list') ? BB_LIST_FIXTURE : '')),
+      binary: '/fake/bb',
+    });
+  }
   if (name === 'orca') {
     // El host orca habla SOLO por `run` (no usa `exec`): una única llamada
     // `worktree ps --json` alimenta listWorkspaces/isAlive/needsInput.
@@ -486,12 +502,169 @@ describe('WorkspaceHost contract matrix', () => {
       assert.doesNotThrow(() => getHost(name));
     });
 
-    test('hostIsolatesWorktree: solo orca trae su propio checkout', () => {
+    test('hostIsolatesWorktree: orca y bb traen su propio checkout, cmux no', () => {
       // De este booleano depende que kodo emita o no `claude --worktree`. Si cmux
       // devolviera true, TODAS las sesiones de cmux perderían su aislamiento.
       assert.equal(hostIsolatesWorktree('cmux'), false);
       assert.equal(hostIsolatesWorktree('orca'), true);
+      // KODO-31: `thread spawn --new-environment worktree` materializa el checkout.
+      assert.equal(hostIsolatesWorktree('bb'), true);
       assert.equal(hostIsolatesWorktree('desconocido'), false, 'ante la duda, NO se omite el aislamiento');
+    });
+
+    // KODO-31 — la segunda capacidad, INDEPENDIENTE de la primera.
+    test('hostDeliversPrompt: solo bb entrega el prompt al crear el workspace', () => {
+      // Si cmux u orca devolvieran true, su `send` se omitiría y la sesión arrancaría
+      // con la tab abierta y sin comando: el fallo más caro posible en el launch path.
+      assert.equal(hostDeliversPrompt('cmux'), false);
+      assert.equal(hostDeliversPrompt('orca'), false, 'orca aísla por worktree pero SÍ usa keystrokes');
+      assert.equal(hostDeliversPrompt('bb'), true);
+      assert.equal(hostDeliversPrompt('desconocido'), false, 'ante la duda, se teclea (comportamiento previo)');
+    });
+
+    test('las dos capacidades NO son la misma: orca las distingue', () => {
+      // El test que impide fusionar los dos sets en uno. orca está en
+      // HOSTS_WITH_OWN_WORKTREE y NO en HOSTS_DELIVERING_PROMPT: un solo flag mataría
+      // el carril de keystrokes de orca.
+      assert.equal(hostIsolatesWorktree('orca'), true);
+      assert.equal(hostDeliversPrompt('orca'), false);
+    });
+  });
+
+  // KODO-31 — asserts golden de BbHost contra thread-list.json (shape real de bb-app).
+  // Los casos que este host resuelve de forma distinta a sus dos hermanos.
+  describe('BbHost — derivación de WorkspaceInfo desde `thread list`', () => {
+    let host;
+    before(() => {
+      host = instantiateHost('bb');
+    });
+
+    test('workspace_ref ← id del thread; title prefiere `title` sobre `titleFallback`', async () => {
+      const items = await host.listWorkspaces();
+      const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
+      assert.equal(byRef.get('thr_alpha0000').title, 'KODO-42: arreglar el login');
+      // Sin `title` explícito cae al que BB deriva del prompt — nunca undefined si hay uno.
+      assert.equal(
+        byRef.get('thr_charlie000').title,
+        'Investiga por qué el daemon no arranca en frío...',
+      );
+    });
+
+    test('alive = PRESENCIA, no status: un thread idle o en error sigue vivo', async () => {
+      const items = await host.listWorkspaces();
+      const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
+      assert.equal(byRef.get('thr_alpha0000').alive, true, 'status active → alive');
+      // LA DECISIÓN QUE ESTE TEST PROTEGE: la ficha proponía derivar alive del status
+      // ({starting, active} vivos). Al verificar el esquema real de BB resultó que NO hay
+      // campo que distinga un idle con runtime cargado de uno liberado, así que derivarlo
+      // del status marcaría MUERTA toda sesión que solo terminó su turno — el mismo falso
+      // «dead» (ROMAN-151/152) que ya mordió al host orca en su UAT.
+      assert.equal(byRef.get('thr_bravo0000').alive, true, "status:'idle' NO significa muerta");
+      assert.equal(
+        byRef.get('thr_echo00000').alive,
+        true,
+        "status:'error' sigue presente y el humano tiene que verla",
+      );
+      assert.equal(byRef.get('thr_delta0000').alive, false, 'archivedAt gana sobre todo lo demás');
+    });
+
+    test('needs_input SOLO desde hasPendingInteraction (señal nativa de BB)', async () => {
+      await host.listWorkspaces(); // puebla el snapshot 1-tick
+      assert.equal(await host.needsInput('thr_bravo0000'), true);
+      assert.equal(await host.needsInput('thr_alpha0000'), false, 'un thread activo trabaja, no espera');
+      assert.equal(await host.needsInput('thr_echo00000'), false, 'error ≠ esperando input');
+    });
+
+    test('un hasPendingInteraction truthy no-booleano NO se cuela (stdout no confiable)', async () => {
+      const tampered = async () =>
+        JSON.stringify([{ id: 'thr_x', hasPendingInteraction: 'true', latestAttentionAt: 1 }]);
+      const h = instantiateHost('bb', tampered);
+      const items = await h.listWorkspaces();
+      assert.equal(items[0].needs_input, false, 'la comparación es === true estricta');
+    });
+
+    test('last_activity: epoch ms → ISO, con latestAttentionAt ganando a updatedAt', async () => {
+      const items = await host.listWorkspaces();
+      const byRef = new Map(items.map((w) => [w.workspace_ref, w]));
+      assert.equal(
+        byRef.get('thr_alpha0000').last_activity,
+        new Date(1787560500000).toISOString(),
+        'latestAttentionAt gana aunque updatedAt sea distinto',
+      );
+      // latestAttentionAt:0 no es un timestamp — cae al siguiente candidato, no a null.
+      assert.equal(
+        byRef.get('thr_charlie000').last_activity,
+        new Date(1787559000000).toISOString(),
+        'un latestAttentionAt de 0 cae a updatedAt',
+      );
+    });
+
+    test('un payload que NO es array NO se confunde con «lista vacía» (never-throws → [])', async () => {
+      // BB no tiene sobre `{ok:false}`: un fallo sale por exit code. Pero un binario que
+      // imprima otra cosa (aviso de actualización, versión incompatible) daría un JSON
+      // válido no-array, y tragárselo como lista vacía borraría el snapshot entero.
+      const notAnArray = async () => JSON.stringify({ error: 'unauthorized' });
+      const h = instantiateHost('bb', notAnArray);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.deepEqual(items, []);
+    });
+
+    test('filas null / sin id se filtran fila-a-fila (never-throws)', async () => {
+      const malformed = async () =>
+        JSON.stringify([null, { title: 'sin id' }, { id: 'thr_ok', latestAttentionAt: 1787560000000 }]);
+      const h = instantiateHost('bb', malformed);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.equal(items.length, 1, 'solo sobrevive la fila con id string');
+      assert.equal(items[0].workspace_ref, 'thr_ok');
+    });
+
+    test('el binario falla → [] sin lanzar (never-throws)', async () => {
+      const down = async () => {
+        throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+      };
+      const h = instantiateHost('bb', down);
+      let items;
+      await assert.doesNotReject(async () => {
+        items = await h.listWorkspaces();
+      });
+      assert.deepEqual(items, []);
+    });
+
+    test('_legacy.close existe SOLO en bb (gate por capacidad del autocierre)', () => {
+      // `runReconcileTick` decide si hay carril de autocierre con
+      // `typeof host._legacy.close === 'function'`. Si cmux u orca lo expusieran, el
+      // reconcile empezaría a parar sesiones de hosts que no lo necesitan.
+      assert.equal(typeof instantiateHost('bb')._legacy.close, 'function');
+      assert.notEqual(typeof instantiateHost('cmux')._legacy?.close, 'function');
+      assert.notEqual(typeof instantiateHost('orca')._legacy?.close, 'function');
+    });
+
+    test('_legacy.workspaceCwd existe (bb crea su propio checkout)', () => {
+      // Lo que hace que `worktree_path` de state.json apunte al worktree REAL de BB y el
+      // overlay de progreso lea el `.planning/` de la sesión, no el del repo principal.
+      assert.equal(typeof instantiateHost('bb')._legacy.workspaceCwd, 'function');
+    });
+
+    test('setStatus y setColor son no-op que RESUELVEN (BB no tiene canal de estado)', async () => {
+      const h = instantiateHost('bb');
+      // El launch path los llama sin try/catch en el caso de setStatus: si lanzaran,
+      // abortarían el dispatch de toda sesión bb.
+      await assert.doesNotReject(async () => {
+        await h._legacy.setStatus({ workspace: 'thr_x', status: 'running' });
+        await h._legacy.setColor({ workspace: 'thr_x', color: 'Amber' });
+      });
+    });
+
+    test('NO implementa listAgentSurfaces (BB no publica el session_id de Claude)', () => {
+      // Misma decisión explícita que en orca: sin el session_id del hijo no hay forma
+      // honesta de reconstruir la identidad de un thread ad-hoc desde fuera.
+      assert.notEqual(typeof instantiateHost('bb').listAgentSurfaces, 'function');
     });
   });
 

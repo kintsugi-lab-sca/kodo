@@ -79,7 +79,7 @@ const DEFAULT_CONFIG = {
   },
   // KODO-18 — CLIENTE (WorkspaceHost) ACTIVO. Selector top-level, hermano exacto de
   // `provider` (que elige entre `providers.plane` / `providers.github`): `host` elige
-  // entre los bloques `cmux` y `orca` de abajo.
+  // entre los bloques `cmux`, `orca` y `bb` de abajo (KODO-31 añadió el tercero).
   //
   // Por qué AQUÍ y no en `projects.json` ni en una env var: el host es una propiedad de
   // la INSTALACIÓN (qué app de terminal tienes abierta en esta máquina), no de un
@@ -89,7 +89,7 @@ const DEFAULT_CONFIG = {
   // defaults, así que los `~/.kodo/config.json` ya existentes (que no traen la clave)
   // siguen resolviendo a cmux sin migración ni backup.
   //
-  // Se cambia con: `kodo config set host orca`.
+  // Se cambia con: `kodo config set host orca` (o `bb`).
   host: 'cmux',
   cmux: {
     binary: '/Applications/cmux.app/Contents/Resources/bin/cmux',
@@ -120,6 +120,28 @@ const DEFAULT_CONFIG = {
       error: 'in-progress',
       review: 'in-review',
     },
+  },
+  // KODO-31 — bloque del host BB, tercer hermano estructural de `cmux` y `orca` (solo se
+  // lee cuando `host === 'bb'`). Su presencia en los defaults es INERTE para todos los
+  // demás. No hay bloque de presentación por estado (`colors`/`statuses`): BB no expone
+  // ese canal — ver la nota de `_legacy.setStatus` en src/host/bb.js.
+  bb: {
+    // Por PATH a propósito (D-15, mismo criterio que `agents.registry['claude-code']`).
+    // BB se distribuye por npm y el operador lo instala como prefiera (`npx bb-app@latest`,
+    // global, o un binario del release); cablear un path absoluto aquí acertaría en una
+    // instalación y fallaría en el resto.
+    binary: 'bb',
+    // El binario habla con el servidor de BB por HTTP. Este valor se inyecta como
+    // `BB_SERVER_URL` en el entorno de CADA invocación, para que el daemon no dependa de
+    // lo que la shell del operador tuviera exportado. El default es el puerto por defecto
+    // de bb-app en local.
+    server_url: 'http://127.0.0.1:38886',
+    // Segundos que una sesión debe llevar idle —sin interacción pendiente— antes de que
+    // kodo ejecute `bb thread stop`. Existe porque BB deja el proceso `claude` VIVO al
+    // terminar el turno: sin ese stop, `SessionEnd` no dispara nunca y la tarea se queda
+    // colgada en «In Progress». La gracia evita cerrar a un agente que solo está pensando
+    // entre dos herramientas. Ver `selectAutoCloseTargets` en src/session/reconcile.js.
+    idle_close_grace_s: 90,
   },
   claude: {
     default_model: 'opus',

@@ -57,6 +57,9 @@ const DEBOUNCE_TICKS = 2;
  */
 export const PROCESS_DEAD_GRACE_MS = 2 * 60 * 1000;
 
+/** Gracia por defecto del autocierre (KODO-31) si la config no la trae. Ver `bb.idle_close_grace_s`. */
+export const DEFAULT_IDLE_CLOSE_GRACE_MS = 90 * 1000;
+
 /**
  * @typedef {import('./state.js').Session} Session
  * @typedef {import('./state.js').State} State
@@ -282,6 +285,83 @@ function resolveActiveHostName() {
 }
 
 /**
+ * Gracia del autocierre en ms, resuelta PEREZOSAMENTE desde `~/.kodo/config.json` →
+ * `bb.idle_close_grace_s` (KODO-31). `require` en vez de import estático por el mismo
+ * motivo que `resolveActiveHostName`: este módulo no puede leer config al CARGARSE.
+ * never-throws → el default. Un valor no positivo o no finito también cae al default:
+ * una gracia de 0 convertiría el autocierre en un gatillo instantáneo.
+ *
+ * @returns {number}
+ */
+function resolveIdleCloseGraceMs() {
+  try {
+    const s = Number(createRequire(import.meta.url)('../config.js').loadConfig()?.bb?.idle_close_grace_s);
+    return Number.isFinite(s) && s > 0 ? s * 1000 : DEFAULT_IDLE_CLOSE_GRACE_MS;
+  } catch {
+    return DEFAULT_IDLE_CLOSE_GRACE_MS;
+  }
+}
+
+/**
+ * Selecciona las sesiones que deben cerrarse solas (KODO-31). PURA: no hace I/O, no muta
+ * el state, never-throws.
+ *
+ * POR QUÉ EXISTE. En cmux y orca el proceso `claude` muere cuando el humano cierra la tab,
+ * y ese cierre dispara `SessionEnd` → cleanup, handoff, backstop a «In Review», nudge al
+ * orquestador. En BB no: al terminar el turno el thread queda `idle` y el proceso `claude`
+ * SIGUE VIVO (verificado en vivo); `SessionEnd` solo dispara con `bb thread stop`. Sin este
+ * carril, toda sesión de BB se quedaría para siempre en «In Progress» esperando a que
+ * alguien la parase a mano — y el ciclo completo que kodo automatiza se rompería justo en
+ * el último paso.
+ *
+ * LAS CUATRO CONDICIONES, y por qué cada una:
+ *   1. `session.host === hostName` — solo el host activo, y solo el que expone `close`
+ *      (el caller lo comprueba con `typeof`). Nunca se para un thread de otro cliente.
+ *   2. `state === 'idle'` — el estado que `reconcileTick` deriva cuando la tab vive pero
+ *      el turno terminó. Una sesión `running` está trabajando; una `dead` ya no tiene nada
+ *      que parar; una `needs-input` está esperando al humano.
+ *   3. `needs_input === false` — REDUNDANTE con (2) por construcción del target, y
+ *      deliberadamente redundante: es la condición cuya violación causa el daño peor
+ *      (matar el runtime mientras el agente espera una respuesta pierde la pregunta), así
+ *      que se comprueba explícitamente en vez de confiar en un invariante de otra función.
+ *   4. La gracia sobre `last_seen_alive` — ver abajo.
+ *
+ * EL RELOJ. No se añade un campo nuevo: `last_seen_alive` YA es el instante en que la
+ * sesión entró en su estado actual. `reconcileTick` lo refresca al transicionar y al
+ * debouncing, y NO lo toca en la rama estable (es la optimización de no-write que evita
+ * escribir state.json cada 2,5 s). Para una sesión asentada en `idle` eso lo convierte
+ * exactamente en «idle desde». El sesgo del diseño es el seguro: un estado que flapea
+ * reinicia el reloj y RETRASA el cierre; nunca lo adelanta.
+ *
+ * Una sesión sin `last_seen_alive` parseable NO se cierra: sin reloj no hay gracia que
+ * medir, y cerrar sin ella sería cerrar al instante.
+ *
+ * @param {State} state
+ * @param {{ now: number, graceMs: number, hostName?: string }} opts
+ * @returns {Array<{ taskId: string, ref: string, taskRef: string, idleMs: number }>}
+ */
+export function selectAutoCloseTargets(state, { now, graceMs, hostName }) {
+  const out = [];
+  if (!hostName) return out;
+  for (const [taskId, s] of Object.entries(state?.sessions || {})) {
+    if (!s || s.host !== hostName) continue;
+    if (s.state !== 'idle') continue;
+    if (s.needs_input === true) continue;
+    if (typeof s.workspace_ref !== 'string' || !s.workspace_ref) continue;
+    // `typeof === 'string'` ANTES del parse, y no por estilo: `Date.parse(0)` coacciona a
+    // la cadena "0" y devuelve un timestamp VÁLIDO (año 2000), así que un campo degenerado
+    // numérico pasaría el `Number.isFinite` y daría un «idle desde hace 26 años» que
+    // cerraría la sesión al instante. El contrato del campo es ISO 8601; se exige.
+    const since = typeof s.last_seen_alive === 'string' ? Date.parse(s.last_seen_alive) : NaN;
+    if (!Number.isFinite(since)) continue;
+    const idleMs = now - since;
+    if (idleMs < graceMs) continue;
+    out.push({ taskId, ref: s.workspace_ref, taskRef: s.task_ref, idleMs });
+  }
+  return out;
+}
+
+/**
  * Aplica un tick de reconciliación. PURA: no muta `state` (clona lo que cambia)
  * ni hace I/O. never-throws.
  *
@@ -409,8 +489,8 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     // KODO-18: simetría con el carril (1). Una entry de OTRO host no puede ser
     // rescatada por este snapshot: su ref no está aquí, y si alguna vez lo estuviera
     // sería por colisión de formato entre clientes, nunca por identidad real. Hoy los
-    // refs de cmux (`workspace:N`) y orca (`<repoId>::<path>`) no pueden colisionar, así
-    // que esto es un cierre estructural, no un parche a un fallo observado.
+    // refs de cmux (`workspace:N`), orca (`<repoId>::<path>`) y bb (`thr_…`) no pueden
+    // colisionar, así que esto es un cierre estructural, no un parche a un fallo observado.
     if (hostName && entry.host && entry.host !== hostName) {
       keptHistory.push(entry);
       continue;
@@ -537,9 +617,12 @@ export function isSessionProcessAlive(sessionId, pgrep) {
  * @param {() => number} deps.now - clock inyectable.
  * @param {{ info?: Function, warn?: Function }} [deps.logger]
  * @param {(sessionId: string) => string} [deps.pgrep] - inyectable (tests) para isSessionProcessAlive.
+ * @param {number} [deps.idleCloseGraceMs] - KODO-31: gracia del autocierre en ms. Omitirlo
+ *   la resuelve desde config (`bb.idle_close_grace_s`). Solo se consulta si el host expone
+ *   `_legacy.close`, así que en cmux/orca el parámetro es inerte.
  * @returns {Promise<{ rescued: number, sealed: number, transitioned: number, total: number }>}
  */
-export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep, hostName: hostNameOpt }) {
+export async function runReconcileTick({ host, loadState, saveState, withStateLock, debounceStore, tick, now, logger, pgrep, hostName: hostNameOpt, idleCloseGraceMs }) {
   // KODO-18: nombre del host que produce el snapshot. Inyectable para los tests; por
   // defecto el activo. Lo consume la guarda por host de `reconcileTick`.
   const hostName = hostNameOpt ?? resolveActiveHostName();
@@ -643,6 +726,46 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
     }
   });
 
+  // ── Autocierre (KODO-31) ───────────────────────────────────────────────────
+  // FUERA del lock y DESPUÉS del save, por la misma razón que el pgrep va fuera: `close`
+  // es I/O de red contra el servidor de BB y sostener el state lock a través de ella
+  // arriesgaría un steal por TTL.
+  //
+  // El gate es por CAPACIDAD (`typeof host._legacy.close`), no por nombre de host: cmux y
+  // orca no exponen ese verbo, así que su carril queda literalmente sin ejecutar y su
+  // comportamiento es byte-idéntico al previo. Se salta también si el snapshot del host
+  // falló (`liveRefs === null`): con evidencia degradada no se toma una decisión
+  // irreversible — el mismo criterio que hace que ese tick no transicione nada.
+  //
+  // NO se marca la sesión aquí. `bb thread stop` dispara `SessionEnd`, y ese hook YA es el
+  // dueño del camino de cierre (handoff, backstop a review, cleanup, nudge). Escribir
+  // estado desde aquí duplicaría a un escritor que no controlamos.
+  if (liveRefs !== null && typeof host?._legacy?.close === 'function') {
+    const graceMs = idleCloseGraceMs ?? resolveIdleCloseGraceMs();
+    const targets = selectAutoCloseTargets(loadState(), { now: now(), graceMs, hostName });
+    for (const t of targets) {
+      try {
+        await host._legacy.close(t.ref);
+        logger?.info?.('session.autoclose', {
+          task_id: t.taskId,
+          task_ref: t.taskRef,
+          thread_id: t.ref,
+          host: hostName,
+          grace_s: Math.round(graceMs / 1000),
+          idle_s: Math.round(t.idleMs / 1000),
+        });
+      } catch (err) {
+        // never-throws: BB caído o thread ya parado. El siguiente tick reintenta — la
+        // sesión sigue idle y la gracia ya está cumplida.
+        logger?.warn?.('session.autoclose.fail', {
+          task_id: t.taskId,
+          thread_id: t.ref,
+          detail: String(/** @type {any} */ (err)?.message || '').slice(0, 200),
+        });
+      }
+    }
+  }
+
   // LOG-hygiene: un tick que cambió estado va a info; el heartbeat idle (sin cambios)
   // baja a debug para no inflar reconcile.ndjson cada ~2.5s.
   if (persisted) {
@@ -682,6 +805,9 @@ export function startReconcileLoop(deps) {
   // fresco como puede ser. Los callers directos de `runReconcileTick` (tests, CLI)
   // siguen resolviéndolo ellos.
   const hostName = deps.hostName ?? resolveActiveHostName();
+  // KODO-31: misma razón que `hostName` — `resolveIdleCloseGraceMs` acaba en `loadConfig()`,
+  // que lee y valida ~/.kodo/config.json. Una vez por loop, no cada 2,5 s.
+  const idleCloseGraceMs = deps.idleCloseGraceMs ?? resolveIdleCloseGraceMs();
   let tick = 0;
   let running = false; // single-flight: no solapar ticks si uno tarda > interval
   const intervalMs = deps.intervalMs ?? RECONCILE_INTERVAL_MS;
@@ -704,6 +830,7 @@ export function startReconcileLoop(deps) {
         now,
         logger: deps.logger,
         hostName, // KODO-18: resuelto una vez arriba, fuera del bucle caliente
+        idleCloseGraceMs, // KODO-31: ídem
       });
     } catch (err) {
       // never-throws: un fallo del tick no debe tumbar el server.

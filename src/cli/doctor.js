@@ -33,6 +33,7 @@ import { createFormatter } from './format.js';
  *   listStatesFn?: (projectId: string) => Promise<string[]>,
  *   listProjectsFn?: () => Promise<Array<any>>,
  *   readSettingsFn?: () => any,
+ *   bbDoctorFn?: () => Promise<any>,
  *   writeFn?: (s: string) => void,
  *   formatterFn?: () => import('./format.js').Formatter,
  * }} RunDoctorDeps
@@ -92,10 +93,22 @@ export async function runDoctor(opts, deps = {}) {
   // solo un hook AUSENTE con settings LEGIBLE fuerza el exit 1.
   const hasHookDrift = settingsReadable && hooks.missing.length > 0;
 
+  // 3b. Host BB (KODO-31). Corre SOLO cuando el host activo es `bb`, y entonces SIEMPRE —
+  //     no tras un flag opt-in. Mismo razonamiento que la deriva de hooks de arriba: un
+  //     opt-in que nadie pasa no previene nada, y con `host: 'bb'` un servidor caído o un
+  //     provider `claude-code` no disponible dejan a kodo lanzando threads que mueren al
+  //     arrancar — un fallo invisible desde el resto del sistema. No rompe el default
+  //     offline del doctor: la llamada es a loopback (127.0.0.1), no a la API del provider.
+  //     never-throws → `null` si el check no aplica o si el cliente no carga.
+  const bb = await runBbCheck({ host: config?.host, bbDoctorFn: deps.bbDoctorFn });
+  const hasBbProblems = !!bb && (!bb.serverUp || bb.providerAvailable === false);
+
   const hasStateProblems = !!states && states.problems.length > 0;
   const hasIdentifierProblems = !!identifiers && identifiers.problems.length > 0;
   const exitCode =
-    alignment.hasIssues || hasStateProblems || hasIdentifierProblems || hasHookDrift ? 1 : 0;
+    alignment.hasIssues || hasStateProblems || hasIdentifierProblems || hasHookDrift || hasBbProblems
+      ? 1
+      : 0;
 
   // 4. Render.
   if (opts.json) {
@@ -104,13 +117,62 @@ export async function runDoctor(opts, deps = {}) {
       ...(states ? { states } : {}),
       ...(identifiers ? { identifiers } : {}),
       hooks: { readable: settingsReadable, registered: hooks.registered, missing: hooks.missing },
+      ...(bb ? { bb } : {}),
     };
     write(JSON.stringify(payload, null, 2) + '\n');
   } else {
     renderHuman({ alignment, states, identifiers, hooks, settingsReadable, provider: providerName, write, fmt });
+    renderBb({ bb, write, fmt });
   }
 
   return exitCode;
+}
+
+/**
+ * Diagnostica el runtime del host BB (KODO-31). never-throws.
+ *
+ * `null` cuando el host activo NO es `bb`: no se diagnostica lo que no se usa, y así el
+ * doctor de un operador de cmux no cambia ni un byte.
+ *
+ * El cliente se importa LAZY y el import va dentro del try: en una instalación sin el
+ * carril bb cableado, un fallo de resolución debe degradar a «sin check», no tumbar el
+ * doctor entero.
+ *
+ * @param {{ host?: string, bbDoctorFn?: () => Promise<any> }} params
+ * @returns {Promise<{ serverUrl: string, serverUp: boolean, providerAvailable: boolean|null, detail?: string }|null>}
+ */
+async function runBbCheck({ host, bbDoctorFn }) {
+  if (host !== 'bb') return null;
+  try {
+    const doctorFn = bbDoctorFn || (await import('../bb/client.js')).doctor;
+    return await doctorFn();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Render humano del bloque BB. No-op cuando el check no aplica (host ≠ bb), lo que
+ * mantiene la salida del doctor idéntica para cmux y orca.
+ *
+ * @param {{ bb: any, write: (s: string) => void, fmt: any }} params
+ */
+function renderBb({ bb, write, fmt }) {
+  if (!bb) return;
+  write(`\n─── host bb (${bb.serverUrl}) ───\n`);
+  if (!bb.serverUp) {
+    write(`${fmt.error('caído')} — el servidor de BB no responde${bb.detail ? `: ${bb.detail}` : ''}\n`);
+    write(`${fmt.dim('  arráncalo con `npx bb-app@latest` o ajusta `bb.server_url` en ~/.kodo/config.json')}\n`);
+    return;
+  }
+  if (bb.providerAvailable === true) {
+    write(`${fmt.ok('clean')} — servidor en pie y provider claude-code disponible\n`);
+  } else if (bb.providerAvailable === false) {
+    write(`${fmt.error('provider ausente')} — BB responde pero claude-code no está disponible\n`);
+    write(`${fmt.dim('  BB necesita el binario `claude` en la máquina donde corre el thread')}\n`);
+  } else {
+    write(`${fmt.yellow('parcial')} — servidor en pie; no se pudo consultar el provider${bb.detail ? `: ${bb.detail}` : ''}\n`);
+  }
 }
 
 /**

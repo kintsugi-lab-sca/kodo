@@ -178,7 +178,11 @@ describe('SDR-04 — el launch path queda byte-idéntico: los nuevos exports son
     // y groupRef como 3er argumento (fail-open englobante GRP-01/03).
     assert.match(managerSrc, /newWorkspaceWithGroupFallback\(/, 'falta la llamada del launch path');
     assert.match(managerSrc, /host\._legacy\.newWorkspace,/, 'el launch path debe seguir usando host._legacy.newWorkspace');
-    assert.match(managerSrc, /\{ name: workspaceName, cwd: projectPath \},/, 'los opts base del launch path cambiaron de forma');
+    // KODO-31: los opts base siguen siendo `name` + `cwd: projectPath`; el spread
+    // `...spawnOpts` es ADITIVO y resuelve a `{}` para cmux y orca, así que el objeto que
+    // reciben esos dos hosts es exactamente el de antes. Lo que este assert protege —
+    // que el cwd sea el del PROYECTO y no el del worktree (D-04) — queda intacto.
+    assert.match(managerSrc, /\{ name: workspaceName, cwd: projectPath, \.\.\.spawnOpts \},/, 'los opts base del launch path cambiaron de forma');
     assert.match(managerSrc, /groupRef,\s*\n\s*\);/, 'groupRef debe seguir siendo el 3er argumento del fallback');
   });
 

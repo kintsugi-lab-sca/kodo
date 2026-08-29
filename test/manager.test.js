@@ -1245,3 +1245,66 @@ describe('manager.js source hygiene', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KODO-31 — el carril de los hosts que ENTREGAN el prompt al crear el workspace.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('KODO-31 — buildSessionPrompt y el guard del send', () => {
+  it('buildSessionPrompt produce EXACTAMENTE el prompt que buildClaudeCommand incrusta', async () => {
+    // El invariante que hace segura la extracción: el prompt que se le manda a BB en el
+    // spawn es, byte a byte, el que cmux/orca reciben dentro del `$(cat …)`.
+    const { buildSessionPrompt } = await import('../src/session/manager.js');
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /const prompt = buildSessionPrompt\(task, description, moduleName\);/.test(source),
+      'buildClaudeCommand debe consumir el helper, no duplicar la plantilla',
+    );
+    assert.equal(
+      buildSessionPrompt(makeTask({ title: 'Fix login bug' }), 'Some markdown description', 'auth-module'),
+      'Trabaja en: Fix login bug. Módulo: auth-module. Descripción: Some markdown description',
+    );
+  });
+
+  it('buildSessionPrompt omite el módulo y la descripción cuando no los hay', async () => {
+    const { buildSessionPrompt } = await import('../src/session/manager.js');
+    assert.equal(buildSessionPrompt(makeTask({ title: 'X' }), '', null), 'Trabaja en: X.');
+  });
+
+  it('el send del launch path está guardado por `claudeCmd !== null`', () => {
+    // Sin el guard, un host que ya entregó el prompt recibiría por `thread tell` el texto
+    // literal `claude --model … "$(cat …)"` como si fuera un mensaje del humano.
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /if \(claudeCmd !== null\) \{\s*\n\s*await host\._legacy\.send\(\{ workspace: workspaceRef, text: claudeCmd \}\);/.test(source),
+      'el send debe estar dentro de `if (claudeCmd !== null)`',
+    );
+  });
+
+  it('el prompt del spawn se calcula ANTES de crear el workspace', () => {
+    // `bb thread spawn --prompt` es obligatorio: si `spawnOpts` se resolviera después del
+    // newWorkspace, el spawn saldría sin prompt y fallaría en el binario.
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    const spawnOptsIdx = source.indexOf('const spawnOpts = deliversPrompt');
+    const newWsIdx = source.indexOf('const workspaceRef = await newWorkspaceWithGroupFallback(');
+    assert.ok(spawnOptsIdx > 0 && newWsIdx > spawnOptsIdx, 'spawnOpts debe resolverse antes del newWorkspace');
+  });
+
+  it('el permiso viaja como booleano host-agnóstico, no como el literal de BB', () => {
+    // El vocabulario de permisos de cada host vive en su adapter (`permissionModeFor`).
+    // Un `'full'` literal aquí ataría manager.js al dialecto de BB.
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(/skipPermissions:/.test(source), 'debe pasar skipPermissions');
+    assert.ok(
+      !/permissionMode:\s*['"]/.test(source),
+      "manager.js no debe cablear literales de permission-mode ('full'/'accept-edits')",
+    );
+  });
+
+  it('spawnOpts es {} para los hosts que NO entregan el prompt (cero regresión)', () => {
+    const source = readFileSync(MANAGER_SOURCE_PATH, 'utf-8');
+    assert.ok(
+      /const spawnOpts = deliversPrompt[\s\S]{0,800}?\n\s*: \{\};/.test(source),
+      'la rama else de spawnOpts debe ser el objeto vacío',
+    );
+  });
+});

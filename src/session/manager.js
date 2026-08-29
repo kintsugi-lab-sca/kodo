@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
-import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
+import { getHost, resolveHostName, hostIsolatesWorktree, hostDeliversPrompt } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
 import { addSession, listSessions, updateSession, computeRealWorktreePath } from './state.js';
 // KODO-53: el aviso de lanzamiento ya no se TECLEA — se encola en la bandeja del
@@ -467,13 +467,39 @@ export async function launchWorkItem(identifier, opts = {}) {
   // que basta el saneador de RENDER (stripControlChars) — neutraliza CSI/OSC/C0/C1/DEL/CR
   // sin colapsar \n/\t. Se sanea ANTES de truncar para que el recorte mida texto limpio.
   const workspaceName = `${prefix}: ${truncate(stripControlChars(task.title), 40)}`;
+
+  // KODO-31 — el modelo y las flags se resuelven AQUÍ, antes de crear el workspace, en vez
+  // de más abajo junto al resto del comando de claude. Los necesita `newWorkspace` cuando
+  // el host ENTREGA el prompt en la creación (BB: `thread spawn --prompt` es obligatorio y
+  // no hay carril de keystrokes después). Ninguno de los dos depende del `workspaceRef`,
+  // así que subirlos no cambia nada para cmux/orca — el `claudeCmd` se sigue construyendo
+  // abajo con los mismos valores.
+  const modelOverride = opts.model ?? labelModel;
+  const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
+  const deliversPrompt = hostDeliversPrompt(hostName);
+  // Mismo criterio de permisos que `buildClaudeCommand`: cualquier modo GSD corre slash
+  // commands autónomos y `kodo:yolo` lo pide explícitamente. La traducción al vocabulario
+  // del host vive en el adapter (`permissionModeFor`), no aquí.
+  const spawnOpts = deliversPrompt
+    ? {
+        prompt: buildSessionPrompt(task, description, moduleName),
+        model: modelOverride || config.claude.default_model,
+        // Booleano HOST-AGNÓSTICO, no el literal `'full'`: el mapeo al vocabulario de
+        // permisos de cada host vive en su adapter (`permissionModeFor` en src/bb/client.js),
+        // igual que `setStatus` traduce el estado semántico a color o a columna.
+        skipPermissions: combinedFlags.includes('yolo') || getGsdMode(combinedFlags) !== null,
+      }
+    : {};
   // Phase 77 (D-10 capa 2 TOCTOU): si el new-workspace CON --group falla (grupo borrado
   // entre list y launch, ref inválido = exit=1 fatal), UN reintento SIN --group salva la
   // sesión. `cwd: projectPath` LITERAL (invariante Phase 18 D-04 — el worktree lo
   // materializa claude, no el newWorkspace).
+  // KODO-31: `spawnOpts` es `{}` para cmux y orca — el objeto de opts que reciben es
+  // byte-idéntico al de antes. Solo un host que entregue el prompt en la creación
+  // (`hostDeliversPrompt`) ve las tres claves extra.
   const workspaceRef = await newWorkspaceWithGroupFallback(
     host._legacy.newWorkspace,
-    { name: workspaceName, cwd: projectPath },
+    { name: workspaceName, cwd: projectPath, ...spawnOpts },
     groupRef,
   );
 
@@ -564,8 +590,8 @@ export async function launchWorkItem(identifier, opts = {}) {
   // UUID it stamped into the lock file — acquire, persist and release share
   // identity. Non-GSD paths (no sessionId in opts) keep the pre-existing behavior.
   const sessionId = opts.sessionId || randomUUID();
-  const modelOverride = opts.model ?? labelModel;
-  const combinedFlags = Array.from(new Set([...(opts.flags || []), ...labelFlags]));
+  // KODO-31: `modelOverride` y `combinedFlags` se resolvieron arriba (los necesitaba el
+  // spawn de los hosts que entregan el prompt). Mismos valores, mismo orden de derivación.
   // KODO-9 bugfix: `claude --worktree` EXIGE un repo git. En proyectos no-git
   // aborta al instante (proceso claude nunca vive) dejando un falso positivo
   // running/alive en state.json. Detectamos el cwd ANTES de montar el comando:
@@ -615,7 +641,13 @@ export async function launchWorkItem(identifier, opts = {}) {
       /* fail-open: sin path, el overlay cae a project_path (comportamiento previo) */
     }
   }
-  const claudeCmd = buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude);
+  // KODO-31: con un host que entrega el prompt en la creación NO hay comando que teclear —
+  // BB arranca Claude Code por el Agent SDK, no abre un shell. Se salta también
+  // `writePromptFile`: ese fichero existe SOLO para que `cmux send` no parta el prompt al
+  // teclearlo, y aquí no se teclea nada.
+  const claudeCmd = deliversPrompt
+    ? null
+    : buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude);
   // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
   if (!gitBacked) {
     console.log(`[kodo] worktree_skipped_nongit — ${task.ref}: ${projectPath} no es un repositorio git; se lanza sin --worktree`);
@@ -667,8 +699,14 @@ export async function launchWorkItem(identifier, opts = {}) {
     );
   }
 
-  // Send Claude command to workspace
-  await host._legacy.send({ workspace: workspaceRef, text: claudeCmd });
+  // Send Claude command to workspace.
+  // KODO-31: se OMITE cuando el host ya entregó el prompt al crear el workspace. Enviarlo
+  // ahí no sería redundante sino DAÑINO: `_legacy.send` en BB es `thread tell`, así que el
+  // texto `claude --model … "$(cat …)"` llegaría al agente como un mensaje del humano
+  // pidiéndole que ejecute un comando, encima de la tarea que ya está haciendo.
+  if (claudeCmd !== null) {
+    await host._legacy.send({ workspace: workspaceRef, text: claudeCmd });
+  }
 
   // Notify
   await host._legacy.notify({
@@ -723,6 +761,25 @@ export async function launchWorkItem(identifier, opts = {}) {
 }
 
 /**
+ * Prompt de arranque de una sesión de trabajo. PURA.
+ *
+ * Extraída de `buildClaudeCommand` (KODO-31) SIN cambiar un byte de la cadena resultante:
+ * los golden-bytes de QUICK-07 siguen valiendo. Existe como función propia porque ahora
+ * tiene DOS consumidores — el comando de claude que se teclea en cmux/orca, y el
+ * `thread spawn --prompt` de BB, que necesita el prompt DESNUDO (sin el header
+ * `claude --model … --session-id …`, que allí no significa nada).
+ *
+ * @param {import('../interface.js').TaskItem} task
+ * @param {string} description
+ * @param {string|null} [moduleName]
+ * @returns {string}
+ */
+export function buildSessionPrompt(task, description, moduleName = null) {
+  const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
+  return `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
+}
+
+/**
  * @param {ReturnType<import('../config.js').loadConfig>} config
  * @param {string} sessionId
  * @param {import('../interface.js').TaskItem} task
@@ -737,8 +794,7 @@ export async function launchWorkItem(identifier, opts = {}) {
  */
 export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null, isGitRepo = true) {
   const model = modelOverride || config.claude.default_model;
-  const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
-  const prompt = `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
+  const prompt = buildSessionPrompt(task, description, moduleName);
 
   // Las sesiones GSD (full y quick) corren slash commands autónomos; pedir
   // confirmación por tool call rompe la automatización. Cualquier modo GSD

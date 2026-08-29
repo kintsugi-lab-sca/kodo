@@ -194,7 +194,10 @@ export async function runDashboard(deps = {}) {
   // KODO-18: el binario se elige según el host ACTIVO, no siempre el de cmux.
   const dashboardConfig = loadConfig();
   const hostName = resolveHostName();
-  const hostBin = hostName === 'orca' ? dashboardConfig.orca?.binary : dashboardConfig.cmux?.binary;
+  // KODO-31: mapa en vez de ternario anidado — con tres hosts el encadenado dejaba de
+  // leerse, y el fallback a cmux se vuelve explícito en vez de implícito en el `else`.
+  const hostBin = { orca: dashboardConfig.orca?.binary, bb: dashboardConfig.bb?.binary }[hostName]
+    ?? dashboardConfig.cmux?.binary;
 
   // Phase 56 D-01: host IN-PROCESS (reusa el MISMO execImpl + binario ya resueltos — CERO
   // endpoint nuevo en el server, preserva el invariante "cero endpoints desde v0.10"). `listAgentSurfaces`

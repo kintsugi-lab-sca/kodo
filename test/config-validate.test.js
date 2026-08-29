@@ -299,8 +299,8 @@ describe('KODO-18 — validateHostName (selector de cliente)', () => {
     }
   });
 
-  it('HOST_NAMES es la fuente única: exactamente cmux y orca', () => {
-    assert.deepEqual([...HOST_NAMES], ['cmux', 'orca']);
+  it('HOST_NAMES es la fuente única: exactamente cmux, orca y bb', () => {
+    assert.deepEqual([...HOST_NAMES], ['cmux', 'orca', 'bb']);
   });
 });
 
@@ -395,6 +395,34 @@ describe('KODO-18 — getEditableFields resuelve la presentación contra el host
   it('el total NO crece con el host: 14 en ambos casos', () => {
     assert.equal(getEditableFields({ host: 'cmux' }).length, 14);
     assert.equal(getEditableFields({ host: 'orca' }).length, 14);
+  });
+
+  // KODO-31 — bb rompe el patrón de «4 campos de presentación» a propósito.
+  it('con host bb muestra sus 3 knobs y NINGÚN campo de presentación de cmux/orca', () => {
+    const paths = getEditableFields({ provider: 'plane', host: 'bb' }).map((f) => f.path);
+    assert.deepEqual(
+      paths.filter((p) => p.startsWith('bb.')),
+      ['bb.binary', 'bb.server_url', 'bb.idle_close_grace_s'],
+    );
+    assert.ok(!paths.some((p) => p.startsWith('cmux.')), 'un usuario de bb no ve colores de cmux');
+    assert.ok(!paths.some((p) => p.startsWith('orca.')), 'un usuario de bb no ve columnas de Orca');
+  });
+
+  it('con host bb el total es 13, no 14: BB no tiene canal de presentación por estado', () => {
+    // El registro sigue la CAPACIDAD real del host. Inventarle un cuarto campo para cuadrar
+    // el número le prometería al operador un canal que BB no expone.
+    assert.equal(getEditableFields({ host: 'bb' }).length, 13);
+  });
+
+  it('la gracia de autocierre se valida como entero positivo (un 0 cerraría al instante)', () => {
+    const field = getEditableFields({ host: 'bb' }).find((f) => f.path === 'bb.idle_close_grace_s');
+    assert.equal(field.kind, 'positiveInt');
+  });
+
+  it('cada path editable del host bb resuelve en DEFAULT_CONFIG', () => {
+    for (const f of getEditableFields({ provider: 'plane', host: 'bb' })) {
+      assert.notEqual(getByPath(DEFAULT_CONFIG, f.path), undefined, `path sin valor: ${f.path}`);
+    }
   });
 
   it('KODO-53 — `orchestrator.nudges` es editable y su kind es nudgeMode', () => {

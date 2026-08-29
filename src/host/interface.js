@@ -122,10 +122,13 @@ export { HOST_NAMES };
  * `worktree_path` de `state.json` apuntando a un path que nadie ha creado (cleanup
  * fantasma en session-end).
  *
+ * KODO-31: `bb` entra por la misma puerta — `thread spawn --new-environment worktree`
+ * materializa el checkout antes de que el agente arranque.
+ *
  * `session/manager.js` consulta este set para decidir si emite el flag.
  * @type {ReadonlySet<string>}
  */
-export const HOSTS_WITH_OWN_WORKTREE = Object.freeze(new Set(['orca']));
+export const HOSTS_WITH_OWN_WORKTREE = Object.freeze(new Set(['orca', 'bb']));
 
 /**
  * ¿El host activo aporta ya su propio aislamiento por worktree? PURA.
@@ -134,6 +137,37 @@ export const HOSTS_WITH_OWN_WORKTREE = Object.freeze(new Set(['orca']));
  */
 export function hostIsolatesWorktree(name) {
   return HOSTS_WITH_OWN_WORKTREE.has(name);
+}
+
+/**
+ * Hosts que ENTREGAN el prompt al crear el workspace, en vez de recibirlo después por el
+ * carril de keystrokes (KODO-31).
+ *
+ * cmux y orca abren un TERMINAL: kodo crea la tab y luego teclea `claude --model … "$(cat
+ * <promptfile>)"` con `_legacy.send`. BB no es un terminal — arranca Claude Code por el
+ * Agent SDK— y su `thread spawn` exige `--prompt` como opción OBLIGATORIA, así que el
+ * prompt tiene que estar listo ANTES de crear el workspace y no hay nada que teclear
+ * después.
+ *
+ * `session/manager.js` consulta este set para dos cosas: pasar `prompt`/`model`/
+ * `permissionMode` en las opciones de `newWorkspace`, y OMITIR el `send` posterior — que
+ * en BB entregaría el texto literal `claude --model …` como si fuera un mensaje del
+ * humano.
+ *
+ * Set SEPARADO de `HOSTS_WITH_OWN_WORKTREE` aunque hoy `bb` esté en los dos: son dos
+ * capacidades independientes (orca aísla por worktree y SÍ usa keystrokes), y fusionarlas
+ * ataría dos decisiones que no tienen por qué ir juntas en el siguiente host.
+ * @type {ReadonlySet<string>}
+ */
+export const HOSTS_DELIVERING_PROMPT = Object.freeze(new Set(['bb']));
+
+/**
+ * ¿El host entrega el prompt al crear el workspace (en vez de tecleárselo después)? PURA.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function hostDeliversPrompt(name) {
+  return HOSTS_DELIVERING_PROMPT.has(name);
 }
 
 /**
@@ -151,7 +185,7 @@ export function hostIsolatesWorktree(name) {
  * `loadConfig` se importa LAZY (createRequire) para preservar el invariante de este
  * módulo: cero side-effects al cargar.
  *
- * @returns {string} `'cmux'` | `'orca'`
+ * @returns {string} `'cmux'` | `'orca'` | `'bb'`
  */
 export function resolveHostName() {
   try {
@@ -165,7 +199,7 @@ export function resolveHostName() {
 
 /**
  * Factory de WorkspaceHost.
- * @param {string} name - 'cmux' | 'orca' | 'null'.
+ * @param {string} name - 'cmux' | 'orca' | 'bb' | 'null'.
  * @param {Object} [opts] - DI opcional (exec, run, binary, logger). Usado por tests
  *   y por el wiring del dashboard. Para 'cmux', si se omite binary se resuelve
  *   desde loadConfig().cmux.binary (lo hace createCmuxHost); para 'orca', desde
@@ -182,6 +216,10 @@ export function getHost(name, opts = {}) {
   if (name === 'orca') {
     const { createOrcaHost } = require('./orca.js');
     return createOrcaHost(opts);
+  }
+  if (name === 'bb') {
+    const { createBbHost } = require('./bb.js');
+    return createBbHost(opts);
   }
   throw new Error(`Unknown host: ${name}`);
 }

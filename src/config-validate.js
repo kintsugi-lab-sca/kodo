@@ -46,7 +46,10 @@ const CMUX_COLORS = new Set([
 // el destino correcto de la constante por ser el puro (0 imports → sin ciclo con
 // config.js, que sí importa a este). `'null'` NO está: es un host mock-only del
 // contract test, jamás una elección del operador.
-const HOST_NAMES = Object.freeze(['cmux', 'orca']);
+// KODO-31: `bb` es el tercero. A diferencia de cmux y orca NO es un terminal — lanza
+// Claude Code por el Agent SDK sobre un thread propio— pero el eje es el mismo: un
+// cliente donde vive la sesión.
+const HOST_NAMES = Object.freeze(['cmux', 'orca', 'bb']);
 
 // KODO-53: cómo llegan al orquestador los eventos del ciclo de vida. FUENTE ÚNICA DE
 // VERDAD del set — `config.js` documenta la SEMÁNTICA de cada modo en el default;
@@ -234,14 +237,27 @@ export function setByPath(obj, dotted, value) {
  *
  * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
  *   `config.provider` y `config.host`).
- * @returns {EditableField[]} exactamente 14 descriptores `{path,label,kind}`.
+ * @returns {EditableField[]} descriptores `{path,label,kind}`: 14 con cmux u orca, 13 con
+ *   bb (ese host no tiene canal de presentación por estado — ver `stateFields`).
  */
 export function getEditableFields(config) {
   const provider = config?.provider ?? 'plane';
   const host = HOST_NAMES.includes(config?.host) ? config.host : 'cmux';
   // Presentación por estado del host ACTIVO: mismo eje semántico, distinto canal.
   /** @type {EditableField[]} */
-  const stateFields = host === 'orca'
+  // KODO-31: `bb` rompe el patrón «4 campos de presentación por estado» y lo hace a
+  // propósito: BB no tiene canal de presentación (ni color de tab ni columna de tablero),
+  // así que inventarle cuatro campos para cuadrar el total sería mentirle al operador
+  // sobre una capacidad que no existe. En su lugar el editor expone los 3 knobs que este
+  // host SÍ tiene, y el total baja a 13 — el registro sigue la capacidad real del host,
+  // no un número.
+  const stateFields = host === 'bb'
+    ? [
+        { path: 'bb.binary', label: 'Binario de BB', kind: 'nonEmpty' },
+        { path: 'bb.server_url', label: 'URL del servidor BB', kind: 'nonEmpty' },
+        { path: 'bb.idle_close_grace_s', label: 'Gracia de autocierre (s)', kind: 'positiveInt' },
+      ]
+    : host === 'orca'
     ? [
         { path: 'orca.statuses.running', label: 'Estado Orca: running', kind: 'nonEmpty' },
         { path: 'orca.statuses.done', label: 'Estado Orca: done', kind: 'nonEmpty' },
