@@ -56,7 +56,21 @@ function writeConfig(home) {
   writeFileSync(join(home, '.kodo', 'config.json'), JSON.stringify(MINIMAL_CONFIG, null, 2));
 }
 
-/** Build an env with any webhook-secret / dev bypass scrubbed so the fail-fast fires. */
+/** The provider API key env var this fixture's config points at. */
+const API_KEY_ENV = MINIMAL_CONFIG.providers.plane.api_key_env;
+/** Synthetic key: `projects: []` keeps provider.init() OFFLINE, so it never hits the wire. */
+const FAKE_API_KEY = 'kodo-test-plane-api-key';
+
+/**
+ * Build an env with any webhook-secret / dev bypass scrubbed so the fail-fast fires,
+ * and with the provider API key INJECTED.
+ *
+ * KODO-57: startServer resolves the provider (src/server.js:315) and PlaneClient's
+ * constructor throws `Plane API key not found` when PLANE_API_KEY is absent from the
+ * child env. The key used to arrive by inheritance from the operator's ~/.kodo/.env —
+ * on any clean machine (CI, Linux container) this test died for a reason unrelated to
+ * what it measures. Injecting it also stops the test from using the operator's REAL key.
+ */
 function scrubbedEnv(extra = {}) {
   const env = { ...process.env };
   delete env.KODO_DEV;
@@ -64,6 +78,7 @@ function scrubbedEnv(extra = {}) {
   for (const k of Object.keys(env)) {
     if (k.startsWith('KODO_WEBHOOK_SECRET_')) delete env[k];
   }
+  env[API_KEY_ENV] = FAKE_API_KEY;
   return { ...env, ...extra };
 }
 
@@ -99,6 +114,7 @@ describe('kodo start regression (UP-06 golden)', () => {
   describe('legacy in-process start', () => {
     /** @type {string} */ let tmpHome;
     /** @type {string | undefined} */ let prevHome;
+    /** @type {string | undefined} */ let prevApiKey;
     /** @type {any} */ let server;
     /** @type {{ SIGTERM: Function[], SIGINT: Function[] }} */ let sigBefore;
 
@@ -107,6 +123,11 @@ describe('kodo start regression (UP-06 golden)', () => {
       writeConfig(tmpHome);
       prevHome = process.env.HOME;
       process.env.HOME = tmpHome; // BEFORE the first server.js import (KODO_DIR is load-time)
+      // KODO-57: same reason as scrubbedEnv, but for the IN-PROCESS start — getPlaneApiKey
+      // reads process.env at call time (src/config.js:528), so setting it here (before the
+      // dynamic import) is enough and never touches the operator's real key.
+      prevApiKey = process.env[API_KEY_ENV];
+      process.env[API_KEY_ENV] = FAKE_API_KEY;
 
       // Snapshot signal listeners so we can strip whatever the legacy path installs
       // on `process` (server.js:612-618) and leave the runner clean.
@@ -133,6 +154,8 @@ describe('kodo start regression (UP-06 golden)', () => {
       }
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
+      if (prevApiKey === undefined) delete process.env[API_KEY_ENV];
+      else process.env[API_KEY_ENV] = prevApiKey;
       if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
     });
 
@@ -160,6 +183,10 @@ describe('kodo start regression (UP-06 golden)', () => {
         1,
         `expected exit 1 (fail-fast), got ${res.status}. stderr: ${res.stderr}`,
       );
+      // KODO-57: assert the REASON, not just the code. Before the API key injection an
+      // absent ~/.kodo/.env made the provider constructor blow up first — same exit 1,
+      // wrong cause. Pinning the message keeps this a webhook-secret test.
+      assert.match(res.stderr, /Missing webhook secret/, `stderr: ${res.stderr}`);
     } finally {
       rmSync(tmpHome, { recursive: true, force: true });
     }

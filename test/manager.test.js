@@ -1,7 +1,9 @@
 // @ts-check
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -676,15 +678,28 @@ describe('manager — pure helpers', () => {
       assert.equal(isGitRepo('/x', () => ''), false);
     });
 
-    it('detecta correctamente el repo real de este propio proyecto (default gitFn)', () => {
-      // El repo kodo ES git — smoke test del path real sin inyección.
-      assert.equal(isGitRepo(process.cwd()), true);
+    // KODO-57: los dos smoke tests del gitFn REAL montan su propio terreno en un
+    // tmpdir. Antes uno asumía que el cwd del runner es un repo git (falso en un
+    // tarball, un contenedor con el árbol copiado sin `.git`, o un CI que exporta
+    // el código sin historia) y el otro asumía que `/tmp` nunca es un working tree.
+    it('un repo git REAL (git init en tmpdir) devuelve true con el gitFn por defecto', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kodo-isgitrepo-yes-'));
+      try {
+        execFileSync('git', ['init', '-q', dir], { stdio: ['ignore', 'ignore', 'ignore'] });
+        assert.equal(isGitRepo(dir), true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
-    it('un directorio no-git real (p. ej. /tmp) devuelve false con el gitFn por defecto', () => {
-      // /tmp normalmente no es un working tree git — verifica que el error real
-      // de git se traga y devuelve false (no propaga la excepción).
-      assert.equal(isGitRepo('/tmp'), false);
+    it('un directorio no-git real devuelve false con el gitFn por defecto', () => {
+      // Verifica que el error real de git se traga y devuelve false (no propaga).
+      const dir = mkdtempSync(join(tmpdir(), 'kodo-isgitrepo-no-'));
+      try {
+        assert.equal(isGitRepo(dir), false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });

@@ -64,6 +64,22 @@ function commandsOf(hooks, event) {
   return hooks[event].flatMap((entry) => (entry.hooks || []).map((h) => h.command));
 }
 
+/**
+ * ¿Este command apunta a un hook canónico de kodo? Espejo en test de la primitiva real
+ * del módulo bajo prueba (`commandMatchesFile`, src/hooks/install.js:41): el
+ * discriminante es el segmento de ruta `/src/hooks/`, NO el substring `kodo`.
+ *
+ * KODO-57: el filtro anterior (`c.includes('kodo')`) sobre la ruta ABSOLUTA del hook
+ * pasaba en macOS solo por accidente — porque el checkout vive en un directorio llamado
+ * `kodo`. Con el árbol en `/app` (contenedor Linux) o en `~/dev/trabajo` el filtro
+ * devolvía 0 elementos y el assert de idempotencia se ponía rojo (o, en los que
+ * afirman ausencia, se volvía vacuo).
+ */
+function isKodoHookCommand(c) {
+  return typeof c === 'string'
+    && (c.includes('/src/hooks/') || c.includes('\\src\\hooks\\'));
+}
+
 describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () => {
   beforeEach(() => {
     writeSettings({ hooks: {} });
@@ -106,8 +122,8 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
     installHooks();
     installHooks();
     const { hooks } = readSettings();
-    const ss = commandsOf(hooks, 'SessionStart').filter((c) => c.includes('kodo'));
-    const stop = commandsOf(hooks, 'Stop').filter((c) => c.includes('kodo'));
+    const ss = commandsOf(hooks, 'SessionStart').filter(isKodoHookCommand);
+    const stop = commandsOf(hooks, 'Stop').filter(isKodoHookCommand);
     assert.equal(ss.length, 1, 'SessionStart no duplica la entry kodo');
     assert.equal(stop.length, 1, 'Stop no duplica la entry kodo');
   });
@@ -150,8 +166,8 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
     const ss = commandsOf(hooks, 'SessionStart');
     const stop = commandsOf(hooks, 'Stop');
     // Los kodo se fueron.
-    assert.ok(!ss.some((c) => c.includes('kodo')), 'SessionStart sin entry kodo');
-    assert.ok(!stop.some((c) => c.includes('kodo')), 'Stop sin entry kodo');
+    assert.ok(!ss.some(isKodoHookCommand), 'SessionStart sin entry kodo');
+    assert.ok(!stop.some(isKodoHookCommand), 'Stop sin entry kodo');
     // Los hooks ajenos permanecen.
     assert.ok(ss.includes('orca run'), 'SessionStart ajeno preservado');
     assert.ok(stop.includes('third-party-stop'), 'Stop ajeno preservado');
@@ -160,8 +176,8 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
   it('Test 5 (DG-08 demote): tras installHooks NO existe entry kodo TaskCreated/TaskCompleted', () => {
     installHooks();
     const { hooks } = readSettings();
-    const created = commandsOf(hooks, 'TaskCreated').filter((c) => c.includes('kodo'));
-    const completed = commandsOf(hooks, 'TaskCompleted').filter((c) => c.includes('kodo'));
+    const created = commandsOf(hooks, 'TaskCreated').filter(isKodoHookCommand);
+    const completed = commandsOf(hooks, 'TaskCompleted').filter(isKodoHookCommand);
     assert.equal(created.length, 0, 'NINGÚN TaskCreated kodo tras install (hook 50-02 demotado)');
     assert.equal(completed.length, 0, 'NINGÚN TaskCompleted kodo tras install (hook 50-02 demotado)');
   });

@@ -46,7 +46,17 @@ function writeConfig(home) {
   writeFileSync(join(home, '.kodo', 'config.json'), JSON.stringify(MINIMAL_CONFIG, null, 2));
 }
 
-/** Env sin ningún bypass heredado del runner (secret, KODO_DEV, la propia env var). */
+/**
+ * Env sin ningún bypass heredado del runner (secret, KODO_DEV, la propia env var)
+ * y CON la API key del provider inyectada.
+ *
+ * KODO-57: `startServer` resuelve el provider (src/server.js:315) y el constructor de
+ * `PlaneClient` muere con «Plane API key not found» si `PLANE_API_KEY` no está en el
+ * env del hijo. Antes la key llegaba por herencia del `~/.kodo/.env` del operador —
+ * en cualquier máquina limpia (CI, contenedor Linux) el test moría por un motivo
+ * ajeno a lo que mide. La key es sintética y NUNCA sale a red: `projects: []` deja
+ * `provider.init()` OFFLINE.
+ */
 function scrubbedEnv(extra = {}) {
   const env = { ...process.env };
   delete env.KODO_DEV;
@@ -55,6 +65,8 @@ function scrubbedEnv(extra = {}) {
   for (const k of Object.keys(env)) {
     if (k.startsWith('KODO_WEBHOOK_SECRET_')) delete env[k];
   }
+  // Sobrescribe la key REAL del operador si la hubiera: el test no debe usarla.
+  env[MINIMAL_CONFIG.providers.plane.api_key_env] = 'kodo-test-plane-api-key';
   return { ...env, ...extra };
 }
 

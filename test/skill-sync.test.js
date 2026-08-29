@@ -543,18 +543,20 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     assert.match(second.stdout, /^kodo-capture: .*No drift/m);
   });
 
-  it('SKILL-04 #3: fs error (dest file unreadable) → exit 1, stderr canonical', () => {
+  it('SKILL-04 #3: fs error (dest file ilegible) → exit 1, stderr canonical', () => {
     ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
     // Primer run para crear dest.
     const first = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
     assert.equal(first.status, 0);
     const dest = destOf(_tmpHome);
-    // chmod del archivo individual a 0o000: el syncSkill intentará readFileSync
-    // para computar el hash y fallará con EACCES (Rule 1: ajustar setup del test
-    // para reproducir fs error determinísticamente; chmod del dir 0o500 no basta
-    // en macOS porque POSIX permite overwrite de archivo existente sin permiso
-    // en parent dir si el file mismo es escribible).
-    chmodSync(join(dest, 'skill.md'), 0o000);
+    // KODO-57: el error de fs se fuerza poniendo un DIRECTORIO donde el sync espera un
+    // fichero → `readFileSync(destAbs)` (src/skill/sync.js:117) lanza EISDIR al computar
+    // el hash del dest. Antes esto era `chmodSync(..., 0o000)`, que root IGNORA: bajo
+    // uid 0 (contenedores, CI) la lectura seguía funcionando, el sync salía 0 y el test
+    // moría por un motivo ajeno a lo que mide. EISDIR es independiente del uid y del
+    // umask, así que el caso queda CUBIERTO también como root en vez de saltarse.
+    rmSync(join(dest, 'skill.md'), { force: true });
+    mkdirSync(join(dest, 'skill.md'), { recursive: true });
     // Modificar source para forzar una comparación de hash que requiere leer dest.
     writeFileSync(
       join(sourceOf(_tmpRepo), 'skill.md'),
@@ -563,9 +565,8 @@ describe('runSkillSyncCli (integration spawnSync `bin/kodo skill sync`)', () => 
     );
 
     const result = runCli({ tmpHome: _tmpHome, tmpRepo: _tmpRepo });
-    // afterEach restaura permisos del dest dir antes del rmSync (chmod 0o755).
-    // Restaurar también el archivo aquí para que afterEach pueda borrarlo.
-    try { chmodSync(join(dest, 'skill.md'), 0o644); } catch {}
+    // afterEach restaura permisos del dest dir antes del rmSync (chmod 0o755); el
+    // `rmSync({recursive:true})` se lleva el directorio-señuelo sin preparación extra.
     assert.equal(result.status, 1, `stdout: ${result.stdout}, stderr: ${result.stderr}`);
     // El prefijo literal se conserva ANCLADO a inicio de cadena — es el que dicta
     // la forma del mensaje por skill (el nombre va DESPUÉS de los dos puntos).
