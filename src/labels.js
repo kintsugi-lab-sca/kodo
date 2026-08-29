@@ -178,3 +178,60 @@ export function isDispatchable(labels) {
   const asObjects = labels.map((l) => (typeof l === 'string' ? { name: l } : l));
   return parseKodoLabels(asObjects).isKodo;
 }
+
+/**
+ * Mapa etiqueta → id de agente del registro `config.agents.registry` (KODO-19).
+ *
+ * Las etiquetas de agente son NO REACTIVAS: no disparan nada por sí solas —el
+ * dispatcher sigue exigiendo `kodo`/`kodo:*` para lanzar— solo se LEEN en el
+ * momento del lanzamiento para decidir con qué CLI se abre la sesión. Por eso
+ * viven en `flags`, igual que `gsd`/`gsd-quick`, y no como campo propio de
+ * `parseKodoLabels`: ese campo lo tiene `model` porque es un valor de operador,
+ * mientras que el agente es un MODO de ejecución, como GSD.
+ *
+ * Se aceptan forma corta y larga a propósito: `kodo:oc` es lo que se teclea a
+ * diario en el tablero, `kodo:opencode` es lo que se lee sin contexto. Las
+ * claves están en minúsculas porque es como salen de `parseKodoLabels`.
+ */
+export const AGENT_LABELS = /** @type {Record<string, 'claude-code'|'opencode'>} */ ({
+  cc: 'claude-code',
+  'claude-code': 'claude-code',
+  oc: 'opencode',
+  opencode: 'opencode',
+});
+
+/**
+ * Devuelve el id de agente codificado en un array de flags, o `null` si no hay
+ * ninguna etiqueta de agente. Hermano estructural de `getGsdMode`: centralizado
+ * aquí para que dispatcher, manager, hooks y tests compartan UNA definición.
+ *
+ *   kodo:oc / kodo:opencode    → 'opencode'
+ *   kodo:cc / kodo:claude-code → 'claude-code'
+ *   ninguna                    → null   // el caller cae a `config.agents.default`
+ *
+ * `null` (ausencia) NO es lo mismo que `'claude-code'` explícito: el caller
+ * traduce la ausencia al default DEL CONFIG, que el operador puede haber movido
+ * con `kodo config set agents.default …`. Devolver `'claude-code'` aquí
+ * cortocircuitaría ese ajuste.
+ *
+ * PRECEDENCIA: si conviven etiquetas de dos agentes distintos (`kodo:cc` +
+ * `kodo:oc`), gana `claude-code`. Es la elección conservadora — ante una tarea
+ * ambigua se lanza el agente con el ciclo de vida COMPLETO (hooks, cleanup de
+ * worktree, comentario de cierre), no el degradado.
+ *
+ * @param {string[]} flags
+ * @returns {'claude-code'|'opencode'|null}
+ */
+export function getAgentName(flags) {
+  if (!Array.isArray(flags)) return null;
+  /** @type {Set<'claude-code'|'opencode'>} */
+  const found = new Set();
+  for (const flag of flags) {
+    if (typeof flag !== 'string') continue;
+    const agent = AGENT_LABELS[flag.toLowerCase()];
+    if (agent) found.add(agent);
+  }
+  if (found.size === 0) return null;
+  // Conservador ante etiquetas en conflicto — ver PRECEDENCIA arriba.
+  return found.has('claude-code') ? 'claude-code' : [...found][0];
+}

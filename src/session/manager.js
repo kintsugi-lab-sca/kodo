@@ -3,10 +3,29 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
-import { parseKodoLabels, getGsdMode } from '../labels.js';
+import { parseKodoLabels, getGsdMode, getAgentName } from '../labels.js';
+// KODO-19: el bloque de contexto de sesión. Con Claude Code lo inyecta su hook
+// SessionStart; para un agente que no ejecuta los hooks de kodo, `buildAgentCommand` lo
+// mete DENTRO del prompt. Se importa del módulo HOJA `session/context.js` y no del hook:
+// `hooks/session-start.js` carga `logger.js` por import() dinámico, y el guard de
+// aislamiento LOG-12 prohíbe que eso entre en el grafo de `check.js`. El texto no se
+// duplica en ningún caso — es justo lo que vigila el guard de golden bytes HOOK-01.
+import { buildSessionContext } from './context.js';
 import { getHost, resolveHostName, hostIsolatesWorktree, hostDeliversPrompt } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
-import { addSession, listSessions, updateSession, computeRealWorktreePath } from './state.js';
+import {
+  addSession,
+  listSessions,
+  updateSession,
+  computeRealWorktreePath,
+  // KODO-55: el gate de `max_parallel` deja de contar fuera del lock. La reserva
+  // (contar + escribir placeholder) vive en state.js porque tiene que ocurrir dentro
+  // de la MISMA sección crítica de `withStateLock`.
+  isSchedulable,
+  reserveSessionSlot,
+  releaseSessionSlot,
+  LAUNCHING_STATUS,
+} from './state.js';
 // KODO-53: el aviso de lanzamiento ya no se TECLEA — se encola en la bandeja del
 // orquestador. Por eso este módulo dejó de importar `orchestrator/target.js`
 // (`resolveOrchestratorTargets`/`sendToOrchestrator` resolvían el destinatario del
@@ -41,10 +60,13 @@ import { stripControlChars } from '../cli/sanitize.js';
  *                          //               PRE-spawn so kodo logs / consumers can resolve the path
  *                          //               immediately. Aditivo opcional (D-03c) — mismo idiom que
  *                          //               phaseId/brief/gsdMode.
+ *   agentName?: string|null, // KODO-19: id del agente del registro ('claude-code'|'opencode').
+ *                            //          Aditivo opcional: `null`/ausente omite el campo y la
+ *                            //          sesión se lee como pre-KODO-19 (= agente por defecto).
  * }} params
  * @returns {import('./state.js').Session}
  */
-export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, workspaceId, flags, phaseId, brief, worktreePath, hostName }) {
+export function buildSessionFromTask({ task, providerName, projectPath, workspaceRef, sessionId, workspaceId, flags, phaseId, brief, worktreePath, hostName, agentName }) {
   // Phase 11 (D-03): GSD execution mode derived locally from flags. Single source
   // of truth: `flags`. The signature does NOT grow — gsdMode is a local derivation,
   // mirroring the dispatcher pattern at src/triggers/dispatcher.js:74.
@@ -97,6 +119,13 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     // Mismo spread condicional que los campos de arriba: una sesión sin él (legacy)
     // desactiva la guarda y conserva el comportamiento previo.
     ...(hostName ? { host: hostName } : {}),
+    // KODO-19: qué CLI abrió la sesión. Se persiste porque hay consumidores que NO pueden
+    // rederivarlo: `isSessionProcessAlive` necesita el patrón `pgrep` del agente, y el
+    // patrón de Claude Code (`session-id <sid>`) NUNCA casaría con un proceso de OpenCode
+    // — la sesión se leería como muerta al primer tick. Spread condicional, igual que los
+    // campos de arriba: una sesión sin él (legacy, o lanzada sin etiqueta de agente) se
+    // resuelve contra `config.agents.default`, que es el comportamiento previo exacto.
+    ...(agentName ? { agent: agentName } : {}),
   };
 }
 
@@ -299,48 +328,12 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
   };
 }
 
-/**
- * Launch a Claude Code session for a provider-backed task.
- *
- * @param {string} identifier e.g. "KL-42"
- * @param {{
- *   model?: string|null,
- *   flags?: string[],
- *   sessionId?: string,
- *   projectPath?: string, // Phase 18 WR-01: dispatcher-resolved path threaded
- *                         //                  para evitar double-resolution.
- *                         //                  Cuando presente, salta el
- *                         //                  resolveProjectPath interno —
- *                         //                  garantiza consistencia con el
- *                         //                  path validado por collision-check
- *                         //                  (existsSyncFn).
- *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
- *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
- * }} [opts]
- *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
- *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
- *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
- *   `phase_id` and `brief` are persisted on the Session record for the hook
- *   SessionStart to consume via findSession().
- */
-/**
- * ¿Cuenta esta sesión contra el gate de `max_parallel`? (CONC-03 / D-05).
- *
- * Solo las sesiones `status === 'running'` Y `alive !== false` ocupan un slot. Un
- * zombi que `reconcileTick` marcó `alive:false` (porque su TAB de cmux murió — la
- * TAB, no el proceso: D-06b) deja de contar, liberando la fuga de capacidad más
- * dañina de la auditoría (A4: un slot retenido hasta 30 días).
- *
- * `!== false` (no `=== true`) es DELIBERADO: las sesiones legacy sin el campo
- * `alive` (pre-v0.9) siguen contando — cero regresión. El gate solo LEE `alive`;
- * el ÚNICO escritor de ese campo sigue siendo `reconcileTick` (invariante v0.9/v0.10).
- *
- * @param {{ status?: string, alive?: boolean }} session
- * @returns {boolean}
- */
-export function isSchedulable(session) {
-  return session.status === 'running' && session.alive !== false;
-}
+// KODO-55: `isSchedulable` se mudó a `session/state.js` — el conteo tiene que ocurrir
+// DENTRO de la sección crítica de `reserveSessionSlot`, y state.js no puede importar
+// este módulo (ciclo). Se re-exporta para que la ruta de import previa
+// (`src/session/manager.js`, usada por test/session/max-parallel-alive.test.js) siga
+// siendo válida: mover la definición no es motivo para romper a sus consumidores.
+export { isSchedulable };
 
 /**
  * Detecta si `projectPath` está dentro de un working tree de git.
@@ -376,22 +369,143 @@ export function isGitRepo(projectPath, gitFn) {
   }
 }
 
+/**
+ * Reserva un slot de `max_parallel` para un lanzamiento — el gate, ahora ATÓMICO
+ * (KODO-55).
+ *
+ * Hasta aquí el gate era un `listSessions().filter(isSchedulable)` suelto al principio
+ * de `launchWorkItem`, y la sesión no aparecía en `state.json` hasta el `addSession`
+ * PRE-spawn: entre medias corrían `provider.updateTaskState`, la creación del worktree
+ * y la del workspace del host — segundos. Cada lanzamiento concurrente leía el estado
+ * ANTERIOR, veía hueco y pasaba. El 28-ago, con `max_parallel = 5`, entraron 12
+ * sesiones en 62 s (KODO-42…54, una cada ~5 s).
+ *
+ * Ahora contar y reservar son la misma sección crítica (`reserveSessionSlot`), así que
+ * el perdedor de la carrera SÍ ve el placeholder del ganador.
+ *
+ * ── Por qué la reserva NO va bajo la clave `task_id` ──
+ * Porque aquí todavía no se conoce: lo resuelve el provider más abajo
+ * (`resolveTaskAndLaunchContext`). Adelantar esa resolución reordenaría el cuerpo de
+ * `launchWorkItem` — que es exactamente lo que hay que evitar mientras KODO-19 trabaja
+ * sobre el mismo camino. La reserva va por tanto con clave propia `launching:<uuid>`,
+ * y el slot se sostiene SIN HUECO igualmente: `addSession` escribe el registro real
+ * ANTES de que el `finally` retire el placeholder, de modo que ambas entradas SOLAPAN
+ * durante unos milisegundos. Sobrecontar un instante es seguro; descontar no lo es.
+ *
+ * El placeholder lleva el shape completo de `Session` con los campos que aún no
+ * existen a `''`, y no un objeto a medias: `state.sessions` lo recorre medio repo
+ * (dashboard, health, orquestador) y una entrada con campos ausentes es una mina para
+ * cualquier `.includes()` futuro. Todos esos consumidores filtran hoy por
+ * `status === 'running'`, así que la reserva les es invisible por construcción.
+ *
+ * @param {string} identifier - ref humana ("KODO-42"). Es lo ÚNICO que se conoce en
+ *   este punto, y va al `task_ref` del placeholder para que la reserva sea legible en
+ *   el dashboard y en el propio mensaje de error de un lanzamiento posterior.
+ * @param {{ maxParallel: number, provider: string, now?: number }} opts
+ * @returns {string} la clave de la reserva, para liberarla después.
+ * @throws {Error} `Max parallel sessions (N) reached.` — mensaje verbatim del gate
+ *   previo (lo consumen el dispatcher y el dashboard) — o el fail-closed de lock.
+ */
+export function reserveLaunchSlot(identifier, opts) {
+  const key = `${LAUNCHING_STATUS}:${randomUUID()}`;
+  const startedAt = new Date(opts.now ?? Date.now()).toISOString();
+  const r = reserveSessionSlot(
+    key,
+    {
+      workspace_ref: '',
+      workspace_id: null,
+      session_id: '',
+      task_id: '',
+      task_ref: identifier,
+      provider: opts.provider,
+      project_id: '',
+      summary: `Lanzando ${identifier}…`,
+      status: /** @type {const} */ ('launching'),
+      started_at: startedAt,
+      project_path: '',
+    },
+    { maxParallel: opts.maxParallel, now: opts.now },
+  );
+
+  if (r.ok) return key;
+  if (r.reason === 'max-parallel') {
+    // Mensaje BYTE-IDÉNTICO al del gate previo: es contrato de facto con el
+    // dispatcher (que lo propaga) y con lo que el operador lee en el dashboard.
+    throw new Error(
+      `Max parallel sessions (${opts.maxParallel}) reached. ` +
+      `Active: ${r.active.join(', ')}`,
+    );
+  }
+  // FAIL-CLOSED en lock-timeout (espeja a `addSession`, WR-01): sin poder escribir la
+  // reserva no hay forma de garantizar el límite, y lanzar a ciegas es precisamente la
+  // falla que este gate existe para cerrar.
+  throw new Error(
+    `Could not reserve a session slot for ${identifier} (${r.reason}) — aborting before launch`,
+  );
+}
+
+/**
+ * Launch a Claude Code session for a provider-backed task.
+ *
+ * @param {string} identifier e.g. "KL-42"
+ * @param {{
+ *   model?: string|null,
+ *   flags?: string[],
+ *   sessionId?: string,
+ *   projectPath?: string, // Phase 18 WR-01: dispatcher-resolved path threaded
+ *                         //                  para evitar double-resolution.
+ *                         //                  Cuando presente, salta el
+ *                         //                  resolveProjectPath interno —
+ *                         //                  garantiza consistencia con el
+ *                         //                  path validado por collision-check
+ *                         //                  (existsSyncFn).
+ *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
+ *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
+ * }} [opts]
+ *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
+ *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
+ *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
+ *   `phase_id` and `brief` are persisted on the Session record for the hook
+ *   SessionStart to consume via findSession().
+ *
+ * KODO-55: envoltorio FINO sobre el lanzamiento. Reserva el slot bajo el lock, delega
+ * en el cuerpo de siempre (`launchReservedWorkItem`, sin reordenar) y retira la reserva
+ * en el `finally`.
+ *
+ * El `finally` corre también en el camino de ÉXITO, y es correcto: `releaseSessionSlot`
+ * solo borra la entrada si sigue en `status: 'launching'`, así que jamás toca el
+ * registro real que `addSession` acaba de escribir. Si el lanzamiento falla en
+ * cualquier punto —provider, worktree, host— la reserva se retira por esta misma vía y
+ * el slot vuelve al pool: cero slots fantasma.
+ */
 export async function launchWorkItem(identifier, opts = {}) {
+  const config = loadConfig();
+  const reservationKey = reserveLaunchSlot(identifier, {
+    maxParallel: config.claude.max_parallel,
+    provider: config.provider,
+  });
+  try {
+    return await launchReservedWorkItem(identifier, opts);
+  } finally {
+    // never-throws: una reserva que no se pudo retirar (lock-timeout) la barre
+    // `reconcileTick` por TTL. Enmascarar aquí el error original del launch sería
+    // cambiar un slot fantasma temporal por un diagnóstico perdido.
+    try {
+      releaseSessionSlot(reservationKey);
+    } catch { /* el TTL de la reserva es la red de seguridad */ }
+  }
+}
+
+/**
+ * El cuerpo del lanzamiento, con el slot YA reservado por `launchWorkItem`. Es el
+ * `launchWorkItem` previo a KODO-55 verbatim menos el gate — deliberadamente sin
+ * reordenar, para no chocar con el trabajo concurrente sobre este mismo camino.
+ */
+async function launchReservedWorkItem(identifier, opts = {}) {
   const config = loadConfig();
 
   await initRegistry();
   const provider = getProvider(config.provider);
-
-  // Check max parallel sessions (CONC-03 / D-05): cuenta solo sesiones vivas
-  // (ver isSchedulable). El gate solo LEE `alive`; reconcile sigue siendo el ÚNICO
-  // escritor de ese campo (invariante v0.9/v0.10).
-  const active = listSessions().filter(isSchedulable);
-  if (active.length >= config.claude.max_parallel) {
-    throw new Error(
-      `Max parallel sessions (${config.claude.max_parallel}) reached. ` +
-      `Active: ${active.map((s) => s.task_ref).join(', ')}`,
-    );
-  }
 
   // Resolve task + launch context via provider
   const projects = loadProjects();
@@ -592,6 +706,20 @@ export async function launchWorkItem(identifier, opts = {}) {
   const sessionId = opts.sessionId || randomUUID();
   // KODO-31: `modelOverride` y `combinedFlags` se resolvieron arriba (los necesitaba el
   // spawn de los hosts que entregan el prompt). Mismos valores, mismo orden de derivación.
+  // KODO-19: qué CLI abre esta sesión. Sale de las etiquetas (`kodo:oc`/`kodo:cc`) vía
+  // el mismo carril que el modo GSD — flags → helper puro de labels.js. `null` (sin
+  // etiqueta) NO se traduce aquí a 'claude-code': se deja pasar a `getAgentDef`, que es
+  // quien conoce `config.agents.default` y por tanto respeta al operador que lo movió.
+  //
+  // KODO-31 × KODO-19: con un host que ENTREGA el prompt, kodo no lanza ningún CLI — lo
+  // lanza el host. BB arranca Claude Code por el Agent SDK (`--provider claude-code` fijo
+  // en el spawn), así que la etiqueta de agente no tiene dónde aterrizar: no hay binario
+  // que elegir, ni flags, ni `buildAgentCommand`. Se degrada con la MISMA forma que
+  // `agent_downgraded_gsd` —traza canónica y greppable, lanzamiento adelante— en vez de
+  // persistir un `agent: 'opencode'` que sería mentira sobre lo que corre de verdad.
+  const agentName = deliversPrompt
+    ? resolveAgentForPromptHost(combinedFlags, hostName, task.ref)
+    : resolveAgentName(combinedFlags, task.ref);
   // KODO-9 bugfix: `claude --worktree` EXIGE un repo git. En proyectos no-git
   // aborta al instante (proceso claude nunca vive) dejando un falso positivo
   // running/alive en state.json. Detectamos el cwd ANTES de montar el comando:
@@ -604,7 +732,14 @@ export async function launchWorkItem(identifier, opts = {}) {
   // path que nadie crea: session-end intentaría un cleanup fantasma. Con cmux esto es
   // `false` y TODO el comportamiento previo queda intacto.
   const hostOwnsWorktree = hostIsolatesWorktree(hostName);
-  const isolateWithClaude = gitBacked && !hostOwnsWorktree;
+  // KODO-19: el aislamiento por worktree es una capacidad DEL AGENTE, no de kodo. Solo
+  // se pide si su definición declara un `worktree_flag`; OpenCode no tiene equivalente
+  // (`opencode [project]` es el directorio de arranque, no un worktree que él cree).
+  // La tercera condición es la que evita reintroducir el bug de KODO-30 por la puerta de
+  // atrás: sin flag no hay worktree, y persistir un `worktree_path` que nadie materializa
+  // dejaría a session-end/dashboard apuntando a un path fantasma.
+  const agentWorktreeFlag = getAgentDef(config, agentName).worktree_flag;
+  const isolateWithClaude = gitBacked && !hostOwnsWorktree && Boolean(agentWorktreeFlag);
   // Phase 18 (D-01, D-02, D-03): compute deterministic worktree path PRE-spawn.
   // Single source of truth: computeRealWorktreePath de session/state.js.
   // El path NO se crea aquí — `claude --worktree <sessionId>` lo materializa al
@@ -641,23 +776,14 @@ export async function launchWorkItem(identifier, opts = {}) {
       /* fail-open: sin path, el overlay cae a project_path (comportamiento previo) */
     }
   }
-  // KODO-31: con un host que entrega el prompt en la creación NO hay comando que teclear —
-  // BB arranca Claude Code por el Agent SDK, no abre un shell. Se salta también
-  // `writePromptFile`: ese fichero existe SOLO para que `cmux send` no parta el prompt al
-  // teclearlo, y aquí no se teclea nada.
-  const claudeCmd = deliversPrompt
-    ? null
-    : buildClaudeCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude);
-  // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
-  if (!gitBacked) {
-    console.log(`[kodo] worktree_skipped_nongit — ${task.ref}: ${projectPath} no es un repositorio git; se lanza sin --worktree`);
-  } else if (hostOwnsWorktree) {
-    // KODO-18: traza hermana, greppable, para no confundir la ausencia de --worktree
-    // con el caso no-git de arriba.
-    console.log(`[kodo] worktree_skipped_host — ${task.ref}: el host '${hostName}' ya aísla por worktree; se lanza sin --worktree`);
-  }
-
-  // Track session in state with generic task fields
+  // Track session in state with generic task fields.
+  //
+  // KODO-19: este bloque se ADELANTA al montaje del comando (antes iba justo después).
+  // `buildSessionFromTask` es puro —no toca estado ni red— así que el movimiento no
+  // cambia nada observable, y a cambio `buildAgentCommand` recibe el SessionRecord ya
+  // formado: es lo que necesita para inyectar el contexto de sesión DENTRO del prompt
+  // cuando el agente no ejecuta los hooks de kodo (ver `buildAgentCommand`). El
+  // `addSession` sigue exactamente donde estaba, PRE-spawn, sin tocar su orden.
   const session = buildSessionFromTask({
     task,
     providerName: config.provider,
@@ -677,7 +803,28 @@ export async function launchWorkItem(identifier, opts = {}) {
     // dentro de buildSessionFromTask preserva compat para call sites sin path.
     worktreePath,
     hostName, // KODO-18: el host activo resuelto arriba
+    agentName, // KODO-19: qué CLI abrió la sesión (omitido cuando no hay etiqueta)
   });
+
+  // KODO-31: con un host que ENTREGA el prompt en la creación no hay comando que teclear —
+  // BB arranca el agente por el Agent SDK, no abre un shell. Se salta también
+  // `writePromptFile`: ese fichero existe SOLO para que `cmux send` no parta el prompt al
+  // teclearlo, y aquí no se teclea nada.
+  const claudeCmd = deliversPrompt
+    ? null
+    : buildAgentCommand(config, sessionId, task, description, modelOverride, combinedFlags, moduleName, isolateWithClaude, agentName, session);
+  // KODO-9: traza canónica y greppable cuando se omite el aislamiento por ser no-git.
+  if (!gitBacked) {
+    console.log(`[kodo] worktree_skipped_nongit — ${task.ref}: ${projectPath} no es un repositorio git; se lanza sin --worktree`);
+  } else if (hostOwnsWorktree) {
+    // KODO-18: traza hermana, greppable, para no confundir la ausencia de --worktree
+    // con el caso no-git de arriba.
+    console.log(`[kodo] worktree_skipped_host — ${task.ref}: el host '${hostName}' ya aísla por worktree; se lanza sin --worktree`);
+  } else if (!agentWorktreeFlag) {
+    // KODO-19: tercera hermana. El proyecto es git y el host no aísla, pero el AGENTE
+    // no tiene flag de worktree — la sesión corre directamente sobre `projectPath`.
+    console.log(`[kodo] worktree_skipped_agent — ${task.ref}: el agente '${agentName || config.agents?.default || 'claude-code'}' no aísla por worktree; se lanza sobre ${projectPath}`);
+  }
 
   // Phase 18 (D-03 PRE-spawn ordering): persist BEFORE cmux.send so consumers
   // (kodo logs --session-of, stop hook recovery, future readers) see the
@@ -763,11 +910,16 @@ export async function launchWorkItem(identifier, opts = {}) {
 /**
  * Prompt de arranque de una sesión de trabajo. PURA.
  *
- * Extraída de `buildClaudeCommand` (KODO-31) SIN cambiar un byte de la cadena resultante:
+ * Extraída de `buildAgentCommand` (KODO-31) SIN cambiar un byte de la cadena resultante:
  * los golden-bytes de QUICK-07 siguen valiendo. Existe como función propia porque ahora
- * tiene DOS consumidores — el comando de claude que se teclea en cmux/orca, y el
+ * tiene DOS consumidores — el comando que se teclea en cmux/orca, y el
  * `thread spawn --prompt` de BB, que necesita el prompt DESNUDO (sin el header
  * `claude --model … --session-id …`, que allí no significa nada).
+ *
+ * NO incluye el bloque de contexto de sesión de KODO-19: ese es un añadido POSTERIOR y
+ * condicionado al agente, y vive donde se decide (`buildAgentCommand`). Un host que
+ * entregue el prompt corre siempre un agente con hooks (ver `resolveAgentForPromptHost`),
+ * así que le basta esta línea — el contexto se lo inyecta su propio SessionStart.
  *
  * @param {import('../interface.js').TaskItem} task
  * @param {string} description
@@ -777,6 +929,78 @@ export async function launchWorkItem(identifier, opts = {}) {
 export function buildSessionPrompt(task, description, moduleName = null) {
   const moduleCtx = moduleName ? ` Módulo: ${moduleName}.` : '';
   return `Trabaja en: ${task.title}.${moduleCtx} ${description ? 'Descripción: ' + description : ''}`.trim();
+}
+
+/**
+ * Resuelve el id de agente de una tarea a partir de sus flags (KODO-19).
+ *
+ * Envoltorio fino sobre `getAgentName` con UNA regla propia: **GSD manda sobre la
+ * etiqueta de agente**. El flujo GSD no es "un prompt distinto", es un contrato de
+ * Claude Code de arriba abajo — slash commands `/gsd-*` que solo existen como
+ * plugins suyos, hooks que sellan las fases, y ficheros de lock que escriben esos
+ * hooks. Lanzar `kodo:gsd` + `kodo:oc` no daría una sesión GSD degradada: daría una
+ * sesión que quema tokens tecleando comandos inexistentes.
+ *
+ * Ante esa combinación se degrada a Claude Code con una traza canónica y greppable,
+ * en vez de abortar el lanzamiento: la tarea es legítima y el operador puede querer
+ * que corra igual; lo que no puede es correr con el agente equivocado en silencio.
+ *
+ * @param {string[]} flags
+ * @param {string} [taskRef] - solo para la traza.
+ * @returns {'claude-code'|'opencode'|null} `null` = sin etiqueta → decide el config.
+ */
+export function resolveAgentName(flags, taskRef = '?') {
+  const requested = getAgentName(flags);
+  if (requested && requested !== 'claude-code' && getGsdMode(flags) !== null) {
+    console.log(`[kodo] agent_downgraded_gsd — ${taskRef}: '${requested}' no implementa el flujo GSD (slash commands y hooks de Claude Code); se lanza con 'claude-code'`);
+    return 'claude-code';
+  }
+  return requested;
+}
+
+/**
+ * Traduce el modelo de kodo ('opus') al identificador que espera el agente, según el
+ * `model_map` de su definición (KODO-19).
+ *
+ * Sin mapa —o con un modelo que no está en él— se devuelve VERBATIM. Ese passthrough
+ * es la mitad útil de la función: hace que `--model anthropic/claude-sonnet-4-5` o
+ * `kodo config set claude.default_model <id-nativo>` funcionen sin tocar el registro,
+ * y garantiza que un agente sin `model_map` (Claude Code) se comporte exactamente
+ * como antes de esta tarea.
+ *
+ * @param {string} model
+ * @param {{ model_map?: Record<string, string> }} agent
+ * @returns {string}
+ */
+export function mapAgentModel(model, agent) {
+  return agent?.model_map?.[model] || model;
+}
+
+/**
+ * Resuelve el agente para un host que ENTREGA el prompt al crear el workspace (KODO-31).
+ *
+ * Con cmux u orca kodo teclea el CLI que le digan las etiquetas. Con un host como BB no
+ * teclea nada: el host arranca el agente por su cuenta —`thread spawn --provider
+ * claude-code`— y kodo solo le pasa prompt, modelo y modo de permisos. La etiqueta
+ * `kodo:oc` no tiene entonces dónde aterrizar, y persistir `agent: 'opencode'` en el
+ * SessionRecord sería afirmar sobre el runtime algo que no es cierto: quien decide el
+ * estado de la sesión (hooks vs proceso) se elegiría mal por un dato falso.
+ *
+ * Misma forma de degradación que `resolveAgentName` con GSD —traza canónica y greppable,
+ * lanzamiento adelante— porque la situación es la misma: la tarea es legítima, lo que no
+ * puede es correr creyendo que usa un agente que no usa.
+ *
+ * @param {string[]} flags
+ * @param {string} hostName - host activo (solo para la traza).
+ * @param {string} [taskRef] - solo para la traza.
+ * @returns {'claude-code'} el host fija el agente.
+ */
+export function resolveAgentForPromptHost(flags, hostName, taskRef = '?') {
+  const requested = getAgentName(flags);
+  if (requested && requested !== 'claude-code') {
+    console.log(`[kodo] agent_pinned_by_host — ${taskRef}: el host '${hostName}' arranca el agente él mismo (claude-code); se ignora la etiqueta '${requested}'`);
+  }
+  return 'claude-code';
 }
 
 /**
@@ -791,17 +1015,59 @@ export function buildSessionPrompt(task, description, moduleName = null) {
  *   OMITE `--worktree`, porque `claude --worktree` exige un repo git y aborta si
  *   no lo hay. Default `true` → backward-compat total (proyectos git y todos los
  *   callers/tests previos siguen emitiendo `--worktree` exactamente como antes).
+ * @param {string|null} [agentName] - KODO-19: id del agente en `config.agents.registry`.
+ *   `null`/ausente → `config.agents.default`, que es 'claude-code' salvo que el operador
+ *   lo haya movido. Con el default, el comando resultante es byte-idéntico al previo.
+ * @param {import('./state.js').Session|null} [session] - KODO-19: SessionRecord ya
+ *   formado. Solo se usa para agentes cuyo `status_authority` NO es 'hooks': ver el
+ *   bloque de inyección de contexto abajo. Ausente → prompt pelado (comportamiento previo).
  */
-export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null, isGitRepo = true) {
-  const model = modelOverride || config.claude.default_model;
-  const prompt = buildSessionPrompt(task, description, moduleName);
+export function buildAgentCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null, isGitRepo = true, agentName = null, session = null) {
+  const agent = getAgentDef(config, agentName || undefined);
+  const model = mapAgentModel(modelOverride || config.claude.default_model, agent);
+  // KODO-31: la plantilla del prompt vive en `buildSessionPrompt` porque tiene un segundo
+  // consumidor (el `thread spawn --prompt` de BB). La cadena resultante es byte-idéntica.
+  let prompt = buildSessionPrompt(task, description, moduleName);
+
+  // KODO-19 — inyección del contexto de sesión para agentes SIN hooks.
+  //
+  // Con Claude Code el prompt puede ser esta línea escueta porque el hook SessionStart
+  // le antepone el bloque de contexto (quién eres, qué tarea, cómo cerrar, dónde va el
+  // handoff). Ese hook es una pieza de Claude Code: OpenCode nunca lo ejecuta. Sin esto,
+  // una sesión de OpenCode arrancaría sin saber su task ref, ni que debe comentar en el
+  // provider, ni dónde escribir el plan — el prompt sería literalmente "Trabaja en: X".
+  //
+  // La condición es `status_authority !== 'hooks'` y no `agentName === 'opencode'`: la
+  // pregunta real es "¿alguien le va a inyectar esto por mí?", y `status_authority` ya
+  // es el campo del registro que responde de dónde sale la información de una sesión.
+  // Cualquier agente futuro sin hooks hereda el comportamiento sin tocar este código.
+  //
+  // El contexto va PRIMERO y la instrucción después, en el mismo orden en que los ve una
+  // sesión de Claude Code (additionalContext del hook → prompt del usuario), para no
+  // tener dos redacciones distintas del mismo contrato según el agente.
+  //
+  // EFECTO LATERAL BUSCADO: el bloque contiene `Session ID: <uuid>`, y el prompt entero
+  // acaba expandido dentro del argv del proceso vía `"$(cat …)"`. Eso es lo que hace
+  // greppable una sesión de OpenCode, que no admite fijar su id — ver `process_match`
+  // en el registro de agentes y `isSessionProcessAlive` en reconcile.js.
+  //
+  // Fail-open: si el contexto no se puede construir (sesión ausente o config parcial), se
+  // lanza con el prompt pelado. Peor prompt es recuperable; no lanzar, no.
+  if (session && agent.status_authority !== 'hooks') {
+    try {
+      prompt = `${buildSessionContext(session, config)}\n\n---\n\n${prompt}`;
+    } catch { /* prompt pelado — el lanzamiento nunca cae por el contexto */ }
+  }
 
   // Las sesiones GSD (full y quick) corren slash commands autónomos; pedir
   // confirmación por tool call rompe la automatización. Cualquier modo GSD
   // implica skip-permissions, igual que kodo:yolo explícito. Un solo punto
   // de cambio: añadir un nuevo modo a getGsdMode() basta (D-01/D-02 Phase 11).
   const skipPerms = kodoFlags.includes('yolo') || getGsdMode(kodoFlags) !== null;
-  const cliFlags = skipPerms ? '--dangerously-skip-permissions' : '';
+  // KODO-19: el flag concreto sale del registro (`--dangerously-skip-permissions` en
+  // Claude Code, `--auto` en OpenCode). La DECISIÓN de saltarse permisos sigue siendo
+  // la de arriba, común a todos los agentes.
+  const cliFlags = skipPerms ? (agent.skip_perms_flag || '') : '';
 
   // Phase 18 (D-01, D-06b): `--worktree <sessionId>` se emite para las sesiones de
   // launchWorkItem (full + quick + no-GSD) SIEMPRE QUE el proyecto sea git (KODO-9).
@@ -812,6 +1078,10 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // completo — `claude --worktree` exige un repo git y aborta si no lo hay. El
   // `.replace(/\s+/g, ' ')` colapsa el hueco que deja el flag ausente.
   //
+  // KODO-19: se omite TAMBIÉN si el agente no declara `worktree_flag` (OpenCode no
+  // tiene equivalente). El caller ya pasa `isGitRepo: false` en ese caso, pero el
+  // guard se repite aquí porque esta función es exportada y se llama directa en tests.
+  //
   // Orden de flags (contractual, golden-bytes QUICK-07):
   //   --model X --session-id Y [--worktree Y] [--dangerously-skip-permissions] <prompt-ref>
   //
@@ -821,9 +1091,13 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // Mecánica de invocación desde el registro de agentes (config.agents) — un solo
   // punto de cambio para multi-agente. Para 'claude-code' el header resultante es
   // byte-idéntico al literal previo (golden-bytes QUICK-07 intactos).
-  const agent = getAgentDef(config);
-  const worktreeFlag = isGitRepo ? `--worktree ${sessionId}` : '';
-  const header = `${agent.binary} ${agent.model_flag} ${model} ${agent.session_id_flag} ${sessionId} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+  //
+  // KODO-19: `session_id_flag` puede ser `null`. OpenCode no admite FIJAR el id de una
+  // sesión (`--session <id>` continúa una existente), así que el par flag+valor
+  // desaparece del header en vez de emitirse a medias.
+  const sessionIdPart = agent.session_id_flag ? `${agent.session_id_flag} ${sessionId}` : '';
+  const worktreeFlag = isGitRepo && agent.worktree_flag ? `${agent.worktree_flag} ${sessionId}` : '';
+  const header = `${agent.binary} ${agent.model_flag} ${model} ${sessionIdPart} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
 
   // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
   // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como
@@ -836,7 +1110,38 @@ export function buildClaudeCommand(config, sessionId, task, description, modelOv
   // substitution entre comillas dobles lo pasa como un único argumento literal a
   // claude (sin re-interpretar comillas ni colapsar espacios).
   const promptPath = writePromptFile(sessionId, prompt);
-  return `${header} "$(cat ${promptPath})"`;
+  // KODO-19: dónde encaja el prompt en la línea depende del agente. En Claude Code es el
+  // último argumento POSICIONAL; en OpenCode el posicional es el DIRECTORIO de trabajo
+  // (`opencode [project]`), así que pasar ahí el prompt abriría la TUI en un path
+  // inexistente — necesita `--prompt <texto>`. El fichero temporal y el `"$(cat …)"` son
+  // los mismos en ambos casos: la razón por la que existen (cmux teclea el comando y se
+  // come `\n`) no depende del CLI que haya al otro lado.
+  const promptArg = agent.prompt_style === 'flag'
+    ? `${agent.prompt_flag} "$(cat ${promptPath})"`
+    : `"$(cat ${promptPath})"`;
+  return `${header} ${promptArg}`;
+}
+
+/**
+ * Façade histórica de `buildAgentCommand` con el agente por defecto (KODO-19).
+ *
+ * El nombre dejó de ser cierto cuando el builder pasó a saber montar la línea de
+ * OpenCode, pero sigue exportado porque es lo que llaman los tests de golden bytes
+ * y lo que documentan varios módulos por nombre. Delega sin argumentos nuevos, así
+ * que su salida es byte-idéntica a la de antes de esta tarea.
+ *
+ * @deprecated Usar `buildAgentCommand`, que acepta el agente explícito.
+ * @param {ReturnType<import('../config.js').loadConfig>} config
+ * @param {string} sessionId
+ * @param {import('../interface.js').TaskItem} task
+ * @param {string} description
+ * @param {string|null|undefined} modelOverride
+ * @param {string[]} [kodoFlags]
+ * @param {string|null} [moduleName]
+ * @param {boolean} [isGitRepo]
+ */
+export function buildClaudeCommand(config, sessionId, task, description, modelOverride, kodoFlags = [], moduleName = null, isGitRepo = true) {
+  return buildAgentCommand(config, sessionId, task, description, modelOverride, kodoFlags, moduleName, isGitRepo);
 }
 
 /**

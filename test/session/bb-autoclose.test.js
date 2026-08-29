@@ -168,6 +168,46 @@ describe('selectAutoCloseTargets — la decisión pura (KODO-31)', () => {
   it('el default de la gracia son 90 s (documentado en bb.idle_close_grace_s)', () => {
     assert.equal(DEFAULT_IDLE_CLOSE_GRACE_MS, 90 * 1000);
   });
+
+  // KODO-31 × KODO-55 — el placeholder de reserva de slot NO es una sesión cerrable.
+  it('NUNCA cierra una RESERVA de slot de max_parallel (placeholder `launching`)', () => {
+    // `reserveLaunchSlot` escribe una entrada con `workspace_ref: ''` y sin `state` ni
+    // `host` mientras el lanzamiento monta provider/worktree/workspace. Llamar
+    // `bb thread stop('')` sobre ella sería, en el mejor caso, un error de BB; en el peor,
+    // parar algo que no es. Tres guardas independientes lo impiden y este test las fija
+    // como conjunto: si alguna se relaja, aquí salta.
+    const reservation = {
+      workspace_ref: '',
+      workspace_id: null,
+      session_id: '',
+      task_id: '',
+      task_ref: 'KODO-42',
+      provider: 'plane',
+      project_id: '',
+      summary: 'Lanzando KODO-42…',
+      status: 'launching',
+      started_at: new Date(NOW - 10 * 60 * 1000).toISOString(),
+      project_path: '',
+    };
+    const out = selectAutoCloseTargets(stateWith({ 'launching:abc': reservation }), {
+      now: NOW,
+      graceMs: GRACE_MS,
+      hostName: 'bb',
+    });
+    assert.deepEqual(out, []);
+  });
+
+  it('una reserva CON host/state/ref rellenados a mano tampoco se cuela por el ref vacío', () => {
+    // Defensa del caso patológico: aunque un futuro placeholder llevara `host: 'bb'` y
+    // `state: 'idle'`, el `workspace_ref` vacío sigue bastando para descartarlo.
+    const out = selectAutoCloseTargets(
+      stateWith({
+        'launching:abc': bbSession({ workspace_ref: '', status: 'launching' }),
+      }),
+      { now: NOW, graceMs: GRACE_MS, hostName: 'bb' },
+    );
+    assert.deepEqual(out, []);
+  });
 });
 
 describe('runReconcileTick — cableado del autocierre (KODO-31)', () => {

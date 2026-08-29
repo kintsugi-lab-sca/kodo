@@ -85,10 +85,39 @@ In every project you want to automate:
 |---|---|
 | `kodo` | Enables automation. Default model: Opus |
 | `kodo:sonnet` / `kodo:haiku` | Changes the model |
-| `kodo:yolo` | Adds `--dangerously-skip-permissions` |
+| `kodo:yolo` | Skips tool-call confirmation (`--dangerously-skip-permissions`, or `--auto` on OpenCode) |
 | `kodo:gsd` / `kodo:gsd-quick` | GSD mode (structured planning workflow); implies yolo |
+| `kodo:cc` / `kodo:oc` | Which CLI runs the session — Claude Code or OpenCode. Absent → Claude Code |
 
 Only tasks labelled `kodo` (or `kodo:*`) are automated.
+
+> **Agent labels are non-reactive.** `kodo:cc` / `kodo:oc` never trigger a dispatch on
+> their own — the task still needs `kodo` (or another `kodo:*` label) to launch. They are
+> only *read* at launch time to decide which CLI opens the session, so you can set them
+> ahead of time without anything happening. Long forms `kodo:claude-code` /
+> `kodo:opencode` work identically. If both agents are labelled, Claude Code wins.
+>
+> **What OpenCode does not do.** OpenCode is a genuine alternative for ordinary coding
+> tasks, but three parts of kodo's lifecycle are Claude Code features and do not carry
+> over. Know them before you label a task `kodo:oc`:
+>
+> - **No hooks.** kodo's SessionStart / Stop / SessionEnd hooks are Claude Code hooks.
+>   An OpenCode session will not auto-comment on the provider, will not move the task to
+>   review by itself, and will not clean up after closing — its status is derived from
+>   whether its process is alive. The session context (task ref, expected flow, where the
+>   plan and handoff go) *is* delivered: kodo injects it into the initial prompt instead.
+> - **No worktree isolation.** OpenCode has no `--worktree`, so the session runs directly
+>   on the project path. Two concurrent OpenCode sessions on the same repo will collide.
+>   Hosts that isolate on their own (Orca) still do.
+> - **No GSD.** `kodo:gsd` + `kodo:oc` downgrades to Claude Code and logs
+>   `agent_downgraded_gsd`. The GSD flow is `/gsd-*` slash commands and hooks all the way
+>   down; running it on OpenCode would type commands that do not exist.
+>
+> **Models.** OpenCode takes `provider/model` identifiers, so kodo maps its own aliases
+> (`opus`, `sonnet`, `haiku`, `fable`) through `agents.registry.opencode.model_map` in
+> `~/.kodo/config.json`. Defaults point at the `opencode` provider (OpenCode Zen); edit
+> the map to use your own Anthropic account. Any model **not** in the map is passed
+> verbatim, so `anthropic/claude-sonnet-4-5` works with no configuration at all.
 
 > **`kodo:gsd` contract (full mode).** The resolver matches the task against a phase in
 > `.planning/ROADMAP.md` by **exact title**: the task title must match a phase title, and the
@@ -621,8 +650,12 @@ so they exit with code 1.
   `session_id` in its CLI. Explicit adoption by ref still works.
 - **Sidebar groups**: BB organises by sections, an axis kodo does not model. `kodo sidebar
   doctor` does not apply.
-- **One provider**: kodo always spawns with `--provider claude-code`. BB's other providers
-  (codex, cursor, pi) do not emit the hooks kodo's whole lifecycle depends on.
+- **One provider — and it overrides `kodo:oc`**: kodo always spawns with
+  `--provider claude-code`. BB's other providers (codex, cursor, pi) do not emit the hooks
+  kodo's whole lifecycle depends on. Because BB launches the agent itself, the agent labels
+  have nothing to select: a task labelled `kodo:oc` on `host: bb` runs on Claude Code and
+  logs `agent_pinned_by_host`. The session record stores what actually runs, not the label —
+  otherwise liveness detection would grep for the wrong process.
 - **Remote machines** (`--machine`) are out of scope: kodo assumes the worktree is reachable
   on the local filesystem.
 

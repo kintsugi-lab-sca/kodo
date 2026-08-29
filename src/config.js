@@ -163,6 +163,21 @@ const DEFAULT_CONFIG = {
   // Los knobs de OPERADOR (default_model, max_parallel, flags) siguen en `claude.*`
   // — separación mecánica-vs-preferencias. `resume` aún no tiene consumidor: queda
   // declarado para que el dispatch multi-agente no lo redescubra por prueba y error.
+  //
+  // KODO-19: el registro deja de ser declarativo y pasa a tener DOS entradas y un
+  // consumidor real (`buildAgentCommand`, session/manager.js). Los campos añadidos en
+  // esa tarea describen las diferencias que impiden invocar a los dos CLIs con el mismo
+  // molde, y son todos OPCIONALES — una entrada que los omita se comporta como se
+  // comportaba `claude-code` antes de KODO-19:
+  //   - `model_map`:      traduce el modelo de kodo ('opus') al identificador del agente.
+  //                       Ausente o sin la clave → el modelo se pasa VERBATIM.
+  //   - `prompt_style`:   'positional' (el prompt es el último argumento, Claude Code) o
+  //                       'flag' + `prompt_flag` (OpenCode exige `--prompt <texto>`).
+  //   - `skip_perms_flag`: cómo pide cada CLI que no se confirme cada tool call.
+  //   - `worktree_flag`:  aislamiento propio del agente. `null` = no lo tiene, y el
+  //                       aislamiento queda en manos del host (orca) o no lo hay.
+  //   - `process_match`:  patrón `pgrep -f` que identifica un proceso vivo de la sesión,
+  //                       con `<sid>` sustituido por el session id. Ver reconcile.js.
   agents: {
     default: 'claude-code',
     registry: {
@@ -172,6 +187,59 @@ const DEFAULT_CONFIG = {
         session_id_flag: '--session-id',
         resume: { style: 'flag', token: '--resume' },
         status_authority: 'hooks',
+        prompt_style: 'positional',
+        skip_perms_flag: '--dangerously-skip-permissions',
+        worktree_flag: '--worktree',
+        // El session id viaja en el propio argv (`--session-id <uuid>`), así que el
+        // patrón es el literal histórico de `isSessionProcessAlive` — byte a byte.
+        process_match: 'session-id <sid>',
+      },
+      // KODO-19 — OpenCode (sst/opencode). Verificado contra `opencode --help` v1.18.x.
+      // Las cuatro diferencias que importan, y por qué el molde de Claude Code no vale:
+      //
+      //   1. NO existe forma de FIJAR el id de sesión. `--session <id>` CONTINÚA una
+      //      sesión ya creada, no crea una con id dado. `session_id_flag: null` es la
+      //      lectura honesta: kodo mantiene su UUID como clave de state.json, pero no
+      //      se lo impone al agente. Consecuencia directa de esto es `process_match`
+      //      abajo.
+      //   2. El modelo va como `provider/model`, no como alias. De ahí `model_map`. Los
+      //      valores por defecto apuntan al proveedor `opencode` (OpenCode Zen), que es
+      //      el que trae la instalación estándar; quien use su propia cuenta de
+      //      Anthropic reescribe el mapa en `~/.kodo/config.json` sin tocar código.
+      //      Un modelo que no esté en el mapa pasa verbatim: `--model anthropic/x` ya
+      //      funciona sin más configuración.
+      //   3. El prompt NO es posicional en la TUI: `opencode [project]` interpreta el
+      //      posicional como el DIRECTORIO de trabajo. Pasar ahí el prompt abriría
+      //      OpenCode en un path inexistente. Por eso `prompt_style: 'flag'`.
+      //   4. No hay `--worktree`. El aislamiento lo pone el host (orca) o no lo hay —
+      //      documentado en el README como limitación, no simulado aquí.
+      //
+      // `status_authority: 'process'` no es pereza: OpenCode no ejecuta los hooks de
+      // kodo (SessionStart/Stop/SessionEnd son de Claude Code), así que el único hecho
+      // observable sobre una sesión suya es si su proceso vive. Fingir 'hooks' dejaría
+      // sesiones eternamente 'running'.
+      opencode: {
+        binary: 'opencode',
+        model_flag: '--model',
+        model_map: {
+          opus: 'opencode/claude-opus-5',
+          sonnet: 'opencode/claude-sonnet-5',
+          haiku: 'opencode/claude-haiku-4-5',
+          fable: 'opencode/claude-fable-5',
+        },
+        session_id_flag: null,
+        resume: { style: 'flag', token: '--session' },
+        status_authority: 'process',
+        prompt_style: 'flag',
+        prompt_flag: '--prompt',
+        skip_perms_flag: '--auto',
+        worktree_flag: null,
+        // Sin `--session-id` en argv no hay literal estable que buscar… salvo el propio
+        // prompt: `buildAgentCommand` inyecta el contexto de sesión (que incluye
+        // `Session ID: <uuid>`) en el fichero de prompt, y el `"$(cat …)"` lo expande
+        // DENTRO del argv del proceso. El UUID a secas es suficientemente específico
+        // para no colisionar con otra cosa.
+        process_match: '<sid>',
       },
     },
   },

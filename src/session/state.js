@@ -47,7 +47,7 @@ let stateLockDepth = 0;
  *   provider: string,          // "plane", "github", etc.
  *   project_id: string,
  *   summary: string,
- *   status: 'running'|'done'|'error'|'review',
+ *   status: 'launching'|'running'|'done'|'error'|'review',  // KODO-55: `launching` es la RESERVA de slot que escribe `reserveSessionSlot` bajo el lock — una entrada TRANSITORIA (segundos) que ocupa un slot de `max_parallel` mientras el lanzamiento monta provider/worktree/host, y que el `finally` de `launchWorkItem` retira. NO tiene workspace ni proceso todavía: por eso `reconcileTick` la SALTA (derivarle un target la mataría a los 2 ticks) y todos los filtros `status === 'running'` (health.js, buildContextSummary) la excluyen por construcción. Se poda por TTL (`isStaleReservation`) si el proceso que lanzaba murió.
  *   started_at: string,
  *   project_path: string,
  *   task_url?: string,         // Optional URL to the task in the provider UI
@@ -66,6 +66,7 @@ let stateLockDepth = 0;
  *   alive?: boolean,           // Phase 38 D-11: booleano agregado de compat (= state ∈ {running, idle, needs-input}). Poblado por migrateStateV2toV3; consumers que ya lo leen siguen funcionando.
  *   dead_since?: string,       // Phase 38 D-07: ISO 8601 del tick donde la session transicionó a 'dead'. Lo fija reconcileTick; se usa para sellar a 'closed' tras 30 días.
  *   process_dead_since?: string|null,  // KODO-15: ISO 8601 del tick donde se OBSERVÓ morir el proceso claude (transición process_alive true→false), o null si el proceso está vivo / nunca se le vio vivo. Lo fija y limpia runReconcileTick; deriveTarget lo usa para mandar a 'dead' una sesión zombi (proceso muerto sostenido con la tab aún abierta). Aditivo opcional, sin bump de schema_version.
+ *   agent?: string,            // KODO-19: id del agente CLI que abrió la sesión ('claude-code'|'opencode'), del registro `config.agents.registry`. Lo fija buildSessionFromTask a partir de las etiquetas `kodo:cc`/`kodo:oc`. AUSENTE = sesión legacy o lanzada sin etiqueta de agente → los consumers resuelven contra `config.agents.default`, que es el comportamiento previo exacto. NO es cosmético: `runReconcileTick` lo necesita para elegir el patrón `pgrep` correcto (`process_match`), porque el de Claude Code (`session-id <sid>`) jamás casaría con un proceso de OpenCode y la sesión se leería muerta al primer tick. Aditivo opcional, sin bump de schema_version.
  * }} Session
  *
  * @typedef {{
@@ -486,6 +487,177 @@ export function withStateLock(mutator) {
     const next = mutator(state);
     saveState(next ?? state);
   });
+}
+
+/**
+ * `status` de una RESERVA de slot: el placeholder que `reserveSessionSlot` escribe
+ * bajo el lock para que el gate de `max_parallel` deje de ser un TOCTOU (KODO-55).
+ *
+ * NO es un estado del ciclo de vida v3 (`state`): las reservas nunca llegan a tener
+ * workspace, así que `reconcileTick` las SALTA en vez de derivarles un target. La
+ * distinción importa — sin ella el tick las degradaría a `dead`/`alive:false` a los
+ * dos ticks (5 s) y devolvería el slot en mitad del lanzamiento, que es exactamente
+ * el agujero que esta reserva cierra.
+ */
+export const LAUNCHING_STATUS = 'launching';
+
+/**
+ * ¿Cuenta esta sesión contra el gate de `max_parallel`? (CONC-03 / D-05).
+ *
+ * Ocupan un slot las sesiones `status === 'running'` (una sesión de trabajo viva)
+ * y las `status === 'launching'` (KODO-55: la RESERVA que `reserveSessionSlot`
+ * escribe mientras el lanzamiento todavía está montando provider/worktree/host),
+ * siempre que `alive !== false`. Un zombi que `reconcileTick` marcó `alive:false`
+ * (porque su TAB de cmux murió — la TAB, no el proceso: D-06b) deja de contar,
+ * liberando la fuga de capacidad más dañina de la auditoría (A4: un slot retenido
+ * hasta 30 días).
+ *
+ * `!== false` (no `=== true`) es DELIBERADO: las sesiones legacy sin el campo
+ * `alive` (pre-v0.9) siguen contando — cero regresión. El gate solo LEE `alive`;
+ * el ÚNICO escritor de ese campo sigue siendo `reconcileTick` (invariante v0.9/v0.10).
+ *
+ * KODO-55: vive AQUÍ, y no en `manager.js` como hasta ahora, porque el conteo tiene
+ * que ocurrir DENTRO de la sección crítica de `reserveSessionSlot` — y `state.js` no
+ * puede importar `manager.js` (ciclo). `manager.js` lo re-exporta, así que la ruta de
+ * import previa sigue siendo válida. Es además la única fuente de verdad para el
+ * recuento de `src/check.js`, que antes filtraba `status === 'running'` por su cuenta.
+ *
+ * @param {{ status?: string, alive?: boolean }} session
+ * @returns {boolean}
+ */
+export function isSchedulable(session) {
+  if (!session) return false;
+  const holds = session.status === 'running' || session.status === LAUNCHING_STATUS;
+  return holds && session.alive !== false;
+}
+
+/**
+ * Cuánto puede vivir una reserva antes de considerarse huérfana (KODO-55).
+ *
+ * Una reserva la retira siempre el `finally` de `launchWorkItem`, así que este plazo
+ * solo cubre el caso en que el proceso que lanzaba MURIÓ entre la reserva y el
+ * `addSession` (kill -9, crash del daemon). 5 min es holgado frente a un lanzamiento
+ * real —round-trips de provider + creación de worktree + workspace de cmux, del orden
+ * de segundos— y acotado frente a la fuga: por encima de él la reserva deja de contar
+ * y se poda, en el barrido de `reconcileTick` y también en el propio
+ * `reserveSessionSlot` (auto-sanación cuando el daemon no está corriendo).
+ */
+export const LAUNCH_RESERVATION_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * ¿Es esta entrada una reserva de lanzamiento ya vencida? PURA.
+ *
+ * Un `started_at` ilegible cuenta como vencida a propósito: sin reloj legible la
+ * reserva no puede caducar nunca, y una reserva inmortal es justo la fuga de
+ * capacidad que estamos cerrando.
+ *
+ * @param {{ status?: string, started_at?: string }} session
+ * @param {number} now - timestamp ms (inyectado — testabilidad).
+ * @param {number} [ttlMs]
+ * @returns {boolean}
+ */
+export function isStaleReservation(session, now, ttlMs = LAUNCH_RESERVATION_TTL_MS) {
+  if (!session || session.status !== LAUNCHING_STATUS) return false;
+  const startedMs = session.started_at ? Date.parse(session.started_at) : NaN;
+  if (!Number.isFinite(startedMs)) return true;
+  return now - startedMs > ttlMs;
+}
+
+/**
+ * Reserva un slot de `max_parallel` — el fix de KODO-55.
+ *
+ * EL PUNTO ENTERO de esta función es que el CONTEO y la ESCRITURA del placeholder
+ * ocurren en la MISMA sección crítica. Hasta aquí el gate vivía en `launchWorkItem`
+ * como un `listSessions().filter(isSchedulable)` suelto, y la sesión no aparecía en
+ * `state.json` hasta el `addSession` PRE-spawn, varios segundos más tarde (provider
+ * `updateTaskState`, worktree, `newWorkspace` de cmux). Cualquier lanzamiento que
+ * arrancara dentro de esa ventana leía el estado ANTERIOR, veía hueco y pasaba: el
+ * 28-ago, con `max_parallel = 5`, se colaron 12 sesiones en 62 s.
+ *
+ * Con la reserva, el perdedor de la carrera ve el placeholder del ganador porque el
+ * ganador lo escribió sin soltar el lock entre contar y escribir.
+ *
+ * PODA en el mismo lock: las reservas vencidas (ver `isStaleReservation`) no cuentan
+ * y se borran aquí. Así el gate se auto-sana aunque el daemon —y con él el barrido de
+ * `reconcileTick`— no esté corriendo.
+ *
+ * FAIL-CLOSED en lock-timeout: se devuelve `{ok:false, reason:'lock-timeout'}` y el
+ * caller ABORTA el lanzamiento. Es deliberado y espeja a `addSession` (WR-01): si no
+ * podemos escribir la reserva, tampoco podemos garantizar el límite, y lanzar a ciegas
+ * es la falla que esta tarea existe para cerrar.
+ *
+ * @param {string} key - clave de la reserva en `state.sessions`. La escoge el caller
+ *   (`launchWorkItem` usa `launching:<uuid>`, ver su docblock) porque en el punto del
+ *   gate el `task_id` todavía no está resuelto.
+ * @param {Session} reservation - el placeholder a persistir. Debe traer
+ *   `status: 'launching'` y un `started_at` ISO — es lo que lo hace podable.
+ * @param {{ maxParallel: number, now?: number, ttlMs?: number }} opts
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true } | { ok: false, reason: 'max-parallel', active: string[] } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function reserveSessionSlot(key, reservation, opts, logger = noopLogger) {
+  const now = opts.now ?? Date.now();
+  const ttlMs = opts.ttlMs ?? LAUNCH_RESERVATION_TTL_MS;
+  /** @type {string[]|null} */
+  let blockedBy = null;
+
+  const r = withStateLock((state) => {
+    // Poda de reservas huérfanas ANTES de contar — misma sección crítica, así que
+    // nadie observa el estado intermedio.
+    for (const [id, s] of Object.entries(state.sessions)) {
+      if (id !== key && isStaleReservation(s, now, ttlMs)) delete state.sessions[id];
+    }
+
+    const active = Object.values(state.sessions).filter(isSchedulable);
+    if (active.length >= opts.maxParallel) {
+      // Sin hueco: NO se escribe placeholder. `withStateLock` re-publica el state
+      // (idéntico salvo por la poda de arriba, que sí queremos persistir).
+      blockedBy = active.map((s) => s.task_ref);
+      return;
+    }
+    state.sessions[key] = reservation;
+  });
+
+  if (!r.ok) {
+    logger.warn('state.slot.reserve_failed', { key, reason: r.reason });
+    return r;
+  }
+  if (blockedBy) {
+    logger.info('state.slot.reserve_rejected', { key, active: blockedBy.length });
+    return { ok: false, reason: /** @type {const} */ ('max-parallel'), active: blockedBy };
+  }
+  logger.info('state.slot.reserved', { key, task_ref: reservation.task_ref });
+  return { ok: true };
+}
+
+/**
+ * Libera una reserva de slot (KODO-55). Idempotente.
+ *
+ * Borra la entrada SOLO si sigue siendo una reserva (`status === 'launching'`). Esa
+ * guarda no es cosmética: el `finally` de `launchWorkItem` la llama TAMBIÉN en el
+ * camino de éxito, cuando `addSession` ya escribió el registro real — y una liberación
+ * ciega borraría entonces la sesión que acaba de arrancar. Por el mismo motivo es
+ * seguro llamarla dos veces o sobre una clave que ya no existe.
+ *
+ * @param {string} key
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, released: boolean } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function releaseSessionSlot(key, logger = noopLogger) {
+  let released = false;
+  const r = withStateLock((state) => {
+    const s = state.sessions[key];
+    if (s && s.status === LAUNCHING_STATUS) {
+      delete state.sessions[key];
+      released = true;
+    }
+  });
+  if (!r.ok) {
+    logger.warn('state.slot.release_failed', { key, reason: r.reason });
+    return r;
+  }
+  if (released) logger.info('state.slot.released', { key });
+  return { ok: true, released };
 }
 
 /**
