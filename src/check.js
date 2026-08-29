@@ -24,6 +24,11 @@ import { fetchFreshPending, excludeActiveTasks } from './tasks/pending.js';
 // Llamar con `deps` sin `logger` resuelve a noopLogger (LOG-12 preservado: el grafo
 // transitivo de sidebar-doctor.js está verificado limpio por test/check-isolation).
 import { execute } from './cmux/sidebar-doctor.js';
+// KODO-56: `resolveHostName` es el punto único de lectura de `config.host`. `host/interface.js`
+// es un módulo PURO (cero side-effects al carga; solo importa `node:module` y el
+// `config-validate.js` puro), así que entra en el grafo de module-load de `kodo check` sin
+// arrastrar nada de lo que LOG-12 prohíbe — lo verifica test/check-isolation.test.js.
+import { resolveHostName } from './host/interface.js';
 
 /**
  * Pure helper: queries the configured provider for pending tasks and returns
@@ -150,6 +155,7 @@ export async function runCheck() {
  *   launchFn?: () => Promise<void>,
  *   logFn?: (msg: string) => void,
  *   errorFn?: (msg: string) => void,
+ *   hostNameFn?: () => string,
  * }} [deps]
  */
 export async function runCheckAndAct({
@@ -158,6 +164,7 @@ export async function runCheckAndAct({
   launchFn = launchOrchestrator,
   logFn = console.log,
   errorFn = console.error,
+  hostNameFn = resolveHostName,
 } = {}) {
   const result = await runCheckFn();
   logFn(result.summary);
@@ -169,25 +176,36 @@ export async function runCheckAndAct({
     // (espejo EXACTO del catch de launchOrchestrator). El gate `needsOrchestrator` se
     // CONSUME aquí; el resultado del doctor NUNCA re-entra a `reasons` ni al gate (D-04).
     try {
-      const deps = {}; // defaults de producción → noopLogger (LOG-12); NO inyectar logger real.
-      // Sin `scan` previo (KODO-14): su ÚNICO consumidor era la línea de advisories, y
-      // `missing_group` ya es auto-arreglable (`create --from`). `execute` re-detecta por
-      // dentro (D-06 TOCTOU), así que un scan aquí solo duplicaría dos execFile a cmux.
-      const r = await executeFn(deps, { fix: true });
-      const applied = (r.created || 0) + (r.added || 0) + (r.ungrouped || 0);
-      logFn(`[kodo:check] Sidebar: ${applied} acción(es) aplicadas`);
-      // Phase 85 D-07 (WR-01 de 80-REVIEW): sin esta línea, `0 acción(es) aplicadas`
-      // significa a la vez «no había nada que arreglar» y «cmux caído, N acciones
-      // fallidas», y con deps={} el logger es el noopLogger obligado por LOG-12, así que
-      // no hay rastro estructurado en ningún otro sitio. Sale por errorFn (stderr) y no
-      // por logFn: un fallo escrito en el canal del éxito sigue siendo invisible en un
-      // pipe. El fail-open NO cambia — informa, jamás bloquea el check ni el launch — y
-      // el resultado del doctor jamás re-entra a `reasons` ni al gate (D-04 de Phase 80).
-      // Solo el conteo: `target`/`reason` son refs de workspace del operador y este es un
-      // carril automático sobre cuyo destino no tenemos control.
-      const failed = (r.errors || []).length;
-      if (failed > 0) {
-        errorFn(`[kodo:check] Sidebar: ${failed} acción(es) fallida(s) (fail-open)`);
+      // KODO-56 — GUARD DE HOST. El motor del sidebar doctor es cmux-ONLY: habla con el
+      // binario de cmux (dos execFile por `execute`) y converge una estructura —grupos de
+      // workspaces del sidebar— que ni Orca ni BB tienen. Con `host != cmux` esas dos
+      // llamadas fallaban SIEMPRE y el fail-open de abajo se las tragaba: trabajo inútil en
+      // cada `check`, más una línea de fallos por stderr que no describe ningún problema
+      // real del operador. El guard va DENTRO del try (no antes) para no crear una segunda
+      // ruta de escape: si `hostNameFn` lanzara, el catch de fail-open sigue siendo el
+      // único responsable. `launchOrchestrator` queda intacto — el guard solo salta el
+      // piggyback, jamás el arranque del orquestador.
+      if (hostNameFn() === 'cmux') {
+        const deps = {}; // defaults de producción → noopLogger (LOG-12); NO inyectar logger real.
+        // Sin `scan` previo (KODO-14): su ÚNICO consumidor era la línea de advisories, y
+        // `missing_group` ya es auto-arreglable (`create --from`). `execute` re-detecta por
+        // dentro (D-06 TOCTOU), así que un scan aquí solo duplicaría dos execFile a cmux.
+        const r = await executeFn(deps, { fix: true });
+        const applied = (r.created || 0) + (r.added || 0) + (r.ungrouped || 0);
+        logFn(`[kodo:check] Sidebar: ${applied} acción(es) aplicadas`);
+        // Phase 85 D-07 (WR-01 de 80-REVIEW): sin esta línea, `0 acción(es) aplicadas`
+        // significa a la vez «no había nada que arreglar» y «cmux caído, N acciones
+        // fallidas», y con deps={} el logger es el noopLogger obligado por LOG-12, así que
+        // no hay rastro estructurado en ningún otro sitio. Sale por errorFn (stderr) y no
+        // por logFn: un fallo escrito en el canal del éxito sigue siendo invisible en un
+        // pipe. El fail-open NO cambia — informa, jamás bloquea el check ni el launch — y
+        // el resultado del doctor jamás re-entra a `reasons` ni al gate (D-04 de Phase 80).
+        // Solo el conteo: `target`/`reason` son refs de workspace del operador y este es un
+        // carril automático sobre cuyo destino no tenemos control.
+        const failed = (r.errors || []).length;
+        if (failed > 0) {
+          errorFn(`[kodo:check] Sidebar: ${failed} acción(es) fallida(s) (fail-open)`);
+        }
       }
     } catch (err) {
       errorFn(`[kodo:check] Sidebar doctor error: ${err.message}`);

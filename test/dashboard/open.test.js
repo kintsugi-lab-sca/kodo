@@ -16,8 +16,12 @@
 // App.js (OPEN-02 invariante "no crash" — alineado con focus.js / Phase 35 D-07).
 //
 // Leak guard ESTRUCTURAL: `runOpen` REQUIERE `exec` como argumento sin default — aunque
-// `binary` SÍ defaulta a 'open' (divergencia con focus.js). Cualquier test que olvide pasar
+// `binary` SÍ tiene default (divergencia con focus.js). Cualquier test que olvide pasar
 // `exec` falla con TypeError. Sin esa inyección, jamás se toca el `execFile` real.
+//
+// KODO-56: ese default dejó de ser el literal `'open'` y se resuelve por PLATAFORMA (`open`
+// en macOS, `xdg-open` fuera), así que el caso de abajo asevera el lanzador de ESTA máquina.
+// Las dos ramas con la plataforma inyectada viven en test/platform-defaults.test.js.
 //
 // Allowlist http(s) (OPEN-03, Pitfall 4): el guard de protocolo corre ANTES de exec. Solo
 // `http:`/`https:` pasan; `file://`, `javascript:`, valores con dash inicial (`-a Calculator`),
@@ -53,17 +57,20 @@ describe('Phase 48 Plan 02: runOpen never-throws + args [url] + http(s) allowlis
     );
   });
 
-  it('binary defaults to "open": ok path sin pasar binary explícito', async () => {
+  it('binary defaultea al lanzador de la plataforma: ok path sin pasar binary explícito', async () => {
     /** @type {{ cmd: string, args: string[] } | undefined} */
     let captured;
     const exec = (cmd, args, opts, cb) => {
       captured = { cmd, args };
       setImmediate(() => cb(null, '', ''));
     };
+    // Mapeo re-escrito a mano (no importado del resolvedor) para que el assert siga siendo
+    // una verificación independiente. KODO-56.
+    const expected = process.platform === 'darwin' ? 'open' : 'xdg-open';
     const result = await runOpen({ exec, url: 'http://example.org' });
     assert.deepEqual(result, { ok: true });
     assert.ok(captured);
-    assert.equal(captured.cmd, 'open', 'binary defaultea a "open" (divergencia con focus.js)');
+    assert.equal(captured.cmd, expected, 'binary defaultea por plataforma (divergencia con focus.js)');
   });
 
   it('http:// también pasa la allowlist (no solo https)', async () => {

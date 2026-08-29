@@ -187,8 +187,10 @@ export async function runDashboard(deps = {}) {
   const execImpl = exec ?? (await import('node:child_process')).execFile;
 
   // Resolución del binario del host desde la config (mismo patrón que src/cmux/client.js:5-7).
-  // Los defaults (`/Applications/cmux.app/…/cmux`, `/usr/local/bin/orca`) vienen de
-  // DEFAULT_CONFIG y se sobreescriben vía ~/.kodo/config.json. Llamada extra a loadConfig
+  // Los defaults vienen de DEFAULT_CONFIG y se sobreescriben vía ~/.kodo/config.json. KODO-56:
+  // los de Orca dependen de la plataforma (`/usr/local/bin/orca` en macOS, `orca-ide` fuera —
+  // en Linux `orca` a secas es el lector de pantalla de GNOME); el de cmux sigue siendo
+  // `/Applications/cmux.app/…/cmux`, que solo existe en macOS. Llamada extra a loadConfig
   // (cero coste real — primera invocación ya cacheó por la lectura de baseUrl arriba;
   // segunda lectura solo re-deserializa el config en memoria).
   // KODO-18: el binario se elige según el host ACTIVO, no siempre el de cmux.

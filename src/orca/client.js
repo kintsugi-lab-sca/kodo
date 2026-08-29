@@ -18,6 +18,9 @@
 //     que el launch path compartido con cmux no necesite ramas por host.
 import { execFile } from 'node:child_process';
 import { loadConfig } from '../config.js';
+// KODO-56: hoja PURA (0 imports, 0 side-effects) — no toca el grafo que vigila
+// test/host/orca-isolation.test.js.
+import { platformDefaults } from '../platform-defaults.js';
 
 /** Timeout por defecto. Más holgado que cmux (15s): orca habla con la app vía runtime. */
 const TIMEOUT_MS = 20_000;
@@ -25,7 +28,9 @@ const TIMEOUT_MS = 20_000;
 const CREATE_TIMEOUT_MS = 120_000;
 
 function getOrcaBinary() {
-  return loadConfig().orca?.binary || 'orca';
+  // KODO-56: mismo cambio que en `createOrcaHost` — el fallback literal `'orca'` es el lector
+  // de pantalla de GNOME en Linux. Un único resolvedor por plataforma (platform-defaults.js).
+  return loadConfig().orca?.binary || platformDefaults().orcaBinary;
 }
 
 /**

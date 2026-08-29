@@ -358,6 +358,13 @@ describe('check.js — source invariants', () => {
 // doctor IN-PROCESS de piggyback en `runCheckAndAct`, gated por `needsOrchestrator`,
 // ANTES de `launchOrchestrator`, fail-open, y sin alimentar jamás el gate (D-03/04/05).
 describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () => {
+  // KODO-56: el piggyback pasa a estar gated por el HOST activo (el motor del doctor es
+  // cmux-only). Los casos de abajo que esperan que `executeFn` corra inyectan
+  // `hostNameFn: () => 'cmux'` para no depender del `~/.kodo/config.json` de la máquina —
+  // sin esa inyección el default de `host` en no-darwin es `orca` y el carril no correría.
+  // Las dos ramas del guard viven en test/platform-defaults.test.js.
+  const AS_CMUX = () => 'cmux';
+
   /** SidebarResult vacío (0 acciones). */
   function emptyResult() {
     return { created: 0, added: 0, ungrouped: 0, errors: [] };
@@ -372,6 +379,7 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
       launchFn: async () => { order.push('launch'); },
       logFn: () => {},
       errorFn: () => {},
+      hostNameFn: AS_CMUX,
     });
 
     assert.deepEqual(execArgs, { fix: true }, 'executeFn debe recibir { fix: true }');
@@ -418,6 +426,7 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
         launchFn: async () => { order.push('launch'); },
         logFn: () => {},
         errorFn: () => {},
+        hostNameFn: AS_CMUX,
       }),
     );
     assert.deepEqual(order, ['launch'], 'launch corre pese al throw de execute (fail-open)');
@@ -465,6 +474,7 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
       launchFn: async () => {},
       logFn: (m) => logs.push(m),
       errorFn: (m) => errs.push(m),
+      hostNameFn: AS_CMUX,
     });
 
     assert.ok(
@@ -494,6 +504,7 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
       launchFn: async () => {},
       logFn: () => {},
       errorFn: (m) => errsEmpty.push(m),
+      hostNameFn: AS_CMUX,
     });
     assert.deepEqual(errsEmpty, [], 'con errors: [] no se emite ninguna línea por errorFn');
 
@@ -508,6 +519,7 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
         launchFn: async () => {},
         logFn: () => {},
         errorFn: (m) => errsAbsent.push(m),
+        hostNameFn: AS_CMUX,
       }),
     );
     assert.deepEqual(errsAbsent, [], 'un result sin campo errors se trata como cero fallos, nunca como throw');
