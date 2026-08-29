@@ -77,6 +77,10 @@ class Kodo < Formula
     # ~/Library/LaunchAgents (PERSIST-04 / T-66-08 boundary).
   end
 
+  # KODO-61: the caveats do NOT claim kodo is macOS-only — the daemon runs on Linux too.
+  # What is macOS-specific is THIS route: launchd, the plist, and cmux as a client. The
+  # supported Linux route is npm + a systemd user unit (packaging/linux/README.md), so the
+  # last paragraph names it instead of leaving a Linuxbrew user to guess.
   def caveats
     <<~EOS
       Under `brew services`, kodo runs in SERVER-ONLY mode (webhook + polling): it reacts
@@ -89,6 +93,13 @@ class Kodo < Formula
 
       Secrets are read from ~/.kodo/.env (never from the plist). Config: `kodo config` or `kodo up`
       (dashboard setup, coming soon).
+
+      On Linux: this formula is not the supported route and has not been verified under
+      Linuxbrew (launchd and the plist above are macOS; cmux does not ship for Linux, the
+      client there is Orca). Install with npm and run it as a systemd user unit instead:
+        npm install -g github:kintsugi-lab-sca/kodo#v#{version}
+        kodo install --systemd
+      Guide: https://github.com/kintsugi-lab-sca/kodo/blob/main/packaging/linux/README.md
     EOS
   end
 

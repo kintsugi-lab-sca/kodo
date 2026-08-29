@@ -1,5 +1,7 @@
 # kodo 心動
 
+[![tests](https://github.com/kintsugi-lab-sca/kodo/actions/workflows/tests.yml/badge.svg)](https://github.com/kintsugi-lab-sca/kodo/actions/workflows/tests.yml)
+
 Automated Claude Code sessions driven from your kanban board. Move a task to "In Progress" → kodo launches [Claude Code](https://claude.ai/code) in a [cmux](https://cmux.dev), [Orca](https://www.onorca.dev) or [BB](https://github.com/get-bb/bb) workspace → when it finishes, the task comes back as "In Review".
 
 Supported providers: [Plane](https://plane.so) (webhook) and GitHub Issues (polling).
@@ -35,9 +37,33 @@ Task → In Progress ──webhook──→ kodo
 
 ## Installation
 
-Requires Node ≥ 20 and a terminal client: [cmux](https://cmux.dev) (macOS only) or
-[Orca](https://www.onorca.dev) (macOS, Linux). Windows is out of scope — the code refuses it
-explicitly.
+Requires **Node ≥ 20** and a terminal client. Which client, which install route and which
+supervisor depend on the platform:
+
+| Platform | Terminal client | Install | Service |
+|---|---|---|---|
+| **macOS** | [cmux](https://cmux.dev) or [Orca](https://www.onorca.dev) | `brew install kodo` | launchd — `brew services start kodo` |
+| **Linux** | [Orca](https://www.onorca.dev) — cmux ships for macOS only | `npm install -g` from a tag | systemd user unit — `kodo install --systemd` |
+| **Windows** | — | out of scope | out of scope |
+
+Linux is not a lesser tier: the daemon, the provider lane and the session lifecycle are the
+same code. What it loses is cmux, and with it the cmux-only features (tab colour, sidebar
+groups, `surface resume` adoption) — the very same set a macOS machine loses if it picks
+Orca. See [Orca as a client](#orca-as-a-client).
+
+> **Linux trap: `orca` is not Orca.** Outside macOS the Orca binary is **`orca-ide`**; plain
+> `orca` is GNOME's screen reader. Pointing kodo at it does not fail with `ENOENT` — it
+> launches a different program and you get to debug that instead. Hence the factory defaults
+> on non-darwin (`src/platform-defaults.js`): `host = "orca"`, `orca.binary = "orca-ide"`,
+> and `xdg-open` instead of `open`. You should not have to set any of them. Check the binary
+> with `which -a orca-ide orca`, and if yours lives elsewhere:
+> `kodo config --set orca.binary=/absolute/path/to/orca-ide`.
+
+**Windows is a decision, not a gap.** The three paths that would spawn a detached daemon
+handle `win32` explicitly and up front: `kodo up` runs in the foreground instead
+(`src/cli/up.js`), and `kodo polling start` (`src/cli/polling.js`) and `startDaemon`
+(`src/daemon/lifecycle.js`) refuse with a message naming the alternative. None of them
+crashes; none of them is on the roadmap.
 
 ### Homebrew — macOS (recommended)
 
@@ -55,6 +81,12 @@ kodo install --systemd   # user unit in ~/.config/systemd/user, enabled and star
 
 Step-by-step guide for Pop!_OS / Ubuntu 22.04 (Node, Orca, the `orca` vs `orca-ide` trap, the
 service, and troubleshooting): **[`packaging/linux/README.md`](packaging/linux/README.md)**.
+
+If this is the *second* machine on the same board, read
+[Multiple operators on the same project](#multiple-operators-on-the-same-project) (who owns a
+task) and [Polling instead of a webhook](#polling-instead-of-a-webhook) (no tunnel, no
+per-machine webhook) before starting the service. Together they are the whole second-operator
+setup, and on Linux they are the recommended one.
 
 ### From source
 
@@ -638,6 +670,11 @@ Besides [cmux](https://cmux.dev), kodo can run its sessions in
 kodo config --set host=orca        # 'cmux' (default) | 'orca'
 kodo config --set orca.binary=/usr/local/bin/orca
 ```
+
+The `orca.binary` above is the **macOS** default. Outside macOS the factory default is
+**`orca-ide`** — `orca` there is GNOME's screen reader, and kodo pointed at it launches that
+instead of failing. Do not copy the path from this snippet on Linux; see the
+[Installation](#installation) note.
 
 It is a property of the **installation**, not of the project or the task: one kodo
 points at one client, the same way it points at a single cmux binary. There is no migration —

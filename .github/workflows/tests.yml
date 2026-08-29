@@ -1,0 +1,71 @@
+name: tests
+
+# Un PR que rompa Linux tiene que ponerse rojo ANTES del merge (KODO-61, fase F4 de
+# .planning/research/LINUX-PORT.md). El desarrollo es macOS; sin esta matriz, Linux solo
+# se comprueba cuando alguien se acuerda de levantar un contenedor.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Un push encima de otro sobre la misma rama cancela la corrida anterior: el veredicto que
+# importa es el de la punta, no el de un commit ya superado.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: node 20 · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    strategy:
+      # Sin fail-fast: si Linux cae queremos ver TAMBIÉN el veredicto de macOS, para saber
+      # si el fallo es de plataforma o del cambio en sí.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    defaults:
+      run:
+        working-directory: proyecto-sin-nombre
+
+    steps:
+      # El checkout NO se llama `kodo` a propósito. El default de Actions es
+      # `…/work/kodo/kodo`, y desde KODO-57 ningún test depende del nombre del checkout:
+      # montarlo con otro nombre es lo que lo demuestra en cada corrida, no de palabra.
+      - uses: actions/checkout@v4
+        with:
+          path: proyecto-sin-nombre
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: proyecto-sin-nombre/package-lock.json
+
+      # Las dos invariantes que la suite tiene que aguantar en limpio. Se comprueban en
+      # lugar de asumirse: en un runner alojado siempre se cumplen, pero en uno
+      # self-hosted un `~/.kodo/.env` heredado convertiría la corrida en una prueba contra
+      # la instancia REAL de Plane — exactamente lo que KODO-57 cerró.
+      - name: Máquina limpia (sin ~/.kodo/.env, checkout no llamado «kodo»)
+        run: |
+          if [ -e "$HOME/.kodo/.env" ]; then
+            echo "::error::$HOME/.kodo/.env existe: la suite heredaría credenciales del operador"
+            exit 1
+          fi
+          base=$(basename "$PWD")
+          if [ "$base" = "kodo" ]; then
+            echo "::error::el checkout se llama «kodo»; debe llamarse distinto (ver actions/checkout path)"
+            exit 1
+          fi
+          echo "cwd=$PWD  node=$(node --version)  npm=$(npm --version)"
+
+      - run: npm ci
+
+      # `npm test` = scripts/test-home-guard.mjs: corre la suite Y falla si algún test tocó
+      # el `~/.kodo/config.json` real. En CI esa guarda es la que detecta una fuga de HOME
+      # nueva antes de que llegue a la máquina de nadie.
+      - run: npm test
