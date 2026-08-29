@@ -21,8 +21,14 @@ class Kodo < Formula
   sha256 "d8d6b60fc839247d908aa983d723547d1aa0309fb4bd3ccbc1dc015ad0365cfd"
   license "MIT"
 
-  # Node satisfies package.json's ">=20" engines. The runtime is NOT bundled: it is a
+  # Node satisfies package.json's ">=22" engines. The runtime is NOT bundled: it is a
   # system dependency, not an embedded binary (D-05).
+  #
+  # KODO-65 caveat: the `node` formula tracks the newest release line, so a `brew install`
+  # can hand kodo a Node newer than the CI matrix (22 and 24). Left unpinned on purpose —
+  # `engines` is open-ended and pinning `node@24` here would drag the service block's
+  # `formula_opt_bin("node")` with it. If a Node-version regression ever ships through the
+  # brew route, pin BOTH together.
   depends_on "node"
 
   def install

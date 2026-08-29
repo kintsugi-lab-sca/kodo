@@ -46,6 +46,18 @@ supervisor depend on the platform:
 | **Linux** | [Orca](https://www.onorca.dev) — cmux ships for macOS only | `npm install -g` from a tag | systemd user unit — `kodo install --systemd` |
 | **Windows** | — | out of scope | out of scope |
 
+**Which Node is actually tested.** CI runs the whole suite on **Node 22 and Node 24**, on both
+Linux and macOS — four jobs, `.github/workflows/tests.yml`. 22 is the floor `engines` declares
+(supported until 2027-04-30); 24 is the active LTS, i.e. what `nvm install --lts` gives you
+today. **Node 26 is not tested**: `engines` accepts it because the range is open-ended, but
+nothing verifies it until 26 becomes LTS on 2026-10-28, at which point it joins the matrix.
+This is not pedantry — the suite has already failed on a runtime it was not tested on (three
+tests broke under Node 20 in KODO-63, one of them for no reason other than the Node version).
+
+Note that `brew install kodo` depends on Homebrew's `node`, which tracks the newest release
+line and can therefore be ahead of the matrix. `brew install node@24` first if you want the
+runtime CI actually tests.
+
 Linux is not a lesser tier: the daemon, the provider lane and the session lifecycle are the
 same code. What it loses is cmux, and with it the cmux-only features (tab colour, sidebar
 groups, `surface resume` adoption) — the very same set a macOS machine loses if it picks

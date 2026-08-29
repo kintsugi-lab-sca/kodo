@@ -17,7 +17,7 @@ sin contrapartida.
 
 ---
 
-## 1. Node 22
+## 1. Node 22 o 24
 
 Usa **NodeSource**, no nvm, si vas a correr kodo como servicio:
 
@@ -26,6 +26,10 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs git
 node --version   # v22.x
 ```
+
+CI prueba **22 y 24** (suelo declarado en `engines` y LTS activa). Si prefieres la LTS activa,
+cambia `setup_22.x` por `setup_24.x` — el resto de la guía es idéntico. Node 26 aún no se
+prueba: pasa a LTS el 2026-10-28.
 
 **Por qué NodeSource y no nvm:** la unidad systemd lleva un `PATH` explícito que incluye el
 directorio del node con el que instalaste. Con nvm ese directorio es
