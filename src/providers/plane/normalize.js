@@ -60,6 +60,28 @@ export function resolveWorkItemLabels(labelIds, labelsMap) {
 }
 
 /**
+ * Resolve a work item's `assignees` to an array of user-UUID strings (KODO-58).
+ *
+ * Plane devuelve `assignees` como array de UUIDs, pero algunas respuestas (y los
+ * payloads de webhook) traen objetos `{id, display_name, …}` en su lugar. Se aceptan
+ * las dos formas — mismo criterio defensivo que `resolveWorkItemLabels`, que ya
+ * tolera UUID-string y objeto para el mismo tipo de campo.
+ *
+ * NO se resuelve el UUID a nombre: la comparación aguas arriba es contra el `id` de
+ * `GET /users/me`, y traducir a display_name solo añadiría un punto donde dos personas
+ * con el mismo nombre visible colisionan.
+ *
+ * @param {Array<any>|null|undefined} assignees
+ * @returns {string[]}
+ */
+export function resolveAssignees(assignees) {
+  if (!Array.isArray(assignees)) return [];
+  return assignees
+    .map((a) => (typeof a === 'string' ? a : a && typeof a === 'object' ? a.id : null))
+    .filter((id) => typeof id === 'string' && id.length > 0);
+}
+
+/**
  * Convert a raw Plane API work item to a canonical TaskItem.
  *
  * Pure function — no API calls, no side effects.
@@ -96,6 +118,7 @@ export function normalizeWorkItem(workItem, context) {
       ? undefined
       : `${browseHost}/${context.workspaceSlug}/browse/${ref}`,
     priority: VALID_PRIORITIES.includes(workItem.priority) ? workItem.priority : null,
+    assignees: resolveAssignees(workItem.assignees),   // KODO-58: UUIDs de usuario
     state: workItem.state_detail?.name || context.stateMap?.get(workItem.state) || undefined,
     updated_at: workItem.updated_at,    // D-03 Phase 28: paridad cross-provider
     created_at: workItem.created_at,    // D-03 Phase 28: paridad cross-provider

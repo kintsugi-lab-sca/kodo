@@ -17,9 +17,11 @@ import issueNoLabelsFixture from '../../fixtures/github/issue-no-labels.json' wi
 /** @type {import('../../../src/providers/github/normalize.js').NormalizeContext} */
 const defaultContext = { projectId: 'octocat/hello-world' };
 
-// D-18 leak guard (W9), reformulado por Phase 28 D-01: TaskItem must have
-// EXACTLY these 13 canonical fields (updated_at + created_at añadidos),
-// no GitHub-only leaks (pull_request, assignees, user, milestone, comments, etc.).
+// D-18 leak guard (W9), reformulado por Phase 28 D-01 y por KODO-58: TaskItem must
+// have EXACTLY these 14 canonical fields (updated_at + created_at + assignees),
+// no GitHub-only leaks (pull_request, user, milestone, comments, etc.).
+// OJO (KODO-58): `assignees` está en la lista porque ahora es CANÓNICO — pero
+// normalizado a `string[]` de logins, no el array de objetos usuario crudo de GitHub.
 const CANONICAL_KEYS = [
   'id',
   'ref',
@@ -31,6 +33,7 @@ const CANONICAL_KEYS = [
   'groups',
   'url',
   'priority',
+  'assignees',   // KODO-58
   'state',
   'updated_at',  // D-01 Phase 28
   'created_at',  // D-01 Phase 28
@@ -67,14 +70,34 @@ describe('normalizeIssue', () => {
     );
   });
 
-  it('D-18 leak guard: result has EXACTLY 13 canonical TaskItem keys, no GitHub-only fields', () => {
+  it('D-18 leak guard: result has EXACTLY 14 canonical TaskItem keys, no GitHub-only fields', () => {
     const result = normalizeIssue(issueFixture, defaultContext);
     const actualKeys = Object.keys(result).sort();
     assert.deepEqual(
       actualKeys,
       [...CANONICAL_KEYS].sort(),
-      'D-18 (reformulado Phase 28 D-01): TaskItem must have exactly the 13 canonical fields (no pull_request, assignees, user, comments, locked, state_reason, milestone, reactions, etc.)',
+      'D-18 (reformulado Phase 28 D-01 + KODO-58): TaskItem must have exactly the 14 canonical fields (no pull_request, user, comments, locked, state_reason, milestone, reactions, etc.)',
     );
+  });
+
+  it('KODO-58: assignees se normaliza a logins (string[]), nunca al objeto usuario crudo', () => {
+    const withAssignees = {
+      ...issueFixture,
+      assignees: [
+        { login: 'alex', id: 1, node_id: 'U_1', type: 'User', site_admin: false },
+        { login: 'edanray', id: 2, node_id: 'U_2', type: 'User', site_admin: false },
+      ],
+    };
+    assert.deepEqual(normalizeIssue(withAssignees, defaultContext).assignees, ['alex', 'edanray']);
+  });
+
+  it('KODO-58: sin assignees el campo es [] — nunca null/undefined', () => {
+    // La distinción «sin asignado» vs «asignada a otro» del dispatcher se apoya en que
+    // este campo SIEMPRE sea un array; un undefined la borraría.
+    const noAssignees = { ...issueFixture };
+    delete noAssignees.assignees;
+    assert.deepEqual(normalizeIssue(noAssignees, defaultContext).assignees, []);
+    assert.deepEqual(normalizeIssue({ ...issueFixture, assignees: null }, defaultContext).assignees, []);
   });
 
   it('D-07: id is node_id (string), never the numeric id', () => {

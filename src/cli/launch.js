@@ -46,7 +46,17 @@ export async function runLaunchCli(ref, opts) {
       console.log(`  Session ID: ${result.session.session_id}`);
       console.log(`  Path: ${result.session.project_path}`);
     } else if (result.action === 'ignored') {
-      console.log(`Ignored: ${ref.toUpperCase()} — no kodo label (use --force to override)`);
+      // KODO-58: el mensaje decía SIEMPRE «no kodo label», que desde que existe el gate
+      // por asignado es una mentira en dos de los casos — y la más cara de depurar,
+      // porque manda al operador a mirar las etiquetas de una tarea que las tiene bien.
+      // El `--force` sí es común a los tres, así que la coletilla se queda.
+      const why =
+        result.code === 'unassigned'
+          ? 'sin asignado'
+          : result.code === 'assigned_to_other'
+            ? 'asignada a otro operador'
+            : 'no kodo label';
+      console.log(`Ignored: ${ref.toUpperCase()} — ${why} (use --force to override)`);
     } else if (result.action === 'already_active') {
       console.log(`Session already active for ${ref.toUpperCase()}`);
     }

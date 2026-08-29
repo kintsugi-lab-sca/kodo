@@ -5,6 +5,13 @@
  *
  * These typedefs define the canonical shapes that every TaskProvider adapter
  * must produce/consume. No runtime logic — only constants and JSDoc types.
+ *
+ * KODO-58: `assignees` es el 14º campo canónico. Es la ÚNICA señal del tablero que
+ * distingue el trabajo de un operador del de otro sin inventar coordinación entre
+ * máquinas, así que sube al contrato en vez de quedarse como extra de un provider.
+ * Cada adapter emite los ids con los que SU provider identifica a una persona: UUIDs
+ * de usuario en Plane, logins en GitHub. kodo NUNCA los interpreta — solo compara por
+ * igualdad contra el id del dueño de la API key (ver src/operator.js).
  */
 
 /**
@@ -19,6 +26,7 @@
  *   groups: string[],
  *   url: string,
  *   priority: 'urgent'|'high'|'medium'|'low'|'none'|null,
+ *   assignees: string[],  // KODO-58: ids de los operadores asignados. REQUIRED (array, [] si nadie).
  *   state?: string,
  *   updated_at: string,    // D-01 Phase 28: REQUIRED ISO 8601 UTC string
  *   created_at: string,    // D-01 Phase 28: REQUIRED ISO 8601 UTC string
