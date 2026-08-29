@@ -36,11 +36,11 @@ jobs:
       # El checkout NO se llama `kodo` a propósito. El default de Actions es
       # `…/work/kodo/kodo`, y desde KODO-57 ningún test depende del nombre del checkout:
       # montarlo con otro nombre es lo que lo demuestra en cada corrida, no de palabra.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: proyecto-sin-nombre
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
