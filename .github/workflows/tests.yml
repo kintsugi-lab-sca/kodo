@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   test:
-    name: node 22 · ${{ matrix.os }}
+    name: node ${{ matrix.node }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
 
@@ -27,6 +27,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        # Las DOS puntas del rango que `engines` declara (>=22), no una sola (KODO-65):
+        # 22 es el suelo — soportado hasta 2027-04-30, así que hay gente corriéndolo hoy —
+        # y 24 es la LTS activa, lo que instala cualquiera que haga `nvm install --lts`.
+        # Probar solo 22 dejaba sin cubrir el runtime más probable de una instalación nueva.
+        # v26 entra aquí cuando pase a LTS (2026-10-28), no antes.
+        node: [22, 24]
 
     defaults:
       run:
@@ -42,7 +48,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: proyecto-sin-nombre/package-lock.json
 
