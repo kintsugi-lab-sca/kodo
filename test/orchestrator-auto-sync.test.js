@@ -65,11 +65,6 @@ let _tmpHome, _tmpRepo;
 afterEach(() => {
   if (_tmpHome) {
     try { chmodSync(destFor(_tmpHome), 0o755); } catch {}
-    // Restaurar permisos de archivos individuales por si Test C dejó alguno 0o000.
-    try {
-      const skillMd = join(destFor(_tmpHome), 'skill.md');
-      chmodSync(skillMd, 0o644);
-    } catch {}
     rmSync(_tmpHome, { recursive: true, force: true });
   }
   if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
@@ -127,10 +122,14 @@ describe('auto-sync (SKILL-02)', () => {
     const dest = destFor(_tmpHome);
 
     syncSkill({ source, dest }); // primer run para crear dest dir + archivos
-    // Plan 01 SUMMARY §Deviation 1: en macOS chmod 0o500 sobre el DIR no provoca
-    // EACCES en overwrite de archivo existente. Forzar EACCES via chmod 0o000
-    // sobre el archivo concreto que syncSkill leerá para hash comparison.
-    chmodSync(join(dest, 'skill.md'), 0o000);
+    // KODO-57: el error de fs se fuerza poniendo un DIRECTORIO donde el sync espera un
+    // fichero → `readFileSync(destAbs)` (src/skill/sync.js:117) lanza EISDIR al computar
+    // el hash del dest. Antes era `chmodSync(..., 0o000)` (Plan 01 SUMMARY §Deviation 1:
+    // en macOS chmod 0o500 sobre el DIR no basta), pero root IGNORA los bits de permiso:
+    // bajo uid 0 (contenedores, CI) el sync salía 'ok' y el assert de 'error' se ponía
+    // rojo. EISDIR no depende del uid, así que el caso queda cubierto también como root.
+    rmSync(join(dest, 'skill.md'), { force: true });
+    mkdirSync(join(dest, 'skill.md'), { recursive: true });
     writeFileSync(join(source, 'skill.md'), '# kodo:orchestrate\n\nv2 modified\n', 'utf-8');
 
     let result;
