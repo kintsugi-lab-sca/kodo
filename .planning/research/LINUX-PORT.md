@@ -195,6 +195,12 @@ Prerrequisito de todo lo demás: **CI en Linux no puede nacer roja**.
 **Éxito:** la suite pasa en verde en Linux, como root y como no-root, en un
 directorio que no se llame `kodo`.
 
+> ✅ **Cerrada en KODO-57** (2026-08-29). Los 4 casos, más un quinto de la misma
+> clase que este inventario no listaba (`test/orchestrator-auto-sync.test.js`,
+> caso C: el mismo `chmod 000` que root ignora). Verificado: 0 fallos en macOS y
+> en Linux como root y como no-root, con el árbol montado en un directorio que no
+> se llama `kodo`.
+
 ### F2 — Defaults conscientes de la plataforma (medio día)
 
 Cambios quirúrgicos, todos con el mismo patrón (`process.platform` inyectable,
@@ -269,15 +275,35 @@ del esfuerzo. El cambio funcional real —F2— son tres defaults.
 
 ## Reproducir la verificación
 
+El directorio de montaje es deliberadamente uno que **no** se llama `kodo`: desde
+F1 (KODO-57) ningún test depende del nombre del checkout, y montarlo con otro
+nombre es precisamente lo que lo demuestra.
+
+**Como no-root (uid 1000):**
+
 ```bash
 git clone --no-hardlinks . /tmp/linux-clone
-docker run --rm -v /tmp/linux-clone:/work/kodo -w /work/kodo node:20-bookworm-slim sh -c '
+docker run --rm -v /tmp/linux-clone:/work/proyecto-sin-nombre -w /work/proyecto-sin-nombre \
+  node:20-bookworm-slim sh -c '
   apt-get update -qq && apt-get install -y -qq git procps
   npm ci --silent
-  chown -R node:node /work/kodo /home/node
-  su node -c "cd /work/kodo && export HOME=/home/node && npm test"
+  chown -R node:node /work/proyecto-sin-nombre /home/node
+  su node -c "cd /work/proyecto-sin-nombre && export HOME=/home/node && npm test"
 '
 ```
 
-El directorio de montaje **debe** llamarse `kodo` mientras el hallazgo de
-`install.test.js` (F1-2) siga abierto.
+**Como root (uid 0)** — la corrida que destapa los tests que simulan errores de fs
+con bits de permiso, que root ignora:
+
+```bash
+docker run --rm -v /tmp/linux-clone:/work/proyecto-sin-nombre -w /work/proyecto-sin-nombre \
+  node:20-bookworm-slim sh -c '
+  apt-get update -qq && apt-get install -y -qq git procps
+  npm ci --silent
+  npm test
+'
+```
+
+Ambas deben salir con 0 fallos. Bajo root aparecen 4 skips adicionales: guards
+`# SKIP root ignora los bits de permiso` de tests que no se pudieron rescatar sin
+inyección, deliberados y preexistentes.
