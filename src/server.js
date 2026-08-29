@@ -277,7 +277,8 @@ function brandServiceWorkspace() {
  *   `process.exit(1)` on misconfig; installs its own SIGTERM/SIGINT cleanup.
  * - Managed (`managed:true`, D-03): returns `{ server, stopReconcile }`; THROWS
  *   `{ code:'KODO_SETUP_REQUIRED' }` on missing secret (no `process.exit` — run.js
- *   handles it); rejects `{ code:'EADDRINUSE' }` on port collision via
+ *   handles it) SALVO en modo solo-polling (KODO-66: `polling.enabled` arranca con
+ *   `/webhook` apagado en vez de fallar); rejects `{ code:'EADDRINUSE' }` on port collision via
  *   `server.on('error')`; writes NO PID; installs NO signal handlers (run.js owns
  *   the exit — D-05, single-owner teardown).
  *
@@ -372,7 +373,20 @@ export async function startServer(opts = {}) {
     console.warn(`[kodo] Deprecation: use ${secretEnv} instead of PLANE_WEBHOOK_SECRET`);
   }
 
-  if (!webhookSecret && !opts.insecure && !process.env.KODO_DEV) {
+  // KODO-66: el secreto solo sirve para verificar la firma HMAC de `POST /webhook`.
+  // Con `polling.enabled` esta máquina se entera de los cambios preguntando (KODO-60),
+  // así que exigir un secreto para un endpoint que nadie va a llamar obligaba a
+  // inventarse uno — o a usar `--insecure`, que es otra cosa (KODO-52). Bajo systemd
+  // (KODO-59) el efecto era un daemon que moría y se reiniciaba en bucle.
+  const pollingEnabled = config.polling?.enabled === true;
+  // `/webhook` se sirve si hay con qué verificar la firma, o si el operador declaró
+  // explícitamente que acepta payloads sin firmar. `insecure`/`KODO_DEV` NO cambian:
+  // siguen siendo el único camino para aceptar webhooks sin HMAC.
+  const webhookEnabled = Boolean(webhookSecret) || Boolean(opts.insecure) || Boolean(process.env.KODO_DEV);
+
+  if (!webhookEnabled && !pollingEnabled) {
+    // Sin secreto Y sin polling no queda ningún carril por el que llegue trabajo:
+    // eso sí es una config rota, y falla como siempre ha fallado.
     // Point 1 (D-03): managed does NOT exit the process — it throws a discriminated
     // error that run.js catches (Phase 65: log+clean exit; Phase 68: setup mode).
     // The throw carries only a code + generic message — never the secret value (T-65-06).
@@ -381,7 +395,11 @@ export async function startServer(opts = {}) {
     }
     // KODO-52: `--insecure` ya no basta por sí solo en `kodo start` (exige
     // KODO_ALLOW_INSECURE=1); el mensaje lo refleja para no mandar a un callejón.
-    console.error(`[kodo] Missing webhook secret. Set ${secretEnv} or use KODO_ALLOW_INSECURE=1 --insecure / KODO_DEV=1`);
+    // KODO-66: y nombra la salida sin secreto — `kodo config set polling.enabled true`.
+    console.error(
+      `[kodo] Missing webhook secret. Set ${secretEnv}, or enable polling ` +
+        '(`kodo config set polling.enabled true`), or use KODO_ALLOW_INSECURE=1 --insecure / KODO_DEV=1',
+    );
     process.exit(1);
   }
 
@@ -608,6 +626,19 @@ export async function startServer(opts = {}) {
     }
 
     if (req.method === 'POST' && pathname === '/webhook') {
+      // KODO-66, guard 0 — la ruta no existe en modo solo-polling (sin secreto con
+      // el que verificar la firma). Va ANTES del rate limit y del Content-Type: no
+      // hay nada que limitar ni que parsear si el carril está apagado. Sigue siendo
+      // ruta ABIERTA (isOpenRoute) a propósito — un 401 aquí revelaría que hay auth
+      // detrás. Body neutro y `resume()` para que el cliente lea la respuesta en vez
+      // de un reset (NET-04 / Pitfall NET-03).
+      if (!webhookEnabled) {
+        req.resume();
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'webhook disabled' }));
+        return;
+      }
+
       // KODO-45, guard 1 — rate limit por IP. Va ANTES de leer el body y antes del
       // HMAC: el coste que se quiere evitar es justo el SHA-256 sobre cada payload
       // de un flood, así que un 429 que llegara después no ahorraría nada. `resume()`
@@ -702,7 +733,13 @@ export async function startServer(opts = {}) {
   // duplicarla otra vez solo abre la puerta a que ambas ramas diverjan.
   const announceListening = () => {
     console.log(`[kodo] Server listening on ${formatHostForUrl(host)}:${port}`);
-    console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
+    // KODO-66: anunciar una URL de webhook que responde 503 mandaría al operador a
+    // pegarla en Plane para nada. En modo solo-polling se dice qué pasa y por qué.
+    if (webhookEnabled) {
+      console.log(`[kodo] Webhook URL: http://${advertisedHost}:${port}/webhook`);
+    } else {
+      console.log('[kodo] webhook disabled: polling mode, no secret configured');
+    }
     console.log(`[kodo] Status URL: http://${advertisedHost}:${port}/status`);
     const warning = wildcardBindWarning(host);
     if (warning) console.warn(warning);

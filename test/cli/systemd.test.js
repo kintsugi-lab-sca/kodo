@@ -297,6 +297,38 @@ describe('servicePreflight', () => {
     assert.match(w[0], /KODO_WEBHOOK_SECRET_GITHUB/);
   });
 
+  // KODO-66: con polling el secreto deja de ser un gate — el daemon arranca con
+  // `/webhook` apagado. Avisar ahí mandaría a generar un secreto para un endpoint
+  // que nadie va a llamar, que es justo el bucle de reinicios que este cambio cierra.
+  it('polling.enabled y sin secreto → SIN aviso (el secreto ya no es un gate)', async () => {
+    const w = await servicePreflight({
+      _needsSetup: () => false,
+      _loadConfig: () => ({ provider: 'plane', polling: { enabled: true, interval_s: 60 } }),
+      _env: {},
+    });
+    assert.deepEqual(w, []);
+  });
+
+  it('polling.enabled NO silencia el aviso de config incompleta (son señales distintas)', async () => {
+    const w = await servicePreflight({
+      _needsSetup: () => true,
+      _loadConfig: () => ({ provider: 'plane', polling: { enabled: true } }),
+      _env: {},
+    });
+    assert.equal(w.length, 1);
+    assert.match(w[0], /kodo check/);
+  });
+
+  it('polling presente pero enabled:false → el aviso del secreto SIGUE', async () => {
+    const w = await servicePreflight({
+      _needsSetup: () => false,
+      _loadConfig: () => ({ provider: 'plane', polling: { enabled: false } }),
+      _env: {},
+    });
+    assert.equal(w.length, 1);
+    assert.match(w[0], /KODO_WEBHOOK_SECRET_PLANE/);
+  });
+
   it('config incompleta y sin secreto → los DOS avisos (son señales distintas)', async () => {
     const w = await servicePreflight({
       _needsSetup: () => true,

@@ -104,25 +104,41 @@ kodo check
 En la primera ejecución abre el asistente: provider, `base_url`, `workspace_slug` y la API
 key. Deja `~/.kodo/config.json` y `~/.kodo/.env` (0600).
 
-### El `.env` necesita DOS variables, no una
+### Elige cómo se entera esta máquina: webhook o polling
+
+Son dos configuraciones, y solo una necesita secreto.
+
+**A) Polling (recomendado si no tienes URL pública).** El daemon pregunta cada
+`interval_s` por los work items en estado trigger asignados a esta API key. `~/.kodo/.env`
+necesita **una sola** variable:
 
 ```bash
+kodo config set polling.enabled true
 cat ~/.kodo/.env
 # PLANE_API_KEY=plane_api_...
-# KODO_WEBHOOK_SECRET_PLANE=...
 ```
 
-Si falta `KODO_WEBHOOK_SECRET_PLANE`, **`kodo daemon run` sale con código 1 nada más
-arrancar** (`src/server.js:380`) — y eso pasa **también en modo polling**, aunque nunca vayas
-a recibir un webhook. Genera uno cualquiera:
+Sin `KODO_WEBHOOK_SECRET_PLANE`, el daemon arranca con la ruta `/webhook` **desactivada**
+(responde `503` a cualquier POST) y lo dice en el log al arrancar:
+
+```
+[kodo] webhook disabled: polling mode, no secret configured
+```
+
+**B) Webhook.** Necesitas que Plane alcance esta máquina (URL pública o túnel) y el secreto
+del webhook, con el que se verifica la firma HMAC de cada evento:
 
 ```bash
 printf 'KODO_WEBHOOK_SECRET_PLANE=%s\n' "$(openssl rand -hex 32)" >> ~/.kodo/.env
 chmod 600 ~/.kodo/.env
 ```
 
-`kodo install --systemd` avisa por stderr si esto falta, nombrando la variable. No bloquea la
-instalación: te deja instalar ahora y configurar después.
+Las dos a la vez es una combinación soportada: el lock de dispatch por `task_id` garantiza
+que la tarea vista por los dos carriles se lanza una sola vez.
+
+Si **no** hay secreto **ni** polling no queda ningún carril por el que llegue trabajo, y
+`kodo daemon run` sale con código 1 nada más arrancar. `kodo install --systemd` avisa por
+stderr en ese caso, nombrando la variable; no bloquea la instalación.
 
 ### Hooks de Claude Code
 
@@ -240,6 +256,9 @@ kodo tiene dos carriles de trigger, y en Linux el interesante suele ser el segun
 Los dos pueden convivir sin duplicar lanzamientos. Para un portátil detrás de un router
 doméstico —el caso de esta guía— **polling es la respuesta**.
 
+Con polling activo el secreto del webhook deja de ser obligatorio (KODO-66): el daemon
+arranca con `/webhook` apagado en vez de salir con 1. Ver §6 para las dos configuraciones.
+
 ## 11. Cuando algo va mal
 
 **`kodo status` dice `systemd: ✗ failed`.** La unidad agotó su límite de arranques: 5 en 300s.
@@ -249,8 +268,9 @@ Casi siempre es configuración. Mira la causa y arregla:
 journalctl --user-unit kodo.service -n 50 --no-pager
 ```
 
-Si el journal dice `falta configuración` o el daemon sale con 1 sin más, revisa las **dos**
-variables de `~/.kodo/.env` (§6). Luego:
+Si el journal dice `falta configuración` o el daemon sale con 1 sin más, revisa `~/.kodo/.env`
+(§6): con polling activo basta con `PLANE_API_KEY`; sin polling hace falta además
+`KODO_WEBHOOK_SECRET_PLANE`. Luego:
 
 ```bash
 kodo install --systemd    # hace reset-failed y vuelve a arrancar
@@ -316,7 +336,7 @@ verificación:
 
 | # | Comprobación | Esperado |
 |---|---|---|
-| 1 | `kodo install --systemd` con `.env` incompleto | avisa nombrando `KODO_WEBHOOK_SECRET_PLANE` |
+| 1 | `kodo install --systemd` con `.env` incompleto **y polling off** | avisa nombrando `KODO_WEBHOOK_SECRET_PLANE` |
 | 2 | esperar ~100s con esa config | `is-active` → `failed`, `NRestarts` → 5 |
 | 3 | completar `.env` + `kodo install --systemd` | recupera de `failed` → `active` |
 | 4 | `kill -9 $MainPID` | resucita con otro pid en <10s |
@@ -324,6 +344,7 @@ verificación:
 | 6 | `kodo stop` | `stopped vía systemd`, unidad `inactive`, **no** resucita |
 | 7 | `kodo up` con la unidad parada | arranca la unidad; `MainPID` == el pid de `~/.kodo/kodo.pid` |
 | 8 | `kodo install --systemd` dos veces seguidas | la segunda dice `sin cambios` |
+| 9 | `polling.enabled=true` **sin** secreto + `systemctl --user start kodo` | sigue `active` pasados 60s; el journal dice `webhook disabled: polling mode` |
 
 El check 7 es el que demuestra que no hay split-brain: el pid que ve systemd y el que ve kodo
 son **el mismo proceso**.

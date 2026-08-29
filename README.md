@@ -122,7 +122,8 @@ EOF
 ```
 
 - `PLANE_API_KEY`: in Plane → profile → **API tokens**.
-- `PLANE_WEBHOOK_SECRET`: you get it when creating the webhook (step 4).
+- `PLANE_WEBHOOK_SECRET`: you get it when creating the webhook (step 4). **Optional** if you use
+  [polling](#polling-instead-of-a-webhook) instead — the daemon then starts with `/webhook` disabled.
 - `KODO_API_TOKEN` (API auth) is generated automatically on first startup — you don't need to create it.
 
 ### 2. Configure and map projects
@@ -638,6 +639,20 @@ is the whole trade: a webhook is instant, polling is bounded.
 turn one off: the same task seen by both lanes launches **once**, guarded by the per-`task_id`
 dedup lock and the active-session check. Keeping the webhook where it works and polling where it
 does not is a supported topology, not a workaround.
+
+**No webhook secret needed.** `KODO_WEBHOOK_SECRET_<PROVIDER>` only verifies the HMAC signature of
+incoming webhooks. With `polling.enabled` and no secret configured, the daemon starts with the
+`/webhook` route **disabled** — any `POST` to it gets a `503` — and says so once on startup:
+
+```
+[kodo] webhook disabled: polling mode, no secret configured
+```
+
+Everything else is unaffected: `/status` and the TUI (bearer token), dispatch by polling, dismiss
+and comments all work the same. Set the secret and the webhook lane comes back, coexisting with
+polling. With **neither** a secret nor polling there is no lane at all, and the daemon still exits
+with 1 on startup. `--insecure` (plus `KODO_ALLOW_INSECURE=1`) is unchanged and remains the only
+way to accept **unsigned** webhooks.
 
 **The first tick does not replay your backlog.** kodo keeps a watermark per project
 (the `updated_at` of the last item it saw) in `~/.kodo/polling-state.json`, so a tick only looks at

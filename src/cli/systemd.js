@@ -129,7 +129,7 @@ export function renderUnit({ execStart = TEMPLATE_EXEC_START, path = TEMPLATE_PA
 Description=kodo daemon (webhook + polling)
 Documentation=https://github.com/kintsugi-lab-sca/kodo
 # Freno del bucle infinito. Una config incompleta (típicamente KODO_WEBHOOK_SECRET_<PROVIDER>
-# ausente en ~/.kodo/.env) hace que \`daemon run\` salga con 1, y Restart=always lo relanzaría
+# ausente en ~/.kodo/.env SIN polling activo) hace que \`daemon run\` salga con 1, y Restart=always lo relanzaría
 # para siempre sin más señal que el journal. Con este límite, 5 arranques en 300s dejan la
 # unidad en \`failed\` — que \`kodo status\` SÍ enseña y el operador puede accionar.
 #
@@ -322,7 +322,8 @@ export function unitState(deps = {}) {
  * Las dos señales NO son la misma y por eso se comprueban las dos:
  *   - `needsSetup()` cubre provider / base_url / workspace_slug / API key.
  *   - El secreto de webhook queda FUERA de `needsSetup` por diseño (D-12), pero es un gate
- *     DURO de `startServer` bajo `managed` (server.js:380) — el que mata al daemon.
+ *     DURO de `startServer` bajo `managed` (server.js) — el que mata al daemon. KODO-66:
+ *     ese gate ya NO aplica con `polling.enabled`, así que el aviso tampoco.
  *
  * AVISA, no bloquea: instalar la unidad y configurar después es un flujo legítimo.
  *
@@ -346,13 +347,19 @@ export async function servicePreflight(deps = {}) {
     if (needsSetupFn()) {
       warnings.push('config incompleta (provider / base_url / API key) — corre `kodo check` antes de usar el servicio');
     }
-    const provider = loadConfigFn()?.provider;
-    if (provider) {
+    const config = loadConfigFn();
+    const provider = config?.provider;
+    // KODO-66: con `polling.enabled` el secreto ya NO es un gate — el daemon arranca
+    // con `/webhook` apagado (server.js) y se entera de los cambios preguntando. Avisar
+    // ahí mandaría a generar un secreto para un endpoint que nadie va a llamar.
+    const pollingEnabled = config?.polling?.enabled === true;
+    if (provider && !pollingEnabled) {
       const secretVar = `KODO_WEBHOOK_SECRET_${String(provider).toUpperCase()}`;
       if (!env[secretVar]) {
         warnings.push(
-          `falta ${secretVar} en ~/.kodo/.env — sin él el daemon sale con 1 nada más arrancar, ` +
-            'incluso en modo polling. Genera uno: openssl rand -hex 32',
+          `falta ${secretVar} en ~/.kodo/.env — sin él (y sin polling) el daemon sale con 1 nada ` +
+            'más arrancar. Genera uno (openssl rand -hex 32) o activa el polling: ' +
+            '`kodo config set polling.enabled true`',
         );
       }
     }

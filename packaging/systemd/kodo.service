@@ -16,7 +16,7 @@
 Description=kodo daemon (webhook + polling)
 Documentation=https://github.com/kintsugi-lab-sca/kodo
 # Freno del bucle infinito. Una config incompleta (típicamente KODO_WEBHOOK_SECRET_<PROVIDER>
-# ausente en ~/.kodo/.env) hace que `daemon run` salga con 1, y Restart=always lo relanzaría
+# ausente en ~/.kodo/.env SIN polling activo) hace que `daemon run` salga con 1, y Restart=always lo relanzaría
 # para siempre sin más señal que el journal. Con este límite, 5 arranques en 300s dejan la
 # unidad en `failed` — que `kodo status` SÍ enseña y el operador puede accionar.
 #
