@@ -1,6 +1,6 @@
 {
   "name": "kodo",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Plane-cmux bridge — automated Claude Code sessions from kanban tasks",
   "type": "module",
   "bin": {
