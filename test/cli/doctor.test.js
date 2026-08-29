@@ -452,3 +452,82 @@ describe('runDoctor: host bb (KODO-31)', () => {
     assert.ok(!sink.out.s.includes('host bb'));
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────
+// KODO-58 — `--operator`
+// ───────────────────────────────────────────────────────────────────────
+//
+// Opt-in como `--states`/`--identifiers` y por la MISMA razón: toca la red, y el doctor
+// es offline por defecto. La deuda que cubre es de VISIBILIDAD — sin este check, un
+// operador con la identidad sin resolver no tiene forma de enterarse de que su filtro
+// por asignado está inactivo y su daemon sigue lanzando tareas de otro.
+
+describe('runDoctor: identidad del operador (--operator, KODO-58)', () => {
+  it('sin el flag no corre el check ni aparece en la salida (default offline intacto)', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({}, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      refreshOperatorFn: async () => assert.fail('no debe llamarse sin --operator'),
+      ...sink,
+    });
+    assert.equal(code, 0);
+    assert.ok(!sink.out.s.includes('operador'));
+  });
+
+  it('identidad resuelta → exit 0 y se nombra al dueño de la API key', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ operator: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      refreshOperatorFn: async () => ({ id: 'uuid-alex', display_name: 'alex' }),
+      ...sink,
+    });
+    assert.equal(code, 0);
+    assert.match(sink.out.s, /alex/);
+    assert.match(sink.out.s, /uuid-alex/);
+  });
+
+  it('identidad NO resuelta → exit 1 y aviso de que el filtro queda inactivo', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ operator: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      refreshOperatorFn: async () => null,
+      ...sink,
+    });
+    assert.equal(code, 1, 'pedir --operator y no poder resolver ES un problema');
+    assert.match(sink.out.s, /INACTIVO|sin identidad/i);
+  });
+
+  it('un refresh que LANZA degrada a «sin identidad», nunca tumba el doctor', async () => {
+    const sink = makeSink();
+    const code = await runDoctor({ operator: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      refreshOperatorFn: async () => { throw new Error('red caída'); },
+      ...sink,
+    });
+    assert.equal(code, 1);
+    assert.match(sink.out.s, /sin identidad/i);
+  });
+
+  it('--json incluye el bloque operator solo cuando se resolvió', async () => {
+    const sink = makeSink();
+    await runDoctor({ operator: true, json: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      refreshOperatorFn: async () => ({ id: 'uuid-alex', display_name: 'alex' }),
+      ...sink,
+    });
+    assert.deepEqual(JSON.parse(sink.out.s).operator, { id: 'uuid-alex', display_name: 'alex' });
+
+    const sink2 = makeSink();
+    await runDoctor({ json: true }, {
+      loadRawConfigFn: () => ALIGNED_CONFIG,
+      loadProjectsFn: () => ({ kodo: '/tmp/kodo' }),
+      ...sink2,
+    });
+    assert.equal(JSON.parse(sink2.out.s).operator, undefined);
+  });
+});

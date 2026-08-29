@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PlaneClient } from './client.js';
 import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
 import { KODO_LABEL_ADOPTED, isDispatchable } from '../../labels.js';
+import { filterByOperator } from '../../operator.js';
 
 /**
  * @typedef {{
@@ -13,14 +14,24 @@ import { KODO_LABEL_ADOPTED, isDispatchable } from '../../labels.js';
  *   projects: Array<{id: string, identifier: string, name: string}>,
  *   states: {trigger: string, review: string, done: string},
  *   webhookSecret?: string,
+ *   operator?: {id: string, display_name?: string},
+ *   requireAssignee?: boolean,
  * }} PlaneProviderConfig
  */
 
 /**
  * Factory that creates a TaskProvider adapter for Plane.
  *
+ * `opts.persistOperatorFn` (KODO-58) es el ÚNICO camino por el que este módulo escribe
+ * en disco, y llega por DI a propósito: el provider no importa `config.js` para
+ * guardar, así que un test lo instancia sin tocar el `~/.kodo/config.json` real. El
+ * registry cablea el escritor de verdad.
+ *
  * @param {PlaneProviderConfig} config
- * @param {{ logger?: import('../../logger.js').Logger }} [opts]
+ * @param {{
+ *   logger?: import('../../logger.js').Logger,
+ *   persistOperatorFn?: (operator: {id: string, display_name?: string}) => void,
+ * }} [opts]
  * @returns {import('../../interface.js').TaskProvider}
  */
 export function createPlaneProvider(config, opts = {}) {
@@ -54,6 +65,46 @@ export function createPlaneProvider(config, opts = {}) {
   const moduleByName = new Map();
   let initTimestamp = 0;
   const INIT_TTL_MS = 5 * 60 * 1000; // re-init every 5min
+
+  /**
+   * Identidad del dueño de la API key (KODO-58). Se siembra desde lo cacheado en
+   * config.json y solo se resuelve por red cuando falta — ver `resolveOperator`.
+   * @type {{id: string, display_name?: string}|null}
+   */
+  let operator = config.operator?.id ? { ...config.operator } : null;
+
+  /**
+   * Resuelve la identidad del operador CONTRA LA API y la cachea (config.json).
+   *
+   * `force = false` (el camino del `init`): si ya hay identidad —cacheada en config o
+   * resuelta en un init anterior— NO se llama a la red. En régimen permanente esto es
+   * cero peticiones; solo el primer arranque de una instalación paga el `GET /users/me`.
+   *
+   * `force = true` (el camino de `kodo doctor --operator`): siempre pregunta, para que
+   * el operador pueda refrescar una caché obsoleta (key rotada, cuenta distinta).
+   *
+   * FAIL-OPEN por construcción: un fallo deja `operator` como estaba —típicamente
+   * `null`, «no sé quién soy»— y `assigneeVerdict` interpreta esa ausencia dejando pasar
+   * TODO. Un `/users/me` caído degrada al comportamiento anterior a KODO-58, nunca a un
+   * daemon que no lanza nada.
+   *
+   * @param {boolean} [force]
+   * @returns {Promise<{id: string, display_name?: string}|null>}
+   */
+  async function resolveOperator(force = false) {
+    if (operator?.id && !force) return operator;
+    try {
+      const me = await client.getMe();
+      if (!me?.id) return operator;
+      operator = me;
+      if (opts.persistOperatorFn) opts.persistOperatorFn(me);
+    } catch (err) {
+      warn(
+        `No se pudo resolver la identidad del operador contra Plane (GET /users/me): ${/** @type {any} */ (err)?.message ?? err}. El filtro por asignado queda inactivo hasta la próxima vez.`,
+      );
+    }
+    return operator;
+  }
 
   /**
    * Parse a human-readable ref like "KL-42" into identifier prefix and sequence number.
@@ -178,6 +229,11 @@ export function createPlaneProvider(config, opts = {}) {
     async init() {
       // Skip re-init if recent
       if (initTimestamp && Date.now() - initTimestamp < INIT_TTL_MS) return;
+
+      // KODO-58: identidad del dueño de la API key. NO-OP sin red cuando ya está
+      // cacheada en `providers.plane.operator` (el caso normal); never-throws, así que
+      // no puede tumbar un init que hoy sí funciona.
+      await resolveOperator();
 
       // Resolve project entries contra la API: enriquece los UUID strings sueltos a
       // { id, identifier, name } (para que el resto de métodos dependa de una sola forma)
@@ -468,7 +524,15 @@ export function createPlaneProvider(config, opts = {}) {
           allTasks.push(task);
         }
       }
-      return allTasks;
+      // KODO-58: y solo lo que ESTE daemon lanzaría. Con dos operadores sobre los mismos
+      // proyectos, las tareas del otro estaban contándose como pendientes aquí, así que
+      // `kodo check` despertaba al orquestador para dispatchar trabajo que su propio gate
+      // iba a rechazar. MISMA regla que el gate del dispatcher (una sola definición de
+      // «esta tarea es mía»), e inerte sin identidad conocida.
+      return filterByOperator(allTasks, {
+        operatorId: operator?.id,
+        requireAssignee: config.requireAssignee !== false,
+      });
     },
 
     parseTriggerEvent(rawPayload) {
@@ -495,6 +559,25 @@ export function createPlaneProvider(config, opts = {}) {
         identifier: p.identifier,
         name: p.name,
       }));
+    },
+
+    // OPTIONAL methods (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Se detectan
+    // en el call site con `typeof provider.getOperator === 'function'`, igual que
+    // `getTaskState` y `createTask`. KODO-58.
+    //
+    // `getOperator` es SÍNCRONO y sin red: devuelve lo que ya se sabe (config o init).
+    // El gate del dispatcher se llama en el camino caliente de cada webhook y no puede
+    // permitirse una petición HTTP por evento; `null` significa «no lo sé», y aguas
+    // arriba eso deja pasar la tarea (fail-open).
+    getOperator() {
+      return operator ? { ...operator } : null;
+    },
+
+    // `refreshOperator` SÍ va a la red y reescribe la caché. Único consumidor:
+    // `kodo doctor --operator`, opt-in como el resto de checks con red del doctor.
+    async refreshOperator() {
+      const me = await resolveOperator(true);
+      return me ? { ...me } : null;
     },
 
     async resolveRef(humanRef) {

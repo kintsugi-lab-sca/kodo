@@ -53,10 +53,33 @@ export function setNestedValue(obj, path, value) {
 export function parseSetArg(raw) {
   const s = String(raw);
   const eq = s.indexOf('=');
-  return {
-    key: eq === -1 ? s : s.slice(0, eq),
-    value: eq === -1 ? undefined : s.slice(eq + 1),
-  };
+  if (eq === -1) return { key: s, value: undefined };
+  return { key: s.slice(0, eq), value: coerceSetValue(s.slice(eq + 1)) };
+}
+
+/**
+ * Coerce EXACTAMENTE los literales `true`/`false` al booleano correspondiente (KODO-58).
+ * Todo lo demás se devuelve como string, verbatim.
+ *
+ * Existe porque `--set` persiste el valor TAL CUAL y `"false"` es un string TRUTHY: un
+ * `kodo config --set dispatch.require_assignee=false` guardaba `"false"` y el knob seguía
+ * encendido — un ajuste que el operador ve aceptado («Set … = false») y que no hacía
+ * nada. Antes de KODO-58 no había ninguna clave booleana en el config, así que el trap no
+ * tenía dónde manifestarse.
+ *
+ * DELIBERADAMENTE estrecho: solo los dos literales, en minúscula y sin espacios, y NADA
+ * de números (`max_parallel=5` sigue guardándose como `"5"`, igual que siempre — cambiarlo
+ * aquí sería un cambio de comportamiento fuera del alcance de esta tarea, y JS lo coacciona
+ * en las aritméticas donde se usa). Ningún valor de config del repo es la palabra "true" o
+ * "false" — son nombres, rutas, URLs e ids de modelo.
+ *
+ * @param {string} value
+ * @returns {string|boolean}
+ */
+function coerceSetValue(value) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
 }
 
 /**

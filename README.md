@@ -268,7 +268,7 @@ kodo orchestrate         # launches the orchestrating session (spends tokens)
 kodo adopt               # adopts an ad-hoc cmux session as a tracked task
 kodo comment <REF>       # posts a summary comment on an existing task
 kodo logs [session-id]   # inspects session logs (dump, tail, filter)
-kodo doctor              # diagnoses config.json ↔ projects.json alignment (--states, --identifiers, --json)
+kodo doctor              # diagnoses config.json ↔ projects.json alignment (--states, --identifiers, --operator, --json)
 kodo install / uninstall # registers/removes Claude Code hooks
 ```
 
@@ -475,6 +475,65 @@ at a project that does not exist there (`ITROMAN-1` for what Plane calls `ITCLIP
 already realigns itself on every `init()` — the ref always comes from Plane's identifier — but this
 check makes the divergence persisted on disk visible so it can be fixed with `kodo config`.
 
+`--operator` re-asks the provider who owns the API key and refreshes the cached identity used by the
+assignee filter (see below). Run it after rotating the key or switching accounts. If it cannot
+resolve the identity it exits 1 and says so out loud, because a daemon with no identity silently
+falls back to launching *anyone's* tasks.
+
+## Multiple operators on the same project
+
+Two people running kodo against the same Plane projects receive **the same webhooks**. Before
+`dispatch.require_assignee`, every label or state change launched the session on **both** machines:
+`claude.max_parallel` and `state.json` do not help — they are per-machine, and each machine believes
+the work is its own.
+
+The rule that splits the work is the one already on the board: **a task is eligible for this daemon
+only if its assignees include the user who owns the API key it signs with.**
+
+```jsonc
+// ~/.kodo/config.json
+{
+  "dispatch": { "require_assignee": true },     // default
+  "providers": {
+    "plane": {
+      // Resolved automatically from GET /users/me on the first init() and cached here.
+      "operator": { "id": "<user uuid>", "display_name": "alex" }
+    }
+  }
+}
+```
+
+It applies to the three paths that can start a session — webhook, pending-task resolver
+(`kodo check`), and `kodo launch` — so what the daemon launches and what it reports as pending can
+never disagree.
+
+| Task | Result |
+|---|---|
+| Assigned to you | Launches |
+| Assigned to someone else | `dispatch.decision action=ignored code=assigned_to_other` |
+| Assigned to you *and* someone else | Launches (sharing a task is not exclusive) |
+| **Unassigned** | Nobody launches it: `dispatch.skipped reason=unassigned` |
+
+The unassigned case is the point, not an oversight: while no one has claimed a task, no machine
+takes it, which is exactly what stops the double launch and what pushes you to assign it. To run it
+anyway from the machine you are sitting at, use `kodo launch <ref> --force` — the same escape hatch
+as the `kodo` label.
+
+**Fail-open by design.** If the identity cannot be resolved (`/users/me` down, nothing cached yet),
+the filter lets everything through — the pre-existing behaviour. A network blip must not leave a
+daemon launching nothing. Check it with `kodo doctor --operator`.
+
+**Single operator?** `kodo config --set dispatch.require_assignee=false` restores the old behaviour
+exactly, and you never have to assign anything to yourself.
+
+**GitHub.** The contract is the same over the issue's `assignees` (matched by **login**), but there
+is *no* auto-detection: the GitHub provider's `init()` is a deliberate no-op, so the identity is
+declared once by hand and, without it, the filter stays inert.
+
+```jsonc
+{ "providers": { "github": { "operator": { "id": "<your github login>" } } } }
+```
+
 ## GitHub as a provider
 
 kodo can also operate against GitHub Issues (no webhook: polling built into the daemon).
@@ -668,6 +727,7 @@ kodo config --set claude.default_model=opus         # model for work sessions
 kodo config --set claude.orchestrator_model=fable   # orchestrator model (default fable)
 kodo config --set server.idle_threshold_min=5       # minutes before considering a session idle
 kodo config --set server.stuck_threshold_min=30     # minutes before considering a session stuck
+kodo config --set dispatch.require_assignee=false    # launch tasks regardless of assignee (single operator)
 ```
 
 ### Plane API rate limit

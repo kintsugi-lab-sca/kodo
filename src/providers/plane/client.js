@@ -86,12 +86,19 @@ export class PlaneClient {
    *    cliente son de bajo daño ante duplicado (comentario repetido) y `createLabel` ya es
    *    idempotente ante el 409 de nombre.
    *
+   * `opts.root` (KODO-58) saca la petición del prefijo `/workspaces/<slug>`: casi toda la
+   * API de Plane cuelga del workspace, pero la identidad del dueño de la key NO
+   * (`/api/v1/users/me/`) — es una propiedad del token, no de un workspace. Se resuelve
+   * con un flag y no con un método aparte para que ese endpoint herede TAL CUAL el retry,
+   * el backoff, el throttle de rate-limit y el manejo de errores de aquí.
+   *
    * @param {string} path
-   * @param {{ method?: string, body?: object, params?: Record<string,string>, maxRetries?: number }} [opts]
+   * @param {{ method?: string, body?: object, params?: Record<string,string>, maxRetries?: number, root?: boolean }} [opts]
    * @returns {Promise<any>}
    */
   async request(path, opts = {}) {
-    const url = new URL(`${this.baseUrl}/api/v1/workspaces/${this.workspaceSlug}${path}`);
+    const prefix = opts.root ? `${this.baseUrl}/api/v1` : `${this.baseUrl}/api/v1/workspaces/${this.workspaceSlug}`;
+    const url = new URL(`${prefix}${path}`);
     if (opts.params) {
       for (const [k, v] of Object.entries(opts.params)) {
         url.searchParams.set(k, v);
@@ -375,6 +382,29 @@ export class PlaneClient {
   async listProjects() {
     const data = await this.request('/projects/');
     return data.results || data;
+  }
+
+  /**
+   * Identidad del dueño de la API key (KODO-58) — `GET /api/v1/users/me/`.
+   *
+   * VERIFICADO 200 contra la instancia CE v1.3.0: devuelve
+   * `{id, first_name, last_name, email, avatar, display_name}`. Va con `root: true`
+   * porque NO cuelga del workspace (ver la nota de `request`).
+   *
+   * Se devuelven SOLO `id` y `display_name`: el `id` es lo único que se compara (contra
+   * los `assignees` del work item) y el `display_name` es lo único que se enseña. El
+   * email queda fuera a propósito — este valor se cachea en `~/.kodo/config.json`, un
+   * fichero que se pega en issues y se comparte al depurar, y no necesita PII para
+   * cumplir su función.
+   *
+   * Los errores se PROPAGAN: el fail-open lo decide el caller (`provider.init()`), que es
+   * quien sabe si puede degradar a «identidad desconocida» o no.
+   *
+   * @returns {Promise<{ id: string, display_name: string }>}
+   */
+  async getMe() {
+    const me = await this.request('/users/me/', { root: true });
+    return { id: me?.id, display_name: me?.display_name || me?.email || me?.id };
   }
 
   /**

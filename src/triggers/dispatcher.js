@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects, KODO_DIR } from '../config.js';
 import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js';
+import { assigneeVerdict, SKIP_UNASSIGNED } from '../operator.js';
 import { listSessions, removeSession, computeRealWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
@@ -188,9 +189,11 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
   // resolution semantics diverge.
   const gsdMode = getGsdMode(kodoConfig.flags);
 
+  // Un solo `loadConfig()` para los dos gates que lo necesitan (2b estados, 2c operador).
+  const config = loadConfig();
+
   // 2b. Handle terminal states — clean up session if task moved to Done/Cancelled
   if (task.state) {
-    const config = loadConfig();
     const providerStates = config.providers?.[event.provider]?.states || {};
     const terminalStates = [providerStates.done, 'Cancelled'].filter(Boolean);
     if (terminalStates.some((s) => s.toLowerCase() === task.state.toLowerCase())) {
@@ -227,6 +230,50 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
         console.log(`[kodo:dispatch] Ignored — state "${task.state}" is inactive`);
         return { action: 'ignored', code: 'inactive_state' };
       }
+    }
+  }
+
+  // 2c. Multi-operador (KODO-58) — esta tarea, ¿es de ESTA máquina?
+  //
+  // Con dos daemons sobre los mismos proyectos (dos operadores, dos máquinas), el mismo
+  // webhook llega a los dos y hasta aquí AMBOS lanzaban la sesión. Ni `max_parallel`
+  // (KODO-55) ni `state.json` lo evitan: son por máquina, y cada una cree tener el
+  // trabajo para ella sola. La única señal que ya distingue a un operador de otro en el
+  // tablero es a quién está ASIGNADA la tarea, y es la que se usa aquí.
+  //
+  // POSICIÓN EN LA SECUENCIA — va DESPUÉS del bloque 2b, y eso es LOAD-BEARING: si una
+  // tarea que lanzamos nosotros se reasigna a otro operador y luego se cierra, la
+  // limpieza de su sesión local (`removeSessionFn`) tiene que seguir ocurriendo. Cortar
+  // antes dejaría esa fila colgada en `state.json` para siempre. Va ANTES del in-flight
+  // guard y del lock porque, ya decidido que no es nuestra, todo lo demás es trabajo
+  // tirado.
+  //
+  // `--force` lo salta, mismo patrón que el gate de etiqueta y el de estados inactivos:
+  // `kodo launch <ref> --force` es una orden explícita de un humano sentado en ESTA
+  // máquina, y ahí la regla de reparto sobra.
+  if (!opts.force) {
+    // `getOperator` es OPCIONAL (typeof-detected, igual que getTaskState/createTask):
+    // un provider que no la implemente deja el gate inerte por construcción.
+    const operatorId =
+      typeof provider.getOperator === 'function' ? provider.getOperator()?.id : null;
+    const verdict = assigneeVerdict({
+      assignees: task.assignees,
+      operatorId,
+      requireAssignee: config.dispatch?.require_assignee !== false,
+    });
+    if (!verdict.eligible) {
+      // La línea de SIN ASIGNADO se emite aparte y con su propio motivo porque no
+      // describe un reparto, sino un agujero: mientras nadie la reclame, esa tarea no la
+      // lanza NADIE. Es exactamente lo que evita el doble lanzamiento, y el operador
+      // tiene que poder verlo en el log para saber que le toca asignarla.
+      const reason = verdict.code;
+      console.log(
+        `[kodo:dispatch] dispatch.skipped reason=${reason} — ${task.ref}` +
+          (reason === SKIP_UNASSIGNED
+            ? ' no tiene asignado; asígnatela para que este daemon la lance'
+            : ' está asignada a otro operador'),
+      );
+      return { action: 'ignored', code: reason };
     }
   }
 

@@ -40,6 +40,7 @@
 import { GitHubClient } from './client.js';
 import { normalizeIssue } from './normalize.js';
 import { KODO_LABEL_ADOPTED } from '../../labels.js';
+import { filterByOperator } from '../../operator.js';
 
 /**
  * @typedef {{
@@ -47,6 +48,8 @@ import { KODO_LABEL_ADOPTED } from '../../labels.js';
  *   api_key_env: string,
  *   repos: Array<{owner: string, repo: string}>,
  *   states: {trigger: string, review: string, done: string},
+ *   operator?: {id: string, display_name?: string},
+ *   require_assignee?: boolean,
  * }} GitHubProviderConfig
  *
  * snake_case en lugar de camelCase porque el factory consume el sub-objeto raw
@@ -162,7 +165,30 @@ export function createGitHubProvider(config, opts = {}) {
           allTasks.push(normalizeIssue(issue, { projectId: `${r.owner}/${r.repo}` }));
         }
       }
-      return allTasks;
+      // KODO-58: mismo recorte por operador que Plane, con la MISMA regla pura. Inerte
+      // salvo que el operador haya declarado su login en `providers.github.operator.id`
+      // — ver la nota de `getOperator` abajo.
+      return filterByOperator(allTasks, {
+        operatorId: config.operator?.id,
+        requireAssignee: config.require_assignee !== false,
+      });
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13), detectado con
+    // `typeof provider.getOperator === 'function'`. KODO-58.
+    //
+    // DIVERGENCIA DELIBERADA vs Plane: aquí NO hay auto-detección. El `init()` de este
+    // provider es un no-op por decisión explícita (D-19: sin cache, sin warmup, sin TTL
+    // guard) y meter ahí un `GET /user` la rompería para dar una comodidad que el
+    // operador de GitHub resuelve escribiendo su login UNA vez:
+    //
+    //     "providers": { "github": { "operator": { "id": "<login>" } } }
+    //
+    // Sin esa clave devuelve `null` = «no sé quién soy», y el gate deja pasar todo
+    // (fail-open) — es decir, el comportamiento anterior a KODO-58, intacto. El id es el
+    // LOGIN porque es lo que `normalizeIssue` emite en `assignees`.
+    getOperator() {
+      return config.operator?.id ? { ...config.operator } : null;
     },
 
     // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected via

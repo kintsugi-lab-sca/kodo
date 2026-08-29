@@ -74,11 +74,11 @@ after(() => {
 const PROVIDERS = Object.freeze(['plane', 'github']);
 
 /**
- * Los 13 fields canonical del TaskItem typedef (`src/interface.js:11-26`, Phase 28 D-01).
- * Anclado en D-18 cross-provider leak guard (reformulado por Phase 28 D-01: 11 → 13
- * fields, `updated_at` + `created_at` REQUIRED). Si se añade un campo al typedef,
- * este array DEBE actualizarse y los normalizers DEBEN emitirlo — el matrix
- * revienta loud en caso contrario.
+ * Los 14 fields canonical del TaskItem typedef (`src/interface.js`, Phase 28 D-01 +
+ * KODO-58). Anclado en D-18 cross-provider leak guard (reformulado por Phase 28 D-01:
+ * 11 → 13 fields, `updated_at` + `created_at` REQUIRED; y por KODO-58: 13 → 14,
+ * `assignees` REQUIRED). Si se añade un campo al typedef, este array DEBE actualizarse
+ * y los normalizers DEBEN emitirlo — el matrix revienta loud en caso contrario.
  */
 const CANONICAL_TASK_ITEM_KEYS = Object.freeze([
   'id',
@@ -91,6 +91,7 @@ const CANONICAL_TASK_ITEM_KEYS = Object.freeze([
   'groups',
   'url',
   'priority',
+  'assignees',   // KODO-58
   'state',
   'updated_at',  // D-04 Phase 28
   'created_at',  // D-04 Phase 28
@@ -169,6 +170,15 @@ function assertTaskItemShape(task, providerName) {
   assert.equal(typeof task.projectName, 'string', `[${providerName}] projectName must be string`);
   assert.ok(Array.isArray(task.groups), `[${providerName}] groups must be array`);
   assert.equal(typeof task.url, 'string', `[${providerName}] url must be string`);
+  // KODO-58: `assignees` es REQUIRED y siempre array de strings — `[]` cuando no hay
+  // nadie asignado, NUNCA null/undefined. El gate del dispatcher distingue «sin
+  // asignado» de «asignada a otro», y esa distinción se pierde si un provider puede
+  // emitir ausencia en vez de un array vacío.
+  assert.ok(Array.isArray(task.assignees), `[${providerName}] assignees must be array`);
+  assert.ok(
+    task.assignees.every((a) => typeof a === 'string'),
+    `[${providerName}] assignees must contain only strings, got: ${JSON.stringify(task.assignees)}`,
+  );
   assert.ok(
     task.priority === null || VALID_PRIORITY_VALUES.includes(task.priority),
     `[${providerName}] priority must be null or one of ${JSON.stringify(VALID_PRIORITY_VALUES)}, got: ${task.priority}`,
@@ -311,6 +321,18 @@ function stubPlaneFetch(routes) {
 async function instantiateProvider(name) {
   if (name === 'plane') {
     const stub = stubPlaneFetch({
+      // KODO-58: init() resuelve la identidad del dueño de la API key. Va con `root:true`
+      // (fuera de /workspaces/<slug>), pero el stub casa por sufijo, así que el suffix
+      // basta. Sin esta ruta el stub hace miss → el provider degrada a «identidad
+      // desconocida» (fail-open) DESPUÉS de agotar los reintentos del cliente, y la
+      // matrix tardaba ~50 s en pasar por culpa del backoff.
+      // El id COINCIDE con el `assignees[0]` de plane-workitem.json a propósito: si no,
+      // el recorte por operador de `listPendingTasks` vaciaría la lista y el assert de
+      // forma canónica pasaría en vacío, sin comprobar nada.
+      '/users/me/': () => ({
+        id: 'u0u0u0u0-1111-2222-3333-444444444444',
+        display_name: 'contract-operator',
+      }),
       // listProjects → /projects/ (también consumido por `provider.listProjects`)
       '/projects/': () => ({
         results: [
