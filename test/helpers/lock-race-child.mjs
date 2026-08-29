@@ -11,6 +11,7 @@
 //   - test/dispatcher-dedup-crossproc.test.js      (--kind dispatch)
 //   - test/state/handoff-concurrency.test.js       (--kind handoff)
 //   - test/state/migration-concurrency.test.js     (--kind migrator, --kind writer)
+//   - test/state/max-parallel-reservation.test.js  (--kind reserve)
 //   - test/inbox-concurrency.test.js               (--kind capture, --kind mark)
 //
 // Contract: attempt the acquire EXACTLY ONCE, then print exactly `acquired`
@@ -309,6 +310,39 @@ async function main() {
       written = false;
     }
     process.stdout.write(written ? 'written' : 'failed');
+    process.exit(0);
+  }
+
+  // Reserve mode (KODO-55): cada hijo intenta RESERVAR un slot de `max_parallel`
+  // llamando a `reserveLaunchSlot` — el gate de `launchWorkItem`, que es donde vive
+  // toda la sección crítica del arreglo (contar y escribir el placeholder bajo el
+  // MISMO `withStateLock`). El import es DINÁMICO y POST-HOME como el resto del
+  // fichero: `config.js` evalúa `join(homedir(), '.kodo')` al module-load, así que un
+  // import estático reservaría contra el `~/.kodo` REAL del operador.
+  //
+  // Se ejercita el gate y no `launchWorkItem` entero a propósito: la cola de
+  // `launchWorkItem` necesita un provider y un host VIVOS (round-trips a Plane y a
+  // cmux) que no son stubbeables a través de una frontera de proceso, y el repo evita
+  // `mock.module` deliberadamente (ver test/dashboard-poll.test.js:9). Lo que la carrera
+  // tiene que demostrar —que N procesos concurrentes no pueden pasar el límite— vive
+  // íntegro aquí. Imprime `reserved` o `rejected` (o `failed`) y nunca lanza.
+  if (args.kind === 'reserve') {
+    let verdict = 'failed';
+    try {
+      const { reserveLaunchSlot } = await import('../../src/session/manager.js');
+      reserveLaunchSlot('KL-' + args.idx, {
+        maxParallel: Number(args.max),
+        provider: 'test',
+      });
+      verdict = 'reserved';
+    } catch (err) {
+      // El veredicto discrimina el rechazo ESPERADO del gate de cualquier otro fallo:
+      // un `failed` en el padre significa «se rompió algo distinto», no «no había hueco».
+      verdict = /Max parallel sessions \(\d+\) reached/.test(String(err?.message))
+        ? 'rejected'
+        : 'failed';
+    }
+    process.stdout.write(verdict);
     process.exit(0);
   }
 

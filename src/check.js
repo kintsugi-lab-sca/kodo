@@ -7,7 +7,13 @@
 //
 
 import { loadConfig } from './config.js';
-import { loadState } from './session/state.js';
+// KODO-55: `isSchedulable` es la ÚNICA fuente de verdad de «qué ocupa un slot de
+// max_parallel». Este módulo filtraba `status === 'running'` por su cuenta, así que su
+// recuento de slots disponibles divergía del gate de `launchWorkItem` en los dos
+// extremos: contaba de más los zombis (`alive:false`, la fuga A4 que cerró CONC-03) y
+// de menos las reservas en vuelo (`launching`). Ambas divergencias empujan al
+// orquestador a lanzar sobre slots que no existen.
+import { loadState, isSchedulable } from './session/state.js';
 import { checkHealth, actOnHealth } from './session/health.js';
 import { initRegistry, getProvider } from './providers/registry.js';
 import { launchOrchestrator } from './orchestrator/launch.js';
@@ -79,6 +85,12 @@ export async function runCheck() {
 
   const running = Object.values(state.sessions).filter((s) => s.status === 'running');
   const inReview = Object.values(state.sessions).filter((s) => s.status === 'review');
+  // KODO-55: lo que OCUPA un slot no es lo mismo que lo que se muestra como «running».
+  // El gate cuenta también las reservas en vuelo y descuenta los zombis (isSchedulable);
+  // la línea de resumen de abajo sigue reportando las sesiones de trabajo vivas, que es
+  // lo que el operador espera leer. Dos números distintos porque son dos preguntas
+  // distintas — usar el de display para decidir capacidad era el bug.
+  const occupied = Object.values(state.sessions).filter(isSchedulable);
 
   lines.push(`[kodo:check] Sessions: ${running.length} running, ${inReview.length} in review`);
 
@@ -109,7 +121,7 @@ export async function runCheck() {
   await initRegistry();
   const pendingResult = await checkPendingTasks({
     config,
-    runningCount: running.length,
+    runningCount: occupied.length,
     activeSessions: Object.values(state.sessions),
     getProviderFn: getProvider,
   });
