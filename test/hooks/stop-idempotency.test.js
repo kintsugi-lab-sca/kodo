@@ -30,6 +30,10 @@
 //   - Post-fix: el test PASA (segunda invocación es no-op completo).
 
 import { describe, it, before, beforeEach, after, afterEach } from 'node:test';
+// KODO-57: seams base de hermeticidad (bandeja del orquestador + provider offline). Sin
+// el del provider, el review backstop de SessionEnd instanciaba el provider Plane real y
+// pedía `.../work-items/kodo-test-stop-idem-1/` contra la instancia de producción.
+import { ORCH_INBOX_SEAMS } from '../helpers/orchestrator-inbox-seams.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -167,6 +171,7 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
+        ...ORCH_INBOX_SEAMS,
         cmux: cmux1,
         captureIntegrationFn: noCapture,
         loggerFactory: () => logger1,
@@ -209,6 +214,7 @@ describe('stop hook — Phase 30 idempotency (CR-01)', () => {
     await runSessionEndHook(
       { session_id: session.session_id, cwd: '/tmp/repo-idem' },
       {
+        ...ORCH_INBOX_SEAMS,
         cmux: cmux2,
         captureIntegrationFn: noCapture,
         loggerFactory: () => logger2,

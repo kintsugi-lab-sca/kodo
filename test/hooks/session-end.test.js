@@ -378,6 +378,9 @@ describe('runSessionEndHook — efectos de cierre HYG-04 (color/notify/aviso)', 
       runSessionEndHook(
         { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
         {
+          // KODO-57: el spread aporta el provider offline; los dos stubs de bandeja de
+          // este caso lo pisan a propósito (aquí el enqueue LANZA).
+          ...ORCH_INBOX_SEAMS,
           enqueueOrchestratorEventFn: () => { throw new Error('state.json ilegible'); },
           maybeNotifyOrchestratorFn: async () => ({ sent: false, reason: 'nothing-unseen' }),
           findSessionFn: () => ({ id: session.task_id, session }),
@@ -688,6 +691,9 @@ describe('runSessionEndHook — hermeticidad del aviso al orquestador (KODO-20)'
     await runSessionEndHook(
       { session_id: session.session_id, cwd: session.project_path, reason: 'clear' },
       {
+        // KODO-57: idem — el spread solo aporta el provider offline; los stubs de bandeja
+        // propios de este caso (que graban el objeto recibido) van después y ganan.
+        ...ORCH_INBOX_SEAMS,
         enqueueOrchestratorEventFn: () => ({ ok: true, value: { id: 'x' } }),
         maybeNotifyOrchestratorFn: async (o) => { recibido = o; return { sent: false, reason: 'busy' }; },
         findSessionFn: () => ({ id: session.task_id, session }),
