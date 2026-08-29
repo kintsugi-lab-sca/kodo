@@ -162,3 +162,74 @@ export function parseTriggerEvent(rawPayload, labelCache, projects = []) {
     raw: { ...rawPayload, kodoConfig },
   };
 }
+
+/**
+ * Etiqueta HTML ESCAPADA al principio del body (`&lt;p&gt;`, `&lt;/ul&gt;`, `&lt;h2 …`).
+ * Ancla en el inicio a propósito: la señal es «el body ENTERO es HTML escapado», no
+ * «contiene una entidad suelta».
+ */
+const ESCAPED_TAG_LEADING = /^\s*&lt;\/?[a-z]/i;
+
+/** Etiqueta HTML CRUDA al principio del body — el body ya viene en HTML. */
+const RAW_TAG_LEADING = /^\s*<\/?[a-z]/i;
+
+/**
+ * Cualquier etiqueta cruda en el body. Veto del des-escape: un body MIXTO (HTML crudo
+ * + entidades que el autor escapó a propósito para MOSTRAR `<p>` como texto) no se
+ * des-escapa — ahí las entidades son contenido, no un error de codificación.
+ * Clase negada (no `.*`) para que el match sea lineal (anti-ReDoS, igual que D-10).
+ */
+const RAW_TAG_ANYWHERE = /<\/?[a-z][^>]*>/i;
+
+/**
+ * Des-escapa UN nivel de entidades HTML básicas.
+ *
+ * El orden es load-bearing: `&amp;` va el ÚLTIMO. Al revés, `&amp;lt;` se convertiría
+ * primero en `&lt;` y después en `<` — dos niveles de des-escape donde solo había uno,
+ * destruyendo un `&lt;` que el autor escribió como contenido literal.
+ *
+ * @param {string} s
+ * @returns {string}
+ */
+export function unescapeHtmlEntities(s) {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#x0*27;/gi, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * Convierte el body de un comentario en el `comment_html` que Plane CE espera (HTML
+ * crudo — no acepta Markdown ni entidades). PURA. Tres carriles, en este orden:
+ *
+ *   1. **Body escapado entero** (`&lt;p&gt;…`, sin ninguna etiqueta cruda): se des-escapa
+ *      UNA vez. Este es el bug KODO-62 — quien redacta el comentario (sesión LLM vía el
+ *      MCP de Plane, o `kodo comment --body`) escribió entidades donde tocaba HTML, y
+ *      Plane las guarda y las renderiza literales (`&lt;p&gt;` visible en la tarea).
+ *      Backstop deliberadamente estrecho: no hay ningún escape MECÁNICO en el camino
+ *      (kodo, el MCP y Plane hacen passthrough byte a byte — verificado por REST contra
+ *      la instancia real), así que esto corrige una ENTRADA mal formada, no un
+ *      doble-escape del transporte.
+ *   2. **Body ya HTML** (crudo, o recién des-escapado por el carril 1): se manda TAL CUAL.
+ *      Sin este carril el des-escape produciría `<p><p>…</p></p>`.
+ *   3. **Texto plano / Markdown**: envoltura histórica `<p>` + `\n`→`<br>`, intacta. Es
+ *      el carril de los comentarios que genera el propio kodo (backstop de cierre,
+ *      barrido de huérfanas), que empiezan por emoji o texto.
+ *
+ * @param {string|null|undefined} body
+ * @returns {string} HTML listo para `comment_html`
+ */
+export function toCommentHtml(body) {
+  let html = typeof body === 'string' ? body : '';
+
+  if (ESCAPED_TAG_LEADING.test(html) && !RAW_TAG_ANYWHERE.test(html)) {
+    html = unescapeHtmlEntities(html);
+  }
+
+  if (RAW_TAG_LEADING.test(html)) return html;
+
+  return '<p>' + html.replace(/\n/g, '<br>') + '</p>';
+}

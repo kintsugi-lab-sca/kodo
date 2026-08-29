@@ -96,6 +96,24 @@ describe('session-start.js — buildSessionContext', () => {
     assert.match(context, /\/home\/user\/project/);
   });
 
+  // KODO-62: la sesión comenta por MCP, un camino que NO pasa por `addComment`, así que
+  // el backstop de kodo no puede des-escapar nada ahí. La instrucción del prompt es la
+  // única corrección posible para ese carril.
+  it('KODO-62: con Plane, instruye escribir el comment_html en HTML crudo, no entidades', () => {
+    const context = buildSessionContext(makeSession(), makeConfig());
+    assert.match(context, /`comment_html` de Plane se guarda y se renderiza TAL CUAL/);
+    assert.match(context, /nunca entidades escapadas/);
+  });
+
+  it('KODO-62: con GitHub NO aparece — su addComment postea Markdown literal (D-24)', () => {
+    const config = { provider: 'github', providers: { github: {} } };
+    const context = buildSessionContext(makeSession({ provider: 'github' }), config);
+    assert.ok(
+      !context.includes('comment_html'),
+      'la instrucción de HTML crudo es específica de Plane',
+    );
+  });
+
   // Phase 45 PLAN-03: instrucción ES de plan ligero (non-GSD).
   it('PLAN-03 ES presencia: inyecta instrucción de escribir un plan corto (D-08 español)', () => {
     const context = buildSessionContext(makeSession({ task_id: 'uuid-abc' }), makeConfig());

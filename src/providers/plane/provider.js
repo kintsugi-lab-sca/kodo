@@ -1,7 +1,7 @@
 // @ts-check
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PlaneClient } from './client.js';
-import { normalizeWorkItem, parseTriggerEvent } from './normalize.js';
+import { normalizeWorkItem, parseTriggerEvent, toCommentHtml } from './normalize.js';
 import { KODO_LABEL_ADOPTED, isDispatchable } from '../../labels.js';
 import { filterByOperator } from '../../operator.js';
 
@@ -347,9 +347,11 @@ export function createPlaneProvider(config, opts = {}) {
       await client.updateWorkItem(task.projectId, task.id, { state: stateId });
     },
 
+    // El body puede llegar como texto plano/Markdown (los comentarios que genera el
+    // propio kodo), como HTML crudo, o —el bug KODO-62— como HTML ESCAPADO que el autor
+    // codificó por error. `toCommentHtml` decide el carril; ver su doc en normalize.js.
     async addComment(task, markdownText) {
-      const html = '<p>' + markdownText.replace(/\n/g, '<br>') + '</p>';
-      await client.createComment(task.projectId, task.id, html);
+      await client.createComment(task.projectId, task.id, toCommentHtml(markdownText));
     },
 
     async listComments(task) {

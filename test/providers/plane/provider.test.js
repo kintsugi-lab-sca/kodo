@@ -631,6 +631,68 @@ describe('PlaneProvider.createTask module placement (Phase 57 module-placement g
   });
 });
 
+// KODO-62 — criterio de éxito del bug: con `fetch` mockeado, el body que sale por el
+// POST /comments/ conserva las etiquetas (`<p>`), nunca las entidades (`&lt;p&gt;`).
+describe('PlaneProvider.addComment comment_html (KODO-62)', () => {
+  /** @type {import('../../../src/providers/plane/provider.js')['createPlaneProvider']} */
+  let createPlaneProvider;
+  beforeEach(async () => {
+    ({ createPlaneProvider } = await import('../../../src/providers/plane/provider.js'));
+  });
+
+  /**
+   * Stub fetch acotado al POST de comentarios: captura el body. `addComment` no pasa
+   * por `init()` (no consulta labels ni states), así que la tabla de rutas es de una fila.
+   * @returns {{ getBody: () => any, restore: () => void }}
+   */
+  function stubComment() {
+    const original = globalThis.fetch;
+    let captured = null;
+    globalThis.fetch = async (url, init) => {
+      const path = new URL(url).pathname;
+      const method = (init && init.method) || 'GET';
+      if (path.endsWith('/comments/') && method === 'POST') {
+        captured = JSON.parse(init.body);
+        return new Response(JSON.stringify({ id: 'cmt-1' }), { status: 201 });
+      }
+      throw new Error(`unexpected fetch: ${method} ${path}`);
+    };
+    return { getBody: () => captured, restore: () => { globalThis.fetch = original; } };
+  }
+
+  /**
+   * @param {string} body
+   * @returns {Promise<any>} el body JSON del POST /comments/
+   */
+  async function postComment(body) {
+    const stub = stubComment();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.addComment({ id: 'wi-1', projectId: 'proj-uuid' }, body);
+      return stub.getBody();
+    } finally {
+      stub.restore();
+    }
+  }
+
+  it('un body HTML ESCAPADO llega al POST des-escapado — `<p>`, no `&lt;p&gt;`', async () => {
+    const body = await postComment('&lt;p&gt;resumen final&lt;/p&gt;');
+    assert.equal(body.comment_html, '<p>resumen final</p>');
+    assert.ok(!body.comment_html.includes('&lt;'), 'el POST no puede llevar entidades de etiqueta');
+  });
+
+  it('un body HTML CRUDO llega intacto (sin doble envoltura <p><p>)', async () => {
+    const html = '<p>hecho</p><ul><li>uno</li></ul>';
+    const body = await postComment(html);
+    assert.equal(body.comment_html, html);
+  });
+
+  it('un body de texto plano conserva la envoltura histórica <p>/<br>', async () => {
+    const body = await postComment('línea uno\nlínea dos');
+    assert.equal(body.comment_html, '<p>línea uno<br>línea dos</p>');
+  });
+});
+
 describe('PlaneClient.addWorkItemToModule (Phase 57 module-placement gap-fix)', () => {
   /** @type {import('../../../src/providers/plane/client.js')['PlaneClient']} */
   let PlaneClient;

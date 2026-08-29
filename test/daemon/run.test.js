@@ -60,7 +60,12 @@ describe('runDaemon: compose funnel', () => {
     });
     assert.equal(startServerOpts.managed, true, 'startServer se invoca en modo managed');
     assert.ok(pollingOpts, 'startPolling debe invocarse para github');
-    assert.deepEqual(pollingOpts.repos, [{ owner: 'o', repo: 'r' }]);
+    // KODO-60: el campo pasa a llamarse `scopes` (el mismo parámetro, nombre
+    // generalizado). Para github la forma NO cambia: sin `id`, la clave del cursor
+    // sigue siendo `owner/repo`.
+    assert.deepEqual(pollingOpts.scopes, [{ owner: 'o', repo: 'r' }]);
+    assert.equal(pollingOpts.providerName, 'github');
+    assert.equal(pollingOpts.catchUp, false, 'sin --catch-up ni polling.catch_up');
     assert.equal(pollingOpts.intervalSec, 30, 'intervalSec desde poll_interval de la config');
     assert.equal(pollingOpts.provider.id, 'github');
     assert.ok(pidWrite, 'debe escribir el PID file');
@@ -85,9 +90,70 @@ describe('runDaemon: compose funnel', () => {
       _block: async () => {},
       _log: () => {},
     });
-    assert.equal(pollingCalls, 0, 'plane usa webhook ingress: NO startPolling (D-06)');
+    assert.equal(pollingCalls, 0, 'plane sin polling.enabled usa webhook ingress: NO startPolling (D-06)');
     assert.ok(pidWrite, 'plane igualmente escribe kodo.pid (el server es el daemon)');
     assert.equal(pidWrite.name, 'kodo');
+  });
+
+  // KODO-60 — el caso que motiva la tarea: una máquina sin URL pública activa
+  // `polling.enabled` y el MISMO daemon deja de depender del webhook.
+  it('plane + polling.enabled → startPolling con scopes por proyecto y provider "plane"', async () => {
+    let pollingOpts = null;
+    const config = {
+      provider: 'plane',
+      providers: {
+        plane: {
+          workspace_slug: 'k-lab',
+          projects: [{ id: 'uuid-kodo', identifier: 'KODO', name: 'kodo' }],
+        },
+      },
+      polling: { enabled: true, interval_s: 45 },
+    };
+    await runDaemon({
+      _loadConfig: () => config,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => ({ server: { close() {} }, stopReconcile: () => {} }),
+      _provider: { id: 'plane' },
+      _startPolling: (opts) => { pollingOpts = opts; return { stop() {} }; },
+      _writePidFile: () => {},
+      _removePidFile: () => {},
+      _process: makeFakeProc(),
+      _block: async () => {},
+      _log: () => {},
+    });
+    assert.ok(pollingOpts, 'polling.enabled arranca el loop también con provider plane');
+    assert.equal(pollingOpts.providerName, 'plane');
+    assert.deepEqual(pollingOpts.scopes, [{ owner: 'k-lab', repo: 'KODO', id: 'uuid-kodo' }]);
+    assert.equal(pollingOpts.intervalSec, 45);
+    assert.equal(pollingOpts.provider.id, 'plane', 'el loop reusa el singleton ya inicializado');
+  });
+
+  it('--catch-up de la CLI gana sobre polling.catch_up de la config', async () => {
+    let pollingOpts = null;
+    const base = {
+      provider: 'plane',
+      providers: { plane: { workspace_slug: 'k-lab', projects: [{ id: 'u1', identifier: 'K' }] } },
+      polling: { enabled: true, catch_up: false },
+    };
+    const run = (catchUp) => runDaemon({
+      catchUp,
+      _loadConfig: () => base,
+      _providerUsesPolling: providerUsesPolling,
+      _startServer: () => ({ server: { close() {} }, stopReconcile: () => {} }),
+      _provider: { id: 'plane' },
+      _startPolling: (opts) => { pollingOpts = opts; return { stop() {} }; },
+      _writePidFile: () => {},
+      _removePidFile: () => {},
+      _process: makeFakeProc(),
+      _block: async () => {},
+      _log: () => {},
+    });
+
+    await run(true);
+    assert.equal(pollingOpts.catchUp, true, 'la orden puntual del humano manda');
+
+    await run(false);
+    assert.equal(pollingOpts.catchUp, false, 'sin flag ni knob, no hay catch-up');
   });
 });
 
