@@ -6,7 +6,19 @@ import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode } from '../labels.js';
 import { getHost, resolveHostName, hostIsolatesWorktree } from '../host/interface.js';
 import { resolveWorkspaceId } from '../host/workspace-id.js';
-import { addSession, listSessions, updateSession, computeRealWorktreePath } from './state.js';
+import {
+  addSession,
+  listSessions,
+  updateSession,
+  computeRealWorktreePath,
+  // KODO-55: el gate de `max_parallel` deja de contar fuera del lock. La reserva
+  // (contar + escribir placeholder) vive en state.js porque tiene que ocurrir dentro
+  // de la MISMA sección crítica de `withStateLock`.
+  isSchedulable,
+  reserveSessionSlot,
+  releaseSessionSlot,
+  LAUNCHING_STATUS,
+} from './state.js';
 // KODO-53: el aviso de lanzamiento ya no se TECLEA — se encola en la bandeja del
 // orquestador. Por eso este módulo dejó de importar `orchestrator/target.js`
 // (`resolveOrchestratorTargets`/`sendToOrchestrator` resolvían el destinatario del
@@ -299,48 +311,12 @@ export async function resolveTaskAndLaunchContext({ provider, identifier, projec
   };
 }
 
-/**
- * Launch a Claude Code session for a provider-backed task.
- *
- * @param {string} identifier e.g. "KL-42"
- * @param {{
- *   model?: string|null,
- *   flags?: string[],
- *   sessionId?: string,
- *   projectPath?: string, // Phase 18 WR-01: dispatcher-resolved path threaded
- *                         //                  para evitar double-resolution.
- *                         //                  Cuando presente, salta el
- *                         //                  resolveProjectPath interno —
- *                         //                  garantiza consistencia con el
- *                         //                  path validado por collision-check
- *                         //                  (existsSyncFn).
- *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
- *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
- * }} [opts]
- *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
- *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
- *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
- *   `phase_id` and `brief` are persisted on the Session record for the hook
- *   SessionStart to consume via findSession().
- */
-/**
- * ¿Cuenta esta sesión contra el gate de `max_parallel`? (CONC-03 / D-05).
- *
- * Solo las sesiones `status === 'running'` Y `alive !== false` ocupan un slot. Un
- * zombi que `reconcileTick` marcó `alive:false` (porque su TAB de cmux murió — la
- * TAB, no el proceso: D-06b) deja de contar, liberando la fuga de capacidad más
- * dañina de la auditoría (A4: un slot retenido hasta 30 días).
- *
- * `!== false` (no `=== true`) es DELIBERADO: las sesiones legacy sin el campo
- * `alive` (pre-v0.9) siguen contando — cero regresión. El gate solo LEE `alive`;
- * el ÚNICO escritor de ese campo sigue siendo `reconcileTick` (invariante v0.9/v0.10).
- *
- * @param {{ status?: string, alive?: boolean }} session
- * @returns {boolean}
- */
-export function isSchedulable(session) {
-  return session.status === 'running' && session.alive !== false;
-}
+// KODO-55: `isSchedulable` se mudó a `session/state.js` — el conteo tiene que ocurrir
+// DENTRO de la sección crítica de `reserveSessionSlot`, y state.js no puede importar
+// este módulo (ciclo). Se re-exporta para que la ruta de import previa
+// (`src/session/manager.js`, usada por test/session/max-parallel-alive.test.js) siga
+// siendo válida: mover la definición no es motivo para romper a sus consumidores.
+export { isSchedulable };
 
 /**
  * Detecta si `projectPath` está dentro de un working tree de git.
@@ -376,22 +352,143 @@ export function isGitRepo(projectPath, gitFn) {
   }
 }
 
+/**
+ * Reserva un slot de `max_parallel` para un lanzamiento — el gate, ahora ATÓMICO
+ * (KODO-55).
+ *
+ * Hasta aquí el gate era un `listSessions().filter(isSchedulable)` suelto al principio
+ * de `launchWorkItem`, y la sesión no aparecía en `state.json` hasta el `addSession`
+ * PRE-spawn: entre medias corrían `provider.updateTaskState`, la creación del worktree
+ * y la del workspace del host — segundos. Cada lanzamiento concurrente leía el estado
+ * ANTERIOR, veía hueco y pasaba. El 28-ago, con `max_parallel = 5`, entraron 12
+ * sesiones en 62 s (KODO-42…54, una cada ~5 s).
+ *
+ * Ahora contar y reservar son la misma sección crítica (`reserveSessionSlot`), así que
+ * el perdedor de la carrera SÍ ve el placeholder del ganador.
+ *
+ * ── Por qué la reserva NO va bajo la clave `task_id` ──
+ * Porque aquí todavía no se conoce: lo resuelve el provider más abajo
+ * (`resolveTaskAndLaunchContext`). Adelantar esa resolución reordenaría el cuerpo de
+ * `launchWorkItem` — que es exactamente lo que hay que evitar mientras KODO-19 trabaja
+ * sobre el mismo camino. La reserva va por tanto con clave propia `launching:<uuid>`,
+ * y el slot se sostiene SIN HUECO igualmente: `addSession` escribe el registro real
+ * ANTES de que el `finally` retire el placeholder, de modo que ambas entradas SOLAPAN
+ * durante unos milisegundos. Sobrecontar un instante es seguro; descontar no lo es.
+ *
+ * El placeholder lleva el shape completo de `Session` con los campos que aún no
+ * existen a `''`, y no un objeto a medias: `state.sessions` lo recorre medio repo
+ * (dashboard, health, orquestador) y una entrada con campos ausentes es una mina para
+ * cualquier `.includes()` futuro. Todos esos consumidores filtran hoy por
+ * `status === 'running'`, así que la reserva les es invisible por construcción.
+ *
+ * @param {string} identifier - ref humana ("KODO-42"). Es lo ÚNICO que se conoce en
+ *   este punto, y va al `task_ref` del placeholder para que la reserva sea legible en
+ *   el dashboard y en el propio mensaje de error de un lanzamiento posterior.
+ * @param {{ maxParallel: number, provider: string, now?: number }} opts
+ * @returns {string} la clave de la reserva, para liberarla después.
+ * @throws {Error} `Max parallel sessions (N) reached.` — mensaje verbatim del gate
+ *   previo (lo consumen el dispatcher y el dashboard) — o el fail-closed de lock.
+ */
+export function reserveLaunchSlot(identifier, opts) {
+  const key = `${LAUNCHING_STATUS}:${randomUUID()}`;
+  const startedAt = new Date(opts.now ?? Date.now()).toISOString();
+  const r = reserveSessionSlot(
+    key,
+    {
+      workspace_ref: '',
+      workspace_id: null,
+      session_id: '',
+      task_id: '',
+      task_ref: identifier,
+      provider: opts.provider,
+      project_id: '',
+      summary: `Lanzando ${identifier}…`,
+      status: /** @type {const} */ ('launching'),
+      started_at: startedAt,
+      project_path: '',
+    },
+    { maxParallel: opts.maxParallel, now: opts.now },
+  );
+
+  if (r.ok) return key;
+  if (r.reason === 'max-parallel') {
+    // Mensaje BYTE-IDÉNTICO al del gate previo: es contrato de facto con el
+    // dispatcher (que lo propaga) y con lo que el operador lee en el dashboard.
+    throw new Error(
+      `Max parallel sessions (${opts.maxParallel}) reached. ` +
+      `Active: ${r.active.join(', ')}`,
+    );
+  }
+  // FAIL-CLOSED en lock-timeout (espeja a `addSession`, WR-01): sin poder escribir la
+  // reserva no hay forma de garantizar el límite, y lanzar a ciegas es precisamente la
+  // falla que este gate existe para cerrar.
+  throw new Error(
+    `Could not reserve a session slot for ${identifier} (${r.reason}) — aborting before launch`,
+  );
+}
+
+/**
+ * Launch a Claude Code session for a provider-backed task.
+ *
+ * @param {string} identifier e.g. "KL-42"
+ * @param {{
+ *   model?: string|null,
+ *   flags?: string[],
+ *   sessionId?: string,
+ *   projectPath?: string, // Phase 18 WR-01: dispatcher-resolved path threaded
+ *                         //                  para evitar double-resolution.
+ *                         //                  Cuando presente, salta el
+ *                         //                  resolveProjectPath interno —
+ *                         //                  garantiza consistencia con el
+ *                         //                  path validado por collision-check
+ *                         //                  (existsSyncFn).
+ *   phase_id?: string,  // Phase 9: threaded from dispatcher when resolver returned 'phase'.
+ *   brief?: string,     // Phase 9: threaded from dispatcher when resolver returned 'bootstrap'.
+ * }} [opts]
+ *   If `opts.sessionId` is provided (e.g. from the GSD dispatcher which acquires
+ *   the repo lock before calling), it is used verbatim as the session_id. Otherwise
+ *   a fresh randomUUID() is generated (backwards-compatible for non-GSD paths).
+ *   `phase_id` and `brief` are persisted on the Session record for the hook
+ *   SessionStart to consume via findSession().
+ *
+ * KODO-55: envoltorio FINO sobre el lanzamiento. Reserva el slot bajo el lock, delega
+ * en el cuerpo de siempre (`launchReservedWorkItem`, sin reordenar) y retira la reserva
+ * en el `finally`.
+ *
+ * El `finally` corre también en el camino de ÉXITO, y es correcto: `releaseSessionSlot`
+ * solo borra la entrada si sigue en `status: 'launching'`, así que jamás toca el
+ * registro real que `addSession` acaba de escribir. Si el lanzamiento falla en
+ * cualquier punto —provider, worktree, host— la reserva se retira por esta misma vía y
+ * el slot vuelve al pool: cero slots fantasma.
+ */
 export async function launchWorkItem(identifier, opts = {}) {
+  const config = loadConfig();
+  const reservationKey = reserveLaunchSlot(identifier, {
+    maxParallel: config.claude.max_parallel,
+    provider: config.provider,
+  });
+  try {
+    return await launchReservedWorkItem(identifier, opts);
+  } finally {
+    // never-throws: una reserva que no se pudo retirar (lock-timeout) la barre
+    // `reconcileTick` por TTL. Enmascarar aquí el error original del launch sería
+    // cambiar un slot fantasma temporal por un diagnóstico perdido.
+    try {
+      releaseSessionSlot(reservationKey);
+    } catch { /* el TTL de la reserva es la red de seguridad */ }
+  }
+}
+
+/**
+ * El cuerpo del lanzamiento, con el slot YA reservado por `launchWorkItem`. Es el
+ * `launchWorkItem` previo a KODO-55 verbatim menos el gate — deliberadamente sin
+ * reordenar, para no chocar con el trabajo concurrente sobre este mismo camino.
+ */
+async function launchReservedWorkItem(identifier, opts = {}) {
   const config = loadConfig();
 
   await initRegistry();
   const provider = getProvider(config.provider);
-
-  // Check max parallel sessions (CONC-03 / D-05): cuenta solo sesiones vivas
-  // (ver isSchedulable). El gate solo LEE `alive`; reconcile sigue siendo el ÚNICO
-  // escritor de ese campo (invariante v0.9/v0.10).
-  const active = listSessions().filter(isSchedulable);
-  if (active.length >= config.claude.max_parallel) {
-    throw new Error(
-      `Max parallel sessions (${config.claude.max_parallel}) reached. ` +
-      `Active: ${active.map((s) => s.task_ref).join(', ')}`,
-    );
-  }
 
   // Resolve task + launch context via provider
   const projects = loadProjects();

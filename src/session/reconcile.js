@@ -40,6 +40,18 @@ import { createRequire } from 'node:module';
 /** Ventana de retención antes de sellar una `dead` a `closed` (D-07 step 4). */
 const SEAL_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
+/**
+ * KODO-55: `status` de una RESERVA de slot de `max_parallel` (`reserveSessionSlot`,
+ * state.js) y su TTL. Duplicados a propósito como literales locales: este módulo es
+ * PURO y no importa `state.js` (recibe `loadState`/`saveState` inyectados, LOG-12), así
+ * que importarlos metería `state.js` → `config.js` en el grafo del reconciliador. Son
+ * los dos únicos átomos del contrato de la reserva que el barrido necesita; la fuente de
+ * verdad es `state.js` (`LAUNCHING_STATUS`, `LAUNCH_RESERVATION_TTL_MS`), y
+ * test/session/launch-reservation.test.js congela que ambos pares coinciden.
+ */
+const LAUNCHING_STATUS = 'launching';
+export const LAUNCH_RESERVATION_TTL_MS = 5 * 60 * 1000;
+
 /** Ventana de rescate desde history (D-07 step 3): solo entries recientes. */
 const RESCUE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -295,7 +307,7 @@ function resolveActiveHostName() {
  * @param {string} [opts.hostName] - KODO-18: nombre del host que produjo `liveRefs`. Cuando
  *   se pasa, las sesiones cuyo `host` PERSISTIDO no coincide se dejan INTACTAS (ver el
  *   guard dentro del bucle). Omitirlo mantiene el comportamiento previo (todas se evalúan).
- * @returns {{ state: State, events: { rescued: number, sealed: number, transitioned: number, total: number, foreign: number } }}
+ * @returns {{ state: State, events: { rescued: number, sealed: number, transitioned: number, total: number, foreign: number, expired: number } }}
  */
 export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logger, hostName }) {
   // F5 (D-07): host falló → skip tick, sin cambios. El caller ya emitió el
@@ -311,6 +323,7 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   let rescued = 0;
   let sealed = 0;
   let foreign = 0; // KODO-18: sesiones de otro host, no observables desde este snapshot
+  let expired = 0; // KODO-55: reservas de slot huérfanas barridas en este tick
 
   // Trabajamos sobre copias para preservar la pureza (no mutar el input).
   /** @type {Record<string, Session>} */
@@ -320,6 +333,40 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
 
   // ── (1) Transiciones + sellado sobre las sessions activas ──────────────────
   for (const [taskId, session] of Object.entries(state.sessions)) {
+    // ── KODO-55: reservas de slot (`status: 'launching'`) ───────────────────
+    // Una reserva es la entrada que `reserveSessionSlot` escribe bajo el lock para
+    // sostener el slot de `max_parallel` mientras el lanzamiento monta provider,
+    // worktree y workspace. Todavía NO tiene `workspace_ref`, así que el bucle normal
+    // la leería como «tab desaparecida» y la degradaría a `dead`/`alive:false` a los
+    // dos ticks (5 s) — devolviendo el slot en pleno lanzamiento y reabriendo el
+    // TOCTOU que la reserva cierra. Por eso se salta antes de derivar nada: la retira
+    // el `finally` de `launchWorkItem`, no el reconciliador.
+    //
+    // El barrido por TTL es la contrapartida: si el proceso que lanzaba MURIÓ entre la
+    // reserva y el `addSession` (kill -9, crash del daemon), nadie va a retirarla, y
+    // una reserva inmortal es una fuga de capacidad permanente. Vencida → fuera de
+    // `sessions` y fuera de `history`: una reserva no es una sesión que existió, es un
+    // lanzamiento que nunca llegó a serlo. La traza va al log, no al historial.
+    if (session && session.status === LAUNCHING_STATUS) {
+      const startedMs = session.started_at ? Date.parse(session.started_at) : NaN;
+      // Un `started_at` ilegible cuenta como vencido: sin reloj no puede caducar nunca.
+      const stale = !Number.isFinite(startedMs) || now - startedMs > LAUNCH_RESERVATION_TTL_MS;
+      if (stale) {
+        // `task_ref` es la ref de la tarea (`KODO-42`), no contenido de usuario — mismo
+        // criterio de D-11 que el resto de trazas de este carril.
+        logger?.warn?.('host.reconcile.reservation_expired', {
+          tick,
+          key: taskId,
+          task_ref: session.task_ref,
+        });
+        debounceStore.delete(taskId);
+        expired++;
+        continue; // no re-añadir a sessions: el slot vuelve al pool
+      }
+      sessions[taskId] = session; // reserva viva: intacta, sin derivación
+      continue;
+    }
+
     // ── KODO-18: guarda por HOST ────────────────────────────────────────────
     // Desde que `config.host` es conmutable, `state.sessions` puede contener sesiones
     // de un cliente que ya no es el activo. Su `workspace_ref` NUNCA aparece en este
@@ -450,14 +497,15 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
   // en ambos sitios duplicaba la línea en el log (cazado en UAT live 2026-06-01).
 
   // Si nada cambió, retornar el state original (referencialmente) para que el
-  // caller pueda saltarse la escritura a disco.
-  if (transitioned === 0 && rescued === 0 && sealed === 0) {
-    return { state, events: { rescued, sealed, transitioned, total, foreign } };
+  // caller pueda saltarse la escritura a disco. KODO-55: `expired` cuenta como cambio —
+  // barrer una reserva huérfana sin persistirlo la dejaría en disco para siempre.
+  if (transitioned === 0 && rescued === 0 && sealed === 0 && expired === 0) {
+    return { state, events: { rescued, sealed, transitioned, total, foreign, expired } };
   }
 
   return {
     state: { ...state, sessions, history },
-    events: { rescued, sealed, transitioned, total, foreign },
+    events: { rescued, sealed, transitioned, total, foreign, expired },
   };
 }
 
@@ -583,11 +631,11 @@ export async function runReconcileTick({ host, loadState, saveState, withStateLo
   // pgrep ya corrió arriba (Pitfall 1). Default passthrough para los tests que
   // inyectan loadState/saveState in-memory (no tocan el FS).
   const runLocked = withStateLock ?? /** @type {<T>(fn: () => T) => { ok: boolean, value: T }} */ ((fn) => ({ ok: true, value: fn() }));
-  /** @type {{ rescued: number, sealed: number, transitioned: number, total: number, foreign: number }} */
+  /** @type {{ rescued: number, sealed: number, transitioned: number, total: number, foreign: number, expired: number }} */
   // KODO-18: `foreign` cuenta las sesiones de otro cliente que este tick NO pudo
   // observar por tab. Va en la telemetría para que la degradación sea visible en
   // `host.reconcile.tick` en vez de silenciosa.
-  let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0, foreign: 0 };
+  let events = { rescued: 0, sealed: 0, transitioned: 0, total: 0, foreign: 0, expired: 0 };
   // LOG-hygiene: ¿el tick cambió algo (persistió)? Es el señalador de "acción real"
   // — más fiel que los contadores (la derivación idle persiste pero no incrementa
   // `transitioned`). Un tick sin cambios es el heartbeat idle que inflaba el NDJSON.
