@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createHash } from 'node:crypto';
-import { acquireLock, releaseLock } from '../src/session/state-lock.js';
+import { acquireLock, releaseLock, withFileLock } from '../src/session/state-lock.js';
 import {
   encodeLine, parseLine, newCaptureId, todayLocal, deriveTag, defaultInboxPaths,
   listCaptures, appendCapture, markCapture,
@@ -515,24 +515,38 @@ describe('appendCapture — fail-open ante lock-timeout (D-03, contrato 6)', () 
   });
 
   it('el presupuesto del lock es el DEFAULT de la primitiva, no el recalibrado de 83-03 (WR-03)', () => {
-    // El techo no cronometra la primitiva (8 × 20 ms ≈ 160 ms): es holgado a propósito para no
-    // crear un test sensible al scheduling. Lo que prueba es que el presupuesto ya NO es el de
-    // 83-03 (50 × 20 ms ≈ 1000 ms) — quien impide el lost-update es ahora el guard
-    // compare-and-swap del marcado, que es independiente del reloj.
+    // KODO-63: este test cronometraba el fail-open contra un techo absoluto de 700 ms. La
+    // medida no era del contrato sino de la MÁQUINA: el runner de macOS de CI tardó 747 ms
+    // en recorrer el mismo presupuesto de 8 × 20 ms ≈ 160 ms, y la suite se puso roja sin
+    // que nada hubiera cambiado. Lo que el contrato afirma (`store.js`, sección «Presupuesto
+    // de reintentos») es que esta llamada NO pasa `retries` ni `backoffMs`, y por tanto hereda
+    // los defaults de la primitiva en vez de los 50 × 20 ms ≈ 1000 ms de 83-03. Eso se observa
+    // directamente en las opciones, sin reloj de por medio.
+    /** @type {Array<Record<string, unknown> | undefined>} */ const seenOpts = [];
     const got = acquireLock(lockPath);
     assert.notEqual(got, null);
 
-    const t0 = Date.now();
     /** @type {any} */ let r;
     try {
-      r = appendCapture(encodeLine(BASE) + '\n', { inboxPath, lockPath, warnFn: () => {} });
+      r = appendCapture(encodeLine(BASE) + '\n', {
+        inboxPath,
+        lockPath,
+        warnFn: () => {},
+        lockFn: (p, fn, opts) => {
+          seenOpts.push(opts);
+          return withFileLock(p, fn, opts);
+        },
+      });
     } finally {
       releaseLock(lockPath, /** @type {{token:string}} */ (got).token);
     }
-    const elapsed = Date.now() - t0;
 
+    assert.equal(seenOpts.length, 1, 'la primitiva se invoca exactamente una vez');
+    assert.equal(seenOpts[0]?.retries, undefined, 'no se pasa `retries`: manda el default (8)');
+    assert.equal(seenOpts[0]?.backoffMs, undefined, 'no se pasa `backoffMs`: manda el default (20 ms)');
+    // Y la rama fail-open sigue siendo ALCANZABLE con ese presupuesto: el lock lo tiene el
+    // propio test, así que los 8 reintentos se agotan de verdad — sin hold artificial.
     assert.deepEqual(r, { ok: true, coordinated: false }, 'la rama fail-open sigue siendo ALCANZABLE');
-    assert.ok(elapsed < 700, `el fail-open tardó ${elapsed} ms; el presupuesto de 83-03 no se revirtió`);
   });
 });
 

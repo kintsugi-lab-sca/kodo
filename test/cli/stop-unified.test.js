@@ -37,6 +37,12 @@ function makeDeps(overrides = {}) {
   const calls = { stopServer: 0, out: [], err: [] };
   const deps = {
     _stopDaemon: async () => ({ ok: true, stopped: true, pid: 123 }),
+    // KODO-63: sin este stub el carril systemd de `runStopUnified` consulta el estado REAL
+    // de la máquina (`unitState` hace su guard contra `process.platform`), y en un Linux con
+    // `kodo.service` instalado Y activo el comando saldría por «stopped vía systemd» sin
+    // llegar al `stopDaemon` que estos casos miden. Los casos del carril systemd lo inyectan
+    // por `overrides`.
+    _unitState: () => ({ installed: false, active: null, enabled: null }),
     _stopServer: () => { calls.stopServer += 1; return true; },
     _write: (s) => { calls.out.push(s); },
     _err: (s) => { calls.err.push(s); },

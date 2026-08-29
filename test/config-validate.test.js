@@ -203,7 +203,12 @@ describe('getByPath / setByPath — dot-walk puro', () => {
 });
 
 describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () => {
-  const fields = getEditableFields(DEFAULT_CONFIG);
+  // KODO-63: `host` EXPLÍCITO sobre el snapshot. `DEFAULT_CONFIG.host` es dependiente de
+  // plataforma desde KODO-56, y los 4 campos de presentación por estado se resuelven
+  // contra el host ACTIVO: en Linux salían `orca.statuses.*` y el subtest de los campos
+  // de cmux caía. La rama de Orca ya tiene su propia cobertura más abajo en este archivo;
+  // lo que aquí se fija es el host, no el default (que sigue siendo el de KODO-56).
+  const fields = getEditableFields({ ...DEFAULT_CONFIG, host: 'cmux' });
 
   it('devuelve EXACTAMENTE 14 descriptores', () => {
     // KODO-18: 12 → 13. El +1 es `host` (el selector de cliente). Los 4 campos de

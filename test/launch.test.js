@@ -239,6 +239,12 @@ describe('launchOrchestrator real spawn observables (ADVISORY-03)', () => {
     // la migración v1→v2).
     const configObj = {
       provider: 'plane',
+      // KODO-63: `host` EXPLÍCITO. El default de `host` es dependiente de plataforma desde
+      // KODO-56 (`cmux` en macOS, `orca` fuera), así que omitirlo hacía que este test
+      // ejercitara el host de la MÁQUINA: en Linux entraba por src/orca/client.js y moría
+      // con `spawn orca-ide ENOENT`. Lo que se prueba aquí es el lifecycle de
+      // launchOrchestrator sobre el shim de cmux de más arriba, no el resolvedor de hosts.
+      host: 'cmux',
       cmux: {
         binary: shimPath,
         colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' },

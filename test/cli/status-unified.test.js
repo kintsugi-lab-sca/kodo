@@ -26,6 +26,12 @@ function makeDeps(overrides = {}) {
     // KODO-26: sin este stub el handler leería la cola del `~/.kodo/state.json` REAL y la salida
     // del test dependería de cuántas ramas tenga sin integrar quien corra `npm test`.
     _listQueue: () => [],
+    // KODO-63: mismo argumento que `_listQueue`, un carril más abajo. `unitState` hace su
+    // guard contra `process.platform`, así que en un Linux con `kodo.service` instalado —el
+    // estado NORMAL de un operador tras KODO-59— el handler añadía su línea `systemd: …` y
+    // el caso «ni una línea de más» dependía de si la máquina tenía kodo instalado. Los
+    // casos que SÍ prueban esa línea la inyectan por `overrides`.
+    _unitState: () => ({ installed: false, active: null, enabled: null }),
     _now: () => new Date('2026-08-20T13:00:00.000Z'),
     ...overrides,
   };

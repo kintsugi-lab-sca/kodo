@@ -78,14 +78,56 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { listCaptures, parseLine } from '../src/inbox/store.js';
+import { acquireLock, releaseLock } from '../src/session/state-lock.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHILD = join(__dirname, 'helpers', 'lock-race-child.mjs');
 
-/** Ancho de la ventana lectura→rename que el hijo `mark` mantiene abierta, en ms.
+/** Suelo del ancho de la ventana lectura→rename que el hijo `mark` mantiene abierta, en ms.
  *  Deliberadamente POR ENCIMA del presupuesto de reintentos por defecto de `acquireLock`
- *  (8 × 20 ms ≈ 160 ms): así los hijos de captura viven la contención de verdad. */
-const WINDOW_MS = 300;
+ *  (8 × 20 ms ≈ 160 ms) EN LA MÁQUINA DE DESARROLLO: así los hijos de captura viven la
+ *  contención de verdad. El ancho efectivo lo decide `mixedWindowMs()` — ver ahí por qué
+ *  este número no puede ser el valor final. */
+const WINDOW_FLOOR_MS = 300;
+
+/**
+ * Ancho EFECTIVO de la ventana del escenario 2, medido en la máquina que corre la suite.
+ *
+ * KODO-63 — por qué esto no puede ser una constante. La premisa del guard de cobertura es
+ * «el hold > el presupuesto de reintentos del lock, luego una captura que arranca dentro de
+ * la ventana agota su presupuesto y cae al fail-open». Ese presupuesto son 8 reintentos de
+ * 20 ms de backoff MÁS las syscalls de cada intento (`writeFileSync` con `wx`, la lectura
+ * del titular, el `process.kill` de liveness), y esas syscalls no cuestan lo mismo en todas
+ * partes: en la máquina de desarrollo el presupuesto real ronda los 160 ms, y en el runner
+ * de macOS de GitHub Actions se midió en 747 ms. Con el hold clavado en 300 ms la premisa
+ * se INVIERTE en ese runner — las 6 capturas se coordinan, `failopen=0` y el guard dispara
+ * con «COBERTURA PERDIDA» sin que nada del contrato haya cambiado.
+ *
+ * Así que el hold se deriva del presupuesto REAL: se cronometra un `acquireLock` que agota
+ * sus reintentos contra un lock vivo (la primitiva de verdad, no una imitación) y se toma
+ * el doble, con `WINDOW_FLOOR_MS` de suelo. La propiedad que el escenario necesita —hold
+ * por encima del presupuesto— pasa a cumplirse por construcción en cualquier máquina, que
+ * es más fuerte que cumplirse por calibración en una.
+ *
+ * @returns {number} ancho de ventana en ms
+ */
+function mixedWindowMs() {
+  const dir = mkdtempSync(join(tmpdir(), 'kodo-inbox-budget-'));
+  const probePath = join(dir, 'probe.lock');
+  try {
+    const held = acquireLock(probePath);
+    assert.notEqual(held, null, 'la sonda debe poder tomar su propio lock');
+    const t0 = Date.now();
+    // Segundo acquire sobre un lock VIVO y dentro de TTL: no es robable, así que recorre el
+    // presupuesto completo y devuelve null. Eso es exactamente lo que vivirá cada captura.
+    assert.equal(acquireLock(probePath), null, 'la sonda debe agotar el presupuesto');
+    const budget = Date.now() - t0;
+    releaseLock(probePath, /** @type {{token:string}} */ (held).token);
+    return Math.max(WINDOW_FLOOR_MS, budget * 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /** Iteraciones del escenario mixto. Una carrera que pasa UNA vez no prueba nada (Phase 82). */
 const MIXED_ITERATIONS = 5;
@@ -229,9 +271,12 @@ function readBranchCounts(dir) {
  * Es determinista y NO depende del scheduling, por DOS propiedades que van juntas:
  *   1. la liberación en dos tiempos de `raceChildren` no suelta a los hijos de captura hasta que
  *      el marcado tiene el lock tomado, así que todos arrancan DENTRO de la ventana; y
- *   2. el hold de ambos escenarios mixtos (300 ms y 1500 ms) está por encima del presupuesto por
- *      defecto de la primitiva (8 × 20 ms ≈ 160 ms), así que un hijo que arranca dentro de la
- *      ventana agota su presupuesto sí o sí y cae al fail-open.
+ *   2. el hold de ambos escenarios mixtos está por encima del presupuesto por defecto de la
+ *      primitiva, así que un hijo que arranca dentro de la ventana agota su presupuesto sí o sí
+ *      y cae al fail-open. KODO-63: «por encima» se MIDE en la máquina (`mixedWindowMs()`) en
+ *      vez de darse por supuesto — el presupuesto en tiempo de pared depende del coste de las
+ *      syscalls del runner (160 ms aquí, 747 ms en el macOS de CI), y con holds constantes la
+ *      propiedad se invertía justo en las máquinas lentas.
  * Si alguna de las dos dejara de ser cierta, ése es EXACTAMENTE el cambio que este guard existe
  * para detectar.
  *
@@ -309,6 +354,9 @@ describe('Phase 83 Plan 03: concurrencia real del inbox (D-21)', () => {
     { timeout: 180_000 },
     async () => {
       const N = 6;
+      // Medido una vez por corrida del escenario, no por iteración: el presupuesto de la
+      // primitiva es una propiedad de la máquina, no de la iteración.
+      const windowMs = mixedWindowMs();
 
       // Fixture BYTE-EXACTO de 4 líneas: la captura a marcar, una captura que debe quedar
       // intacta, un heading que no parsea y una nota escrita a mano que tampoco parsea.
@@ -327,8 +375,8 @@ describe('Phase 83 Plan 03: concurrencia real del inbox (D-21)', () => {
         writeFileSync(s.inboxPath, FIXTURE);
 
         const argvs = [
-          // El marcado primero: mantiene abierta la ventana lectura→rename durante WINDOW_MS.
-          ['--kind', 'mark', '--id', 'seed01', '--hold', String(WINDOW_MS), '--dest', '999.4'],
+          // El marcado primero: mantiene abierta la ventana lectura→rename durante `windowMs`.
+          ['--kind', 'mark', '--id', 'seed01', '--hold', String(windowMs), '--dest', '999.4'],
         ];
         // `--sandbox` es lo que hace que cada hijo registre su rama en `capture-branches.log`:
         // sin él el guard de cobertura de abajo no tendría nada que leer.
@@ -424,6 +472,11 @@ describe('Phase 83 Plan 03: concurrencia real del inbox (D-21)', () => {
     { timeout: 180_000 },
     async () => {
       const N = 6;
+      // KODO-63: el 1500 es un SUELO, nunca un techo — la advertencia de
+      // `OVER_BUDGET_WINDOW_MS` prohíbe bajarlo, y esto solo lo sube donde haga falta. En una
+      // máquina cuyas syscalls encarezcan el presupuesto del lock por encima de ese suelo, la
+      // ventana lo sigue desbordando en vez de quedarse por debajo en silencio.
+      const windowMs = Math.max(OVER_BUDGET_WINDOW_MS, mixedWindowMs());
 
       // Mismo molde de fixture BYTE-EXACTO que el escenario 2: la captura a marcar, una captura
       // que debe quedar intacta, un heading que no parsea y una nota a mano que tampoco parsea.
@@ -450,7 +503,7 @@ describe('Phase 83 Plan 03: concurrencia real del inbox (D-21)', () => {
             '--id',
             'seed01',
             '--hold',
-            String(OVER_BUDGET_WINDOW_MS),
+            String(windowMs),
             '--dest',
             '999.4',
           ],
@@ -463,7 +516,7 @@ describe('Phase 83 Plan 03: concurrencia real del inbox (D-21)', () => {
         const gate = { leadGoFile: join(s.dir, 'go-mark'), ready: () => existsSync(s.lockPath) };
         const verdicts = await raceChildren(argvs, s.dir, join(s.dir, 'go'), gate);
         const raw = readFileSync(s.inboxPath, 'utf-8');
-        const ctx = `iteración ${iter}/${OVER_BUDGET_ITERATIONS} · hold ${OVER_BUDGET_WINDOW_MS} ms\nverdicts: ${JSON.stringify(verdicts)}\n--- inbox ---\n${raw}`;
+        const ctx = `iteración ${iter}/${OVER_BUDGET_ITERATIONS} · hold ${windowMs} ms\nverdicts: ${JSON.stringify(verdicts)}\n--- inbox ---\n${raw}`;
 
         assert.ok(
           gate.fired,

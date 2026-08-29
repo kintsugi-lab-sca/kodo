@@ -497,7 +497,13 @@ describe('CAPT-07 · backstop de overflow (84-UI-SPEC §UI Considerations)', () 
     );
     instance.unmount();
 
-    const frame = stdout.frames[stdout.frames.length - 1] ?? '';
+    // KODO-63: el último frame a secas NO sirve bajo CI. Ink mira `is-in-ci` (la env var
+    // `CI`, que GitHub Actions siempre exporta) y en esa rama su `unmount()` escribe
+    // `lastOutput + '\n'`; con `debug:true` ink retorna antes de poblar `lastOutput`, así
+    // que ese frame de despedida es un `'\n'` pelado que se colaba como último elemento y
+    // dejaba el assert leyendo un frame vacío. El frame que interesa es el último con
+    // contenido real, y esa elección es correcta con CI y sin él.
+    const frame = stdout.frames.filter((f) => f.trim().length > 0).at(-1) ?? '';
     const lines = frame.split('\n');
     assert.ok(
       lines[0].startsWith('⚠ server caído'),

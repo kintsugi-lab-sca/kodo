@@ -224,7 +224,13 @@ export async function runUp(deps = {}) {
     let startedByUnit = false;
     try {
       const sd = await import('./systemd.js');
-      const unit = (deps._unitState || sd.unitState)();
+      // KODO-63: `platform` se PROPAGA. `unitState` hace su propio guard contra
+      // `process.platform` si no recibe uno, así que sin este paso el `_platform` que
+      // gobierna el resto de `runUp` se quedaba a medias: con `_platform:'darwin'`
+      // inyectado, en una máquina Linux con la unidad instalada este bloque seguía
+      // entrando por el carril systemd y `runUp` no arrancaba el daemon. Un seam que
+      // no cubre todo el flujo miente sobre lo que aísla.
+      const unit = (deps._unitState || sd.unitState)({ _platform: platform });
       if (unit.installed) {
         const r = (deps._systemctlStart || sd.systemctlStartUnit)();
         if (!r.ok) {

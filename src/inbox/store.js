@@ -545,11 +545,19 @@ function appendLine(inboxPath, line) {
  * `console.warn('[kodo:lock] …')` propio de la primitiva (`state-lock.js:222`) y se emite un solo
  * mensaje accionable con prefijo `[kodo:inbox]`.
  *
+ * KODO-63 — `lockFn`: seam de observación de las OPCIONES con las que se llama a la primitiva,
+ * hermano de `warnFn` (que existe por el mismo motivo). El invariante de esta sección —«aquí NO
+ * se pasa `retries` ni `backoffMs`»— se comprobaba cronometrando el fail-open contra un techo
+ * absoluto de 700 ms, y un runner de CI 4,7× más lento que la máquina de desarrollo lo rompía
+ * (747 ms medidos) sin que nada del contrato hubiera cambiado. Con el seam la comprobación mira
+ * las opciones, que es lo que la sección de arriba afirma, y deja de depender del reloj.
+ *
  * @param {string} line
- * @param {{ inboxPath: string, lockPath: string, warnFn?: (s: string) => void }} o
+ * @param {{ inboxPath: string, lockPath: string, warnFn?: (s: string) => void,
+ *   lockFn?: typeof withFileLock }} o
  * @returns {{ ok: true, coordinated: boolean } | { ok: false, reason: 'fs' }}
  */
-export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
+export function appendCapture(line, { inboxPath, lockPath, warnFn, lockFn = withFileLock }) {
   const warn = warnFn || ((/** @type {string} */ s) => process.stderr.write(s));
 
   // El mkdir va FUERA de la sección crítica (patrón `session-end.js:325`): no necesita el lock, y
@@ -564,7 +572,7 @@ export function appendCapture(line, { inboxPath, lockPath, warnFn }) {
   /** @type {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }} */
   let r;
   try {
-    r = withFileLock(lockPath, () => appendLine(inboxPath, line), {
+    r = lockFn(lockPath, () => appendLine(inboxPath, line), {
       logger: { warn: () => {} },
     });
   } catch {

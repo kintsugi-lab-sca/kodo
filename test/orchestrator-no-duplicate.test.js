@@ -95,6 +95,12 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
 
     writeFileSync(join(kodoDir, 'config.json'), JSON.stringify({
       provider: 'plane',
+      // KODO-63: `host` EXPLÍCITO. Todo este archivo mide el observable «¿el shim de cmux
+      // recibió `new-workspace`?», y los casos KODO-18 asertan literalmente que el host
+      // ACTIVO es `'cmux'` frente a un registro ajeno de `'orca'`. Sin esta clave el host
+      // salía del default de plataforma (KODO-56): en Linux el activo era `orca` y los 10
+      // subtests morían en `spawn orca-ide ENOENT` antes de llegar a su aserción.
+      host: 'cmux',
       cmux: {
         binary: shimPath,
         colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' },
