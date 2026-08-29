@@ -410,12 +410,16 @@ const daemon = program.command('daemon').description('Internal daemon lifecycle'
 daemon
   .command('run', { hidden: true })
   .description('Run the composed daemon (server + polling) in the foreground')
-  .action(async () => {
+  .option(
+    '--catch-up',
+    'Con polling activo: en el primer tick de cada proyecto lanza también lo que YA estaba en el estado trigger, en vez de solo apuntar el watermark (KODO-60).',
+  )
+  .action(async (opts) => {
     // La action SÓLO awaita runDaemon — NO fija ni fuerza código de salida: runDaemon
     // bloquea para siempre y es el ÚNICO dueño del exit (D-05); terminar aquí
     // derrotaría el foreground funnel supervisable.
     const { runDaemon } = await import('./daemon/run.js');
-    await runDaemon();
+    await runDaemon({ catchUp: opts.catchUp === true });
   });
 
 // --- kodo capture --- (Phase 83 / CAPT-01 / D-15, D-16, D-17)

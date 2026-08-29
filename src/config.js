@@ -312,6 +312,35 @@ const DEFAULT_CONFIG = {
   dispatch: {
     require_assignee: true,
   },
+  // KODO-60 — POLLING como alternativa al webhook. Bloque top-level y no
+  // `providers.<p>.polling` a propósito: describe cómo se ENTERA esta máquina de los
+  // cambios, no una propiedad del tablero. Dos operadores sobre el mismo Plane pueden
+  // tener uno webhook y otro polling sin que la config del provider difiera en nada.
+  //
+  //   `enabled: false` (default) — nada cambia: el daemon sigue esperando webhooks.
+  //
+  //   `true` — el daemon pregunta cada `interval_s` por los work items en estado
+  //   trigger, con etiqueta kodo y asignados a esta API key, y los pasa por el MISMO
+  //   `dispatchTrigger` que el webhook. Es lo que evita tener que exponer una URL
+  //   pública por operador (túnel + secreto HMAC + un webhook por máquina en Plane)
+  //   solo para que una segunda máquina reciba eventos.
+  //
+  // Webhook y polling A LA VEZ es una combinación soportada, no un accidente: el
+  // dedup lock por task_id (KODO-48) y el guard de sesión activa garantizan que la
+  // misma tarea vista por los dos carriles se lanza UNA vez.
+  //
+  //   `catch_up: false` (default) — al observar un proyecto por primera vez el loop
+  //   solo APUNTA el watermark, no lanza el backlog que ya estaba ahí (anti-storm).
+  //   `true` (o `kodo daemon run --catch-up`) es la orden explícita de ponerse al día
+  //   con lo que ya estaba en el estado trigger. Inerte en cuanto el proyecto ya
+  //   quedó observado en `~/.kodo/polling-state.json`.
+  //
+  // Se cambia con: `kodo config set polling.enabled true`.
+  polling: {
+    enabled: false,
+    interval_s: 60,
+    catch_up: false,
+  },
 };
 
 function ensureDir() {

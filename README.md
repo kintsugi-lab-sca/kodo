@@ -135,6 +135,11 @@ Settings → Webhooks → new webhook:
 - **Events**: Work Items
 - **Secret**: copy it into `PLANE_WEBHOOK_SECRET` in `~/.kodo/.env`
 
+> 💡 No public URL for this machine? Skip this step entirely and use
+> [polling](#polling-instead-of-a-webhook) — `kodo config --set polling.enabled=true`. It is the
+> recommended setup on Linux and for a second operator: no tunnel, no per-machine webhook, no
+> shared HMAC secret.
+
 > ⚠️ By default kodo listens **only on `127.0.0.1`**. If Plane runs on another
 > machine, expose the bind (e.g. your Tailscale IP) or the webhook will never arrive:
 >
@@ -534,6 +539,66 @@ declared once by hand and, without it, the filter stays inert.
 { "providers": { "github": { "operator": { "id": "<your github login>" } } } }
 ```
 
+## Polling instead of a webhook
+
+A webhook needs a URL Plane can reach. On a laptop that means a tunnel (cloudflared, Tailscale),
+an HMAC secret, and **one webhook per machine** registered in Plane. For a second operator that is
+setup friction and network surface for no gain.
+
+Polling removes all of it: the daemon asks Plane every `interval_s` seconds for the work items that
+are in the trigger state, carry the `kodo` label, and are **assigned to the owner of the API key it
+signs with**, and passes the new ones through the same `dispatchTrigger` the webhook uses.
+
+```bash
+kodo config --set polling.enabled=true
+kodo config --set polling.interval_s=60   # optional, this is the default
+```
+
+```jsonc
+// ~/.kodo/config.json
+{
+  "polling": {
+    "enabled": true,     // ask Plane instead of waiting to be told
+    "interval_s": 60,    // seconds between ticks
+    "catch_up": false    // see below
+  }
+}
+```
+
+No second daemon and no second command: the loop is an in-process timer inside `kodo daemon run`,
+which is what `kodo up`, `brew services start kodo` and a systemd user unit already launch. Nothing
+else to start, nothing else to supervise.
+
+**Latency.** Moving an assigned task to *In Progress* starts the session within `interval_s`. That
+is the whole trade: a webhook is instant, polling is bounded.
+
+**Webhook and polling at the same time is fine.** They are not exclusive and you do not have to
+turn one off: the same task seen by both lanes launches **once**, guarded by the per-`task_id`
+dedup lock and the active-session check. Keeping the webhook where it works and polling where it
+does not is a supported topology, not a workaround.
+
+**The first tick does not replay your backlog.** kodo keeps a watermark per project
+(the `updated_at` of the last item it saw) in `~/.kodo/polling-state.json`, so a tick only looks at
+what changed. The first time it observes a project it records the watermark **without launching
+anything** — otherwise enabling polling on a board with a dozen tasks already in progress would
+start a dozen sessions at once. To deliberately pick up what is already there:
+
+```bash
+kodo config --set polling.catch_up=true   # permanent (systemd, brew services)
+kodo daemon run --catch-up                # one-off, the flag wins over the config
+```
+
+Catch-up is inert once a project has been observed; it only ever affects that first tick.
+
+**Rate limit.** One request per tick, not one per project — `listPendingTasks` already walks every
+configured project. A 5xx does not kill the loop: `PlaneClient` retries with exponential backoff and
+jitter, the polling loop retries on top of that (2s/4s/8s, bounded), and if it still fails the
+watermark is left untouched so the next tick sees the same work again.
+
+**Linux / Pop!_OS.** This is the recommended setup for a second operator: **no tunnel, turn on
+polling.** You do not need to publish a port, register a webhook in Plane, or share an HMAC secret —
+only an API key and `polling.enabled`. The `kodo` bind can stay on `127.0.0.1`.
+
 ## GitHub as a provider
 
 kodo can also operate against GitHub Issues (no webhook: polling built into the daemon).
@@ -728,6 +793,9 @@ kodo config --set claude.orchestrator_model=fable   # orchestrator model (defaul
 kodo config --set server.idle_threshold_min=5       # minutes before considering a session idle
 kodo config --set server.stuck_threshold_min=30     # minutes before considering a session stuck
 kodo config --set dispatch.require_assignee=false    # launch tasks regardless of assignee (single operator)
+kodo config --set polling.enabled=true              # ask Plane instead of waiting for a webhook
+kodo config --set polling.interval_s=60             # seconds between polling ticks (default 60)
+kodo config --set polling.catch_up=true             # first tick also picks up what was already there
 ```
 
 ### Plane API rate limit
@@ -889,6 +957,7 @@ Everything is documented in Plane as comments, without opening cmux:
 ├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`)
 ├── inbox.md           # quick captures (plain markdown, hand-editable)
 ├── inbox.lock         # advisory inbox lock (ephemeral: released on exit)
+├── polling-state.json # polling watermark per project/repo (only with polling enabled)
 ├── plans/             # per-task action plans
 └── logs/              # per-session NDJSON logs
 ```

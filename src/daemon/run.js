@@ -17,8 +17,10 @@
 //     así que no hay doble teardown / carrera. Los handlers se registran PRIMERO
 //     (antes de cualquier await) sobre vars mutables externas, así una señal temprana
 //     es segura.
-//   - D-06: polling arranca SOLO cuando providerUsesPolling(config) — github (pull);
-//     plane usa webhook ingress (push), el server ya lo cubre.
+//   - D-06: polling arranca SOLO cuando providerUsesPolling(config) — github (pull)
+//     siempre, y cualquier provider con `polling.enabled` (KODO-60). Plane sigue
+//     usando webhook ingress (push) por defecto; el polling es la salida para la
+//     máquina que no puede publicar una URL.
 //
 // Pitfall 4: un throw de startServer bajo managed (misconfig KODO_SETUP_REQUIRED /
 // provider.init) debe ser una SUPERFICIE LIMPIA logueada + teardown, NO un uncaught
@@ -33,13 +35,20 @@ import { createLogger } from '../logger.js';
 import { startServer } from '../server.js';
 import { writePidFile, removePidFile, readPidFile } from '../cli/polling-daemon.js';
 import { providerUsesPolling } from './provider-uses-polling.js';
+import { resolvePollingPlan } from './polling-scopes.js';
 
 /**
+ * `catchUp` (KODO-60) es la ÚNICA clave de este objeto SIN prefijo `_`, y la
+ * distinción es deliberada: las `_algo` son inyecciones para los tests, esta es una
+ * OPCIÓN de verdad del daemon (la trae `kodo daemon run --catch-up`).
+ *
  * @typedef {{
+ *   catchUp?: boolean,
  *   _loadConfig?: () => any,
  *   _startServer?: (opts: any) => Promise<{ server: any, stopReconcile: () => void }> | { server: any, stopReconcile: () => void },
  *   _startPolling?: (opts: any) => { stop: () => void },
  *   _providerUsesPolling?: (config: any) => boolean,
+ *   _resolvePollingPlan?: (config: any) => import('./polling-scopes.js').PollingPlan,
  *   _provider?: any,
  *   _writePidFile?: (payload: any, name?: string) => void,
  *   _removePidFile?: (name?: string) => void,
@@ -190,8 +199,15 @@ export async function runDaemon(deps = {}) {
     return { ok: false };
   }
 
-  // Polling CONDICIONAL (D-06): solo cuando el provider es pull-based (github).
+  // Polling CONDICIONAL (D-06): cuando el provider es pull-based (github) o cuando el
+  // operador lo activó explícitamente (`polling.enabled`, KODO-60).
   // startPolling es un timer IN-PROCESS (D-01) — NO spawnea un child.
+  //
+  // KODO-60: el `provider` que se le pasa al loop es el MISMO singleton del registry que
+  // ya usó `startServer` (getProvider cachea instancias), y eso importa: `startServer`
+  // acaba de hacer `provider.init()`, así que el loop hereda los caches de estados y
+  // etiquetas ya poblados en vez de arrancar con `listPendingTasks` sin poder resolver
+  // el estado trigger. Por eso este bloque va DESPUÉS del await de startServer y no antes.
   if (providerUsesPollingFn(config)) {
     let startPollingFn = deps._startPolling;
     if (!startPollingFn) {
@@ -207,10 +223,16 @@ export async function runDaemon(deps = {}) {
       provider = getProvider(config.provider);
     }
     const logger = (deps._createLogger || createLogger)({ sessionId: 'daemon', minLevel: 'info' });
+    const plan = (deps._resolvePollingPlan || resolvePollingPlan)(config);
     polling = startPollingFn({
       provider,
-      repos: config?.providers?.github?.repos || [],
-      intervalSec: config?.providers?.github?.poll_interval || 60,
+      providerName: plan.providerName,
+      scopes: plan.scopes,
+      intervalSec: plan.intervalSec,
+      // El flag de la CLI GANA sobre el knob de config: `--catch-up` es una orden
+      // puntual de un humano que acaba de teclearla; `polling.catch_up` es la
+      // preferencia permanente de una unidad systemd que nadie mira.
+      catchUp: deps.catchUp === true || plan.catchUp,
       logger,
     });
   }
