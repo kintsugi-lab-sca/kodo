@@ -52,7 +52,7 @@ Linux and macOS — four jobs, `.github/workflows/tests.yml`. 22 is the floor `e
 today. **Node 26 is not tested**: `engines` accepts it because the range is open-ended, but
 nothing verifies it until 26 becomes LTS on 2026-10-28, at which point it joins the matrix.
 This is not pedantry — the suite has already failed on a runtime it was not tested on (three
-tests broke under Node 20 in KODO-63, one of them for no reason other than the Node version).
+tests broke under Node 20, one of them for no reason other than the Node version).
 
 Note that `brew install kodo` depends on Homebrew's `node`, which tracks the newest release
 line and can therefore be ahead of the matrix. `brew install node@24` first if you want the
@@ -87,7 +87,7 @@ brew install kodo
 ### npm + systemd — Linux
 
 ```bash
-npm install -g github:kintsugi-lab-sca/kodo#v0.21.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
 kodo install --systemd   # user unit in ~/.config/systemd/user, enabled and started
 ```
 
@@ -468,17 +468,17 @@ Now, **when a session closes whose branch has commits that are not in any other 
 ```bash
 kodo integrate                    # the pending queue, in one block
 kodo integrate --all --json       # including the trace of what is already resolved, as JSON
-kodo integrate KODO-26 --ff       # fast-forward (fails if not possible)
-kodo integrate KODO-26 --merge    # explicit merge commit (--no-ff)
-kodo integrate KODO-26 --pr       # prepares the branch and RETURNS the ready-to-run gh command
-kodo integrate KODO-26 --drop     # discards the entry without touching the branch
-kodo integrate KODO-26 --merge --test 'npm test'   # test suite before integrating
+kodo integrate KL-42 --ff       # fast-forward (fails if not possible)
+kodo integrate KL-42 --merge    # explicit merge commit (--no-ff)
+kodo integrate KL-42 --pr       # prepares the branch and RETURNS the ready-to-run gh command
+kodo integrate KL-42 --drop     # discards the entry without touching the branch
+kodo integrate KL-42 --merge --test 'npm test'   # test suite before integrating
 ```
 
 ```
 ref     · rama             · commits · base · sugerido · edad · estado
-KODO-26 · worktree-5b1f809 · 3       · sí   · merge    · 2h   ·
-KODO-24 · worktree-ae91f22 · 1       · NO   · merge    · 3d   ·
+KL-42 · worktree-5b1f809 · 3       · sí   · merge    · 2h   ·
+KL-7 · worktree-ae91f22 · 1       · NO   · merge    · 3d   ·
 ```
 
 **The suggestion is a suggestion.** It comes out of a simple, visible heuristic, and it is confirmed

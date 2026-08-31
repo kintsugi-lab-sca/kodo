@@ -71,7 +71,7 @@ which -a orca-ide orca
 
 > ⚠ **Trampa de Linux.** `orca` a secas es el **lector de pantalla de GNOME**, no el IDE. Si
 > kodo apunta a `orca` no falla con ENOENT: **arranca otro programa**. Por eso el default en
-> no-darwin es `orca-ide` (KODO-56, `src/platform-defaults.js`).
+> no-darwin es `orca-ide` (`src/platform-defaults.js`).
 
 Si tu binario está en otro sitio, dile la ruta absoluta:
 
@@ -88,12 +88,12 @@ escritorio). Lo verificado es que kodo usa `orca-ide` como default fuera de macO
 Desde un **tag**, nunca desde `main`:
 
 ```bash
-npm install -g github:kintsugi-lab-sca/kodo#v0.21.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
 kodo --version
 which -a kodo     # → ~/.local/bin/kodo
 ```
 
-(Verificado con `v0.21.0`. Sustituye por el tag que quieras instalar.)
+(Verificado con `v0.23.0`. Sustituye por el tag que quieras instalar.)
 
 ## 6. Configuración — **antes** de arrancar el servicio
 
@@ -243,7 +243,7 @@ kodo tiene dos carriles de trigger, y en Linux el interesante suele ser el segun
 - **Webhook (push).** Plane hace `POST` a tu `/webhook`. Necesita que tu máquina publique una
   URL alcanzable (túnel tipo cloudflared/Tailscale) y un webhook por operador.
 - **Polling (pull).** El daemon pregunta a Plane cada N segundos. **Cero red entrante, cero
-  túnel, cero configuración en Plane.** Es lo que KODO-60 habilitó para el provider Plane:
+  túnel, cero configuración en Plane.** El daemon lo soporta para el provider Plane:
 
   ```bash
   kodo config --set polling.enabled=true
@@ -256,7 +256,7 @@ kodo tiene dos carriles de trigger, y en Linux el interesante suele ser el segun
 Los dos pueden convivir sin duplicar lanzamientos. Para un portátil detrás de un router
 doméstico —el caso de esta guía— **polling es la respuesta**.
 
-Con polling activo el secreto del webhook deja de ser obligatorio (KODO-66): el daemon
+Con polling activo el secreto del webhook deja de ser obligatorio: el daemon
 arranca con `/webhook` apagado en vez de salir con 1. Ver §6 para las dos configuraciones.
 
 ## 11. Cuando algo va mal
@@ -303,7 +303,7 @@ grep ^Environment ~/.config/systemd/user/kodo.service
 
 ```bash
 # actualizar a un tag nuevo
-npm install -g github:kintsugi-lab-sca/kodo#v0.22.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
 kodo install --systemd     # refresca la unidad y reinicia si hacía falta
 
 # desinstalar el servicio
