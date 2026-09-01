@@ -218,7 +218,7 @@ export function setByPath(obj, dotted, value) {
 }
 
 /**
- * Devuelve el REGISTRO de los 14 campos editables del editor de config (D-11/PERSIST-04).
+ * Devuelve el REGISTRO de los 15 campos editables del editor de config (D-11/PERSIST-04).
  *
  * La lista está restringida EXPLÍCITAMENTE por construcción: NUNCA incluye descriptores
  * de `api_key_env`, `base_url`, `workspace_slug` ni `provider` (esas keys viven solo en
@@ -228,16 +228,21 @@ export function setByPath(obj, dotted, value) {
  * KODO-18: `host` sí es editable (es el selector de cliente), y los 4 campos de
  * presentación por estado se resuelven contra el host ACTIVO — misma discreción A3 que
  * `states.*` con el provider. Un usuario de cmux ve sus 4 colores; uno de Orca, sus 4
- * columnas de tablero. El total se mantiene en 14 en ambos casos: el editor no crece
- * con cada host nuevo.
+ * columnas de tablero. El total NO crece con cada host nuevo.
  *
  * KODO-53: 13 → 14. El +1 es `orchestrator.nudges` — el carril por el que los eventos del
  * ciclo de vida llegan al orquestador. Entra en el registro por la validación al cargar,
  * no por vocación de crecer la lista: un valor inválido debe caer al default con un warn.
  *
+ * KODO-67: 14 → 15. El +1 es `orchestrator.recycle_mb` — el umbral de transcript que
+ * dispara la sugerencia de reciclado. Mismo criterio de entrada que el anterior: un
+ * `"recycle_mb": "mucho"` escrito a mano tiene que caer al default con un warn en vez de
+ * dejar la vigilancia en un estado indefinido que solo se descubriría meses después,
+ * cuando el aviso que debía llegar no llegue.
+ *
  * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
  *   `config.provider` y `config.host`).
- * @returns {EditableField[]} descriptores `{path,label,kind}`: 14 con cmux u orca, 13 con
+ * @returns {EditableField[]} descriptores `{path,label,kind}`: 15 con cmux u orca, 14 con
  *   bb (ese host no tiene canal de presentación por estado — ver `stateFields`).
  */
 export function getEditableFields(config) {
@@ -249,7 +254,7 @@ export function getEditableFields(config) {
   // propósito: BB no tiene canal de presentación (ni color de tab ni columna de tablero),
   // así que inventarle cuatro campos para cuadrar el total sería mentirle al operador
   // sobre una capacidad que no existe. En su lugar el editor expone los 3 knobs que este
-  // host SÍ tiene, y el total baja a 13 — el registro sigue la capacidad real del host,
+  // host SÍ tiene, y el total baja en uno — el registro sigue la capacidad real del host,
   // no un número.
   const stateFields = host === 'bb'
     ? [
@@ -283,6 +288,8 @@ export function getEditableFields(config) {
     { path: 'server.stuck_threshold_min', label: 'Umbral stuck (min)', kind: 'positiveInt' },
     // KODO-53: carril de avisos al orquestador (bandeja / teclado / nada).
     { path: 'orchestrator.nudges', label: 'Avisos al orquestador', kind: 'nudgeMode' },
+    // KODO-67: umbral de transcript (MB) que dispara la sugerencia de reciclado.
+    { path: 'orchestrator.recycle_mb', label: 'Reciclar orquestador (MB)', kind: 'positiveInt' },
     ...stateFields,
   ];
 }

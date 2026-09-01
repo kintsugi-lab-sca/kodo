@@ -1005,6 +1005,50 @@ env var) and scoped to the `.claude/skills/kodo-orchestrate/` pathspec,
 so that the next session starts with all the previous context without
 dragging along other staged changes.
 
+### Recycling the orchestrator
+
+A long-lived orchestrator accumulates context it no longer needs. After several days of
+rounds, most of its transcript is **historical tool output** — a `state.json` dump from two
+days ago, a `read-screen` of a session that closed long since, diffs of already-merged PRs.
+The durable state does not live there: it lives in the provider, in `state.json`, in git and
+in the NDJSON. Compaction is expensive and lossy — it summarises everything, including what
+no longer matters, and drops precisely the hot ids that do.
+
+Recycling is cheaper: a small handoff plus a fresh orchestrator (~15k tokens).
+
+**The handoff.** The outgoing orchestrator writes `~/.kodo/handoff.md` — live sessions,
+decisions the operator still owes, hot refs (PRs, branches, tasks in Review), lessons not yet
+folded into the skill, and the next concrete action. On the next launch, `kodo` appends that
+file to the end of the orchestrator prompt and renames it to `handoff-consumed-<ts>.md`. It is
+renamed, never deleted: it is the only copy of the outgoing session's reasoning, and the rename
+is what stops the same handoff from being re-injected on every relaunch. If the send to the
+workspace fails, the handoff is **not** consumed — the incoming orchestrator never read it.
+
+The file is capped at 32 KB. Above that it is **ignored whole**, not truncated (a half handoff
+is worse than none) and left on disk for the operator to look at. The **format is defined by
+the `kodo-orchestrate` skill** (§Reciclado), not by the code: `kodo` treats the file as opaque
+text — it reads it, bounds it, strips control bytes and appends it.
+
+**The size notice.** There is no API exposing a session's context usage to a hook, so the proxy
+is the size of the orchestrator's transcript
+(`~/.claude/projects/<cwd-encoded>/<session>.jsonl`). The Stop hook compares it against
+`orchestrator.recycle_mb` (default 8 MB) and, on crossing it, leaves a `recycle-suggested`
+event in the orchestrator inbox — which then surfaces through the same one-line notice as any
+other event. It is a coarse proxy on purpose: it means "you have done enough rounds that it is
+worth a look", not "you are at 45%".
+
+The debounce guarantees the event fires **once**, not on every turn: there is never more than
+one unseen `recycle-suggested`, and never two within 30 minutes. **When to recycle is the
+orchestrator's call** — never mid-integration.
+
+```bash
+kodo config --set orchestrator.recycle_mb=16   # later notice
+```
+
+The relaunch itself needs nothing new: `kodo check` already launches an orchestrator when there
+is none, so the exit ritual is write the handoff → `/exit` → the daemon relaunches on the next
+tick with the handoff inside.
+
 ## Progress visibility
 
 Everything is documented in Plane as comments, without opening cmux:
@@ -1038,6 +1082,7 @@ Everything is documented in Plane as comments, without opening cmux:
 ├── projects.json      # provider project → local path
 ├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`)
 ├── inbox.md           # quick captures (plain markdown, hand-editable)
+├── handoff.md         # handoff from the outgoing orchestrator (consumed on the next launch)
 ├── inbox.lock         # advisory inbox lock (ephemeral: released on exit)
 ├── polling-state.json # polling watermark per project/repo (only with polling enabled)
 ├── plans/             # per-task action plans

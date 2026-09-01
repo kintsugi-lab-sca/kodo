@@ -258,7 +258,7 @@ export async function runStopHook(input, deps = {}) {
         cwd.startsWith(KODO_ROOT + '/')
       );
       if (isOrchestratorSession) {
-        await handleOrchestratorStop();
+        await handleOrchestratorStop(input);
       }
       return;
     }
@@ -369,10 +369,61 @@ async function main() {
 }
 
 /**
+ * Vigilancia del TAMAÑO del transcript del orquestador (KODO-67).
+ *
+ * Separada de `handleOrchestratorStop` a propósito: aquella está detrás del gate
+ * `KODO_ORCHESTRATOR=1` porque hace un COMMIT (un efecto destructivo que jamás debe
+ * dispararse en la sesión de un dev que casualmente trabaja en el repo kodo). Ésta solo
+ * MIDE un fichero y, como mucho, encola un aviso en una bandeja — así que compartir el
+ * gate del commit no aporta seguridad, pero sí perdería la medición en cualquier
+ * orquestador lanzado antes de que la env var existiera.
+ *
+ * Aun así se aplica el MISMO gate, y la razón es distinta: sin él, la sesión de un dev en
+ * el repo kodo cuyo transcript pase de 8 MB encolaría en la bandeja del operador un aviso
+ * de reciclar un orquestador que no es ella. Un evento falso en la bandeja no rompe nada,
+ * pero la bandeja existe justo para no tener ruido.
+ *
+ * NEVER-THROWS. El import es dinámico por el mismo patrón de lazy DI del resto del hook:
+ * `orchestrator/recycle.js` arrastra `session/state.js` (locks, I/O) y `stop.js` debe
+ * seguir siendo barato de importar.
+ *
+ * @param {{ transcript_path?: string }} input - input crudo del hook Stop.
+ * @returns {Promise<void>}
+ */
+async function checkOrchestratorRecycle(input) {
+  if (process.env.KODO_ORCHESTRATOR !== '1') return;
+  if (!input?.transcript_path) return;
+  try {
+    const [{ maybeSuggestRecycle }, { loadConfig }] = await Promise.all([
+      import('../orchestrator/recycle.js'),
+      import('../config.js'),
+    ]);
+    const r = maybeSuggestRecycle({ transcriptPath: input.transcript_path, config: loadConfig() });
+    if (r.suggested) {
+      console.error(
+        `[kodo] Transcript del orquestador en ${(Number(r.bytes) / (1024 * 1024)).toFixed(1)} MB — ` +
+          'reciclado sugerido (evento en la bandeja)',
+      );
+    }
+  } catch (err) {
+    console.error(`[kodo] Stop: no se pudo evaluar el reciclado — ${/** @type {Error} */ (err).message}`);
+  }
+}
+
+/**
  * Called when the orchestrator session ends.
  * Auto-commits any pending changes in .claude/skills/ to preserve learnings.
+ *
+ * KODO-67: además evalúa si el transcript ha cruzado `orchestrator.recycle_mb`. Se hace
+ * ANTES del gate del auto-commit y de su `try`, para que ninguno de los dos caminos de
+ * salida temprana de aquel (sin marcador, sin cambios en la skill) se lleve por delante la
+ * medición — son dos preguntas independientes que casualmente comparten disparador.
+ *
+ * @param {{ transcript_path?: string }} [input] - input crudo del hook Stop.
  */
-async function handleOrchestratorStop() {
+async function handleOrchestratorStop(input = {}) {
+  await checkOrchestratorRecycle(input);
+
   // HYG-01 gate (D-06): el auto-commit SOLO corre en la sesión orquestadora,
   // marcada con la env var inyectada al lanzar el workspace (launch.js). Sin el
   // marcador, una sesión normal del dev en el repo kodo NO debe commitear nada

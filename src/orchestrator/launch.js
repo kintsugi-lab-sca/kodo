@@ -13,6 +13,7 @@ import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
 import { stripForPrompt } from '../cli/sanitize.js';
+import { appendHandoff, consumeHandoff, readHandoff } from './handoff.js';
 import { syncSkill } from '../skill/sync.js';
 import { skillSyncAuto, skillSyncAutoError } from '../logger-events.js';
 
@@ -505,7 +506,21 @@ export async function launchOrchestrator(opts = {}) {
     host: hostName, // KODO-18
   });
 
-  const prompt = `${basePrompt}\n\n## Situación actual\n\n${contextSummary}`;
+  // ─── KODO-67: el handoff del orquestador SALIENTE ────────────────────────────
+  // Va AL FINAL, después de «Situación actual», y el orden es intencionado: la sección de
+  // arriba es el estado que kodo DERIVA de `state.json` (qué sesiones viven, en qué
+  // workspace); el handoff es lo que el orquestador anterior SABÍA y no cabe en ninguna
+  // estructura — qué decisión está esperando al operador, qué PR está a medias, qué
+  // lección aún no ha volcado a la skill. Lo más específico y lo más fresco, último.
+  //
+  // Se LEE aquí y se CONSUME después del `send` (más abajo): si el envío falla, el
+  // handoff sigue en disco y el siguiente intento lo vuelve a inyectar — el orquestador
+  // entrante nunca llegó a leerlo, así que darlo por entregado sería perderlo.
+  //
+  // Sin fichero, `appendHandoff` devuelve el prompt IDÉNTICO: los goldens del prompt del
+  // orquestador (test/prompt.test.js, test/orchestrator-gsd.test.js) no se mueven.
+  const handoff = readHandoff();
+  const prompt = appendHandoff(`${basePrompt}\n\n## Situación actual\n\n${contextSummary}`, handoff?.text);
 
   // ─────────────────────────────────────────────────────────────────────
   // Phase 18 D-06: launchOrchestrator EXCLUIDO de --worktree.
@@ -529,6 +544,13 @@ export async function launchOrchestrator(opts = {}) {
   const claudeCmd = buildOrchestratorCommand(config, sessionId, prompt);
 
   await hostLegacy().send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
+
+  // KODO-67: el handoff ya viaja dentro del comando que acaba de entrar en el workspace.
+  // Renombrarlo a `handoff-consumed-<ts>.md` es lo que impide que el SIGUIENTE
+  // relanzamiento lo vuelva a pegar (cada vez más viejo) hasta que alguien lo borre a
+  // mano. No se borra: es la única copia del razonamiento del saliente, y si el entrante
+  // arranca mal el operador tiene que poder leerla. never-throws.
+  if (handoff) consumeHandoff(handoff.path);
 
   // Notify
   await hostLegacy().notify({

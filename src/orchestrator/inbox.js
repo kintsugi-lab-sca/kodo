@@ -70,7 +70,7 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  *   notified_at: string|null,   // ISO 8601 del último aviso de una línea que lo incluyó. Ancla del debounce.
  * }} OrchestratorEvent
  *
- * @typedef {'session-end'|'session-launched'|'integration'} OrchestratorEventKind
+ * @typedef {'session-end'|'session-launched'|'integration'|'recycle-suggested'} OrchestratorEventKind
  */
 
 /**
@@ -84,10 +84,19 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  * paso 1 y `kodo integrate` en el 5b) sin ganar ni durabilidad ni capacidad de despertar.
  * El `kind` existe para el día que haya un productor independiente.
  *
+ * KODO-67 añade `'recycle-suggested'`: el aviso de que el transcript del ORQUESTADOR ha
+ * cruzado `orchestrator.recycle_mb` y conviene reciclarlo (handoff + sesión fresca). Es el
+ * primer evento de la bandeja que no habla de una SESIÓN DE TRABAJO sino del propio
+ * supervisor, y por eso entra aquí y no por un carril nuevo: el orquestador ya lee esta
+ * bandeja en el paso 1 de cada ronda, así que el aviso llega sin inventarle otro sitio
+ * donde mirar. Su productor vive en `orchestrator/recycle.js`.
+ *
  * @type {ReadonlySet<OrchestratorEventKind>}
  */
 export const ORCHESTRATOR_EVENT_KINDS = Object.freeze(
-  new Set(/** @type {OrchestratorEventKind[]} */ (['session-end', 'session-launched', 'integration'])),
+  new Set(/** @type {OrchestratorEventKind[]} */ ([
+    'session-end', 'session-launched', 'integration', 'recycle-suggested',
+  ])),
 );
 
 /**
@@ -307,6 +316,10 @@ function verbForKind(kind) {
   switch (kind) {
     case 'session-launched': return 'lanzada';
     case 'integration': return 'en cola de integración';
+    // KODO-67: el `task_ref` de este evento es la palabra «orquestador», así que
+    // `summarizeInbox` lo compone como «orquestador conviene reciclarlo» — el sujeto lo
+    // pone el ref, igual que en los demás kinds.
+    case 'recycle-suggested': return 'conviene reciclarlo';
     default: return 'en Review';
   }
 }

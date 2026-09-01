@@ -584,6 +584,98 @@ contexto — no tienes que abrir ficheros a mano ni re-derivar qué sigue.
   en el `new-workspace`, si ese grupo ya existe (fail-open si no). Detalle del
   mantenimiento del sidebar en §"Higiene del sidebar".
 
+## Reciclado del orquestador (v0.24, KODO-67)
+
+Tú acumulas contexto que no necesitas. Tras varios días de rondas, la mayor
+parte de tu transcript son **salidas de herramientas históricas** —`cat
+state.json` de anteayer, `read-screen` de sesiones ya cerradas, diffs de PRs ya
+mergeados—. El estado durable no vive ahí: vive en el provider, en `state.json`,
+en git y en el NDJSON. Compactar es caro y con pérdida: resume TODO, incluido lo
+que ya da igual, y se lleva por delante justo los ids calientes que sí importan.
+
+**Reciclar es más barato**: escribes un handoff pequeño, cierras, y el daemon te
+relanza en el siguiente tick con ese handoff dentro del prompt. El orquestador
+nuevo arranca en ~15k tokens y no tiene que re-preguntar nada.
+
+### Cuándo
+
+Cuando llegue a tu bandeja un evento `recycle-suggested`:
+
+```
+orquestador conviene reciclarlo — Tu transcript va por 8.3 MB (umbral 8 MB)...
+```
+
+Lo emite el hook `Stop` comparando el tamaño de tu transcript contra
+`orchestrator.recycle_mb` (default 8 MB). Es un **proxy grueso**, no una medida
+de contexto: no hay API que la exponga a un hook. Significa «llevas suficientes
+rondas como para que valga la pena mirar», no «tienes que reciclar ya».
+
+Lleva debounce de 30 min y nunca hay dos sin ver a la vez, así que no lo verás
+en cada ronda.
+
+**Tú decides el momento.** Nunca recicles a mitad de una integración, de un
+merge, ni con una decisión del operador a medio resolver: si el handoff no puede
+describir el estado en unas pocas líneas, es que el estado todavía no está
+estable. Termina lo que tienes entre manos y recicla después.
+
+### El fichero: `~/.kodo/handoff.md`
+
+Secciones fijas. Escribe solo lo que el orquestador entrante **no puede derivar
+de `state.json` ni del provider**: nada de repetir la lista de sesiones vivas con
+sus workspaces (eso ya se le inyecta en «Situación actual»), nada de historia.
+
+```markdown
+## Sesiones vivas
+- ITCLIP-131 (workspace:14) — implementando; sin bloqueos.
+- KODO-70 (workspace:19) — en Review, pendiente de mi verificación.
+
+## Decisiones del operador pendientes
+- PR #58: dos enfoques posibles para el índice; le pregunté y no ha contestado.
+
+## Refs calientes
+- PR #55 mergeado; falta borrar la rama `feat/inbox-advance`.
+- ITCLIP-127 en Review desde ayer — el verify da PASS pero no lo he movido.
+
+## Lecciones aún no volcadas a la skill
+- El MCP de Plane devuelve 404 en `retrieve_label`; hay que ir por la API REST.
+
+## Siguiente acción
+Verificar KODO-70 con `kodo gsd verify <sid>` y, si pasa, moverla a Done.
+```
+
+Reglas duras:
+
+- **Menos de 32 KB.** Por encima el fichero se **ignora entero** (no se trunca:
+  un handoff a medias es peor que ninguno) y se queda en disco para que el
+  operador lo vea. Si te acercas a ese tamaño, estás volcando historia en vez de
+  estado.
+- **Una sección vacía se escribe vacía o se omite**, pero no se rellena. «Nada
+  pendiente» es información; inventar contenido para que parezca completo, no.
+- **El formato lo define esta skill, no el código.** kodo trata el fichero como
+  texto opaco: lo lee, lo acota, le quita los bytes de control y lo pega al final
+  del prompt del entrante. Puedes cambiar estas secciones editando esta sección
+  sin tocar una línea de kodo.
+
+### El ritual de salida
+
+1. Vuelca a §"Lecciones aprendidas" lo que hayas aprendido en esta sesión (el
+   hook Stop lo committea solo — ver §"Cómo actualizar este skill").
+2. Ackea la bandeja: `kodo inbox-orch ack --all`.
+3. Escribe `~/.kodo/handoff.md` con el formato de arriba.
+4. **Confirma con el operador si hay algo a medias.** Si estás esperando una
+   decisión suya, díselo antes de cerrarte: el entrante leerá el handoff, pero
+   no puede recuperar una conversación que se quedó abierta.
+5. `/exit`.
+
+El daemon detecta que no hay orquestador (`kodo check` → `needsOrchestrator`) y
+te relanza. `launchOrchestrator` inyecta el handoff al final del prompt y
+renombra el fichero a `handoff-consumed-<ts>.md` — **no lo borra**, así que si el
+entrante arranca mal el operador puede leer lo que dejaste. El rename es lo que
+impide que el mismo handoff se reinyecte una y otra vez.
+
+Si el `send` al workspace falla, el handoff **no** se consume: el entrante nunca
+llegó a leerlo, así que el siguiente intento lo vuelve a inyectar.
+
 ## Cómo actualizar este skill
 
 Antes de escribir `[kodo:idle]` al cerrar una sesión orquestadora, evalúa si

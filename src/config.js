@@ -287,8 +287,25 @@ const DEFAULT_CONFIG = {
   // El default `'inbox'` llega a los `~/.kodo/config.json` ya existentes vía el
   // deep-merge de `loadConfig`, sin migración ni backup (CFG-02 zero-breaking-change).
   // Se cambia con: `kodo config set orchestrator.nudges keystroke`.
+  //
+  // KODO-67 — `recycle_mb`: umbral, en MB de TRANSCRIPT, a partir del cual kodo sugiere
+  // reciclar al orquestador (escribir el handoff y arrancar una sesión fresca) en vez de
+  // dejar que siga acumulando contexto que ya no necesita.
+  //
+  // El transcript (`~/.claude/projects/<cwd>/<session>.jsonl`) es un PROXY grueso: no hay
+  // API que exponga el % de contexto a un hook, y ese fichero es lo único observable desde
+  // fuera del proceso que crece con las rondas. 8 MB es donde se midió el 72 % en la
+  // sesión que motivó KODO-67 (cuatro días de orquestación). Deja margen a propósito: el
+  // aviso llega cuando reciclar todavía es barato, no cuando ya no queda contexto ni para
+  // escribir el handoff.
+  //
+  // Subirlo retrasa el aviso; bajarlo lo adelanta. `0` o un valor no numérico cae al
+  // default (`resolveRecycleMb`, orchestrator/recycle.js) — no existe «desactivado» por
+  // esta vía, y no hace falta: el aviso es un evento en la bandeja que el orquestador
+  // puede ackear e ignorar, nunca una acción.
   orchestrator: {
     nudges: 'inbox',
+    recycle_mb: 8,
   },
   // KODO-58 — reglas de ELEGIBILIDAD del dispatch. Bloque propio y no una clave dentro
   // de `claude.*`: aquel describe cómo se invoca al agente, esto describe QUÉ tareas son
