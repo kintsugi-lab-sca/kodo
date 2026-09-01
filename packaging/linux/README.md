@@ -88,12 +88,12 @@ escritorio). Lo verificado es que kodo usa `orca-ide` como default fuera de macO
 Desde un **tag**, nunca desde `main`:
 
 ```bash
-npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.24.0
 kodo --version
 which -a kodo     # → ~/.local/bin/kodo
 ```
 
-(Verificado con `v0.23.0`. Sustituye por el tag que quieras instalar.)
+(Verificado con `v0.24.0`. Sustituye por el tag que quieras instalar.)
 
 ## 6. Configuración — **antes** de arrancar el servicio
 
@@ -303,7 +303,7 @@ grep ^Environment ~/.config/systemd/user/kodo.service
 
 ```bash
 # actualizar a un tag nuevo
-npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.24.0
 kodo install --systemd     # refresca la unidad y reinicia si hacía falta
 
 # desinstalar el servicio

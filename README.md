@@ -87,7 +87,7 @@ brew install kodo
 ### npm + systemd — Linux
 
 ```bash
-npm install -g github:kintsugi-lab-sca/kodo#v0.23.0
+npm install -g github:kintsugi-lab-sca/kodo#v0.24.0
 kodo install --systemd   # user unit in ~/.config/systemd/user, enabled and started
 ```
 
