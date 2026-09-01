@@ -908,3 +908,19 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   Corolario ya conocido: la BD de desarrollo compartida entre worktrees queda
   migrada por la primera rama y las demás no arrancan contra ella (108, 94, 118
   lo reportaron); las sesiones deben usar BD propia para verificar.
+- [2026-09-01] **El MCP de Plane (0.2.9) revienta por validación pydantic cuando
+  la respuesta trae labels: las mutaciones NO se aplican — ir por REST.** Contra
+  esta instancia CE la API devuelve `labels` como lista de UUIDs (strings), pero
+  el modelo `WorkItemDetail` del MCP los valida como objetos `Label` → error `1
+  validation error … labels.0 Input should be a valid dictionary`. Afecta a
+  `retrieve_work_item_by_identifier` si pides `labels` en `fields` y a
+  `manage_work_item_assignee` SIEMPRE que la tarea tenga labels (la respuesta
+  del PATCH viaja completa) — y en este caso el error aborta ANTES de aplicar la
+  mutación (verificado: assignees siguió vacío tras el «éxito» aparente del
+  error). Workaround en dos partes: para LEER, pide sparse fields sin `labels`;
+  para MUTAR, PATCH REST directo (skill `plane-api`,
+  `projects/{pid}/work-items/{wid}/` con `{"assignees": […]}`). Contexto del
+  caso: SCP-21 con label `kodo:yolo` sin assignee → `dispatch.skipped
+  reason=unassigned` (filtro multi-operador KODO-58, comportamiento correcto);
+  al asignarla por REST el webhook del propio PATCH re-disparó el dispatch y la
+  sesión se lanzó sola en <10 s.
