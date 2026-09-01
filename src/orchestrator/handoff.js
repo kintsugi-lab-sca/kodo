@@ -40,7 +40,7 @@
 // ni un disco lleno pueden impedir que el orquestador arranque: sin handoff arranca como
 // siempre, que es exactamente el comportamiento anterior a KODO-67.
 
-import { renameSync, readFileSync, statSync } from 'node:fs';
+import { renameSync, readFileSync, statSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { kodoPath } from '../paths.js';
 import { stripControlChars } from '../cli/sanitize.js';
@@ -165,10 +165,47 @@ export function consumeHandoff(path, deps = {}) {
   try {
     renameSync(path, to);
     deps.logger?.info?.('orchestrator.handoff.consumed', { to });
+    pruneConsumed(dirname(path), deps);
     return { ok: true, to };
   } catch (err) {
     const reason = /** @type {Error} */ (err).message;
     deps.logger?.warn?.('orchestrator.handoff.consume_failed', { reason });
     return { ok: false, reason };
+  }
+}
+
+/**
+ * Cuántos `handoff-consumed-*.md` se conservan tras cada consume. Los consumidos son
+ * forense (≤32 KB cada uno), pero sin rotación crecen uno por reciclado para siempre.
+ */
+export const MAX_CONSUMED_KEPT = 5;
+
+/**
+ * Borra los `handoff-consumed-*.md` más antiguos dejando los `MAX_CONSUMED_KEPT` más
+ * recientes. NEVER-THROWS: el orden lo da el timestamp ISO del nombre (lexicográfico),
+ * sin stat; un unlink que falla se loguea y no detiene el barrido.
+ *
+ * @param {string} dir
+ * @param {{ logger?: import('../logger-noop.js').NoopLogger }} [deps]
+ */
+export function pruneConsumed(dir, deps = {}) {
+  try {
+    const stale = readdirSync(dir)
+      .filter((f) => /^handoff-consumed-.*\.md$/.test(f))
+      .sort()
+      .slice(0, -MAX_CONSUMED_KEPT);
+    for (const f of stale) {
+      try {
+        unlinkSync(join(dir, f));
+        deps.logger?.info?.('orchestrator.handoff.pruned', { file: f });
+      } catch (err) {
+        deps.logger?.warn?.('orchestrator.handoff.prune_failed', {
+          file: f,
+          reason: /** @type {Error} */ (err).message,
+        });
+      }
+    }
+  } catch {
+    // readdir que falla (dir ausente en tests, permisos): el prune es cosmético.
   }
 }

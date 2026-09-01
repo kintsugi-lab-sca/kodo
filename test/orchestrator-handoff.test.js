@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import {
   HANDOFF_HEADING,
   MAX_HANDOFF_BYTES,
+  MAX_CONSUMED_KEPT,
   appendHandoff,
   consumeHandoff,
   consumedName,
@@ -208,6 +209,18 @@ describe('consumeHandoff — renombra (no borra) y deja el original inaccesible'
   it('never-throws: un fichero inexistente devuelve el discriminado, no una excepción', () => {
     const r = consumeHandoff(join(dir, 'no-existe.md'));
     assert.equal(r.ok, false);
+  });
+
+  it('rotación: consumir con consumidos previos conserva solo los MAX_CONSUMED_KEPT más recientes', () => {
+    for (let i = 0; i < 7; i++) {
+      writeFileSync(join(dir, `handoff-consumed-2026-01-0${i + 1}T00-00-00.000Z.md`), 'viejo');
+    }
+    writeFileSync(file, 'x');
+    consumeHandoff(file);
+    const left = readdirSync(dir).filter((f) => f.startsWith('handoff-consumed-')).sort();
+    assert.equal(left.length, MAX_CONSUMED_KEPT);
+    // Sobreviven los más recientes: los dos más antiguos (01 y 02) y el 03 caen.
+    assert.ok(!left.some((f) => f.includes('2026-01-01') || f.includes('2026-01-02') || f.includes('2026-01-03')));
   });
 });
 
