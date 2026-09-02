@@ -562,6 +562,7 @@ program
   .option('--pr', 'Preparar la rama para PR: valida y DEVUELVE el comando gh listo. NO hace push ni crea la PR')
   .option('--drop', 'Descartar la entrada de la cola SIN tocar la rama')
   .option('--test <cmd>', 'Correr esta suite en el repo antes de integrar; si falla, no se integra nada')
+  .option('--require-oracle', 'Abortar si el oráculo mecánico no dice `pass` sobre la punta de la rama (KODO-69)')
   .action(setExitCode(async (ref, opts) => {
     const mod = await import('./cli/integrate.js');
     if (!ref) {
@@ -574,7 +575,42 @@ program
       drop: opts.drop || false,
       json: opts.json || false,
       test: opts.test,
+      requireOracle: opts.requireOracle || false,
     });
+  }));
+
+// --- kodo oracle [run] --- (KODO-69: el oráculo mecánico)
+//
+// SUBCOMANDO para la acción y no una flag, con el mismo criterio que `review` y a diferencia de
+// `integrate`: listar/mirar y EJECUTAR una verificación son sujetos distintos, no dos variantes
+// de lo mismo. `kodo oracle` a secas es la vista que el orquestador consulta, y por contrato no
+// ejecuta absolutamente nada — la ronda del orquestador jamás corre suites.
+//
+// NO `ensureConfig()`: el oráculo es estado local (`~/.kodo/state.json`) + git + comandos del
+// operador, y no toca ningún provider. Mismo precedente que `inbox`, `integrate`, `review`,
+// `skill sync` y `gsd doctor`.
+const oracle = program
+  .command('oracle [ref]')
+  .description('Oráculo mecánico: sin argumentos LISTA el veredicto de la cola; con <ref> muestra los cinco checks de esa entrada')
+  .option('--all', 'En el listado: incluir también las entradas ya resueltas (la traza)')
+  .option('--json', 'Emitir el resultado como JSON (scriptable, byte-determinista)')
+  .action(setExitCode(async (ref, opts) => {
+    const mod = await import('./cli/oracle.js');
+    if (!ref) return mod.runOracleListCli({ all: opts.all || false, json: opts.json || false });
+    return mod.runOracleStatusCli(ref, { json: opts.json || false });
+  }));
+
+oracle
+  .command('run <ref>')
+  .description('EJECUTAR la verificación sobre la rama de <ref> (worktree desechable) y persistir el veredicto en la cola')
+  .option('--json', 'Emitir el resultado como JSON')
+  .action(setExitCode(async (ref, opts, cmd) => {
+    // MISMA colisión de flag largo que `review commit` e `inbox-orch ack --all` (ver sus
+    // comentarios): el padre `oracle` declara `--json`, así que un `--json` tecleado DESPUÉS
+    // del subcomando aterriza en las opciones del padre. Se lee de los dos niveles.
+    const json = opts?.json === true || cmd?.optsWithGlobals?.()?.json === true;
+    const mod = await import('./cli/oracle.js');
+    return mod.runOracleRunCli(ref, { json });
   }));
 
 // --- kodo review [start|commit] --- (KODO-75: el rol reviewer adversarial)

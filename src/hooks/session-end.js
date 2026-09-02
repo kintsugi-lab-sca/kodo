@@ -54,7 +54,9 @@ import { maybeNotifyOrchestrator } from '../orchestrator/notify.js';
 const STDIN_TIMEOUT = 3000;
 
 /**
- * Resuelve el config del que sale `orchestrator.nudges` (KODO-53).
+ * Resuelve el config que este hook necesita: `orchestrator.nudges` (KODO-53) y `oracle.enabled`
+ * (KODO-69). Es un cargador con red de seguridad, no un lector de una clave concreta — de ahí
+ * que sea uno solo para los dos consumidores en vez de dos idénticos.
  *
  * Independiente del `config` que resuelve el bloque del review backstop (:249): aquel
  * vive dentro de su propio `try`, y ampliarle el alcance para reusar la variable ataría
@@ -67,13 +69,56 @@ const STDIN_TIMEOUT = 3000;
  * @param {{ config?: any }} deps
  * @returns {Promise<any>}
  */
-async function resolveNudgeConfig(deps) {
+async function resolveHookConfig(deps) {
   if (deps?.config !== undefined) return deps.config;
   try {
     const { loadConfig } = await import('../config.js');
     return loadConfig();
   } catch {
     return {};
+  }
+}
+
+/**
+ * Lanza `kodo oracle run <ref>` DETACHED y vuelve inmediatamente (KODO-69).
+ *
+ * Copia deliberada del molde de `runPollingStartCli` (cli/polling.js): `process.execPath` +
+ * el path ABSOLUTO del bin resuelto desde `import.meta.url`, nunca `kodo` por PATH. El hook
+ * corre bajo el entorno de Claude Code, donde no hay garantía de que el PATH traiga el binario
+ * de esta instalación — y ejecutar el kodo de OTRA instalación sería peor que no ejecutar
+ * ninguno.
+ *
+ * `stdio: 'ignore'` y no un logfile: la corrida ya deja su traza donde importa (el bloque
+ * `oracle` de la entrada de la cola, y el NDJSON de `integration.oracle.attached`). Un tercer
+ * canal de salida sería un fichero que nadie lee.
+ *
+ * `unref()` es lo que permite al hook TERMINAR sin esperar a la corrida: sin él, el proceso
+ * padre se quedaría colgado hasta que acabara la última suite — exactamente lo que esta fase
+ * evita (Pitfall #2 de polling.js, mismo comentario).
+ *
+ * NEVER-THROWS. Un spawn que no sale deja la entrada con `oracle: null`, que es la lectura
+ * honesta: nadie ha verificado esa rama.
+ *
+ * @param {string} ref `task_ref` de la entrada recién encolada.
+ * @returns {Promise<boolean>} `true` si el hijo quedó lanzado. El caller no lo espera para nada
+ *   más que la traza — el `await` cubre el `import()`, no la corrida.
+ */
+async function spawnOracleRun(ref) {
+  try {
+    const { spawn } = await import('node:child_process');
+    // src/hooks/session-end.js → ../../bin/kodo (mismo cálculo que polling.js:resolveKodoBin,
+    // ajustado a la profundidad de este fichero).
+    const kodoBin = join(fileURLToPath(new URL('../../bin/kodo', import.meta.url)));
+    const child = spawn(process.execPath, [kodoBin, 'oracle', 'run', ref], {
+      detached: true,
+      stdio: 'ignore',
+      env: process.env,
+    });
+    child.unref();
+    return true;
+  } catch (err) {
+    console.error(`[kodo:oracle] spawn fail-open: ${/** @type {Error} */ (err).message}`);
+    return false;
   }
 }
 
@@ -132,6 +177,7 @@ async function readStdin() {
  *   now?: () => Date,
  *   getOrchestratorFn?: () => { workspace_ref?: string }|null,
  *   captureIntegrationFn?: typeof import('../integration/capture.js').captureIntegration,
+ *   spawnOracleFn?: (ref: string) => Promise<boolean>|boolean,
  *   markPendingCommentFn?: typeof markPendingComment,
  *   enqueueOrchestratorEventFn?: typeof import('../orchestrator/inbox.js').enqueueOrchestratorEvent,
  *   maybeNotifyOrchestratorFn?: typeof import('../orchestrator/notify.js').maybeNotifyOrchestrator,
@@ -419,6 +465,40 @@ export async function runSessionEndHook(input, deps = {}) {
               `NO integres la rama hasta que \`kodo review ${session.task_ref}\` diga «aprobado».`,
           }, log);
         }
+
+        // KODO-69: el ORÁCULO MECÁNICO. Aquí solo se LANZA — nada de este hook corre una
+        // suite.
+        //
+        // Es la diferencia entre esta fase y el `--test` de `kodo integrate`: aquel lo teclea
+        // el operador y él espera; esto pasa solo, al cerrar, y nadie está delante. Correrlo
+        // en línea metería un `npm ci && npm test` DENTRO del cierre de la sesión — minutos
+        // de hook bloqueando a Claude Code, y encima con el worktree a punto de borrarse tres
+        // líneas más abajo.
+        //
+        // El runner detached se crea su propio worktree desechable sobre el commit de la rama,
+        // así que sobrevive al `performTerminalCleanup` que viene justo después. Su resultado
+        // aterriza en la MISMA entrada de la cola vía `attachOracle`, minutos más tarde, sin
+        // que nada más tenga que esperarlo.
+        //
+        // Fail-open, como todo lo de este bloque: si el spawn no sale, la entrada se queda con
+        // `oracle: null` («nadie ha verificado esto»), que es la lectura honesta y la que hace
+        // fallar cerrado al gate opcional.
+        try {
+          const { oracleEnabled } = await import('../integration/oracle.js');
+          const oracleCfg = await resolveHookConfig(deps);
+          if (oracleEnabled(oracleCfg)) {
+            const spawnOracle = deps.spawnOracleFn || spawnOracleRun;
+            // Se dispara con la RAMA, no con el `task_ref`. Una entrada se identifica por
+            // (project_path, branch), así que una tarea que tocó dos repos en dos sesiones deja
+            // dos entradas con el MISMO task_ref — y `kodo oracle run KODO-69` resolvería la
+            // primera, que puede no ser la que acaba de cerrar. La rama es la mitad
+            // discriminante del par, y el selector la prueba igual (task_ref primero, rama
+            // después), así que es estrictamente más preciso.
+            await spawnOracle(capture.entry.branch);
+          }
+        } catch (err) {
+          console.error(`[kodo:oracle] no se pudo lanzar la verificación: ${/** @type {Error} */ (err).message}`);
+        }
       }
     } catch (err) {
       console.error(`[kodo:session-end] Integration capture error: ${/** @type {Error} */ (err).message}`);
@@ -500,7 +580,7 @@ export async function runSessionEndHook(input, deps = {}) {
       // Phase 75 LIVE-07 (intacto): el NEXT: efectivo capturado del handoff. Con next →
       // línea concreta; sin next → texto byte-idéntico al genérico (D-09).
       const nudgeText = buildStopNudgeText(session, handoffNext);
-      const mode = resolveNudgeMode(await resolveNudgeConfig(deps));
+      const mode = resolveNudgeMode(await resolveHookConfig(deps));
 
       if (mode === 'keystroke') {
         // Carril LEGACY, opt-in explícito: el texto largo se teclea tal cual y NO pasa por

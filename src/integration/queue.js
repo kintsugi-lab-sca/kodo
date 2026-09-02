@@ -30,7 +30,7 @@ import { loadState, withStateLock } from '../session/state.js';
 /**
  * One integration-queue entry.
  *
- * The 17 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
+ * The 18 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
  * cosmetic: `kodo integrate --json` serialises the entry as-is, and the byte-determinism of
  * `--json` is a repo invariant (DX-06). A key appearing "only when there is a value"
  * would break the contract's byte-for-byte comparison.
@@ -53,6 +53,7 @@ import { loadState, withStateLock } from '../session/state.js';
  *   sha: string|null,              // SHA resulting from the merge. null on --pr, on --drop and on failures.
  *   outcome: string|null,          // Short, greppable result ('merged', 'prepared', 'dropped', 'precondition-failed'…).
  *   resolved_at: string|null,      // ISO 8601 of the resolution. null while pending.
+ *   oracle: import('./oracle.js').OracleResult|null,  // KODO-69. null = the oracle has not run on this branch.
  * }} IntegrationEntry
  */
 
@@ -95,7 +96,7 @@ function queueOf(state) {
 }
 
 /**
- * Builds a COMPLETE entry (17 keys, fixed order) from the capture input.
+ * Builds a COMPLETE entry (18 keys, fixed order) from the capture input.
  * Pure — it touches neither disk nor clock beyond the injected `now`.
  *
  * @param {{
@@ -126,6 +127,10 @@ function buildEntry(input, ts) {
     sha: null,
     outcome: null,
     resolved_at: null,
+    // KODO-69. `null` and not a "running" placeholder on purpose: at enqueue time nobody has
+    // started an oracle run yet, and `null` is the only value that says exactly that. The
+    // runner writes its own `running` marker as its first act.
+    oracle: null,
   };
 }
 
@@ -180,6 +185,13 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
       prev.lines_changed = input.lines_changed ?? null;
       prev.suggested = input.suggested;
       prev.updated_at = ts;
+      // KODO-69: a refresh means a second session closed over the SAME branch, so the branch
+      // moved and the previous verdict no longer describes it. Clearing it is the honest read —
+      // `null` says "the oracle has not run on THIS state", which is true. Keeping it would
+      // show a green verdict for code nobody verified. (The `commit` anchor is the second line
+      // of defence: a slow run from the earlier session that lands after this refresh is
+      // detected as stale rather than trusted.)
+      prev.oracle = null;
       persisted = prev;
     } else {
       persisted = buildEntry(input, ts);
@@ -271,6 +283,59 @@ export function resolveIntegration(ref, patch, logger = noopLogger, deps = {}) {
     ref,
     action: patch.action,
     outcome: patch.outcome,
+  });
+  return { ok: true, value: /** @type {IntegrationEntry} */ (persisted) };
+}
+
+/**
+ * Attaches (or replaces) the oracle block of ONE pending entry — KODO-69.
+ *
+ * Selector and matching rules are the MIRROR of `resolveIntegration`: exact `task_ref` or,
+ * failing that, exact branch name, and `pending` entries only. Two reasons for the `pending`
+ * restriction, and both are load-bearing:
+ *
+ *   - A resolved entry is a TRACE. Rewriting a verdict onto a branch that was already merged
+ *     changes the record of what was known at the moment the decision was taken, which is
+ *     precisely what the trace exists to preserve.
+ *   - The oracle runs detached and can land minutes late. Without this guard, a run started
+ *     before the operator merged would silently patch a closed row.
+ *
+ * REPLACES rather than merges: the block is written whole (`running` first, then the final
+ * result), so a half-updated oracle can never be observed. Same idiom as `resolveIntegration`,
+ * which rewrites its five fields in one pass inside the lock.
+ *
+ * @param {string} ref task_ref or branch name.
+ * @param {import('./oracle.js').OracleResult|null} oracle The block to persist. `null` clears it.
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: IntegrationEntry } | { ok: false, reason: 'lock-timeout'|'not-found' }}
+ */
+export function attachOracle(ref, oracle, logger = noopLogger) {
+  /** @type {IntegrationEntry|undefined} */
+  let persisted;
+  let found = false;
+
+  const r = withStateLock((state) => {
+    const queue = queueOf(state);
+    const hit = queue.find((e) => e.status === 'pending' && (e.task_ref === ref || e.branch === ref));
+    if (!hit) return;
+    found = true;
+    hit.oracle = oracle;
+    persisted = hit;
+    // `updated_at` NO se toca: mide cuándo cambió la NECESIDAD de integración (la rama, su
+    // conteo, su base), no cuándo terminó de correr una verificación sobre ella. Moverlo aquí
+    // haría que la columna «edad» de `kodo integrate` se rejuveneciera sola cada vez que el
+    // oráculo termina — justo la métrica que la cola existe para no perder.
+  });
+
+  if (!r.ok) {
+    logger.warn('integration.oracle.attach_failed', { ref, reason: r.reason });
+    return r;
+  }
+  if (!found) return { ok: false, reason: 'not-found' };
+  logger.info('integration.oracle.attached', {
+    ref,
+    state: oracle?.state ?? null,
+    verdict: oracle?.verdict ?? null,
   });
   return { ok: true, value: /** @type {IntegrationEntry} */ (persisted) };
 }

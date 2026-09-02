@@ -30,6 +30,8 @@ let listIntegrationQueue;
 let findPendingIntegration;
 /** @type {typeof import('../../src/integration/queue.js').countPendingForProject} */
 let countPendingForProject;
+/** @type {typeof import('../../src/integration/queue.js').attachOracle} */
+let attachOracle;
 let RESOLVED_CAP;
 
 const STATE_REL = ['.kodo', 'state.json'];
@@ -74,6 +76,7 @@ describe('cola de integración — store sobre state.json', () => {
     listIntegrationQueue = mod.listIntegrationQueue;
     findPendingIntegration = mod.findPendingIntegration;
     countPendingForProject = mod.countPendingForProject;
+    attachOracle = mod.attachOracle;
     RESOLVED_CAP = mod.RESOLVED_CAP;
   });
 
@@ -85,7 +88,7 @@ describe('cola de integración — store sobre state.json', () => {
 
   beforeEach(() => writeSeed());
 
-  it('encola una entrada con las 17 claves en ORDEN FIJO (byte-determinismo del --json)', () => {
+  it('encola una entrada con las 18 claves en ORDEN FIJO (byte-determinismo del --json)', () => {
     const r = enqueueIntegration(input(), undefined, { now: () => new Date('2026-08-20T10:00:00.000Z') });
     assert.equal(r.ok, true);
 
@@ -108,12 +111,18 @@ describe('cola de integración — store sobre state.json', () => {
       'sha',
       'outcome',
       'resolved_at',
+      // KODO-69: la clave 18, AL FINAL. La posición importa tanto como la presencia — el
+      // orden fijo es lo que hace comparable byte a byte la salida de `--json`.
+      'oracle',
     ]);
     assert.equal(entry.status, 'pending');
     assert.equal(entry.created_at, '2026-08-20T10:00:00.000Z');
     assert.equal(entry.action, null);
     assert.equal(entry.sha, null);
     assert.equal(entry.resolved_at, null);
+    // `null` y no un objeto vacío: al encolar NADIE ha verificado nada todavía, y `null` es el
+    // único valor que dice exactamente eso.
+    assert.equal(entry.oracle, null);
   });
 
   it('la clave es ADITIVA: un state.json sin `integration_queue` se lee como cola vacía', () => {
@@ -279,5 +288,90 @@ describe('cola de integración — store sobre state.json', () => {
     assert.equal(calls.info.length, 1);
     assert.equal(calls.info[0].event, 'integration.queue.enqueued');
     assert.deepEqual(Object.keys(calls.info[0].meta).sort(), ['branch', 'deduped', 'suggested', 'task_ref']);
+  });
+
+  // ── KODO-69: el bloque `oracle` ────────────────────────────────────────────────────
+  describe('attachOracle — el veredicto del oráculo mecánico', () => {
+    /** Bloque mínimo con la forma real. */
+    const verdict = (v = 'pass', commit = 'c'.repeat(40)) => ({
+      state: /** @type {'done'} */ ('done'),
+      verdict: /** @type {any} */ (v),
+      commit,
+      checks: {},
+      started_at: '2026-09-02T10:00:00.000Z',
+      finished_at: '2026-09-02T10:01:00.000Z',
+    });
+
+    it('adjunta el bloque a la entrada pendiente, por task_ref o por rama', () => {
+      enqueueIntegration(input());
+      assert.equal(attachOracle('KODO-26', /** @type {any} */ (verdict())).ok, true);
+      assert.equal(readRawState().integration_queue[0].oracle.verdict, 'pass');
+
+      assert.equal(attachOracle('worktree-abc', /** @type {any} */ (verdict('fail'))).ok, true);
+      assert.equal(readRawState().integration_queue[0].oracle.verdict, 'fail');
+    });
+
+    it('REEMPLAZA el bloque entero: nunca se observa un oráculo a medias', () => {
+      enqueueIntegration(input());
+      attachOracle('KODO-26', /** @type {any} */ ({ ...verdict(), state: 'running' }));
+      attachOracle('KODO-26', /** @type {any} */ (verdict('fail')));
+      const o = readRawState().integration_queue[0].oracle;
+      assert.equal(o.state, 'done');
+      assert.equal(o.verdict, 'fail');
+    });
+
+    it('`null` lo limpia — «nadie ha verificado esto» es un estado legítimo', () => {
+      enqueueIntegration(input());
+      attachOracle('KODO-26', /** @type {any} */ (verdict()));
+      attachOracle('KODO-26', null);
+      assert.equal(readRawState().integration_queue[0].oracle, null);
+    });
+
+    it('NO toca `updated_at`: mide la edad de la NECESIDAD, no la de la verificación', () => {
+      enqueueIntegration(input(), undefined, { now: () => new Date('2026-08-20T10:00:00.000Z') });
+      attachOracle('KODO-26', /** @type {any} */ (verdict()));
+      const e = readRawState().integration_queue[0];
+      assert.equal(e.updated_at, '2026-08-20T10:00:00.000Z');
+      assert.equal(e.created_at, '2026-08-20T10:00:00.000Z');
+    });
+
+    it('una entrada YA RESUELTA no acepta veredicto: la traza no se reescribe', () => {
+      enqueueIntegration(input());
+      resolveIntegration('KODO-26', { action: 'merge', outcome: 'merged', sha: 'abc' });
+      const r = attachOracle('KODO-26', /** @type {any} */ (verdict()));
+      assert.equal(r.ok, false);
+      assert.equal(/** @type {any} */ (r).reason, 'not-found');
+      assert.equal(readRawState().integration_queue[0].oracle, null);
+    });
+
+    it('una ref desconocida devuelve not-found sin tocar nada', () => {
+      enqueueIntegration(input());
+      assert.equal(attachOracle('NO-EXISTE', /** @type {any} */ (verdict())).reason, 'not-found');
+    });
+
+    it('un RE-ENCOLADO de la misma rama LIMPIA el veredicto anterior (la rama se movió)', () => {
+      enqueueIntegration(input());
+      attachOracle('KODO-26', /** @type {any} */ (verdict()));
+      assert.equal(readRawState().integration_queue[0].oracle.verdict, 'pass');
+
+      // Segunda sesión cerrando sobre la MISMA rama: dedupe por (project_path, branch).
+      enqueueIntegration(input({ commits_ahead: 5 }));
+      const q = readRawState().integration_queue;
+      assert.equal(q.length, 1, 'sigue siendo una sola entrada');
+      assert.equal(q[0].commits_ahead, 5);
+      assert.equal(q[0].oracle, null, 'el veredicto viejo no puede pintar de verde código nuevo');
+    });
+
+    it('la telemetría lleva solo ref, estado y veredicto — nada de contenido de negocio', () => {
+      enqueueIntegration(input());
+      const calls = [];
+      const logger = {
+        debug() {}, info: (event, meta) => calls.push({ event, meta }), warn() {}, error() {},
+        child() { return this; },
+      };
+      attachOracle('KODO-26', /** @type {any} */ (verdict()), /** @type {any} */ (logger));
+      assert.equal(calls[0].event, 'integration.oracle.attached');
+      assert.deepEqual(Object.keys(calls[0].meta).sort(), ['ref', 'state', 'verdict']);
+    });
   });
 });

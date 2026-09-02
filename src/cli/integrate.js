@@ -22,6 +22,9 @@
 //   - NUNCA borra la rama tras integrar. Eso es del carril de cleanup (KODO-21), que ya sabe
 //     verificar; borrarla aquí sería una segunda fuente de verdad sobre lo mismo.
 //   - NUNCA borra la entrada de la cola. La resuelve (`done`/`dropped`) y la deja como traza.
+//   - NUNCA corre el oráculo (KODO-69). Lo LEE de la entrada: el listado sigue siendo cero-git
+//     y cero-ejecución, y `--require-oracle` solo añade un `rev-parse` para comprobar que el
+//     veredicto sigue anclado a la punta de la rama. Quien ejecuta es `kodo oracle run`.
 //
 // Exit codes:
 //   0  la acción se ejecutó (o el listado se pintó)
@@ -29,6 +32,7 @@
 //   2  uso incorrecto: ninguna acción o más de una, o la ref no está pendiente en la cola
 
 import { findPendingIntegration, listIntegrationQueue, resolveIntegration } from '../integration/queue.js';
+import { isOracleStale } from '../integration/oracle.js';
 import { integrateAction } from '../logger-events.js';
 import { createFormatter } from './format.js';
 import { stripControlChars } from './sanitize.js';
@@ -68,6 +72,24 @@ export function formatAge(iso, now) {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+/**
+ * Celda del oráculo en el listado. PURA — no colorea (la tabla de este comando es monocroma en
+ * sus datos; el color queda para `ok`/`fail` de las acciones).
+ *
+ * Los cuatro valores son deliberadamente distinguibles a simple vista, y ninguno de ellos miente
+ * por omisión: `—` significa que NADIE ha verificado esta rama, y no se parece a un `pass`.
+ *
+ * @param {import('../integration/oracle.js').OracleResult|null|undefined} oracle
+ * @returns {'—'|'…'|'pass'|'fail'|'?'}
+ */
+export function oracleCell(oracle) {
+  if (!oracle || typeof oracle !== 'object') return '—';
+  if (oracle.state === 'running') return '…';
+  if (oracle.verdict === 'pass') return 'pass';
+  if (oracle.verdict === 'fail') return 'fail';
+  return '?';
 }
 
 /**
@@ -127,11 +149,16 @@ export function runIntegrateListCli(opts, deps = {}) {
       e.commits_ahead === null ? '?' : String(e.commits_ahead),
       e.base_ok === true ? 'sí' : e.base_ok === false ? 'NO' : '?',
       e.suggested,
+      // KODO-69: el veredicto del oráculo, JUNTO a `suggested` y nunca en su lugar. Son dos
+      // lecturas distintas de la misma rama —una heurística sobre lo que TOCA, un hecho sobre
+      // lo que PASA— y el operador necesita las dos a la vez para decidir. `—` es «no ha
+      // corrido», que es distinto de `unknown` («corrió y no pudo saberlo»).
+      oracleCell(e.oracle),
       formatAge(e.created_at, now),
       e.status === 'pending' ? '' : `${e.status}${e.action ? `/${e.action}` : ''}`,
     ]);
     write(
-      fmt.formatTable(rows, { header: ['ref', 'rama', 'commits', 'base', 'sugerido', 'edad', 'estado'] }) + '\n',
+      fmt.formatTable(rows, { header: ['ref', 'rama', 'commits', 'base', 'sugerido', 'oráculo', 'edad', 'estado'] }) + '\n',
     );
     return 0;
   } catch (e) {
@@ -145,7 +172,7 @@ export function runIntegrateListCli(opts, deps = {}) {
  * Ejecuta UNA acción sobre UNA entrada pendiente de la cola.
  *
  * @param {string} ref task_ref (o nombre de rama) de la entrada.
- * @param {{ ff?: boolean, merge?: boolean, pr?: boolean, drop?: boolean, json?: boolean, test?: string }} opts
+ * @param {{ ff?: boolean, merge?: boolean, pr?: boolean, drop?: boolean, json?: boolean, test?: string, requireOracle?: boolean }} opts
  * @param {IntegrateDeps} [deps]
  * @returns {Promise<number>} exit code (0 ok · 1 fallo de ejecución · 2 uso incorrecto).
  */
@@ -224,6 +251,32 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
   }
 
   const project = entry.project_path;
+
+  // ── Gate OPCIONAL del oráculo (KODO-69, `--require-oracle`). ─────────────────────────
+  //
+  // NUNCA BLOQUEANTE POR DEFECTO, y esa no es una concesión: un gate que molesta con flakies
+  // acaba apagado, y un gate apagado es peor que ninguno porque además da la falsa sensación de
+  // que algo vigila. Sin la flag, el veredicto se PRESENTA (columna del listado, `kodo oracle`)
+  // y el operador decide con él delante.
+  //
+  // Con la flag, el criterio es estricto en las tres direcciones que importan:
+  //   - `fail`    → no se integra. Obvio.
+  //   - `unknown` → TAMPOCO. Es la regla del enunciado: no verificado ≠ verde. Incluye el
+  //                 oráculo que no ha corrido (`null`), el que está corriendo, y el que corrió
+  //                 sin poder determinar nada.
+  //   - DESFASADO → tampoco, aunque diga `pass`: un veredicto sobre un commit que ya no es la
+  //                 punta de la rama no dice nada sobre lo que se va a mergear. Es el mismo
+  //                 razonamiento que invalida una `review/approval.md` caducada.
+  //
+  // NO se aplica a `--drop`, que es la única acción que NO hace avanzar la rama (descarta la
+  // entrada y deja la rama intacta). Gatear la salida de emergencia dejaría al operador sin
+  // forma de sacar de la cola una rama que el oráculo no sabe verificar.
+  if (opts.requireOracle === true) {
+    const gate = await evaluateOracleGate(entry, project, git);
+    if (!gate.ok) {
+      return finish({ ok: false, outcome: gate.outcome, message: gate.message });
+    }
+  }
 
   // ── Precondición común: el repo destino tiene que estar limpio. ──────────────────────
   // Un merge sobre un worktree sucio mezcla el trabajo del operador con el de la rama y deja un
@@ -313,6 +366,77 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
     sha,
     message: `${entry.task_ref}: ${entry.branch} → ${entry.base_branch} (${action === 'ff' ? 'fast-forward' : 'merge'}${sha ? ` ${sha.slice(0, 8)}` : ''})`,
   });
+}
+
+/**
+ * Evalúa el gate del oráculo sobre UNA entrada. Never-throws.
+ *
+ * Hace UNA llamada a git (`rev-parse` de la rama) y solo cuando la flag está puesta: el listado
+ * sigue siendo cero-git, y una acción SIN `--require-oracle` no paga nada. Si esa llamada falla,
+ * el veredicto no se puede anclar a nada y el gate cierra — fail-CLOSED, al revés que el resto
+ * del carril del oráculo, porque aquí el operador ha pedido explícitamente que se le impida
+ * integrar sin verificación.
+ *
+ * @param {import('../integration/queue.js').IntegrationEntry} entry
+ * @param {string} project
+ * @param {(cwd: string, args: string[]) => Promise<string>|string} git
+ * @returns {Promise<{ ok: true } | { ok: false, outcome: string, message: string }>}
+ */
+async function evaluateOracleGate(entry, project, git) {
+  const oracle = entry.oracle;
+  if (!oracle || typeof oracle !== 'object') {
+    return {
+      ok: false,
+      outcome: 'oracle-missing',
+      message: `--require-oracle: el oráculo no ha corrido sobre ${entry.branch} — \`kodo oracle run ${entry.task_ref}\``,
+    };
+  }
+  if (oracle.state === 'running') {
+    return {
+      ok: false,
+      outcome: 'oracle-running',
+      message: `--require-oracle: el oráculo sigue corriendo sobre ${entry.branch} — espera y repite`,
+    };
+  }
+  if (oracle.verdict === 'fail') {
+    const failed = Object.entries(oracle.checks || {})
+      .filter(([, c]) => c && c.status === 'fail')
+      .map(([k]) => k);
+    return {
+      ok: false,
+      outcome: 'oracle-failed',
+      message: `--require-oracle: el oráculo dice fail${failed.length ? ` (${failed.join(', ')})` : ''} — \`kodo oracle ${entry.task_ref}\` para el detalle`,
+    };
+  }
+  if (oracle.verdict !== 'pass') {
+    return {
+      ok: false,
+      outcome: 'oracle-unknown',
+      message: `--require-oracle: el oráculo no pudo verificar ${entry.branch} (unknown) — no verificado no es verde`,
+    };
+  }
+
+  let head = null;
+  try {
+    head = String(await git(project, ['rev-parse', '--verify', '--quiet', `${entry.branch}^{commit}`])).trim() || null;
+  } catch {
+    head = null;
+  }
+  if (!head) {
+    return {
+      ok: false,
+      outcome: 'oracle-unanchored',
+      message: `--require-oracle: no se pudo leer la punta de ${entry.branch}, así que el veredicto no se puede anclar`,
+    };
+  }
+  if (isOracleStale(oracle, head)) {
+    return {
+      ok: false,
+      outcome: 'oracle-stale',
+      message: `--require-oracle: el oráculo verificó ${String(oracle.commit).slice(0, 8)} y la rama va por ${head.slice(0, 8)} — vuelve a correrlo`,
+    };
+  }
+  return { ok: true };
 }
 
 /**

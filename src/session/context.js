@@ -112,6 +112,19 @@ export function buildSessionContext(session, config) {
     // este texto cae dentro del slice que vigila el guard D-02b de HOOK-01.
     '',
     `Además, al empezar escribe un plan corto (qué vas a hacer + pasos previstos) en \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\`. Si el fichero ya existe, NO lo sobrescribas: añade tu plan al final, conservando íntegro lo que ya hubiera.`,
+    // KODO-69: la FUENTE del alcance del oráculo mecánico. Sin este bloque el check `scope`
+    // queda en `skip` para siempre — kodo NO adivina qué debía tocar una tarea, porque un
+    // alcance inventado daría un `fail` que nadie puede defender. El marcador es contrato de
+    // parsing (`src/integration/scope.js`), así que va literal en las dos ramas de idioma.
+    '',
+    'En ese mismo plan, declara el ALCANCE: los ficheros que esperas tocar, como globs, dentro de este bloque exacto. Al cerrar, kodo compara lo declarado con el diff real de tu rama (`kodo oracle`), así que un fichero fuera de alcance se ve. Sin bloque, esa comprobación se salta — no se adivina.',
+    '',
+    '```markdown',
+    '<!-- kodo:scope v=1 -->',
+    '- src/integration/**',
+    '- test/oracle-*.test.js',
+    '<!-- /kodo:scope -->',
+    '```',
     '',
     'Y al cerrar la sesión, añade al final de ese mismo fichero un bloque de handoff, sin borrar los bloques anteriores, con este formato exacto:',
     '',
