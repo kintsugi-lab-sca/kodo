@@ -31,7 +31,7 @@ import App, {
   OVERLAY_COMMENTS_UNSUPPORTED,
 } from '../src/cli/dashboard/App.js';
 // Phase 38 Plan 03: pure-function units del render multi-estado (badges + filtros).
-import { STATE_BADGES, stateBadge, countsLabel } from '../src/cli/dashboard/format.js';
+import { STATE_BADGES, stateBadge, countsLabel, rowCells } from '../src/cli/dashboard/format.js';
 import { parseFilter, applyFilter } from '../src/cli/dashboard/select.js';
 // Phase 75 Plan 01 (LIVE-05): render directo de SessionTable para la columna condicional `next`.
 import SessionTable from '../src/cli/dashboard/SessionTable.js';
@@ -167,15 +167,26 @@ describe('TUI-07/09/10/11: tabla viva — columnas, orden DESC, zombie, contador
     // (running/idle/…) ya no aparecen en la columna `status` — son del eje `state`. El zombie
     // (running+!alive) sigue contado en el header (ver test de contadores), pero la celda
     // status queda en blanco en vez de contradecir al eje de lifecycle.
+    //
+    // KODO-77: la aserción medía el FRAME entero con `doesNotMatch(/running \(zombie\)/)`, y desde
+    // Phase 44 D-09 ese literal aparece LEGÍTIMAMENTE en la columna `state` (la marca per-fila del
+    // zombie). El test seguía verde solo porque a 100 celdas —el ancho del stdout de
+    // ink-testing-library— Yoga encogía la celda `state` y partía el literal: era el propio defecto
+    // de layout el que sostenía el verde. Con los anchos ya no negociables el literal aparece
+    // entero, así que la aserción pasa a medir la CELDA (`rowCells(...).status`, la unidad que el
+    // título nombra) y el frame solo confirma que el badge de state sí lo pinta.
     const clock = makeFakeClock();
     const fetchFn = async () => okResponse(FIXTURE);
 
+    const zombie = FIXTURE.sessions[1];
+    assert.equal(rowCells(zombie).status, '', 'la celda status del zombie debe quedar en blanco (outcome, no lifecycle)');
+
     const { lastFrame } = renderInk(createElement(App, injectProps(clock, fetchFn)));
 
-    // La aserción es NEGATIVA: primero hay que esperar a que la tabla esté pintada, o el frame
-    // sin datos la pasaría trivialmente.
-    const frame = await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de afirmar la ausencia');
-    assert.doesNotMatch(frame, /running \(zombie\)/, `la columna status ya no muestra lifecycle\n${frame}`);
+    // La aserción es POSITIVA sobre el eje correcto: primero hay que esperar a que la tabla esté
+    // pintada, o un frame sin datos la pasaría trivialmente.
+    const frame = await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de afirmar sobre las celdas');
+    assert.match(frame, /▶ running \(zombie\)/, `el lifecycle del zombie se pinta en la columna state\n${frame}`);
   });
 
   it('contadores del header (TUI-11/D-11): zombie contado aparte de running + indicador ● live', async () => {

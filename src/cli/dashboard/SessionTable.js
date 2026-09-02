@@ -98,10 +98,101 @@ import { getProjectPath, getModuleMap } from '../../projects-shape.js';
 // acotado con el cap de 200 chars que ya trae state.json — Pitfall 6, red anti-DoS de celda).
 const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7, next: 40 };
 
+// KODO-77: ancho MÍNIMO utilizable de la columna elástica `next`. Por debajo de esto la celda no
+// informa (dos palabras y un `…`), así que la columna se OMITE entera en vez de rendirse a un
+// muñón: el ancho recuperado va a que las columnas fijas quepan sin recortarse.
+const NEXT_MIN = 12;
+
+// KODO-77: orden en que las columnas se CAEN cuando la terminal no da para todas, de menos a más
+// valor operativo. `next` primero porque es la más ancha y la más redundante (el detalle está a
+// una tecla, en el overlay de plan); `age` / `status` / `task_ref` / `state` / el gutter no están
+// en la lista: son la identidad y el estado de la fila, sin ellos la tabla no dice nada.
+const DROP_ORDER = ['next', 'prog', 'phasemode', 'repo', 'task'];
+
+/**
+ * KODO-77: presupuesto de ancho de la fila. La tabla pedía 143 celdas con las tres columnas
+ * condicionales encendidas (2+18+10+18+11+18+7+12+7+40); en una terminal más estrecha Yoga
+ * ENCOGÍA cada `<Box width>` (flexShrink por defecto = 1) hasta pegar las columnas entre sí
+ * (`KODO-71kodo`, `in_progress18h50m`) y el `<Text>` sobrante WRAPEABA a una segunda línea — la
+ * "fila fantasma" con solo el rabo de las últimas columnas (`0m`). Peor aún, el redondeo de Yoga
+ * dejaba filas UNA celda más anchas que la terminal: el emulador las wrapeaba por su cuenta, ink
+ * borraba menos líneas de las que había escrito y el sobrante se acumulaba en pantalla poll tras
+ * poll (solo un reinicio lo limpiaba).
+ *
+ * El fix es no negociar los anchos (flexShrink 0, ver `cell`) y repartir el espacio REAL:
+ *   1. se sueltan columnas enteras por `DROP_ORDER` hasta que las restantes quepan;
+ *   2. `next`, la única elástica, se queda con lo que sobre (y se cae si no llega a NEXT_MIN);
+ *   3. si ni las irrenunciables caben (terminal por debajo de ~61 celdas), el déficit residual se
+ *      descuenta de derecha a izquierda para que la fila NUNCA supere el ancho de la terminal.
+ *
+ * `tableWidth == null` (SessionTable montado suelto, p. ej. los tests) ⇒ sin presupuesto: anchos
+ * nominales y ninguna columna caída (comportamiento previo, byte a byte).
+ *
+ * @param {number|undefined|null} tableWidth - celdas disponibles para la tabla (App las deriva del
+ *   ancho de terminal menos el chrome del marco).
+ * @param {boolean} anyGsd
+ * @param {boolean} anyProgress
+ * @param {boolean} anyNext
+ * @returns {{ widths: Record<string, number>, visible: Set<string> }}
+ */
+export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext) {
+  // Orden IZQUIERDA→DERECHA de la fila renderizada: es también el orden de recorte del paso 3.
+  const order = [
+    'gutter',
+    'state',
+    'task_ref',
+    'repo',
+    ...(anyGsd ? ['phasemode'] : []),
+    'status',
+    ...(anyProgress ? ['prog'] : []),
+    'task',
+    'age',
+    ...(anyNext ? ['next'] : []),
+  ];
+  const widths = Object.fromEntries(order.map((key) => [key, COLS[key]]));
+  const visible = new Set(order);
+  if (tableWidth == null) return { widths, visible };
+
+  const total = () => [...visible].reduce((sum, key) => sum + widths[key], 0);
+  // Lo que la fila NECESITA de verdad: las columnas de ancho fijo, más el mínimo utilizable de
+  // `next` si sigue en pie. Medir `next` por su nominal (40) haría que se cayera la primera en
+  // cuanto la terminal bajara de 143, cuando lo correcto es que ENCOJA hasta NEXT_MIN.
+  const fixedTotal = () => [...visible].reduce((sum, key) => (key === 'next' ? sum : sum + widths[key]), 0);
+  const need = () => fixedTotal() + (visible.has('next') ? NEXT_MIN : 0);
+
+  // (1) Suelta columnas enteras hasta que quepan. Cortar una columna limpia es más legible que
+  // repartir el déficit entre todas (que es justo lo que hacía Yoga y lo que rompía la tabla).
+  for (const key of DROP_ORDER) {
+    if (need() <= tableWidth) break;
+    visible.delete(key);
+  }
+
+  // (2) `next` absorbe todo el sobrante que quede tras las fijas (acotada a su nominal).
+  if (visible.has('next')) widths.next = Math.min(COLS.next, tableWidth - fixedTotal());
+
+  // (3) Déficit residual (terminal más estrecha que las columnas irrenunciables): se descuenta de
+  // derecha a izquierda. Una columna puede quedarse a 0 — pero la fila no desborda, que es la
+  // invariante que evita las filas fantasma.
+  let deficit = total() - tableWidth;
+  for (const key of [...visible].reverse()) {
+    if (deficit <= 0) break;
+    const cut = Math.min(deficit, widths[key]);
+    widths[key] -= cut;
+    deficit -= cut;
+  }
+
+  return { widths, visible };
+}
+
 /**
  * Una celda de ancho fijo. El color/dim aplica solo donde se pasa (la celda `status`); el resto
  * va sin atributo salvo `bold` para la fila seleccionada. `wrap='truncate-end'` produce el
  * ellipsis nativo `…` de ink cuando el valor desborda el ancho.
+ *
+ * KODO-77: `flexShrink: 0` es load-bearing, no cosmético. Sin él Yoga reparte el déficit de una
+ * fila que no cabe encogiendo TODAS las celdas, que es lo que colapsaba las columnas y forzaba el
+ * wrap a una segunda línea. Con shrink 0 el ancho declarado se respeta y el desbordamiento se
+ * resuelve donde corresponde: recortando por la derecha (`overflow:'hidden'` del contenedor).
  *
  * @param {object} opts
  * @param {number} opts.width
@@ -115,13 +206,25 @@ const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, stat
 function cell({ width, text, color, dim, bold, truncate }) {
   return h(
     Box,
-    { width },
+    { width, flexShrink: 0 },
     h(
       Text,
       { color, dimColor: dim, bold, wrap: truncate ? 'truncate-end' : undefined },
       text,
     ),
   );
+}
+
+/**
+ * KODO-77: celda de la CABECERA de columnas. Mismo `flexShrink: 0` que `cell` — si la cabecera
+ * encogiera con las filas fijas, el label y su columna dejarían de estar en la misma x.
+ *
+ * @param {number} width
+ * @param {string} label
+ * @returns {import('react').ReactElement}
+ */
+function headerCell(width, label) {
+  return h(Box, { width, flexShrink: 0 }, h(Text, { dimColor: true }, label));
 }
 
 // countsLabel (D-11) se movió a format.js (Phase 38) — presentación pura,
@@ -844,6 +947,9 @@ export default function SessionTable({
   anyGsd = true,
   anyProgress = false,
   anyNext = false,
+  // KODO-77: celdas disponibles para la tabla (ancho de terminal menos el chrome del marco de App).
+  // `null`/ausente ⇒ sin presupuesto: anchos nominales y cero recorte (montaje suelto en tests).
+  tableWidth = null,
   inboxOpen = 0,
   queuePending = 0,
   mode = 'list',
@@ -918,6 +1024,11 @@ export default function SessionTable({
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt, unauthorized, unauthorizedMessage });
   const label = countsLabel(counts);
+
+  // KODO-77: presupuesto de ancho. Se calcula ANTES del header porque tanto la cabecera de columnas
+  // como las filas de datos consumen `showNext`/`nextWidth`, y ambas deben usar el MISMO valor (si
+  // divergieran, el label `next` quedaría sobre otra columna).
+  const { widths, visible } = budgetColumns(tableWidth, anyGsd, anyProgress, anyNext);
 
   // Header: indicador live (D-10) + contadores (D-11, omitidos si todos en cero / lista vacía)
   // + conteo de capturas pendientes de enrutar (Phase 84 CAPT-07 D-22/D-23, omitido en 0).
@@ -1035,27 +1146,29 @@ export default function SessionTable({
   }
 
   // (3) Cabecera de columnas (dimColor) con los anchos fijos.
+  // KODO-77: `visible`/`widths` salen del presupuesto de ancho. Una columna condicional se emite si
+  // su flag estructural la encendió Y el presupuesto la dejó entrar; el ancho es el presupuestado,
+  // no el nominal (solo `next` difiere: es la elástica). Cuando se omite un elemento no se renderiza
+  // un Box vacío → ink recupera sus celdas vía flex desplazando los hermanos a la izquierda.
   const columnHeader = h(
     Box,
     { flexDirection: 'row' },
-    h(Box, { width: COLS.gutter }, h(Text, { dimColor: true }, '  ')),
-    h(Box, { width: COLS.state }, h(Text, { dimColor: true }, 'state')),
-    h(Box, { width: COLS.task_ref }, h(Text, { dimColor: true }, 'task_ref')),
-    h(Box, { width: COLS.repo }, h(Text, { dimColor: true }, 'repo')),
+    headerCell(widths.gutter, '  '),
+    headerCell(widths.state, 'state'),
+    headerCell(widths.task_ref, 'task_ref'),
+    ...(visible.has('repo') ? [headerCell(widths.repo, 'repo')] : []),
     // Phase 44 D-08 (TUI-18): la cabecera `phase/mode` solo se emite si ALGUNA sesión es GSD.
-    // Cuando `anyGsd === false` se omite el elemento (no se renderiza un Box vacío) → ink recupera
-    // sus 11 celdas vía flex desplazando los hermanos a la izquierda (sin aritmética de anchos).
-    ...(anyGsd ? [h(Box, { width: COLS.phasemode }, h(Text, { dimColor: true }, 'phase/mode'))] : []),
-    h(Box, { width: COLS.status }, h(Text, { dimColor: true }, 'status')),
+    ...(visible.has('phasemode') ? [headerCell(widths.phasemode, 'phase/mode')] : []),
+    headerCell(widths.status, 'status'),
     // Phase 50 D-06 (PROG-03): cabecera `prog` condicional ENTRE `status` y `task`. Solo se emite si
-    // ALGUNA sesión reporta progreso (anyProgress); si no, se omite y ink recupera el ancho vía flex.
-    ...(anyProgress ? [h(Box, { width: COLS.prog }, h(Text, { dimColor: true }, 'prog'))] : []),
+    // ALGUNA sesión reporta progreso (anyProgress).
+    ...(visible.has('prog') ? [headerCell(widths.prog, 'prog')] : []),
     // Phase 43 D-03: cabecera de la columna provider entre `status` y `age`, label literal `task`.
-    h(Box, { width: COLS.task }, h(Text, { dimColor: true }, 'task')),
-    h(Box, { width: COLS.age }, h(Text, { dimColor: true }, 'age')),
+    ...(visible.has('task') ? [headerCell(widths.task, 'task')] : []),
+    headerCell(widths.age, 'age'),
     // Phase 75 D-03 (LIVE-05): cabecera `next` condicional al FINAL, tras `age`. Solo se emite si
-    // ALGUNA sesión tiene un NEXT: (anyNext); si no, se omite y ink recupera el ancho vía flex.
-    ...(anyNext ? [h(Box, { width: COLS.next }, h(Text, { dimColor: true }, 'next'))] : []),
+    // ALGUNA sesión tiene un NEXT: (anyNext).
+    ...(visible.has('next') ? [headerCell(widths.next, 'next')] : []),
   );
 
   // (4) Filas de datos. React key = task_id (NUNCA índice — Pitfall 7).
@@ -1069,7 +1182,7 @@ export default function SessionTable({
       // Gutter: `› ` cuando seleccionada (también en bold), 2 espacios si no. El glifo `›` es la
       // pista posicional inequívoca (sobrevive NO_COLOR sin bold); el bold sobre el row añade peso
       // sin crear bloques inversos (patrón fzf/vim — decisión UAT-pulido post-Phase 36).
-      h(Box, { width: COLS.gutter }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
+      h(Box, { width: widths.gutter, flexShrink: 0 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
       // Phase 38 D-06: badge del estado v3 entre gutter y task_ref. Fallback a
       // session.status (legacy v2 sin migrar). Si no hay badge (closed/review/
       // vacío) la celda queda vacía sin romper el render. Color SOLO del badge
@@ -1089,39 +1202,47 @@ export default function SessionTable({
           text = text ? `${text} (zombie)` : '(zombie)';
           color = sc.color;
         }
-        return cell({ width: COLS.state, text, color, bold: selected, truncate: false });
+        // KODO-77: truncate pasa a `true`. Con flexShrink 0 la celda ya no encoge, así que el badge
+        // más ancho (`▶ running (zombie)`, 18) sigue cabiendo entero; el truncado solo entra si un
+        // estado futuro desborda los 18, y ahí un `…` es infinitamente mejor que un wrap a otra línea.
+        return cell({ width: widths.state, text, color, bold: selected, truncate: true });
       })(),
-      cell({ width: COLS.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
-      cell({ width: COLS.repo, text: cells.repo, bold: selected, truncate: true }),
+      cell({ width: widths.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
+      ...(visible.has('repo')
+        ? [cell({ width: widths.repo, text: cells.repo, bold: selected, truncate: true })]
+        : []),
       // phase/mode: 'No GSD' (placeholder de sesión no-GSD) va atenuado para no competir
       // con valores reales tipo '42/full'. Phase 44 D-08 (TUI-18): la celda solo se emite si
       // ALGUNA sesión es GSD (anyGsd); si no, se omite y ink recupera el ancho vía flex.
-      ...(anyGsd
-        ? [cell({ width: COLS.phasemode, text: cells.phasemode, dim: cells.phasemode === NO_GSD_LABEL, bold: selected, truncate: true })]
+      ...(visible.has('phasemode')
+        ? [cell({ width: widths.phasemode, text: cells.phasemode, dim: cells.phasemode === NO_GSD_LABEL, bold: selected, truncate: true })]
         : []),
       // status: OUTCOME auto-reportado (outcomeCell → error/done/review; blanco en lifecycle).
-      // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. NO
-      // truncar: los valores son cortos (≤6 chars) y caben de sobra en COLS.status.
-      cell({ width: COLS.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: false }),
+      // Color semántico (D-08, statusColor sobre session.status) + bold si seleccionada. Los valores
+      // son cortos (≤6 chars) y caben de sobra; KODO-77 pone truncate por la misma razón que en
+      // `state`: ninguna celda debe poder wrapear a una segunda línea.
+      cell({ width: widths.status, text: cells.status, color: sc.color, dim: sc.dim, bold: selected, truncate: true }),
       // Phase 50 D-06/D-07 (PROG-03): celda `prog` condicional ENTRE status y task. Valor en texto
       // plano SIN color propio (color-isolation D-12; el `dim` de cells.prog marca los degradados
       // '—'/'?' vía dimColor de ink). truncate:true → ellipsis nativo `…` = anti-DoS (T-50-cell-dos:
       // un n/m absurdo se trunca a la columna, no desborda la tabla). Se omite si !anyProgress.
-      ...(anyProgress
-        ? [cell({ width: COLS.prog, text: cells.prog.text, dim: cells.prog.dim, bold: selected, truncate: true })]
+      ...(visible.has('prog')
+        ? [cell({ width: widths.prog, text: cells.prog.text, dim: cells.prog.dim, bold: selected, truncate: true })]
         : []),
       // Phase 43 D-04/D-05/D-08: columna provider entre status y age. El valor ok va en texto plano
       // SIN color propio (D-05: cero segunda paleta — el red queda reservado al zombie del eje local);
       // el `dim` de cells.task marca los degradados '—'/'?' vía dimColor de ink. truncate:true →
       // ellipsis nativo `…` si el provider_state desborda los 12 chars (D-08 red de seguridad).
-      cell({ width: COLS.task, text: cells.task.text, dim: cells.task.dim, bold: selected, truncate: true }),
-      cell({ width: COLS.age, text: cells.age, bold: selected, truncate: false }),
+      ...(visible.has('task')
+        ? [cell({ width: widths.task, text: cells.task.text, dim: cells.task.dim, bold: selected, truncate: true })]
+        : []),
+      cell({ width: widths.age, text: cells.age, bold: selected, truncate: true }),
       // Phase 75 D-04 (LIVE-05): celda `next` condicional al FINAL. Texto plano SIN color propio
       // (color-isolation D-12; el NEXT: ya viene saneado por stripControlChars en el enrich de
       // App.js). truncate:true → ellipsis nativo `…` (doble acotado con el cap de 200 de state.json,
       // Pitfall 6). Se omite si !anyNext → ink recupera el ancho vía flex.
-      ...(anyNext
-        ? [cell({ width: COLS.next, text: cells.next, bold: selected, truncate: true })]
+      ...(visible.has('next')
+        ? [cell({ width: widths.next, text: cells.next, bold: selected, truncate: true })]
         : []),
     );
   });
