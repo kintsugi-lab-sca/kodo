@@ -68,3 +68,40 @@ describe('KODO-12 — buildOrchestratorCommand', () => {
     assert.ok(cmd.endsWith("'no '\\''toques'\\'' $(whoami)'"), `escape de comillas simples\n${cmd}`);
   });
 });
+
+// KODO-82 — el ORCH debe correr en Fable 5.1 en TODOS los carriles. En Claude Code lo
+// consigue el alias `fable` (VERIFICADO contra el binario v2.1.258: `claude -p --model
+// fable --output-format json` devuelve `modelUsage.canonicalModel = claude-fable-5-1`).
+// En OpenCode no hay alias: el id exacto lo pone `model_map`, y el orquestador tiene que
+// aplicarlo igual que el carril de trabajo.
+describe('KODO-82 — el ORCH resuelve a Fable 5.1 en ambos carriles', () => {
+  it('el mapa de opencode apunta a Fable 5.1, no a 5.0', () => {
+    assert.equal(
+      DEFAULT_CONFIG.agents.registry.opencode.model_map.fable,
+      'opencode/claude-fable-5-1',
+    );
+  });
+
+  it('buildOrchestratorCommand traduce el modelo por el model_map del agente', () => {
+    const config = /** @type {any} */ ({
+      claude: { orchestrator_model: 'fable', flags: [] },
+      agents: { default: 'opencode', registry: DEFAULT_CONFIG.agents.registry },
+    });
+    const cmd = buildOrchestratorCommand(config, 'sess-oc', 'hola');
+    assert.match(cmd, /--model opencode\/claude-fable-5-1/);
+    assert.doesNotMatch(cmd, /--model fable/, 'el alias suelto no lo entiende OpenCode');
+  });
+
+  it('claude-code (sin model_map) deja el alias intacto — sin regresión', () => {
+    const cmd = buildOrchestratorCommand(DEFAULT_CONFIG, 'sess-cc', 'hola');
+    assert.ok(
+      cmd.startsWith('KODO_ORCHESTRATOR=1 claude --model fable --session-id sess-cc '),
+      `el comando de claude-code no debe cambiar\n${cmd}`,
+    );
+  });
+
+  it('un config sin `agents` sigue funcionando (fallback a claude-code)', () => {
+    const cmd = buildOrchestratorCommand(makeConfig({ orchestrator_model: 'fable' }), 'sess-6', 'x');
+    assert.match(cmd, /--model fable/);
+  });
+});
