@@ -324,7 +324,10 @@ async function defaultExec(cmd, cwd, timeoutMs) {
   // Matado por señal sin `error`: tampoco es un fallo del comando, es una corrida interrumpida.
   if (r.signal) return { status: 'unknown', detail: `interrumpido por ${r.signal}` };
   if (r.status === 0) return { status: 'pass', detail: '' };
-  return { status: 'fail', detail: `exit ${r.status}: ${lastLine(r.stderr) || lastLine(r.stdout)}` };
+  // Un comando puede fallar SIN escribir nada (`exit 3` a secas). Sin este guard el detalle
+  // quedaba en `exit 3:` — dos puntos colgando prometiendo una explicación que no existe.
+  const tail = lastLine(r.stderr) || lastLine(r.stdout);
+  return { status: 'fail', detail: tail ? `exit ${r.status}: ${tail}` : `exit ${r.status}` };
 }
 
 /**
