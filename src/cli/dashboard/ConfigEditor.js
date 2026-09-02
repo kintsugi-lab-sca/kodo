@@ -109,8 +109,7 @@ export function handleConfigInput(input, key, ctx) {
     // fields.length) entra a config-edit ENMASCARADO con el buffer VACÍO — jamás se precarga el
     // secreto (ni se lee ni se pinta el valor actual). maskValue=true activa la pintura `•`.
     if (ctx.fieldCursor === fields.length) {
-      ctx.setBuffer(''); // NUNCA precargar el secreto (Pitfall 6/11)
-      ctx.setCursor(0);
+      ctx.resetTextInput(); // NUNCA precargar el secreto (Pitfall 6/11)
       ctx.setMaskValue(true);
       ctx.setConfigEditError(null);
       ctx.setMode('config-edit');
@@ -122,8 +121,7 @@ export function handleConfigInput(input, key, ctx) {
     const field = fields[ctx.fieldCursor];
     if (!field) return;
     const current = String(getByPath(ctx.configSnapshot, field.path) ?? '');
-    ctx.setBuffer(current);
-    ctx.setCursor(current.length);
+    ctx.loadTextInput(current);
     ctx.setMaskValue(false);
     ctx.setConfigEditError(null);
     ctx.setMode('config-edit');
@@ -153,25 +151,22 @@ export async function handleConfigEditInput(input, key, ctx) {
     // Phase 67 Plan 02 (Pitfall 6): al cancelar la edición de la API key, limpia el buffer y el
     // flag de máscara — el secreto tecleado no debe quedar en memoria ni reaparecer en scrollback.
     if (isApiKeyRow) {
-      ctx.setBuffer('');
+      ctx.resetTextInput();
       ctx.setMaskValue(false);
     }
     ctx.setMode('config'); // cancela sin guardar (D-05)
     return;
   }
   if (key.leftArrow) {
-    ctx.setCursor((/** @type {number} */ c) => Math.max(0, c - 1));
+    ctx.moveCursor(-1);
     return;
   }
   if (key.rightArrow) {
-    ctx.setCursor((/** @type {number} */ c) => Math.min(ctx.buffer.length, c + 1));
+    ctx.moveCursor(1);
     return;
   }
   if (key.backspace || key.delete) {
-    if (ctx.cursor > 0) {
-      ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor - 1) + b.slice(ctx.cursor));
-      ctx.setCursor((/** @type {number} */ c) => c - 1);
-    }
+    ctx.deleteBeforeCursor();
     return;
   }
   if (key.return) {
@@ -193,7 +188,7 @@ export async function handleConfigEditInput(input, key, ctx) {
           // memoria), aviso de reinicio transitorio (sin hot-reload) y de vuelta a config. El
           // indicador [configurado] se recalcula solo (isApiKeyConfiguredFn lee process.env, que
           // el wrapper actualizó).
-          ctx.setBuffer('');
+          ctx.resetTextInput();
           ctx.setMaskValue(false);
           ctx.setConfigEditError(null);
           ctx.setFocusError(API_KEY_SAVED_RESTART);
@@ -249,8 +244,7 @@ export async function handleConfigEditInput(input, key, ctx) {
   }
   // Char imprimible: inserta en la posición del cursor (NO append ciego — RESEARCH Pattern 1).
   if (input && !key.ctrl && !key.meta) {
-    ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));
-    ctx.setCursor((/** @type {number} */ c) => c + input.length);
+    ctx.insertAtCursor(input);
     return;
   }
   return; // traga el resto (teclas de control no mapeadas)

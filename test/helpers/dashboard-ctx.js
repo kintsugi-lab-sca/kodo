@@ -84,6 +84,42 @@ export function makeCtx(overrides = {}) {
       calls.push([name, next]);
     };
   }
+
+  // ── Primitivas ATÓMICAS del text-input (espejo fiel de las de App.js) ──────────────────────
+  //
+  // Los handlers ya no componen `slice` con `ctx.cursor`: mutan el par (buffer, cursor) por estas
+  // cinco funciones. El fake las implementa con la MISMA semántica —incluido el clamp del cursor
+  // al buffer que lo acompaña— para que un test unitario del handler observe lo que ve el
+  // componente real. Escriben en sitio y registran la llamada, igual que los setters de arriba.
+  /**
+   * @param {string} nextBuffer
+   * @param {number} nextCursor
+   */
+  const setTextInput = (nextBuffer, nextCursor) => {
+    ctx.buffer = nextBuffer;
+    ctx.cursor = Math.max(0, Math.min(nextBuffer.length, nextCursor));
+  };
+  ctx.insertAtCursor = (/** @type {string} */ text) => {
+    setTextInput(ctx.buffer.slice(0, ctx.cursor) + text + ctx.buffer.slice(ctx.cursor), ctx.cursor + text.length);
+    calls.push(['insertAtCursor', text]);
+  };
+  ctx.deleteBeforeCursor = () => {
+    if (ctx.cursor > 0) setTextInput(ctx.buffer.slice(0, ctx.cursor - 1) + ctx.buffer.slice(ctx.cursor), ctx.cursor - 1);
+    calls.push(['deleteBeforeCursor', null]);
+  };
+  ctx.moveCursor = (/** @type {number} */ delta) => {
+    setTextInput(ctx.buffer, ctx.cursor + delta);
+    calls.push(['moveCursor', delta]);
+  };
+  ctx.resetTextInput = () => {
+    setTextInput('', 0);
+    calls.push(['resetTextInput', '']);
+  };
+  ctx.loadTextInput = (/** @type {string} */ text) => {
+    setTextInput(text, text.length);
+    calls.push(['loadTextInput', text]);
+  };
+
   return ctx;
 }
 

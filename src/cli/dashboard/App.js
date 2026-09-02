@@ -419,6 +419,72 @@ export default function App({
   const [cursor, setCursor] = useState(0);
   const [configEditError, setConfigEditError] = useState(/** @type {string | null} */ (null));
 
+  // ── Text-input: mutaciones ATÓMICAS de (buffer, cursor) ────────────────────────────────────
+  //
+  // `buffer` y `cursor` son DOS estados de React, pero toda edición los toca a la vez y el nuevo
+  // buffer DEPENDE del cursor. Escribirlos con dos updaters independientes tiene un fallo real:
+  //
+  //     setBuffer((b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));  // ctx.cursor OBSOLETO
+  //     setCursor((c) => c + input.length);                                      // c fresco
+  //
+  // El updater de `buffer` recibe `b` fresco pero lee `cursor` del CLOSURE del render. Si dos
+  // pulsaciones caen en el mismo batch de React —teclear rápido, un paste, o un runner de CI
+  // lento— la segunda inserta en la posición ANTERIOR y los caracteres salen TRANSPUESTOS:
+  // teclear `sk-secret-123` producía `sks-ecret-123`. Se cazó como flake de
+  // `test/dashboard/app-setup.test.js` en node 24 · macos-latest, pero no era del test: un
+  // operador tecleando deprisa su API key en el wizard obtenía la key barajada.
+  //
+  // Dos estados de React NO se pueden leer de forma atómica desde un updater, así que la fuente
+  // de verdad SÍNCRONA vive en refs y las mutaciones se exponen como estas tres primitivas. Los
+  // consumidores (ConfigEditor, SetupWizard) las llaman en vez de componer `slice` con un cursor
+  // que puede estar caducado — el invariante queda donde vive el estado, no repartido por cada
+  // call-site.
+  //
+  // `buffer`/`cursor` siguen siendo estado de React para la LECTURA (render, props de
+  // SessionTable): las refs son el carril de escritura, no un segundo modelo.
+  const bufferRef = useRef('');
+  const cursorRef = useRef(0);
+
+  /**
+   * Fija buffer y cursor a la vez. Es el ÚNICO camino de escritura: mantiene refs y estado en
+   * sincronía, y el cursor siempre acotado al buffer que lo acompaña.
+   * @param {string} nextBuffer
+   * @param {number} nextCursor
+   */
+  const setTextInput = useCallback((nextBuffer, nextCursor) => {
+    const clamped = Math.max(0, Math.min(nextBuffer.length, nextCursor));
+    bufferRef.current = nextBuffer;
+    cursorRef.current = clamped;
+    setBuffer(nextBuffer);
+    setCursor(clamped);
+  }, []);
+
+  /** Inserta texto EN el cursor y lo avanza. Atómico. @param {string} text */
+  const insertAtCursor = useCallback((text) => {
+    const b = bufferRef.current;
+    const c = cursorRef.current;
+    setTextInput(b.slice(0, c) + text + b.slice(c), c + text.length);
+  }, [setTextInput]);
+
+  /** Borra el carácter ANTERIOR al cursor (backspace). No-op en el inicio. Atómico. */
+  const deleteBeforeCursor = useCallback(() => {
+    const b = bufferRef.current;
+    const c = cursorRef.current;
+    if (c <= 0) return;
+    setTextInput(b.slice(0, c - 1) + b.slice(c), c - 1);
+  }, [setTextInput]);
+
+  /** Mueve el cursor `delta` posiciones, acotado al buffer vigente. @param {number} delta */
+  const moveCursor = useCallback((delta) => {
+    setTextInput(bufferRef.current, cursorRef.current + delta);
+  }, [setTextInput]);
+
+  /** Vacía el text-input (abrir/cerrar un campo, guardar, cancelar). Atómico. */
+  const resetTextInput = useCallback(() => setTextInput('', 0), [setTextInput]);
+
+  /** Precarga el campo con su valor actual y deja el cursor al final. @param {string} text */
+  const loadTextInput = useCallback((text) => setTextInput(text, text.length), [setTextInput]);
+
   // Phase 68 Plan 02 (SETUP-01/D-01): al arrancar en modo setup, congela un snapshot propio del config
   // (structuredClone — Pitfall 1: loadConfig sin fichero devuelve un spread superficial de DEFAULT_CONFIG,
   // mutar campos anidados aliasearía el módulo). Los saves estructurales del wizard mutan SOLO este clon.
@@ -585,6 +651,15 @@ export default function App({
         setBuffer,
         cursor,
         setCursor,
+        // Mutaciones ATÓMICAS de (buffer, cursor) — ver el bloque de su definición. Todo
+        // handler de tecla debe usar ESTAS, nunca componer `slice` con `ctx.cursor`: dos
+        // pulsaciones en un mismo batch de React leerían un cursor obsoleto y transpondrían
+        // los caracteres.
+        insertAtCursor,
+        deleteBeforeCursor,
+        moveCursor,
+        resetTextInput,
+        loadTextInput,
         setMaskValue,
         // editor de config + wizard de setup
         configSnapshot,
