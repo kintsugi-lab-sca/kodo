@@ -234,3 +234,148 @@ describe('usePoll scheduler: self-scheduling, single-flight, backoff, teardown (
     assert.equal(results.length, resultsBeforeTeardown, 'ningún onResult debe invocarse tras el teardown (cancelled)');
   });
 });
+
+/**
+ * Fake `fn` con la resolución CONTROLADA por el test: cada llamada devuelve una promesa que queda
+ * en vuelo hasta que el test llama `resolve(i, result)`. Es lo que `makeFn` no permite (resuelve
+ * sola en el siguiente microtask) y lo que el kick necesita: para observar que un tick SUPERADO no
+ * reporta ni re-arma, hay que tenerlo vivo en el momento del kick.
+ */
+function makeGatedFn() {
+  /** @type {Array<(r: { ok: boolean }) => void>} */
+  const gates = [];
+  /** @type {AbortSignal[]} */
+  const signals = [];
+  const fn = (/** @type {AbortSignal} */ signal) => {
+    signals.push(signal);
+    return new Promise((res) => gates.push(res));
+  };
+  return {
+    fn,
+    signals,
+    get calls() {
+      return gates.length;
+    },
+    /** @param {number} i @param {{ ok: boolean }} result */
+    resolve: (i, result) => gates[i](result),
+  };
+}
+
+describe('usePoll kick: refresco inmediato del dismiss (KODO-78)', () => {
+  it('publica el kick en kickRef mientras vive y lo limpia en el teardown', async () => {
+    const clock = makeFakeClock();
+    const f = makeFn([{ ok: true }]);
+    /** @type {{ current: (() => void) | null }} */
+    const kickRef = { current: null };
+
+    const teardown = runPollLoop(f.fn, () => {}, {
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
+      kickRef,
+    });
+
+    assert.equal(typeof kickRef.current, 'function', 'el loop debe publicar su kick al arrancar');
+    await drain();
+    teardown();
+    assert.equal(kickRef.current, null, 'el teardown debe limpiar el kick del loop muerto');
+  });
+
+  it('kick dispara un tick YA y cancela el re-arme pendiente (sin acumular loops)', async () => {
+    const clock = makeFakeClock();
+    const f = makeFn([{ ok: true }]);
+    const results = [];
+    /** @type {{ current: (() => void) | null }} */
+    const kickRef = { current: null };
+
+    const teardown = runPollLoop(f.fn, (r) => results.push(r), {
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
+      kickRef,
+    });
+
+    await drain();
+    // Estado: 1 tick resuelto, 1 re-arme pendiente a 2500 ms — el que el kick debe descartar.
+    assert.equal(f.calls, 1);
+    assert.equal(clock.pending().length, 1);
+    const cancelledBefore = clock.cancelled.length;
+
+    kickRef.current?.();
+    await drain();
+
+    assert.equal(f.calls, 2, 'el kick debe ejecutar el trabajo del tick sin esperar al backoff');
+    assert.equal(results.length, 2, 'el resultado del tick del kick se reporta como cualquier otro');
+    assert.ok(clock.cancelled.length > cancelledBefore, 'el kick debe cancelar el re-arme pendiente');
+    assert.equal(clock.pending().length, 1, 'tras el kick sigue habiendo UN solo timer armado');
+    teardown();
+  });
+
+  it('el tick SUPERADO por un kick no reporta su abort ni re-arma (no duplica el loop)', async () => {
+    const clock = makeFakeClock();
+    const f = makeGatedFn();
+    const results = [];
+    /** @type {{ current: (() => void) | null }} */
+    const kickRef = { current: null };
+
+    const teardown = runPollLoop(f.fn, (r) => results.push(r), {
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
+      kickRef,
+    });
+
+    await drain();
+    assert.equal(f.calls, 1, 'el primer tick está EN VUELO (gated)');
+
+    kickRef.current?.();
+    await drain();
+
+    assert.ok(f.signals[0].aborted, 'el kick debe abortar el request en vuelo');
+    assert.equal(f.calls, 2, 'el kick arranca un tick nuevo');
+
+    // El tick 1 (abortado) reanuda AHORA: su resultado es basura de abort y debe descartarse.
+    f.resolve(0, { ok: false });
+    await drain();
+    assert.equal(results.length, 0, 'el tick superado NO debe reportar (falsa desconexión)');
+    assert.equal(clock.intervals.length, 0, 'el tick superado NO debe re-armar (loop duplicado)');
+
+    // El tick 2 (el del kick) sí manda.
+    f.resolve(1, { ok: true });
+    await drain();
+    assert.deepEqual(results, [{ ok: true }], 'solo el tick vigente reporta');
+    assert.deepEqual(clock.intervals, [2500], 'solo el tick vigente re-arma');
+    teardown();
+  });
+
+  it('kick tras el teardown es un no-op (ni tick ni onResult)', async () => {
+    const clock = makeFakeClock();
+    const f = makeFn([{ ok: true }]);
+    const results = [];
+    /** @type {{ current: (() => void) | null }} */
+    const kickRef = { current: null };
+
+    const teardown = runPollLoop(f.fn, (r) => results.push(r), {
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      scheduleTimeout: clock.scheduleTimeout,
+      cancelTimeout: clock.cancelTimeout,
+      kickRef,
+    });
+
+    await drain();
+    const callsBefore = f.calls;
+    const resultsBefore = results.length;
+    const kick = kickRef.current;
+    teardown();
+
+    kick?.(); // el consumidor conserva la referencia vieja: el guard `cancelled` la neutraliza.
+    await drain();
+
+    assert.equal(f.calls, callsBefore, 'ningún tick tras el teardown');
+    assert.equal(results.length, resultsBefore, 'ningún onResult tras el teardown');
+  });
+});
