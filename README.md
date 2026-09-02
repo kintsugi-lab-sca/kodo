@@ -403,7 +403,10 @@ sync with it. Practical consequences:
 
 **Not to be confused with `kodo inbox`.** That one holds the operator's captures
 (`~/.kodo/inbox.md`); this one holds the lifecycle events headed for the orchestrator
-(`state.orchestrator_inbox`): session closures with their verdict and their `NEXT:`, and launches.
+(`state.orchestrator_inbox`): session closures with their verdict and their `NEXT:`, launches,
+and the two notices the daemon raises on its own —
+[integration pressure](#integration-pressure--the-notice-when-the-queue-grows) and
+[recycle-suggested](#recycling-the-orchestrator).
 
 Previously those events were **typed** into the orchestrator's prompt (`cmux send`), which Claude
 Code queues as if the operator had written them. That failed by design, not by volume:
@@ -521,6 +524,48 @@ The listing makes **not a single** git call: everything was computed when the se
 in `state.json`, so the orchestrator can present the whole queue on every round for free. The
 dashboard reflects it as `N por integrar` in the header, and `kodo status` lists the block.
 
+#### Integration pressure — the notice when the queue grows
+
+The dispatcher launches up to `claude.max_parallel` sessions **without looking at this queue**, so
+nothing said out loud that a new branch was being opened on a repo that already has branches
+waiting. Parallel branches on the same tree conflict, and the way you find that out is orphan
+commits and a recovery merge by hand.
+
+Now, at launch time, kodo counts the `pending` entries whose `project_path` is the target repo and,
+if there is at least one, says so through **two surfaces you already watch**. The dispatcher's lane:
+
+```
+[kodo:dispatch] integration_pressure — KL-42 va a un repo con 3 entradas pending en la cola de integración (/path/to/repo); se lanza igualmente
+```
+
+…and an `integration-pressure` event in the [orchestrator inbox](#kodo-inbox-orch--the-orchestrator-inbox),
+which the round already reads in its step 1 and which — unlike the daemon's stdout — survives the
+process.
+
+**It is a notice, never a block.** Two branches on the same repo are the normal case, not the
+anomaly: blocking would break the parallelism that is the whole point of kodo, and a gate that gets
+in the way ends up switched off. What was missing was not a permission, it was a look. There is no
+threshold to tune and no flag to turn it off — one pending entry is enough, and it costs one line
+per launch.
+
+The rest of the contract, all of it load-bearing:
+
+- **Zero git calls.** The count comes out of the `integration_queue` block of `state.json`, the same
+  one the listing above reads. Asking git how many branches are unmerged would cost a
+  `for-each-ref` per launch *and* would answer a different question: branches that exist are not
+  branches somebody asked to integrate.
+- **Empty queue ⇒ nothing at all.** With zero pending entries it returns before touching stdout or
+  the inbox, so the usual launch path is byte-identical to what it was before this existed.
+- **Fail-open, end to end.** A queue that cannot be read counts as a queue with no pressure, and a
+  failure to log or to enqueue is swallowed. A notice able to abort a launch would be exactly the
+  block this forbids.
+- **Only on the paths that actually launch** — first launch and relaunch after a stale cleanup, both
+  *after* the cross-process dedup lock. The loser of a race leaves through `already_active` without
+  launching, so warning it would be noise.
+- **The repo match is exact string equality** on `project_path` — the same criterion that gives an
+  entry its identity and that matches sessions to their repo. A third definition of "same repo"
+  disagreeing with the other two would be worse than a notice that fails to fire.
+
 ### `kodo review` — the adversarial reviewer
 
 A session that verifies its own work is a judge grading itself. `kodo:review` adds a **second
@@ -552,12 +597,16 @@ from the working tree — so the answer does not depend on what happens to be ch
 
 From that, `kodo review <REF>` derives:
 
-| State | Meaning | Queue confidence |
+| State | Meaning | Confidence reported |
 |---|---|---|
-| `approved` | `approval.md` anchored at the reviewed head | `reviewed` — confidence up |
-| `changes-requested` | a recommendations round is open | `changes-requested` — do not integrate |
+| `approved` | `approval.md` anchored at the reviewed head | `reviewed` |
+| `changes-requested` | a recommendations round is open | `changes-requested` |
 | `stale-approval` | it was approved, then code changed | `stale` |
 | `none` / `malformed` | no artifact, or unreadable | `unreviewed` (fail-closed) |
+
+That confidence is what `kodo review <REF>` prints (`confianza`, and `confidence` under `--json`).
+It is a reading for whoever integrates, **not** something `kodo integrate` consumes: the queue
+neither shows it nor changes its suggestion because of it.
 
 The anchor is **not `HEAD`** but the last commit touching anything *outside* `review/`. That is
 what lets the reviewer's own artifact commit not invalidate its approval, while any new coder
@@ -570,8 +619,8 @@ approval or by escalation, never in silence.
 
 ```
 kodo review                 # open cycles (escalated ones show WITHOUT --all)
-kodo review KODO-75         # review state derived from the artifacts
-kodo review start KODO-75   # launch the reviewer on that branch
+kodo review KL-42           # review state derived from the artifacts
+kodo review start KL-42     # launch the reviewer on that branch
 kodo review commit          # the REVIEWER's close: pathspec commit + report of what was excluded
 ```
 
@@ -1257,8 +1306,21 @@ documented no-op.
 npm test
 ```
 
-Conventions for writing them — in particular the rule for asserting on prompt and skill
-text (pin the contract, never the prose) — live in [`test/CONVENTIONS.md`](test/CONVENTIONS.md).
+Conventions for writing them live in [`test/CONVENTIONS.md`](test/CONVENTIONS.md). The one worth
+knowing before you touch a test: **pin the contract, never the prose.** Prompts and skills are
+markdown that gets rewritten often, and an `includes()` over their wording turns every rewrite into
+a red suite with no behaviour changed.
+
+What counts as contract — and stays pinned — is what something else *reads*: template placeholders
+(`{{provider_name}}`), CLI command names the prompt has to keep naming, structural markers
+(`<!-- kodo:handoff v=1 -->`), MCP call names, labels and statuses the agent emits or filters on,
+greppable log literals, and data formats a later step parses. Section headings and prose are not
+contract, and a composed heading stops being prose the moment it is exported as a constant the test
+imports.
+
+The check that a batch of prompt asserts is right is to bite the file **both ways**: rewrite the
+headings and the prose without touching commands, placeholders or markers — the suite must stay
+green — and then remove one command, placeholder or marker — it must go red.
 
 ## License
 
