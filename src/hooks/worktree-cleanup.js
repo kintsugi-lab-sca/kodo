@@ -33,6 +33,9 @@
 //   - `branch -D` SOLO si la rama no tiene commits propios inalcanzables desde
 //     otra ref (KODO-21). Sin verificación → se conserva. El trabajo commiteado
 //     de una sesión JAMÁS se pierde por cerrar la sesión.
+//   - Y cuando quien borró la rama NO fue kodo (KODO-68), `restoreOrphanedBranch`
+//     la recrea desde el SHA que el hook Stop selló. El invariante de arriba deja
+//     de depender de que el resto del mundo lo respete.
 //
 // LOG-12 invariant: este módulo NO importa `logger.js`. El `logger` inyectado es
 // el único canal de observabilidad; `logger-events.js` (pure transform) sí es
@@ -44,6 +47,7 @@ import {
   worktreeCleanupDirty,
   worktreeCleanupError,
   worktreeBranchKept,
+  worktreeBranchRestored,
 } from '../logger-events.js';
 
 /**
@@ -76,10 +80,32 @@ import {
  * posible entre «la rama se conserva» y «la rama entra en la cola» — son el mismo veredicto.
  */
 export async function countUnmergedCommits({ project, branch, gitFn }) {
+  return await countUnreachableFrom({ project, rev: branch, exclude: branch, gitFn });
+}
+
+/**
+ * El `rev-list` en crudo detrás de `countUnmergedCommits`: cuántos commits alcanzables desde
+ * `rev` NO lo son desde ninguna otra rama o remoto.
+ *
+ * Existe separada porque KODO-68 hace la MISMA pregunta sobre un sujeto distinto: un SHA
+ * suelto —el HEAD sellado de una rama que ya no existe— en vez de una rama viva. La rama viva
+ * necesita auto-excluirse (`--exclude`), el SHA suelto no es ninguna ref y no hay nada que
+ * excluir. Un solo dueño del comando: si el criterio de «trabajo que solo vive aquí» cambia,
+ * cambia en un sitio y las dos preguntas siguen dando el mismo veredicto.
+ *
+ * @param {{
+ *   project: string,
+ *   rev: string,
+ *   exclude?: string|null,
+ *   gitFn: (cwd: string, args: string[]) => Promise<string> | string,
+ * }} args
+ * @returns {Promise<{ count: number | null, reason: string | null }>}
+ */
+export async function countUnreachableFrom({ project, rev, exclude = null, gitFn }) {
   try {
     const out = await gitFn(project, [
-      'rev-list', '--count', branch,
-      '--not', `--exclude=${branch}`, '--branches', '--remotes',
+      'rev-list', '--count', rev,
+      '--not', ...(exclude ? [`--exclude=${exclude}`] : []), '--branches', '--remotes',
     ]);
     const n = Number.parseInt(String(out ?? '').trim(), 10);
     if (!Number.isFinite(n) || n < 0) {
@@ -129,6 +155,129 @@ async function branchExists({ project, branch, gitFn }) {
     return String(out ?? '').trim().length > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * ¿Sigue el objeto en la base de datos de git? Never-throws → `false` (KODO-68).
+ *
+ * `cat-file -e <sha>^{commit}` no escribe nada en stdout: contesta SOLO por exit code, que
+ * bajo el seam `gitFn` llega como excepción. Aquí eso es exactamente lo que hace falta —la
+ * pregunta es binaria y no hay un tercer resultado que distinguir—, al revés que en
+ * `isBaseContained` (capture.js), donde confundir «la respuesta es no» con «no pude
+ * comprobarlo» sí importaba.
+ *
+ * El sufijo `^{commit}` es load-bearing: sin él un SHA que resultara ser un blob o un tag
+ * también daría exit 0, y `git branch <name> <blob>` fallaría después.
+ *
+ * @param {{ project: string, sha: string, gitFn: (cwd: string, args: string[]) => Promise<string> | string }} args
+ * @returns {Promise<boolean>}
+ */
+async function commitExists({ project, sha, gitFn }) {
+  try {
+    await gitFn(project, ['cat-file', '-e', `${sha}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Recrea la rama de una sesión que alguien MÁS borró con trabajo dentro (KODO-68).
+ *
+ * EL FALLO QUE CIERRA. El gate KODO-21 garantiza que kodo nunca borra una rama con commits
+ * sin integrar — y lo cumple. Pero kodo no es el único que borra ramas en ese instante: al
+ * salir de una sesión `--worktree`, el prompt «Remove worktree» de Claude Code ejecuta
+ * `worktree remove --force` + `branch -D worktree-<sid>` ANTES de que arranque `SessionEnd`,
+ * sin mirar si esa rama tenía commits propios. Observado en SCP-21: dos commits que solo
+ * vivían ahí quedaron alcanzables únicamente por `git fsck --unreachable`, y la entrada que
+ * la cola encoló apuntaba a una rama inexistente con `commits_ahead: null` — degradación
+ * silenciosa, y pérdida real al siguiente `gc`.
+ *
+ * La ventana se cierra con el SHA que el hook `Stop` selló (`session.branch_head`) mientras
+ * el worktree aún vivía: el objeto sigue en la base de datos —inalcanzable, no borrado— y
+ * `git branch <branch> <sha>` lo devuelve al sitio del que nunca debió salir. A partir de
+ * ahí el resto del cierre (captura de la cola, gate KODO-21) opera sobre una rama real y
+ * deja de degradar a `null`.
+ *
+ * POR QUÉ RESTAURAR Y NO UNA REF DE RESCATE PARALELA (`refs/kodo/…`): una ref propia también
+ * anclaría los objetos, pero crea un carril nuevo que hay que limpiar, que no aparece en
+ * `git branch`, y que ningún consumidor de kodo sabe leer. Restaurar la rama devuelve el
+ * repo al estado que el operador ya espera y reusa el gate que YA existe, en vez de añadir
+ * un segundo criterio sobre lo mismo.
+ *
+ * NO se restaura cuando el trabajo ya está en otra ref (`count === 0`): ahí la rama era de
+ * verdad desechable y recrearla solo ensuciaría el repo. Sí se restaura con `count === null`
+ * (no verificable) — simétrico al fail-safe de KODO-21: ante la duda, nunca se pierde
+ * trabajo. Una rama de más se borra en un segundo; un commit perdido, no.
+ *
+ * Never-throws, como todo este módulo.
+ *
+ * @param {{
+ *   project: string,
+ *   branch: string | null,
+ *   head: string | null,
+ *   sessionId: string,
+ *   worktreePath?: string,
+ *   gitFn: (cwd: string, args: string[]) => Promise<string> | string,
+ *   logger: import('../logger-events.js').Logger,
+ * }} args
+ *   `head`: el SHA sellado en `state.json` por el hook Stop. Ausente en sesiones legacy o
+ *   anteriores a KODO-68 → no hay nada desde lo que restaurar y la función es un no-op.
+ * @returns {Promise<{ restored: boolean, reason: 'no-branch'|'no-head'|'branch-exists'|'object-gone'|'merged'|'restored'|'failed', unmerged: number|null }>}
+ *   `reason` es un literal corto y greppable, mismo idiom que `captureIntegration`.
+ */
+export async function restoreOrphanedBranch({ project, branch, head, sessionId, worktreePath = '', gitFn, logger }) {
+  try {
+    if (!branch) return { restored: false, reason: 'no-branch', unmerged: null };
+    if (!head) return { restored: false, reason: 'no-head', unmerged: null };
+
+    // La rama viva manda SIEMPRE. Puede apuntar a un commit posterior al sellado (el agente
+    // commiteó después del último Stop), y en ese caso tocarla destruiría trabajo en vez de
+    // salvarlo. Restaurar es solo para la rama que ya NO está.
+    if (await branchExists({ project, branch, gitFn })) {
+      return { restored: false, reason: 'branch-exists', unmerged: null };
+    }
+
+    // El objeto puede haberse ido de verdad si pasó un `gc --prune=now` entre el borrado y
+    // este hook. Es el único caso irrecuperable, y merece traza propia: distingue «no hizo
+    // falta restaurar» de «se llegó tarde».
+    if (!(await commitExists({ project, sha: head, gitFn }))) {
+      console.error(
+        `[kodo:worktree-cleanup] branch_lost — ${branch}: el SHA sellado ${head} ya no está en el repo (gc); nada que restaurar`,
+      );
+      return { restored: false, reason: 'object-gone', unmerged: null };
+    }
+
+    const { count } = await countUnreachableFrom({ project, rev: head, gitFn });
+    if (count === 0) {
+      // El trabajo entero vive en otra ref: la rama era desechable y su borrado, correcto.
+      return { restored: false, reason: 'merged', unmerged: 0 };
+    }
+
+    try {
+      await gitFn(project, ['branch', branch, head]);
+    } catch (err) {
+      console.error(
+        `[kodo:worktree-cleanup] branch ${branch} ${head} failed: ${/** @type {Error} */ (err).message}`,
+      );
+      return { restored: false, reason: 'failed', unmerged: count };
+    }
+
+    console.error(
+      `[kodo] branch_restored — ${branch}: la rama había desaparecido con ${count ?? '?'} commits sin integrar; recreada en ${head}`,
+    );
+    worktreeBranchRestored(logger, {
+      session_id: sessionId,
+      worktree_path: worktreePath,
+      branch,
+      head,
+      unmerged_commits: count,
+    });
+    return { restored: true, reason: 'restored', unmerged: count };
+  } catch (err) {
+    console.error(`[kodo:worktree-cleanup] restoreOrphanedBranch fail-open: ${/** @type {Error} */ (err).message}`);
+    return { restored: false, reason: 'failed', unmerged: null };
   }
 }
 

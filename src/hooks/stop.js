@@ -101,7 +101,8 @@ async function readStdin() {
 
 
 /**
- * Sella en `state.json` la rama sobre la que trabaja la sesión (KODO-30).
+ * Sella en `state.json` la rama sobre la que trabaja la sesión Y el SHA de su punta
+ * (KODO-30 + KODO-68).
  *
  * POR QUÉ AQUÍ Y NO AL CERRAR: el nombre de la rama solo se puede leer del worktree, y
  * para cuando corre `SessionEnd` el worktree puede haber desaparecido — al salir, Claude
@@ -115,8 +116,16 @@ async function readStdin() {
  * TAMPOCO al lanzar: la rama la crea `claude --worktree` DESPUÉS del spawn, y su nombre lo
  * elige el agente (`feat/itclip-81-…`). En `launchWorkItem` todavía no existe.
  *
- * Escribe solo cuando el valor CAMBIA — un turno normal no toca `state.json`, y el
- * `state.session.updated` del logger marca de verdad un cambio de rama.
+ * POR QUÉ TAMBIÉN EL SHA (KODO-68): saber CÓMO se llamaba la rama no sirve de nada si la
+ * rama ya no existe. El «Remove worktree» de Claude Code no solo borra el directorio —hace
+ * `branch -D` de la rama del worktree, con sus commits dentro y sin mirar si estaban
+ * integrados—, y entonces el nombre sellado apunta a una ref inexistente: el cierre degrada
+ * a `commits_ahead: null` y el trabajo queda solo alcanzable por `git fsck`. El SHA sí
+ * sobrevive a eso: el objeto sigue en la base de datos hasta el siguiente `gc --prune`, y
+ * con él `restoreOrphanedBranch` recrea la rama antes de que nadie más la eche en falta.
+ *
+ * Escribe solo cuando algún valor CAMBIA — un turno sin commits ni cambio de rama no toca
+ * `state.json`, y el `state.session.updated` del logger marca de verdad un avance real.
  *
  * FAIL-OPEN de cuerpo entero: ninguna rama de esta función lanza. Un hook JAMÁS debe
  * crashear Claude Code, y la rama es un dato de conveniencia — sin él, el cleanup degrada
@@ -129,8 +138,9 @@ async function readStdin() {
  *   updateSessionFn?: (taskId: string, updates: object, logger?: any) => any,
  *   logger?: any,
  * }} [deps]
- * @returns {Promise<string|null>} La rama persistida en esta llamada, o `null` si no se
- *   escribió nada (sin worktree, worktree ausente, git mudo, o rama sin cambios).
+ * @returns {Promise<string|null>} La rama de la sesión si esta llamada escribió en
+ *   `state.json`, o `null` si no hubo nada que sellar (sin worktree, worktree ausente, git
+ *   mudo, o ni la rama ni su punta han cambiado desde el turno anterior).
  */
 export async function persistSessionBranch(session, deps = {}) {
   try {
@@ -148,13 +158,32 @@ export async function persistSessionBranch(session, deps = {}) {
     const gitFn = deps.gitFn || defaultGitFn;
     const out = await gitFn(session.project_path, ['-C', wt, 'branch', '--show-current']);
     const branch = String(out ?? '').trim();
-    // Vacío = detached HEAD. No se sella: un valor viejo correcto vale más que uno nuevo
-    // vacío, y machacarlo dejaría al cleanup sin rama justo cuando más falta hace.
-    if (!branch || branch === session.branch) return null;
+    // Vacío = detached HEAD. No se sella NADA: un valor viejo correcto vale más que uno nuevo
+    // vacío, y machacarlo dejaría al cleanup sin rama justo cuando más falta hace. El SHA
+    // tampoco se toca — sellar la punta de un HEAD detached ataría el rescate a un commit que
+    // no es el de la rama de la sesión.
+    if (!branch) return null;
+
+    // La punta de la rama (KODO-68). Fail-open independiente: si `rev-parse` no contesta, el
+    // nombre de la rama se sella igual — es el comportamiento anterior a esta fase, y perder
+    // el SHA solo cuesta el rescate, no el cierre.
+    let head = null;
+    try {
+      const sha = await gitFn(session.project_path, ['-C', wt, 'rev-parse', 'HEAD']);
+      head = String(sha ?? '').trim() || null;
+    } catch (err) {
+      console.error(`[kodo:stop] rev-parse HEAD failed: ${/** @type {Error} */ (err).message}`);
+    }
+
+    /** @type {{ branch?: string, branch_head?: string }} */
+    const updates = {};
+    if (branch !== session.branch) updates.branch = branch;
+    if (head && head !== session.branch_head) updates.branch_head = head;
+    if (Object.keys(updates).length === 0) return null;
 
     const { updateSession } = await import('../session/state.js');
     const updateSessionFn = deps.updateSessionFn || updateSession;
-    updateSessionFn(session.task_id, { branch }, deps.logger);
+    updateSessionFn(session.task_id, updates, deps.logger);
     return branch;
   } catch (err) {
     console.error(`[kodo:stop] persistSessionBranch failed: ${/** @type {Error} */ (err).message}`);

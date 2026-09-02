@@ -2,8 +2,8 @@
 //
 // src/logger-events/worktree.js — limpieza de worktrees (Phase 19).
 //
-// Eventos del carril de cleanup de worktrees: resultado ok / dirty / error y la
-// rama conservada. Emisor: `src/hooks/worktree-cleanup.js`.
+// Eventos del carril de cleanup de worktrees: resultado ok / dirty / error, la rama
+// conservada y la rama restaurada. Emisor: `src/hooks/worktree-cleanup.js`.
 //
 // Cada helper es pure transform (campos → record) y delega en logger.info/warn/error.
 // Whitelist EXPLÍCITO field-by-field — NUNCA spread `...fields` — para que ningún campo
@@ -111,5 +111,43 @@ export function worktreeBranchKept(logger, fields) {
     branch: fields.branch,
     unmerged_commits: fields.unmerged_commits,
     reason: fields.reason,
+  });
+}
+
+/**
+ * Worktree BRANCH RESTORED — emitted (warn) when the branch of a closing session had
+ * ALREADY been deleted by someone else and kodo recreated it from the SHA that the Stop
+ * hook sealed while the worktree was still alive (KODO-68).
+ *
+ * QUIÉN la borra, si el gate KODO-21 nunca lo hace: al salir de una sesión `--worktree`,
+ * el prompt «Remove worktree» de Claude Code ejecuta `worktree remove --force` +
+ * `branch -D worktree-<sid>` ANTES de que arranque `SessionEnd`, sin comprobar si esa
+ * rama tenía commits sin integrar. Los commits quedaban solo alcanzables por
+ * `git fsck --unreachable` y a merced del siguiente `gc`.
+ *
+ * Es `warn` y no `info` A PROPÓSITO: el trabajo se salva, pero que haya hecho falta
+ * salvarlo es exactamente lo que el operador tiene que poder grepear. `unmerged_commits`
+ * es el conteo de commits que solo vivían en ese SHA, o `null` cuando la verificación no
+ * se pudo hacer y se restauró por fail-safe.
+ *
+ * LOG-12: whitelist explícito — no `...fields` spread.
+ *
+ * @param {Logger} logger
+ * @param {{
+ *   session_id: string,
+ *   worktree_path: string,
+ *   branch: string,
+ *   head: string,
+ *   unmerged_commits: number | null,
+ * }} fields
+ */
+export function worktreeBranchRestored(logger, fields) {
+  logger.warn(EVENTS.WORKTREE_BRANCH_RESTORED, {
+    event: EVENTS.WORKTREE_BRANCH_RESTORED,
+    session_id: fields.session_id,
+    worktree_path: fields.worktree_path,
+    branch: fields.branch,
+    head: fields.head,
+    unmerged_commits: fields.unmerged_commits,
   });
 }
