@@ -89,3 +89,29 @@ describe('BIDIR-06 — adopted-marker source hygiene (Phase 52 D-02)', () => {
     assert.match(source, /export\s+function\s+isAdopted\s*\(/);
   });
 });
+
+describe('KODO-75 — review-marker source hygiene', () => {
+  it('KODO-75: no inline "kodo:review" literal outside src/labels.js (post-stripComments)', () => {
+    const files = listJsFilesExcept(SRC, LABELS_FILE);
+    const violations = [];
+    for (const file of files) {
+      const source = readFileSync(file, 'utf-8');
+      const stripped = stripComments(source);
+      if (stripped.includes("'kodo:review'") || stripped.includes('"kodo:review"')) {
+        violations.push(relative(REPO, file));
+      }
+    }
+    assert.deepEqual(
+      violations,
+      [],
+      `Inline 'kodo:review' literal found in: ${violations.join(', ')}.\n` +
+        `Use KODO_LABEL_REVIEW const + wantsReview(flags) helper from src/labels.js.`,
+    );
+  });
+
+  it('KODO-75: src/labels.js (the legitimate source) DOES export KODO_LABEL_REVIEW and wantsReview', () => {
+    const source = readFileSync(LABELS_FILE, 'utf-8');
+    assert.match(source, /export\s+const\s+KODO_LABEL_REVIEW\s*=\s*['"]kodo:review['"]/);
+    assert.match(source, /export\s+function\s+wantsReview\s*\(/);
+  });
+});

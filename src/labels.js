@@ -85,6 +85,41 @@ export function getSessionMode(session) {
 }
 
 /**
+ * Etiqueta de OPT-IN al rol reviewer adversarial (KODO-75).
+ *
+ * `kodo:review` no es un modo de ejecución del agente de trabajo —como `gsd`/`gsd-quick`—
+ * sino la petición de una SEGUNDA sesión, con otro rol, sobre la misma rama, cuando la
+ * primera ya ha cerrado. Aun así vive en `flags` y no como campo propio de
+ * `parseKodoLabels` por la misma razón que aquéllas: es una decisión de MODO tomada en el
+ * tablero, no un valor de operador (que es lo que justifica el campo `model`).
+ *
+ * JAMÁS DEFAULT, y la razón es económica, no de gusto: cada revisión duplica el coste de la
+ * tarea. Su sitio son las tareas de alto blast radius —migraciones, auth, primitivos de
+ * concurrencia—, o sea el Tier 3 de la política de merge. Que sea el operador quien la
+ * ponga es parte del diseño, no una limitación pendiente de quitar.
+ *
+ * Espejo estructural de KODO_LABEL_GSD_CHILD/KODO_LABEL_ADOPTED: constante suelta, única
+ * fuente de verdad del literal.
+ */
+export const KODO_LABEL_REVIEW = 'kodo:review';
+
+/**
+ * Devuelve true si el array de flags pide revisión adversarial (`kodo:review`).
+ * Hermano estructural de `getGsdMode` y `getAgentName`: centralizado aquí para que
+ * dispatcher, CLI de review, hooks y tests compartan UNA definición.
+ *
+ * El flag llega ya sin el prefijo `kodo:` (lo recorta `parseKodoLabels`), así que la
+ * comparación es contra `'review'`. Tolerante a entradas no-array y a elementos no-string.
+ *
+ * @param {string[]} flags
+ * @returns {boolean}
+ */
+export function wantsReview(flags) {
+  if (!Array.isArray(flags)) return false;
+  return flags.some((f) => typeof f === 'string' && f.toLowerCase() === 'review');
+}
+
+/**
  * Sub-issue marker label. Tasks tagged with this label are sub-issues created
  * by the agent (Phase 15+) for GSD progress reporting. The dispatcher (Phase 14
  * D-06) drops them BEFORE any further processing — even under --force — to

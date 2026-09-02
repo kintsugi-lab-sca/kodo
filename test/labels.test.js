@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD, isAdopted, KODO_LABEL_ADOPTED, isDispatchable } from '../src/labels.js';
+import { parseKodoLabels, getGsdMode, getSessionMode, isGsdChild, KODO_LABEL_GSD_CHILD, isAdopted, KODO_LABEL_ADOPTED, isDispatchable, KODO_LABEL_REVIEW, wantsReview } from '../src/labels.js';
 
 describe('parseKodoLabels', () => {
   it('returns isKodo=false when no labels', () => {
@@ -292,5 +292,35 @@ describe('isDispatchable', () => {
     assert.equal(isDispatchable([KODO_LABEL_ADOPTED]), false);
     assert.equal(isDispatchable(['kodo', KODO_LABEL_ADOPTED]), false);
     assert.equal(isDispatchable(['kodo', KODO_LABEL_GSD_CHILD]), false);
+  });
+});
+
+describe('KODO-75 — wantsReview (opt-in a la revisión adversarial)', () => {
+  it('el flag `review` sale de la etiqueta kodo:review por el carril de parseKodoLabels', () => {
+    const parsed = parseKodoLabels([{ name: 'kodo' }, { name: KODO_LABEL_REVIEW }]);
+    assert.deepEqual(parsed.flags, ['review']);
+    assert.equal(wantsReview(parsed.flags), true);
+  });
+
+  it('JAMÁS por defecto: sin la etiqueta no hay revisión', () => {
+    assert.equal(wantsReview([]), false);
+    assert.equal(wantsReview(parseKodoLabels([{ name: 'kodo' }]).flags), false);
+    assert.equal(wantsReview(parseKodoLabels([{ name: 'kodo:gsd' }]).flags), false);
+  });
+
+  it('convive con los otros modos sin pisarlos — es una dimensión independiente', () => {
+    const flags = parseKodoLabels([{ name: 'kodo:gsd' }, { name: KODO_LABEL_REVIEW }]).flags;
+    assert.equal(wantsReview(flags), true);
+    assert.equal(getGsdMode(flags), 'full');
+  });
+
+  it('la etiqueta de revisión NO impide el dispatch (no es un marcador de exclusión como adopted)', () => {
+    assert.equal(isDispatchable(['kodo', KODO_LABEL_REVIEW]), true);
+  });
+
+  it('defensivo ante entradas degeneradas', () => {
+    assert.equal(wantsReview(/** @type {any} */ (null)), false);
+    assert.equal(wantsReview(/** @type {any} */ ('review')), false);
+    assert.equal(wantsReview(/** @type {any} */ ([null, 42])), false);
   });
 });

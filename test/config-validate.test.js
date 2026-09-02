@@ -210,7 +210,7 @@ describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () 
   // lo que aquí se fija es el host, no el default (que sigue siendo el de KODO-56).
   const fields = getEditableFields({ ...DEFAULT_CONFIG, host: 'cmux' });
 
-  it('devuelve EXACTAMENTE 15 descriptores', () => {
+  it('devuelve EXACTAMENTE 16 descriptores', () => {
     // KODO-18: 12 → 13. El +1 es `host` (el selector de cliente). Los 4 campos de
     // presentación por estado NO suman: se resuelven contra el host ACTIVO (4 colores
     // de cmux O 4 columnas de Orca, nunca los 8) — el editor no crece por host nuevo.
@@ -220,7 +220,10 @@ describe('PERSIST-04/D-11 — getEditableFields restringido (sin secretos)', () 
     // de dejar el carril de avisos en un estado que solo se descubriría al cerrar sesión.
     // KODO-67: 14 → 15. El +1 es `orchestrator.recycle_mb` (umbral de transcript que
     // dispara la sugerencia de reciclado), por el mismo motivo que el anterior.
-    assert.equal(fields.length, 15);
+    // KODO-75: 15 → 16. El +1 es `review.max_rounds` (tope del bucle coder ↔ reviewer).
+    // Mismo motivo, y uno propio: un `0` escrito a mano NO debe leerse como «sin tope»,
+    // que es exactamente el fallo del modelo original que esa clave existe para cerrar.
+    assert.equal(fields.length, 16);
   });
 
   it('cada descriptor tiene {path,label,kind}', () => {
@@ -405,9 +408,9 @@ describe('KODO-18 — getEditableFields resuelve la presentación contra el host
     assert.ok(!paths.some((p) => p.startsWith('cmux.')), 'un usuario de Orca no ve colores de cmux');
   });
 
-  it('el total NO crece con el host: 15 en ambos casos', () => {
-    assert.equal(getEditableFields({ host: 'cmux' }).length, 15);
-    assert.equal(getEditableFields({ host: 'orca' }).length, 15);
+  it('el total NO crece con el host: 16 en ambos casos', () => {
+    assert.equal(getEditableFields({ host: 'cmux' }).length, 16);
+    assert.equal(getEditableFields({ host: 'orca' }).length, 16);
   });
 
   // KODO-31 — bb rompe el patrón de «4 campos de presentación» a propósito.
@@ -421,10 +424,10 @@ describe('KODO-18 — getEditableFields resuelve la presentación contra el host
     assert.ok(!paths.some((p) => p.startsWith('orca.')), 'un usuario de bb no ve columnas de Orca');
   });
 
-  it('con host bb el total es 14, no 15: BB no tiene canal de presentación por estado', () => {
+  it('con host bb el total es 15, no 16: BB no tiene canal de presentación por estado', () => {
     // El registro sigue la CAPACIDAD real del host. Inventarle un cuarto campo para cuadrar
     // el número le prometería al operador un canal que BB no expone.
-    assert.equal(getEditableFields({ host: 'bb' }).length, 14);
+    assert.equal(getEditableFields({ host: 'bb' }).length, 15);
   });
 
   it('la gracia de autocierre se valida como entero positivo (un 0 cerraría al instante)', () => {

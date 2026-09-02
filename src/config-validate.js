@@ -240,9 +240,14 @@ export function setByPath(obj, dotted, value) {
  * dejar la vigilancia en un estado indefinido que solo se descubriría meses después,
  * cuando el aviso que debía llegar no llegue.
  *
+ * KODO-75: 15 → 16. El +1 es `review.max_rounds` — el tope del bucle coder ↔ reviewer.
+ * Mismo criterio de entrada que los dos anteriores, y con una razón propia para no quedarse
+ * fuera: un `"max_rounds": 0` escrito a mano no debe leerse como «sin tope», que es
+ * exactamente el fallo del modelo original que esta clave existe para cerrar.
+ *
  * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
  *   `config.provider` y `config.host`).
- * @returns {EditableField[]} descriptores `{path,label,kind}`: 15 con cmux u orca, 14 con
+ * @returns {EditableField[]} descriptores `{path,label,kind}`: 16 con cmux u orca, 15 con
  *   bb (ese host no tiene canal de presentación por estado — ver `stateFields`).
  */
 export function getEditableFields(config) {
@@ -290,6 +295,8 @@ export function getEditableFields(config) {
     { path: 'orchestrator.nudges', label: 'Avisos al orquestador', kind: 'nudgeMode' },
     // KODO-67: umbral de transcript (MB) que dispara la sugerencia de reciclado.
     { path: 'orchestrator.recycle_mb', label: 'Reciclar orquestador (MB)', kind: 'positiveInt' },
+    // KODO-75: tope de rondas del bucle coder ↔ reviewer antes de escalar al operador.
+    { path: 'review.max_rounds', label: 'Tope de rondas de revisión', kind: 'positiveInt' },
     ...stateFields,
   ];
 }
