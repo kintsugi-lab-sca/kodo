@@ -6,10 +6,11 @@ import { readFileSync } from 'node:fs';
 describe('prompt.md — sección GSD renderizada', () => {
   const prompt = readFileSync('src/orchestrator/prompt.md', 'utf-8');
 
-  it('PM1: contiene heading literal "## Sesiones GSD"', () => {
-    assert.ok(prompt.includes('## Sesiones GSD'),
-      'heading "## Sesiones GSD" debe estar presente');
-  });
+  // KODO-71: aquí vivía PM1, que pineaba el heading literal «## Sesiones GSD». Un heading
+  // es prosa: reescribirlo no cambia el comportamiento del orquestador, y el aserto sólo
+  // servía para poner la suite roja. Que la sección se compone lo cubren PM2..PM6, que
+  // pinean lo que sí es contrato — los comandos del CLI, los verdicts, los artefactos y el
+  // placeholder. Si la sección desaparece, esos cuatro fallan igual.
 
   it('PM2: contiene comando literal "kodo gsd verify <session-id>"', () => {
     assert.ok(prompt.includes('kodo gsd verify <session-id>'));
@@ -400,12 +401,12 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
       'block must specify the title format "Phase N: <name>"');
   });
 
-  it('RC4 (REPORT-05): block instructs plan-by-plan as comments (not new sub-issues)', () => {
-    // D-11: comentarios plan-by-plan con header "## Plan N-MM:".
-    assert.ok(/Plan N-?MM/.test(block) || block.includes('Plan N-MM'),
+  it('RC4 (REPORT-05): block defines the plan-by-plan comment header format', () => {
+    // D-11: comentarios plan-by-plan con header "## Plan N-MM:". El formato es contrato
+    // (es lo que hace reconocible el comentario); KODO-71 retira el aserto sobre la frase
+    // «Plan = comentario», que era prosa y podía redactarse de veinte maneras.
+    assert.ok(/Plan N-?MM/.test(block),
       'block must define the comment header format "Plan N-MM"');
-    assert.ok(/Plan\s*=\s*comentario/i.test(block) || /comentario/i.test(block),
-      'block must explicitly state plan == comment (not separate sub-issue)');
   });
 
   it('RC5 (REPORT-06): block uses abstract lifecycle vocabulary in progress / done / verified', () => {
@@ -426,17 +427,12 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
       'pragmatic Plane mapping must include "Done"');
   });
 
-  it('RC7 (REPORT-07): block enforces append-only with NUNCA capitalized near delete-issue', () => {
-    // D-07: "NUNCA `delete-issue`". Capitalized for emphasis.
-    assert.ok(/\bNUNCA\b/.test(block),
-      'block must contain "NUNCA" capitalized (append-only emphasis)');
-    // Sanity: "NUNCA" is near "delete-issue" — within 200 chars.
-    const nuncaIdx = block.search(/\bNUNCA\b/);
-    const deleteIdx = block.indexOf('delete-issue');
-    assert.ok(deleteIdx >= 0,
+  it('RC7 (REPORT-07): block names `delete-issue`, la call prohibida por la política append-only', () => {
+    // D-07. El nombre de la call es contrato: si el bloque deja de nombrarla, el agente no
+    // sabe cuál es la llamada que no debe hacer. KODO-71 retira el énfasis «NUNCA» y la
+    // comprobación de proximidad a 200 chars: eso medía la maquetación del párrafo.
+    assert.ok(block.includes('delete-issue'),
       'block must mention `delete-issue` literally (the forbidden call)');
-    assert.ok(Math.abs(nuncaIdx - deleteIdx) < 200,
-      `NUNCA and delete-issue must be near each other (NUNCA at ${nuncaIdx}, delete-issue at ${deleteIdx})`);
   });
 
   it('RC8 (REPORT-07): block instructs cancelled status for orphaned phases', () => {
@@ -444,11 +440,10 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
       'block must instruct transitioning to "cancelled" for re-planned phases');
   });
 
-  it('RC9 (REPORT-08): block opens validation section with HARD STEP marker', () => {
-    // D-13: "HARD STEP" capitalized to ensure agent does not skip.
-    assert.ok(/HARD STEP/.test(block),
-      'block must contain "HARD STEP" (validation reminder D-13)');
-  });
+  // KODO-71: aquí vivía RC9, que pineaba el marcador de énfasis «HARD STEP» (D-13). Es
+  // prosa: subrayar un paso con otra fórmula no cambia el contrato del reporting. Lo que
+  // ese apartado tiene de verificable —que la validación va antes del verify gate— ya lo
+  // cubre RC5 con el vocabulario de lifecycle.
 
   it('RC10 (REPORT-04..08, D-14): block defines MCP failure log with exact literal', () => {
     // D-14: log literal "[kodo:reporting] MCP failure on phase N: <error>".
@@ -462,13 +457,13 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
       'block must define capability gap log line exactly (em-dash included)');
   });
 
-  it('RC12 (REPORT-04, D-08): block clarifies quick mode does NOT create sub-issues', () => {
-    // D-08: quick lifecycle differs; D-CONTEXT specifies "En sesiones GSD `quick` ... NO crees sub-issue".
-    assert.ok(/quick/i.test(block),
-      'block must mention quick mode handling');
-    // Either "no crees sub-issue" or "no se crea" or similar negation near "quick".
-    assert.ok(/quick[\s\S]{0,200}(no\s+cre|no\s+se\s+crea|no\s+aplica)/i.test(block),
-      'block must instruct that quick sessions do not create sub-issues');
+  it('RC12 (REPORT-04, D-08): block addresses quick sessions by their tag', () => {
+    // D-08: el lifecycle quick difiere. El ancla es `[GSD quick]`, el tag que emite
+    // `buildContextSummary` y por el que el agente reconoce esas sesiones — contrato
+    // cruzado con launch.js. KODO-71 retira el regex de negación en prosa
+    // (`quick … no crees/no aplica`), que pineaba una redacción concreta.
+    assert.ok(block.includes('[GSD quick]'),
+      'block must address quick sessions by the tag buildContextSummary emits');
   });
 
   it('RC13 (D-12): block specifies initial body with Goal:, PLAN dir:, Plans:', () => {
@@ -479,12 +474,10 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
   });
 
   it('RC14 (D-10): block instructs dedup via list-issues filtered by parent_id and label', () => {
+    // KODO-71: sólo el nombre de la call. El verbo de dedup («REUSA»/«dedup»/«reusar»)
+    // era prosa; parent_id (RC2) y kodo:gsd-child (RC1) ya fijan el filtro del dedup.
     assert.ok(block.includes('list-issues'),
       'dedup step must reference list-issues call');
-    // Already verified parent_id (RC2) and kodo:gsd-child (RC1) are in block;
-    // here we just verify dedup verb appears.
-    assert.ok(/REUSA|dedup|reuses?|reusar/i.test(block),
-      'dedup intent must be verbalized');
   });
 
   it('RC15: source-hygiene — block does NOT contain forbidden English prompt phrases (PM7 sub-scoped)', () => {
@@ -502,9 +495,17 @@ describe('REPORT-03 — Sub-issue reporting block ABSENT when flag=false', () =>
     false,
   );
 
-  it('RA1: stripped prompt has no Sub-issue reporting heading', () => {
-    assert.ok(!stripped.includes('Sub-issue reporting'),
-      'flag=false must remove the entire reporting section');
+  // KODO-71: los asertos de aquí sondean el bloque por sus MARCADORES y por los literales
+  // que sólo viven dentro de él (label y logs). Que NINGUNA línea del cuerpo sobreviva al
+  // gate lo comprueba `test/prompt.test.js` (SR4) derivándolo del propio fichero — aquí no
+  // se repite, y por eso las sondas de prosa («NUNCA», «HARD STEP», el heading) ya no están:
+  // reescribir el bloque no debe poner la suite roja, romper el gate sí.
+
+  it('RA1: los marcadores del bloque desaparecen con él', () => {
+    assert.ok(!stripped.includes('<!-- BEGIN reporting -->'),
+      'flag=false must remove the BEGIN marker');
+    assert.ok(!stripped.includes('<!-- END reporting -->'),
+      'flag=false must remove the END marker');
   });
 
   it('RA2: stripped prompt has no kodo:gsd-child references', () => {
@@ -514,27 +515,17 @@ describe('REPORT-03 — Sub-issue reporting block ABSENT when flag=false', () =>
       'flag=false must remove kodo:gsd-child references (only appear in the gated block today)');
   });
 
-  it('RA3: stripped prompt has no NUNCA capitalized', () => {
-    assert.ok(!/\bNUNCA\b/.test(stripped),
-      'flag=false must remove the NUNCA append-only directive (only inside gated block)');
-  });
-
-  it('RA4: stripped prompt has no HARD STEP marker', () => {
-    assert.ok(!/HARD STEP/.test(stripped),
-      'flag=false must remove the HARD STEP validation reminder');
-  });
-
   it('RA5: stripped prompt has no [kodo:reporting] log directives', () => {
     assert.ok(!stripped.includes('[kodo:reporting]'),
       'flag=false must remove all [kodo:reporting] log directives');
   });
 
-  it('RA6: stripped prompt PRESERVES the unrelated "## Sesiones GSD" section intact', () => {
-    assert.ok(stripped.includes('## Sesiones GSD'),
-      'pre-existing GSD section must survive');
+  it('RA6: el contrato GSD preexistente sobrevive al gate', () => {
+    // KODO-71: se pinean el comando y la label, no el heading «## Sesiones GSD» ni la
+    // frase «Sesiones quick». Si el gate se comiera de más, estos dos caen.
     assert.ok(stripped.includes('kodo gsd verify <session-id>'),
       'pre-existing GSD command snippet must survive');
-    assert.ok(stripped.includes('Sesiones quick'),
-      'pre-existing quick subsection must survive');
+    assert.ok(stripped.includes('kodo:gsd-quick'),
+      'la label que lanza sesiones quick debe sobrevivir');
   });
 });

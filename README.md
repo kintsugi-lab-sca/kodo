@@ -1119,6 +1119,9 @@ documented no-op.
 npm test
 ```
 
+Conventions for writing them — in particular the rule for asserting on prompt and skill
+text (pin the contract, never the prose) — live in [`test/CONVENTIONS.md`](test/CONVENTIONS.md).
+
 ## License
 
 MIT

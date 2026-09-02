@@ -111,8 +111,11 @@ describe('REPORT-03 — applyReportingGate helper (gating infrastructure)', () =
   it('LG7: applies to the real prompt.md — flag=false strips the section completely', () => {
     const real = readFileSync('src/orchestrator/prompt.md', 'utf-8');
     const stripped = applyReportingGate(real, false);
-    assert.ok(!stripped.includes('Sub-issue reporting'),
-      'real prompt with flag=false must not mention "Sub-issue reporting"');
+    // KODO-71: la sonda es la label del dispatcher, que sólo vive dentro del bloque —
+    // no el heading «Sub-issue reporting», que es prosa reescribible. Que ninguna línea
+    // del cuerpo sobreviva lo verifica `test/prompt.test.js` (SR4).
+    assert.ok(!stripped.includes('kodo:gsd-child'),
+      'real prompt with flag=false must not keep the block-only label');
     assert.ok(!stripped.includes('<!-- BEGIN reporting -->'),
       'BEGIN marker must be absent from stripped real prompt');
     assert.ok(!stripped.includes('<!-- END reporting -->'),
