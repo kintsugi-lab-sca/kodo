@@ -210,7 +210,79 @@ describe('KODO-73: PlaneProvider.listBlockers', () => {
     assert.equal(blocker.ref, 'blk-x');
   });
 
-  it('los errores PROPAGAN — el fail-open lo decide el gate del dispatcher', async () => {
+  // FALLO PARCIAL. Un bloqueador ilegible (borrado → 404, proyecto sin permiso → 403) no
+  // puede tirar el gate entero al fail-open: la relación existe, el tablero afirmó el
+  // bloqueo. Entra como `unknown`, que la regla trata como ABIERTO, y los bloqueadores
+  // legibles se siguen resolviendo con normalidad.
+  it('un bloqueador ilegible entra como "unknown" sin arrastrar a los demás', async () => {
+    const original = globalThis.fetch;
+    // @ts-ignore — override acotado al caller.
+    globalThis.fetch = async (url) => {
+      const path = new URL(url).pathname;
+      const json = (body) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      if (path.endsWith(`/work-items/${TASK.id}/relations/`)) {
+        return json(
+          relations({
+            blocked_by: [
+              { project_id: PROJ, issue_id: 'blk-gone' },
+              { project_id: PROJ, issue_id: 'blk-open' },
+            ],
+          }),
+        );
+      }
+      // El borrado: 404 permanente, no un fallo transitorio de transporte.
+      if (path.endsWith('/work-items/blk-gone/')) {
+        return new Response('{"error":"not found"}', { status: 404 });
+      }
+      if (path.endsWith('/work-items/blk-open/')) {
+        return json({
+          id: 'blk-open',
+          sequence_id: 7,
+          state: 'st-todo',
+          project_detail: { id: PROJ, identifier: 'TST' },
+        });
+      }
+      if (path.endsWith('/states/')) return json({ results: STATES });
+      throw new Error(`plane stub miss: ${path}`);
+    };
+    stub = { calls: [], restore: () => { globalThis.fetch = original; } };
+
+    const provider = createPlaneProvider(MOCK_CONFIG);
+    const blockers = await provider.listBlockers(TASK);
+
+    assert.deepEqual(blockers, [
+      { id: 'blk-gone', ref: 'blk-gone', state: 'unknown' },
+      { id: 'blk-open', ref: 'TST-7', state: 'in_progress' },
+    ]);
+  });
+
+  it('si TODOS los bloqueadores son ilegibles, siguen contando como abiertos', async () => {
+    const original = globalThis.fetch;
+    // @ts-ignore — override acotado al caller.
+    globalThis.fetch = async (url) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith(`/work-items/${TASK.id}/relations/`)) {
+        return new Response(
+          JSON.stringify(relations({ blocked_by: [{ project_id: PROJ, issue_id: 'blk-gone' }] })),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('{"error":"forbidden"}', { status: 403 });
+    };
+    stub = { calls: [], restore: () => { globalThis.fetch = original; } };
+
+    const provider = createPlaneProvider(MOCK_CONFIG);
+    const blockers = await provider.listBlockers(TASK);
+    // Lo que NO debe pasar: lanzar por rechazo (fail-open) cuando el tablero declara
+    // un bloqueo que simplemente no podemos leer.
+    assert.deepEqual(blockers, [{ id: 'blk-gone', ref: 'blk-gone', state: 'unknown' }]);
+  });
+
+  it('los errores de /relations/ PROPAGAN — el fail-open lo decide el gate del dispatcher', async () => {
     const original = globalThis.fetch;
     // 404, no un throw: un error de transporte dispararía el retry con backoff del
     // cliente y este test tardaría segundos en comprobar algo que no es el retry.

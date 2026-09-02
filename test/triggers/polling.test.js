@@ -671,6 +671,72 @@ describe('startPolling — POLL-03 dispatch patterns + idempotency + fire-and-fo
     assert.equal(client.calls.listIssues.length, 2, 'segundo tick disparado pese al rechazo');
   });
 
+  // KODO-73. El bug que arregla: `confirmDispatch` contaba CUALQUIER resolución como
+  // confirmada, así que un veredicto de bloqueo enterraba el cursor por encima de la
+  // tarea. Y como cerrar el bloqueador NO toca el `updated_at` de la tarea bloqueada,
+  // esta no volvía a disparar JAMÁS — la re-elegibilidad automática que promete el
+  // README no existía en el carril de polling.
+  it('KODO-73: veredicto blocked_by_open NO confirma — el cursor no entierra la tarea bloqueada', async () => {
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        'octocat/r1': { last_updated_at: '2026-05-14T05:00:00Z', observed: true },
+      }),
+    );
+    const { clock, advance } = createTestClock();
+    const logger = makeFakeLogger(events);
+    const client = makeFakeClient({
+      listIssues: async () => ({
+        status: 200,
+        items: [makeIssue({ number: 1, updated_at: '2026-05-14T10:00:00Z' })],
+        etag: 'W/"x"',
+        rate_limit_remaining: 5000,
+      }),
+    });
+    handle = startPolling({
+      client,
+      // Resuelve LIMPIAMENTE — no rechaza ni vence. Sin el caso especial de KODO-73
+      // esto contaría como confirmado y el cursor saltaría a 10:00:00Z.
+      dispatchTriggerFn: async () => ({
+        action: 'ignored',
+        code: 'blocked_by_open',
+        detail: 'KL-7',
+      }),
+      dispatchTimeoutMs: 5000,
+      logger,
+      repos: [{ owner: 'octocat', repo: 'r1' }],
+      intervalSec: 60,
+      clock,
+      statePath,
+    });
+    await drainMicrotasks();
+    await drainMicrotasks();
+
+    const cache = JSON.parse(readFileSync(statePath, 'utf-8'));
+    assert.equal(
+      cache['octocat/r1'].last_updated_at,
+      '2026-05-14T05:00:00Z',
+      'el cursor NO debe avanzar sobre una tarea bloqueada',
+    );
+
+    // Un bloqueo es una condición normal del tablero, no un fallo del carril: NO debe
+    // ensuciar polling.error, que existe para diagnosticar rechazos y timeouts.
+    const failed = events.filter(
+      (e) => e.msg === 'polling.error' && e.error === 'dispatch-unconfirmed',
+    );
+    assert.deepEqual(
+      failed,
+      [],
+      `un bloqueo no debe emitir polling.error; got: ${JSON.stringify(failed)}`,
+    );
+
+    // Y lo que da sentido a todo lo anterior: el siguiente tick vuelve a evaluarla, que
+    // es el tick en que el bloqueador podría haber cerrado.
+    await advance(60_000);
+    await drainMicrotasks();
+    assert.equal(client.calls.listIssues.length, 2, 'la tarea bloqueada se re-evalúa');
+  });
+
   it('PR filter (Pitfall #2 / T-25-05): issues with pull_request !== null are skipped', async () => {
     writeFileSync(
       statePath,

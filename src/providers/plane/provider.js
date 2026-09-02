@@ -428,9 +428,18 @@ export function createPlaneProvider(config, opts = {}) {
     // usa ese, no el de la tarea. Por eso `resolveStateLiteral` refresca la caché de
     // estados ante un miss — el proyecto del bloqueador puede no estar ni configurado.
     //
-    // Los errores PROPAGAN. El fail-open lo decide el gate del dispatcher, que es quien
-    // sabe que un `/relations/` caído debe degradar al comportamiento anterior a KODO-73
-    // en vez de dejar al daemon sin lanzar nada.
+    // DOS NIVELES DE ERROR, y la distinción es load-bearing:
+    //
+    //   - Fallo de `/relations/` → PROPAGA. Es ignorancia TOTAL: no sabemos si la tarea
+    //     tiene bloqueadores. El gate del dispatcher lo convierte en fail-open, que es la
+    //     degradación correcta — un endpoint caído no puede dejar al daemon sin lanzar.
+    //
+    //   - Fallo al leer UN bloqueador (404 de un item borrado, 403 de un proyecto sin
+    //     permiso) → se captura y ese bloqueador entra como `unknown`, que la regla trata
+    //     como ABIERTO. Aquí NO hay ignorancia total: la relación existe, el tablero
+    //     afirmó el bloqueo. Dejarlo propagar tiraría el gate entero al fail-open y
+    //     lanzaría la tarea aunque OTRO bloqueador estuviera abierto y perfectamente
+    //     legible — un item borrado desactivaría el gate de esa tarea para siempre.
     async listBlockers(task) {
       const relations = await client.listRelations(task.projectId, task.id);
       const blockedBy = Array.isArray(relations?.blocked_by) ? relations.blocked_by : [];
@@ -441,17 +450,24 @@ export function createPlaneProvider(config, opts = {}) {
         const id = rel?.issue_id || rel?.id;
         if (!id) continue;
         const projectId = rel?.project_id || task.projectId;
-        const workItem = await client.getWorkItem(projectId, id);
-        const identifier =
-          workItem?.project_detail?.identifier ||
-          configuredProjects.find((p) => p.id === projectId)?.identifier;
-        blockers.push({
-          id,
-          // Sin identifier resoluble no hay ref honesto: se cae al UUID antes que
-          // publicar un `UNKNOWN-7` que el operador no puede buscar en el tablero.
-          ref: identifier && workItem?.sequence_id ? `${identifier}-${workItem.sequence_id}` : id,
-          state: await resolveStateLiteral(projectId, workItem?.state),
-        });
+        try {
+          const workItem = await client.getWorkItem(projectId, id);
+          const identifier =
+            workItem?.project_detail?.identifier ||
+            configuredProjects.find((p) => p.id === projectId)?.identifier;
+          blockers.push({
+            id,
+            // Sin identifier resoluble no hay ref honesto: se cae al UUID antes que
+            // publicar un `UNKNOWN-7` que el operador no puede buscar en el tablero.
+            ref: identifier && workItem?.sequence_id ? `${identifier}-${workItem.sequence_id}` : id,
+            state: await resolveStateLiteral(projectId, workItem?.state),
+          });
+        } catch (err) {
+          warn(
+            `No se pudo leer el bloqueador ${id} de ${task.ref}: ${/** @type {any} */ (err)?.message ?? err}. Cuenta como ABIERTO.`,
+          );
+          blockers.push({ id, ref: id, state: 'unknown' });
+        }
       }
       return blockers;
     },

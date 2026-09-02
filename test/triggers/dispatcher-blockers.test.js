@@ -233,6 +233,30 @@ describe('KODO-73: gate de bloqueos del dispatcher', () => {
     assert.deepEqual(launched, [true]);
   });
 
+  // El fall-through del gate olvidaba la firma anunciada SIEMPRE, también cuando se
+  // llegaba ahí por sonda fallida (`blockers === null`). Efecto: cada fallo de red
+  // reseteaba el dedup y el siguiente bloqueo re-comentaba lo mismo, convirtiendo
+  // «un aviso por conjunto» en «un aviso por cada fallo de red».
+  it('una sonda fallida NO borra la firma anunciada', async () => {
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
+    let failing = false;
+    const { provider, comments } = fakeProvider({ blockers: [] });
+    // @ts-ignore — capacidad dinámica.
+    provider.listBlockers = async () => {
+      if (failing) throw new Error('relations 503');
+      return OPEN;
+    };
+    const deps = makeDeps(provider, launched);
+
+    await dispatchTrigger(EVENT, {}, deps);   // bloqueada → comenta (1)
+    failing = true;
+    await dispatchTrigger(EVENT, {}, deps);   // sonda falla → fail-open, lanza, NO olvida
+    failing = false;
+    await dispatchTrigger(EVENT, {}, deps);   // vuelve a estar bloqueada, MISMA firma
+
+    assert.equal(comments.length, 1, `la firma debía sobrevivir al fallo; hubo ${comments.length}`);
+  });
+
   it('un CONJUNTO distinto de bloqueadores vuelve a comentar', async () => {
     const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
     let current = OPEN;

@@ -76,6 +76,7 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from '
 import { join, dirname } from 'node:path';
 
 import { dispatchTrigger } from './dispatcher.js';
+import { SKIP_BLOCKED } from '../blockers.js';
 import { normalizeIssue } from '../providers/github/normalize.js';
 import { EVENTS, pollingTick, pollingDispatch, pollingError, pollingTickSummary } from '../logger-events.js';
 import { KODO_DIR } from '../config.js';
@@ -332,16 +333,37 @@ async function processRepo({
    *
    * Race entre `dispatchFn` y un timeout basado en `clock.setTimeout` (NO
    * `globalThis.setTimeout`) para que el clock virtual de los tests lo controle.
-   * "Confirmado" = la promesa RESUELVE (cualquier `action`) antes del timeout.
-   * "No confirmado" = rechaza O vence el timeout. NUNCA relanza (never-throws /
-   * warn-and-continue) — el vencimiento cuenta como reintento, no como error
-   * fatal del tick (Pitfall #4: un dispatch colgado congelaría el loop
-   * recursivo). El webhook (`src/triggers/webhook.js`) SÍ sigue fire-and-forget.
+   * "Confirmado" = la promesa RESUELVE antes del timeout con un veredicto que CONSUME
+   * el evento. "No confirmado" = rechaza, vence el timeout, o resuelve con un veredicto
+   * que NO lo consume. NUNCA relanza (never-throws / warn-and-continue) — el vencimiento
+   * cuenta como reintento, no como error fatal del tick (Pitfall #4: un dispatch colgado
+   * congelaría el loop recursivo). El webhook (`src/triggers/webhook.js`) SÍ sigue
+   * fire-and-forget.
+   *
+   * KODO-73 — LA EXCEPCIÓN AL «cualquier action confirma». Un veredicto `blocked_by_open`
+   * resuelve limpiamente, pero el trabajo NO se ha hecho ni se hará solo: el watermark es
+   * un cursor sobre `updated_at`, y cerrar el bloqueador NO toca el `updated_at` de la
+   * tarea bloqueada. Contarlo como confirmado enterraba el cursor por encima de ella y la
+   * dejaba varada PARA SIEMPRE — la re-elegibilidad automática no existía. Devolviéndolo
+   * como no-confirmado, su `updated_at` entra en `failedUpdatedAts` y el cursor se queda
+   * por debajo, así que cada tick vuelve a evaluarla y el tick en que el bloqueador cierre
+   * la lanza.
+   *
+   * PRECIO, explícito: mientras la tarea siga bloqueada el cursor no avanza por encima de
+   * ella, así que cada tick re-evalúa también las tareas pendientes más recientes. Son las
+   * que `listPendingTasks` ya devuelve (estado trigger + etiqueta + asignado), un puñado,
+   * y las que ya tienen sesión salen por `already_active`. Es el mismo precio que el
+   * mecanismo DELIV-01 ya paga por cualquier dispatch no confirmado; la alternativa era
+   * una promesa falsa.
+   *
+   * `blocked` viaja aparte de `ok` porque el call site NO debe emitir
+   * `polling.error dispatch-unconfirmed` por esto: un bloqueo es una condición NORMAL y
+   * esperada del tablero, no un fallo del carril de dispatch.
    *
    * @param {import('../interface.js').TriggerEvent} event
    * @param {Clock} clk
    * @param {number} timeoutMs
-   * @returns {Promise<{ ok: boolean }>}
+   * @returns {Promise<{ ok: boolean, blocked?: boolean }>}
    */
   async function confirmDispatch(event, clk, timeoutMs) {
     /** @type {any} */
@@ -350,7 +372,10 @@ async function processRepo({
       timer = clk.setTimeout(() => reject(new Error('dispatch-timeout')), timeoutMs);
     });
     try {
-      await Promise.race([dispatchFn(event, {}), timeout]);
+      const verdict = await Promise.race([dispatchFn(event, {}), timeout]);
+      if (/** @type {any} */ (verdict)?.code === SKIP_BLOCKED) {
+        return { ok: false, blocked: true };
+      }
       return { ok: true };
     } catch {
       return { ok: false };
@@ -478,7 +503,11 @@ async function processRepo({
           dispatched++;
         } else {
           if (issue.updated_at) failedUpdatedAts.push(issue.updated_at);
-          if (logger) {
+          // KODO-73: un bloqueo NO es un fallo del carril de dispatch. Retiene el cursor
+          // igual que cualquier no-confirmado —eso es lo que hace que la tarea se vuelva
+          // a evaluar cada tick— pero sin ensuciar `polling.error`, que existe para
+          // diagnosticar rechazos y timeouts, no condiciones normales del tablero.
+          if (logger && !res.blocked) {
             pollingError(logger, {
               owner,
               repo,

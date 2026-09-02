@@ -435,7 +435,13 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
     }
     // Ya no está bloqueada: se olvida lo anunciado para que un bloqueo que reaparezca
     // vuelva a avisar en vez de quedarse mudo por una firma vieja.
-    forgetAnnouncedBlock(task.id);
+    //
+    // SOLO con lectura BUENA (`Array.isArray`), y esa condición es el arreglo de un bug
+    // real: a este punto también se llega con `blockers === null` cuando la sonda falló,
+    // y olvidar ahí borraría la firma de un bloqueo que sigue vigente. El siguiente tick
+    // volvería a comentar lo mismo, y el contrato de «un aviso por conjunto» se
+    // convertiría en «un aviso por cada fallo de red».
+    if (Array.isArray(blockers)) forgetAnnouncedBlock(task.id);
   }
 
   // 3. In-flight guard — prevents duplicate dispatches for the same task
