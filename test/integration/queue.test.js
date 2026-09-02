@@ -28,6 +28,8 @@ let resolveIntegration;
 let listIntegrationQueue;
 /** @type {typeof import('../../src/integration/queue.js').findPendingIntegration} */
 let findPendingIntegration;
+/** @type {typeof import('../../src/integration/queue.js').countPendingForProject} */
+let countPendingForProject;
 let RESOLVED_CAP;
 
 const STATE_REL = ['.kodo', 'state.json'];
@@ -71,6 +73,7 @@ describe('cola de integración — store sobre state.json', () => {
     resolveIntegration = mod.resolveIntegration;
     listIntegrationQueue = mod.listIntegrationQueue;
     findPendingIntegration = mod.findPendingIntegration;
+    countPendingForProject = mod.countPendingForProject;
     RESOLVED_CAP = mod.RESOLVED_CAP;
   });
 
@@ -223,6 +226,44 @@ describe('cola de integración — store sobre state.json', () => {
     writeFileSync(join(tmpHome, ...STATE_REL), '{ esto no es json');
     assert.deepEqual(listIntegrationQueue({}), []);
     assert.equal(findPendingIntegration('KODO-26'), null);
+  });
+
+  // ── KODO-72: el contador por repo que alimenta el aviso del dispatcher ──────────────────
+  describe('countPendingForProject', () => {
+    it('cuenta SOLO las pending del repo pedido — las de otro repo no suman', () => {
+      enqueueIntegration(input({ branch: 'rama-1' }));
+      enqueueIntegration(input({ branch: 'rama-2' }));
+      enqueueIntegration(input({ project_path: '/repo/otro', branch: 'rama-3' }));
+
+      assert.equal(countPendingForProject('/repo/kodo'), 2);
+      assert.equal(countPendingForProject('/repo/otro'), 1);
+      assert.equal(countPendingForProject('/repo/inexistente'), 0);
+    });
+
+    it('las RESUELTAS no cuentan: la traza no es presión de integración', () => {
+      enqueueIntegration(input({ branch: 'rama-1' }));
+      enqueueIntegration(input({ branch: 'rama-2' }));
+      resolveIntegration('rama-1', { action: 'ff', outcome: 'merged', sha: 'abc' });
+
+      assert.equal(countPendingForProject('/repo/kodo'), 1);
+    });
+
+    it('cola vacía / clave ausente → 0 (y el listado NO crea la clave)', () => {
+      assert.equal(countPendingForProject('/repo/kodo'), 0);
+      assert.equal(readRawState().integration_queue, undefined);
+    });
+
+    it('FAIL-OPEN: un state.json corrupto cuenta 0, nunca lanza', () => {
+      writeFileSync(join(tmpHome, ...STATE_REL), '{ esto no es json');
+      assert.equal(countPendingForProject('/repo/kodo'), 0);
+    });
+
+    it('un path vacío o no-string cuenta 0 sin mirar la cola', () => {
+      enqueueIntegration(input({ branch: 'rama-1' }));
+      assert.equal(countPendingForProject(''), 0);
+      assert.equal(countPendingForProject(/** @type {any} */ (null)), 0);
+      assert.equal(countPendingForProject(/** @type {any} */ (undefined)), 0);
+    });
   });
 
   it('el logger recibe telemetría SIN contenido de negocio más allá de ref/rama/tier', () => {

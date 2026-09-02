@@ -306,3 +306,39 @@ export function findPendingIntegration(ref, deps = {}) {
   const pending = listIntegrationQueue({}, deps);
   return pending.find((e) => e.task_ref === ref) || pending.find((e) => e.branch === ref) || null;
 }
+
+/**
+ * Counts the PENDING entries of the queue that belong to ONE repo (KODO-72).
+ *
+ * Its consumer is the dispatcher's integration-pressure notice: before launching a task onto a
+ * repo, knowing how many of its branches are still unintegrated. It is a NOTICE, never a block —
+ * hence this function only knows how to count and carries no verdict whatsoever.
+ *
+ * ZERO GIT CALLS, by construction: the datum already lives in `state.json`, in the very block the
+ * orchestrator's round reads in its step 1. Asking git how many branches are unmerged would cost a
+ * `git for-each-ref` per launch AND would answer a different question (branches that exist ≠
+ * branches somebody asked to integrate).
+ *
+ * FAIL-OPEN, inherited from `listIntegrationQueue`, which is never-throws end to end: an unreadable
+ * queue (missing file, corrupt JSON, key of another type) yields `[]` and here translates into `0`
+ * — that is, into "no notice" and a launch identical to the usual one. That a state-read problem
+ * CANNOT hold back a launch is the whole point of the notice.
+ *
+ * The comparison is exact string equality, deliberately: it is the same criterion by which
+ * `entryKey` defines an entry's identity and by which `listSessionsForPath` (state.js) matches
+ * sessions to their repo. Normalising here (resolve, realpath, case-folding) would introduce a
+ * third definition of "same repo" that the other two do not share — and a disagreement between
+ * them would be far worse than a notice that fails to fire.
+ *
+ * @param {string} projectPath Target repo path, exactly as the dispatcher resolved it.
+ * @param {{ loadStateFn?: typeof loadState }} [deps]
+ * @returns {number} `pending` entries of THAT repo. `0` if the path is empty or the queue is unreadable.
+ */
+export function countPendingForProject(projectPath, deps = {}) {
+  if (typeof projectPath !== 'string' || projectPath === '') return 0;
+  let n = 0;
+  for (const e of listIntegrationQueue({}, deps)) {
+    if (e && e.project_path === projectPath) n++;
+  }
+  return n;
+}
