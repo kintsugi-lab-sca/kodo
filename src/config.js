@@ -245,7 +245,11 @@ const DEFAULT_CONFIG = {
           opus: 'opencode/claude-opus-5',
           sonnet: 'opencode/claude-sonnet-5',
           haiku: 'opencode/claude-haiku-4-5',
-          fable: 'opencode/claude-fable-5',
+          // KODO-82: el ORQUESTADOR va en Fable 5.1 (`claude.orchestrator_model`), y
+          // aquí no hay alias flotante que lo resuelva — OpenCode exige el id exacto.
+          // `opencode/claude-fable-5` es Fable 5.0: dejarlo degradaría al ORCH una
+          // versión entera en el carril OpenCode. VERIFICADO con `opencode models`.
+          fable: 'opencode/claude-fable-5-1',
         },
         session_id_flag: null,
         resume: { style: 'flag', token: '--session' },
@@ -782,6 +786,30 @@ export function getAgentDef(config, name) {
   const agents = config?.agents || DEFAULT_CONFIG.agents;
   const key = name || agents.default || 'claude-code';
   return agents.registry?.[key] || DEFAULT_CONFIG.agents.registry['claude-code'];
+}
+
+/**
+ * Traduce el modelo de kodo ('opus') al identificador que espera el agente, según el
+ * `model_map` de su definición (KODO-19).
+ *
+ * Sin mapa —o con un modelo que no está en él— se devuelve VERBATIM. Ese passthrough
+ * es la mitad útil de la función: hace que `--model anthropic/claude-sonnet-4-5` o
+ * `kodo config set claude.default_model <id-nativo>` funcionen sin tocar el registro,
+ * y garantiza que un agente sin `model_map` (Claude Code) se comporte exactamente
+ * como antes de esta tarea.
+ *
+ * KODO-82: vive aquí, junto a `getAgentDef` y al registro que lee, y NO en
+ * `session/manager.js`. Los DOS carriles que construyen comando —el de trabajo
+ * (`buildAgentCommand`) y el del orquestador (`buildOrchestratorCommand`)— la
+ * necesitan, y `orchestrator/launch.js` no puede importar `manager.js` sin arrastrar
+ * el registro de providers entero. `manager.js` la reexporta por compatibilidad.
+ *
+ * @param {string} model
+ * @param {{ model_map?: Record<string, string> }} agent
+ * @returns {string}
+ */
+export function mapAgentModel(model, agent) {
+  return agent?.model_map?.[model] || model;
 }
 
 /**

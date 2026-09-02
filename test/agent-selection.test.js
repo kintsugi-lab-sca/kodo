@@ -168,6 +168,8 @@ describe('KODO-19 · mapAgentModel', () => {
     assert.equal(mapAgentModel('opus', oc), 'opencode/claude-opus-5');
     assert.equal(mapAgentModel('sonnet', oc), 'opencode/claude-sonnet-5');
     assert.equal(mapAgentModel('haiku', oc), 'opencode/claude-haiku-4-5');
+    // KODO-82: `fable` es el modelo del ORQUESTADOR y debe ser 5.1, no 5.0.
+    assert.equal(mapAgentModel('fable', oc), 'opencode/claude-fable-5-1');
   });
 
   test('un modelo fuera del mapa pasa VERBATIM (passthrough)', () => {

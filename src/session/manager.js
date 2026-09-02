@@ -1,7 +1,7 @@
 // @ts-check
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { loadConfig, loadProjects, getAgentDef } from '../config.js';
+import { loadConfig, loadProjects, getAgentDef, mapAgentModel } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
 import { parseKodoLabels, getGsdMode, getAgentName } from '../labels.js';
 // KODO-19: el bloque de contexto de sesión. Con Claude Code lo inyecta su hook
@@ -958,23 +958,11 @@ export function resolveAgentName(flags, taskRef = '?') {
   return requested;
 }
 
-/**
- * Traduce el modelo de kodo ('opus') al identificador que espera el agente, según el
- * `model_map` de su definición (KODO-19).
- *
- * Sin mapa —o con un modelo que no está en él— se devuelve VERBATIM. Ese passthrough
- * es la mitad útil de la función: hace que `--model anthropic/claude-sonnet-4-5` o
- * `kodo config set claude.default_model <id-nativo>` funcionen sin tocar el registro,
- * y garantiza que un agente sin `model_map` (Claude Code) se comporte exactamente
- * como antes de esta tarea.
- *
- * @param {string} model
- * @param {{ model_map?: Record<string, string> }} agent
- * @returns {string}
- */
-export function mapAgentModel(model, agent) {
-  return agent?.model_map?.[model] || model;
-}
+// KODO-82: `mapAgentModel` se mudó a config.js —junto a `getAgentDef` y al registro
+// que lee— porque el carril del ORQUESTADOR (orchestrator/launch.js) también la
+// necesita y no puede importar este módulo sin arrastrar el registro de providers.
+// Se reexporta para no romper a quien la importaba de aquí.
+export { mapAgentModel };
 
 /**
  * Resuelve el agente para un host que ENTREGA el prompt al crear el workspace (KODO-31).

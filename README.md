@@ -1058,6 +1058,13 @@ job is to supervise and dispatch, not to implement. Change it with
 `kodo config --set claude.orchestrator_model=opus` or from the dashboard's
 editor (`e` → "Modelo del orquestador").
 
+`fable` is the alias `claude --model` documents for "the latest Fable", which today
+resolves to **Fable 5.1** (`claude-fable-5-1`). kodo keeps the alias rather than pinning
+the version, so the orchestrator follows the newest Fable without a config edit. On
+OpenCode, which takes `provider/model` identifiers and has no such alias, the pin is
+explicit in `agents.registry.opencode.model_map` (`opencode/claude-fable-5-1`); the
+orchestrator applies that map exactly like work sessions do.
+
 Its skill (`.claude/skills/kodo-orchestrate/`) accumulates knowledge across
 sessions: API quirks, discovered mappings, validated processes. Before
 closing, the orchestrator updates the skill and the stop hook auto-commits the

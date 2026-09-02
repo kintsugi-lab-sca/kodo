@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 // sale de `src/paths.js` (KODO-43).
 import { homedir } from 'node:os';
 import { kodoDir, kodoPath } from '../paths.js';
-import { loadConfig, isReportToProviderEnabled, getAgentDef } from '../config.js';
+import { loadConfig, isReportToProviderEnabled, getAgentDef, mapAgentModel } from '../config.js';
 import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
@@ -277,6 +277,12 @@ export function applyReportingGate(prompt, enabled) {
  * que sí implementan. El `??` cubre un config parcial inyectado por un caller — `loadConfig`
  * rellena la clave por deep-merge, pero esta función no asume haber pasado por ahí.
  *
+ * KODO-82 — ese modelo pasa por `mapAgentModel` igual que en el carril de trabajo
+ * (`buildAgentCommand`). Sin la traducción, un `agents.default: 'opencode'` emitía
+ * `opencode --model fable` —un alias que OpenCode no reconoce— mientras las sesiones
+ * de trabajo sí traducían: el ORCH era el único carril que se saltaba el `model_map`.
+ * Para 'claude-code' (sin mapa) el passthrough deja el comando byte a byte como estaba.
+ *
  * El prompt se recibe CRUDO y se envuelve en comillas simples tras escapar las que
  * contenga (`'` → `'\''`): el comando se teclea por `cmux.send`, así que las simples son
  * las únicas que neutralizan `$`, backtick y `$(...)` del texto del prompt.
@@ -299,7 +305,8 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
     // Mecánica del registro de agentes (config.agents, getAgentDef) — para
     // 'claude-code' produce exactamente `claude --model <m> --session-id <sid>`.
     agent.binary,
-    agent.model_flag, config.claude.orchestrator_model ?? config.claude.default_model,
+    agent.model_flag,
+    mapAgentModel(config.claude.orchestrator_model ?? config.claude.default_model, agent),
     agent.session_id_flag, sessionId,
     ...(config.claude.flags ?? []),
     `'${escapedPrompt}'`,
