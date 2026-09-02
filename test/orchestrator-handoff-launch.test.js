@@ -26,6 +26,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { HANDOFF_HEADING } from '../src/orchestrator/handoff.js';
+import { CONTEXT_HEADING } from '../src/orchestrator/launch.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
@@ -137,18 +138,25 @@ describe('KODO-67 — el handoff entra en el prompt del orquestador y se consume
   it('SIN handoff: el prompt no menciona el encabezado y no aparece ningún consumido', async () => {
     const prompt = await runLaunch();
     assert.ok(!prompt.includes(HANDOFF_HEADING), 'sin fichero no se inyecta nada');
-    assert.ok(prompt.includes('Situación actual'), 'el prompt normal sí se compone');
+    // KODO-71: el prompt se compuso de verdad — se ancla en el CONTRATO (comando del gate
+    // GSD + encabezado exportado por launch.js), no en la prosa de `prompt.md`.
+    assert.ok(prompt.includes('kodo gsd verify <session-id>'), 'el prompt base entró entero');
+    assert.ok(prompt.includes(CONTEXT_HEADING), 'el resumen de estado se coló bajo su encabezado');
     assert.equal(consumedFiles().length, 0);
   });
 
   it('CON handoff: el contenido entra en el prompt, bajo su encabezado y al final', async () => {
-    writeFileSync(handoffFile, '**Sesiones vivas:** ninguna\n**Decisión pendiente:** merge de PR #55\n');
+    // KODO-71: el aserto se hace contra el CONTENIDO DEL FIXTURE, no contra una frase suya
+    // elegida a mano — así mide lo que importa (el fichero entra íntegro) y sobrevive a
+    // cualquier reescritura del texto de ejemplo.
+    const cuerpo = '**Sesiones vivas:** ninguna\n**Decisión pendiente:** merge de PR #55';
+    writeFileSync(handoffFile, `${cuerpo}\n`);
     const prompt = await runLaunch();
 
     assert.ok(prompt.includes(HANDOFF_HEADING), 'el encabezado del handoff está');
-    assert.ok(prompt.includes('Decisión pendiente'), 'el contenido del handoff está');
+    assert.ok(prompt.includes(cuerpo), 'el contenido del handoff entra íntegro');
     assert.ok(
-      prompt.indexOf(HANDOFF_HEADING) > prompt.indexOf('Situación actual'),
+      prompt.indexOf(HANDOFF_HEADING) > prompt.indexOf(CONTEXT_HEADING),
       'el handoff va DESPUÉS de la situación actual (lo más fresco, último)',
     );
   });

@@ -72,6 +72,17 @@ describe('resolvePromptTemplate', () => {
 describe('REPORT-03 — Sub-issue reporting section gating', () => {
   const raw = readFileSync(PROMPT_PATH, 'utf-8');
 
+  const BEGIN = '<!-- BEGIN reporting -->';
+  const END = '<!-- END reporting -->';
+
+  // KODO-71: el bloque se localiza por sus MARCADORES (contrato de gating), nunca por su
+  // encabezado ni por su prosa. Todo lo que sigue se deriva del propio fichero, así que
+  // reescribir la redacción de `prompt.md` no mueve ninguno de estos asertos.
+  const beginIdx = raw.indexOf(BEGIN);
+  const endIdx = raw.indexOf(END);
+  const block = raw.slice(beginIdx, endIdx + END.length);
+  const outside = raw.slice(0, beginIdx) + raw.slice(endIdx + END.length);
+
   it('SR1: raw prompt.md contains <!-- BEGIN reporting --> and <!-- END reporting --> markers exactly once each', () => {
     const beginMatches = raw.match(/<!-- BEGIN reporting -->/g) ?? [];
     const endMatches = raw.match(/<!-- END reporting -->/g) ?? [];
@@ -79,43 +90,62 @@ describe('REPORT-03 — Sub-issue reporting section gating', () => {
     assert.equal(endMatches.length, 1, 'exactly one END marker expected');
   });
 
-  it('SR2: reporting block appears AFTER "## Sesiones GSD" section (D-03 slot topológico)', () => {
-    const sessionsIdx = raw.indexOf('## Sesiones GSD');
-    const reportingIdx = raw.indexOf('<!-- BEGIN reporting -->');
-    assert.ok(sessionsIdx >= 0, 'sanity: ## Sesiones GSD must exist');
-    assert.ok(reportingIdx >= 0, 'sanity: BEGIN marker must exist');
-    assert.ok(reportingIdx > sessionsIdx,
-      `reporting block must come after ## Sesiones GSD (sessions at ${sessionsIdx}, reporting at ${reportingIdx})`);
+  it('SR2: el bloque de reporting va DESPUÉS del gate GSD (D-03 slot topológico)', () => {
+    // KODO-71: el ancla es el COMANDO del gate, no el encabezado «## Sesiones GSD».
+    // Lo que el slot garantiza es que el bloque opcional se añade detrás del contenido
+    // base; el nombre de la sección que lo precede es prosa y puede cambiar.
+    const gsdIdx = raw.indexOf('kodo gsd verify <session-id>');
+    assert.ok(gsdIdx >= 0, 'sanity: el comando del gate GSD debe existir en el prompt');
+    assert.ok(beginIdx >= 0, 'sanity: el marcador BEGIN debe existir');
+    assert.ok(beginIdx > gsdIdx,
+      `el bloque de reporting debe ir tras el gate GSD (gate en ${gsdIdx}, bloque en ${beginIdx})`);
   });
 
-  it('SR3: raw prompt.md contains heading "## Sub-issue reporting" inside markers', () => {
-    const beginIdx = raw.indexOf('<!-- BEGIN reporting -->');
-    const endIdx = raw.indexOf('<!-- END reporting -->');
-    const between = raw.substring(beginIdx, endIdx);
-    assert.ok(between.includes('## Sub-issue reporting'),
-      'heading must live INSIDE the markers');
+  it('SR3: el contrato del reporting vive DENTRO de los marcadores y sólo ahí', () => {
+    // KODO-71: sustituye al aserto sobre el encabezado «## Sub-issue reporting». Lo que
+    // hace apagable al bloque no es su título, sino que la label y los logs que sólo él
+    // usa no se hayan filtrado al resto del prompt.
+    assert.ok(block.includes('kodo:gsd-child'),
+      'la label del dispatcher debe vivir dentro de los marcadores');
+    assert.ok(block.includes('[kodo:reporting]'),
+      'los logs del reporting deben vivir dentro de los marcadores');
+    assert.equal(outside.includes('kodo:gsd-child'), false,
+      'la label NO puede aparecer fuera del bloque: el gate no podría retirarla');
+    assert.equal(outside.includes('[kodo:reporting]'), false,
+      'los logs NO pueden aparecer fuera del bloque: el gate no podría retirarlos');
   });
 
-  it('SR4: applyReportingGate(raw, true) preserves the block; (raw, false) strips it entirely', async () => {
+  it('SR4: gate(true) devuelve el prompt intacto; gate(false) borra el bloque ENTERO y nada más', async () => {
     const { applyReportingGate } = await import('../src/orchestrator/launch.js');
     const kept = applyReportingGate(raw, true);
     const stripped = applyReportingGate(raw, false);
 
-    assert.ok(kept.includes('## Sub-issue reporting'), 'flag=true must keep the heading');
-    assert.ok(kept.includes('<!-- BEGIN reporting -->'), 'flag=true must keep the BEGIN marker');
+    assert.equal(kept, raw, 'flag=true no toca una coma del prompt');
 
-    assert.ok(!stripped.includes('Sub-issue reporting'), 'flag=false must remove the heading and any prose mentioning it');
-    assert.ok(!stripped.includes('<!-- BEGIN reporting -->'), 'flag=false must remove the BEGIN marker');
-    assert.ok(!stripped.includes('<!-- END reporting -->'), 'flag=false must remove the END marker');
+    assert.ok(!stripped.includes(BEGIN) && !stripped.includes(END),
+      'flag=false se lleva también los marcadores');
+
+    // Ninguna línea del cuerpo sobrevive. Se derivan del fichero, así que el aserto sigue
+    // siendo válido cuando la redacción del bloque cambie.
+    for (const line of block.split('\n').map((l) => l.trim())) {
+      if (!line || outside.includes(line)) continue;
+      assert.ok(!stripped.includes(line), `línea del bloque superviviente al gate: ${line}`);
+    }
+
+    // Y lo de fuera queda intacto, byte a byte.
+    assert.ok(stripped.startsWith(raw.slice(0, beginIdx).trimEnd()),
+      'el prompt anterior al bloque sobrevive entero');
+    assert.ok(stripped.endsWith(raw.slice(endIdx + END.length).trimEnd()),
+      'el prompt posterior al bloque sobrevive entero');
   });
 
-  it('SR5: applyReportingGate(raw, false) preserves the "## Sesiones GSD" section (only the gated block disappears)', async () => {
+  it('SR5: el gate cerrado NO se lleva por delante el contrato preexistente', async () => {
     const { applyReportingGate } = await import('../src/orchestrator/launch.js');
     const stripped = applyReportingGate(raw, false);
-    assert.ok(stripped.includes('## Sesiones GSD'),
-      'pre-existing GSD section must survive the gate');
     assert.ok(stripped.includes('kodo gsd verify <session-id>'),
-      'pre-existing GSD command snippet must survive');
+      'el comando del gate GSD debe sobrevivir');
+    assert.ok(stripped.includes('{{provider_name}}'),
+      'los placeholders de sustitución deben sobrevivir');
   });
 
   it('SR6: PM7 invariant — block content (when flag=true) contains no English prompt phrases', () => {

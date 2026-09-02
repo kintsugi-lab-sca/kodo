@@ -21,6 +21,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = join(__dirname, 'prompt.md');
 export const ORCHESTRATOR_WORKSPACE_NAME = 'kodo-orchestrator';
 
+// KODO-71: encabezado bajo el que se cuelga el resumen de estado que kodo DERIVA de
+// `state.json`. Exportado —igual que `HANDOFF_HEADING`— para que los tests anclen en la
+// constante en vez de repetir el literal: reescribir el encabezado no debe poner la suite
+// roja, moverlo o quitarlo sí (el handoff se coloca DESPUÉS de él, y ese orden es contrato).
+export const CONTEXT_HEADING = '## Situación actual';
+
 // Ref persistido del orquestador. El daemon (POST /orchestrator) lo LEE de aquí en vez de
 // consultar cmux en vivo: `cmux workspace list` es window-scoped (limitación P-4) y el daemon
 // detached vive en otro window, así que una consulta en vivo jamás vería el ref del orquestador.
@@ -520,7 +526,7 @@ export async function launchOrchestrator(opts = {}) {
   // Sin fichero, `appendHandoff` devuelve el prompt IDÉNTICO: los goldens del prompt del
   // orquestador (test/prompt.test.js, test/orchestrator-gsd.test.js) no se mueven.
   const handoff = readHandoff();
-  const prompt = appendHandoff(`${basePrompt}\n\n## Situación actual\n\n${contextSummary}`, handoff?.text);
+  const prompt = appendHandoff(`${basePrompt}\n\n${CONTEXT_HEADING}\n\n${contextSummary}`, handoff?.text);
 
   // ─────────────────────────────────────────────────────────────────────
   // Phase 18 D-06: launchOrchestrator EXCLUIDO de --worktree.
