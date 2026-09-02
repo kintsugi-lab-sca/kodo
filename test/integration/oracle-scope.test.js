@@ -69,6 +69,32 @@ describe('parseScopeBlock — la fuente del alcance es DECLARADA, nunca inferida
     assert.deepEqual(parseScopeBlock(md), ['src/nuevo/**']);
   });
 
+  // REGRESIÓN (se cobró la primera declaración real escrita con este formato): tomar el último
+  // marcador de APERTURA hacía que una simple MENCIÓN del marcador en prosa —un handoff que
+  // explica la tarea, un comentario sobre el formato— ganara sin tener cierre, y la declaración
+  // de arriba desaparecía entera y en silencio. Un plan que HABLA del alcance no puede anularlo.
+  it('un marcador de apertura SUELTO en prosa posterior no anula la declaración de arriba', () => {
+    const md = [
+      planWith(['src/integration/**']),
+      '',
+      '## Handoff',
+      '',
+      `**Hecho:** añadido el bloque ${SCOPE_OPEN} al plan de la tarea.`,
+      '',
+    ].join('\n');
+    assert.deepEqual(parseScopeBlock(md), ['src/integration/**']);
+  });
+
+  it('gana el último bloque COMPLETO aunque después haya varias aperturas sueltas', () => {
+    const md = [
+      planWith(['src/viejo/**']),
+      planWith(['src/nuevo/**'], '## Segunda sesión\n\n'),
+      `Nota: el marcador es ${SCOPE_OPEN}.`,
+      `Y otra vez ${SCOPE_OPEN}, sin cerrar.`,
+    ].join('\n');
+    assert.deepEqual(parseScopeBlock(md), ['src/nuevo/**']);
+  });
+
   it('acota el número de patrones (un plan es texto arbitrario de un LLM)', () => {
     const many = Array.from({ length: MAX_SCOPE_PATTERNS + 50 }, (_, i) => `src/f${i}.js`);
     assert.equal(parseScopeBlock(planWith(many)).length, MAX_SCOPE_PATTERNS);

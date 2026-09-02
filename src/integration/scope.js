@@ -54,16 +54,29 @@ export const MAX_REPORTED = 10;
 /**
  * Extrae los patrones de alcance del markdown de un plan.
  *
- * GANA EL ÚLTIMO BLOQUE, no el primero ni la unión. El fichero del plan es APPEND-ONLY por
- * contrato (el prompt de sesión lo dice: «si el fichero ya existe, NO lo sobrescribas: añade tu
- * plan al final»), así que acumula el plan de cada sesión que pasó por la tarea. El alcance
+ * GANA EL ÚLTIMO BLOQUE COMPLETO, no el primero ni la unión. El fichero del plan es APPEND-ONLY
+ * por contrato (el prompt de sesión lo dice: «si el fichero ya existe, NO lo sobrescribas: añade
+ * tu plan al final»), así que acumula el plan de cada sesión que pasó por la tarea. El alcance
  * vigente es el de la sesión que acaba de cerrar — es decir, el último. La unión de todos daría
  * un alcance que solo crece y que acabaría no excluyendo nada, que es lo mismo que no tener
  * check.
  *
- * Un bloque abierto y no cerrado NO se parsea: sin cierre no se puede saber dónde acaba el
- * alcance y dónde empieza la prosa del plan, y tragarse el resto del fichero como patrones sería
- * peor que no leer nada. Devuelve `null`, igual que si no hubiera bloque.
+ * COMPLETO es la palabra que carga el peso, y no es un matiz teórico — se cobró la primera
+ * declaración real que se escribió con este formato. La versión ingenua tomaba el ÚLTIMO
+ * marcador de apertura y buscaba su cierre; bastaba con que el plan MENCIONARA
+ * `<!-- kodo:scope v=1 -->` en prosa más abajo (un handoff explicando la tarea, un comentario
+ * sobre el formato) para que ese marcador sin pareja ganara y la declaración de arriba
+ * desapareciera entera, en silencio. Un plan que habla del alcance no puede anular el alcance.
+ *
+ * Por eso se recorren las aperturas de atrás adelante y se toma la PRIMERA que tenga cierre
+ * detrás. Un marcador suelto en prosa se salta; una declaración de verdad, no.
+ *
+ * Lo que sigue SIN resolverse, y se declara en vez de fingirse: un bloque completo pero
+ * ILUSTRATIVO (dentro de un fence de markdown) colocado DESPUÉS del real ganaría. No se
+ * distingue porque hacerlo exigiría un parser de fences —estado, backticks anidados, tildes— para
+ * un caso que el formato del prompt no produce: la instrucción enseña el bloque UNA vez y pide
+ * declararlo UNA vez. Si aparece en el campo, el arreglo es esa máquina de estados, no un
+ * remiendo.
  *
  * NEVER-THROWS y TOTAL: cualquier entrada —`undefined`, un número, un markdown de 2 MB—
  * devuelve `string[]` o `null`.
@@ -75,11 +88,20 @@ export const MAX_REPORTED = 10;
  */
 export function parseScopeBlock(md) {
   if (typeof md !== 'string' || md.length === 0) return null;
-  const open = md.lastIndexOf(SCOPE_OPEN);
-  if (open === -1) return null;
-  const bodyStart = open + SCOPE_OPEN.length;
-  const close = md.indexOf(SCOPE_CLOSE, bodyStart);
-  if (close === -1) return null; // bloque sin cerrar → no se adivina dónde acaba.
+
+  let bodyStart = -1;
+  let close = -1;
+  for (let open = md.lastIndexOf(SCOPE_OPEN); open !== -1; open = md.lastIndexOf(SCOPE_OPEN, open - 1)) {
+    const start = open + SCOPE_OPEN.length;
+    const end = md.indexOf(SCOPE_CLOSE, start);
+    if (end !== -1) {
+      bodyStart = start;
+      close = end;
+      break;
+    }
+    if (open === 0) break;
+  }
+  if (bodyStart === -1) return null; // ninguna apertura tiene cierre → no hay bloque utilizable.
 
   /** @type {string[]} */
   const patterns = [];
