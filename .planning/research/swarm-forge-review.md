@@ -145,13 +145,17 @@ kodo **no tiene ningún concepto de dependencia entre tareas**: lanza por priori
 
 ## 5. Recomendación final, priorizada
 
-1. **Higiene de asserts de prompt** — despinear prosa y encabezados; conservar los asserts de contrato (placeholders, marcadores, nombres de comando). *Barato, arregla deuda ya medible, no depende de nada.*
-2. **Aviso de cola de integración en el dispatcher** (§2.4) — el dato ya está en `state.json`; cero llamadas a git; aviso, nunca bloqueo.
-3. **Respetar `blocked_by` del proveedor en el dispatcher** (§4) — usa datos que ya existen, cero conceptos nuevos.
-4. **Audit gate adaptado** (§2.1) — **después de KODO-69**, para que oráculo y `audit_count` se presenten juntos en la cola. Con el requisito de que el segundo intento traiga commit o artefacto: sin eso es un doble tecleo.
-5. **Rol reviewer adversarial opt-in** (§2.2) — milestone propio, con label `kodo:review`, tope de rondas y escalada. Mejor valor a medio plazo, mayor coste.
+Las cinco tienen tarea abierta en el board (2026-09-02), en `Todo` y relacionadas con este spike:
 
-`task_base_commit` (§2.5) queda como acompañante de cualquier fase que ya toque el registro de sesión; no justifica trabajo propio.
+1. **[KODO-71] Higiene de asserts de prompt** (§2.3) — despinear prosa y encabezados; conservar los asserts de contrato (placeholders, marcadores, nombres de comando). *Barato, arregla deuda ya medible, no depende de nada.*
+2. **[KODO-72] Aviso de cola de integración en el dispatcher** (§2.4) — el dato ya está en `state.json`; cero llamadas a git; aviso, nunca bloqueo.
+3. **[KODO-73] Respetar `blocked_by` del proveedor en el dispatcher** (§4) — usa datos que ya existen, cero conceptos nuevos.
+4. **[KODO-74] Audit gate adaptado** (§2.1) — `blocked_by` KODO-69, para que oráculo y `audit_count` se presenten juntos en la cola. Con el requisito de que el segundo intento traiga commit o artefacto: sin eso es un doble tecleo.
+5. **[KODO-75] Rol reviewer adversarial opt-in** (§2.2) — milestone propio, con label `kodo:review`, tope de rondas y escalada. Mejor valor a medio plazo, mayor coste.
+
+`task_base_commit` (§2.5) no lleva tarea propia: queda documentado dentro de KODO-74, que es donde el fingerprint del candidato lo necesita.
+
+**Ironía útil, y es una demostración del punto 3:** KODO-74 está declarada `blocked_by` KODO-69 y hoy eso no impide nada — moverla a In Progress la lanzaría igual. El board ya sabe lo que el dispatcher todavía ignora.
 
 **Lo que NO hay que hacer:** portar el transporte de handoffs, el maildir, el pipeline de roles ni el platoon. Las tres primeras están resueltas en kodo con otro idioma y mejor encaje; la cuarta no existe todavía ni en swarm-forge.
 
