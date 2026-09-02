@@ -908,7 +908,20 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   Corolario ya conocido: la BD de desarrollo compartida entre worktrees queda
   migrada por la primera rama y las demás no arrancan contra ella (108, 94, 118
   lo reportaron); las sesiones deben usar BD propia para verificar.
-- [2026-09-01] **El MCP de Plane (0.2.9) revienta por validación pydantic cuando
+- [2026-09-02] **El texto «sin enviar» en el prompt de una sesión cmux puede ser
+  la sugerencia de next-prompt de Claude Code, NO input del operador.** Claude
+  Code pre-rellena a veces el composer con una propuesta de siguiente mensaje
+  («mergea el PR», «comprueba el CI», «cherry-pick hecho, main verde»...). En
+  `read-screen` es indistinguible de texto tecleado por el humano. Confirmado
+  por el operador el 2-sep tras varias apariciones. Reglas: (1) NUNCA atribuir
+  ese texto al operador ni tratarlo como orden suya; (2) si describe un hecho
+  («X hecho, main verde»), verificarlo contra la realidad (git/Plane) antes de
+  creerlo — puede describir el estado DESEADO, no el actual (el «cherry-pick
+  hecho» apareció con el cherry-pick sin hacer); (3) como señal de «siguiente
+  acción probable» suele ser acertado — evaluarlo con los criterios normales
+  (tiers, aprobaciones) y, si procede ejecutarlo vía la sesión, limpiar antes el
+  prompt con `send-key ctrl+u` y reenviar con `send` + `send-key Enter` (un
+  `send-key Enter` sobre el texto pre-rellenado a veces no lo envía).
   la respuesta trae labels: las mutaciones NO se aplican — ir por REST.** Contra
   esta instancia CE la API devuelve `labels` como lista de UUIDs (strings), pero
   el modelo `WorkItemDetail` del MCP los valida como objetos `Label` → error `1
