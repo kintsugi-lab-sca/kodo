@@ -21,7 +21,13 @@ process.env.HOME = mkdtempSync(join(tmpdir(), 'kodo-int-pressure-'));
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { dispatchTrigger } = await import('../src/triggers/dispatcher.js');
+const {
+  dispatchTrigger,
+  INTEGRATION_PRESSURE_KIND,
+  buildIntegrationPressureText,
+} = await import('../src/triggers/dispatcher.js');
+const { ORCHESTRATOR_EVENT_KINDS, buildOrchestratorEvent, summarizeInbox } =
+  await import('../src/orchestrator/inbox.js');
 
 const PROJECT = '/repo/kodo';
 const EVENT = { taskRef: 'KODO-71', action: 'state_change', provider: 'plane', raw: {} };
@@ -225,5 +231,49 @@ describe('KODO-72: aviso de cola de integración en el dispatcher', () => {
     assert.equal(result.action, 'already_active');
     assert.equal(counted, 0, 'el aviso va DESPUÉS del lock, por eso ni se cuenta');
     assert.deepEqual(inbox, []);
+  });
+});
+
+// ── Integración con la bandeja (KODO-53) ─────────────────────────────────────
+//
+// Los 10 tests de arriba stubean `enqueueOrchestratorEventFn`, así que ninguno atraviesa el
+// `buildOrchestratorEvent` REAL: comprueban QUÉ encola el dispatcher, no que la bandeja lo
+// ACEPTE. Y el hueco importa, porque `buildOrchestratorEvent` degrada en SILENCIO cualquier
+// `kind` que no esté en `ORCHESTRATOR_EVENT_KINDS` a `'session-end'` — un kind mal escrito no
+// da error en ninguna capa: simplemente aparece en la ronda con la etiqueta equivocada.
+//
+// Estos tres asserts son el candado, replicando el que KODO-67 dejó para `recycle-suggested`
+// (test/orchestrator-recycle.test.js:279-305). Empujan la constante y el texto REALES del
+// productor por el builder REAL de la bandeja — nada de literales escritos a mano que puedan
+// divergir de lo que se emite.
+describe('KODO-72: el kind nuevo se integra con la bandeja del orquestador', () => {
+  it('`integration-pressure` es un kind ADMITIDO (no degrada a session-end)', () => {
+    assert.ok(
+      ORCHESTRATOR_EVENT_KINDS.has(INTEGRATION_PRESSURE_KIND),
+      'el kind del dispatcher debe estar en la taxonomía de la bandeja',
+    );
+    const e = buildOrchestratorEvent({ kind: INTEGRATION_PRESSURE_KIND }, '2026-09-02T10:00:00.000Z', 0);
+    assert.equal(e.kind, INTEGRATION_PRESSURE_KIND, 'el builder REAL debe preservarlo, no degradarlo');
+  });
+
+  it('el aviso de una línea lo resume con sujeto propio (la tarea entrante)', () => {
+    const e = buildOrchestratorEvent(
+      { kind: INTEGRATION_PRESSURE_KIND, task_ref: 'KODO-71' },
+      '2026-09-02T10:00:00.000Z',
+      0,
+    );
+    const line = summarizeInbox([e]);
+    assert.ok(
+      line.includes('KODO-71 va a un repo con cola pendiente'),
+      `el verbo del kind debe componer con el ref: ${line}`,
+    );
+  });
+
+  it('el texto real del evento sobrevive al saneo de la bandeja sin perder nada', () => {
+    const text = buildIntegrationPressureText('KODO-71', 2, '/repo/kodo');
+    const e = buildOrchestratorEvent({ kind: INTEGRATION_PRESSURE_KIND, text }, '2026-09-02T10:00:00.000Z', 0);
+    assert.equal(e.text, text, 'stripForKeystroke no debe tocar el texto emitido');
+    assert.ok(text.includes('2 entradas pending'), 'el texto nombra el conteo');
+    assert.ok(text.includes('/repo/kodo'), 'el texto nombra el repo');
   });
 });
