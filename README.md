@@ -145,6 +145,7 @@ In every project you want to automate:
 | `kodo:yolo` | Skips tool-call confirmation (`--dangerously-skip-permissions`, or `--auto` on OpenCode) |
 | `kodo:gsd` / `kodo:gsd-quick` | GSD mode (structured planning workflow); implies yolo |
 | `kodo:cc` / `kodo:oc` | Which CLI runs the session — Claude Code or OpenCode. Absent → Claude Code |
+| `kodo:review` | Adversarial review: after the work session closes, a second session reviews the same branch and can only write under `review/` |
 
 Only tasks labelled `kodo` (or `kodo:*`) are automated.
 
@@ -329,6 +330,7 @@ kodo capture "<text>"    # captures an idea into the global inbox (~/.kodo/inbox
 kodo inbox               # inbox triage (--all, --json, route <id>, discard <id>)
 kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
+kodo review              # adversarial review cycles (--all, --json; start <REF>, commit)
 kodo config              # configuration wizard / --show / --set key=value
 kodo launch <REF>        # launches a task manually (e.g. KL-42)
 kodo check               # watchdog: reviews state and launches the orchestrator if needed (0 tokens)
@@ -518,6 +520,73 @@ proceeds anyway.
 The listing makes **not a single** git call: everything was computed when the session closed and lives
 in `state.json`, so the orchestrator can present the whole queue on every round for free. The
 dashboard reflects it as `N por integrar` in the header, and `kodo status` lists the block.
+
+### `kodo review` — the adversarial reviewer
+
+A session that verifies its own work is a judge grading itself. `kodo:review` adds a **second
+pair of eyes**: after the work session closes, a separate session reviews the same branch and
+**can only write under `review/`**.
+
+**Opt-in, never the default.** Each review doubles the cost of a task. Its place is high
+blast-radius work — migrations, auth, concurrency primitives — the Tier 3 of your merge policy.
+
+**The write restriction is mechanical, not a promise in the prompt.** The reviewer's commit
+carries the pathspec `review/` in **both** `git add` and `git commit`, gated on a
+`KODO_REVIEWER=1` marker that only its own session carries — the same mechanism that gates the
+orchestrator's skill auto-commit. A reviewer that edits `src/` keeps the edit in its working
+tree and gets told it was excluded; nothing outside `review/` reaches the commit. That is the
+guarantee that it **writes the finding instead of quietly patching it**.
+
+**The artifacts, and how the core reads them without an LLM:**
+
+```
+review/approval.md                             # satisfied — stop
+review/recommendations/NNN-recommendations.md  # a round of "Things To Address"
+```
+
+Both carry a frontmatter with `branch` and `commit`, and both are load-bearing: `commit`
+anchors the review to a state of the code, `branch` says which task the artifact belongs to
+(artifacts travel in the tree, so once a reviewed task merges, every later branch inherits its
+`review/`). The state is read **from the branch** — `git show <branch>:review/approval.md`, not
+from the working tree — so the answer does not depend on what happens to be checked out.
+
+From that, `kodo review <REF>` derives:
+
+| State | Meaning | Queue confidence |
+|---|---|---|
+| `approved` | `approval.md` anchored at the reviewed head | `reviewed` — confidence up |
+| `changes-requested` | a recommendations round is open | `changes-requested` — do not integrate |
+| `stale-approval` | it was approved, then code changed | `stale` |
+| `none` / `malformed` | no artifact, or unreadable | `unreviewed` (fail-closed) |
+
+The anchor is **not `HEAD`** but the last commit touching anything *outside* `review/`. That is
+what lets the reviewer's own artifact commit not invalidate its approval, while any new coder
+commit invalidates it immediately. No LLM is consulted at any point.
+
+**The loop has a cap.** `review.max_rounds` (default `3`) bounds the coder ↔ reviewer
+conversation. On the last round without approval — or if the reviewer closes writing *nothing*,
+or leaves an unreadable artifact — the cycle **escalates** to the orchestrator inbox. It ends by
+approval or by escalation, never in silence.
+
+```
+kodo review                 # open cycles (escalated ones show WITHOUT --all)
+kodo review KODO-75         # review state derived from the artifacts
+kodo review start KODO-75   # launch the reviewer on that branch
+kodo review commit          # the REVIEWER's close: pathspec commit + report of what was excluded
+```
+
+`commit` is also what **evaluates the cycle**: it derives the state from the branch, applies the
+disposition (approve / back to the coder / another pass / escalate) and reports it. It runs the
+evaluation even when there was nothing to commit — a reviewer that closes writing nothing is the
+`no-artifact` case, and it must escalate rather than pass unnoticed.
+
+`start` provisions its own worktree with `git worktree add <path> <branch>` — a **checkout of the
+existing branch**, not `claude --worktree`, which would create a new one. Because git refuses two
+worktrees on one branch, a still-live coder session surfaces as `branch-busy` instead of a
+collision: review runs *after* the work, not alongside it.
+
+Exit codes: `0` done · `1` git or host failed · `2` unresolvable ref, or `commit` run outside a
+reviewer session.
 
 ### `kodo doctor` — config ↔ projects alignment
 
@@ -936,6 +1005,7 @@ kodo config --set claude.orchestrator_model=fable   # orchestrator model (defaul
 kodo config --set server.idle_threshold_min=5       # minutes before considering a session idle
 kodo config --set server.stuck_threshold_min=30     # minutes before considering a session stuck
 kodo config --set dispatch.require_assignee=false    # launch tasks regardless of assignee (single operator)
+kodo config --set review.max_rounds=3               # cap on the coder ↔ reviewer loop (default 3)
 kodo config --set polling.enabled=true              # ask Plane instead of waiting for a webhook
 kodo config --set polling.interval_s=60             # seconds between polling ticks (default 60)
 kodo config --set polling.catch_up=true             # first tick also picks up what was already there

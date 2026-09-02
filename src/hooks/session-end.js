@@ -391,6 +391,34 @@ export async function runSessionEndHook(input, deps = {}) {
         console.error(
           `[kodo:integrate] cola — ${capture.entry.branch}: ${capture.entry.commits_ahead ?? '?'} commits, sugerencia ${capture.entry.suggested}`,
         );
+        // KODO-75: la tarea pidió revisión adversarial. Se avisa AQUÍ, pegado a la captura,
+        // porque las dos contestan la misma pregunta —«¿qué necesita esta rama ahora?»— y
+        // porque el aviso solo tiene sentido si la captura encontró rama: sin entrada en la
+        // cola, `kodo review start` no sabría sobre qué repo trabajar.
+        //
+        // El hook AVISA, no LANZA. Crear un workspace y arrancar un agente desde un hook de
+        // cierre sería el efecto más pesado de todo `SessionEnd`, en el punto del ciclo con
+        // menos garantías (el worktree puede estar desapareciendo bajo los pies). El
+        // lanzamiento es una acción del ORQUESTADOR, igual que `kodo launch` y que resolver
+        // la cola de integración: el evento entra en la bandeja que ya lee en el paso 1 de
+        // cada ronda, y él ejecuta `kodo review start` con la ronda entera de contexto.
+        //
+        // Dentro del `try` de la captura a propósito: fail-open por la misma razón y con el
+        // mismo coste — perder el aviso deja la revisión pendiente y visible en la cola, que
+        // es recuperable; tumbar el cierre de la sesión, no.
+        if (session.review === true) {
+          const enqueueFn = deps.enqueueOrchestratorEventFn || enqueueOrchestratorEvent;
+          enqueueFn({
+            kind: 'review-requested',
+            task_ref: session.task_ref,
+            session_id: session.session_id,
+            text:
+              `${session.task_ref} pidió revisión adversarial (kodo:review) y su sesión de trabajo ha cerrado. ` +
+              `Rama ${capture.entry.branch} en ${capture.entry.project_path}. ` +
+              `Lanza el segundo par de ojos con \`kodo review start ${session.task_ref}\` — ` +
+              `NO integres la rama hasta que \`kodo review ${session.task_ref}\` diga «aprobado».`,
+          }, log);
+        }
       }
     } catch (err) {
       console.error(`[kodo:session-end] Integration capture error: ${/** @type {Error} */ (err).message}`);

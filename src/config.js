@@ -307,6 +307,25 @@ const DEFAULT_CONFIG = {
     nudges: 'inbox',
     recycle_mb: 8,
   },
+  // KODO-75 — el bucle coder ↔ reviewer de las tareas etiquetadas `kodo:review`.
+  //
+  // Bloque propio y no una clave dentro de `claude.*` por el mismo criterio que
+  // `dispatch`: aquel describe cómo se invoca al agente, esto describe una POLÍTICA del
+  // ciclo de trabajo.
+  //
+  // `max_rounds` es el tope de rondas de recomendaciones antes de escalar al operador. En
+  // el modelo original (swarm-forge) este bucle NO tenía tope: el reviewer decidía cuándo
+  // estaba satisfecho y nada impedía que pidiera cambios indefinidamente. TRES es donde
+  // deja de ser un problema de código y pasa a ser un desacuerdo entre dos agentes sobre
+  // qué hay que hacer — y eso lo desempata un humano más barato que una cuarta vuelta.
+  //
+  // Subirlo alarga la conversación; bajarlo escala antes. `0` o un valor no entero cae al
+  // default (`resolveMaxRounds`, review/cycle.js): no existe «sin tope» por esta vía, que
+  // es justo el fallo que la clave existe para cerrar. Tampoco existe «desactivado», y no
+  // hace falta — la feature es opt-in por etiqueta, así que desactivarla es no ponerla.
+  review: {
+    max_rounds: 3,
+  },
   // KODO-58 — reglas de ELEGIBILIDAD del dispatch. Bloque propio y no una clave dentro
   // de `claude.*`: aquel describe cómo se invoca al agente, esto describe QUÉ tareas son
   // de esta máquina.

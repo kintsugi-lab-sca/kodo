@@ -577,4 +577,51 @@ program
     });
   }));
 
+// --- kodo review [start|commit] --- (KODO-75: el rol reviewer adversarial)
+//
+// SUBCOMANDOS y no flags, a diferencia de `integrate`: las tres acciones tienen sujetos
+// distintos (el operador lista, el operador arranca, el REVIEWER cierra) y ninguna es la
+// variante de otra. `kodo review` a secas es el listado que el orquestador consulta.
+//
+// NO `ensureConfig()`: los ciclos son estado local (`~/.kodo/state.json`) + git, y no tocan
+// ningún provider. Mismo precedente que `inbox`, `integrate`, `skill sync` y `gsd doctor`.
+const review = program
+  .command('review [ref]')
+  .description('Revisión adversarial (kodo:review): sin argumentos LISTA los ciclos; con <ref> muestra el estado derivado de los artefactos')
+  .option('--all', 'En el listado: incluir también los ciclos ya aprobados (la traza)')
+  .option('--json', 'Emitir el resultado como JSON (scriptable)')
+  .action(setExitCode(async (ref, opts) => {
+    const mod = await import('./cli/review.js');
+    if (!ref) return mod.runReviewListCli({ all: opts.all || false, json: opts.json || false });
+    return mod.runReviewStatusCli(ref, { json: opts.json || false });
+  }));
+
+review
+  .command('start <ref>')
+  .description('Lanzar la sesión de revisión sobre la rama de <ref> (worktree propio, escritura restringida a review/)')
+  .option('--json', 'Emitir el resultado como JSON')
+  .option('--max-rounds <n>', 'Tope de rondas para este ciclo (default: review.max_rounds, o 3)')
+  .action(setExitCode(async (ref, opts) => {
+    const mod = await import('./cli/review.js');
+    const parsed = Number.parseInt(opts.maxRounds, 10);
+    return mod.runReviewStartCli(ref, {
+      json: opts.json || false,
+      maxRounds: Number.isInteger(parsed) ? parsed : undefined,
+    });
+  }));
+
+review
+  .command('commit')
+  .description('CIERRE DEL REVIEWER: commitea los artefactos con pathspec restringido a review/ y reporta lo que quedó fuera')
+  .option('-m, --message <msg>', 'Mensaje del commit')
+  .option('--json', 'Emitir el resultado como JSON')
+  .action(setExitCode(async (opts, cmd) => {
+    // MISMA colisión de flag largo que `inbox-orch ack --all` (ver su comentario): el padre
+    // `review` declara `--json` para el listado, así que un `--json` tecleado DESPUÉS del
+    // subcomando aterriza en las opciones del padre. Se lee de los dos niveles.
+    const json = opts?.json === true || cmd?.optsWithGlobals?.()?.json === true;
+    const mod = await import('./cli/review.js');
+    return mod.runReviewCommitCli({ message: opts.message, json });
+  }));
+
 program.parse();

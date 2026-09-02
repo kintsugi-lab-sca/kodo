@@ -70,7 +70,7 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  *   notified_at: string|null,   // ISO 8601 del último aviso de una línea que lo incluyó. Ancla del debounce.
  * }} OrchestratorEvent
  *
- * @typedef {'session-end'|'session-launched'|'integration'|'integration-pressure'|'recycle-suggested'} OrchestratorEventKind
+ * @typedef {'session-end'|'session-launched'|'integration'|'integration-pressure'|'recycle-suggested'|'review-requested'|'review-escalated'} OrchestratorEventKind
  */
 
 /**
@@ -99,11 +99,27 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  * hook de cierre. Es un aviso, jamás un bloqueo: el lanzamiento ya ha ocurrido cuando el
  * orquestador lo lee.
  *
+ * KODO-75 añade DOS, y son las dos puntas del mismo bucle:
+ *
+ * `'review-requested'` — una tarea etiquetada `kodo:review` acaba de cerrar su sesión de
+ * trabajo y toca lanzar el segundo par de ojos. Lo emite `hooks/session-end.js`. El hook
+ * AVISA y no LANZA a propósito: crear un workspace y arrancar un agente sería el efecto más
+ * pesado de todo `SessionEnd`, en el punto del ciclo con menos garantías. Lanzar es acción
+ * del ORQUESTADOR, igual que `kodo launch`.
+ *
+ * `'review-escalated'` — el bucle coder ↔ reviewer se ha quedado sin salida
+ * automática —tope de rondas agotado, reviewer mudo, o artefacto ilegible— y la decisión
+ * vuelve al operador. Entra por la bandeja por el mismo motivo que el anterior, y además por
+ * uno propio: el contrato de ese bucle es «termina por aprobación o por escalada, NUNCA en
+ * silencio», y la bandeja es el sitio donde una escalada deja de ser silencio. Su productor
+ * vive en `review/cycle.js` (`recordReviewOutcome`).
+ *
  * @type {ReadonlySet<OrchestratorEventKind>}
  */
 export const ORCHESTRATOR_EVENT_KINDS = Object.freeze(
   new Set(/** @type {OrchestratorEventKind[]} */ ([
     'session-end', 'session-launched', 'integration', 'integration-pressure', 'recycle-suggested',
+    'review-requested', 'review-escalated',
   ])),
 );
 
@@ -332,6 +348,11 @@ function verbForKind(kind) {
     // `summarizeInbox` lo compone como «orquestador conviene reciclarlo» — el sujeto lo
     // pone el ref, igual que en los demás kinds.
     case 'recycle-suggested': return 'conviene reciclarlo';
+    // KODO-75: los dos verbos del bucle. El primero pide una acción rutinaria de la ronda;
+    // el segundo dice que hace falta el operador — la diferencia entre «mira esto cuando
+    // puedas» y «esto está parado esperándote».
+    case 'review-requested': return 'pendiente de revisión';
+    case 'review-escalated': return 'revisión escalada';
     default: return 'en Review';
   }
 }

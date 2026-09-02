@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { loadConfig, loadProjects, getAgentDef } from '../config.js';
 import { initRegistry, getProvider } from '../providers/registry.js';
-import { parseKodoLabels, getGsdMode, getAgentName } from '../labels.js';
+import { parseKodoLabels, getGsdMode, getAgentName, wantsReview } from '../labels.js';
 // KODO-19: el bloque de contexto de sesión. Con Claude Code lo inyecta su hook
 // SessionStart; para un agente que no ejecuta los hooks de kodo, `buildAgentCommand` lo
 // mete DENTRO del prompt. Se importa del módulo HOJA `session/context.js` y no del hook:
@@ -126,6 +126,17 @@ export function buildSessionFromTask({ task, providerName, projectPath, workspac
     // campos de arriba: una sesión sin él (legacy, o lanzada sin etiqueta de agente) se
     // resuelve contra `config.agents.default`, que es el comportamiento previo exacto.
     ...(agentName ? { agent: agentName } : {}),
+    // KODO-75: el opt-in a la revisión adversarial (`kodo:review`). Se persiste por la
+    // misma razón que `agent`: hay un consumidor que NO puede rederivarlo. El hook
+    // `SessionEnd` es quien avisa de que esta rama pide un segundo par de ojos, y para
+    // entonces ya no tiene las etiquetas de la tarea a mano —volver a pedírselas al
+    // provider metería una llamada de red en un hook que debe ser barato y fail-open, y
+    // una que además fallaría justo cuando el provider está caído—.
+    //
+    // Spread condicional, igual que los campos de arriba: una sesión sin la etiqueta no
+    // gana la clave, y el estado de un `state.json` previo a KODO-75 se lee exactamente
+    // como antes. Sin bump de schema_version.
+    ...(wantsReview(flags) ? { review: true } : {}),
   };
 }
 
