@@ -6,6 +6,13 @@ import { getProvider } from '../providers/registry.js';
 import { loadConfig, loadProjects, KODO_DIR } from '../config.js';
 import { parseKodoLabels, getGsdMode, isGsdChild, isAdopted } from '../labels.js';
 import { assigneeVerdict, SKIP_UNASSIGNED } from '../operator.js';
+import {
+  blockerVerdict,
+  blockerSignature,
+  formatBlockedComment,
+  shouldAnnounceBlock,
+  forgetAnnouncedBlock,
+} from '../blockers.js';
 import { listSessions, removeSession, computeRealWorktreePath } from '../session/state.js';
 import { launchWorkItem, resolveProjectPath } from '../session/manager.js';
 import { acquireGsdLock, releaseGsdLock } from '../gsd/lock.js';
@@ -388,6 +395,85 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
       );
       return { action: 'ignored', code: reason };
     }
+  }
+
+  // 2d. Bloqueos declarados en el tablero (KODO-73) — ¿puede esta tarea empezar YA?
+  //
+  // kodo no tiene concepto de dependencia entre tareas: lanza por prioridad y slots
+  // libres. Una tarea marcada como bloqueada en el board se lanzaba igual, y la sesión
+  // descubría el bloqueo a mitad de trabajo — o construía sobre una base inexistente.
+  // No hace falta un grafo propio: el proveedor YA modela `blocked_by`; basta con no
+  // lanzar lo que el tablero ya declara bloqueado.
+  //
+  // CAPABILITY-GATED por `typeof`, igual que getTaskState/createTask/getOperator: el
+  // contrato TaskProvider sigue FROZEN en 9 métodos. GitHub Issues no tiene equivalente
+  // nativo de `blocked_by` y su provider no implementa `listBlockers`, así que ahí el
+  // path de lanzamiento queda IDÉNTICO al anterior — cero llamadas extra, no solo cero
+  // efecto. Ese `typeof` es también la respuesta al coste: solo paga la llamada quien
+  // tiene la capacidad, y solo después de que los gates baratos (etiqueta, estado,
+  // operador) hayan descartado la tarea.
+  //
+  // POSICIÓN — después del gate de operador (2c) y antes del in-flight guard (3): una
+  // tarea de otro operador no debe pagar la llamada a relaciones, y una bloqueada no
+  // debe consumir lock ni resolver de fase. Cubre webhook Y polling de una sola vez
+  // porque ambos carriles entran por aquí.
+  //
+  // FAIL-OPEN ante error: un `/relations/` caído degrada al comportamiento anterior a
+  // KODO-73, nunca a un daemon que no lanza nada. Mismo criterio que el gate de
+  // operador ante identidad desconocida.
+  //
+  // NO se toca el estado de la tarea, a propósito: todas las ramas `ignored` de este
+  // dispatcher son de solo lectura, y devolver la tarea a Todo pelearía con el operador
+  // que la movió a mano (ping-pong en cada tick hasta que cierre el bloqueador). La
+  // constancia se deja en un comentario, que es aditivo y no pisa intención humana.
+  if (
+    !opts.force &&
+    config.dispatch?.respect_blockers !== false &&
+    typeof provider.listBlockers === 'function'
+  ) {
+    /** @type {any} */
+    let blockers = null;
+    try {
+      blockers = await provider.listBlockers(task);
+    } catch (err) {
+      // `blockers` se queda en null → blockerVerdict lo lee como «no lo sé» y deja pasar.
+      console.warn(
+        `[kodo:dispatch] blockers_probe_failed — ${task.ref}: ${/** @type {any} */ (err)?.message ?? err}`,
+      );
+    }
+    const verdict = blockerVerdict({ blockers });
+    if (verdict.blocked) {
+      const signature = blockerSignature(verdict.open);
+      // Un comentario por CONJUNTO de bloqueadores: el polling revisita la tarea en cada
+      // tick y sin esto una tarea bloqueada una semana acumula cientos de avisos
+      // idénticos. Si el conjunto cambia, eso sí es información nueva y se vuelve a decir.
+      if (shouldAnnounceBlock(task.id, signature)) {
+        try {
+          await provider.addComment(task, formatBlockedComment(task.ref, verdict.open));
+        } catch (err) {
+          // El comentario es la CONSTANCIA, no el veredicto: que falle no puede convertir
+          // una tarea bloqueada en lanzable. Se olvida la firma para reintentar el aviso
+          // en el próximo tick.
+          forgetAnnouncedBlock(task.id);
+          console.warn(
+            `[kodo:dispatch] blocked_comment_failed — ${task.ref}: ${/** @type {any} */ (err)?.message ?? err}`,
+          );
+        }
+      }
+      console.log(
+        `[kodo:dispatch] dispatch.skipped reason=${verdict.code} — ${task.ref} bloqueada por ${signature}`,
+      );
+      return { action: 'ignored', code: verdict.code, detail: signature };
+    }
+    // Ya no está bloqueada: se olvida lo anunciado para que un bloqueo que reaparezca
+    // vuelva a avisar en vez de quedarse mudo por una firma vieja.
+    //
+    // SOLO con lectura BUENA (`Array.isArray`), y esa condición es el arreglo de un bug
+    // real: a este punto también se llega con `blockers === null` cuando la sonda falló,
+    // y olvidar ahí borraría la firma de un bloqueo que sigue vigente. El siguiente tick
+    // volvería a comentar lo mismo, y el contrato de «un aviso por conjunto» se
+    // convertiría en «un aviso por cada fallo de red».
+    if (Array.isArray(blockers)) forgetAnnouncedBlock(task.id);
   }
 
   // 3. In-flight guard — prevents duplicate dispatches for the same task

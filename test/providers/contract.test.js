@@ -360,6 +360,21 @@ async function instantiateProvider(name) {
       }),
       // init() — modules por proyecto (vacío tolerado, provider.js:108)
       '/modules/': () => ({ results: [] }),
+      // KODO-73: relaciones del work item. `blocked_by` apunta al PROPIO fixture (el
+      // único work item que el stub sabe servir), así que el bucle de resolución se
+      // ejercita de verdad en vez de salir por el early return de lista vacía.
+      '/relations/': () => ({
+        blocking: [],
+        blocked_by: [
+          { project_id: 'p0p0p0p0-1111-2222-3333-444444444444', issue_id: planeWorkItem.id },
+        ],
+        duplicate: [],
+        relates_to: [],
+        start_after: [],
+        start_before: [],
+        finish_after: [],
+        finish_before: [],
+      }),
       // getTaskState → getWorkItem(projectId, id) pega a /work-items/<id>/ con
       // expand=state_detail. Suffix más específico que /work-items/ (endsWith strict).
       // planeWorkItem.state_detail = {name:'In Progress', group:'started'} → in_progress.
@@ -600,6 +615,25 @@ for (const providerName of PROVIDERS) {
       if (typeof provider.createTask !== 'function') return; // capability-gated skip
       const task = await provider.createTask(getCreateTaskArg(providerName));
       assertTaskItemShape(task, providerName);
+    });
+
+    // B10 — listBlockers (OPTIONAL, capability-gated, KODO-73). Tercer espejo de B8/B9:
+    // skip-without-failing donde el provider no lo implementa. GitHub Issues no tiene
+    // equivalente nativo de `blocked_by`, así que ahí el skip es el comportamiento
+    // ESPERADO — y es exactamente lo que garantiza que su path de lanzamiento siga
+    // idéntico. `listBlockers` NO entra en TASK_PROVIDER_METHODS (sigue en 9, B1 intacto).
+    it('listBlockers (if supported) returns blockers with a normalized state literal', async () => {
+      if (typeof provider.listBlockers !== 'function') return; // capability-gated skip
+      const blockers = await provider.listBlockers(await provider.getTask(getValidRef(providerName)));
+      assert.ok(Array.isArray(blockers), `[${providerName}] listBlockers must return array`);
+      for (const b of blockers) {
+        assert.equal(typeof b.id, 'string', `[${providerName}] blocker id must be string`);
+        assert.equal(typeof b.ref, 'string', `[${providerName}] blocker ref must be string`);
+        assert.ok(
+          PROVIDER_STATE_VOCAB.includes(b.state),
+          `[${providerName}] blocker state must be one of ${PROVIDER_STATE_VOCAB.join('|')}, got: ${b.state}`,
+        );
+      }
     });
   });
 }

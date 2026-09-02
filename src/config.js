@@ -326,8 +326,23 @@ const DEFAULT_CONFIG = {
   // gate deja pasar todo (fail-open, ver src/operator.js).
   //
   // Se cambia con: `kodo config set dispatch.require_assignee false`.
+  //
+  // KODO-73 — `respect_blockers: true` (default): antes de lanzar, el dispatcher
+  // pregunta al proveedor por las relaciones de la tarea; si tiene `blocked_by` con
+  // bloqueadores en estado NO terminal, no lanza y deja constancia en un comentario.
+  // La tarea vuelve a ser elegible por el camino normal en cuanto cierren, sin
+  // intervención. Nunca toca el estado de la tarea.
+  //
+  //   `false` — comportamiento anterior a KODO-73, exacto.
+  //
+  // INERTE si el provider no declara la capacidad (`listBlockers`, detectado por
+  // `typeof`): GitHub Issues no tiene equivalente nativo de `blocked_by`, así que ahí
+  // el path de lanzamiento es idéntico al de siempre y no se paga llamada alguna.
+  //
+  // Se cambia con: `kodo config set dispatch.respect_blockers false`.
   dispatch: {
     require_assignee: true,
+    respect_blockers: true,
   },
   // KODO-60 — POLLING como alternativa al webhook. Bloque top-level y no
   // `providers.<p>.polling` a propósito: describe cómo se ENTERA esta máquina de los

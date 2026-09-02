@@ -151,6 +151,34 @@ export function createPlaneProvider(config, opts = {}) {
   }
 
   /**
+   * UUID de estado → literal normalizado, refrescando la caché si el UUID no está.
+   *
+   * Extraído de `getTaskState` (KODO-73) porque `listBlockers` necesita EXACTAMENTE lo
+   * mismo, y el bloque de refresh-on-miss no es trivial: las definiciones de estado se
+   * cachean en `init()`, pero un estado creado después —o un proyecto que no estaba
+   * configurado, que es justo el caso de un bloqueador de otro proyecto— hace miss y hay
+   * que releer los estados de ESE proyecto una vez.
+   *
+   * @param {string} projectId - proyecto DEL work item cuyo estado se resuelve.
+   * @param {string|undefined} stateId
+   * @returns {Promise<'in_progress'|'in_review'|'blocked'|'done'|'unknown'>}
+   */
+  async function resolveStateLiteral(projectId, stateId) {
+    if (stateId && !stateMetaByUuid.has(stateId)) {
+      const states = await client.listStates(projectId);
+      const byName = stateByName.get(projectId) || new Map();
+      for (const s of states) {
+        stateCache.set(s.id, s.name);
+        stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
+        byName.set(s.name.toLowerCase(), s.id);
+      }
+      stateByName.set(projectId, byName);
+    }
+    const meta = stateMetaByUuid.get(stateId) || {};
+    return mapPlaneState(meta.name, meta.group);
+  }
+
+  /**
    * Emite un aviso por el logger inyectado; sin logger, cae a stderr (mismo destino
    * que el resto de avisos no fatales de este módulo).
    * @param {string} msg
@@ -379,19 +407,69 @@ export function createPlaneProvider(config, opts = {}) {
     // mapPlaneState helper (name-substring-first, then group; String.includes only, D-10).
     async getTaskState({ id, projectId }) {
       const workItem = await client.getWorkItem(projectId, id);
-      const stateId = workItem?.state;
-      if (stateId && !stateMetaByUuid.has(stateId)) {
-        const states = await client.listStates(projectId);
-        const byName = stateByName.get(projectId) || new Map();
-        for (const s of states) {
-          stateCache.set(s.id, s.name);
-          stateMetaByUuid.set(s.id, { name: s.name, group: s.group });
-          byName.set(s.name.toLowerCase(), s.id);
+      return resolveStateLiteral(projectId, workItem?.state);
+    },
+
+    // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected at
+    // the call site via `typeof provider.listBlockers === 'function'`. KODO-73.
+    //
+    // Devuelve los `blocked_by` DECLARADOS EN EL TABLERO con su estado ya normalizado.
+    // Devuelve TODOS, cerrados incluidos: decidir cuáles cuentan como abiertos es
+    // política, y la política vive en `src/blockers.js`, no aquí. Este método solo
+    // traduce el modelo de Plane al vocabulario canónico.
+    //
+    // COSTE, explícito porque es el trade-off de la feature: 1 GET a `/relations/`
+    // SIEMPRE, más 1 GET por bloqueador. Las relaciones de Plane traen solo ids —ni
+    // estado ni ref—, así que no hay forma de saber si un bloqueador sigue abierto sin
+    // leerlo. El caso dominante (cero bloqueadores) sale con un único GET, y el early
+    // return de abajo evita hasta el bucle.
+    //
+    // Un bloqueador puede vivir en OTRO proyecto: la relación trae su `project_id` y se
+    // usa ese, no el de la tarea. Por eso `resolveStateLiteral` refresca la caché de
+    // estados ante un miss — el proyecto del bloqueador puede no estar ni configurado.
+    //
+    // DOS NIVELES DE ERROR, y la distinción es load-bearing:
+    //
+    //   - Fallo de `/relations/` → PROPAGA. Es ignorancia TOTAL: no sabemos si la tarea
+    //     tiene bloqueadores. El gate del dispatcher lo convierte en fail-open, que es la
+    //     degradación correcta — un endpoint caído no puede dejar al daemon sin lanzar.
+    //
+    //   - Fallo al leer UN bloqueador (404 de un item borrado, 403 de un proyecto sin
+    //     permiso) → se captura y ese bloqueador entra como `unknown`, que la regla trata
+    //     como ABIERTO. Aquí NO hay ignorancia total: la relación existe, el tablero
+    //     afirmó el bloqueo. Dejarlo propagar tiraría el gate entero al fail-open y
+    //     lanzaría la tarea aunque OTRO bloqueador estuviera abierto y perfectamente
+    //     legible — un item borrado desactivaría el gate de esa tarea para siempre.
+    async listBlockers(task) {
+      const relations = await client.listRelations(task.projectId, task.id);
+      const blockedBy = Array.isArray(relations?.blocked_by) ? relations.blocked_by : [];
+      if (blockedBy.length === 0) return [];
+
+      const blockers = [];
+      for (const rel of blockedBy) {
+        const id = rel?.issue_id || rel?.id;
+        if (!id) continue;
+        const projectId = rel?.project_id || task.projectId;
+        try {
+          const workItem = await client.getWorkItem(projectId, id);
+          const identifier =
+            workItem?.project_detail?.identifier ||
+            configuredProjects.find((p) => p.id === projectId)?.identifier;
+          blockers.push({
+            id,
+            // Sin identifier resoluble no hay ref honesto: se cae al UUID antes que
+            // publicar un `UNKNOWN-7` que el operador no puede buscar en el tablero.
+            ref: identifier && workItem?.sequence_id ? `${identifier}-${workItem.sequence_id}` : id,
+            state: await resolveStateLiteral(projectId, workItem?.state),
+          });
+        } catch (err) {
+          warn(
+            `No se pudo leer el bloqueador ${id} de ${task.ref}: ${/** @type {any} */ (err)?.message ?? err}. Cuenta como ABIERTO.`,
+          );
+          blockers.push({ id, ref: id, state: 'unknown' });
         }
-        stateByName.set(projectId, byName);
       }
-      const meta = stateMetaByUuid.get(stateId) || {};
-      return mapPlaneState(meta.name, meta.group);
+      return blockers;
     },
 
     // OPTIONAL method (NOT in TASK_PROVIDER_METHODS — FROZEN at 9, D-13). Detected at
