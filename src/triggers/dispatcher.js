@@ -83,6 +83,41 @@ export function resolverFailureHint(verdict, ctx = {}) {
 }
 
 /**
+ * `kind` del evento de presión de integración en la bandeja del orquestador (KODO-72).
+ *
+ * EXPORTADO a propósito, y el motivo es un candado, no una comodidad — mismo patrón y mismo
+ * porqué que `RECYCLE_KIND` (orchestrator/recycle.js, KODO-67): `buildOrchestratorEvent` degrada
+ * en SILENCIO cualquier `kind` que no esté en `ORCHESTRATOR_EVENT_KINDS` a `'session-end'`. Con
+ * el literal escrito dos veces —aquí y en el test— un typo en ESTE lado seguiría dando un test
+ * verde mientras el evento aterriza en producción con el kind equivocado. Compartiendo la
+ * constante, el test no puede pasar si el productor y la bandeja dejan de estar de acuerdo.
+ *
+ * @type {import('../orchestrator/inbox.js').OrchestratorEventKind}
+ */
+export const INTEGRATION_PRESSURE_KIND = 'integration-pressure';
+
+/**
+ * Texto LARGO del evento de presión — el que la ronda del orquestador lee en su paso 1.
+ *
+ * PURO y exportado por la misma razón que `buildRecycleText` (KODO-67): que el test pueda
+ * empujar el texto REAL a través del `buildOrchestratorEvent` REAL y comprobar que sobrevive al
+ * saneo, en vez de validar una copia escrita a mano que puede divergir del que se emite.
+ *
+ * @param {string} taskRef
+ * @param {number} pending entradas `pending` de la cola en ese repo (siempre ≥ 1 al llamar).
+ * @param {string} projectPath
+ * @returns {string}
+ */
+export function buildIntegrationPressureText(taskRef, pending, projectPath) {
+  const plural = pending === 1 ? 'entrada' : 'entradas';
+  return (
+    `${taskRef} va a un repo con ${pending} ${plural} pending en la cola de integración. ` +
+    `Path: ${projectPath}. Aviso, no bloqueo: la sesión se lanzó igual. Repasa la cola ` +
+    `(paso 5b) antes de que se acumulen más ramas sin integrar sobre el mismo árbol.`
+  );
+}
+
+/**
  * AVISO de presión de integración (KODO-72). JAMÁS un bloqueo.
  *
  * El dispatcher lanza hasta `max_parallel` sesiones sin mirar la cola de integración, así que
@@ -144,14 +179,11 @@ function noticeIntegrationPressure(task, projectPath, deps) {
   }
   try {
     enqueueFn({
-      kind: 'integration-pressure',
+      kind: INTEGRATION_PRESSURE_KIND,
       task_ref: task.ref,
       // El saneo del texto lo hace `buildOrchestratorEvent` en el punto de construcción
       // (invariante STATE.md:176), igual que con el resto de productores de la bandeja.
-      text:
-        `${task.ref} va a un repo con ${pending} ${plural} pending en la cola de integración. ` +
-        `Path: ${projectPath}. Aviso, no bloqueo: la sesión se lanzó igual. Repasa la cola ` +
-        `(paso 5b) antes de que se acumulen más ramas sin integrar sobre el mismo árbol.`,
+      text: buildIntegrationPressureText(task.ref, pending, String(projectPath)),
     });
   } catch {
     // silencioso: `enqueueOrchestratorEvent` ya es never-throws; el catch cubre el seam.
