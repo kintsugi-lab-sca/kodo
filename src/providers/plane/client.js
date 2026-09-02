@@ -217,6 +217,29 @@ export class PlaneClient {
   }
 
   /**
+   * Relaciones declaradas de un work item (KODO-73).
+   *
+   * OJO con la ruta: la skill `plane-api` documenta `work-item-relations/` como 404 en
+   * esta instancia CE, y es cierto — pero la que existe es la anidada bajo el work item.
+   * Verificado contra el servidor v1.3.0 el 2026-09-02:
+   *
+   *   GET /projects/{pid}/work-items/{wid}/relations/  → 200
+   *   GET /projects/{pid}/work-items/{wid}/issue-relation/  → 404
+   *
+   * Devuelve las ocho listas del modelo de Plane (`blocking`, `blocked_by`, `duplicate`,
+   * `relates_to`, `start_after`, `start_before`, `finish_after`, `finish_before`), cada
+   * entrada como `{project_id, issue_id}` — SOLO ids: ni estado ni ref. Resolver si un
+   * bloqueador sigue abierto exige leer su work item, y eso lo hace el provider.
+   *
+   * @param {string} projectId
+   * @param {string} workItemId
+   * @returns {Promise<Record<string, Array<{project_id: string, issue_id: string}>>>}
+   */
+  async listRelations(projectId, workItemId) {
+    return this.request(`/projects/${projectId}/work-items/${workItemId}/relations/`);
+  }
+
+  /**
    * @param {string} projectId
    * @param {number} sequenceId
    */

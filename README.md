@@ -602,6 +602,48 @@ declared once by hand and, without it, the filter stays inert.
 { "providers": { "github": { "operator": { "id": "<your github login>" } } } }
 ```
 
+## Blocked tasks stay blocked
+
+kodo has no dependency graph of its own, and it does not need one: the board already models the
+relation. Before launching, the dispatcher asks the provider for the task's relations. If it has a
+`blocked_by` pointing at work items that are **not** in a terminal state, no session starts.
+
+```
+[kodo:dispatch] dispatch.skipped reason=blocked_by_open — KL-42 bloqueada por KL-7
+```
+
+It also leaves the reason **on the task** as a comment naming the open blockers — the log alone is
+not where you will look when you wonder why a task never started. One comment per *set* of
+blockers, not one per polling tick.
+
+The task's state is never touched. Every `ignored` verdict in the dispatcher is read-only, and
+moving a blocked task back to Todo would fight the operator who dragged it into In Progress by
+hand. When the blockers close, the task becomes eligible again through the normal path — nothing to
+click, nothing to re-trigger.
+
+| Situation | Result |
+|---|---|
+| `blocked_by` with an open blocker | `dispatch.decision action=ignored code=blocked_by_open`, plus a comment |
+| `blocked_by`, all blockers Done/Cancelled | Launches |
+| No relations | Launches |
+| Provider without the capability | Launches — **identical path, zero extra API calls** |
+
+**Cost.** One `GET /relations/` per launch, plus one read per blocker. Blockers are rare and the
+zero-blocker case exits on the first call. The gate runs *after* the label, state and assignee
+gates, so a task that was going to be skipped anyway never pays for it — and `--force` skips it
+entirely.
+
+**Fail-open by design.** If the relations call fails, the task launches, exactly as before this
+existed. A flaky API must not leave a daemon launching nothing. A blocker whose state cannot be
+recognised, on the other hand, counts as **open**: the board asserted the block, and failing to
+prove it was resolved is not the same as it being resolved.
+
+**GitHub.** GitHub Issues has no native `blocked_by`, so its provider does not implement
+`listBlockers` and the gate is inert there by construction — not disabled by a flag, absent.
+
+**Turn it off:** `kodo config --set dispatch.respect_blockers=false` restores the previous
+behaviour exactly.
+
 ## Polling instead of a webhook
 
 A webhook needs a URL Plane can reach. On a laptop that means a tunnel (cloudflared, Tailscale),
