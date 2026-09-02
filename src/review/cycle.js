@@ -383,6 +383,37 @@ export function getReviewCycle(taskId, deps = {}) {
 }
 
 /**
+ * Encuentra el ciclo ABIERTO de una rama. Pure read — never-throws.
+ *
+ * Existe por el cierre del reviewer (review PR #4, hallazgo ALTA): `kodo review commit` corre
+ * DENTRO del worktree de revisión, donde lo único que se sabe con certeza es la rama —
+ * `git branch --show-current`—, no el `task_id`. Sin este lookup, `recordReviewOutcome` no
+ * tenía forma de ser llamado desde el único sitio donde el artefacto acaba de existir, y el
+ * tope de rondas quedaba implementado pero sin disparar nunca.
+ *
+ * Solo devuelve ciclos `pending`: uno ya aprobado o escalado no debe reabrirse por un commit
+ * de artefactos tardío. Ante dos ciclos abiertos sobre la misma rama —que no debería ocurrir,
+ * porque git impide dos worktrees sobre una rama— gana el más reciente por `updated_at`.
+ *
+ * @param {string} branch
+ * @param {{ loadStateFn?: typeof loadState }} [deps]
+ * @returns {ReviewCycle|null}
+ */
+export function findOpenCycleByBranch(branch, deps = {}) {
+  if (typeof branch !== 'string' || branch === '') return null;
+  let all;
+  try {
+    const load = deps.loadStateFn || loadState;
+    all = Object.values(cyclesOf(load()));
+  } catch {
+    return null;
+  }
+  const hits = all.filter((c) => c && c.branch === branch && c.status === 'pending');
+  if (hits.length === 0) return null;
+  return hits.sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))[0];
+}
+
+/**
  * Lista los ciclos. Pure read — never-throws.
  * @param {{ all?: boolean }} [opts] `all: true` incluye los cerrados (la traza). Default: solo `pending` y `escalated` — los que piden algo de alguien.
  * @param {{ loadStateFn?: typeof loadState }} [deps]

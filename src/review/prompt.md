@@ -42,7 +42,10 @@ round: {{round}}
 ---
 ```
 
-El `commit:` es obligatorio y tiene que ser el SHA de arriba: es el ancla con la que el núcleo sabe a qué estado del código se refiere tu review. Sin él, o con algo que no sea un SHA, tu artefacto se lee como ilegible y la tarea se escala al operador.
+Las dos claves cargan peso, así que cópialas literalmente de arriba:
+
+- **`commit:`** es obligatorio y tiene que ser el SHA de arriba: es el ancla con la que el núcleo sabe a qué estado del código se refiere tu review. Sin él, o con algo que no sea un SHA, tu artefacto se lee como ilegible y la tarea se escala al operador.
+- **`branch:`** es lo que impide que tu review se confunda con el de otra tarea. Los artefactos viajan en el árbol: cuando esta rama se mergee, tu `review/` lo heredará toda rama que salga de `main` después. El `branch:` es lo que dice de quién era.
 
 Debajo del frontmatter, en este orden:
 

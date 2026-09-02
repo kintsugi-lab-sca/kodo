@@ -544,7 +544,13 @@ review/approval.md                             # satisfied — stop
 review/recommendations/NNN-recommendations.md  # a round of "Things To Address"
 ```
 
-Both carry a frontmatter with `branch` and `commit`. From that, `kodo review <REF>` derives:
+Both carry a frontmatter with `branch` and `commit`, and both are load-bearing: `commit`
+anchors the review to a state of the code, `branch` says which task the artifact belongs to
+(artifacts travel in the tree, so once a reviewed task merges, every later branch inherits its
+`review/`). The state is read **from the branch** — `git show <branch>:review/approval.md`, not
+from the working tree — so the answer does not depend on what happens to be checked out.
+
+From that, `kodo review <REF>` derives:
 
 | State | Meaning | Queue confidence |
 |---|---|---|
@@ -568,6 +574,11 @@ kodo review KODO-75         # review state derived from the artifacts
 kodo review start KODO-75   # launch the reviewer on that branch
 kodo review commit          # the REVIEWER's close: pathspec commit + report of what was excluded
 ```
+
+`commit` is also what **evaluates the cycle**: it derives the state from the branch, applies the
+disposition (approve / back to the coder / another pass / escalate) and reports it. It runs the
+evaluation even when there was nothing to commit — a reviewer that closes writing nothing is the
+`no-artifact` case, and it must escalate rather than pass unnoticed.
 
 `start` provisions its own worktree with `git worktree add <path> <branch>` — a **checkout of the
 existing branch**, not `claude --worktree`, which would create a new one. Because git refuses two

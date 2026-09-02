@@ -123,8 +123,15 @@ const FRONTMATTER_KEYS = /** @type {const} */ (['branch', 'commit', 'round']);
  * un parser de YAML completo al grafo de imports del núcleo.
  *
  * `commit` es la única clave OBLIGATORIA: es la que ancla el artefacto a un estado del código.
- * `branch` es informativa (el núcleo ya sabe sobre qué rama está mirando) y `round` es
- * redundante con el nombre del fichero, así que su ausencia no invalida nada.
+ *
+ * `branch` NO es decorativa, aunque sea opcional (review PR #4): es lo que distingue un
+ * artefacto de ESTA rama de uno HEREDADO. Los artefactos viven en el árbol, así que en cuanto
+ * una tarea revisada se mergea, su `review/` lo hereda toda rama que salga de main después —
+ * y sin este campo una rama virgen reportaría la aprobación caducada de otra tarea en vez de
+ * «sin revisar». Se acepta su ausencia (un artefacto viejo, o escrito a mano, sigue valiendo)
+ * y entonces manda solo el ancla del commit, que ya falla al lado seguro.
+ *
+ * `round` sí es redundante con el nombre del fichero, así que su ausencia no invalida nada.
  *
  * NEVER-THROWS.
  *
@@ -275,6 +282,102 @@ export function readReviewArtifacts(dir, deps = {}) {
 }
 
 /**
+ * Lee los artefactos de revisión DE UNA RAMA, sin depender de qué haya checkouteado.
+ *
+ * ─── POR QUÉ ESTA FUNCIÓN EXISTE (review PR #4, hallazgo ALTA) ──────────────────────────
+ *
+ * `readReviewArtifacts` lee del FILESYSTEM, y eso solo es correcto cuando el directorio ES un
+ * checkout de la rama que se pregunta. El CLI no cumplía esa condición: consultaba desde
+ * `project_path`, que normalmente tiene `main` checkouteada. El resultado eran DOS fallos, y
+ * el segundo es el grave:
+ *
+ *   - los artefactos de la rama no están en el árbol de main → `unreviewed` para siempre, y
+ *     el gate no se abre nunca;
+ *   - en cuanto UNA tarea revisada se mergea, su `review/` vive en main. A partir de ahí,
+ *     preguntar por una rama SIN revisar leía el `approval.md` de OTRA tarea y, si su
+ *     `commit:` coincidía con el reviewed head de main, respondía `approved`. Una rama que
+ *     nadie ha mirado, reportada como revisada: exactamente el fallo que esta feature existe
+ *     para eliminar, reintroducido por el lado de la lectura.
+ *
+ * No es un caso raro — es el estado normal en cuanto hay una segunda tarea revisada.
+ *
+ * La pregunta correcta no es «¿qué hay en este directorio?» sino «¿qué dice ESTA RAMA?», y esa
+ * se le hace a git, no al filesystem: `git show <branch>:<path>` y `git ls-tree <branch>`. Así
+ * la respuesta no depende de qué esté checkouteado, ni de si el worktree de revisión sigue
+ * existiendo, ni de lo que otra tarea dejara en main.
+ *
+ * NEVER-THROWS: un fichero ausente hace que `git show` salga distinto de 0 y eso se lee como
+ * «no está», que es la verdad. La detección es por EXCEPCIÓN (exit code), nunca por el texto
+ * del error — git está traducido.
+ *
+ * @param {string} dir Raíz del repo (cualquier checkout sirve: no se lee su árbol).
+ * @param {string} branch Rama cuyos artefactos se piden.
+ * @param {{ gitFn?: (cwd: string, args: string[]) => string }} [deps]
+ * @returns {{ approval: { path: string, frontmatter: ReviewFrontmatter|ReviewParseError }|null, recommendations: RecommendationFile[] }}
+ */
+export function readReviewArtifactsFromBranch(dir, branch, deps = {}) {
+  const gitFn = deps.gitFn || defaultGitSync;
+
+  /** @type {{ path: string, frontmatter: ReviewFrontmatter|ReviewParseError }|null} */
+  let approval = null;
+  try {
+    const raw = String(gitFn(dir, ['show', `${branch}:${APPROVAL_REL}`]));
+    approval = { path: `${branch}:${APPROVAL_REL}`, frontmatter: parseReviewFrontmatter(raw) };
+  } catch {
+    /* no existe en esa rama — el estado inicial normal */
+  }
+
+  /** @type {RecommendationFile[]} */
+  const recommendations = [];
+  try {
+    // La barra final es la que hace que `ls-tree` liste el CONTENIDO del directorio en vez
+    // del propio directorio como una entrada `tree`.
+    const out = String(gitFn(dir, ['ls-tree', '--name-only', branch, `${RECOMMENDATIONS_REL}/`]));
+    for (const line of out.split('\n')) {
+      const full = line.trim();
+      if (!full) continue;
+      const name = full.slice(full.lastIndexOf('/') + 1);
+      const seq = recommendationSeq(name);
+      if (seq === null) continue;
+      let frontmatter;
+      try {
+        frontmatter = parseReviewFrontmatter(String(gitFn(dir, ['show', `${branch}:${full}`])));
+      } catch (err) {
+        frontmatter = { error: `unreadable: ${/** @type {Error} */ (err).message}` };
+      }
+      recommendations.push({ seq, name, path: `${branch}:${full}`, frontmatter });
+    }
+  } catch {
+    /* sin directorio de recomendaciones en esa rama */
+  }
+  recommendations.sort((a, b) => a.seq - b.seq);
+
+  return { approval, recommendations };
+}
+
+/**
+ * ¿Este artefacto es de la rama que se está preguntando? PURA.
+ *
+ * Solo descarta cuando hay CONFLICTO explícito: el artefacto declara una rama y no es ésta.
+ * Un artefacto sin `branch:` se conserva, y uno leído sin rama de referencia (el reviewer
+ * dentro de su propio worktree) también — ahí no hay ambigüedad que resolver.
+ *
+ * @param {{ frontmatter: ReviewFrontmatter|ReviewParseError }|null} artifact
+ * @param {string|null|undefined} branch
+ * @returns {boolean}
+ */
+function belongsToBranch(artifact, branch) {
+  if (!artifact) return false;
+  if (!branch) return true;
+  const fm = /** @type {any} */ (artifact.frontmatter);
+  // Un frontmatter roto NO se descarta aquí: su destino es `malformed`, que es un diagnóstico
+  // útil («arregla el fichero»). Silenciarlo como «no es de esta rama» lo convertiría en un
+  // `none` mudo y el operador no sabría que hay un artefacto que reparar.
+  if (fm?.error !== undefined) return true;
+  return !fm.branch || fm.branch === branch;
+}
+
+/**
  * ¿Son el mismo commit? Comparación por PREFIJO cuando uno de los dos viene abreviado.
  *
  * Un humano copia `a1b2c3d` de `git log --oneline`; `--format=%H` emite los 40. Exigir
@@ -310,14 +413,20 @@ function sameCommit(a, b) {
  */
 export function resolveReviewedHead(dir, deps = {}) {
   const gitFn = deps.gitFn || defaultGitSync;
+  // `branch` (review PR #4): CUÁL es la punta desde la que se cuenta. Sin él la referencia es
+  // HEAD —comportamiento previo, correcto cuando quien pregunta ES el checkout de la rama, o
+  // sea el reviewer dentro de su worktree—. Pero el CLI preguntaba desde `project_path`, que
+  // tiene main: comparar un `approval.md` impecable contra el reviewed head de MAIN da
+  // `stale-approval` siempre. Ésta es la otra mitad del arreglo de la lectura por rama.
+  const ref = deps.branch || 'HEAD';
   try {
-    const out = String(gitFn(dir, ['log', '-1', '--format=%H', '--', '.', ':(exclude)review'])).trim();
+    const out = String(gitFn(dir, ['log', '-1', '--format=%H', ref, '--', '.', ':(exclude)review'])).trim();
     if (SHA_RE.test(out.toLowerCase())) return out.toLowerCase();
   } catch {
-    /* cae al HEAD pelado */
+    /* cae al rev-parse de la MISMA referencia, no de HEAD */
   }
   try {
-    const head = String(gitFn(dir, ['rev-parse', 'HEAD'])).trim().toLowerCase();
+    const head = String(gitFn(dir, ['rev-parse', ref])).trim().toLowerCase();
     return SHA_RE.test(head) ? head : null;
   } catch {
     return null;
@@ -357,8 +466,11 @@ function defaultGitSync(cwd, args) {
  *
  * NEVER-THROWS.
  *
- * @param {{ dir: string, reviewedHead?: string|null }} params `reviewedHead` inyectable para
- *   tests y para el llamante que ya lo resolvió; si se omite, se resuelve con git.
+ * @param {{ dir: string, branch?: string|null, reviewedHead?: string|null }} params
+ *   `branch` — pregunta QUÉ DICE ESA RAMA, vía git, sin depender de qué haya checkouteado.
+ *   Omitirlo lee el ÁRBOL de `dir`, que es lo correcto solo para quien está DENTRO del
+ *   checkout de la rama (el reviewer con artefactos aún sin commitear).
+ *   `reviewedHead` — inyectable para tests y para el llamante que ya lo resolvió.
  * @param {{ existsFn?: typeof existsSync, readFn?: (p: string) => string, readdirFn?: (p: string) => string[], gitFn?: (cwd: string, args: string[]) => string }} [deps]
  * @returns {ReviewState}
  */
@@ -368,7 +480,34 @@ export function deriveReviewState(params, deps = {}) {
     return { state: 'malformed', detail: 'missing dir', round: 0 };
   }
 
-  const { approval, recommendations } = readReviewArtifacts(dir, deps);
+  // CON `branch` se pregunta a git QUÉ DICE ESA RAMA; sin él se lee el árbol del directorio.
+  // No son dos formas de hacer lo mismo, y elegir mal es el bug de la review PR #4:
+  //
+  //   - por RAMA  → la respuesta no depende de qué esté checkouteado. Es lo que necesita
+  //     cualquiera que pregunte «¿está revisada la rama X?» desde fuera de ella (el CLI, la
+  //     cola de integración, el orquestador).
+  //   - por ÁRBOL → incluye lo que todavía NO está commiteado. Es lo que necesita el REVIEWER
+  //     dentro de su worktree, que acaba de escribir el artefacto y aún no lo ha commiteado.
+  //
+  // Por eso se conservan las dos y el llamante declara cuál quiere, en vez de adivinarlo.
+  const read = params.branch
+    ? readReviewArtifactsFromBranch(dir, params.branch, deps)
+    : readReviewArtifacts(dir, deps);
+
+  // ─── ARTEFACTOS HEREDADOS ────────────────────────────────────────────────────────────
+  //
+  // Los artefactos viven en el árbol, así que en cuanto UNA tarea revisada se mergea a main,
+  // su `review/` lo hereda toda rama que salga de main después. Sin este filtro, una rama
+  // recién creada que nadie ha mirado reporta `stale-approval` — la aprobación de OTRA tarea,
+  // caducada contra su ancla. No aprueba nada (el fail-closed aguanta), pero es una respuesta
+  // falsa: dice «hubo una revisión y se quedó vieja» donde la verdad es «no ha habido ninguna».
+  //
+  // El `branch:` del frontmatter es lo que desambigua, y por eso el prompt del reviewer lo
+  // exige. Un artefacto que declara OTRA rama no es de ésta: se descarta. Uno que no declara
+  // ninguna se conserva —no hay motivo para dudar de él— y sigue sujeto al ancla del commit,
+  // que ya falla al lado seguro.
+  const approval = belongsToBranch(read.approval, params.branch) ? read.approval : null;
+  const recommendations = read.recommendations.filter((r) => belongsToBranch(r, params.branch));
   const round = recommendations.length > 0 ? recommendations[recommendations.length - 1].seq : 0;
 
   if (!approval) {
@@ -394,7 +533,7 @@ export function deriveReviewState(params, deps = {}) {
   const reviewedHead =
     params.reviewedHead !== undefined
       ? (params.reviewedHead ? String(params.reviewedHead).toLowerCase() : null)
-      : resolveReviewedHead(dir, deps);
+      : resolveReviewedHead(dir, { ...deps, branch: params.branch ?? null });
 
   if (!reviewedHead) {
     return { state: 'malformed', detail: 'cannot resolve reviewed head (git silent)', round };
