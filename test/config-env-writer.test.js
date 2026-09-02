@@ -389,7 +389,10 @@ describe('PERSIST-04 — el modo setup (68-02) no amplía la superficie de fuga 
 
   it('sink memoria (Pitfall 6): el handler del paso apikey limpia el buffer del secreto al guardar', () => {
     assert.match(apiHandler, /onSaveApiKey\s*\(/, 'el save del paso apikey debe enrutar a onSaveApiKey (→ writeEnvVar / .env)');
-    assert.match(apiHandler, /setBuffer\(''\)/, 'el paso apikey debe limpiar el buffer del secreto tras guardar');
+    // `resetTextInput()` es el sucesor de `setBuffer('') + setCursor(0)`: vacía el par
+    // (buffer, cursor) de forma atómica. El sink que este test protege es el mismo — el secreto
+    // no puede quedar en memoria tras guardar.
+    assert.match(apiHandler, /resetTextInput\(\)/, 'el paso apikey debe limpiar el buffer del secreto tras guardar');
   });
 
   it('sink config.json: el paso apikey NO enruta el valor al escritor estructural (onSaveConfig)', () => {

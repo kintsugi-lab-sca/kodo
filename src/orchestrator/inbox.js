@@ -70,7 +70,7 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  *   notified_at: string|null,   // ISO 8601 del último aviso de una línea que lo incluyó. Ancla del debounce.
  * }} OrchestratorEvent
  *
- * @typedef {'session-end'|'session-launched'|'integration'|'recycle-suggested'} OrchestratorEventKind
+ * @typedef {'session-end'|'session-launched'|'integration'|'integration-pressure'|'recycle-suggested'} OrchestratorEventKind
  */
 
 /**
@@ -91,11 +91,19 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  * bandeja en el paso 1 de cada ronda, así que el aviso llega sin inventarle otro sitio
  * donde mirar. Su productor vive en `orchestrator/recycle.js`.
  *
+ * KODO-72 añade `'integration-pressure'`, y es el productor independiente que le faltaba a la
+ * familia — pero NO al `kind` `'integration'`, porque no dice lo mismo. `'integration'` diría
+ * «esta rama entró en la cola» (redundante con su `session-end`); `'integration-pressure'` dice
+ * «la tarea que ACABO de lanzar va a un repo que YA acumula N ramas sin integrar». El sujeto es
+ * la tarea entrante, no la rama saliente, y por eso el evento nace en el DISPATCHER y no en el
+ * hook de cierre. Es un aviso, jamás un bloqueo: el lanzamiento ya ha ocurrido cuando el
+ * orquestador lo lee.
+ *
  * @type {ReadonlySet<OrchestratorEventKind>}
  */
 export const ORCHESTRATOR_EVENT_KINDS = Object.freeze(
   new Set(/** @type {OrchestratorEventKind[]} */ ([
-    'session-end', 'session-launched', 'integration', 'recycle-suggested',
+    'session-end', 'session-launched', 'integration', 'integration-pressure', 'recycle-suggested',
   ])),
 );
 
@@ -316,6 +324,10 @@ function verbForKind(kind) {
   switch (kind) {
     case 'session-launched': return 'lanzada';
     case 'integration': return 'en cola de integración';
+    // KODO-72: el sujeto vuelve a ser el `task_ref` de la tarea LANZADA, así que
+    // `summarizeInbox` compone «KODO-71 va a un repo con cola pendiente». El número exacto
+    // NO entra en el aviso de una línea: ese vive en el `text` del evento, que la ronda lee.
+    case 'integration-pressure': return 'va a un repo con cola pendiente';
     // KODO-67: el `task_ref` de este evento es la palabra «orquestador», así que
     // `summarizeInbox` lo compone como «orquestador conviene reciclarlo» — el sujeto lo
     // pone el ref, igual que en los demás kinds.

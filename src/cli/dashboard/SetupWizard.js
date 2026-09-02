@@ -63,7 +63,7 @@ export async function handleSetupInput(input, key, ctx) {
   if (key.escape) {
     // Cancela el guiado sin escribir. En apikey limpia el secreto de memoria (Pitfall 6).
     if (ctx.setupStep === 'apikey') {
-      ctx.setBuffer('');
+      ctx.resetTextInput();
       ctx.setMaskValue(false);
     }
     ctx.setConfigEditError(null);
@@ -97,8 +97,7 @@ export async function handleSetupInput(input, key, ctx) {
         if (!result || result.ok !== false) {
           ctx.setConfigSnapshot(next);
           ctx.setConfigEditError(null);
-          ctx.setBuffer('');
-          ctx.setCursor(0);
+          ctx.resetTextInput();
           ctx.setSetupStep('base_url');
         } else {
           ctx.setConfigEditError(SETUP_SAVE_FAILED);
@@ -113,18 +112,15 @@ export async function handleSetupInput(input, key, ctx) {
   // Pasos 2/4 y 3/4 — base_url / workspace_slug (text-input controlado, molde config-edit).
   if (ctx.setupStep === 'base_url' || ctx.setupStep === 'workspace_slug') {
     if (key.leftArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.max(0, c - 1));
+      ctx.moveCursor(-1);
       return;
     }
     if (key.rightArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.min(ctx.buffer.length, c + 1));
+      ctx.moveCursor(1);
       return;
     }
     if (key.backspace || key.delete) {
-      if (ctx.cursor > 0) {
-        ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor - 1) + b.slice(ctx.cursor));
-        ctx.setCursor((/** @type {number} */ c) => c - 1);
-      }
+      ctx.deleteBeforeCursor();
       return;
     }
     if (key.return) {
@@ -142,8 +138,7 @@ export async function handleSetupInput(input, key, ctx) {
         if (!result || result.ok !== false) {
           ctx.setConfigSnapshot(next);
           ctx.setConfigEditError(null);
-          ctx.setBuffer('');
-          ctx.setCursor(0);
+          ctx.resetTextInput();
           if (nextStep === 'apikey') ctx.setMaskValue(true); // el paso 4/4 enmascara la entrada (D-11)
           ctx.setSetupStep(nextStep);
         } else {
@@ -155,8 +150,7 @@ export async function handleSetupInput(input, key, ctx) {
       return;
     }
     if (input && !key.ctrl && !key.meta) {
-      ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));
-      ctx.setCursor((/** @type {number} */ c) => c + input.length);
+      ctx.insertAtCursor(input);
       return;
     }
     return; // traga el resto (teclas de control no mapeadas)
@@ -165,18 +159,15 @@ export async function handleSetupInput(input, key, ctx) {
   // buffer guarda el VALOR REAL en memoria; solo la pintura se enmascara (renderSetupOverlay).
   if (ctx.setupStep === 'apikey') {
     if (key.leftArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.max(0, c - 1));
+      ctx.moveCursor(-1);
       return;
     }
     if (key.rightArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.min(ctx.buffer.length, c + 1));
+      ctx.moveCursor(1);
       return;
     }
     if (key.backspace || key.delete) {
-      if (ctx.cursor > 0) {
-        ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor - 1) + b.slice(ctx.cursor));
-        ctx.setCursor((/** @type {number} */ c) => c - 1);
-      }
+      ctx.deleteBeforeCursor();
       return;
     }
     if (key.return) {
@@ -192,7 +183,7 @@ export async function handleSetupInput(input, key, ctx) {
           // pasa al estado terminal 'complete' → aviso de reinicio honesto (SETUP_COMPLETE_RESTART
           // + SETUP_WEBHOOK_NOTE). D-09: NO se re-invoca loadEnvFile para reconfirmar la key recién
           // escrita — la confirmación se apoya en el process.env in-proceso (onSaveApiKey, index.js).
-          ctx.setBuffer('');
+          ctx.resetTextInput();
           ctx.setMaskValue(false);
           ctx.setConfigEditError(null);
           ctx.setSetupStep('complete');
@@ -205,8 +196,7 @@ export async function handleSetupInput(input, key, ctx) {
       return;
     }
     if (input && !key.ctrl && !key.meta) {
-      ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));
-      ctx.setCursor((/** @type {number} */ c) => c + input.length);
+      ctx.insertAtCursor(input);
       return;
     }
     return; // traga el resto (teclas de control no mapeadas)

@@ -148,8 +148,7 @@ export async function handleProjectsInput(mode, input, key, ctx) {
       const item = items[ctx.fieldCursor];
       if (!item) return;
       const current = getProjectPath(ctx.projectsSnapshot.map[item.id]);
-      ctx.setBuffer(current);
-      ctx.setCursor(current.length);
+      ctx.loadTextInput(current);
       ctx.setProjectsEditError(null);
       ctx.setMode('projects-edit');
       return;
@@ -212,18 +211,15 @@ export async function handleProjectsInput(mode, input, key, ctx) {
       return;
     }
     if (key.leftArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.max(0, c - 1));
+      ctx.moveCursor(-1);
       return;
     }
     if (key.rightArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.min(ctx.buffer.length, c + 1));
+      ctx.moveCursor(1);
       return;
     }
     if (key.backspace || key.delete) {
-      if (ctx.cursor > 0) {
-        ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor - 1) + b.slice(ctx.cursor));
-        ctx.setCursor((/** @type {number} */ c) => c - 1);
-      }
+      ctx.deleteBeforeCursor(); // la guarda de inicio-de-buffer vive dentro (cursor fresco)
       return;
     }
     if (key.return) {
@@ -257,8 +253,7 @@ export async function handleProjectsInput(mode, input, key, ctx) {
     }
     // Char imprimible: inserta en la posición del cursor (NO append ciego, molde config-edit).
     if (input && !key.ctrl && !key.meta) {
-      ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));
-      ctx.setCursor((/** @type {number} */ c) => c + input.length);
+      ctx.insertAtCursor(input);
       return;
     }
     return; // traga el resto (teclas de control no mapeadas)
@@ -310,8 +305,7 @@ export async function handleProjectsInput(mode, input, key, ctx) {
       if (!mod) return;
       const activeId = ctx.projectsSnapshot?.activeProjectId;
       const current = getModuleMap(ctx.projectsSnapshot?.map?.[activeId])[mod.name] ?? '';
-      ctx.setBuffer(current);
-      ctx.setCursor(current.length);
+      ctx.loadTextInput(current);
       ctx.setProjectsEditError(null);
       ctx.setMode('projects-modules-edit');
       return;
@@ -329,18 +323,15 @@ export async function handleProjectsInput(mode, input, key, ctx) {
       return;
     }
     if (key.leftArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.max(0, c - 1));
+      ctx.moveCursor(-1);
       return;
     }
     if (key.rightArrow) {
-      ctx.setCursor((/** @type {number} */ c) => Math.min(ctx.buffer.length, c + 1));
+      ctx.moveCursor(1);
       return;
     }
     if (key.backspace || key.delete) {
-      if (ctx.cursor > 0) {
-        ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor - 1) + b.slice(ctx.cursor));
-        ctx.setCursor((/** @type {number} */ c) => c - 1);
-      }
+      ctx.deleteBeforeCursor(); // la guarda de inicio-de-buffer vive dentro (cursor fresco)
       return;
     }
     if (key.return) {
@@ -374,8 +365,7 @@ export async function handleProjectsInput(mode, input, key, ctx) {
     }
     // Char imprimible: inserta en la posición del cursor (NO append ciego, molde projects-edit).
     if (input && !key.ctrl && !key.meta) {
-      ctx.setBuffer((/** @type {string} */ b) => b.slice(0, ctx.cursor) + input + b.slice(ctx.cursor));
-      ctx.setCursor((/** @type {number} */ c) => c + input.length);
+      ctx.insertAtCursor(input);
       return;
     }
     return; // traga el resto (teclas de control no mapeadas)

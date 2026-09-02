@@ -13,6 +13,8 @@ import { acquireLock, releaseLock, startLockHeartbeat } from '../session/state-l
 import { getHost, resolveHostName } from '../host/interface.js';
 import { resolvePhase } from '../gsd/resolver.js';
 import { buildBriefFromTask, isBriefEmpty } from '../gsd/brief.js';
+import { countPendingForProject } from '../integration/queue.js';
+import { enqueueOrchestratorEvent } from '../orchestrator/inbox.js';
 import { EVENTS, gsdPhaseResolved, gsdBootstrap, dispatchDecision, dispatchError } from '../logger-events.js';
 
 /** In-flight dispatch locks keyed by task_id (prevents duplicate sessions from concurrent webhooks) */
@@ -81,6 +83,83 @@ export function resolverFailureHint(verdict, ctx = {}) {
 }
 
 /**
+ * AVISO de presión de integración (KODO-72). JAMÁS un bloqueo.
+ *
+ * El dispatcher lanza hasta `max_parallel` sesiones sin mirar la cola de integración, así que
+ * hoy nada avisa de que se abre una rama nueva sobre un repo que YA acumula ramas sin integrar.
+ * Ramas paralelas sobre el mismo árbol conflictúan — es lo que pasó el 2026-09-01 con SCP-21 /
+ * SCP-15 (commits huérfanos y un merge de recuperación a mano).
+ *
+ * POR QUÉ AVISO Y NO GATE. El precedente externo (swarm-forge, `ready_for_next_guard.bb:112-114`)
+ * se NIEGA a aceptar trabajo nuevo mientras el rol tenga una entrega en vuelo: imprime
+ * WAITING_FOR_APPROVAL y para. Aquí no, y no es un descuido:
+ *
+ *   1. Bloquear rompe el paralelismo, que es el punto entero de kodo. Dos ramas sobre el mismo
+ *      repo son el caso NORMAL, no la anomalía; lo que falta no es un permiso, es una mirada.
+ *   2. Un gate que molesta acaba apagado (el razonamiento es de KODO-69). Un aviso que se lee
+ *      una vez por lanzamiento sobrevive; un `--no-verify` mental no.
+ *
+ * Así que esta función no tiene veredicto: cuenta, avisa por las dos superficies que el operador
+ * ya mira, y devuelve. El caller sigue al launch pase lo que pase aquí.
+ *
+ * DOS SUPERFICIES, ninguna nueva:
+ *   - `console.log('[kodo:dispatch] integration_pressure — …')`, el mismo carril por el que ya
+ *     salen `worktree_collision`, `gsd_locked`, `resolver_failed` y `dispatch.skipped`.
+ *   - Un evento `integration-pressure` en la bandeja del orquestador, que la ronda ya lee en su
+ *     paso 1 (y que, a diferencia del stdout del daemon, sobrevive al proceso).
+ *
+ * NEVER-THROWS DE CUERPO ENTERO y FAIL-OPEN: cualquier fallo —contar, loguear o encolar— se traga
+ * y devuelve. Un aviso que pudiera abortar un lanzamiento sería exactamente el bloqueo que esta
+ * tarea prohíbe.
+ *
+ * CERO LLAMADAS A GIT: el conteo sale del bloque `integration_queue` de `state.json`.
+ *
+ * COLA VACÍA ⇒ NADA. Con `pending === 0` se vuelve ANTES de tocar stdout o la bandeja, así que el
+ * camino de lanzamiento habitual queda byte-idéntico al de antes de KODO-72.
+ *
+ * @param {{ ref: string }} task
+ * @param {string|null} projectPath repo destino ya resuelto por el dispatcher.
+ * @param {DispatchDeps} deps
+ * @returns {number} las entradas pending contadas (0 = sin aviso). Solo para tests y trazas.
+ */
+function noticeIntegrationPressure(task, projectPath, deps) {
+  const countFn = deps.countPendingIntegrationsFn || countPendingForProject;
+  const enqueueFn = deps.enqueueOrchestratorEventFn || enqueueOrchestratorEvent;
+
+  let pending = 0;
+  try {
+    pending = countFn(projectPath || '');
+  } catch {
+    return 0; // fail-open: una cola que no se puede contar es una cola sin presión.
+  }
+  if (!Number.isFinite(pending) || pending <= 0) return 0;
+
+  const plural = pending === 1 ? 'entrada' : 'entradas';
+  try {
+    console.log(
+      `[kodo:dispatch] integration_pressure — ${task.ref} va a un repo con ${pending} ${plural} pending en la cola de integración (${projectPath}); se lanza igualmente`,
+    );
+  } catch {
+    // silencioso: un stdout roto (EPIPE bajo launchd) no puede frenar el launch.
+  }
+  try {
+    enqueueFn({
+      kind: 'integration-pressure',
+      task_ref: task.ref,
+      // El saneo del texto lo hace `buildOrchestratorEvent` en el punto de construcción
+      // (invariante STATE.md:176), igual que con el resto de productores de la bandeja.
+      text:
+        `${task.ref} va a un repo con ${pending} ${plural} pending en la cola de integración. ` +
+        `Path: ${projectPath}. Aviso, no bloqueo: la sesión se lanzó igual. Repasa la cola ` +
+        `(paso 5b) antes de que se acumulen más ramas sin integrar sobre el mismo árbol.`,
+    });
+  } catch {
+    // silencioso: `enqueueOrchestratorEvent` ya es never-throws; el catch cubre el seam.
+  }
+  return pending;
+}
+
+/**
  * @typedef {{
  *   getProviderFn?: (name?: string) => import('../interface.js').TaskProvider,
  *   launchWorkItemFn?: (ref: string, opts: object) => Promise<any>,
@@ -96,6 +175,8 @@ export function resolverFailureHint(verdict, ctx = {}) {
  *   releaseLockFn?: (lockPath: string, token: string) => void,
  *   startLockHeartbeatFn?: (lockPath: string, token: string, opts: { intervalMs: number, maxHoldMs: number }) => (() => void),
  *   dispatchLockDir?: string,
+ *   countPendingIntegrationsFn?: (projectPath: string) => number,
+ *   enqueueOrchestratorEventFn?: (input: object) => any,
  *   _logger?: any,
  * }} DispatchDeps
  */
@@ -521,6 +602,10 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
       removeSessionFn(task.id);
     }
 
+    // KODO-72: el relanzamiento tras limpiar una sesión stale ES un lanzamiento — abre una
+    // sesión nueva sobre el repo igual que el camino de abajo — así que merece el mismo aviso.
+    noticeIntegrationPressure(task, dispatchProjectPath, deps);
+
     // Relaunch after stale cleanup
     inFlight.add(task.id);
     try {
@@ -610,6 +695,12 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
       maxHoldMs: DISPATCH_LOCK_MAX_HOLD_MS,
     });
   }
+
+  // KODO-72: el aviso va DESPUÉS del dedup lock y ANTES del launch. Después del lock porque un
+  // perdedor cross-process se va por `already_active` sin lanzar nada, y avisar ahí sería ruido
+  // sobre un lanzamiento que no ocurre. Antes del launch porque el aviso describe una decisión ya
+  // tomada («esta tarea VA a este repo»), y así se emite aunque `launchWorkItemFn` acabe fallando.
+  noticeIntegrationPressure(task, dispatchProjectPath, deps);
 
   inFlight.add(task.id);
   try {
