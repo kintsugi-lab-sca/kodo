@@ -58,7 +58,12 @@ Debajo del frontmatter, en este orden:
 
 ### Si SÍ estás satisfecho
 
-Escribe `review/approval.md` con el mismo frontmatter (`branch`, `commit`) y un párrafo corto de qué revisaste y por qué te convence. Y **para**: no abras otra ronda.
+Escribe `review/approval.md` con el mismo frontmatter (`branch`, `commit`) y, debajo:
+
+1. **Qué revisaste y por qué te convence** — un párrafo corto.
+2. **Riesgos residuales** — lo que aceptas conscientemente al aprobar: lo que no has podido comprobar, lo que depende de algo externo, lo que funcionará hasta que cambie X. Aprobar no es decir que no queda riesgo; es decir cuál queda y que te parece asumible. Si de verdad no ves ninguno, escríbelo así de explícito.
+
+Y **para**: no abras otra ronda.
 
 ## Cómo cierras
 

@@ -95,10 +95,25 @@ describe('KODO-75 — buildReviewerPrompt', () => {
     assert.match(p, /ronda 2 de un máximo de 3/);
   });
 
-  it('el prompt DICE la restricción de escritura y que no debe arreglar', () => {
+  // `test/CONVENTIONS.md` (KODO-71): pinea el CONTRATO, nunca la prosa. Lo que este test
+  // garantiza no es cómo está redactado el prompt —que se reescribirá— sino que sigue
+  // nombrando las cuatro cosas sin las cuales el reviewer no puede cerrar su ciclo: el
+  // pathspec que lo limita, las dos rutas de artefacto que el núcleo parsea, y el comando de
+  // cierre. Si cualquiera desaparece de la redacción, el rol deja de funcionar.
+  it('el prompt nombra el pathspec, las dos rutas de artefacto y el comando de cierre', () => {
     const p = buildReviewerPrompt(/** @type {any} */ ({ task_ref: 'X', round: 1, max_rounds: 3 }));
-    assert.match(p, /review\/.*y nada más|`review\/`, y nada más/);
-    assert.match(p, /escríbelo.*no lo arregles/i);
+    assert.ok(p.includes('review/'), 'el pathspec que restringe su escritura');
+    assert.ok(p.includes('review/approval.md'), 'la ruta que el núcleo lee como aprobación');
+    assert.ok(p.includes('review/recommendations/'), 'la ruta de las rondas');
+    assert.ok(p.includes('kodo review commit'), 'sin este comando el reviewer no cierra bien');
+  });
+
+  it('el prompt nombra las claves de frontmatter que el parser exige', () => {
+    // Contrato de parsing: `commit:` es el ancla y `branch:` desambigua los heredados. Un
+    // prompt que deje de pedirlas produce artefactos que el núcleo lee como ilegibles.
+    const p = buildReviewerPrompt(/** @type {any} */ ({ task_ref: 'X', round: 1, max_rounds: 3 }));
+    assert.ok(p.includes('commit:'));
+    assert.ok(p.includes('branch:'));
   });
 
   it('sin base resuelta cae a main en vez de dejar el placeholder', () => {
