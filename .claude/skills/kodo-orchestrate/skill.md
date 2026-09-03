@@ -962,11 +962,21 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   `<cwd>/.env` contra la deny (coincide a cualquier profundidad), el chequeo es
   previo a la existencia y ninguna `allow` prevalece sobre una deny (doc de
   permissions). Un `.env` inexistente en kodo bloqueó KODO-80 y KODO-74 en el
-  mismo prompt. Arreglo aplicado con el operador: sustituir las tres deny
-  genéricas por rutas absolutas a los cinco ficheros con secretos reales
-  (`Read(//Users/alex/.kodo/.env)`, `~/.secrets` y los `.env` de clipping,
-  py-base y cadiz-resiste); copia en `settings.json.bak-20260903-1043`. Un
-  `.env` nuevo en otro repo hay que añadirlo a mano a esa lista.
+  mismo prompt. Primer intento: deny con rutas absolutas a los cinco ficheros con secretos
+  reales — insuficiente: con CUALQUIER regla Read() deny, un comando compuesto
+  (`cd … && grep …`) pide confirmación porque el chequeo previo no puede resolver
+  el directorio («a Read() deny rule is configured; only you can approve»).
+  Arreglo definitivo (3-sep 13:50): `permissions.deny` vacío y el PreToolUse
+  `~/.claude/hooks/secrets-guard.js`, que deniega Read/Edit/Write/MultiEdit/
+  NotebookEdit sobre los cinco ficheros y los comandos Bash que los mencionen
+  (absolutas, `~`, `$HOME`, relativas resueltas contra el cwd y contra cada `cd`
+  del comando; comillas fuera antes de tokenizar). Probado en sesión interactiva:
+  `cd && grep` sin prompt; `cat` y Read del fichero cortados con motivo. Hueco
+  aceptado: un grep recursivo desde la raíz de un repo protegido puede devolver
+  líneas de su fichero de secretos. Ojo: el hook también corta al orquestador —
+  para Plane usa `$PLANE_API_KEY` del entorno, y el token del daemon
+  (`KODO_API_TOKEN`) ya no se lee del fichero: pídeselo al operador o usa el
+  dashboard. Copias en `settings.json.bak-20260903-1043` y `-1350-hook`.
 - [2026-09-03] **Cerrar una sesión idle sin perder nada: integrar primero,
   `/exit` después.** Al salir, Claude Code ofrece «Keep / Remove worktree» y
   *Remove* borra la rama con sus commits (el bug de KODO-68, ya en `main` pero
