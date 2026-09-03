@@ -278,6 +278,62 @@ describe('DISMISS-04/SC#2: guard inverso alive===true (TUI layer)', () => {
   });
 });
 
+describe('KODO-78: el dismiss cierra su ciclo visual sin esperar al tick del poll', () => {
+  it('(g) tras el DELETE la fila descartada desaparece del frame SIN avanzar el reloj', async () => {
+    const clock = makeFakeClock();
+    // La fila dead lleva un repo PROPIO ('zzz'): su presencia en el frame es la de la FILA, no la
+    // del footer (que solo nombra el task_ref, y por tanto seguiría casando tras el dismiss).
+    const before = {
+      count: 2,
+      sessions: [
+        STATUS_FIXTURE.sessions[0],
+        { ...STATUS_FIXTURE.sessions[1], project_name: 'zzz' },
+      ],
+    };
+    const after = { count: 1, sessions: [STATUS_FIXTURE.sessions[0]] };
+
+    let dismissed = false;
+    let statusCalls = 0;
+    const fetchFn = async (/** @type {string} */ url, /** @type {any} */ init) => {
+      const u = String(url);
+      if (u.endsWith('/status')) {
+        statusCalls++;
+        return okResponse(dismissed ? after : before);
+      }
+      if (u.includes('/sessions/') && init?.method === 'DELETE') {
+        dismissed = true;
+        return okResponse({ ok: true, removed: 'b', actions: [{ type: 'worktree', result: 'removed' }] });
+      }
+      return okResponse(before);
+    };
+
+    const { lastFrame, stdin, unmount } = render(createElement(App, injectProps(clock, fetchFn)));
+    try {
+      await drain();
+      assert.match(lastFrame(), /zzz/, 'precondición: la fila dead está pintada');
+      const statusCallsBefore = statusCalls;
+
+      stdin.write('\x1b[B'); // ↓ a KL-2 (dead)
+      await drain();
+      stdin.write('d'); // arma
+      await drain();
+      stdin.write('d'); // confirma
+      await drain();
+      await drain(); // Pitfall 5: ink no awaitea el handler async
+
+      // NO se llama a clock.flushTick(): el reloj del poll no avanza, así que el ÚNICO refresco
+      // posible es el que el propio dismiss forzó.
+      assert.ok(statusCalls > statusCallsBefore, 'el dismiss debe forzar un /status inmediato');
+      const frame = lastFrame();
+      assert.doesNotMatch(frame, /zzz/, `la fila descartada debe desaparecer ya\n${frame}`);
+      assert.match(frame, new RegExp(DISMISS_OK('KL-2').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        `el footer sigue confirmando el dismiss\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+});
+
 describe('D-12: el mensaje de resultado transitorio se limpia con la siguiente tecla', () => {
   it('(f) tras un guard message, la siguiente tecla lo limpia (clear-on-any-input)', async () => {
     const clock = makeFakeClock();

@@ -314,6 +314,12 @@ kodo dashboard   # live TUI (also opened by kodo up)
 
 Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `e` config · `m` projects · `q` quit
 
+`d` only works on dead rows and asks for confirmation (press `d` again). The table refreshes
+itself every 2.5s, but a dismiss does not wait for that tick: as soon as the `DELETE` returns,
+the dashboard polls `/status` immediately — so the row disappears at once, and if the server
+rejected the dismiss because the session came back to life, the table shows it alive right away
+instead of keeping a stale dead row on screen.
+
 > **Note on runtime strings.** kodo's own output — the dashboard header, console
 > messages, the config editor labels — is still rendered in Spanish. Wherever this
 > README quotes that output it reproduces it **verbatim**, so what you read here is

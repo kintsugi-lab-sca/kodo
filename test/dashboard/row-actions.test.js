@@ -241,6 +241,53 @@ describe('RowActions — `d` (armDismiss + confirm)', () => {
     assert.equal(deletes, 0);
     assert.equal(ctx.mode, 'list');
   });
+
+  // KODO-78: el dismiss cierra su ciclo VISUAL. Sin esto, la fila descartada seguía pintada hasta
+  // el siguiente tick del poll (2,5 s, hasta 10 s con el backoff abierto) bajo un footer que ya
+  // decía "dismissed".
+  it('tras un dismiss OK refresca el poll inmediatamente (KODO-78)', async () => {
+    let refreshes = 0;
+    const ctx = makeCtx({
+      armedTaskId: 't1',
+      armedTaskRef: 'KODO-1',
+      refreshNow: () => refreshes++,
+      fetchFn: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, actions: [] }) }),
+    });
+    await handleDismissConfirmInput('d', ctx);
+    assert.equal(ctx.focusError, DISMISS_OK('KODO-1'));
+    assert.equal(refreshes, 1, 'el éxito debe forzar un refresco: la fila descartada desaparece ya');
+  });
+
+  it('tras un 409 `alive` TAMBIÉN refresca: la tabla estaba mintiendo (KODO-78)', async () => {
+    let refreshes = 0;
+    const ctx = makeCtx({
+      armedTaskId: 't1',
+      armedTaskRef: 'KODO-1',
+      refreshNow: () => refreshes++,
+      fetchFn: async () => ({ ok: false, status: 409, json: async () => ({ error: 'alive' }) }),
+    });
+    await handleDismissConfirmInput('d', ctx);
+    assert.equal(ctx.focusError, DISMISS_ERR('alive'));
+    assert.equal(refreshes, 1, 'el 409 significa que la fila revivió — hay que re-sincronizar');
+  });
+
+  it('cancelar el confirm NO refresca (no hubo DELETE)', async () => {
+    let refreshes = 0;
+    const ctx = makeCtx({ armedTaskId: 't1', armedTaskRef: 'KODO-1', refreshNow: () => refreshes++ });
+    await handleDismissConfirmInput('x', ctx);
+    assert.equal(refreshes, 0);
+  });
+
+  it('ctx degradado sin refreshNow: el dismiss no lanza', async () => {
+    const ctx = makeCtx({
+      armedTaskId: 't1',
+      armedTaskRef: 'KODO-1',
+      refreshNow: undefined,
+      fetchFn: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, actions: [] }) }),
+    });
+    await handleDismissConfirmInput('d', ctx);
+    assert.equal(ctx.focusError, DISMISS_OK('KODO-1'));
+  });
 });
 
 describe('RowActions — contrato de re-export', () => {

@@ -255,6 +255,14 @@ export async function handleDismissConfirmInput(input, ctx) {
     ctx.setArmedTaskId(null);
     ctx.setArmedTaskRef(null);
     ctx.setMode('list');
+    // KODO-78: cierra el ciclo VISUAL del dismiss. El DELETE ya resolvió server-side, pero la tabla
+    // se refresca solo por el tick del poll (2,5 s, hasta 10 s con el backoff abierto), así que la
+    // fila descartada seguía pintada bajo un footer que decía "dismissed". Se refresca en AMBOS
+    // desenlaces, no solo en el éxito: el 409 `alive` significa que la fila REVIVIÓ entre el arm y
+    // el confirm, y es justo el caso en que el snapshot de la tabla está mintiendo. Un fallo de red
+    // también se refresca — el kick es una sola request y el backoff sigue gobernando el ritmo.
+    // never-throws: `refreshNow` solo invalida el tick vigente; el `?.` cubre el ctx degradado.
+    ctx.refreshNow?.();
     return;
   }
   // D-04: Esc Y cualquier otra tecla cancelan (solo `d` ejecuta). Sin mensaje, sin timer (D-03).

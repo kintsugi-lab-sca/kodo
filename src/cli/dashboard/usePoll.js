@@ -22,8 +22,17 @@
 //   - D-05 timeout: AbortController re-creado cada tick + schedule(() => ac.abort(), 5000).
 //     El handle del controller vive en el loop para abortar on-unmount.
 //   - D-09 teardown (Pitfall 9): cleanup = cancelled flag + cancel(timer) + ac?.abort().
-//     Sin tick-id guard — el cancelled flag + cancel + abort bastan para no hacer setState
-//     tras unmount ni dejar fetch zombi.
+//
+// KODO-78 — refresco inmediato (`kick`). El dismiss de una fila dead necesita cerrar su ciclo
+// visual: el DELETE ya cambió el estado server-side, pero la tabla seguía pintando la fila hasta
+// el siguiente tick (hasta 2,5 s, o hasta 10 s si el backoff estaba abierto). `kick()` cancela el
+// re-arme pendiente, aborta el request en vuelo y dispara un tick YA. Se expone por `opts.kickRef`
+// (aditivo: sin ese ref el loop se comporta exactamente igual que antes).
+//
+// El kick OBLIGA a un tick-id guard, que el teardown por sí solo no daba: al abortar el request en
+// vuelo, ese tick reanuda tras el `await` con un `{ok:false}` de abort y —sin guard— reportaría una
+// desconexión falsa Y re-armaría su propio timer, dejando DOS loops corriendo. Por eso cada tick
+// captura la generación vigente (`myGen`) y se retira en silencio si `kick()` la superó.
 //
 // Discretion (RESEARCH Open Question 2): el *timing* del backoff (el interval actual) vive
 // aquí; el keep-last-good + connection display state vive en App (Plan 03). El loop solo
@@ -71,6 +80,9 @@ const TICK_TIMEOUT_MS = 5000;
  * @property {(handle: any) => void} [cancelTimeout] — cancela el timeout de abort. Default `clearTimeout`.
  * @property {number} [baseMs] — override del intervalo base (default 2500).
  * @property {number} [maxMs] — override del cap del backoff (default 10000).
+ * @property {{ current: (() => void) | null }} [kickRef] — KODO-78: ref donde el loop PUBLICA su
+ *   `kick()` (refresco inmediato) mientras vive; el teardown lo devuelve a `null`. Omitirlo deja
+ *   el loop idéntico al de antes.
  */
 
 /**
@@ -109,9 +121,15 @@ export function runPollLoop(fn, onResult, opts = {}) {
   let failCount = 0;
   /** @type {AbortController | null} */
   let ac = null;
+  // KODO-78: generación del tick VIGENTE. Cada `kick()` la incrementa; un tick cuya generación
+  // quedó atrás no reporta ni re-arma (ver el bloque de cabecera).
+  let gen = 0;
 
   async function tick() {
     if (cancelled) return; // cf. polling.js:495 `if (stopped) return;`
+    // KODO-78: la generación con la que ARRANCA este tick. Si un kick la supera durante el await,
+    // este tick es historia y se retira sin tocar nada.
+    const myGen = gen;
 
     // (D-05) AbortController re-creado cada tick + timeout de 5s que lo aborta.
     ac = new AbortController();
@@ -126,7 +144,9 @@ export function runPollLoop(fn, onResult, opts = {}) {
       cancelTimeout(to);
     }
 
-    if (cancelled) return; // no reportar ni re-armar si se desmontó durante el await.
+    // No reportar ni re-armar si se desmontó (D-09) o si un `kick()` superó a este tick (KODO-78):
+    // en el segundo caso el `result` es el abort que el propio kick provocó, no una desconexión.
+    if (cancelled || myGen !== gen) return;
 
     onResult(result);
 
@@ -146,6 +166,28 @@ export function runPollLoop(fn, onResult, opts = {}) {
     timer = schedule(tick, interval);
   }
 
+  /**
+   * KODO-78: refresco INMEDIATO. Invalida el tick vigente (gen++), cancela el re-arme pendiente,
+   * aborta el request en vuelo y dispara un tick ya — por la MISMA microtask que el arranque, así
+   * que sigue siendo un único tick en vuelo (D-03 intacto).
+   *
+   * `failCount` NO se toca: si el server está caído, un kick manual no debe borrar el backoff que
+   * los fallos consecutivos ya ganaron.
+   */
+  function kick() {
+    if (cancelled) return;
+    gen++;
+    if (timer) {
+      cancel(timer);
+      timer = null;
+    }
+    ac?.abort();
+    Promise.resolve().then(tick);
+  }
+
+  // Publica el kick para el caller que lo pidió (App.js lo usa tras el DELETE del dismiss).
+  if (opts.kickRef) opts.kickRef.current = kick;
+
   // Kick-off inmediato vía microtask (no real timer), igual que polling.js:557-559.
   Promise.resolve().then(tick);
 
@@ -153,6 +195,9 @@ export function runPollLoop(fn, onResult, opts = {}) {
     cancelled = true;
     if (timer) cancel(timer);
     ac?.abort();
+    // El ref sobrevive al loop (vive en App); dejar el kick de un loop muerto sería una función
+    // no-op colgada. Se limpia para que el consumidor vea honestamente que no hay loop.
+    if (opts.kickRef) opts.kickRef.current = null;
   };
 }
 
@@ -162,6 +207,9 @@ export function runPollLoop(fn, onResult, opts = {}) {
  * `fn` y `onResult` se guardan en `useRef` para no re-armar el efecto en cada render: el
  * efecto depende solo de `deps`, pero el `tick` siempre invoca la versión más reciente de
  * `fn`/`onResult` vía la ref. El cleanup es el teardown que devuelve `runPollLoop` (D-09).
+ *
+ * KODO-78: `opts.kickRef` viaja tal cual al loop, que publica ahí su `kick()` mientras vive — el
+ * consumidor (App.js) llama `kickRef.current?.()` para forzar un refresco inmediato.
  *
  * @param {(signal: AbortSignal) => Promise<PollResult>} fn — el trabajo del tick.
  * @param {(result: PollResult) => void} onResult — callback con cada resultado {ok}.

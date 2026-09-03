@@ -586,12 +586,26 @@ export default function App({
     [now],
   );
 
+  // KODO-78: ref donde `usePoll` publica su `kick()` (refresco inmediato) mientras el loop vive.
+  // El teardown lo devuelve a null, así que `refreshNow` sobre un loop desmontado es un no-op.
+  const pollKickRef = useRef(/** @type {(() => void) | null} */ (null));
+
   usePoll(
     (signal) => fetchStatus(baseUrl, fetchFn, signal),
     onResult,
     [baseUrl],
-    { schedule, cancel, scheduleTimeout, cancelTimeout, baseMs, maxMs },
+    { schedule, cancel, scheduleTimeout, cancelTimeout, baseMs, maxMs, kickRef: pollKickRef },
   );
+
+  /**
+   * KODO-78: fuerza un tick de `/status` YA, sin esperar al re-arme del backoff. Lo usa el dismiss
+   * para cerrar su ciclo visual: el DELETE ya cambió el estado server-side, y sin esto la fila
+   * descartada (o revivida, en el 409 `alive`) seguía pintada hasta 2,5 s — hasta 10 s con el
+   * backoff abierto. No es un fetch paralelo: el kick invalida y sustituye al tick vigente.
+   */
+  const refreshNow = useCallback(() => {
+    pollKickRef.current?.();
+  }, []);
 
   // Phase 75 (LIVE-05, D-02): lee el bloque `tasks` de ~/.kodo/state.json. Esta lectura vive en
   // el cuerpo del componente, que React re-ejecuta en CADA render (75/WR-02) — no solo en los
@@ -666,6 +680,9 @@ export default function App({
         setArmedTaskId,
         armedTaskRef,
         setArmedTaskRef,
+        // KODO-78: refresco inmediato de /status. El dismiss lo llama tras el DELETE para que la
+        // tabla refleje el desenlace sin esperar al siguiente tick del backoff.
+        refreshNow,
         // text-input compartido (config-edit / projects-edit / setup)
         buffer,
         setBuffer,

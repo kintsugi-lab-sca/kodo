@@ -51,6 +51,9 @@ export function makeCtx(overrides = {}) {
     saveProjectsFn: () => {},
     listModulesFn: async () => ({ ok: true, modules: [] }),
     dispatchProjectIdsFn: () => [],
+    // KODO-78: refresco inmediato del poll (en App.js es el kick de usePoll). Inerte por defecto;
+    // los tests que lo observan lo sobreescriben con un contador.
+    refreshNow: () => {},
     ...overrides,
   };
   // Setters: escriben en sitio (soportando la forma updater) y registran la llamada.
