@@ -453,13 +453,32 @@ export async function runInboxPromoteCli(id, opts, deps = {}) {
   let result;
   try {
     const promoteFn = deps.promoteFn || (await import('../inbox/promote.js')).promoteCapture;
-    const getProviderFn =
-      deps.getProviderFn || (await import('../providers/registry.js')).getProvider;
-    const loadProjectsFn = deps.loadProjectsFn || (await import('../config.js')).loadProjects;
+    const { loadConfig, loadProjects } = await import('../config.js');
+
+    // Resolución del proveedor: espejo de `cli/adopt.js` y `cli/comment.js`. Lazy-import para no
+    // acoplar el registry al import de este módulo, y `getProviderFn` inyectable para que los
+    // tests no toquen ni el registry ni la red.
+    /** @type {any} */
+    let provider;
+    if (deps.getProviderFn) {
+      provider = deps.getProviderFn();
+    } else {
+      const { initRegistry, getProvider } = await import('../providers/registry.js');
+      await initRegistry();
+      provider = getProvider(loadConfig().provider);
+      // `init()` SÍ, a diferencia de `comment`/`adopt`. `createTask` normaliza el 201 usando el
+      // identifier del proyecto que `init` resuelve contra la API; sin él, la ref de la tarea
+      // creada sale como `UNKNOWN-<n>` — y esa ref es justo lo que se persiste como trace pointer
+      // de la captura, así que una ref mal formada convierte el enrutado en basura silenciosa.
+      // El coste es el arranque del provider (segundos con red lenta), aceptable en un comando
+      // manual de una sola tarea.
+      await provider.init();
+    }
+
     result = await promoteFn({
       id,
-      provider: getProviderFn(),
-      projects: loadProjectsFn(),
+      provider,
+      projects: (deps.loadProjectsFn || loadProjects)(),
       projectRef: opts.project,
       inboxPath,
       lockPath,

@@ -518,10 +518,16 @@ inbox
     'Proyecto de destino: tag legible o id del proveedor. Por defecto, el tag de la propia captura',
   )
   .option('--json', 'Emitir el resultado como JSON (scriptable)')
-  .action(setExitCode(async (id, opts) => {
+  .action(setExitCode(async (id, opts, cmd) => {
+    // MISMA colisión de flag largo que `oracle run`, `review commit` e `inbox-orch ack --all`
+    // (ver sus comentarios): el padre `inbox` declara `--json` para el listado, así que un
+    // `--json` tecleado DESPUÉS del subcomando aterriza en las opciones del padre. Se lee de los
+    // dos niveles. Verificado en UAT: sin esto, `kodo inbox promote <id> --json` emitía el render
+    // human y el `--json` se perdía en silencio.
+    const json = opts?.json === true || cmd?.optsWithGlobals?.()?.json === true;
     await ensureConfig();
     const { runInboxPromoteCli } = await import('./cli/inbox.js');
-    return runInboxPromoteCli(id, { project: opts.project, json: opts.json || false });
+    return runInboxPromoteCli(id, { project: opts.project, json });
   }));
 
 // --- kodo inbox-orch [ack] --- (KODO-53: la bandeja del ORQUESTADOR)
