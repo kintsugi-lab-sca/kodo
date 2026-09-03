@@ -591,7 +591,6 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
       cwd: '/dev/foo',
       sessionId: 's1',
       projectPath: '/dev/foo',
-      existsSyncFn: () => false, // Phase 61: project_path no-GSD → gsd fields omitidos (determinista)
     });
     assert.equal(s.status, 'running');
     assert.equal(s.task_id, fakeTaskItem.id);
@@ -607,20 +606,33 @@ describe('Phase 53 Plan 02 — src/adopt.js (BIDIR-03/04/05/08)', () => {
     }
   });
 
-  // Phase 61 (PROG-04, D-3): detección GSD al adoptar.
-  it('buildSessionFromAdoption marca gsd:true + gsd_mode:full cuando project_path es proyecto GSD', () => {
-    const s = buildSessionFromAdoption({
-      task: fakeTaskItem,
-      providerName: 'plane',
-      workspaceRef: 'w:1',
-      cwd: '/dev/gsd',
-      sessionId: 's2',
-      projectPath: '/dev/gsd',
-      existsSyncFn: (p) => p.endsWith('.planning/PROJECT.md') || p.endsWith('.planning/STATE.md'),
-    });
-    assert.equal(s.gsd, true, 'gsd:true cuando hay .planning/PROJECT.md o STATE.md');
-    assert.equal(s.gsd_mode, 'full', 'gsd_mode:full para sesión adoptada GSD');
-    assert.equal(s.phase_id, undefined, 'phase_id NO se deriva (un adopt no mapea a una fase del roadmap)');
+  // KODO-84: la presencia de `.planning/` NO marca la sesión adoptada como GSD.
+  // El flag lo pone la label de la tarea, no el filesystem. Un `gsd:true` sin
+  // `phase_id` no es alcanzable por el dispatcher y solo produce un veredicto
+  // malformed en Plane (src/gsd/verify.js:123) más un prompt de bootstrap
+  // contradictorio al reanudar.
+  it('buildSessionFromAdoption NO deriva gsd/gsd_mode aunque project_path tenga .planning/', () => {
+    const gsdRepo = mkdtempSync(join(tmpdir(), 'kodo-gsd-'));
+    mkdirSync(join(gsdRepo, '.planning'), { recursive: true });
+    writeFileSync(join(gsdRepo, '.planning', 'PROJECT.md'), '# proyecto\n');
+    try {
+      // Sanity: el repo ES un proyecto GSD según el detector que enrich.js sigue usando.
+      assert.equal(isGsdProject(gsdRepo), true, 'precondición: .planning/PROJECT.md presente');
+
+      const s = buildSessionFromAdoption({
+        task: fakeTaskItem,
+        providerName: 'plane',
+        workspaceRef: 'w:1',
+        cwd: gsdRepo,
+        sessionId: 's2',
+        projectPath: gsdRepo,
+      });
+      assert.equal(s.gsd, undefined, 'gsd NO se deriva del filesystem (lo pone la label)');
+      assert.equal(s.gsd_mode, undefined, 'gsd_mode NO se deriva del filesystem');
+      assert.equal(s.phase_id, undefined, 'phase_id NO se deriva (un adopt no mapea a una fase del roadmap)');
+    } finally {
+      rmSync(gsdRepo, { recursive: true, force: true });
+    }
   });
 
   it('isGsdProject: true si existe .planning/PROJECT.md o STATE.md; false si no; never-throws', () => {
