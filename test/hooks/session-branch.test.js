@@ -54,6 +54,17 @@ after(() => {
 
 const PROJECT = '/repo/kodo';
 const SID = 'sess-30';
+/** SHA sellado por defecto en los casos de KODO-68. 40 hex, como el de git. */
+const SHA = 'a'.repeat(40);
+
+/**
+ * `gitFn` stub que distingue las DOS lecturas que hace `persistSessionBranch`:
+ * `branch --show-current` y `rev-parse HEAD` (KODO-68). Un stub que devolviera lo mismo a
+ * las dos sellaría el nombre de la rama como si fuera su SHA y el test pasaría en falso.
+ */
+function fakeGit({ branch, head }) {
+  return (_cwd, args) => (args.includes('rev-parse') ? head : branch);
+}
 
 function makeSession(overrides = {}) {
   return {
@@ -77,41 +88,79 @@ function makeUpdateSpy() {
 }
 
 describe('KODO-30: persistSessionBranch — sellar la rama mientras el worktree existe', () => {
-  it('PERSISTE la rama leída del worktree', async () => {
+  it('PERSISTE la rama leída del worktree Y el SHA de su punta (KODO-68)', async () => {
     const { updateSessionFn, calls } = makeUpdateSpy();
     const branch = await persistSessionBranch(makeSession(), {
-      gitFn: () => 'feat/kodo-30-cleanup\n',
+      gitFn: fakeGit({ branch: 'feat/kodo-30-cleanup\n', head: `${SHA}\n` }),
       existsFn: () => true,
       updateSessionFn,
     });
 
     assert.equal(branch, 'feat/kodo-30-cleanup');
-    assert.deepEqual(calls, [{ taskId: 'task-30', updates: { branch: 'feat/kodo-30-cleanup' } }]);
+    assert.deepEqual(calls, [
+      { taskId: 'task-30', updates: { branch: 'feat/kodo-30-cleanup', branch_head: SHA } },
+    ]);
   });
 
   it('LEE del worktree, no del repo principal (`-C <wt>` en args)', async () => {
     const seen = [];
     await persistSessionBranch(makeSession(), {
-      gitFn: (cwd, args) => { seen.push({ cwd, args }); return 'feat/x'; },
+      gitFn: (cwd, args) => { seen.push({ cwd, args }); return args.includes('rev-parse') ? SHA : 'feat/x'; },
       existsFn: () => true,
       updateSessionFn: () => ({ ok: true }),
     });
 
-    assert.equal(seen.length, 1);
+    const wt = `${PROJECT}/.claude/worktrees/${SID}`;
+    assert.equal(seen.length, 2);
     assert.equal(seen[0].cwd, PROJECT);
-    assert.deepEqual(seen[0].args, ['-C', `${PROJECT}/.claude/worktrees/${SID}`, 'branch', '--show-current']);
+    assert.deepEqual(seen[0].args, ['-C', wt, 'branch', '--show-current']);
+    assert.deepEqual(seen[1].args, ['-C', wt, 'rev-parse', 'HEAD']);
   });
 
-  it('NO escribe cuando la rama no ha cambiado (un turno normal no toca state.json)', async () => {
+  it('NO escribe cuando ni la rama ni su punta han cambiado (un turno normal no toca state.json)', async () => {
     const { updateSessionFn, calls } = makeUpdateSpy();
-    const branch = await persistSessionBranch(makeSession({ branch: 'feat/ya-sellada' }), {
-      gitFn: () => 'feat/ya-sellada',
+    const branch = await persistSessionBranch(
+      makeSession({ branch: 'feat/ya-sellada', branch_head: SHA }),
+      {
+        gitFn: fakeGit({ branch: 'feat/ya-sellada', head: SHA }),
+        existsFn: () => true,
+        updateSessionFn,
+      },
+    );
+
+    assert.equal(branch, null);
+    assert.deepEqual(calls, [], 'sin cambio, sin escritura');
+  });
+
+  it('KODO-68: un commit nuevo en la MISMA rama re-sella solo el SHA', async () => {
+    const { updateSessionFn, calls } = makeUpdateSpy();
+    const nuevo = 'b'.repeat(40);
+    const branch = await persistSessionBranch(
+      makeSession({ branch: 'feat/ya-sellada', branch_head: SHA }),
+      {
+        gitFn: fakeGit({ branch: 'feat/ya-sellada', head: nuevo }),
+        existsFn: () => true,
+        updateSessionFn,
+      },
+    );
+
+    assert.equal(branch, 'feat/ya-sellada');
+    assert.deepEqual(calls, [{ taskId: 'task-30', updates: { branch_head: nuevo } }]);
+  });
+
+  it('KODO-68: `rev-parse` mudo NO impide sellar la rama (fail-open independiente)', async () => {
+    const { updateSessionFn, calls } = makeUpdateSpy();
+    const branch = await persistSessionBranch(makeSession(), {
+      gitFn: (cwd, args) => {
+        if (args.includes('rev-parse')) throw new Error('fatal: ambiguous argument HEAD');
+        return 'feat/sin-sha';
+      },
       existsFn: () => true,
       updateSessionFn,
     });
 
-    assert.equal(branch, null);
-    assert.deepEqual(calls, [], 'sin cambio, sin escritura');
+    assert.equal(branch, 'feat/sin-sha');
+    assert.deepEqual(calls, [{ taskId: 'task-30', updates: { branch: 'feat/sin-sha' } }]);
   });
 
   it('DETACHED HEAD: git devuelve vacío → conserva el valor previo en vez de machacarlo', async () => {
@@ -174,7 +223,7 @@ describe('KODO-30: persistSessionBranch — sellar la rama mientras el worktree 
     const { updateSessionFn, calls } = makeUpdateSpy();
 
     await persistSessionBranch(legacy, {
-      gitFn: (cwd, args) => { seen.push(args); return 'feat/legacy'; },
+      gitFn: (cwd, args) => { seen.push(args); return args.includes('rev-parse') ? SHA : 'feat/legacy'; },
       existsFn: (p) => p === real, // solo el real existe
       updateSessionFn,
     });

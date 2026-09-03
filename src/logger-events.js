@@ -13,7 +13,7 @@
 //   logger-events/provider.js     plane.api.* · github.api.* · provider.state.fetch.failed
 //   logger-events/host.js         host.list_workspaces.* · host.reconcile.tick
 //   logger-events/doctor.js       doctor.* · sidebar.doctor.*
-//   logger-events/worktree.js     worktree.cleanup.* · worktree.branch.kept
+//   logger-events/worktree.js     worktree.cleanup.* · worktree.branch.kept · worktree.branch.restored
 //   logger-events/integration.js  polling.* · webhook.* · dispatch.* · integrate.action
 //
 // Contrato fijo por ROADMAP §Phase 7 + extensiones v0.3 (LOG-09) + Phases 19/21/23/25/28,
@@ -75,6 +75,7 @@ export {
   worktreeCleanupDirty,
   worktreeCleanupError,
   worktreeBranchKept,
+  worktreeBranchRestored,
 } from './logger-events/worktree.js';
 
 export {

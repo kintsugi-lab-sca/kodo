@@ -358,6 +358,34 @@ export async function runSessionEndHook(input, deps = {}) {
       }
     }
 
+    // ── Rescate de la rama huérfana (KODO-68) ──────────────────────────────
+    // Va ANTES de la captura, y no después, porque la captura MIDE: si la rama ya no existe,
+    // `countUnmergedCommits` falla sobre una ref inexistente y la entrada entra en la cola con
+    // `commits_ahead: null`, `base_ok: null` y `suggested: review` — apuntando a una rama que
+    // no está. Restaurada primero, la captura opera sobre el repo real y encola un veredicto
+    // de verdad.
+    //
+    // Quién borró la rama, si el gate KODO-21 nunca lo hace: el «Remove worktree» que Claude
+    // Code ofrece al salir, que hace `branch -D` sin comprobar si quedaba trabajo dentro.
+    //
+    // FAIL-OPEN: `restoreOrphanedBranch` es never-throws de cuerpo entero; este try/catch
+    // cubre además el `await import()`.
+    try {
+      const { restoreOrphanedBranch } = await import('./worktree-cleanup.js');
+      const { defaultGitFn } = await import('./terminal-cleanup.js');
+      await restoreOrphanedBranch({
+        project: session.project_path,
+        branch: session.branch || null,
+        head: session.branch_head || null,
+        sessionId: session.session_id,
+        worktreePath: session.worktree_path || '',
+        gitFn: deps.gitFn || defaultGitFn,
+        logger: log,
+      });
+    } catch (err) {
+      console.error(`[kodo:session-end] branch restore error: ${/** @type {Error} */ (err).message}`);
+    }
+
     // ── Captura de la cola de integración (KODO-26) ────────────────────────
     // Va AQUÍ, en el último hueco ANTES del cleanup terminal, por una razón mecánica: el
     // nombre de la rama se lee del worktree de la sesión, y `performTerminalCleanup` lo

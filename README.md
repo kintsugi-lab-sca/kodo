@@ -470,6 +470,16 @@ Now, **when a session closes whose branch has commits that are not in any other 
 (the same calculation that decides whether to keep the branch), kodo persists an entry in
 `~/.kodo/state.json`. A session that closes already merged leaves nothing behind.
 
+**If the branch is gone by the time the queue is written, kodo brings it back first.** When you
+leave a `--worktree` session, Claude Code's "Remove worktree" prompt runs `git branch -D` on the
+session branch without checking whether it still held work — the commits survive as unreachable
+objects until the next `git gc`, and the queue entry that follows would point at a branch that no
+longer exists, with every column `null`. The Stop hook seals the branch tip's SHA on every turn
+while the worktree is still alive, so the close can recreate the branch from it before measuring
+anything. You will see it in the log as `worktree.branch.restored` (a warning, not an info: the
+work is saved, but needing to save it is worth grepping for). A branch whose work already lives
+somewhere else is not resurrected.
+
 ```bash
 kodo integrate                    # the pending queue, in one block
 kodo integrate --all --json       # including the trace of what is already resolved, as JSON
