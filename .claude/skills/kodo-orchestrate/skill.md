@@ -922,6 +922,7 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   (tiers, aprobaciones) y, si procede ejecutarlo vía la sesión, limpiar antes el
   prompt con `send-key ctrl+u` y reenviar con `send` + `send-key Enter` (un
   `send-key Enter` sobre el texto pre-rellenado a veces no lo envía).
+- [2026-09-02] **El MCP de Plane no valida `labels` en las respuestas y, cuando
   la respuesta trae labels: las mutaciones NO se aplican — ir por REST.** Contra
   esta instancia CE la API devuelve `labels` como lista de UUIDs (strings), pero
   el modelo `WorkItemDetail` del MCP los valida como objetos `Label` → error `1
@@ -937,3 +938,46 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   reason=unassigned` (filtro multi-operador KODO-58, comportamiento correcto);
   al asignarla por REST el webhook del propio PATCH re-disparó el dispatch y la
   sesión se lanzó sola en <10 s.
+- [2026-09-03] **`gh pr merge` está bloqueado para agentes por un wrapper del
+  operador (`~/.local/bin/gh`), no por GitHub.** Imprime «🚫 Blocked: merging
+  requires human approval» y sale con 1 antes de llamar al binario real
+  (`/opt/homebrew/bin/gh`). No lo rodees, ni con el binario real ni con `git
+  merge` + push de la rama del PR: presenta al operador el comando listo
+  (`for n in …; do /opt/homebrew/bin/gh pr merge $n --repo … --merge; done`) y
+  espera. El merge local `--no-ff` + push SÍ es la vía aceptada para commits
+  sueltos y docs (KODO-72, KODO-81 y KODO-80 el 2/3-sep) y el ritual de release
+  (`packaging/homebrew/README.md`: bump → tag → push a `kintsugi` → sha256 → tap
+  + espejo → `brew upgrade` → reiniciar el daemon con
+  `lifecycle.startDaemon('kodo', ['daemon','run'])`, que es lo que hace `kodo up`
+  sin engancharte el visor). La regla es «el PR lo mergea el humano», no «no
+  toques main».
+- [2026-09-03] **`npm test` de kodo escribe en el `dispatch.ndjson` REAL: las
+  líneas `KODO-42/43 launched` con la hora de la suite son fixtures, no
+  relanzamientos.** `test/state/max-parallel-reservation.test.js` no aísla
+  `HOME` como sí hacen los tests del dispatcher. Antes de creer que el daemon
+  relanzó una tarea Done, cruza la hora con la última suite y busca sesión en
+  `state.json` y workspace en cmux. Capturado como `a3d3eo`.
+- [2026-09-03] **La deny global `Read(.env)` hace que TODO `grep -r .` pida
+  confirmación, exista o no el fichero.** Claude Code comprueba la ruta potencial
+  `<cwd>/.env` contra la deny (coincide a cualquier profundidad), el chequeo es
+  previo a la existencia y ninguna `allow` prevalece sobre una deny (doc de
+  permissions). Un `.env` inexistente en kodo bloqueó KODO-80 y KODO-74 en el
+  mismo prompt. Arreglo aplicado con el operador: sustituir las tres deny
+  genéricas por rutas absolutas a los cinco ficheros con secretos reales
+  (`Read(//Users/alex/.kodo/.env)`, `~/.secrets` y los `.env` de clipping,
+  py-base y cadiz-resiste); copia en `settings.json.bak-20260903-1043`. Un
+  `.env` nuevo en otro repo hay que añadirlo a mano a esa lista.
+- [2026-09-03] **Cerrar una sesión idle sin perder nada: integrar primero,
+  `/exit` después.** Al salir, Claude Code ofrece «Keep / Remove worktree» y
+  *Remove* borra la rama con sus commits (el bug de KODO-68, ya en `main` pero
+  no en los hooks de las sesiones que arrancaron antes). Orden que funciona:
+  integrar la rama (merge `--no-ff` + push, o PR mergeado) → `send-key ctrl+u`,
+  `send "/exit"`, `send-key Enter` → esperar ~6 s → `send-key Down` + `Enter`
+  para *Remove* → `cmux close-workspace --workspace <ref>` → `kodo inbox-orch
+  ack --all` y `kodo integrate <ref> --drop` para la entrada nula que deja
+  SessionEnd (la rama ya no existe y cuenta `ahead=null`). Las filas *dead* que
+  quedan en el dashboard se descartan con `DELETE
+  http://127.0.0.1:9090/sessions/<task_id>` y `Authorization: Bearer
+  $KODO_API_TOKEN` (en `~/.kodo/.env`): equivale a `d`+`d` y no toca worktrees
+  ya borrados. Regla del 27-ago intacta: solo cuando el operador lo diga.
+  KODO-83 propone descartarlas solas cuando la tarea ya está cerrada.
