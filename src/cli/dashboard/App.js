@@ -209,6 +209,12 @@ export {
 // (revisa el token en ~/.kodo/.env) — nunca una pantalla vacía silenciosa (D-08).
 export const UNAUTHORIZED_MESSAGE = '⚠ no autorizado — revisa KODO_API_TOKEN';
 
+// KODO-77: celdas del ancho de terminal que consume el marco y por tanto NO llegan a la tabla:
+// borde `round` del Box raíz (1 izq + 1 der) + su `paddingX: 1` (1+1) + el `paddingX: 1` del Box
+// que envuelve a SessionTable (1+1). Si alguno de esos tres estilos cambia, este número cambia con
+// él — están a la vista en el mismo `return` de más abajo.
+const CHROME_COLS = 6;
+
 /**
  * Componente root del dashboard TUI.
  *
@@ -330,14 +336,28 @@ export default function App({
   // omite y el layout cae al comportamiento natural previo (suite intacta).
   const { stdout } = useStdout();
   const [termRows, setTermRows] = useState(/** @type {number | undefined} */ (stdout?.rows));
+  // KODO-77: el ancho de terminal es un INPUT del layout de la tabla, no un detalle del emulador.
+  // Se lee del MISMO stdout y se refresca con el MISMO listener de 'resize' que termRows. Se toma
+  // solo si el stdout expone `rows` (TTY real): el harness de ink-testing-library declara un
+  // `columns` fijo de 100 pero no es una terminal — ahí `tableWidth` queda undefined y la tabla
+  // conserva sus anchos nominales, que es lo que la suite existente afirma.
+  const [termCols, setTermCols] = useState(
+    /** @type {number | undefined} */ (stdout?.rows != null ? stdout?.columns : undefined),
+  );
   useEffect(() => {
     if (!stdout || typeof stdout.on !== 'function') return undefined; // harness de test sin EventEmitter
-    const onResize = () => setTermRows(stdout.rows);
+    const onResize = () => {
+      setTermRows(stdout.rows);
+      if (stdout.rows != null) setTermCols(stdout.columns);
+    };
     stdout.on('resize', onResize);
     return () => {
       if (typeof stdout.off === 'function') stdout.off('resize', onResize);
     };
   }, [stdout]);
+  // KODO-77: celdas que le quedan a la tabla. La resta del chrome vive aquí, junto a los estilos
+  // que lo producen, y no en SessionTable (que no conoce su marco).
+  const tableWidth = termCols != null ? Math.max(0, termCols - CHROME_COLS) : null;
 
   // Keep-last-good + connection + edad (Discretion Open Question 2: este estado vive en App, no
   // en el hook). `lastGoodAt == null` ⇒ nunca hubo dato bueno (arranque).
@@ -935,6 +955,7 @@ export default function App({
         anyGsd, // TUI-18 D-08: flag estructural GSD (sobre `sorted`, no `filtered`) → drop columna phase/mode
         anyProgress, // PROG-03 D-06: flag estructural progreso (sobre `enriched` sin filtrar) → drop columna prog
         anyNext, // LIVE-05 Pitfall 4: flag estructural NEXT: (sobre `enriched` sin filtrar) → drop columna next
+        tableWidth, // KODO-77: presupuesto de ancho real → `next` elástico + recorte; null fuera de un TTY
         inboxOpen, // CAPT-07 D-22/D-23: capturas sin enrutar → 3er hijo del header; en 0 no se emite
         queuePending, // KODO-26: ramas esperando integración → 4º hijo del header; en 0 no se emite
         focusError, // Phase 37 D-04: render condicional del footer transitorio (espejo de filterLine)
