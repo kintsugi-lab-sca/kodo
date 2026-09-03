@@ -320,6 +320,14 @@ the dashboard polls `/status` immediately — so the row disappears at once, and
 rejected the dismiss because the session came back to life, the table shows it alive right away
 instead of keeping a stale dead row on screen.
 
+Some dead rows retire themselves. Every minute the daemon sweeps them and dismisses a row on
+its own only when all three hold at once: the process is gone (`dead` + `process_alive: false`),
+the task is **closed** in the provider (Done or Cancelled), and the session's worktree is either
+absent or clean. A worktree with uncommitted work is never touched — that row keeps waiting for
+your `d`+`d`, because throwing work away is your call, not the daemon's. If the provider is
+unreachable or git will not answer, nothing is dismissed either: every branch of doubt leaves
+the row where it was. The trace is in the daemon log as `session.auto_dismissed`.
+
 > **Note on runtime strings.** kodo's own output — the dashboard header, console
 > messages, the config editor labels — is still rendered in Spanish. Wherever this
 > README quotes that output it reproduces it **verbatim**, so what you read here is
@@ -1425,7 +1433,7 @@ Everything is documented in Plane as comments, without opening cmux:
 | `src/triggers/` | Event dispatch: webhook (Plane), polling (GitHub) |
 | `src/providers/` | Plane and GitHub clients (REST, normalisation, states) |
 | `src/cmux/` + `src/host/` | cmux CLI wrapper: workspaces, screens, colours |
-| `src/session/` | Session manager, state store (`~/.kodo/state.json`), reconciliation loop, orphan-session sweep |
+| `src/session/` | Session manager, state store (`~/.kodo/state.json`), reconciliation loop, orphan-session sweep, auto-dismiss of dead rows |
 | `src/hooks/` | SessionStart (injects task context), Stop (lightweight per-turn state: idle + lock released) and SessionEnd (backstop "In Review" + terminal cleanup + colour/notify/event to the orchestrator inbox on real close) |
 | `src/integration/` | Integration queue: capture on session close, tier heuristic and store over `state.json` |
 | `src/orchestrator/` | Orchestrator launch + its prompt |

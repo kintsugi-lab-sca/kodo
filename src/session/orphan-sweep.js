@@ -40,6 +40,11 @@
 
 import { sanitizeInline } from './handoff.js';
 import { sessionOrphanDetected } from '../logger-events.js';
+// KODO-83: el tercer barrido del tick. Módulo hermano (mismo patrón DI + never-throws);
+// se importa aquí porque comparte EXACTAMENTE el insumo de los otros dos —las sesiones
+// que `reconcileTick` acaba de marcar `dead`— y montarle un loop propio duplicaría el
+// single-flight y la cadencia sin ganar nada.
+import { runAutoDismissSweep } from './auto-dismiss.js';
 // KODO-36: el LECTOR del marcador de comentario pendiente es puro (no toca state.json), así
 // que se importa; los ESCRITORES se inyectan como el resto de este módulo.
 import { listPendingComments, PENDING_COMMENT_MAX_ATTEMPTS } from './pending-comment.js';
@@ -475,11 +480,19 @@ export async function runPendingCommentSweep({
  * son OPCIONALES: sin ellos el segundo barrido se apaga en silencio y el loop se comporta
  * exactamente como antes de KODO-36.
  *
+ * KODO-83: y un TERCERO al final, el auto-dismiss. Va el último a propósito — es el único
+ * destructivo, y los dos de arriba tienen que haber tenido su oportunidad de comentar en el
+ * provider ANTES de que la fila pueda desaparecer del dashboard. `dismissFn` es OPCIONAL con
+ * el mismo idiom: sin él el barrido no corre y el loop se comporta como antes de KODO-83.
+ *
  * @param {object} deps
  * @param {() => any} deps.loadStateFn
  * @param {(taskId: string, updates: object) => any} deps.updateSessionFn
  * @param {(taskId: string, at: number) => any} [deps.deferPendingFn]
  * @param {(taskId: string) => any} [deps.clearPendingFn]
+ * @param {(taskId: string) => Promise<{ status: number, body?: any }>} [deps.dismissFn]
+ * @param {(cwd: string, args: string[]) => Promise<string> | string} [deps.gitFn]
+ * @param {(path: string) => boolean} [deps.existsFn]
  * @param {any} deps.provider
  * @param {{ info?: Function, warn?: Function, debug?: Function }} [deps.logger]
  * @param {number} [deps.intervalMs]
@@ -549,6 +562,34 @@ export function startOrphanSweepLoop(deps) {
         }
       } catch (err) {
         deps.logger?.warn?.('session.pending_comment.sweep_error', {
+          detail: String(/** @type {any} */ (err)?.message || '').slice(0, 200),
+        });
+      }
+
+      // KODO-83: tercer barrido, también en su propio try/catch. El último del tick por
+      // ser el único destructivo (ver el docblock).
+      try {
+        if (deps.dismissFn) {
+          const dismissStats = await runAutoDismissSweep({
+            loadStateFn: deps.loadStateFn,
+            updateSessionFn: deps.updateSessionFn,
+            dismissFn: deps.dismissFn,
+            provider: deps.provider,
+            now,
+            gitFn: deps.gitFn,
+            existsFn: deps.existsFn,
+            logger: deps.logger,
+          });
+          // Mismo criterio de ruido que los otros dos: el tick sin candidatas (el caso
+          // común) va a debug y no infla el NDJSON.
+          if (dismissStats.candidates > 0) {
+            deps.logger?.info?.('session.auto_dismiss.sweep', dismissStats);
+          } else {
+            deps.logger?.debug?.('session.auto_dismiss.sweep', dismissStats);
+          }
+        }
+      } catch (err) {
+        deps.logger?.warn?.('session.auto_dismiss.sweep_error', {
           detail: String(/** @type {any} */ (err)?.message || '').slice(0, 200),
         });
       }

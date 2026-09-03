@@ -838,6 +838,11 @@ export async function startServer(opts = {}) {
     updateSessionFn: updateSession,
     deferPendingFn: (taskId, at) => deferPendingComment(taskId, at, orphanSweepLogger),
     clearPendingFn: (taskId) => clearPendingComment(taskId, orphanSweepLogger),
+    // KODO-83: el auto-dismiss reusa el MISMO handler que sirve al `DELETE /sessions/{id}`
+    // del dashboard — un solo camino destructivo con su guard de sesión viva, dos
+    // disparadores (la tecla del operador y este barrido). Pasarle una segunda
+    // implementación sería tener dos sitios donde equivocarse al borrar un worktree.
+    dismissFn: dismissHandler,
     provider,
     logger: orphanSweepLogger,
   });
