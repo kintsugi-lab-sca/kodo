@@ -310,6 +310,22 @@ describe('resolveSession — unique-or-null, con el symlink cubierto', () => {
     assert.equal(s?.task_ref, 'KODO-74');
   });
 
+  it('el WORKTREE gana al repo: varias tareas en vuelo sobre el mismo repo es lo NORMAL', () => {
+    // Regresión del primer uso real: cinco sesiones vivas compartían `project_path`, y la del
+    // worktree actual todavía no tenía `branch` sellada por el hook Stop. Con el path del repo
+    // y el del worktree tratados como igual de específicos, no resolvía ninguna.
+    const mia = { ...SESSION, branch: undefined, worktree_path: WORKTREE };
+    const otras = Object.fromEntries([1, 2, 3, 4].map((i) => [
+      `s${i}`,
+      { ...SESSION, task_ref: `KODO-8${i}`, task_id: `uuid-8${i}`, branch: `worktree-${i}`, worktree_path: `${PROJECT}/.claude/worktrees/w${i}` },
+    ]));
+    const s = resolveSession({
+      project: PROJECT, toplevel: WORKTREE, branch: 'worktree-6fdfd911',
+      loadStateFn: load({ mia, ...otras }),
+    });
+    assert.equal(s?.task_ref, 'KODO-74');
+  });
+
   it('con el path resuelto por symlink cae a la RAMA, que es única', () => {
     const s = resolveSession({
       project: '/private/repo/kodo', toplevel: '/private/repo/kodo', branch: BRANCH,

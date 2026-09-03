@@ -153,15 +153,23 @@ export async function readGitFacts({ cwd, gitFn }) {
  * artefacto y el `task_ref` de una línea de pantalla, no se corrompería estado ajeno), pero la
  * regla es la del repo y no hay razón para tener dos.
  *
- * Cascada, de más específica a menos:
+ * Cascada, ESTRICTAMENTE de más específica a menos. El orden no es cosmético — se cobró en el
+ * primer uso real: cinco sesiones vivas compartían el mismo `project_path` (un repo con varias
+ * tareas en vuelo es lo NORMAL en kodo), así que un `project_path` no identifica nada. Un
+ * `worktree_path` sí: es de una sola sesión por construcción.
+ *
  *   1. `ref` explícito (`kodo audit KODO-74`) — el desempate que el operador teclea.
- *   2. PATH: `project_path` o `worktree_path` iguales a lo que git reporta, probando la forma
- *      cruda y la resuelta (ver `readGitFacts`). Si hay varias candidatas, desempata la rama.
- *   3. RAMA, y SOLO cuando el path no dio ninguna candidata. Es el caso del repo alcanzado por
- *      un symlink, donde los dos strings describen el mismo sitio y no hay forma de saberlo
- *      desde aquí sin un `realpath` que introduciría una TERCERA definición de «mismo repo»
- *      —el repo ya tiene dos, `entryKey` y `listSessionsForPath`, y las dos son igualdad
- *      exacta— y un desacuerdo entre ellas sería peor que un fallback que a veces no responde.
+ *   2. WORKTREE: `worktree_path` igual a lo que git reporta como raíz. Un worktree pertenece a
+ *      UNA sesión, así que esto es identidad, no heurística.
+ *   3. RAMA. También es de una sola sesión, pero llega después porque `session.branch` lo sella
+ *      el hook Stop y puede no estar todavía.
+ *   4. REPO: `project_path`, y solo si hay UNA sesión en él. Es el fallback honesto para las
+ *      sesiones adoptadas, que trabajan en el repo principal sin worktree propio, y para el
+ *      repo alcanzado por un symlink (git resuelve `/var` → `/private/var` y `state.json` no)
+ *      — que no se arregla con un `realpath` aquí porque eso introduciría una TERCERA
+ *      definición de «mismo repo»: el repo ya tiene dos, `entryKey` y `listSessionsForPath`, y
+ *      las dos son igualdad exacta. Un desacuerdo entre ellas sería peor que un fallback que a
+ *      veces no responde.
  *
  * `null` no es un error: el gate sigue funcionando con la evidencia de commit, que no necesita
  * saber nada de la tarea. Lo que se pierde es el artefacto (no hay dónde firmar el «sin
@@ -182,23 +190,19 @@ export function resolveSession({ project, toplevel, branch, ref, loadStateFn }) 
   }
   if (sessions.length === 0) return null;
 
-  if (ref) {
-    const byRef = sessions.filter((s) => s.task_ref === ref || s.task_id === ref);
-    return byRef.length === 1 ? byRef[0] : null;
-  }
+  /** Unique-or-null: la disciplina de KODO-27 aplicada a cada peldaño. */
+  const unique = (/** @type {import('../session/state.js').Session[]} */ hits) => (hits.length === 1 ? hits[0] : null);
+
+  if (ref) return unique(sessions.filter((s) => s.task_ref === ref || s.task_id === ref));
 
   const paths = new Set([project, toplevel].filter(Boolean));
-  const byPath = sessions.filter(
-    (s) => paths.has(s.project_path) || (s.worktree_path ? paths.has(s.worktree_path) : false),
-  );
-  if (byPath.length === 1) return byPath[0];
-  if (byPath.length > 1) {
-    const narrowed = byPath.filter((s) => Boolean(branch) && s.branch === branch);
-    return narrowed.length === 1 ? narrowed[0] : null;
-  }
+  const byWorktree = unique(sessions.filter((s) => s.worktree_path && paths.has(s.worktree_path)));
+  if (byWorktree) return byWorktree;
 
-  const byBranch = branch ? sessions.filter((s) => s.branch === branch) : [];
-  return byBranch.length === 1 ? byBranch[0] : null;
+  const byBranch = branch ? unique(sessions.filter((s) => s.branch === branch)) : null;
+  if (byBranch) return byBranch;
+
+  return unique(sessions.filter((s) => paths.has(s.project_path)));
 }
 
 /**
