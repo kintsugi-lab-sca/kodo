@@ -25,6 +25,9 @@
 //   - NUNCA corre el oráculo (KODO-69). Lo LEE de la entrada: el listado sigue siendo cero-git
 //     y cero-ejecución, y `--require-oracle` solo añade un `rev-parse` para comprobar que el
 //     veredicto sigue anclado a la punta de la rama. Quien ejecuta es `kodo oracle run`.
+//   - NUNCA audita (KODO-74), y aquí es imposible por construcción: el audit gate pide una
+//     segunda pasada a la SESIÓN, y cuando este comando corre esa sesión hace rato que cerró.
+//     Se LEE lo que `kodo audit` dejó escrito, igual que con el oráculo.
 //
 // Exit codes:
 //   0  la acción se ejecutó (o el listado se pintó)
@@ -93,6 +96,30 @@ export function oracleCell(oracle) {
 }
 
 /**
+ * Celda del audit gate en el listado. PURA.
+ *
+ * Los tres estados del gate, en tres formas que no se confunden a simple vista:
+ *
+ *   `—`    SIN AUDITAR. Nadie corrió el gate sobre esta rama. NO se parece a un visto bueno.
+ *   `…N`   se abrió un reto (N en total) y NUNCA se cerró: se pidió la segunda pasada y no
+ *          llegó evidencia de que ocurriera.
+ *   `✓N`   hubo segunda pasada con evidencia, tras N retos. Ese N es la señal que ningún
+ *          veredicto binario da: «esta rama necesitó 3 retos» dice algo sobre la rama.
+ *
+ * El `✓` NO afirma que el trabajo esté bien — afirma que alguien volvió a mirarlo y lo firmó.
+ * Es exactamente lo que el gate puede prometer, y por eso se pinta al lado del veredicto del
+ * oráculo y nunca en su lugar: uno es evidencia ejecutada, el otro un turno de relectura.
+ *
+ * @param {import('../integration/audit.js').AuditGate|null|undefined} audit
+ * @returns {string}
+ */
+export function auditCell(audit) {
+  if (!audit || typeof audit !== 'object') return '—';
+  const n = Number.isInteger(audit.count) && audit.count > 0 ? audit.count : 1;
+  return `${audit.status === 'audited' ? '✓' : '…'}${n}`;
+}
+
+/**
  * @typedef {{
  *   listFn?: typeof listIntegrationQueue,
  *   findFn?: typeof findPendingIntegration,
@@ -154,11 +181,15 @@ export function runIntegrateListCli(opts, deps = {}) {
       // lo que PASA— y el operador necesita las dos a la vez para decidir. `—` es «no ha
       // corrido», que es distinto de `unknown` («corrió y no pudo saberlo»).
       oracleCell(e.oracle),
+      // KODO-74: la segunda señal de la fila, y la ortogonal a la anterior. El oráculo dice si
+      // el artefacto está sano; esto dice si alguien volvió a leer lo que se pidió. Un `pass`
+      // del oráculo sobre una rama `—` es código que compila y que nadie releyó.
+      auditCell(e.audit),
       formatAge(e.created_at, now),
       e.status === 'pending' ? '' : `${e.status}${e.action ? `/${e.action}` : ''}`,
     ]);
     write(
-      fmt.formatTable(rows, { header: ['ref', 'rama', 'commits', 'base', 'sugerido', 'oráculo', 'edad', 'estado'] }) + '\n',
+      fmt.formatTable(rows, { header: ['ref', 'rama', 'commits', 'base', 'sugerido', 'oráculo', 'audit', 'edad', 'estado'] }) + '\n',
     );
     return 0;
   } catch (e) {
@@ -172,7 +203,7 @@ export function runIntegrateListCli(opts, deps = {}) {
  * Ejecuta UNA acción sobre UNA entrada pendiente de la cola.
  *
  * @param {string} ref task_ref (o nombre de rama) de la entrada.
- * @param {{ ff?: boolean, merge?: boolean, pr?: boolean, drop?: boolean, json?: boolean, test?: string, requireOracle?: boolean }} opts
+ * @param {{ ff?: boolean, merge?: boolean, pr?: boolean, drop?: boolean, json?: boolean, test?: string, requireOracle?: boolean, requireAudit?: boolean }} opts
  * @param {IntegrateDeps} [deps]
  * @returns {Promise<number>} exit code (0 ok · 1 fallo de ejecución · 2 uso incorrecto).
  */
@@ -273,6 +304,22 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
   // forma de sacar de la cola una rama que el oráculo no sabe verificar.
   if (opts.requireOracle === true) {
     const gate = await evaluateOracleGate(entry, project, git);
+    if (!gate.ok) {
+      return finish({ ok: false, outcome: gate.outcome, message: gate.message });
+    }
+  }
+
+  // ── Gate OPCIONAL del audit gate (KODO-74, `--require-audit`). ───────────────────────
+  //
+  // Mismo contrato que el del oráculo, y por las mismas razones: opt-in (un gate que molesta
+  // acaba apagado), no aplicable a `--drop` (la salida de emergencia no se gatea), y anclado al
+  // commit (una auditoría sobre código que ya no es el código que hay no dice nada).
+  //
+  // Va DESPUÉS del oráculo a propósito: si las dos flags están puestas, el operador ve primero
+  // el fallo mecánico —el que se arregla con un comando— y no el que le pide relanzar una
+  // sesión.
+  if (opts.requireAudit === true) {
+    const gate = await evaluateAuditGate(entry, project, git);
     if (!gate.ok) {
       return finish({ ok: false, outcome: gate.outcome, message: gate.message });
     }
@@ -434,6 +481,64 @@ async function evaluateOracleGate(entry, project, git) {
       ok: false,
       outcome: 'oracle-stale',
       message: `--require-oracle: el oráculo verificó ${String(oracle.commit).slice(0, 8)} y la rama va por ${head.slice(0, 8)} — vuelve a correrlo`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Evalúa el gate del audit gate sobre UNA entrada. Never-throws.
+ *
+ * Espejo exacto de `evaluateOracleGate`, incluida la política fail-CLOSED cuando la punta no se
+ * puede leer: el operador ha pedido explícitamente que se le impida integrar sin auditar, así
+ * que la duda no pasa.
+ *
+ * Los tres motivos de bloqueo son los tres estados que NO son «auditado sobre esto»:
+ *   - `audit: null`      → nadie corrió el gate. SIN AUDITAR ≠ auditado sin hallazgos.
+ *   - `status: pending`  → se abrió un reto y nunca llegó evidencia de la segunda pasada.
+ *   - DESFASADO          → se auditó, y después la rama ganó commits que nadie leyó. Es el
+ *                          mismo razonamiento que invalida un veredicto de oráculo desfasado.
+ *
+ * @param {import('../integration/queue.js').IntegrationEntry} entry
+ * @param {string} project
+ * @param {(cwd: string, args: string[]) => Promise<string>|string} git
+ * @returns {Promise<{ ok: true } | { ok: false, outcome: string, message: string }>}
+ */
+async function evaluateAuditGate(entry, project, git) {
+  const audit = entry.audit;
+  if (!audit || typeof audit !== 'object') {
+    return {
+      ok: false,
+      outcome: 'audit-missing',
+      message: `--require-audit: nadie pasó el audit gate sobre ${entry.branch} — la sesión cerró sin \`kodo audit\``,
+    };
+  }
+  if (audit.status !== 'audited') {
+    return {
+      ok: false,
+      outcome: 'audit-pending',
+      message: `--require-audit: ${entry.branch} tiene un reto de auditoría abierto (${audit.count}) que nunca se cerró con evidencia`,
+    };
+  }
+
+  let head = null;
+  try {
+    head = String(await git(project, ['rev-parse', '--verify', '--quiet', `${entry.branch}^{commit}`])).trim() || null;
+  } catch {
+    head = null;
+  }
+  if (!head) {
+    return {
+      ok: false,
+      outcome: 'audit-unanchored',
+      message: `--require-audit: no se pudo leer la punta de ${entry.branch}, así que la auditoría no se puede anclar`,
+    };
+  }
+  if (typeof audit.commit === 'string' && audit.commit !== '' && audit.commit !== head) {
+    return {
+      ok: false,
+      outcome: 'audit-stale',
+      message: `--require-audit: se auditó ${audit.commit.slice(0, 8)} y la rama va por ${head.slice(0, 8)} — esos commits no los ha leído nadie`,
     };
   }
   return { ok: true };

@@ -462,8 +462,17 @@ export async function runSessionEndHook(input, deps = {}) {
         logger: log,
       });
       if (capture.captured && capture.entry) {
+        // KODO-74: el estado del audit gate va en la MISMA línea, no en una propia. Es el
+        // instante en que decir «sin auditar» sirve de algo —el operador está leyendo el
+        // cierre— y decirlo aparte lo convertiría en una línea más que se salta.
+        const audit = capture.entry.audit;
+        const auditNote = !audit
+          ? 'SIN AUDITAR'
+          : audit.status === 'audited'
+            ? `auditado (${audit.count} reto${audit.count === 1 ? '' : 's'})`
+            : `reto de auditoría abierto (${audit.count})`;
         console.error(
-          `[kodo:integrate] cola — ${capture.entry.branch}: ${capture.entry.commits_ahead ?? '?'} commits, sugerencia ${capture.entry.suggested}`,
+          `[kodo:integrate] cola — ${capture.entry.branch}: ${capture.entry.commits_ahead ?? '?'} commits, sugerencia ${capture.entry.suggested}, ${auditNote}`,
         );
         // KODO-75: la tarea pidió revisión adversarial. Se avisa AQUÍ, pegado a la captura,
         // porque las dos contestan la misma pregunta —«¿qué necesita esta rama ahora?»— y

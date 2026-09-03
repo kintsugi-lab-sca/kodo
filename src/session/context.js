@@ -70,15 +70,22 @@ export function buildSessionContext(session, config) {
       : []),
     '**3. Al terminar** — antes de cerrar la sesión, haz en orden:',
     '',
-    '   a. **Escribe un comentario final de resumen** con:',
+    // KODO-74: el audit gate va PRIMERO, y no pegado al `/exit`, aunque el enunciado lo llame
+    // «paso previo al /exit». La razón es de orden, no de forma: si el reto encuentra algo, hay
+    // que arreglarlo y commitear — y entonces el comentario final y el estado de la tarea que se
+    // hubieran escrito antes ya no describen lo que se entrega. Auditar después de declarar el
+    // trabajo terminado es auditar cuando ya no se puede cambiar nada.
+    '   a. **Pasa el audit gate**: ejecuta `kodo audit`. La PRIMERA invocación no marca nada — imprime `AUDIT_REQUIRED` con los criterios de la segunda pasada. Haz esa pasada de verdad y vuelve a ejecutar `kodo audit`: el reto solo se cierra si el segundo intento trae un commit nuevo o el artefacto de auditoría firmado (donde un `findings=0` es una afirmación tuya, no un trámite). Sin este paso el trabajo se encola igual, marcado como **sin auditar**.',
+    '',
+    '   b. **Escribe un comentario final de resumen** con:',
     '      - ✅ Qué se ha completado (features, fixes, cambios)',
     '      - 📁 Archivos modificados/creados (lista)',
     '      - ⚠️ Pendientes o limitaciones (si las hay)',
     '      - 🔍 Qué debe revisar el humano para aprobar',
     '',
-    `   b. **Mueve la tarea al estado "${reviewState}"** vía ${mcpHint}. Esto señala que está lista para revisión humana.`,
+    `   c. **Mueve la tarea al estado "${reviewState}"** vía ${mcpHint}. Esto señala que está lista para revisión humana.`,
     '',
-    `   c. **Cierra la sesión con \`/exit\`** (el hook limpiará el estado local, sin tocar ${providerName}).`,
+    `   d. **Cierra la sesión con \`/exit\`** (el hook limpiará el estado local, sin tocar ${providerName}).`,
     '',
     '## Criterios para dar la tarea por terminada',
     '',

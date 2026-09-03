@@ -2,8 +2,9 @@
 //
 // test/integration/capture.test.js — KODO-26: la captura al cerrar la sesión.
 //
-// Todo por DI: `gitFn` es un stub que responde por args y `enqueueFn` es un espía, así que
-// estos casos NO tocan git de verdad NI el `~/.kodo/state.json` del operador. La cobertura del
+// Todo por DI: `gitFn` es un stub que responde por args, `enqueueFn` es un espía y el audit
+// gate (KODO-74) entra por `readAuditGateFn`/`clearAuditGateFn`, así que estos casos NO tocan
+// git de verdad NI el `~/.kodo/state.json` del operador. La cobertura del
 // store real (que sí aísla HOME) vive en test/integration/queue.test.js; la del cableado en el
 // hook, en test/hooks/session-end-integrate.test.js.
 
@@ -37,6 +38,23 @@ function makeEnqueue() {
   return { enqueueFn, calls };
 }
 
+/**
+ * Stubs del audit gate (KODO-74). Por defecto NO hay reto: es el caso mayoritario y el que
+ * congela «sin el comando, el comportamiento previo queda intacto». Se pasan SIEMPRE, aunque el
+ * caso no mire la auditoría, porque sin ellos la captura leería el state.json real del operador.
+ */
+function makeGate(gate = null) {
+  const cleared = [];
+  return {
+    readAuditGateFn: () => gate,
+    clearAuditGateFn: (target) => {
+      cleared.push(target);
+      return { ok: true, value: true };
+    },
+    cleared,
+  };
+}
+
 const session = {
   task_ref: 'KODO-26',
   task_id: 'uuid-26',
@@ -61,7 +79,7 @@ describe('captureIntegration — qué SÍ entra en la cola', () => {
   it('rama con commits propios → encola con conteo, base, diff y sugerencia', async () => {
     const { gitFn } = makeGit(healthyRepo());
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn, ...makeGate() });
 
     assert.equal(r.captured, true);
     assert.equal(r.reason, 'queued');
@@ -77,13 +95,14 @@ describe('captureIntegration — qué SÍ entra en la cola', () => {
       files_changed: 1,
       lines_changed: 4,
       suggested: 'ff',
+      audit: null,
     });
   });
 
   it('la rama se lee del WORKTREE de la sesión (que el cleanup destruye después)', async () => {
     const { gitFn, calls } = makeGit(healthyRepo());
     const { enqueueFn } = makeEnqueue();
-    await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn, ...makeGate() });
     const read = calls.find((c) => c.args.includes('branch --show-current'));
     assert.ok(read.args.startsWith('-C /wt/sess-1 '), `debe scopear al worktree: ${read.args}`);
   });
@@ -91,7 +110,7 @@ describe('captureIntegration — qué SÍ entra en la cola', () => {
   it('sesión adoptada (sin worktree) → la rama se lee del propio repo', async () => {
     const { gitFn, calls } = makeGit(healthyRepo());
     const { enqueueFn } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     const read = calls.find((c) => c.args.includes('branch --show-current'));
     assert.equal(read.args, 'branch --show-current');
     assert.equal(read.cwd, '/repo/kodo');
@@ -100,14 +119,14 @@ describe('captureIntegration — qué SÍ entra en la cola', () => {
   it('el diff se mide con TRES puntos (base...branch), la vista de un PR', async () => {
     const { gitFn, calls } = makeGit(healthyRepo());
     const { enqueueFn } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.ok(calls.some((c) => c.args === 'diff --numstat main...worktree-abc'));
   });
 
   it('los binarios (`-\\t-\\tpath`) cuentan como fichero pero no suman líneas', async () => {
     const { gitFn } = makeGit(healthyRepo({ numstat: '-\t-\tlogo.png\n5\t2\tsrc/a.js' }));
     const { enqueueFn, calls } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(calls[0].files_changed, 2);
     assert.equal(calls[0].lines_changed, 7);
   });
@@ -117,7 +136,7 @@ describe('captureIntegration — qué NO entra en la cola', () => {
   it('rama ya mergeada (conteo 0 de KODO-21) → NO se encola', async () => {
     const { gitFn } = makeGit(healthyRepo({ unmerged: '0' }));
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.captured, false);
     assert.equal(r.reason, 'merged');
     assert.deepEqual(calls, []);
@@ -126,7 +145,7 @@ describe('captureIntegration — qué NO entra en la cola', () => {
   it('HEAD desacoplado (sin rama) → no hay nada que encolar', async () => {
     const { gitFn } = makeGit(healthyRepo({ branch: '' }));
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.reason, 'detached');
     assert.deepEqual(calls, []);
   });
@@ -134,7 +153,7 @@ describe('captureIntegration — qué NO entra en la cola', () => {
   it('la sesión cerró trabajando SOBRE la base → no se encola main contra main', async () => {
     const { gitFn } = makeGit(healthyRepo({ branch: 'main' }));
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.reason, 'is-base');
     assert.deepEqual(calls, []);
   });
@@ -142,7 +161,7 @@ describe('captureIntegration — qué NO entra en la cola', () => {
   it('sesión sin project_path → no-op', async () => {
     const { gitFn } = makeGit(healthyRepo());
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session: {}, worktree: null, gitFn, enqueueFn });
+    const r = await captureIntegration({ session: {}, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.reason, 'no-project');
     assert.deepEqual(calls, []);
   });
@@ -154,7 +173,7 @@ describe('captureIntegration — base atrasada (criterio explícito del DoD)', (
     // devuelve 4 ⇒ a la rama le faltan 4 commits de main ⇒ el ff no es aplicable.
     const { gitFn } = makeGit(healthyRepo({ behind: '4' }));
     const { enqueueFn, calls } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(calls[0].base_ok, false);
     assert.notEqual(calls[0].suggested, 'ff');
     assert.equal(calls[0].suggested, 'merge');
@@ -169,7 +188,7 @@ describe('captureIntegration — base atrasada (criterio explícito del DoD)', (
       return '';
     });
     const { enqueueFn, calls } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(calls[0].base_branch, null);
     assert.equal(calls[0].base_ok, null);
     assert.equal(calls[0].files_changed, null, 'sin base no hay diff que medir');
@@ -188,7 +207,7 @@ describe('captureIntegration — base atrasada (criterio explícito del DoD)', (
       return '';
     });
     const { enqueueFn, calls } = makeEnqueue();
-    await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(calls[0].base_branch, 'main');
     assert.equal(calls[0].suggested, 'merge');
   });
@@ -200,7 +219,7 @@ describe('captureIntegration — fail-open (la sesión SIEMPRE cierra)', () => {
     // un humano, nunca asumir que estaba mergeada.
     const { gitFn } = makeGit(healthyRepo({ unmerged: 'no-soy-un-numero' }));
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: null, gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.captured, true);
     assert.equal(calls[0].commits_ahead, null);
   });
@@ -208,7 +227,7 @@ describe('captureIntegration — fail-open (la sesión SIEMPRE cierra)', () => {
   it('git lanza en TODOS los comandos → no lanza, devuelve detached y no encola', async () => {
     const { gitFn } = makeGit(() => new Error('git: command not found'));
     const { enqueueFn, calls } = makeEnqueue();
-    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn });
+    const r = await captureIntegration({ session, worktree: '/wt/sess-1', gitFn, enqueueFn, ...makeGate() });
     assert.equal(r.captured, false);
     assert.deepEqual(calls, []);
   });
@@ -220,6 +239,7 @@ describe('captureIntegration — fail-open (la sesión SIEMPRE cierra)', () => {
       worktree: null,
       gitFn,
       enqueueFn: () => ({ ok: false, reason: 'lock-timeout' }),
+      ...makeGate(),
     });
     assert.equal(r.captured, false);
     assert.equal(r.reason, 'enqueue-failed');
@@ -232,6 +252,7 @@ describe('captureIntegration — fail-open (la sesión SIEMPRE cierra)', () => {
       worktree: null,
       gitFn,
       enqueueFn: () => { throw new Error('EROFS'); },
+      ...makeGate(),
     });
     assert.equal(r.captured, false);
     assert.equal(r.reason, 'error');
@@ -272,6 +293,7 @@ describe('captureIntegration — worktree desaparecido, rama persistida (KODO-30
       worktree: '/repo/kodo/.claude/worktrees/sess-1',
       gitFn,
       enqueueFn,
+      ...makeGate(),
     });
 
     assert.equal(r.captured, true);
@@ -291,6 +313,7 @@ describe('captureIntegration — worktree desaparecido, rama persistida (KODO-30
       worktree: '/repo/kodo/.claude/worktrees/sess-1',
       gitFn,
       enqueueFn,
+      ...makeGate(),
     });
 
     // 'merged' y no 'detached': la pregunta SE RESPONDIÓ, y la respuesta es que no hay
@@ -309,6 +332,7 @@ describe('captureIntegration — worktree desaparecido, rama persistida (KODO-30
       worktree: '/repo/kodo/.claude/worktrees/sess-1',
       gitFn,
       enqueueFn,
+      ...makeGate(),
     });
 
     assert.equal(r.reason, 'detached');
@@ -324,8 +348,123 @@ describe('captureIntegration — worktree desaparecido, rama persistida (KODO-30
       worktree: '/repo/kodo/.claude/worktrees/sess-1',
       gitFn,
       enqueueFn,
+      ...makeGate(),
     });
 
     assert.equal(calls[0].branch, 'worktree-abc', 'el dato de AHORA gana al persistido');
+  });
+});
+
+describe('captureIntegration — el veredicto del audit gate (KODO-74)', () => {
+  const auditado = {
+    status: 'audited',
+    count: 2,
+    fingerprint: 'a'.repeat(64),
+    evidence: 'artifact',
+    findings: 0,
+    commit: 'b'.repeat(40),
+    challenge_commit: 'b'.repeat(40),
+    base_commit: null,
+    opened_at: '2026-09-03T08:00:00.000Z',
+    audited_at: '2026-09-03T09:00:00.000Z',
+  };
+
+  it('SIN reto, la entrada se encola con `audit: null` — sin auditar, igual que antes', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn, calls } = makeEnqueue();
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate(null) });
+    assert.equal(calls[0].audit, null);
+  });
+
+  it('el reto se LEE con la identidad de la rama (project_path, branch)', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn } = makeEnqueue();
+    const reads = [];
+    await captureIntegration({
+      session,
+      worktree: null,
+      gitFn,
+      enqueueFn,
+      readAuditGateFn: (t) => { reads.push(t); return null; },
+      clearAuditGateFn: () => ({ ok: true, value: false }),
+    });
+    assert.deepEqual(reads, [{ project_path: '/repo/kodo', branch: 'worktree-abc' }]);
+  });
+
+  it('con reto cerrado, el veredicto viaja ENTERO a la entrada de la cola', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn, calls } = makeEnqueue();
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate(auditado) });
+    assert.deepEqual(calls[0].audit, auditado);
+  });
+
+  it('un reto ABIERTO también se encola: `pending` es un estado honesto, no un hueco', async () => {
+    const abierto = { ...auditado, status: 'pending', evidence: null, findings: null, commit: null, audited_at: null };
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn, calls } = makeEnqueue();
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...makeGate(abierto) });
+    assert.equal(calls[0].audit.status, 'pending');
+  });
+
+  it('el reto se RETIRA tras sellarlo: cada sesión audita lo suyo', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn } = makeEnqueue();
+    const gate = makeGate(auditado);
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...gate });
+    assert.deepEqual(gate.cleared, [{ project_path: '/repo/kodo', branch: 'worktree-abc' }]);
+  });
+
+  it('si el encolado FALLA, el reto NO se retira: se recupera en la siguiente captura', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const gate = makeGate(auditado);
+    const r = await captureIntegration({
+      session,
+      worktree: null,
+      gitFn,
+      enqueueFn: () => ({ ok: false, reason: 'lock-timeout' }),
+      ...gate,
+    });
+    assert.equal(r.captured, false);
+    assert.deepEqual(gate.cleared, []);
+  });
+
+  it('sin reto no se llama al clear: nada que retirar', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn } = makeEnqueue();
+    const gate = makeGate(null);
+    await captureIntegration({ session, worktree: null, gitFn, enqueueFn, ...gate });
+    assert.deepEqual(gate.cleared, []);
+  });
+
+  it('un store que lanza al LEER no puede impedir que la rama se encole', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn, calls } = makeEnqueue();
+    const r = await captureIntegration({
+      session,
+      worktree: null,
+      gitFn,
+      enqueueFn,
+      readAuditGateFn: () => { throw new Error('EACCES'); },
+      clearAuditGateFn: () => ({ ok: true, value: false }),
+    });
+    // El audit gate es un AÑADIDO sobre una captura que ya funcionaba: la peor consecuencia de
+    // que se rompa es perder la SEÑAL, jamás el trabajo.
+    assert.equal(r.captured, true);
+    assert.equal(calls[0].audit, null, 'sin auditar, que es la verdad');
+  });
+
+  it('un store que lanza al RETIRAR no convierte una captura hecha en un fallo', async () => {
+    const { gitFn } = makeGit(healthyRepo());
+    const { enqueueFn, calls } = makeEnqueue();
+    const r = await captureIntegration({
+      session,
+      worktree: null,
+      gitFn,
+      enqueueFn,
+      readAuditGateFn: () => auditado,
+      clearAuditGateFn: () => { throw new Error('EACCES'); },
+    });
+    assert.equal(r.captured, true, 'la entrada YA estaba en la cola');
+    assert.deepEqual(calls[0].audit, auditado);
   });
 });
