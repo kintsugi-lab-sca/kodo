@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildSessionContext, buildGsdContext } from '../src/hooks/session-start.js';
+import { buildSessionContext, buildGsdContext, sealBaseCommit } from '../src/hooks/session-start.js';
 import { KODO_DIR } from '../src/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -466,5 +466,69 @@ describe('session-start.js — source invariants', () => {
       !/\.gsd_mode\b/.test(stripped),
       'src/hooks/session-start.js must not access .gsd_mode directly. Use `getSessionMode(session)` from src/labels.js. Direct access to session.gsd_mode is allowed only inside getSessionMode itself (src/labels.js).',
     );
+  });
+});
+
+// KODO-74 (§2.5) — la base del worktree, sellada AL ACEPTAR la tarea.
+//
+// Todo por DI (`gitFn`, `updateSessionFn`): estos casos no tocan git de verdad ni el
+// `~/.kodo/state.json` del operador.
+describe('session-start.js — sealBaseCommit (KODO-74 §2.5)', () => {
+  const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+
+  function harness({ head = SHA } = {}) {
+    const updates = [];
+    const dirs = [];
+    return {
+      updates,
+      dirs,
+      deps: {
+        gitFn: (dir) => { dirs.push(dir); return head instanceof Error ? (() => { throw head; })() : head; },
+        updateSessionFn: (id, patch) => { updates.push({ id, patch }); return { ok: true }; },
+      },
+    };
+  }
+
+  it('sella el HEAD del worktree la PRIMERA vez', async () => {
+    const h = harness();
+    await sealBaseCommit('uuid-123', makeSession(), '/wt/sess-abc', h.deps);
+    assert.deepEqual(h.updates, [{ id: 'uuid-123', patch: { base_commit: SHA } }]);
+    assert.deepEqual(h.dirs, ['/wt/sess-abc'], 'lee del directorio de la sesión');
+  });
+
+  it('NO reescribe una base ya sellada: un `resume` vuelve a disparar el hook con HEAD movido', async () => {
+    const h = harness({ head: 'f'.repeat(40) });
+    await sealBaseCommit('uuid-123', makeSession({ base_commit: SHA }), '/wt/sess-abc', h.deps);
+    assert.deepEqual(h.updates, []);
+  });
+
+  it('sin cwd cae al worktree persistido, y luego al repo', async () => {
+    const h = harness();
+    await sealBaseCommit('uuid-123', makeSession({ worktree_path: '/wt/x' }), undefined, h.deps);
+    assert.deepEqual(h.dirs, ['/wt/x']);
+    const h2 = harness();
+    await sealBaseCommit('uuid-123', makeSession(), undefined, h2.deps);
+    assert.deepEqual(h2.dirs, ['/tmp/kl-42']);
+  });
+
+  it('una salida que no es un SHA no se persiste como base inventada', async () => {
+    for (const bad of ['', 'HEAD', 'fatal: not a git repository', 'a1b2c3']) {
+      const h = harness({ head: bad });
+      await sealBaseCommit('uuid-123', makeSession(), '/wt/x', h.deps);
+      assert.deepEqual(h.updates, [], `no debe sellar: ${JSON.stringify(bad)}`);
+    }
+  });
+
+  it('never-throws: un git que revienta no rompe el arranque de la sesión', async () => {
+    const h = harness({ head: new Error('no git') });
+    await sealBaseCommit('uuid-123', makeSession(), '/wt/x', h.deps);
+    assert.deepEqual(h.updates, []);
+  });
+
+  it('sin taskId o sin sesión no hace nada', async () => {
+    const h = harness();
+    await sealBaseCommit('', makeSession(), '/wt/x', h.deps);
+    await sealBaseCommit('uuid-123', /** @type {any} */ (null), '/wt/x', h.deps);
+    assert.deepEqual(h.updates, []);
   });
 });

@@ -30,7 +30,7 @@ import { loadState, withStateLock } from '../session/state.js';
 /**
  * One integration-queue entry.
  *
- * The 18 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
+ * The 19 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
  * cosmetic: `kodo integrate --json` serialises the entry as-is, and the byte-determinism of
  * `--json` is a repo invariant (DX-06). A key appearing "only when there is a value"
  * would break the contract's byte-for-byte comparison.
@@ -54,6 +54,7 @@ import { loadState, withStateLock } from '../session/state.js';
  *   outcome: string|null,          // Short, greppable result ('merged', 'prepared', 'dropped', 'precondition-failed'…).
  *   resolved_at: string|null,      // ISO 8601 of the resolution. null while pending.
  *   oracle: import('./oracle.js').OracleResult|null,  // KODO-69. null = the oracle has not run on this branch.
+ *   audit: import('./audit.js').AuditGate|null,  // KODO-74. null = SIN AUDITAR: nobody ran the audit gate over this branch. It is NOT the same as an audit that found nothing — that one is `status: 'audited'` with `findings: 0`, a signed statement. The third honest state, same rule as the oracle's `unknown`.
  * }} IntegrationEntry
  */
 
@@ -82,7 +83,7 @@ export const RESOLVED_CAP = 50;
  * @param {{ project_path?: string, branch?: string }} e
  * @returns {string}
  */
-function entryKey(e) {
+export function entryKey(e) {
   return `${e.project_path ?? ''}\u0000${e.branch ?? ''}`;
 }
 
@@ -96,7 +97,7 @@ function queueOf(state) {
 }
 
 /**
- * Builds a COMPLETE entry (18 keys, fixed order) from the capture input.
+ * Builds a COMPLETE entry (19 keys, fixed order) from the capture input.
  * Pure — it touches neither disk nor clock beyond the injected `now`.
  *
  * @param {{
@@ -104,6 +105,7 @@ function queueOf(state) {
  *   base_branch?: string|null, commits_ahead?: number|null, base_ok?: boolean|null,
  *   files_changed?: number|null, lines_changed?: number|null,
  *   suggested: 'ff'|'merge'|'pr'|'review',
+ *   audit?: import('./audit.js').AuditGate|null,
  * }} input
  * @param {string} ts ISO 8601
  * @returns {IntegrationEntry}
@@ -131,6 +133,12 @@ function buildEntry(input, ts) {
     // started an oracle run yet, and `null` is the only value that says exactly that. The
     // runner writes its own `running` marker as its first act.
     oracle: null,
+    // KODO-74. Comes IN from the capture, unlike `oracle`, and that asymmetry is the whole
+    // point of the audit gate: the oracle runs AFTER the session closed (nobody has to be
+    // there), while the audit is a second pass by the session ITSELF and can only have
+    // happened BEFORE it closed. By enqueue time the answer already exists — either the
+    // session passed the gate or it did not. `null` = it did not run it: SIN AUDITAR.
+    audit: input.audit ?? null,
   };
 }
 
@@ -151,6 +159,7 @@ function buildEntry(input, ts) {
  *   base_branch?: string|null, commits_ahead?: number|null, base_ok?: boolean|null,
  *   files_changed?: number|null, lines_changed?: number|null,
  *   suggested: 'ff'|'merge'|'pr'|'review',
+ *   audit?: import('./audit.js').AuditGate|null,
  * }} input
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  * @param {{ now?: () => Date }} [deps]
@@ -192,6 +201,12 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
       // of defence: a slow run from the earlier session that lands after this refresh is
       // detected as stale rather than trusted.)
       prev.oracle = null;
+      // KODO-74: the audit is REPLACED, never merged. Each session audits ITS OWN candidate,
+      // so the verdict that belongs on the refreshed row is the one the session that is
+      // closing right now brought — including `null`, which says "this session did not run
+      // the gate". Keeping the previous session's `audited` would mark as audited a branch
+      // that has grown commits nobody read.
+      prev.audit = input.audit ?? null;
       persisted = prev;
     } else {
       persisted = buildEntry(input, ts);

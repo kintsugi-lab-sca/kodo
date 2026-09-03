@@ -563,6 +563,7 @@ program
   .option('--drop', 'Descartar la entrada de la cola SIN tocar la rama')
   .option('--test <cmd>', 'Correr esta suite en el repo antes de integrar; si falla, no se integra nada')
   .option('--require-oracle', 'Abortar si el oráculo mecánico no dice `pass` sobre la punta de la rama (KODO-69)')
+  .option('--require-audit', 'Abortar si el audit gate no marcó esta rama como auditada sobre su punta actual (KODO-74)')
   .action(setExitCode(async (ref, opts) => {
     const mod = await import('./cli/integrate.js');
     if (!ref) {
@@ -576,7 +577,29 @@ program
       json: opts.json || false,
       test: opts.test,
       requireOracle: opts.requireOracle || false,
+      requireAudit: opts.requireAudit || false,
     });
+  }));
+
+// --- kodo audit --- (KODO-74: el audit gate)
+//
+// SIN subcomandos y SIN flags de acción, a diferencia de `oracle` y `review`: aquí no hay dos
+// sujetos —hay uno, la sesión que va a entregar— ni dos acciones. Lo que cambia entre la primera
+// y la segunda invocación no lo teclea nadie: lo decide el estado del reto.
+//
+// Se invoca DESDE la sesión, en su worktree, como paso previo al `/exit` que el prompt de sesión
+// ya prescribe. No puede vivir en el hook `SessionEnd`: cuando ese hook corre, la sesión ya
+// cerró y no queda nadie a quien pedirle una segunda pasada.
+//
+// NO `ensureConfig()`: el gate es estado local (`~/.kodo/state.json`) + git, y no toca ningún
+// provider. Mismo precedente que `inbox`, `integrate`, `oracle`, `review` y `gsd doctor`.
+program
+  .command('audit [ref]')
+  .description('Audit gate: exige una segunda pasada antes de encolar el trabajo de la sesión como auditado')
+  .option('--json', 'Emitir el resultado como JSON (scriptable)')
+  .action(setExitCode(async (ref, opts) => {
+    const mod = await import('./cli/audit.js');
+    return mod.runAuditCli(ref, { json: opts.json || false });
   }));
 
 // --- kodo oracle [run] --- (KODO-69: el oráculo mecánico)

@@ -106,6 +106,13 @@ export function buildGsdContext(session, opts = {}) {
       '<!-- /kodo:scope -->',
       '```',
       '',
+      // KODO-74: el audit gate, misma instrucción que la rama ES (`session/context.js`). El
+      // nombre del comando es contrato —si el prompt deja de nombrarlo, la sesión no lo
+      // ejecuta y todo se encola sin auditar—, así que va literal en los dos idiomas; lo que
+      // alterna es la redacción (D-08 Phase 45).
+      '',
+      'Before closing, pass the audit gate: run `kodo audit`. The FIRST call marks nothing — it prints `AUDIT_REQUIRED` with the criteria for a second pass. Do that pass for real and run `kodo audit` again: the challenge only closes if the second attempt brings a new commit or the signed audit artifact. Skip this and the work is still queued, marked as NOT audited.',
+      '',
       'And when you close the session, append a handoff block at the end of that same file, without deleting the previous blocks, using this exact format:',
       '',
       '```markdown',
@@ -198,6 +205,63 @@ async function emitRebindEvent({ session, newSessionId, threadId, persisted }) {
   }
 }
 
+/**
+ * Sella `session.base_commit` — KODO-74, §2.5 del spike de swarm-forge.
+ *
+ * QUÉ ARREGLA. Hoy `base_ok` y `commits_ahead` se calculan AL CERRAR, y con eso no se distingue
+ * «la rama va detrás porque main avanzó mientras trabajabas» de «la rama nació de una base
+ * rara». Son dos situaciones que piden decisiones distintas y que hoy se ven idénticas. La base
+ * de arranque solo se puede leer AQUÍ: dos turnos después HEAD ya se movió.
+ *
+ * UNA SOLA VEZ, y esa es la mitad importante. Este hook vuelve a correr en cada `resume`, y para
+ * entonces HEAD es el trabajo de la sesión, no su base. Con el campo ya presente no se toca
+ * nada — ni se reescribe, ni se «refresca».
+ *
+ * FAIL-OPEN Y MUDO de cuerpo entero: sin repo, con `git` ausente, con el worktree en un estado
+ * raro o con el lock ocupado, no pasa nada. El consumidor (`kodo audit`) trata la ausencia como
+ * `null` y degrada; lo que este hook no puede hacer es romper el arranque de Claude Code por un
+ * campo de conveniencia.
+ *
+ * @param {string} taskId Clave de la sesión en `state.sessions`.
+ * @param {import('../session/state.js').Session} session
+ * @param {string|undefined} cwd Directorio que Claude Code reporta para la sesión.
+ * @param {{ gitFn?: (dir: string) => string, updateSessionFn?: typeof updateSession }} [deps]
+ * @returns {Promise<void>}
+ */
+export async function sealBaseCommit(taskId, session, cwd, deps = {}) {
+  try {
+    if (!taskId || !session || session.base_commit) return;
+    const dir = cwd || session.worktree_path || session.project_path;
+    if (!dir) return;
+    const update = deps.updateSessionFn || updateSession;
+    const read = deps.gitFn || (await defaultRevParse());
+    const head = String(read(dir) ?? '').trim();
+    // El SHA se valida antes de persistirlo: un `rev-parse` que contesta cualquier otra cosa
+    // (git ausente, repo raro, un mensaje de error por stdout) no puede convertirse en una base
+    // inventada que después entre en el fingerprint de un candidato.
+    if (!/^[0-9a-f]{40}$/.test(head)) return;
+    update(taskId, /** @type {any} */ ({ base_commit: head }));
+  } catch {
+    // silent — never crash Claude Code startup
+  }
+}
+
+/**
+ * Lector de HEAD por defecto. Import dinámico para no arrastrar `child_process` al grafo de
+ * quien solo importa `buildSessionContext`.
+ *
+ * Argumentos como array a `execFileSync`: nunca hay un shell de por medio, así que un path con
+ * metacaracteres no puede ejecutar nada. Mismo criterio que el `gitFn` del CLI.
+ *
+ * @returns {Promise<(dir: string) => string>}
+ */
+async function defaultRevParse() {
+  const { execFileSync } = await import('node:child_process');
+  return (dir) => String(
+    execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }),
+  );
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -276,6 +340,15 @@ async function main() {
     }
 
     const { session } = result;
+
+    // KODO-74 (§2.5): sella la base del worktree AL ACEPTAR la tarea. Es el único momento en
+    // que se puede: dos turnos después HEAD ya se ha movido y el dato es irrecuperable.
+    // Fail-open y silencioso — el contexto de la tarea, que es lo valioso de este hook, se
+    // inyecta igual si esto falla.
+    if (result.source === 'sessions') {
+      await sealBaseCommit(result.id, session, input.cwd);
+    }
+
     // Phase 9: thread session.brief into buildGsdContext — it was persisted by
     // the dispatcher via buildSessionFromTask when resolver returned 'bootstrap'.
     const context = session.gsd

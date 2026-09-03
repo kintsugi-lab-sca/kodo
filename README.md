@@ -337,6 +337,7 @@ kodo inbox               # inbox triage (--all, --json, route <id>, discard <id>
 kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
 kodo oracle              # mechanical oracle: what kodo itself verified on each branch (run <REF>)
+kodo audit               # audit gate: the second pass a session owes before its work is queued
 kodo review              # adversarial review cycles (--all, --json; start <REF>, commit)
 kodo config              # configuration wizard / --show / --set key=value
 kodo launch <REF>        # launches a task manually (e.g. KL-42)
@@ -498,15 +499,20 @@ kodo integrate KL-42 --merge --test 'npm test'   # test suite before integrating
 ```
 
 ```
-ref     · rama             · commits · base · sugerido · oráculo · edad · estado
-KL-42 · worktree-5b1f809 · 3       · sí   · merge    · pass    · 2h   ·
-KL-7 · worktree-ae91f22 · 1       · NO   · merge    · —       · 3d   ·
+ref     · rama             · commits · base · sugerido · oráculo · audit · edad · estado
+KL-42 · worktree-5b1f809 · 3       · sí   · merge    · pass    · ✓1    · 2h   ·
+KL-7 · worktree-ae91f22 · 1       · NO   · merge    · —       · —     · 3d   ·
 ```
 
 The `oráculo` column is the [mechanical oracle](#kodo-oracle--the-mechanical-oracle)'s verdict,
 which sits **beside** the suggestion and never replaces it: they are two different readings of the
 same branch — a heuristic about what it *touches*, a fact about what *passes* — and you need both
 to decide. `—` means nobody has verified this branch, and it looks nothing like a `pass`.
+
+The `audit` column is the [audit gate](#kodo-audit--the-audit-gate), and it is **orthogonal to the
+oracle**: `✓N` means somebody read the work again and signed it after N challenges, `…N` that a
+challenge was opened and never closed, `—` that nobody ran the gate at all. A `pass` from the
+oracle on a `—` row is code that compiles and that nobody re-read.
 
 **The suggestion is a suggestion.** It comes out of a simple, visible heuristic, and it is confirmed
 by whoever integrates:
@@ -736,6 +742,97 @@ emergency exit would leave you with no way to clear a branch the oracle cannot v
 Each closed gate leaves its `integrate.action` NDJSON line with a greppable `outcome`
 (`oracle-missing`, `oracle-running`, `oracle-failed`, `oracle-unknown`, `oracle-stale`,
 `oracle-unanchored`) and **never** takes the entry out of `pending`.
+
+### `kodo audit` — the audit gate
+
+The oracle verifies the **artifact** with tools. There is a class of failure no tool sees: the
+requirement in the statement nobody implemented, the edge case nobody considered, the "tests pass"
+over tests that do not cover what was asked. There is no command to run against that — somebody
+has to read it again. This gate buys that second pass, and buys it at the exact moment it is worth
+something: with the work finished and before it is handed over.
+
+```bash
+kodo audit                # from inside the session's worktree, before /exit
+kodo audit KL-42          # same, naming the task when two sessions share a repo
+kodo audit --json         # the challenge or the verdict, scriptable
+```
+
+**The first call marks nothing.** It fingerprints the candidate (session, task, repo, branch, tip
+commit, base commit, and a hash of the dirty working tree), persists the challenge, bumps the
+counter and prints `AUDIT_REQUIRED` with concrete criteria: reread the statement and its sources,
+trace every requirement to the evidence that satisfies it, review the **whole** diff, review the
+unrelated working-tree changes, fix every finding.
+
+**The second call only closes the challenge if it brings something different** — a new commit, or
+an audit artifact signed against the challenge's fingerprint. This is the one substantive change
+from the mechanism in `swarm-forge` this is adapted from, and it is the point: over there the
+deterministic part only verifies *that you invoked it twice with the same bytes*, so an agent that
+receives `AUDIT_REQUIRED` and retypes the command passes in two seconds without having read a
+line. Requiring evidence makes "I found nothing" **cost** something: you have to write it, and
+write it for *this* challenge.
+
+```markdown
+## Audit 2 <!-- kodo:audit v=1 fp=e662e7cacc22 findings=0 at=2026-09-03T08:00:00Z -->
+
+- (one line per finding; `findings=0` asserts there were none)
+```
+
+The artifact lives in `~/.kodo/audits/<task_id>.md`, append-only, a sibling of the task's plan —
+outside the repo on purpose: inside it, either you commit it (and then the new commit already
+closed the challenge on its own) or the worktree cleanup takes it with it on close.
+
+**Three honest states, the same rule as the oracle:**
+
+| In the queue | Meaning |
+|---|---|
+| `audit: null` (`—`) | **Not audited.** Nobody ran the gate on this branch. |
+| `status: pending` (`…N`) | A challenge was opened and never closed: the second pass was asked for and no evidence of it arrived. |
+| `status: audited` (`✓N`) | There was a second pass with evidence, after N challenges. |
+
+`findings: 0` is a signed statement; `null` is the absence of one. Collapsing the two into "green"
+would paint green exactly what nobody looked at.
+
+**Design notes, and what they cost:**
+
+- **It cannot live in the `SessionEnd` hook.** By the time that hook runs, the session has closed
+  and there is nobody left to ask for a second pass. So it is an explicit step before the `/exit`
+  the session prompt already prescribes, and the close hook only *reads* what the command wrote.
+- **Anchored to the commit.** The verdict records the branch tip at the moment it closed. If the
+  branch grows commits afterwards, the audit is stale and the next `kodo audit` opens a fresh
+  challenge — an audit of code that is no longer the code there is means nothing. Same reasoning
+  that invalidates a stale oracle verdict or an expired `review/approval.md`.
+- **The fingerprint does not rotate on a re-challenge.** If it did, the artifact you just wrote
+  would stop being valid the instant you present it — any working-tree edit moves the fingerprint —
+  and the gate would be unsatisfiable.
+- **The counter is cumulative and visible.** "This branch needed 3 challenges" says something no
+  binary verdict says.
+- **The challenge is withdrawn on close**, once its verdict is sealed into the queue entry. Each
+  session audits its own work: leaving it alive would let the next session on the same branch
+  inherit an "already audited" nobody audited.
+- **Without the command, nothing changes.** The entry is queued exactly as before, marked
+  *not audited*.
+
+The session's base commit (`base_commit`) is sealed **once** by the `SessionStart` hook, the only
+moment it can be read. Beyond feeding the fingerprint it settles a question the close could not
+answer: `base_ok` is computed on close, so "the branch is behind because main moved" and "the
+branch was born off a strange base" looked identical. It is also what lets the challenge print the
+exact diff command instead of guessing your main branch's name.
+
+#### The optional gate: `--require-audit`
+
+```bash
+kodo integrate KL-42 --ff --require-audit
+```
+
+Same contract as `--require-oracle`, and for the same reasons: opt-in (a gate that gets in the way
+ends up switched off), not applicable to `--drop` (the emergency exit is not gated), and anchored
+to the commit. It closes on the three states that are not "audited over *this*": no gate at all, an
+open challenge, and an audit of an older commit. Each closed gate leaves its `integrate.action`
+NDJSON line with a greppable `outcome` (`audit-missing`, `audit-pending`, `audit-stale`,
+`audit-unanchored`) and **never** takes the entry out of `pending`.
+
+With both flags on, the oracle is evaluated first: you get the mechanical failure — the one a
+command fixes — before the one that asks you to relaunch a session.
 
 ### `kodo review` — the adversarial reviewer
 
@@ -1438,12 +1535,13 @@ Everything is documented in Plane as comments, without opening cmux:
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
 ├── config.json        # provider, states, server, claude, oracle (per-repo verification commands)
 ├── projects.json      # provider project → local path
-├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`)
+├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`) + open audit challenges (`.audit_gates`)
 ├── inbox.md           # quick captures (plain markdown, hand-editable)
 ├── handoff.md         # handoff from the outgoing orchestrator (consumed on the next launch)
 ├── inbox.lock         # advisory inbox lock (ephemeral: released on exit)
 ├── polling-state.json # polling watermark per project/repo (only with polling enabled)
 ├── plans/             # per-task action plans
+├── audits/            # per-task audit artifacts (the audit gate's signed second pass)
 └── logs/              # per-session NDJSON logs
 ```
 

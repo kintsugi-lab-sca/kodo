@@ -20,6 +20,7 @@
 // los tests no necesitan un repo real.
 
 import { countUnmergedCommits } from '../hooks/worktree-cleanup.js';
+import { clearAuditGate, readAuditGate } from './audit.js';
 import { suggestTier } from './suggest.js';
 import { enqueueIntegration } from './queue.js';
 
@@ -155,7 +156,9 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
  *   3. Gate KODO-21 (`countUnmergedCommits`): `0` ⇒ todo está mergeado ⇒ NO se encola. Es la
  *      mitad «una sesión que cierra mergeada no aparece» del DoD.
  *   4. Base, `base_ok` y resumen del diff.
- *   5. Sugerencia (`suggestTier`) y encolado bajo el lock de state.json.
+ *   5. Sugerencia (`suggestTier`), veredicto del audit gate (KODO-74) y encolado bajo el lock
+ *      de state.json.
+ *   6. Retirada del reto de auditoría: su traza durable pasa a ser la entrada de la cola.
  *
  * @param {{
  *   session: { task_ref?: string, task_id?: string, project_path?: string, session_id?: string, branch?: string },
@@ -163,6 +166,8 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
  *   gitFn: (cwd: string, args: string[]) => Promise<string>|string,
  *   logger?: import('../logger-noop.js').NoopLogger,
  *   enqueueFn?: typeof enqueueIntegration,
+ *   readAuditGateFn?: typeof readAuditGate,
+ *   clearAuditGateFn?: typeof clearAuditGate,
  *   now?: () => Date,
  * }} args
  *   `worktree`: directorio donde vive el checkout de la sesión. Si no existe o no se pasa, se
@@ -172,8 +177,12 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
  *   `reason` es un literal corto y greppable: 'queued' · 'no-project' · 'detached' ·
  *   'is-base' · 'merged' · 'enqueue-failed' · 'error'.
  */
-export async function captureIntegration({ session, worktree, gitFn, logger, enqueueFn, now }) {
+export async function captureIntegration({
+  session, worktree, gitFn, logger, enqueueFn, readAuditGateFn, clearAuditGateFn, now,
+}) {
   const enqueue = enqueueFn || enqueueIntegration;
+  const readGate = readAuditGateFn || readAuditGate;
+  const clearGate = clearAuditGateFn || clearAuditGate;
   try {
     const project = session?.project_path;
     if (!project) return { captured: false, reason: 'no-project', entry: null };
@@ -222,6 +231,26 @@ export async function captureIntegration({ session, worktree, gitFn, logger, enq
 
     const suggested = suggestTier({ files, lines, baseOk });
 
+    // KODO-74 — el veredicto del audit gate. Se LEE, jamás se calcula aquí: el reto lo abrió y
+    // lo cerró `kodo audit` mientras la sesión seguía viva, que es el único momento en que hay
+    // alguien a quien pedirle una segunda pasada. Para cuando este hook corre, la sesión ya
+    // cerró y la pregunta ya no se puede hacer — por eso el gate NO puede vivir aquí.
+    //
+    // `null` (ninguna invocación) se encola tal cual: SIN AUDITAR. Es el comportamiento previo
+    // exacto, y es la mitad «sin el comando, nada cambia» del enunciado.
+    //
+    // TRY PROPIO, y no el fail-open de cuerpo entero de abajo: el audit gate es un AÑADIDO
+    // sobre una captura que ya funcionaba, así que no puede tener el poder de impedirla. Con el
+    // catch de fuera, un store roto haría que la rama entera dejara de encolarse —trabajo que
+    // desaparece de la cola por un fallo en una señal de conveniencia—, y eso es peor que
+    // perder la señal. Aquí la peor consecuencia es un `null`: SIN AUDITAR, que es la verdad.
+    let audit = null;
+    try {
+      audit = readGate({ project_path: project, branch });
+    } catch {
+      audit = null;
+    }
+
     const r = enqueue(
       {
         task_ref: session.task_ref || branch,
@@ -234,11 +263,26 @@ export async function captureIntegration({ session, worktree, gitFn, logger, enq
         files_changed: files ? files.length : null,
         lines_changed: files ? lines : null,
         suggested,
+        audit,
       },
       logger,
       { now },
     );
     if (!r.ok) return { captured: false, reason: 'enqueue-failed', entry: null };
+
+    // El reto se retira SOLO cuando su veredicto ya está sellado en la cola: si el encolado
+    // falla, el reto sigue vivo y la siguiente captura de esa rama vuelve a encontrarlo. Nunca
+    // al revés — un clear antes del enqueue perdería la auditoría por un lock que expiró.
+    //
+    // Try propio por la misma razón que arriba, y aquí todavía más claro: la entrada YA está en
+    // la cola. Dejar que un fallo del clear salte al catch de fuera devolvería
+    // `captured: false` sobre una captura que sí ocurrió, y el hook lo reportaría al revés.
+    if (audit) {
+      try {
+        clearGate({ project_path: project, branch }, logger);
+      } catch { /* el reto huérfano lo recoge el cap de GATE_CAP */ }
+    }
+
     return { captured: true, reason: 'queued', entry: r.value.entry };
   } catch (err) {
     // Fail-open de cuerpo entero: la sesión cierra igual. Traza en stderr (el canal que el
