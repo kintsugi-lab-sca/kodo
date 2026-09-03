@@ -396,6 +396,53 @@ const DEFAULT_CONFIG = {
     interval_s: 60,
     catch_up: false,
   },
+  // KODO-69 — el ORÁCULO MECÁNICO: qué verifica kodo por su cuenta sobre la rama de una sesión
+  // que cierra, en vez de creerse lo que la sesión afirmó en pantalla.
+  //
+  // `enabled: true` por defecto, y NO es agresivo: sin ningún repo en `repos` lo único que corre
+  // es el check de alcance (`scope`), que no ejecuta un solo comando — lee el diff y el bloque
+  // que la tarea haya declarado en su plan. Un repo sin declarar nada sale `skip` y la entrada
+  // de la cola queda exactamente como estaba antes de esta fase.
+  //
+  //   `false` — el hook de cierre no lanza el runner. Para quien no quiere ni el checkout del
+  //   worktree desechable.
+  //
+  // `repos` va CLAVEADO POR EL PATH ABSOLUTO del repo — la misma igualdad exacta de string con
+  // la que `entryKey` define la identidad de una entrada y con la que el aviso de presión de
+  // integración decide «mismo repo». Es por-repo y no universal a propósito: Rails, Django,
+  // Node y un repo de HTML sin tests conviven en la misma máquina, y no existe un `npm test`
+  // que valga para los cuatro.
+  //
+  //   { "/Users/alex/dev/klab/kodo": {
+  //       "setup":  "npm ci --silent",       // opcional: prepara el worktree recién creado
+  //       "build":  null,
+  //       "tests":  "npm run test:raw",
+  //       "lint":   null,
+  //       "schema": null,
+  //       "timeout_s": 900                    // opcional: pisa el global para este repo
+  //   } }
+  //
+  // Los comandos se ejecutan por `sh -c` en un worktree DESECHABLE sobre el commit de la rama,
+  // con el mismo criterio (y el mismo precedente) que `kodo integrate --test`: los escribe el
+  // operador en SU config, son lo que teclearía a mano, y jamás se ejecuta nada derivado de la
+  // cola, del plan ni del provider. Por eso esto vive AQUÍ y no en un `.kodo/oracle.json` dentro
+  // del repo: un fichero versionado en el árbol convertiría «hacer checkout de una rama» en
+  // «ejecutar lo que esa rama diga».
+  //
+  // `timeout_s` es POR COMANDO, no por corrida: cuatro suites lentas son un repo lento, no un
+  // cuelgue. El runner corre detached y nadie lo espera, así que el default es holgado.
+  //
+  // Se apaga con: `kodo config --set oracle.enabled=false`. El mapa `repos` NO se edita por esa
+  // vía (es anidado y de forma libre): se escribe a mano en `~/.kodo/config.json`, que es
+  // también la razón por la que estas claves NO entran en `getEditableFields` — el editor del
+  // TUI expone knobs escalares, no mapas por repo. Los lectores del bloque son defensivos
+  // (`resolveRepoCommands`, `oracleEnabled`): un valor de forma rara degrada a «sin comandos»,
+  // nunca a un `pass` que nadie verificó.
+  oracle: {
+    enabled: true,
+    timeout_s: 600,
+    repos: {},
+  },
 };
 
 function ensureDir() {

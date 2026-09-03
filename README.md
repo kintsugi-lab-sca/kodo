@@ -330,6 +330,7 @@ kodo capture "<text>"    # captures an idea into the global inbox (~/.kodo/inbox
 kodo inbox               # inbox triage (--all, --json, route <id>, discard <id>)
 kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
+kodo oracle              # mechanical oracle: what kodo itself verified on each branch (run <REF>)
 kodo review              # adversarial review cycles (--all, --json; start <REF>, commit)
 kodo config              # configuration wizard / --show / --set key=value
 kodo launch <REF>        # launches a task manually (e.g. KL-42)
@@ -491,10 +492,15 @@ kodo integrate KL-42 --merge --test 'npm test'   # test suite before integrating
 ```
 
 ```
-ref     · rama             · commits · base · sugerido · edad · estado
-KL-42 · worktree-5b1f809 · 3       · sí   · merge    · 2h   ·
-KL-7 · worktree-ae91f22 · 1       · NO   · merge    · 3d   ·
+ref     · rama             · commits · base · sugerido · oráculo · edad · estado
+KL-42 · worktree-5b1f809 · 3       · sí   · merge    · pass    · 2h   ·
+KL-7 · worktree-ae91f22 · 1       · NO   · merge    · —       · 3d   ·
 ```
+
+The `oráculo` column is the [mechanical oracle](#kodo-oracle--the-mechanical-oracle)'s verdict,
+which sits **beside** the suggestion and never replaces it: they are two different readings of the
+same branch — a heuristic about what it *touches*, a fact about what *passes* — and you need both
+to decide. `—` means nobody has verified this branch, and it looks nothing like a `pass`.
 
 **The suggestion is a suggestion.** It comes out of a simple, visible heuristic, and it is confirmed
 by whoever integrates:
@@ -575,6 +581,155 @@ The rest of the contract, all of it load-bearing:
 - **The repo match is exact string equality** on `project_path` — the same criterion that gives an
   entry its identity and that matches sessions to their repo. A third definition of "same repo"
   disagreeing with the other two would be worse than a notice that fails to fire.
+
+### `kodo oracle` — the mechanical oracle
+
+Until now the hard verdict on a session's work was whatever **the session said**: "suite green",
+"lint passes", "docs only". A judge grading itself. And the failure mode is not deliberate lying —
+it is the session that ran the suite twenty turns ago, kept touching code, and closed remembering
+that green.
+
+The oracle runs the verification **itself**, on the branch, after the session has closed, and
+persists the result in the same integration-queue entry. The signal stops being a sentence on
+screen and becomes evidence with a commit, a timestamp and an exit code. It is 100% deterministic,
+which is why it lives in the CLI and **never** in the orchestrator's prompt: an LLM asked "do the
+tests pass?" will answer, and its answer is not verifiable.
+
+```bash
+kodo oracle                     # the verdict for every branch in the queue
+kodo oracle KL-42               # the five checks of one entry, with detail
+kodo oracle KL-42 --json        # the block as-is, scriptable
+kodo oracle run KL-42           # run it now and persist the verdict
+```
+
+```
+ref     · rama             · veredicto · checks (build/tests/lint/schema/scope) · commit
+KL-42 · worktree-5b1f809 · pass      · —✓——✓                                  · 8f1c0a2b
+KL-7  · worktree-ae91f22 · fail      · —✓——✗                                  · 3d90fe11
+```
+
+**Five checks, four states each.** `build`, `tests`, `lint` and `schema` come from commands you
+configure per repo. `scope` needs no command at all — it compares the branch's real diff against
+the scope the task declared.
+
+| State | Glyph | Meaning |
+|---|---|---|
+| `pass` | `✓` | the check ran and came out clean |
+| `fail` | `✗` | the check ran and came out red |
+| `unknown` | `?` | it **was** asked for and could not be determined (timeout, missing binary, uninspectable diff) |
+| `skip` | `—` | this repo did not ask for this check |
+
+The third state is the point. `unknown` **is not** `pass`: nothing unverified is ever painted
+green. The fourth (`skip`) is what makes the whole thing usable — without it, a repo that only
+configures `tests` would sit at `unknown` forever and you would switch the feature off in a week.
+The difference between them is exactly the one that matters: `skip` is "I did not ask you",
+`unknown` is "I asked you and you do not know". The first does not lower the verdict; the second
+does.
+
+The aggregate verdict is `fail` if anything failed, `unknown` if anything was asked and left
+undetermined (**five `skip`s included** — an oracle that verified nothing is not a `pass`), and
+`pass` only when at least one check ran and none failed. So:
+
+> **`pass` means "everything it was asked to check passed". It does not mean "everything is
+> fine".** Exactly what a green CI badge means. That is why `kodo oracle <REF>` always prints all
+> five rows: whoever reads `pass` can see, on the same screen, what was checked and what was not.
+
+**Diff-scope — the check nobody else runs.** `build`/`tests`/`lint` answer "is the artifact
+healthy?", a question the repo already knows how to answer on its own. Scope answers one nothing
+answers today: **did this branch touch what it said it would?** That is what catches scope creep,
+the auth file that slipped into a docs change, the migration nobody announced.
+
+The source of the scope is **declared, never inferred** — an invented scope produces a `fail`
+nobody can defend, and a check that cries wolf gets switched off. The session declares it in its
+own plan (`~/.kodo/plans/<task_id>.md`), and the session prompt already asks for it:
+
+```markdown
+<!-- kodo:scope v=1 -->
+- src/integration/**
+- test/oracle-*.test.js
+<!-- /kodo:scope -->
+```
+
+The dialect is deliberately small: `*` (within a segment), `**` (across separators), `?` (one
+character), and a trailing `/` meaning "everything under here". No braces, no character classes,
+no negation — each one adds a way to get the declaration wrong, and `**` covers almost everything.
+The plan is append-only, so the **last** block wins: the scope in force is the one the session
+that just closed declared. No block at all ⇒ `skip`.
+
+**Configuration is per repo, and lives in your config — never inside the repo.**
+
+```jsonc
+// ~/.kodo/config.json
+"oracle": {
+  "enabled": true,
+  "timeout_s": 600,
+  "repos": {
+    "/Users/you/dev/kodo": {
+      "setup":  "npm ci --silent",   // optional: prepares the freshly created worktree
+      "tests":  "npm run test:raw",
+      "build":  null,
+      "lint":   null,
+      "schema": null
+    }
+  }
+}
+```
+
+Per repo and not universal on purpose: Rails, Django, Node and a repo of plain HTML with no tests
+live on the same machine, and no single `npm test` covers the four. The key is the **absolute
+path**, matched by exact string equality — the same criterion that gives a queue entry its
+identity and that the integration-pressure notice uses to decide "same repo".
+
+Why the config and not a versioned `.kodo/oracle.json` inside the repo, which would be more
+convenient: these are commands kodo runs **by itself**, in a detached process, when a session
+closes. Reading them from a file in the working tree would turn "check out a branch" into "run
+whatever that branch says". Your config lives outside every repo and only you edit it.
+
+`setup` is **not** a check — it is the precondition that makes the checks mean anything (a
+freshly created worktree has no `node_modules`, no `vendor/bundle`, no `.venv`). If it fails, the
+four commands come out `unknown` and **not** `fail`: an `npm ci` that cannot reach the registry
+says nothing about whether the tests pass.
+
+The rest of the contract, all of it load-bearing:
+
+- **`SessionEnd` launches, it never runs.** The hook spawns `kodo oracle run <REF>` detached and
+  returns. Running it inline would put an `npm ci && npm test` *inside* the session close —
+  minutes of hook blocking Claude Code, with the session's worktree about to be deleted three
+  lines later.
+- **Its own disposable worktree.** The runner does `git worktree add --detach` on the branch's
+  commit, runs there, and destroys it — even when a command fails. It never touches your checkout,
+  never switches branches, never stashes. `--detach` because the branch may be checked out
+  elsewhere: the oracle verifies a *commit*, not a name.
+- **The verdict is anchored to a commit.** A verdict without one means nothing — the branch is
+  alive and can gain work. If the branch moves, the result is *stale*, and a re-capture of the same
+  branch clears the block outright: a green verdict must never describe code nobody verified.
+- **The listing costs nothing.** Zero git calls, zero execution — everything comes out of
+  `state.json`, like `kodo integrate`. That is what lets the orchestrator show it on every round,
+  and what guarantees its round **never** runs a suite.
+- **Fail-open end to end.** A spawn that does not happen, a worktree that cannot be created, a
+  config that will not load: all of them leave `unknown` or `null` (nobody verified this), never a
+  crash and never a close that hangs.
+
+#### The optional gate: `--require-oracle`
+
+```bash
+kodo integrate KL-42 --ff --require-oracle
+```
+
+**Never blocking by default**, and that is not a concession: a gate that gets in the way with
+flakies ends up switched off, and a switched-off gate is worse than none because it also gives the
+false impression that something is watching. Without the flag the verdict is simply *presented* —
+the `oráculo` column in `kodo integrate`, the detail in `kodo oracle` — and you decide with it in
+front of you.
+
+With the flag, it closes in every case that is not a `pass` anchored to the branch tip: `fail`,
+`unknown`, no oracle at all, a run still in flight, and a `pass` that verified an older commit. It
+does **not** apply to `--drop`, the only action that does not advance the branch — gating the
+emergency exit would leave you with no way to clear a branch the oracle cannot verify.
+
+Each closed gate leaves its `integrate.action` NDJSON line with a greppable `outcome`
+(`oracle-missing`, `oracle-running`, `oracle-failed`, `oracle-unknown`, `oracle-stale`,
+`oracle-unanchored`) and **never** takes the entry out of `pending`.
 
 ### `kodo review` — the adversarial reviewer
 
@@ -1275,7 +1430,7 @@ Everything is documented in Plane as comments, without opening cmux:
 ```
 ~/.kodo/
 ├── .env               # PLANE_API_KEY, PLANE_WEBHOOK_SECRET, KODO_API_TOKEN
-├── config.json        # provider, states, server, claude
+├── config.json        # provider, states, server, claude, oracle (per-repo verification commands)
 ├── projects.json      # provider project → local path
 ├── state.json         # active sessions + orchestrator registration (`.orchestrator`) + integration queue (`.integration_queue`)
 ├── inbox.md           # quick captures (plain markdown, hand-editable)

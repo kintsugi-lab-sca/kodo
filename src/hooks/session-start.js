@@ -93,6 +93,18 @@ export function buildGsdContext(session, opts = {}) {
       // `**NEXT:**` y el bloque mecánico de D-03 escribe español.
       '',
       `Also, at the start write a short plan (what you'll do + planned steps) to \`${join(KODO_DIR, 'plans', `${session.task_id}.md`)}\`. If the file already exists, do NOT overwrite it: append your plan at the end, keeping intact whatever is already there.`,
+      // KODO-69: mismo bloque de alcance que la rama ES (`session/context.js`). Los marcadores
+      // son contrato de parsing de `src/integration/scope.js`, así que van literales en los dos
+      // idiomas; lo que alterna es la instrucción, nunca el contrato (D-08 Phase 45).
+      '',
+      'In that same plan, declare the SCOPE: the files you expect to touch, as globs, inside this exact block. On close, kodo compares what you declared against your branch\'s real diff (`kodo oracle`), so a file outside the scope shows up. With no block, that check is skipped — nothing is guessed.',
+      '',
+      '```markdown',
+      '<!-- kodo:scope v=1 -->',
+      '- src/integration/**',
+      '- test/oracle-*.test.js',
+      '<!-- /kodo:scope -->',
+      '```',
       '',
       'And when you close the session, append a handoff block at the end of that same file, without deleting the previous blocks, using this exact format:',
       '',
