@@ -135,15 +135,15 @@ export function sanitizeAdoptionData({ cwd, title, description }, homedirFn = ho
  * }} params
  * @returns {import('./session/state.js').Session}
  */
-export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd, sessionId, projectPath, existsSyncFn = existsSync }) {
-  // Phase 61 (PROG-04, D-3): si el project_path es un proyecto GSD, marcar la fila como GSD
-  // para que las columnas phase/mode del dashboard la reconozcan. El progreso vivo (columna
-  // prog) ya NO depende de este flag — el lector lo detecta dinámicamente por STATE.md (D-1).
-  // Una sesión adoptada GSD es full-mode por naturaleza (no quick); phase_id NO se deriva
-  // (un adopt no mapea a una fase del roadmap — requeriría resolvePhase y no sería significativo).
-  const gsdFields = isGsdProject(projectPath, existsSyncFn)
-    ? { gsd: /** @type {const} */ (true), gsd_mode: /** @type {const} */ ('full') }
-    : {};
+export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd, sessionId, projectPath }) {
+  // KODO-84: la fila adoptada NO deriva `gsd`/`gsd_mode` del filesystem. El flag GSD lo pone
+  // la label de la tarea (todo el carril del dispatcher activa por label); la mera presencia de
+  // `.planning/` en el repo no dice nada sobre ESTA sesión. Una adopción además no tiene fase
+  // resuelta por construcción, así que `gsd:true` sin `phase_id` no es alcanzable por el
+  // dispatcher y solo produce ruido: `kodo gsd verify` cae en la rama malformed
+  // (src/gsd/verify.js:123) y postea un veredicto de fase sobre una tarea que nunca fue fase,
+  // y un SessionStart de resume inyecta el prompt de bootstrap "no .planning/ detected" en el
+  // repo cuyo `.planning/` activó el flag. `isGsdProject` sigue exportada para enrich.js.
   return {
     workspace_ref: workspaceRef,
     session_id: sessionId,
@@ -157,7 +157,6 @@ export function buildSessionFromAdoption({ task, providerName, workspaceRef, cwd
     project_path: projectPath,
     task_url: task.url,
     project_name: task.projectName,
-    ...gsdFields,
   };
 }
 
