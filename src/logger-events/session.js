@@ -146,6 +146,39 @@ export function sessionDismissed(logger, fields) {
 }
 
 /**
+ * Session AUTO-dismissed — lo emite (info) el barrido de auto-dismiss del daemon
+ * (KODO-83) cuando una fila `dead` se descarta SOLA por cumplir las tres condiciones:
+ * proceso muerto, tarea cerrada en el provider y worktree ausente o limpio.
+ *
+ * Evento PROPIO y no `session.dismissed` a propósito: la mutación destructiva es la
+ * misma, pero el actor no. Un `session.dismissed` a secas lo pulsó un humano en el
+ * dashboard; esto lo decidió kodo, y quien audite el NDJSON necesita poder separarlos
+ * con un grep. `task_state` y `worktree` dejan por escrito POR QUÉ se cumplió la regla,
+ * que es lo único que no se puede reconstruir después (el worktree ya no está).
+ *
+ * Un auto-dismiss emite los DOS, en este orden: `session.dismissed` lo escribe el handler
+ * compartido (es el audit de la mutación, y vale igual venga de donde venga) y este lo
+ * escribe el barrido justo después (es el audit de la DECISIÓN). Separar «qué se borró»
+ * de «por qué se decidió borrarlo» es deliberado: el primero tiene que seguir siendo un
+ * único evento para los dos disparadores.
+ *
+ * LOG-12: whitelist explícito — sin spread `...fields`.
+ *
+ * @param {Logger} logger
+ * @param {{ task_id: string, session_id?: string, task_state: string, worktree: string, actions_count: number }} fields
+ */
+export function sessionAutoDismissed(logger, fields) {
+  logger.info(EVENTS.SESSION_AUTO_DISMISSED, {
+    event: EVENTS.SESSION_AUTO_DISMISSED,
+    task_id: fields.task_id,
+    session_id: fields.session_id,
+    task_state: fields.task_state,
+    worktree: fields.worktree,
+    actions_count: fields.actions_count,
+  });
+}
+
+/**
  * Skill sync AUTO ok — emitted (info) when launchOrchestrator auto-syncs
  * the canonical skill from repo → home (Phase 21 D-03b). `files_changed` is
  * the count of files actually copied this run (may be 0 if drift was resolved

@@ -37,6 +37,7 @@ export {
   gsdPhaseResolved,
   gsdBootstrap,
   sessionDismissed,
+  sessionAutoDismissed,
   skillSyncAuto,
   skillSyncAutoError,
   stateMigrationV3,
