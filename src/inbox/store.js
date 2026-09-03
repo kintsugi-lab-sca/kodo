@@ -50,6 +50,12 @@ import { kodoDir } from '../paths.js';
 import { stripForKeystroke } from '../cli/sanitize.js';
 import { resolveProjectId } from '../cli/dashboard/select.js';
 import { withFileLock } from '../session/state-lock.js';
+// KODO-76: la proyección `projectId → tag` vive en `project-ref.js`, junto a su INVERSA (la que
+// `kodo inbox promote` necesita para elegir el proyecto de destino). Tenerlas en el MISMO módulo
+// es lo que impide que se separen: una proyección y su inversa mantenidas aparte dejan de serlo a
+// la primera divergencia. `project-ref.js` es un leaf puro de solo `node:path` — no reintroduce
+// ninguna dependencia en la clausura de este fichero.
+import { projectTag } from './project-ref.js';
 
 /**
  * Una captura del inbox, ya parseada.
@@ -189,56 +195,6 @@ export function todayLocal(now = new Date()) {
 }
 
 /**
- * Forma canónica de 36 caracteres de un identificador de proveedor: cinco grupos hexadecimales
- * 8-4-4-4-12 separados por guiones. Anclada a los DOS extremos e insensible a mayúsculas.
- *
- * CONSTANTE DE MÓDULO, jamás compilada desde input (mismo criterio anti-ReDoS que `LINE_RE`):
- * `projects.json` es operator-editable y sus claves llegan aquí sin validar. Longitudes fijas y
- * cero cuantificadores anidados → sin backtracking catastrófico posible.
- */
-const UUID_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * ¿Tiene `s` forma de identificador de proveedor? Coacciona con `String(...)` (never-throws).
- *
- * @param {unknown} s
- * @returns {boolean}
- */
-function isUuidLike(s) {
-  return UUID_KEY_RE.test(String(s));
-}
-
-/**
- * Ruta del PROYECTO asociada a `projectId` en el mapa, o `''` si no hay ninguna utilizable.
- *
- * Acepta las DOS formas reales del valor (UAT Phase 56 Plan 04, ver `resolveProjectId`): una
- * cadena que ya es la ruta, o un objeto con una clave de ruta por defecto. Todo candidato que no
- * sea una cadena NO VACÍA se descarta, exactamente por la razón por la que `candidatesOf` de
- * `resolveProjectId` lo hace: el fichero es operator-editable y un `default` numérico, nulo o
- * array de un hand-edit no puede hacer lanzar a un carril never-throws.
- *
- * **NO recorre la tabla de módulos a propósito.** El tag identifica el PROYECTO; el path del
- * módulo más específico no es lo que el operador necesita leer en una fila de una lista de triage.
- * Sin ruta por defecto, el caller cae al último recurso (el nombre del directorio actual).
- *
- * @param {Record<string, unknown> | undefined} projects
- * @param {string} projectId
- * @returns {string}
- */
-function mappedProjectPath(projects, projectId) {
-  try {
-    const value = /** @type {any} */ (projects ?? {})[projectId];
-    if (typeof value === 'string') return value;
-    if (value && typeof value === 'object' && typeof value.default === 'string') {
-      return value.default;
-    }
-    return '';
-  } catch {
-    return '';
-  }
-}
-
-/**
  * Deriva el tag-proyecto desde el cwd (D-15). Reutiliza `resolveProjectId` (nearest-ancestor sobre
  * `projects.json`) — NO reimplementa su semántica; solo PROYECTA su resultado a algo legible.
  *
@@ -283,10 +239,10 @@ export function deriveTag(cwd, projects) {
   try {
     const r = resolveProjectId(cwd, /** @type {any} */ (projects ?? {}));
     if (r && typeof r === 'object' && 'projectId' in r && typeof r.projectId === 'string') {
-      if (!isUuidLike(r.projectId)) return r.projectId;
-      // Identificador de proveedor: proyectar a la mitad legible del mapa (Decisiones A y B).
-      const mapped = mappedProjectPath(projects, r.projectId).replace(/\/+$/, '');
-      const name = mapped === '' ? '' : basename(mapped);
+      // Proyección a la mitad legible del mapa (Decisiones A y B). KODO-76: la implementación
+      // vive en `project-ref.js`, junto a su inversa; aquí solo queda el fallback, que es lo
+      // ÚNICO específico de este carril (`project-ref.js` no conoce el cwd).
+      const name = projectTag(projects, r.projectId);
       return name === '' ? fallback : name;
     }
     return fallback;
@@ -723,6 +679,66 @@ function resolvePublishTarget(inboxPath) {
  *   que repetir la operación es seguro.
  */
 export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _afterReadFn }) {
+  return rmwCapture(
+    id,
+    (found) =>
+      found.open === false
+        ? { ok: false, reason: 'already-closed' }
+        : { ok: true, next: { ...found, open: false, estado, dest: dest ?? null } },
+    { inboxPath, lockPath, _afterReadFn },
+  );
+}
+
+/**
+ * Reasigna el PROYECTO de una captura abierta (KODO-76).
+ *
+ * El `tag` de una captura se deriva del cwd en el momento de capturarla, así que una idea escrita
+ * desde el worktree de otro repo nace con el proyecto equivocado. Hasta aquí eso era ruido
+ * cosmético; desde que una captura puede convertirse en una tarea de Plane, el tag ELIGE el
+ * proyecto de destino y tiene que poder corregirse sin editar el markdown a mano.
+ *
+ * Solo sobre capturas ABIERTAS: una cerrada ya fue triada y su línea es traza histórica (CAPT-03).
+ *
+ * El tag se persiste por `encodeLine`, que aplica `sanitizeField` — el separador y los controles
+ * no pueden entrar en el campo por esta vía, igual que no pueden por la del writer.
+ *
+ * @param {string} id
+ * @param {string} tag Nuevo tag-proyecto. Vacío tras sanear → `invalid-tag` (un campo estructurado
+ *   vacío deja la línea sintácticamente válida pero semánticamente muda, y este carril existe
+ *   precisamente para POBLARLO).
+ * @param {{ inboxPath: string, lockPath: string, _afterReadFn?: () => void }} o
+ * @returns {{ ok: true, capture: Capture }
+ *          | { ok: false, reason: 'not-found' | 'already-closed' | 'invalid-tag' | 'lock-timeout'
+ *                              | 'concurrent-write' | 'fs' }}
+ */
+export function retagCapture(id, tag, { inboxPath, lockPath, _afterReadFn }) {
+  // La validación va FUERA del RMW: no depende del contenido del fichero, así que fallar aquí
+  // ahorra tomar el lock. `mutate` debe ser puro y esta comprobación no lo necesita.
+  if (sanitizeField(tag) === '') return { ok: false, reason: 'invalid-tag' };
+  return rmwCapture(
+    id,
+    (found) =>
+      found.open === false
+        ? { ok: false, reason: 'already-closed' }
+        : { ok: true, next: { ...found, tag } },
+    { inboxPath, lockPath, _afterReadFn },
+  );
+}
+
+/**
+ * Motor read-modify-write de una captura, bajo lock y con guard compare-and-swap. Es el cuerpo
+ * ORIGINAL de `markCapture`, extraído sin cambio semántico (KODO-76) para que el marcado y el
+ * retag compartan las garantías —preservación byte a byte de las líneas ajenas, unique-tmp +
+ * rename, guard contra la lectura obsoleta— en vez de tener cada uno su copia. Toda la
+ * documentación de esas garantías vive en el JSDoc de `markCapture`.
+ *
+ * @param {string} id
+ * @param {(c: Capture) => { ok: true, next: Capture } | { ok: false, reason: string }} mutate
+ *   PURO y SÍNCRONO: se invoca dentro de la sección crítica y en CADA reintento.
+ * @param {{ inboxPath: string, lockPath: string, _afterReadFn?: () => void }} o
+ * @returns {any} El discriminante de `markCapture`, más los `reason` que devuelva `mutate`.
+ */
+function rmwCapture(id, mutate, { inboxPath, lockPath, _afterReadFn }) {
   /** @type {{ ok: true, value: any } | { ok: false, reason: 'lock-timeout' }} */
   let r;
   try {
@@ -775,10 +791,15 @@ export function markCapture(id, estado, { dest = null, inboxPath, lockPath, _aft
 
           // Terminales: no son condiciones de carrera, así que NO consumen intentos.
           if (idx === -1 || !found) return { ok: false, reason: 'not-found' };
-          if (found.open === false) return { ok: false, reason: 'already-closed' };
+
+          // KODO-76: la MUTACIÓN es del caller; el RMW no sabe qué se está cambiando. `mutate`
+          // es PURO y SÍNCRONO por contrato: se le invoca dentro de la sección crítica y en
+          // cada reintento, así que un efecto lateral suyo se aplicaría varias veces.
+          const m = mutate(found);
+          if (m.ok !== true) return m;
 
           /** @type {Capture} */
-          const updated = { ...found, open: false, estado, dest: dest ?? null };
+          const updated = m.next;
           const encoded = encodeLine(updated);
           lines[idx] = encoded;
           // WR-07: se devuelve lo PERSISTIDO, re-parseado de la línea realmente escrita. `updated`

@@ -204,7 +204,8 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       // Colapsa bordes de caja (│) + whitespace para tolerar el wrap de ink a este ancho.
       assert.match(
         lastFrame().replace(/[│\s]+/g, ' '),
-        /a adopt · e config · m projects · q quit/,
+        // KODO-76 insertó `i inbox` entre `a adopt` y `e config` (la pantalla del inbox).
+        /a adopt · i inbox · e config · m projects · q quit/,
         `el hint de adopt/config debe estar en el footer restaurado.\nframe:\n${lastFrame()}`,
       );
       assert.equal(

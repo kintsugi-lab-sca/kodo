@@ -636,8 +636,12 @@ describe('runInboxListCli — --json determinista (DX-06)', () => {
   it('cada captura expone sus claves en orden fijo; --all añade estado y dest', () => {
     const plain = collector();
     runInboxListCli({ json: true }, listDeps({ writeFn: plain.write }));
+    // KODO-76 añadió `headline` tras `id`: el consumidor de este carril (la skill del orquestador)
+    // necesita el titular Y el texto entero, y derivarlo aquí impide que cada consumidor se
+    // invente su propio corte. El orden sigue siendo FIJO, que es lo que DX-06 exige.
     assert.deepEqual(Object.keys(JSON.parse(plain.get()).captures[0]), [
       'id',
+      'headline',
       'text',
       'tag',
       'date',
@@ -650,6 +654,7 @@ describe('runInboxListCli — --json determinista (DX-06)', () => {
     const parsed = JSON.parse(all.get());
     assert.deepEqual(Object.keys(parsed.captures[0]), [
       'id',
+      'headline',
       'text',
       'tag',
       'date',

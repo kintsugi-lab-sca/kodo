@@ -89,6 +89,14 @@ import {
   openPlanOverlay,
 } from './OverlayViewer.js';
 import { openAdoptPicker, handleDerivingInput, handleAdoptConfirmInput } from './AdoptPicker.js';
+// KODO-76: pantalla dedicada del inbox. Mismo contrato que las demás sub-máquinas: handlers que
+// reciben `(input, key, ctx)` y no capturan nada por closure.
+import {
+  openInboxScreen,
+  handleInboxInput,
+  handleInboxProjectInput,
+} from './InboxScreen.js';
+import { readInboxRows } from './inbox-rows.js';
 import {
   DEFAULT_EDITOR_CONFIG,
   openConfigEditor,
@@ -325,6 +333,12 @@ export default function App({
   // readPendingIntegrationCount real (leaf never-throws → 0); inyectable para aislar el HOME en
   // tests, mismo patrón DI que inboxCountFn.
   queueCountFn = readPendingIntegrationCount,
+  // KODO-76: pantalla dedicada del inbox (tecla `i`). `onInboxAction` es el shell never-throws de
+  // `kodo inbox promote|discard|retag` (cableado en index.js, molde de onAdopt); `readInboxRowsFn`
+  // es el reader del snapshot, inyectable para aislar el HOME en tests igual que inboxCountFn —
+  // sin él, un test leería y MODIFICARÍA el inbox real del desarrollador.
+  onInboxAction = async () => ({ ok: false, code: 'SPAWN_ERROR', detail: 'no wiring' }),
+  readInboxRowsFn = readInboxRows,
 }) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
@@ -415,7 +429,20 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup'} */ (setup ? 'setup' : 'list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup' | 'inbox' | 'inbox-project'} */ (setup ? 'setup' : 'list'));
+  // KODO-76: estado de la pantalla del inbox. `inboxSnapshot` es el snapshot CONGELADO de las
+  // capturas (molde de overlaySnapshot: el poll sigue corriendo por debajo sin repintar la
+  // pantalla); `inboxCursor` es el índice seleccionado, compartido por la lista y por el picker de
+  // proyecto (son dos vistas del mismo modo, nunca visibles a la vez); `inboxArmed` es el armado
+  // del double-confirm, guardado POR ID para que no pueda aplicarse a otra fila si la lista cambia.
+  const [inboxSnapshot, setInboxSnapshot] = useState(/** @type {any} */ (null));
+  const [inboxCursor, setInboxCursor] = useState(0);
+  const [inboxArmed, setInboxArmed] = useState(/** @type {any} */ (null));
+  // Mensaje transitorio de la pantalla del inbox. Estado DEDICADO, no `focusError`, y la razón es
+  // la misma Pitfall 4 de Phase 42 que obligó a derivar el prompt de dismiss de `mode==='confirm'`:
+  // el clear-on-any-input que abre este `useInput` consume CUALQUIER tecla mientras `focusError`
+  // esté set, así que un confirm armado ahí se tragaría la segunda pulsación que lo confirma.
+  const [inboxMessage, setInboxMessage] = useState(/** @type {any} */ (null));
   const [query, setQuery] = useState('');
 
   // Phase 68 Plan 02 (SETUP-01/02) — estado del wizard first-run (lógica en SetupWizard.js).
@@ -722,6 +749,17 @@ export default function App({
         saveProjectsFn,
         listModulesFn,
         dispatchProjectIdsFn,
+        // KODO-76: pantalla del inbox. `projects` ya viaja en el ctx (lo usa el reverse-lookup de
+        // adopt) y aquí sirve para la resolución tag → proyecto y para el picker.
+        inboxSnapshot,
+        setInboxSnapshot,
+        inboxCursor,
+        setInboxCursor,
+        inboxArmed,
+        setInboxArmed,
+        setInboxMessage,
+        readInboxRowsFn,
+        onInboxAction,
         // overlays de lectura + picker de adopt
         overlayReqRef,
         overlaySnapshot,
@@ -795,6 +833,18 @@ export default function App({
         await handleProjectsInput(mode, input, key, ctx);
         return;
       }
+      // KODO-76: la pantalla del inbox y su picker de proyecto, ENTRE los modos de proyectos y
+      // filter. Como los `projects*`, los dos modos llevan el mismo prefijo, pero NO comparten
+      // gate: el picker espera Enter y la lista no, y ruteárlos juntos obligaría a que cada
+      // handler comprobase el modo del otro.
+      if (mode === 'inbox') {
+        await handleInboxInput(input, key, ctx);
+        return;
+      }
+      if (mode === 'inbox-project') {
+        await handleInboxProjectInput(input, key, ctx);
+        return;
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -843,6 +893,16 @@ export default function App({
         // entra a projects-loading, await listProjectsFn, ramifica a projects (snapshot congelado) o
         // projects-error (PROJ-05). NO toca selectedTaskId (UX-03 gratis al volver).
         await runProjectsFetchImpl(ctx);
+        return;
+      }
+      if (input === 'i') {
+        // KODO-76: abre la pantalla del inbox. `i` está LIBRE en mode:'list' (las tomadas son
+        // q / e m c l L p d o O a + flechas y Enter; Esc sigue reservado por D-11/D-15). Es la
+        // inicial del propio nombre, que es la única mnemónica que no hay que aprenderse.
+        // SÍNCRONO —una lectura de fichero, sin red— así que no necesita el reqId-guard de los
+        // overlays asíncronos: no hay ventana en la que una segunda apertura pueda adelantar a
+        // la primera.
+        openInboxScreen(ctx);
         return;
       }
       // Los cuatro overlays de LECTURA (c/l/L/p) viven en OverlayViewer.js (KODO-40). Los tres
@@ -999,8 +1059,11 @@ export default function App({
         projectsSnapshot, // Phase 64 Plan 02 D-01: snapshot congelado del editor de proyectos (null si cerrado)
         projectsError, // Phase 64 Plan 02 D-07: mensaje del fallo de fetch (dirige projects-error)
         projectsEditError, // Phase 64 Plan 02 Pitfall 2: error de validación de ruta inline (estado dedicado)
+        inboxSnapshot, // KODO-76: snapshot congelado de la pantalla del inbox (null si cerrada)
+        inboxCursor, // KODO-76: cursor de la lista y del picker de proyecto (nunca visibles a la vez)
+        inboxMessage, // KODO-76: mensaje transitorio de la pantalla (estado dedicado, no focusError)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · O orch · a adopt · e config · m projects · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · O orch · a adopt · i inbox · e config · m projects · q quit'),
   );
 }
