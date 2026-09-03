@@ -472,9 +472,10 @@ const inbox = program
   .description('Triage del inbox de capturas (~/.kodo/inbox.md): lista, enruta y descarta')
   .option('--all', 'Incluir también las capturas cerradas (la traza permanente)')
   .option('--json', 'Emitir el listado como JSON (scriptable, byte-determinista)')
+  .option('--full', 'Mostrar el texto ÍNTEGRO de cada captura en vez del titular')
   .action(setExitCode(async (opts) => {
     const { runInboxListCli } = await import('./cli/inbox.js');
-    return runInboxListCli({ all: opts.all || false, json: opts.json || false });
+    return runInboxListCli({ all: opts.all || false, json: opts.json || false, full: opts.full || false });
   }));
 
 inbox
@@ -495,6 +496,38 @@ inbox
   .action(setExitCode(async (id) => {
     const { runInboxMarkCli } = await import('./cli/inbox.js');
     return runInboxMarkCli(id, 'descartada', {});
+  }));
+
+// KODO-76: `retag` y `promote`. Siguen la MISMA forma que `route`/`discard` (el padre lista, el
+// subcomando actúa sobre una captura por id), con una sola divergencia: `promote` toca el
+// proveedor y por tanto SÍ lleva `ensureConfig()`, como `adopt` y `comment`. Es el único
+// subcomando del inbox que sale de la máquina.
+inbox
+  .command('retag <id> <proyecto>')
+  .description('Reasignar el proyecto de una captura abierta (el tag nace derivado del cwd, no del destino)')
+  .action(setExitCode(async (id, proyecto) => {
+    const { runInboxRetagCli } = await import('./cli/inbox.js');
+    return runInboxRetagCli(id, proyecto);
+  }));
+
+inbox
+  .command('promote <id>')
+  .description('Crear una tarea en el tablero a partir de una captura y cerrarla apuntando a ella')
+  .option(
+    '--project <ref>',
+    'Proyecto de destino: tag legible o id del proveedor. Por defecto, el tag de la propia captura',
+  )
+  .option('--json', 'Emitir el resultado como JSON (scriptable)')
+  .action(setExitCode(async (id, opts, cmd) => {
+    // MISMA colisión de flag largo que `oracle run`, `review commit` e `inbox-orch ack --all`
+    // (ver sus comentarios): el padre `inbox` declara `--json` para el listado, así que un
+    // `--json` tecleado DESPUÉS del subcomando aterriza en las opciones del padre. Se lee de los
+    // dos niveles. Verificado en UAT: sin esto, `kodo inbox promote <id> --json` emitía el render
+    // human y el `--json` se perdía en silencio.
+    const json = opts?.json === true || cmd?.optsWithGlobals?.()?.json === true;
+    await ensureConfig();
+    const { runInboxPromoteCli } = await import('./cli/inbox.js');
+    return runInboxPromoteCli(id, { project: opts.project, json });
   }));
 
 // --- kodo inbox-orch [ack] --- (KODO-53: la bandeja del ORQUESTADOR)

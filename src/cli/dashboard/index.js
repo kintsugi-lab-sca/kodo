@@ -166,6 +166,8 @@ export async function runDashboard(deps = {}) {
   // getHost factory para instanciar el host cmux IN-PROCESS (D-01, getHost designa "el wiring del
   // dashboard" en interface.js). Mismo patrón lazy que runFocus/runOpen — cero overhead en arranque.
   const { runAdopt } = await import('./adopt.js');
+  // KODO-76: runner de las acciones de la pantalla del inbox. Mismo patrón lazy.
+  const { makeInboxActionRunner } = await import('./InboxScreen.js');
   const { getHost, resolveHostName } = await import('../../host/interface.js');
 
   // Phase 62 (ORCH-02): deriveAdoptionMeta (derivador LLM one-shot never-throws, Plan 01) +
@@ -330,6 +332,11 @@ export async function runDashboard(deps = {}) {
     // runAdopt → `kodo adopt --description` (D-10). El cuerpo at-adopt cruza injection-inerte (D-13).
     onAdopt: async ({ workspaceRef, cwd, sessionId, projectId, title, description }) =>
       runAdopt({ exec: execImpl, execPath: process.execPath, kodoBin, workspaceRef, cwd, sessionId, projectId, title, description }),
+    // KODO-76: shell never-throws de `kodo inbox promote|discard|retag`, espejo exacto de onAdopt
+    // — mismo execImpl, mismo process.execPath + kodoBin (bin/kodo es un script de shebang), mismo
+    // argv literal injection-inerte. Es el ÚNICO camino de la pantalla del inbox al proveedor: así
+    // el TUI no importa el provider ni la config, y la promoción tiene un solo juego de exit codes.
+    onInboxAction: makeInboxActionRunner({ exec: execImpl, execPath: process.execPath, kodoBin }),
     // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
     projects,
     // Phase 63 D-09 (PERSIST-02): cableado DI del editor de ajustes, espejo de onAdopt/onDerive.

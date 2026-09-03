@@ -71,6 +71,11 @@ import {
   PROJECTS_DISPATCH_TAG,
   PROJECTS_MAPPED_ONLY_TAG,
 } from './App.js';
+// KODO-76: el render de la pantalla del inbox se importa DIRECTO de su módulo, no vía el
+// re-export de App.js. Ese re-export existe para las CONSTANTES de copy que este fichero ya
+// consumía cuando vivían en App.js; una función de render nueva no tiene esa deuda, y pasar por
+// App.js solo alargaría el ciclo App↔SessionTable sin ganar nada.
+import { renderInboxScreen, renderInboxProjectPicker } from './InboxScreen.js';
 import { getEditableFields, getByPath } from '../../config-validate.js';
 // Phase 64 Plan 02 (D-06): lee el estado de mapeo de cada fila (forma dual). getProjectPath es puro
 // y never-throws (Plan 01) → '' si la entrada no está mapeada → la fila pinta PROJECTS_UNMAPPED.
@@ -978,6 +983,9 @@ export default function SessionTable({
   projectsSnapshot = null,
   projectsError = null,
   projectsEditError = null,
+  inboxSnapshot = null,
+  inboxCursor = 0,
+  inboxMessage = null,
 }) {
   // (0) Phase 39 (TUI-15/TUI-16 — D-01/D-04/D-05): OVERLAY full-screen. Early-return ANTES de la
   // tabla: cuando hay un overlay abierto ocupa el área de la tabla (D-01). Mantiene SessionTable
@@ -1021,6 +1029,19 @@ export default function SessionTable({
   }
   if ((mode === 'projects-modules' || mode === 'projects-modules-edit') && projectsSnapshot?.modules) {
     return renderModulesOverlay(projectsSnapshot, fieldCursor, mode, buffer, cursor, projectsEditError, focusError, footerColor);
+  }
+  // KODO-76: pantalla dedicada del inbox y su picker de proyecto. Early-return como el resto: ocupa
+  // el área de la tabla mientras está abierta. El render vive en `InboxScreen.js` —junto a su
+  // máquina de teclas y su copy— y no aquí, a diferencia de los overlays anteriores: este fichero
+  // ya pasa de 1200 líneas y el precedente de mantener render y handlers juntos lo fija
+  // `ProjectsEditor.js`, no `renderAdoptPicker`.
+  if (mode === 'inbox' && inboxSnapshot) {
+    // `tableWidth` es el MISMO presupuesto de ancho que consume la tabla (KODO-77): ancho real de
+    // terminal menos el cromo, o null fuera de un TTY.
+    return renderInboxScreen(inboxSnapshot, inboxCursor, inboxMessage, tableWidth);
+  }
+  if (mode === 'inbox-project' && inboxSnapshot) {
+    return renderInboxProjectPicker(inboxSnapshot, inboxCursor, inboxMessage);
   }
   const indicator = h(LiveIndicator, { connected, lastGoodCount, lastGoodAt, lastAttemptAt, unauthorized, unauthorizedMessage });
   const label = countsLabel(counts);

@@ -486,36 +486,61 @@ export function createPlaneProvider(config, opts = {}) {
     // (D-06); Phase 53's adoptSession consumes it with no special case. Errors propagate
     // LOUD (D-08); the {ok,code,detail} taxonomy belongs to Phase 53. Sanitization /
     // title-derivation is Phase 53 (BIDIR-08) — createTask receives resolved args.
-    async createTask({ projectId, title, description, module }) {
+    //
+    // KODO-76 adds the OPTIONAL `placement` arg, defaulting to the behaviour above:
+    //   - 'adopted' (default) — trigger state + `kodo:adopted`. What adoption needs.
+    //   - 'backlog'           — NEITHER. The item lands in the project's own default state
+    //                           with no kodo label at all.
+    // The distinction is load-bearing, not cosmetic. An inbox capture promoted to a task is an
+    // IDEA, not work in flight: creating it in the trigger state would put it on the In Progress
+    // column of a board where nobody is working it, and would feed the very noisy-pending problem
+    // the operator has already captured twice in their own inbox. And `kodo:adopted` is the
+    // dispatcher's anti-recursion cut — stamping it on a backlog item would permanently mark it
+    // as un-launchable, which is the opposite of why it was promoted.
+    async createTask({ projectId, title, description, module, placement = 'adopted' }) {
+      const backlog = placement === 'backlog';
       const proj = configuredProjects.find((p) => p.id === projectId);
       const html = description ? '<p>' + description.replace(/\n/g, '<br>') + '</p>' : '';
 
       // Resolve the trigger state UUID (D-04), mirroring updateTaskState's refresh-on-miss
       // against stateByName. Unlike updateTaskState, do NOT throw if unresolved — leave
       // `state` off the body and let Plane apply the project default.
-      const triggerKey = (config.states.trigger || '').toLowerCase();
-      let stateId = stateByName.get(projectId)?.get(triggerKey);
-      if (!stateId) {
-        const states = await client.listStates(projectId);
-        const byName = stateByName.get(projectId) || new Map();
-        for (const s of states) {
-          stateCache.set(s.id, s.name);
-          byName.set(s.name.toLowerCase(), s.id);
+      //
+      // KODO-76: skipped entirely for 'backlog'. Leaving `state` off the body is EXACTLY how
+      // Plane is told "use the project default", so the backlog lane needs no state of its own —
+      // and skipping it also skips the listStates round-trip on a cache miss.
+      /** @type {string | undefined} */
+      let stateId;
+      if (!backlog) {
+        const triggerKey = (config.states.trigger || '').toLowerCase();
+        stateId = stateByName.get(projectId)?.get(triggerKey);
+        if (!stateId) {
+          const states = await client.listStates(projectId);
+          const byName = stateByName.get(projectId) || new Map();
+          for (const s of states) {
+            stateCache.set(s.id, s.name);
+            byName.set(s.name.toLowerCase(), s.id);
+          }
+          stateByName.set(projectId, byName);
+          stateId = byName.get(triggerKey);
         }
-        stateByName.set(projectId, byName);
-        stateId = byName.get(triggerKey);
       }
 
       // Resolve/create the marker label UUID (Open Q1). Plane labels are UUIDs, so look up
       // `kodo:adopted` by name in labelCache; if absent, create it via client.createLabel
       // and record the new {id,name} so subsequent creates reuse it.
-      let adoptedLabel = labelCache.find(
-        (l) => l.name?.toLowerCase() === KODO_LABEL_ADOPTED,
-      );
-      if (!adoptedLabel) {
-        const created = await client.createLabel(projectId, KODO_LABEL_ADOPTED);
-        adoptedLabel = { id: created.id, name: created.name };
-        labelCache.push(adoptedLabel);
+      //
+      // KODO-76: skipped for 'backlog' — see the `placement` note above. Skipping it also avoids
+      // creating the label in a project that has never been touched by an adoption.
+      /** @type {{ id: string, name: string } | undefined} */
+      let adoptedLabel;
+      if (!backlog) {
+        adoptedLabel = labelCache.find((l) => l.name?.toLowerCase() === KODO_LABEL_ADOPTED);
+        if (!adoptedLabel) {
+          const created = await client.createLabel(projectId, KODO_LABEL_ADOPTED);
+          adoptedLabel = { id: created.id, name: created.name };
+          labelCache.push(adoptedLabel);
+        }
       }
 
       // Omit description_html when empty (no description): Plane rejects an empty
@@ -525,7 +550,7 @@ export function createPlaneProvider(config, opts = {}) {
         name: title,
         ...(html ? { description_html: html } : {}),
         ...(stateId ? { state: stateId } : {}),
-        labels: [adoptedLabel.id],
+        labels: adoptedLabel ? [adoptedLabel.id] : [],
       });
 
       // Module placement (Phase 57 module-placement gap-fix). `module` is a module NAME string

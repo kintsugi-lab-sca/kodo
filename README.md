@@ -312,7 +312,24 @@ kodo orchestrate    # launches the supervising session
 kodo dashboard   # live TUI (also opened by kodo up)
 ```
 
-Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `e` config · `m` projects · `q` quit
+Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `i` inbox · `e` config · `m` projects · `q` quit
+
+#### `i` — the inbox screen
+
+The yellow `N sin enrutar` in the header is the door: `i` opens the screen where those captures are
+actually triaged. Each row shows its **headline**, project, date and origin, and a panel underneath
+shows the whole text of the capture under the cursor.
+
+Keys: `↑↓` move · `p` promote to a board task · `t` reassign the project · `x` discard · `a` toggle
+open/all · `Esc` close.
+
+`p` and `x` ask for confirmation (press the same key again); moving the cursor disarms. `p` resolves
+the destination project **before** arming — if the capture's tag does not map to a configured
+project, it opens a project picker instead of arming something that would fail. `t` opens that same
+picker, starting on the project the capture already has.
+
+Each of these keys shells out to the matching `kodo inbox …` subcommand, so the screen and the CLI
+cannot drift apart, and the TUI never imports the provider.
 
 `d` only works on dead rows and asks for confirmation (press `d` again). The table refreshes
 itself every 2.5s, but a dismiss does not wait for that tick: as soon as the `DELETE` returns,
@@ -341,7 +358,7 @@ kodo stop                # stops the daemon
 kodo status              # daemon state (running|stopped)
 kodo dashboard           # TUI of active sessions
 kodo capture "<text>"    # captures an idea into the global inbox (~/.kodo/inbox.md)
-kodo inbox               # inbox triage (--all, --json, route <id>, discard <id>)
+kodo inbox               # inbox triage (--all, --json, --full; route|discard|retag|promote <id>)
 kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
 kodo oracle              # mechanical oracle: what kodo itself verified on each branch (run <REF>)
@@ -377,18 +394,55 @@ Full surface:
 | Command | What it does | Exit codes |
 |---|---|---|
 | `kodo capture "<text>"` | Appends a line to the inbox. The file is created on the fly on the first capture | `0` ok · `1` fs error · `2` empty text after sanitising |
-| `kodo inbox` | Lists open captures with their short `<id>` | `0` always — the reader never throws |
+| `kodo inbox` | Lists open captures with their short `<id>`, showing each one's **headline** | `0` always — the reader never throws |
 | `kodo inbox --all` | Also includes the already-closed ones, with their status | `0` always |
 | `kodo inbox --json` | The same listing as a single JSON line, deterministic and colourless | `0` always |
+| `kodo inbox --full` | Shows each capture's whole text instead of its headline | `0` always |
 | `kodo inbox route <id>` | Marks the capture as **routed** | `0` ok · `1` fs error, lock held or concurrent write · `2` unknown id or capture already closed |
 | `kodo inbox route <id> --dest <ref>` | Same, adding a trace pointer to where it ended up | same |
 | `kodo inbox discard <id>` | Marks the capture as **discarded** | same |
+| `kodo inbox retag <id> <project>` | Reassigns the capture's **project** | same |
+| `kodo inbox promote <id> [--project <ref>]` | Creates a **task on the board** from the capture and closes it pointing at that task | `0` ok · `1` bad input, unresolvable project, or the task was created but the capture could not be closed · `2` the POST failed (transient — nothing was created, retry is safe) |
 
-#### Routing is decided by `gsd-capture`, not by kodo
+#### Headlines, not walls of text
 
-kodo **does not decide where an idea goes**. That job belongs to Claude Code's `gsd-capture` skill,
-which is the one that knows the real destinations (all structured: notes, backlog, seeds). The flow
-has three steps, and the middle one happens **outside kodo**:
+A capture is up to 1000 characters and the operator writes whole paragraphs of diagnosis into it, so
+any listing has to choose which slice of that to show. `kodo inbox` and the dashboard screen show a
+**headline**: the text up to its first `: ` or `. `, or a word-boundary trim with a `…`. A `+` after
+the headline means the detail has more text than the row is showing. `--full` gives you the lot.
+
+#### The project field is assignable
+
+A capture's project tag is derived from the **cwd it was captured in**, not from where the idea
+belongs — write down a kodo bug from another repo's worktree and it lands tagged with that repo.
+That was cosmetic noise until a capture could become a task; now the tag picks the destination
+board, so `kodo inbox retag <id> <project>` exists to correct it. `<project>` is either a readable
+tag or a provider id, resolved against `~/.kodo/projects.json`; an ambiguous tag is **rejected with
+its candidates**, never resolved by guessing.
+
+#### Promoting a capture to a task
+
+`kodo inbox promote` is the one destination kodo knows — its own board:
+
+```bash
+kodo inbox promote a3d3eo                    # project = the capture's tag
+kodo inbox promote a3d3eo --project kodo     # or an explicit one (tag or provider id)
+```
+
+The task gets the **headline as its name** and the **whole capture text plus its provenance** as its
+description, and it lands in the project's **default state with no kodo label** — an idea is backlog,
+not work in flight. Then the capture is closed as routed, pointing at the new ref.
+
+The order matters and is deliberate: the task is created **first**, the capture closed second. If the
+close fails, you get the ref back and a `kodo inbox route <id> --dest <ref>` to finish by hand. The
+other order would leave a closed capture pointing at a task that does not exist.
+
+#### Everything else is routed by `gsd-capture`, not by kodo
+
+For every destination **other than the board**, kodo **does not decide where an idea goes**. That job
+belongs to Claude Code's `gsd-capture` skill, which is the one that knows the real destinations (all
+structured: notes, backlog, seeds). The flow has three steps, and the middle one happens **outside
+kodo**:
 
 ```
 1. kodo inbox                          → lists the open ones with their <id>

@@ -636,8 +636,12 @@ describe('runInboxListCli — --json determinista (DX-06)', () => {
   it('cada captura expone sus claves en orden fijo; --all añade estado y dest', () => {
     const plain = collector();
     runInboxListCli({ json: true }, listDeps({ writeFn: plain.write }));
+    // KODO-76 añadió `headline` tras `id`: el consumidor de este carril (la skill del orquestador)
+    // necesita el titular Y el texto entero, y derivarlo aquí impide que cada consumidor se
+    // invente su propio corte. El orden sigue siendo FIJO, que es lo que DX-06 exige.
     assert.deepEqual(Object.keys(JSON.parse(plain.get()).captures[0]), [
       'id',
+      'headline',
       'text',
       'tag',
       'date',
@@ -650,6 +654,7 @@ describe('runInboxListCli — --json determinista (DX-06)', () => {
     const parsed = JSON.parse(all.get());
     assert.deepEqual(Object.keys(parsed.captures[0]), [
       'id',
+      'headline',
       'text',
       'tag',
       'date',
@@ -857,6 +862,21 @@ describe('runInbox*Cli — source hygiene del handler', () => {
     const mod = await import('../src/cli/inbox.js');
     assert.equal(typeof mod.runInboxListCli, 'function');
     assert.equal(typeof mod.runInboxMarkCli, 'function');
+  });
+
+  it('KODO-76: `inbox promote` lee `--json` de los DOS niveles de commander', () => {
+    // Colisión real, vista en UAT: el padre `inbox` declara `--json` para el listado, así que un
+    // `--json` tecleado tras el subcomando aterriza en las opciones del PADRE y `opts.json` llega
+    // false — el handler emitía el render human y el flag se perdía en silencio. Importa más de lo
+    // que parece: el TUI shellea `promote … --json` y lee la ref creada de esa salida, así que sin
+    // el fix el footer anunciaba «tarea creada» sin decir cuál. Mismo patrón que ya aplican
+    // `oracle run`, `review commit` e `inbox-orch ack --all`.
+    const src = readFileSync(join(REPO, 'src', 'cli.js'), 'utf-8');
+    const block = src.slice(src.indexOf(".command('promote <id>')"));
+    assert.ok(
+      /optsWithGlobals/.test(block.slice(0, 1200)),
+      'el registro de `inbox promote` debe leer --json también del padre',
+    );
   });
 
   it('nunca invoca el helper de salida del runtime y sanea el carril de render', () => {

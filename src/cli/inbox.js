@@ -10,8 +10,9 @@
 //   3. Exit codes: listado 0 SIEMPRE (never-throws, D-18) — marcado 0 ok · 1 lock-timeout,
 //      escritura concurrente o error de filesystem · 2 id inexistente o captura ya cerrada.
 //
-// EL SEAM DE ENRUTADO ES DOCUMENTAL (D-09 / CAPT-04). kodo NO decide, NO valida y NO ejecuta el
-// destino de una captura. El flujo del operador es de TRES pasos manuales y desacoplados:
+// EL SEAM DE ENRUTADO SIGUE SIENDO DOCUMENTAL (D-09 / CAPT-04). kodo NO decide, NO valida y NO
+// ejecuta el destino de una captura. El flujo del operador es de TRES pasos manuales y
+// desacoplados:
 //
 //     1. `kodo inbox`                    → ver las capturas abiertas y copiar el id corto
 //     2. (fuera de kodo) el operador o el LLM en sesión enruta la idea a donde toque
@@ -20,6 +21,13 @@
 // Cero acoplamiento y cero drift: este fichero no importa el módulo de procesos hijo de Node, no
 // ejecuta ningún proceso externo y no importa ninguna ruta del skill de enrutado. Blindado por el
 // gate source-hygiene de `test/inbox-cli.test.js`, anclado al patrón de IMPORT.
+//
+// KODO-76 añade `promote`, y NO es una excepción a lo anterior: es el único destino que kodo sí
+// conoce —su propio tablero—, y llegar a él no pasa por el skill de enrutado ni por ningún
+// proceso externo, sino por el proveedor que este binario ya usa para todo lo demás. El seam
+// documental sigue siendo el camino para cualquier OTRO destino, que es para lo que se diseñó:
+// un documento, un mensaje, otra herramienta. Lo que cambia es que la ref de una tarea creada
+// por kodo deja de tener que teclearse a mano.
 //
 // Invariante de retorno (D-07 del repo, precedente `skill-sync.js:44-49`): estos handlers NUNCA
 // invocan el helper de salida del runtime — RETORNAN el código. El registro de commander en
@@ -32,7 +40,8 @@
 // (`~/.kodo/inbox.md`) y no toca ningún provider — mismo precedente que `skill sync`,
 // `gsd doctor` y `sidebar doctor` (ver `src/cli.js`).
 
-import { defaultInboxPaths, listCaptures, markCapture } from '../inbox/store.js';
+import { deriveHeadline, hasMore } from '../inbox/headline.js';
+import { defaultInboxPaths, listCaptures, markCapture, retagCapture } from '../inbox/store.js';
 import { createFormatter } from './format.js';
 import { stripControlChars } from './sanitize.js';
 
@@ -42,7 +51,11 @@ import { stripControlChars } from './sanitize.js';
  * D-14: NO existen `--project` ni `--open` ni ningún otro filtro. CAPT-F1 («filtrar el inbox»)
  * está DIFERIDO a v2 — «solo cuando el inbox tenga volumen real». La superficie no se adelanta.
  *
- * @typedef {{ all?: boolean, json?: boolean }} RunInboxListCliOpts
+ * KODO-76: `--full` SÍ existe, y no contradice lo anterior. No es un filtro —no cambia QUÉ
+ * capturas se listan— sino el nivel de detalle de una columna: el listado pasó a enseñar el
+ * titular y `--full` recupera el texto entero.
+ *
+ * @typedef {{ all?: boolean, json?: boolean, full?: boolean }} RunInboxListCliOpts
  */
 
 /**
@@ -112,6 +125,13 @@ export function runInboxListCli(opts, deps = {}) {
           /** @type {Record<string, unknown>} */
           const o = {
             id: c.id,
+            // KODO-76: `headline` se AÑADE, `text` no cambia. El consumidor de este carril es la
+            // skill del orquestador, que necesita las dos cosas: el titular para enseñar la
+            // bandeja y el texto entero para decidir. Derivarlo aquí evita que cada consumidor
+            // se invente su propio corte y que dos superficies muestren titulares distintos de
+            // la misma captura. Va tras `id` —no al final— porque el orden de claves es parte
+            // del byte-determinismo de DX-06 y este es su sitio natural, junto al texto.
+            headline: sanitizeJsonField(deriveHeadline(c.text)),
             text: sanitizeJsonField(c.text),
             tag: sanitizeJsonField(c.tag),
             date: c.date,
@@ -132,7 +152,12 @@ export function runInboxListCli(opts, deps = {}) {
       return 0;
     }
 
-    renderHuman(rows, { all: opts.all === true, unparsed, total: captures.length }, write, formatterFn());
+    renderHuman(
+      rows,
+      { all: opts.all === true, full: opts.full === true, unparsed, total: captures.length },
+      write,
+      formatterFn(),
+    );
     return 0;
   } catch (e) {
     // Cinturón de seguridad de D-18: ni siquiera un fallo del render puede convertir un listado
@@ -206,7 +231,7 @@ function estadoLabel(c) {
  *
  * @private
  * @param {import('../inbox/store.js').Capture[]} rows
- * @param {{ all: boolean, unparsed: number, total: number }} meta
+ * @param {{ all: boolean, full: boolean, unparsed: number, total: number }} meta
  * @param {(s: string) => void} write
  * @param {import('./format.js').Formatter} fmt
  */
@@ -221,9 +246,15 @@ function renderHuman(rows, meta, write, fmt) {
     }
   } else {
     const table = rows.map((c) => {
+      // KODO-76: la columna de texto es el TITULAR, no el texto entero. Una captura llega a
+      // 1000 chars y volcarlos en una celda de tabla destruye la tabla —la fila envuelve, las
+      // columnas dejan de alinearse y el listado deja de ser escaneable—, que es exactamente por
+      // lo que los titulares «no se entendían». `--full` devuelve el comportamiento anterior, y
+      // el `+` marca las capturas cuyo detalle tiene más texto del que la fila enseña.
+      const text = stripControlChars(c.text);
       const cells = [
         fmt.cyan(c.id),
-        stripControlChars(c.text),
+        meta.full ? text : deriveHeadline(text) + (hasMore(text) ? fmt.dim(' +') : ''),
         fmt.dim(stripControlChars(c.tag)),
         fmt.dim(c.date),
       ];
@@ -313,6 +344,201 @@ export function runInboxMarkCli(id, estado, opts, deps = {}) {
       return 1;
     default:
       err(`Error: filesystem error: no se pudo marcar la captura ${safeId}\n`);
+      return 1;
+  }
+}
+
+/**
+ * Reasigna el proyecto de una captura abierta (KODO-76).
+ *
+ * El tag nace derivado del cwd, así que una idea escrita desde otro repo nace con el proyecto
+ * equivocado. Esto lo corrige — y desde que existe `promote`, corregirlo importa: el tag es el
+ * proyecto de destino por defecto de la tarea.
+ *
+ * NO valida el tag contra `projects.json`: un tag que no mapea a ningún proyecto configurado
+ * sigue siendo información útil en la bandeja (el operador puede etiquetar una idea de un
+ * proyecto que aún no existe). Quien exige que el tag resuelva es `promote`, en el momento en que
+ * ese tag tiene que elegir un tablero.
+ *
+ * @param {string} id
+ * @param {string} tag
+ * @param {RunInboxMarkCliDeps & { retagFn?: typeof retagCapture }} [deps]
+ * @returns {number} exit code: 0 ok · 1 lock-timeout, escritura concurrente o fs · 2 id
+ *   inexistente, captura cerrada o tag inválido (los tres son entrada mala, no fallo del sistema).
+ */
+export function runInboxRetagCli(id, tag, deps = {}) {
+  const write = deps.writeFn || ((s) => void process.stdout.write(s));
+  const err = deps.errFn || ((s) => void process.stderr.write(s));
+  const retagFn = deps.retagFn || retagCapture;
+  const pathsFn = deps.pathsFn || defaultInboxPaths;
+  const formatterFn = deps.formatterFn || (() => createFormatter(process.stdout));
+
+  const safeId = stripControlChars(id);
+  const { inboxPath, lockPath } = pathsFn();
+
+  /** @type {{ ok: true, capture: any } | { ok: false, reason: string }} */
+  let result;
+  try {
+    result = retagFn(id, tag, { inboxPath, lockPath });
+  } catch (e) {
+    err(`Error: filesystem error: ${/** @type {Error} */ (e).message}\n`);
+    return 1;
+  }
+
+  if (result.ok) {
+    const fmt = formatterFn();
+    write(`${fmt.ok(`Captura ${safeId} → proyecto ${stripControlChars(result.capture.tag)}`)}\n`);
+    return 0;
+  }
+
+  switch (result.reason) {
+    case 'not-found':
+      err(`Error: capture ${safeId} not found\n`);
+      return 2;
+    case 'already-closed':
+      err(`Error: capture ${safeId} is already closed\n`);
+      return 2;
+    case 'invalid-tag':
+      err(`Error: el proyecto queda vacío tras el saneo — usa un nombre con al menos un carácter útil\n`);
+      return 2;
+    case 'lock-timeout':
+      err(`Error: lock-timeout — el retag de ${safeId} NO se ha aplicado; reinténtalo en unos segundos\n`);
+      return 1;
+    case 'concurrent-write':
+      err(
+        `Error: escritura concurrente — el retag de ${safeId} se ha abortado para no perder una ` +
+          `captura que aterrizó a la vez; el fichero queda intacto, reinténtalo\n`,
+      );
+      return 1;
+    default:
+      err(`Error: filesystem error: no se pudo reasignar la captura ${safeId}\n`);
+      return 1;
+  }
+}
+
+/**
+ * Convierte una captura abierta en una TAREA del proveedor y la cierra como enrutada hacia ella.
+ *
+ * A diferencia del resto de este fichero, este handler SÍ toca el proveedor, así que —igual que
+ * `kodo adopt`— necesita configuración válida. El registro en `src/cli.js` es quien invoca
+ * `ensureConfig()`; aquí solo se resuelven las dependencias por lazy-import para que los tests
+ * puedan inyectarlas sin tocar el registry real ni `~/.kodo/projects.json`.
+ *
+ * @param {string} id
+ * @param {{ project?: string, json?: boolean }} opts `project` es el destino explícito (tag o id);
+ *   sin él manda el tag de la captura.
+ * @param {{
+ *   promoteFn?: typeof import('../inbox/promote.js').promoteCapture,
+ *   getProviderFn?: () => any,
+ *   loadProjectsFn?: () => Record<string, unknown>,
+ *   writeFn?: (s: string) => void,
+ *   errFn?: (s: string) => void,
+ *   formatterFn?: () => import('./format.js').Formatter,
+ *   pathsFn?: () => { inboxPath: string, lockPath: string },
+ * }} [deps]
+ * @returns {Promise<number>} exit code: 0 ok · 1 entrada inválida, sin proyecto resoluble,
+ *   proveedor incapaz o marcado fallido (recuperable a mano) · 2 el POST falló (transitorio,
+ *   reintentable por script sin efecto lateral: no se ha creado nada y la captura sigue abierta).
+ */
+export async function runInboxPromoteCli(id, opts, deps = {}) {
+  const write = deps.writeFn || ((s) => void process.stdout.write(s));
+  const err = deps.errFn || ((s) => void process.stderr.write(s));
+  const pathsFn = deps.pathsFn || defaultInboxPaths;
+  const formatterFn = deps.formatterFn || (() => createFormatter(process.stdout));
+
+  const safeId = stripControlChars(id);
+  const { inboxPath, lockPath } = pathsFn();
+
+  /** @type {import('../inbox/promote.js').PromoteResult} */
+  let result;
+  try {
+    const promoteFn = deps.promoteFn || (await import('../inbox/promote.js')).promoteCapture;
+    const { loadConfig, loadProjects } = await import('../config.js');
+
+    // Resolución del proveedor: espejo de `cli/adopt.js` y `cli/comment.js`. Lazy-import para no
+    // acoplar el registry al import de este módulo, y `getProviderFn` inyectable para que los
+    // tests no toquen ni el registry ni la red.
+    /** @type {any} */
+    let provider;
+    if (deps.getProviderFn) {
+      provider = deps.getProviderFn();
+    } else {
+      const { initRegistry, getProvider } = await import('../providers/registry.js');
+      await initRegistry();
+      provider = getProvider(loadConfig().provider);
+      // `init()` SÍ, a diferencia de `comment`/`adopt`. `createTask` normaliza el 201 usando el
+      // identifier del proyecto que `init` resuelve contra la API; sin él, la ref de la tarea
+      // creada sale como `UNKNOWN-<n>` — y esa ref es justo lo que se persiste como trace pointer
+      // de la captura, así que una ref mal formada convierte el enrutado en basura silenciosa.
+      // El coste es el arranque del provider (segundos con red lenta), aceptable en un comando
+      // manual de una sola tarea.
+      await provider.init();
+    }
+
+    result = await promoteFn({
+      id,
+      provider,
+      projects: (deps.loadProjectsFn || loadProjects)(),
+      projectRef: opts.project,
+      inboxPath,
+      lockPath,
+    });
+  } catch (e) {
+    // Fallo al RESOLVER las dependencias (config ausente, provider no construible). No es el POST:
+    // nada se ha creado y nada se ha marcado.
+    err(`Error: ${/** @type {Error} */ (e).message}\n`);
+    return 1;
+  }
+
+  if (result.ok === true) {
+    const ref = stripControlChars(String(result.task?.ref ?? ''));
+    const url = stripControlChars(String(result.task?.url ?? ''));
+    if (opts.json === true) {
+      write(JSON.stringify({ ok: true, id: safeId, ref, url, project: result.projectId }) + '\n');
+      return 0;
+    }
+    const fmt = formatterFn();
+    write(`${fmt.ok(`Captura ${safeId} → ${ref}`)}${url ? ` ${fmt.dim(url)}` : ''}\n`);
+    return 0;
+  }
+
+  switch (result.code) {
+    case 'UNSUPPORTED':
+      err(`Error: el proveedor configurado no sabe crear tareas — usa kodo inbox route ${safeId} --dest <ref>\n`);
+      return 1;
+    case 'NOT_FOUND':
+      err(`Error: capture ${safeId} not found\n`);
+      return 1;
+    case 'ALREADY_CLOSED':
+      err(`Error: capture ${safeId} is already closed\n`);
+      return 1;
+    case 'NO_PROJECT':
+      err(
+        `Error: «${stripControlChars(String(result.detail?.ref ?? ''))}» no resuelve a ningún proyecto ` +
+          `configurado — reasigna con kodo inbox retag ${safeId} <proyecto>, o pasa --project <id>\n`,
+      );
+      return 1;
+    case 'AMBIGUOUS_PROJECT':
+      err(
+        `Error: «${stripControlChars(String(result.detail?.ref ?? ''))}» resuelve a varios proyectos ` +
+          `(${(result.detail?.matches ?? []).join(', ')}) — desambigua con --project <id>\n`,
+      );
+      return 1;
+    case 'CREATE_FAILED':
+      // 2 = transitorio. La captura sigue ABIERTA y no se ha creado nada: reintentar es seguro.
+      err(`Error: no se pudo crear la tarea: ${stripControlChars(String(result.detail ?? ''))}\n`);
+      return 2;
+    case 'MARK_FAILED':
+      // La tarea EXISTE. Lo único que falta es cerrar la captura, y el operador tiene la ref para
+      // hacerlo a mano — por eso el mensaje lleva el comando exacto, no una descripción del fallo.
+      err(
+        `Error: la tarea ${stripControlChars(String(result.detail?.ref ?? ''))} SÍ se ha creado, pero la ` +
+          `captura no se ha podido cerrar (${result.detail?.reason}). Ciérrala con: ` +
+          `kodo inbox route ${safeId} --dest ${stripControlChars(String(result.detail?.ref ?? ''))}\n`,
+      );
+      return 1;
+    default:
+      err(`Error: no se pudo promover la captura ${safeId}\n`);
       return 1;
   }
 }

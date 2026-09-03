@@ -492,6 +492,40 @@ describe('PlaneProvider.createTask description_html omission (Phase 56 Plan 05 U
       stub.restore();
     }
   });
+
+  // KODO-76: `placement`. The default is the adoption behaviour asserted above — these two cases
+  // pin the NEW lane and the fact that it did not move the old one.
+  it("placement:'backlog' sends NEITHER the trigger state NOR the kodo:adopted label", async () => {
+    // An inbox capture promoted to a task is an IDEA, not work in flight. The trigger state would
+    // put it on the In Progress column of a board where nobody is working it; the adopted label is
+    // the dispatcher's anti-recursion cut and would mark it un-launchable forever.
+    const stub = stubCreateTask();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.createTask({ projectId: 'proj-uuid', title: 'una idea', placement: 'backlog' });
+      const body = stub.getBody();
+      assert.ok(body, 'work-items POST must fire');
+      assert.ok(!('state' in body), 'omitting `state` is HOW Plane is told to use the project default');
+      assert.deepEqual(body.labels, [], 'no kodo:adopted marker on a backlog item');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it('an absent placement keeps the adoption behaviour byte for byte', async () => {
+    const stub = stubCreateTask();
+    try {
+      const provider = createPlaneProvider(MOCK_CONFIG);
+      await provider.init();
+      await provider.createTask({ projectId: 'proj-uuid', title: 'adopted task' });
+      const body = stub.getBody();
+      assert.equal(body.state, 'st-trigger');
+      assert.deepEqual(body.labels, ['lbl-adopted']);
+    } finally {
+      stub.restore();
+    }
+  });
 });
 
 describe('PlaneProvider.createTask module placement (Phase 57 module-placement gap-fix)', () => {
