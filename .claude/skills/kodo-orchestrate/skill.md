@@ -991,3 +991,49 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   $KODO_API_TOKEN` (en `~/.kodo/.env`): equivale a `d`+`d` y no toca worktrees
   ya borrados. Regla del 27-ago intacta: solo cuando el operador lo diga.
   KODO-83 propone descartarlas solas cuando la tarea ya está cerrada.
+- [2026-09-09] **Las tareas viejas del backlog no llevan label `kodo` y `kodo
+  launch` las ignora en silencio** («Ignored — no kodo label»): antes de lanzar
+  una tarea creada por una persona, `PATCH` por REST con `labels` (los ids del
+  proyecto, que son distintos en cada uno) y `assignees`. El webhook de ese
+  PATCH dispara el dispatcher y la lanza solo; un `kodo launch` posterior dice
+  «already dispatching (cross-process)» y no es un error. Si el operador la
+  mueve él a In Progress, aparece a mitad de ronda sin que la hayas lanzado.
+- [2026-09-09] **`.planning/material/` va fuera de git y las sesiones no lo ven
+  en su worktree.** ITCLIP-114 se declaró «bloqueada» por un PDF que llevaba
+  un día en esa carpeta. Cuando una tarea dependa de un fichero de ahí, pon en
+  la descripción la **ruta absoluta del checkout principal** y, si puedes, la
+  estructura del fichero.
+- [2026-09-09] **Un mapa que editan todas las sesiones en el mismo bloque
+  choca en todos los PRs paralelos** aunque el código no se toque: #61, #62,
+  #64 y #68 de clipping en una semana. Arreglado en ITCLIP-147 moviendo el mapa
+  de `CLAUDE.md` a `.planning/MAPA.md` con una sección por app (cada sesión
+  escribe solo en la suya y añade, no reordena). Mientras haya PRs abiertos que
+  toquen el bloque viejo, la tarea que lo mueve se mergea la última. El patrón
+  vale para cualquier repo con un mapa vivo en el CLAUDE.md.
+- [2026-09-09] **No redirijas la decisión de dominio de una sesión por la
+  reacción del operador sin confirmar antes el modelo.** La saga del tier
+  (ITCLIP-136): la sesión materializó reglas del cliente; el operador dijo
+  «claro que el tier es del medio»; la mandé escribir `Source.tier` (catálogo
+  compartido, se pisan entre clientes) y el operador la tumbó como error de
+  diseño; volvimos a la primera versión. Dos rehechos y un PR sucio por no
+  preguntar «¿qué modelo quieres?» antes de mover la sesión. Regla: parar la
+  sesión, exponer las posiciones con su trade-off, y mover solo con el modelo
+  cerrado. Queda abierto que `impacto.tier` caiga a `Source.tier` sin regla.
+- [2026-09-09] **`cmux send` con un texto largo lo deja como «[Pasted text
+  #1]» y no se envía**; la sesión queda con el prompt sucio. Escribe el texto
+  en un fichero del scratchpad, `send-key ctrl+u`, `cmux send --workspace X
+  "$(cat fichero)"` y `send-key Enter`, y comprueba en `read-screen` que está
+  «pensando». Ojo también con el hook `secrets-guard`: tu propio `cmux send` no
+  puede contener tokens que resuelvan a un fichero protegido (por ejemplo la
+  ruta del fichero de entorno de kodo) o el hook te corta a ti.
+- [2026-09-09] **La API REST de Plane devuelve a veces caracteres de control
+  dentro de `description_html`** y `jq` revienta con «Invalid string: control
+  characters». Pasa la respuesta por `tr -d '\000-\037'` antes de `jq`, o usa
+  `json.loads(..., strict=False)` en Python. Y el listado va paginado a 100:
+  con más de 100 tareas hay que seguir `next_cursor` o las más antiguas
+  desaparecen de la vista.
+- [2026-09-09] **Una sesión que cierra con la rama ya pusheada con otro nombre
+  deja en la cola una entrada `ahead=null`** (la rama del worktree ya no
+  existe) aunque el trabajo esté a salvo en `origin/<nombre-nuevo>`. Antes de
+  `--drop`, busca el fichero con `git log --all -- <ruta>` y mira
+  `session.branch_head` en `state.json` (KODO-68 lo sella): ahí está el SHA.
