@@ -1294,6 +1294,10 @@ export default function SessionTable({
         // (`alive === false`). El color rojo se LEE del `sc` ya calculado (statusColor devuelve
         // {color:'red'} para running+!alive) — CERO color nuevo, CERO segunda paleta. truncate:false
         // (COLS.state se ensanchó a 18 para que el badge con el sufijo no se trunque, Pitfall 3).
+        // KODO-88 revisó este `status === 'running'` y NO lo toca: una sesión `idle` que
+        // muere la marca `reconcileTick` con `state: 'dead'`, y esa fila ya se pinta `✗ dead`
+        // (STATE_BADGES) — el sufijo «(zombie)» existe para la contradicción de que el eje
+        // diga `running` mientras `alive` dice que no, que es la que engaña al ojo.
         const isZombie =
           (session.status === 'running' || session.state === 'running') && session.alive === false;
         let color = badge.color;

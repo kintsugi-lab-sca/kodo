@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { kodoDir, kodoPath } from '../paths.js';
 import { loadConfig, isReportToProviderEnabled, getAgentDef, mapAgentModel } from '../config.js';
-import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator } from '../session/state.js';
+import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator, isLiveWorkSession } from '../session/state.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
@@ -633,7 +633,10 @@ const PROMPT_REF_MAX = 40;
 export function buildContextSummary(sessions, config) {
   const lines = [];
 
-  const running = sessions.filter((s) => s.status === 'running');
+  // KODO-88: `isLiveWorkSession` (running + idle), no `status === 'running'`. El
+  // orquestador decide si lanzar leyendo esta línea: con el filtro anterior recibía
+  // «Sesiones activas: 0/3» teniendo tres sesiones vivas delante, y lanzaba encima.
+  const running = sessions.filter(isLiveWorkSession);
   lines.push(`Sesiones activas: ${running.length}/${config.claude.max_parallel}`);
 
   if (running.length === 0) {

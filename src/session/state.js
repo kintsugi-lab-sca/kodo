@@ -47,7 +47,7 @@ let stateLockDepth = 0;
  *   provider: string,          // "plane", "github", etc.
  *   project_id: string,
  *   summary: string,
- *   status: 'launching'|'running'|'done'|'error'|'review',  // KODO-55: `launching` es la RESERVA de slot que escribe `reserveSessionSlot` bajo el lock — una entrada TRANSITORIA (segundos) que ocupa un slot de `max_parallel` mientras el lanzamiento monta provider/worktree/host, y que el `finally` de `launchWorkItem` retira. NO tiene workspace ni proceso todavía: por eso `reconcileTick` la SALTA (derivarle un target la mataría a los 2 ticks) y todos los filtros `status === 'running'` (health.js, buildContextSummary) la excluyen por construcción. Se poda por TTL (`isStaleReservation`) si el proceso que lanzaba murió.
+ *   status: 'launching'|'running'|'idle'|'done'|'error'|'review',  // KODO-55: `launching` es la RESERVA de slot que escribe `reserveSessionSlot` bajo el lock — una entrada TRANSITORIA (segundos) que ocupa un slot de `max_parallel` mientras el lanzamiento monta provider/worktree/host, y que el `finally` de `launchWorkItem` retira. NO tiene workspace ni proceso todavía: por eso `reconcileTick` la SALTA (derivarle un target la mataría a los 2 ticks) y los filtros de sesión de trabajo viva (`isLiveWorkSession`) la excluyen por construcción. Se poda por TTL (`isStaleReservation`) si el proceso que lanzaba murió. KODO-88: `idle` estaba FUERA de este enum y sin embargo es el valor que el hook Stop escribe al final de CADA turno desde Phase 38 D-12 (`src/hooks/stop.js:336`, `markSessionStatus(..., 'idle', 'session-stop:lock-released')`) — o sea el status de la MAYORÍA de las sesiones vivas. El enum mentía, y los consumidores que filtraban `status === 'running'` se lo creyeron: `kodo check` decía «0 running» con dos sesiones vivas y el gate de `max_parallel` dejaba lanzar por encima del límite. Documentarlo aquí es el arreglo quirúrgico; el predicado que decide quién ocupa slot es `isLiveWorkSession`, no este literal.
  *   started_at: string,
  *   project_path: string,
  *   task_url?: string,         // Optional URL to the task in the provider UI
@@ -173,6 +173,12 @@ export function migrateStateV2toV3(rawState) {
     newSessions[taskId] = {
       .../** @type {Session} */ (session),
       state,
+      // KODO-88 revisó este `status === 'running'` y lo deja INTACTO a propósito: aquí el
+      // input es un state.json **v2**, un schema en el que `idle` no existía como status
+      // (el vocabulario era launching/running/done/error/review). Meterlo en el predicado
+      // de esta migración no arreglaría ninguna sesión real y sí reescribiría la semántica
+      // de un formato congelado. `statusToStateV3` ya mapea el `done` de v2 a `idle`, que
+      // es la traducción correcta de aquel vocabulario a este.
       process_alive: /** @type {any} */ (session).status === 'running',
       tab_alive: false,
       needs_input: false,
@@ -508,19 +514,62 @@ export function withStateLock(mutator) {
 export const LAUNCHING_STATUS = 'launching';
 
 /**
+ * Los `status` de una SESIÓN DE TRABAJO VIVA (KODO-88).
+ *
+ * `running` es el que escribe `buildSessionFromTask` al lanzar. `idle` es el que
+ * escribe el hook Stop al final de cada turno desde Phase 38 D-12 — «lock liberado,
+ * esperando humano», NO «terminada». Entre turno y turno una sesión perfectamente
+ * viva lleva `idle`, así que ambos describen lo mismo: hay una sesión ocupando un
+ * workspace y un slot. `done`/`error`/`review` son OUTCOMES (la sesión ya no trabaja)
+ * y `launching` es una reserva sin proceso todavía: ninguno entra aquí.
+ */
+const LIVE_WORK_STATUSES = Object.freeze(['running', 'idle']);
+
+/**
+ * ¿Es esta entrada una SESIÓN DE TRABAJO VIVA? Predicado ÚNICO (KODO-88).
+ *
+ * `status ∈ {running, idle}` y `alive !== false`.
+ *
+ * ── POR QUÉ SOBRE `status` Y NO SOBRE `state` ────────────────────────────────
+ *
+ * El enunciado ofrecía dos derivaciones: esta, o `state ∈ {running, idle, needs-input}`
+ * (lo que ya calcula `reconcileTick`). Se elige `status` + `alive` por una razón de
+ * fail-closed: el ÚNICO escritor de `state` es `reconcileTick`, que corre en el daemon.
+ * Una sesión lanzada con el daemon parado, o una v2 migrada que aún no ha visto un tick,
+ * tiene `state` indefinido — y un predicado que exigiera `state` la leería como «no viva»,
+ * contaría 0 ocupados y reabriría EXACTAMENTE la fuga de capacidad de esta tarea. `status`,
+ * en cambio, lo escriben los caminos que no dependen del daemon (`buildSessionFromTask` al
+ * lanzar, el hook Stop en cada turno, `verify` al pasar el gate), así que existe siempre.
+ *
+ * `alive` sigue siendo la señal de liveness observada, y se lee con `!== false` (no
+ * `=== true`) a propósito: las sesiones legacy sin el campo (pre-v0.9) siguen contando —
+ * cero regresión. Un zombi que `reconcileTick` marcó `alive:false` (porque su TAB de cmux
+ * murió — la TAB, no el proceso: D-06b) deja de contar, que es la fuga A4 que cerró
+ * KODO-55 y que aquí se conserva intacta. El predicado solo LEE `alive`; el único escritor
+ * sigue siendo `reconcileTick` (invariante v0.9/v0.10).
+ *
+ * Consumidores: `isSchedulable` (gate de `max_parallel`), `src/check.js` (el recuento que
+ * ve el operador), `src/session/health.js` (detección stuck/gone) y `buildContextSummary`
+ * de `src/orchestrator/launch.js` (el «Sesiones activas: N/M» del prompt del orquestador).
+ * Los cuatro filtraban `status === 'running'` por su cuenta y los cuatro veían 0 sesiones
+ * en cuanto la primera terminaba su primer turno.
+ *
+ * @param {{ status?: string, alive?: boolean }} session
+ * @returns {boolean}
+ */
+export function isLiveWorkSession(session) {
+  if (!session) return false;
+  return LIVE_WORK_STATUSES.includes(/** @type {string} */ (session.status)) && session.alive !== false;
+}
+
+/**
  * ¿Cuenta esta sesión contra el gate de `max_parallel`? (CONC-03 / D-05).
  *
- * Ocupan un slot las sesiones `status === 'running'` (una sesión de trabajo viva)
- * y las `status === 'launching'` (KODO-55: la RESERVA que `reserveSessionSlot`
- * escribe mientras el lanzamiento todavía está montando provider/worktree/host),
- * siempre que `alive !== false`. Un zombi que `reconcileTick` marcó `alive:false`
- * (porque su TAB de cmux murió — la TAB, no el proceso: D-06b) deja de contar,
- * liberando la fuga de capacidad más dañina de la auditoría (A4: un slot retenido
- * hasta 30 días).
- *
- * `!== false` (no `=== true`) es DELIBERADO: las sesiones legacy sin el campo
- * `alive` (pre-v0.9) siguen contando — cero regresión. El gate solo LEE `alive`;
- * el ÚNICO escritor de ese campo sigue siendo `reconcileTick` (invariante v0.9/v0.10).
+ * Ocupan un slot las SESIONES DE TRABAJO VIVAS (`isLiveWorkSession` — KODO-88: `running`
+ * y también `idle`, el status que el hook Stop escribe entre turnos) y las reservas
+ * `status === 'launching'` (KODO-55: el placeholder que `reserveSessionSlot` escribe
+ * mientras el lanzamiento todavía está montando provider/worktree/host), estas últimas
+ * también sujetas a `alive !== false`.
  *
  * KODO-55: vive AQUÍ, y no en `manager.js` como hasta ahora, porque el conteo tiene
  * que ocurrir DENTRO de la sección crítica de `reserveSessionSlot` — y `state.js` no
@@ -533,8 +582,8 @@ export const LAUNCHING_STATUS = 'launching';
  */
 export function isSchedulable(session) {
   if (!session) return false;
-  const holds = session.status === 'running' || session.status === LAUNCHING_STATUS;
-  return holds && session.alive !== false;
+  if (isLiveWorkSession(session)) return true;
+  return session.status === LAUNCHING_STATUS && session.alive !== false;
 }
 
 /**

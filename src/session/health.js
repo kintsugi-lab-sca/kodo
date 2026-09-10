@@ -1,6 +1,6 @@
 // @ts-check
 import { loadConfig } from '../config.js';
-import { loadState, updateSession, removeSession } from './state.js';
+import { loadState, updateSession, removeSession, isLiveWorkSession } from './state.js';
 import { getHost, resolveHostName } from '../host/interface.js';
 
 /**
@@ -22,7 +22,12 @@ import { getHost, resolveHostName } from '../host/interface.js';
 export async function checkHealth() {
   const config = loadConfig();
   const state = loadState();
-  const sessions = Object.entries(state.sessions).filter(([, s]) => s.status === 'running');
+  // KODO-88: se inspeccionan las SESIONES DE TRABAJO VIVAS (`running` e `idle`), no solo
+  // `status === 'running'`. Con el filtro anterior, cualquier sesión que hubiera cerrado un
+  // turno quedaba fuera de la detección stuck/gone: justo la que lleva horas parada y cuyo
+  // workspace puede haber desaparecido es la que nunca se miraba. Las reservas `launching`
+  // siguen excluidas por construcción — no tienen workspace que inspeccionar.
+  const sessions = Object.entries(state.sessions).filter(([, s]) => isLiveWorkSession(s));
 
   if (sessions.length === 0) return [];
 
