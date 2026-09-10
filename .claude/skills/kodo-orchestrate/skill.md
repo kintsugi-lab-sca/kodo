@@ -1037,3 +1037,30 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   existe) aunque el trabajo esté a salvo en `origin/<nombre-nuevo>`. Antes de
   `--drop`, busca el fichero con `git log --all -- <ruta>` y mira
   `session.branch_head` en `state.json` (KODO-68 lo sella): ahí está el SHA.
+- [2026-09-09] **El dispatcher ignora el PATCH de una tarea en Backlog/Todo con
+  `code: inactive_state`.** Asignar o etiquetar por REST solo dispara el
+  lanzamiento si la tarea YA está en el estado trigger (In Progress): con
+  ITCLIP-149 (Backlog, `kodo`+`kodo:yolo`, sin assignee) el PATCH de `assignees`
+  produjo `dispatch.decision action=ignored code=inactive_state` en
+  `~/.kodo/logs/dispatch.ndjson` y nada se lanzó. Matiza la lección de arriba
+  sobre «el webhook de ese PATCH la lanza solo»: eso pasa cuando el operador ya la
+  movió a In Progress. Receta: PATCH de labels/assignees por REST (el filtro
+  multi-operador sigue exigiendo assignee) y después `kodo launch <ref>`, que
+  la mueve a In Progress y la lanza. Antes de dar por lanzada una tarea, mira
+  `state.json` — no el «éxito» del PATCH.
+- [2026-09-09] **El PQL del MCP de Plane no filtra en esta instancia CE
+  (v1.3.0): devuelve el proyecto entero sin error.** `list_work_items` con
+  `label = "<uuid>"`, `state = "<uuid>"` o `stateGroup IN openStates()` responde
+  con `total_count` = todas las tareas del proyecto (149 en ITCLIP) y sin aviso.
+  Un «no hay nada en Review» sacado de un PQL es falso por construcción. Para
+  filtrar por estado o label: REST `projects/{pid}/work-items/?per_page=100`
+  paginando por `cursor`, con `states/` y `labels/` como mapas de nombre, y filtro
+  en cliente (script `sweep.py` en el scratchpad de la ronda: ~4 llamadas por
+  proyecto, salida de una línea por tarea abierta). `order_by=-updated_at` sí
+  se respeta.
+- [2026-09-09] **`retrieve_work_item_by_identifier` con `expand=labels` SÍ
+  valida.** Devuelve los objetos `Label` completos (id, name). El error
+  `labels.0 Input should be a valid dictionary` del 2-sep aparece solo cuando
+  `labels` llega como lista de UUIDs: sin `expand`, o pidiendo `labels` en
+  `fields`. Para leer las labels de UNA tarea por el MCP: `expand=labels` y sin
+  `fields`. Para muchas, REST.

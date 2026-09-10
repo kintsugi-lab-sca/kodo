@@ -82,8 +82,10 @@ import { getEditableFields, getByPath } from '../../config-validate.js';
 // Phase 64 Plan 03 (PROJ-04): getModuleMap lee el estado de mapeo de cada MÓDULO (forma dual).
 import { getProjectPath, getModuleMap } from '../../projects-shape.js';
 
-// Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` NO se trunca:
-// la marca `(zombie)` (16 chars) es load-bearing para accesibilidad (D-09) y debe sobrevivir.
+// Anchos de columna fijos (UI-SPEC §Anchos de columna, líneas 51-58). `status` nació con 18 para
+// que la marca `(zombie)` (16 chars) sobreviviera; desde Phase 44 D-09 esa marca vive en `state` y
+// `outcomeCell` acota `status` a ''|error|done|review (6 chars), así que sus 18 celdas son 12 de
+// aire — el colchón que KODO-85 le pide devolver (`SHRINK_FLOOR`) cuando la terminal aprieta.
 // Phase 38 D-06: columna `state` (16) para el badge del lifecycle. width 16 (no 14):
 // el emoji `🔔` de `needs-input` renderiza 2 celdas en terminal pero ink lo mide como 1,
 // así que `🔔 needs-input` (13 medido / 14 visual) llenaba justo width 14 y se pegaba a
@@ -101,12 +103,66 @@ import { getProjectPath, getModuleMap } from '../../projects-shape.js';
 // Phase 75 D-04 (LIVE-05): columna condicional `next` (NEXT: por tarea) al FINAL, tras `age`.
 // width 40: aloja un NEXT: legible; el `truncate:true` da el ellipsis nativo `…` de ink (doble
 // acotado con el cap de 200 chars que ya trae state.json — Pitfall 6, red anti-DoS de celda).
-const COLS = { gutter: 2, state: 18, task_ref: 10, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7, next: 40 };
+// KODO-85: `task_ref` 10→12 por la misma razón que `state` es 16 y no 14 — un ref que LLENA la
+// columna se pega a `repo` (`ITCLIP-128clipping`, ilegible). El ancho nominal es ahora el SUELO
+// de un ancho DERIVADO por `taskRefWidth()` a partir de los refs realmente visibles.
+const COLS = { gutter: 2, state: 18, task_ref: 12, repo: 18, phasemode: 11, status: 18, prog: 7, task: 12, age: 7, next: 40 };
 
 // KODO-77: ancho MÍNIMO utilizable de la columna elástica `next`. Por debajo de esto la celda no
 // informa (dos palabras y un `…`), así que la columna se OMITE entera en vez de rendirse a un
 // muñón: el ancho recuperado va a que las columnas fijas quepan sin recortarse.
 const NEXT_MIN = 12;
+
+// KODO-85: separación mínima garantizada entre el ref y la columna de al lado. No es padding
+// cosmético: es la única pista visual de dónde acaba el identificador cuando el ref llena la celda.
+const TASK_REF_GAP = 2;
+
+// KODO-85: tope del ancho derivado. Un `task_ref` es un identificador de tracker (`PROJ-123`), no
+// texto libre, pero llega de la API sin acotar: sin tope, una fila con un ref absurdo se comería
+// la tabla entera. Con 16 cabe un ref de 14 chars más su gap; más allá `fitTaskRef` trunca.
+const TASK_REF_MAX = 16;
+
+// KODO-85: suelo por columna de las que PUEDEN ceder celdas antes de que se suelte una columna
+// entera. Hoy solo `status`: `outcomeCell()` acota su contenido a ''|error|done|review (6 chars
+// como máximo), así que sus 18 celdas nominales son 12 de aire. `next` NO está aquí porque ya
+// cede por otra vía (se mide por NEXT_MIN, no por su nominal). El orden es el de cesión.
+/** @type {ReadonlyArray<[string, number]>} */
+const SHRINK_FLOOR = [['status', 8]];
+
+/**
+ * KODO-85: ancho DERIVADO de la columna `task_ref` a partir de los refs de las filas visibles.
+ * Acotado por abajo al nominal (`COLS.task_ref`, que ya incluye el gap sobre los refs de 10) y por
+ * arriba a `TASK_REF_MAX`. Con la tabla vacía devuelve el nominal — nunca menos, para que la
+ * cabecera `task_ref` (8 chars) no se pegue tampoco.
+ *
+ * Puro y never-throws: una fila sin `task_ref` cuenta como el placeholder `—` de `rowCells`.
+ *
+ * @param {Array<{ task_ref?: string|null }>} rows - filas YA filtradas que la tabla va a pintar.
+ * @returns {number} celdas para la columna `task_ref`.
+ */
+export function taskRefWidth(rows) {
+  const longest = (rows ?? []).reduce((max, row) => {
+    const ref = typeof row?.task_ref === 'string' && row.task_ref ? row.task_ref : '—';
+    return Math.max(max, [...ref].length);
+  }, 0);
+  return Math.min(TASK_REF_MAX, Math.max(COLS.task_ref, longest + TASK_REF_GAP));
+}
+
+/**
+ * KODO-85: acota el ref al ancho de su celda RESERVANDO el gap. `truncate-end` de ink recortaría a
+ * la celda entera, dejando el `…` pegado a `repo` — justo el defecto que se está arreglando. Por
+ * debajo de 4 celdas (solo alcanzable en el recorte de emergencia de `budgetColumns`, terminal
+ * ridículamente estrecha) se cede al truncado nativo: ahí ya no hay gap que defender.
+ *
+ * @param {string} text
+ * @param {number} width
+ * @returns {string}
+ */
+export function fitTaskRef(text, width) {
+  const chars = [...(text ?? '')];
+  if (width < 4 || chars.length <= width - TASK_REF_GAP) return text ?? '';
+  return `${chars.slice(0, width - TASK_REF_GAP - 1).join('')}…`;
+}
 
 // KODO-77: orden en que las columnas se CAEN cuando la terminal no da para todas, de menos a más
 // valor operativo. `next` primero porque es la más ancha y la más redundante (el detalle está a
@@ -125,10 +181,16 @@ const DROP_ORDER = ['next', 'prog', 'phasemode', 'repo', 'task'];
  * poll (solo un reinicio lo limpiaba).
  *
  * El fix es no negociar los anchos (flexShrink 0, ver `cell`) y repartir el espacio REAL:
- *   1. se sueltan columnas enteras por `DROP_ORDER` hasta que las restantes quepan;
- *   2. `next`, la única elástica, se queda con lo que sobre (y se cae si no llega a NEXT_MIN);
- *   3. si ni las irrenunciables caben (terminal por debajo de ~61 celdas), el déficit residual se
+ *   1. las columnas con aire declarado (`SHRINK_FLOOR`) ceden hasta su suelo — KODO-85;
+ *   2. se sueltan columnas enteras por `DROP_ORDER` hasta que las restantes quepan;
+ *   3. `next`, la única elástica, se queda con lo que sobre (y se cae si no llega a NEXT_MIN);
+ *   4. si ni las irrenunciables caben (terminal por debajo de ~47 celdas), el déficit residual se
  *      descuenta de derecha a izquierda para que la fila NUNCA supere el ancho de la terminal.
+ *
+ * KODO-85: el paso 1 va ANTES del 2 a propósito. Ensanchar `task_ref` sin él haría que la tabla
+ * pagara las celdas extra soltando una columna entera en anchos intermedios, cuando `status` tiene
+ * 12 celdas de aire que nadie usa (su contenido son 6 chars como mucho). Recortar aire es siempre
+ * mejor que perder una columna: la información sigue ahí.
  *
  * `tableWidth == null` (SessionTable montado suelto, p. ej. los tests) ⇒ sin presupuesto: anchos
  * nominales y ninguna columna caída (comportamiento previo, byte a byte).
@@ -138,10 +200,12 @@ const DROP_ORDER = ['next', 'prog', 'phasemode', 'repo', 'task'];
  * @param {boolean} anyGsd
  * @param {boolean} anyProgress
  * @param {boolean} anyNext
+ * @param {number} [taskRefW] - KODO-85: ancho derivado de `task_ref` (`taskRefWidth(rows)`).
+ *   Ausente ⇒ el nominal, para que las llamadas de 4 args (tests de KODO-77) sigan valiendo.
  * @returns {{ widths: Record<string, number>, visible: Set<string> }}
  */
-export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext) {
-  // Orden IZQUIERDA→DERECHA de la fila renderizada: es también el orden de recorte del paso 3.
+export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext, taskRefW = COLS.task_ref) {
+  // Orden IZQUIERDA→DERECHA de la fila renderizada: es también el orden de recorte del paso 4.
   const order = [
     'gutter',
     'state',
@@ -155,6 +219,8 @@ export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext) {
     ...(anyNext ? ['next'] : []),
   ];
   const widths = Object.fromEntries(order.map((key) => [key, COLS[key]]));
+  // KODO-85: `task_ref` entra con su ancho DERIVADO (nunca por debajo del nominal), no con el fijo.
+  widths.task_ref = Math.max(COLS.task_ref, Math.min(TASK_REF_MAX, taskRefW));
   const visible = new Set(order);
   if (tableWidth == null) return { widths, visible };
 
@@ -165,17 +231,26 @@ export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext) {
   const fixedTotal = () => [...visible].reduce((sum, key) => (key === 'next' ? sum : sum + widths[key]), 0);
   const need = () => fixedTotal() + (visible.has('next') ? NEXT_MIN : 0);
 
-  // (1) Suelta columnas enteras hasta que quepan. Cortar una columna limpia es más legible que
+  // (1) KODO-85: las columnas con aire declarado lo devuelven ANTES de que se suelte ninguna.
+  // Ceden solo lo que hace falta (`need() - tableWidth`), así que en una terminal ancha el render
+  // queda byte a byte como estaba: esto no es un reajuste permanente, es una válvula de presión.
+  for (const [key, floor] of SHRINK_FLOOR) {
+    if (need() <= tableWidth) break;
+    if (!visible.has(key)) continue;
+    widths[key] -= Math.max(0, Math.min(widths[key] - floor, need() - tableWidth));
+  }
+
+  // (2) Suelta columnas enteras hasta que quepan. Cortar una columna limpia es más legible que
   // repartir el déficit entre todas (que es justo lo que hacía Yoga y lo que rompía la tabla).
   for (const key of DROP_ORDER) {
     if (need() <= tableWidth) break;
     visible.delete(key);
   }
 
-  // (2) `next` absorbe todo el sobrante que quede tras las fijas (acotada a su nominal).
+  // (3) `next` absorbe todo el sobrante que quede tras las fijas (acotada a su nominal).
   if (visible.has('next')) widths.next = Math.min(COLS.next, tableWidth - fixedTotal());
 
-  // (3) Déficit residual (terminal más estrecha que las columnas irrenunciables): se descuenta de
+  // (4) Déficit residual (terminal más estrecha que las columnas irrenunciables): se descuenta de
   // derecha a izquierda. Una columna puede quedarse a 0 — pero la fila no desborda, que es la
   // invariante que evita las filas fantasma.
   let deficit = total() - tableWidth;
@@ -1049,7 +1124,10 @@ export default function SessionTable({
   // KODO-77: presupuesto de ancho. Se calcula ANTES del header porque tanto la cabecera de columnas
   // como las filas de datos consumen `showNext`/`nextWidth`, y ambas deben usar el MISMO valor (si
   // divergieran, el label `next` quedaría sobre otra columna).
-  const { widths, visible } = budgetColumns(tableWidth, anyGsd, anyProgress, anyNext);
+  // KODO-85: `task_ref` se dimensiona con los refs que esta tabla va a pintar, no con un fijo. Se
+  // deriva de `rows` (ya filtradas y ordenadas por App: no hay paginado, son exactamente las filas
+  // visibles), así que un `ITCLIP-128` ensancha la columna y un dashboard de solo `KODO-*` no.
+  const { widths, visible } = budgetColumns(tableWidth, anyGsd, anyProgress, anyNext, taskRefWidth(rows));
 
   // Header: indicador live (D-10) + contadores (D-11, omitidos si todos en cero / lista vacía)
   // + conteo de capturas pendientes de enrutar (Phase 84 CAPT-07 D-22/D-23, omitido en 0).
@@ -1228,7 +1306,10 @@ export default function SessionTable({
         // estado futuro desborda los 18, y ahí un `…` es infinitamente mejor que un wrap a otra línea.
         return cell({ width: widths.state, text, color, bold: selected, truncate: true });
       })(),
-      cell({ width: widths.task_ref, text: cells.task_ref, bold: selected, truncate: true }),
+      // KODO-85: el texto se acota con `fitTaskRef` ANTES de la celda. El `truncate-end` de ink
+      // sigue puesto como red, pero recortaría a la celda entera y dejaría el `…` pegado a `repo`
+      // — que es exactamente el síntoma que se está arreglando. El gap se defiende en el texto.
+      cell({ width: widths.task_ref, text: fitTaskRef(cells.task_ref, widths.task_ref), bold: selected, truncate: true }),
       ...(visible.has('repo')
         ? [cell({ width: widths.repo, text: cells.repo, bold: selected, truncate: true })]
         : []),
