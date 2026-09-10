@@ -106,6 +106,11 @@ export function phaseMode(session) {
  * @returns {{ color?: string, dim?: boolean }}
  */
 export function statusColor(status, alive, state) {
+  // KODO-88 revisó estas dos ramas `status === 'running'` y NO las toca. Aquí `status` no
+  // decide capacidad ni liveness: es el eje de OUTCOME del dashboard, y las sesiones `idle`
+  // ya reciben su color por la rama de abajo (`STATE_BADGES[state]` → amarillo ⏸ idle), que
+  // es el eje correcto para el lifecycle. Añadir `idle` arriba pintaría de verde-running lo
+  // que la columna `state` pinta de amarillo-idle: dos ejes contradiciéndose en la misma fila.
   if (status === 'running' && !alive) return { color: 'red' };
   if (status === 'running') return { color: 'green' };
   if (status === 'review') return { color: 'cyan' };

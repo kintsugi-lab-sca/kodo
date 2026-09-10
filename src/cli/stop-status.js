@@ -180,6 +180,10 @@ export async function runStatusUnified(opts = {}, deps = {}) {
 
   // Rama TTY: color isolation LOCKED (createFormatter TTY-aware sobre _stdout).
   const fmt = createFormatter(deps._stdout || process.stdout);
+  // KODO-88 revisó este `status === 'running'` y NO lo toca: `st` viene de `statusDaemon`
+  // (`daemon/lifecycle.js:365`) y describe el PROCESO DAEMON, no una sesión de trabajo. Su
+  // vocabulario `running|idle` es homónimo del de las sesiones y no tiene nada que ver: un
+  // daemon `idle` es un daemon que NO está corriendo.
   if (st.status === 'running') {
     write(`${fmt.ok('running')} pid: ${st.pid}\n`);
   } else {

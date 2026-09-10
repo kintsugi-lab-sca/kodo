@@ -407,7 +407,8 @@ export function isGitRepo(projectPath, gitFn) {
  * existen a `''`, y no un objeto a medias: `state.sessions` lo recorre medio repo
  * (dashboard, health, orquestador) y una entrada con campos ausentes es una mina para
  * cualquier `.includes()` futuro. Todos esos consumidores filtran hoy por
- * `status === 'running'`, así que la reserva les es invisible por construcción.
+ * `isLiveWorkSession` (KODO-88: `status ∈ {running, idle}`), así que la reserva les
+ * sigue siendo invisible por construcción — `launching` no está en ese conjunto.
  *
  * @param {string} identifier - ref humana ("KODO-42"). Es lo ÚNICO que se conoce en
  *   este punto, y va al `task_ref` del placeholder para que la reserva sea legible en
