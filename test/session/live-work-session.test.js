@@ -49,6 +49,7 @@ let origHome;
 let isLiveWorkSession;
 let isSchedulable;
 let reserveSessionSlot;
+let reserveLaunchSlot;
 let runCheck;
 let checkHealth;
 let buildContextSummary;
@@ -108,6 +109,7 @@ before(async () => {
   process.env.HOME = tmpHome;
 
   ({ isLiveWorkSession, isSchedulable, reserveSessionSlot } = await import('../../src/session/state.js'));
+  ({ reserveLaunchSlot } = await import('../../src/session/manager.js'));
   ({ runCheck } = await import('../../src/check.js'));
   ({ checkHealth } = await import('../../src/session/health.js'));
   ({ buildContextSummary } = await import('../../src/orchestrator/launch.js'));
@@ -191,6 +193,21 @@ describe('reserveSessionSlot — tres sesiones idle vivas llenan max_parallel=3'
     );
 
     assert.equal(r.ok, true, 'el zombi no retiene su slot (KODO-55 intacto)');
+  });
+});
+
+describe('criterio de éxito de KODO-88 — el lanzamiento se rechaza', () => {
+  it('dos sesiones vivas tras su primer turno + max_parallel=2 → «Max parallel sessions (2) reached»', () => {
+    seedState([
+      session('85', { workspace_ref: LIVE_WORKSPACES[0] }),
+      session('87', { workspace_ref: LIVE_WORKSPACES[1] }),
+    ]);
+
+    assert.throws(
+      () => reserveLaunchSlot('KODO-99', { maxParallel: 2, provider: 'kodo-test-void' }),
+      /Max parallel sessions \(2\) reached\. Active: KODO-8[57], KODO-8[57]/,
+      'antes de KODO-88 el gate contaba 0 ocupados y este lanzamiento pasaba',
+    );
   });
 });
 

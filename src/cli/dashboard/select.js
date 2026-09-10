@@ -201,6 +201,10 @@ export function countByStatus(rows) {
   const c = { running: 0, review: 0, done: 0, error: 0, zombie: 0, idle: 0, 'needs-input': 0, dead: 0 };
   for (const r of rows) {
     const st = r.state ?? r.status ?? '';
+    // KODO-88 revisó este `=== 'running'` y NO lo toca: `st` es el eje del lifecycle v3
+    // (`state`, con fallback al legacy `status`), y este contador YA tiene bucket propio
+    // para `idle`. Una sesión idle que muere la marca reconcileTick con `state: 'dead'` y
+    // cae en su bucket; meterla en `zombie` duplicaría el recuento del header.
     if (st === 'running' && r.alive === false) c.zombie++;
     else if (Object.prototype.hasOwnProperty.call(c, st)) c[/** @type {string} */ (st)]++;
   }
