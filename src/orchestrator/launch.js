@@ -540,7 +540,7 @@ export async function launchOrchestrator(opts = {}) {
   //
   // El orchestrator necesita cwd = repo kodo (línea cmux.newWorkspace
   // arriba: `cwd: process.cwd()`) para que Claude Code auto-cargue
-  // `.claude/skills/kodo-orchestrate/skill.md` (Phase 999.1 D-05/D-06
+  // `.claude/skills/kodo-orchestrate/SKILL.md` (Phase 999.1 D-05/D-06
   // constraint registrado en PROJECT.md §Constraints).
   //
   // Si se añadiera --worktree aquí, la sesión arrancaría en

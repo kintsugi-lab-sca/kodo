@@ -53,9 +53,12 @@ const IDENTITY_SKILL = 'kodo-orchestrate';
 
 /**
  * Nombres candidatos del entrypoint de una skill, en orden de preferencia
- * (D-07). Claude Code documenta `SKILL.md`; `kodo-orchestrate` usa histórico
- * `skill.md` en minúsculas (su rename está diferido por D-08). En macOS el
- * filesystem es case-insensitive y la discrepancia es invisible; en Linux no.
+ * (D-07). Claude Code documenta `SKILL.md`, y desde KODO-87 TODAS las skills del
+ * repo lo usan — `kodo-orchestrate` incluida, cuyo rename estaba diferido por D-08.
+ * `skill.md` en minúsculas se conserva como fallback SOLO para los destinos en
+ * `~/.claude/skills/` sincronizados antes de ese rename: en macOS el filesystem es
+ * case-insensitive y la discrepancia es invisible, pero en Linux un home viejo
+ * quedaría sin entrypoint reconocible.
  *
  * @type {ReadonlyArray<string>}
  */

@@ -20,7 +20,7 @@ import { getHost, resolveHostName } from '../host/interface.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KODO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..');
-const SKILL_PATH = join(KODO_ROOT, '.claude', 'skills', 'kodo-orchestrate', 'skill.md');
+const SKILL_PATH = join(KODO_ROOT, '.claude', 'skills', 'kodo-orchestrate', 'SKILL.md');
 
 const STDIN_TIMEOUT = 3000;
 

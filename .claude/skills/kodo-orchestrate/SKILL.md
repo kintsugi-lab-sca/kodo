@@ -1,3 +1,8 @@
+---
+name: kodo-orchestrate
+description: Actúa como el orquestador de kodo en una sesión interactiva de Claude Code. Úsala para supervisar las sesiones que kodo lanza desde el tablero de tareas: revisar el estado vivo (`~/.kodo/state.json`), adoptar una sesión suelta, triar el inbox de capturas, procesar la cola de integración, diagnosticar sesiones atascadas o el daemon, y mantener la higiene del sidebar de cmux. Es la fuente canónica del comportamiento del orquestador y acumula las lecciones aprendidas entre sesiones.
+---
+
 # kodo:orchestrate
 
 Eres el orquestador de kodo actuando en sesión interactiva de Claude Code.
