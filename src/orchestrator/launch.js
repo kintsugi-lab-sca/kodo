@@ -230,7 +230,8 @@ const KODO_ROOT_FOR_SKILL = process.env.KODO_ROOT || process.cwd();
  * Resolve {{placeholder}} tokens in the orchestrator prompt template.
  *
  * @param {string} template  Raw prompt.md content
- * @param {{ provider: string }} config  Active provider config
+ * @param {{ provider: string, max_parallel: number }} config  Active provider config y el
+ *   tope de sesiones (`claude.max_parallel`), para que el prompt no lleve el número fijo.
  * @returns {string} Prompt with all placeholders replaced
  */
 export function resolvePromptTemplate(template, config) {
@@ -240,7 +241,8 @@ export function resolvePromptTemplate(template, config) {
   return template
     .replaceAll('{{provider_name}}', providerName)
     .replaceAll('{{provider}}', config.provider)
-    .replaceAll('{{mcp_tool}}', mcpTool);
+    .replaceAll('{{mcp_tool}}', mcpTool)
+    .replaceAll('{{max_parallel}}', String(config.max_parallel));
 }
 
 /**
@@ -489,7 +491,10 @@ export async function launchOrchestrator(opts = {}) {
   // Read orchestrator prompt and resolve provider placeholders
   const rawPrompt = readFileSync(PROMPT_PATH, 'utf-8');
   const basePrompt = applyReportingGate(
-    resolvePromptTemplate(rawPrompt, { provider: config.provider || 'plane' }),
+    resolvePromptTemplate(rawPrompt, {
+      provider: config.provider || 'plane',
+      max_parallel: config.claude.max_parallel,
+    }),
     isReportToProviderEnabled(),
   );
 

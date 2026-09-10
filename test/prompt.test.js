@@ -31,6 +31,13 @@ describe('orchestrator prompt template', () => {
   it('contains {{mcp_tool}} placeholder', () => {
     assert.ok(raw.includes('{{mcp_tool}}'), 'should contain {{mcp_tool}}');
   });
+
+  it('contains {{max_parallel}} placeholder and no hard-coded session cap', () => {
+    assert.ok(raw.includes('{{max_parallel}}'), 'should contain {{max_parallel}}');
+    // El tope vive en config.json (`claude.max_parallel`); un número fijo aquí
+    // desinforma al orquestador en cuanto el operador lo cambia desde el TUI.
+    assert.ok(!/[Mm]áximo \d+/.test(raw), 'should not hard-code the session cap');
+  });
 });
 
 describe('resolvePromptTemplate', () => {
@@ -46,7 +53,7 @@ describe('resolvePromptTemplate', () => {
   it('replaces all placeholders for provider "plane"', async () => {
     const { resolvePromptTemplate: fn } = await import('../src/orchestrator/launch.js');
     const raw = readFileSync(PROMPT_PATH, 'utf-8');
-    const resolved = fn(raw, { provider: 'plane' });
+    const resolved = fn(raw, { provider: 'plane', max_parallel: 3 });
 
     assert.ok(!resolved.includes('{{'), `should have no remaining {{ placeholders — found: ${resolved.match(/\{\{[^}]+\}\}/)?.[0]}`);
   });
@@ -54,15 +61,24 @@ describe('resolvePromptTemplate', () => {
   it('resolved prompt for provider "plane" contains "Plane"', async () => {
     const { resolvePromptTemplate: fn } = await import('../src/orchestrator/launch.js');
     const raw = readFileSync(PROMPT_PATH, 'utf-8');
-    const resolved = fn(raw, { provider: 'plane' });
+    const resolved = fn(raw, { provider: 'plane', max_parallel: 3 });
 
     assert.ok(resolved.includes('Plane'), 'resolved prompt for plane should contain "Plane"');
+  });
+
+  it('resolves {{max_parallel}} from config', async () => {
+    const { resolvePromptTemplate: fn } = await import('../src/orchestrator/launch.js');
+    const raw = readFileSync(PROMPT_PATH, 'utf-8');
+    const resolved = fn(raw, { provider: 'plane', max_parallel: 5 });
+
+    assert.ok(resolved.includes('Máximo 5 sesiones simultáneas'), 'cap should come from config');
+    assert.ok(!resolved.includes('{{max_parallel}}'));
   });
 
   it('resolved prompt for provider "github" contains "Github"', async () => {
     const { resolvePromptTemplate: fn } = await import('../src/orchestrator/launch.js');
     const raw = readFileSync(PROMPT_PATH, 'utf-8');
-    const resolved = fn(raw, { provider: 'github' });
+    const resolved = fn(raw, { provider: 'github', max_parallel: 3 });
 
     assert.ok(resolved.includes('Github'), 'resolved prompt for github should contain "Github"');
     assert.ok(!resolved.includes('Plane'), 'resolved prompt for github should NOT contain "Plane"');
