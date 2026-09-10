@@ -65,10 +65,12 @@ export function syncSkill(opts) {
   try {
     // 1. Validar source: el entrypoint DEBE existir (D-07 traducción a 'error').
     // Phase 84 (D-07): case-tolerante — `SKILL.md` (convención documentada de
-    // Claude Code, la que usa `kodo-capture`) o `skill.md` (histórico de
-    // `kodo-orchestrate`, cuyo rename difiere D-08). En macOS el filesystem es
-    // case-insensitive y la discrepancia es invisible; en Linux, sin esto,
-    // `kodo-capture/SKILL.md` pasaría el gate del handler y aquí devolvería
+    // Claude Code) o `skill.md`. Desde KODO-87 el repo usa siempre `SKILL.md`
+    // (`kodo-orchestrate` incluida, cuyo rename difería D-08); la minúscula se
+    // conserva porque esta validación mira el SOURCE, y un binario nuevo puede
+    // correr contra un checkout anterior al rename. En macOS el filesystem es
+    // case-insensitive y la discrepancia es invisible; en Linux, sin
+    // esto, `kodo-capture/SKILL.md` pasaría el gate del handler y aquí devolvería
     // `source skill not found`. NO cambia ni la firma ni el contrato de retorno
     // de syncSkill: es una condición interna más permisiva, así que es
     // compatible con D-06 leído literalmente (arbitraje explícito del planner).
@@ -100,6 +102,29 @@ export function syncSkill(opts) {
 
     // 4. Walker recursivo del source → array de rel paths (regular files only).
     const sourceFiles = walkFiles(source);
+
+    // 4b. KODO-87: rename solo-de-caja source→dest. Cuando el source renombra un
+    // fichero cambiando ÚNICAMENTE mayúsculas/minúsculas (`skill.md` → `SKILL.md`,
+    // el rename que D-08 tenía diferido), el destino ya sincronizado conserva la
+    // grafía vieja y ninguna de las dos ramas del paso 5 lo arregla:
+    //   - En macOS (case-insensitive) `writeFileSync(dest/SKILL.md)` escribe sobre
+    //     el MISMO inodo y el nombre en disco se queda en `skill.md`: el contenido
+    //     se actualiza, el rename no llega nunca (verificado, no deducido).
+    //   - En Linux (case-sensitive) quedan los DOS ficheros, y el viejo —con
+    //     contenido obsoleto— sigue siendo un entrypoint que el cliente puede cargar.
+    // Por eso se borra aquí, ANTES del copy loop: en macOS el unlink tiene que
+    // preceder al write o volveríamos a escribir sobre el inodo viejo.
+    // NO es prune y por eso no lo gatea `--prune`: no borra un fichero foráneo, borra
+    // la grafía anterior del MISMO fichero, que el paso 5 recrea acto seguido. El
+    // conteo tampoco cambia — el copy que sigue ya lo suma a `files_changed`.
+    /** @type {Map<string, string>} lowercase(rel) → grafía exacta en dest */
+    const destByLower = new Map(walkFiles(dest).map((r) => [r.toLowerCase(), r]));
+    for (const relPath of sourceFiles) {
+      const destRel = destByLower.get(relPath.toLowerCase());
+      if (destRel !== undefined && destRel !== relPath) {
+        unlinkSync(join(dest, destRel));
+      }
+    }
 
     // 5. Hash + diff por archivo. Recolectamos el Set para reusar en prune.
     /** @type {Set<string>} */

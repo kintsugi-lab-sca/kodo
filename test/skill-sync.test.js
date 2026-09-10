@@ -32,7 +32,7 @@ import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
-  mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync,
+  mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync,
   lstatSync, symlinkSync, chmodSync, existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -278,6 +278,67 @@ describe('syncSkill (unit, in-process)', () => {
       readFileSync(join(destOf(_tmpHome), 'subdir', 'nested', 'b.md'), 'utf-8'),
       'nested content\n',
     );
+  });
+});
+
+// ─── Suite 1.4: rename solo-de-caja source→dest (KODO-87) ───────────────────
+//
+// Cuando el source renombra un fichero cambiando SOLO mayúsculas/minúsculas
+// (`skill.md` → `SKILL.md`), el destino ya sincronizado conserva la grafía vieja.
+// Ni el diff por hash ni el copy la arreglan: en un filesystem case-insensitive
+// (macOS) el write cae sobre el mismo inodo y el nombre no cambia; en uno
+// case-sensitive (Linux) quedan los dos ficheros y el viejo sigue siendo un
+// entrypoint cargable con contenido obsoleto. syncSkill borra la grafía anterior
+// antes del copy. NO lo gatea `--prune`: no es un foráneo, es el mismo fichero.
+
+describe('syncSkill rename solo-de-caja (KODO-87)', () => {
+  let _tmpHome;
+  let _tmpRepo;
+
+  afterEach(() => {
+    if (_tmpHome) rmSync(_tmpHome, { recursive: true, force: true });
+    if (_tmpRepo) rmSync(_tmpRepo, { recursive: true, force: true });
+    _tmpHome = undefined;
+    _tmpRepo = undefined;
+  });
+
+  it('el dest queda con la grafía del source y el contenido nuevo, sin --prune', () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const source = sourceOf(_tmpRepo);
+    const dest = destOf(_tmpHome);
+
+    // 1ª sync: el source todavía trae `skill.md` (grafía vieja del fixture).
+    syncSkill({ source, dest });
+    assert.equal(readFileSync(join(dest, 'skill.md'), 'utf-8'), '# kodo:orchestrate\n\nCanonical body v1.\n');
+
+    // El source hace el rename solo-de-caja y cambia el contenido.
+    rmSync(join(source, 'skill.md'));
+    writeFileSync(join(source, 'SKILL.md'), '---\nname: kodo-orchestrate\n---\n\nv2.\n', 'utf-8');
+
+    const result = syncSkill({ source, dest });
+
+    assert.equal(result.status, 'ok');
+    // La grafía vieja no sobrevive: en Linux desaparece el fichero, y en macOS
+    // (case-insensitive) el readdir ya no la lista porque el unlink precedió al write.
+    assert.deepEqual(
+      readdirSync(dest).filter((n) => n.toLowerCase() === 'skill.md'),
+      ['SKILL.md'],
+    );
+    assert.equal(readFileSync(join(dest, 'SKILL.md'), 'utf-8'), '---\nname: kodo-orchestrate\n---\n\nv2.\n');
+  });
+
+  it('no toca ficheros cuyo nombre coincide exactamente (no hay falso rename)', () => {
+    ({ tmpHome: _tmpHome, tmpRepo: _tmpRepo } = makeFixture());
+    const source = sourceOf(_tmpRepo);
+    const dest = destOf(_tmpHome);
+
+    syncSkill({ source, dest });
+    const second = syncSkill({ source, dest });
+
+    assert.equal(second.status, 'noop');
+    assert.equal(second.files_changed, 0);
+    assert.equal(existsSync(join(dest, 'skill.md')), true);
+    assert.equal(existsSync(join(dest, 'subdir', 'extra.md')), true);
   });
 });
 
