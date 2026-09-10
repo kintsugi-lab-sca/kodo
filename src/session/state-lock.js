@@ -65,8 +65,11 @@ function sleepSync(ms) {
  * de bytes y un `touch` provocaría abortos espurios. Mismo criterio que
  * `readLockIdentity` en `src/gsd/lock.js`.
  *
+ * `mtimeMs` viaja en la identidad pero NO participa en la comparación: es la
+ * entrada de `identityIsStale` para el caso del lock ilegible.
+ *
  * @param {string} lockPath
- * @returns {{ raw: Buffer|null, ino: number|null, missing: boolean }}
+ * @returns {{ raw: Buffer|null, ino: number|null, mtimeMs: number|null, missing: boolean }}
  */
 function readLockIdentity(lockPath) {
   let raw = null;
@@ -79,20 +82,23 @@ function readLockIdentity(lockPath) {
     // observable y comparable por inodo, no un "no se puede comprobar".
   }
   let ino = null;
+  let mtimeMs = null;
   try {
-    ino = statSync(lockPath).ino;
+    const st = statSync(lockPath);
+    ino = st.ino;
+    mtimeMs = st.mtimeMs;
   } catch {
     /* desaparecido entre el read y el stat — lo dice `missing`/`raw` */
   }
-  return { raw, ino, missing };
+  return { raw, ino, mtimeMs, missing };
 }
 
 /**
  * ¿Cambió la identidad del lock entre `base` y `fresh`? Conservador por diseño:
  * si no se puede comparar, la respuesta es «sí cambió» y el llamante NO publica.
  *
- * @param {{ raw: Buffer|null, ino: number|null, missing: boolean }} base
- * @param {{ raw: Buffer|null, ino: number|null, missing: boolean }} fresh
+ * @param {{ raw: Buffer|null, ino: number|null, mtimeMs?: number|null, missing: boolean }} base
+ * @param {{ raw: Buffer|null, ino: number|null, mtimeMs?: number|null, missing: boolean }} fresh
  * @returns {boolean}
  */
 function identityChanged(base, fresh) {
@@ -141,6 +147,35 @@ function parseLockContent(raw) {
 }
 
 /**
+ * ¿Es robable el lock cuya identidad es `id`?
+ *
+ * Con contenido parseable decide `contentIsStale` (PID muerto o TTL). Con
+ * contenido ILEGIBLE —fichero vacío o JSON truncado— decide la EDAD del fichero
+ * (mtime > ttl), nunca el fallo de parseo en sí: mismo criterio que
+ * `guardIsStale` en `src/gsd/lock.js`.
+ *
+ * El caso vacío es real, no teórico: `writeFileSync(..., {flag:'wx'})` es un
+ * `open(O_EXCL)` seguido de un `write`; un proceso matado entre ambos deja un
+ * lock de 0 bytes sin dueño. Antes de esto ese lock era INMORTAL —«ilegible ⇒
+ * no robable» valía para una escritura a medias de microsegundos, pero sin
+ * cota de edad convertía un cadáver en un bloqueo permanente de `state.json`
+ * (`lock.timeout` en bucle hasta borrarlo a mano). La ventana legítima de
+ * «creado pero aún sin bytes» es de microsegundos; un lock ilegible que supera
+ * el TTL completo es basura.
+ *
+ * @param {{ raw: Buffer|null, mtimeMs: number|null, missing: boolean }} id
+ * @param {number} ttlMs
+ * @returns {boolean}
+ */
+function identityIsStale(id, ttlMs) {
+  if (id.missing) return false;
+  const held = parseLockContent(id.raw);
+  if (held !== null) return contentIsStale(held, ttlMs);
+  if (id.mtimeMs === null || !Number.isFinite(id.mtimeMs)) return false;
+  return Date.now() - id.mtimeMs > ttlMs;
+}
+
+/**
  * Attempt to acquire the advisory lock at `lockPath`.
  *
  * Returns `{ token }` on success (the caller passes `token` back to
@@ -175,8 +210,10 @@ export function acquireLock(lockPath, opts = {}) {
 
       // Lock exists — steal ONLY if the owner is provably stale (dead PID or
       // TTL exceeded). A corrupt/partial read (e.g. the winner created the file
-      // but has not written its bytes yet) is NOT treated as stealable: we fall
-      // through to backoff+retry so the create race can never yield two winners.
+      // but has not written its bytes yet) is NOT treated as stealable while it
+      // is young: we fall through to backoff+retry so the create race can never
+      // yield two winners. Past the TTL an unreadable lock IS stealable by file
+      // age (`identityIsStale`) — otherwise a 0-byte orphan blocks forever.
       //
       // KODO-48 (regresión detectada al integrar): el CAS anterior —mover el lock
       // A UN LADO con `renameSync(lockPath, aside)` y recrearlo después con
@@ -203,8 +240,7 @@ export function acquireLock(lockPath, opts = {}) {
       // dueño liberó el lock a mitad del robo.
       const guardPath = `${lockPath}.steal-guard`;
       try {
-        const held = parseLockContent(readLockIdentity(lockPath).raw);
-        if (contentIsStale(held, ttlMs)) {
+        if (identityIsStale(readLockIdentity(lockPath), ttlMs)) {
           if (!acquireStealGuard(guardPath)) {
             // Guard ocupado. Romperlo SOLO si está huérfano (dueño muerto o
             // envejecido); jamás uno vivo y en ventana — su dueño puede estar
@@ -240,7 +276,7 @@ export function acquireLock(lockPath, opts = {}) {
                   if (/** @type {NodeJS.ErrnoException} */ (ce).code !== 'EEXIST') throw ce;
                   // Alguien se adelantó → re-contender.
                 }
-              } else if (contentIsStale(parseLockContent(base.raw), ttlMs)) {
+              } else if (identityIsStale(base, ttlMs)) {
                 // ORDEN INAMOVIBLE (heredado de gsd/lock.js): escribir el tmp →
                 // sonda FRESCA → comparar → renombrar. Comparar antes de escribir
                 // dejaría el coste de la escritura fuera de la ventana vigilada.

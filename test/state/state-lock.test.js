@@ -18,7 +18,7 @@
 
 import { describe, it, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 
@@ -126,6 +126,31 @@ describe('state-lock primitive (D-01/D-03/D-08)', () => {
     );
     const got = acquireLock(p, { retries: 0, ttlMs: 10 });
     assert.ok(got && got.token, 'TTL-expired lock is stolen even if pid alive');
+  });
+
+  // ------------------------------------------------------------------
+  it('steals an EMPTY (0-byte) lock once its mtime exceeds the TTL', () => {
+    // Regresión: un proceso matado entre el open(O_EXCL) y el write deja un
+    // lock vacío sin dueño. Antes era inmortal (ilegible ⇒ nunca robable) y
+    // dejaba state.json bloqueado con lock.timeout en bucle.
+    const p = freshLockPath();
+    writeFileSync(p, '');
+    const old = (Date.now() - 60_000) / 1000;
+    utimesSync(p, old, old);
+    const got = acquireLock(p, { retries: 0, ttlMs: 10 });
+    assert.ok(got && got.token, 'aged empty lock is stolen by file age');
+    const held = JSON.parse(readFileSync(p, 'utf-8'));
+    assert.equal(held.token, got.token, 'lock now holds our token');
+    assert.equal(held.pid, process.pid);
+  });
+
+  // ------------------------------------------------------------------
+  it('does NOT steal an empty lock younger than the TTL (creator may be mid-write)', () => {
+    const p = freshLockPath();
+    writeFileSync(p, '');
+    const got = acquireLock(p, { retries: 0, ttlMs: 10_000 });
+    assert.equal(got, null, 'young empty lock is respected');
+    assert.equal(readFileSync(p, 'utf-8'), '', 'lock left untouched');
   });
 
   // ------------------------------------------------------------------
