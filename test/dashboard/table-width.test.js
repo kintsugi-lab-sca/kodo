@@ -31,7 +31,8 @@ describe('KODO-77: presupuesto de ancho de la tabla (budgetColumns)', () => {
   it('sin tableWidth (montaje suelto en tests): anchos nominales y ninguna columna caída', () => {
     const budget = budgetColumns(null, true, true, true);
     assert.equal(budget.widths.next, 40, 'la columna next conserva su ancho nominal');
-    assert.equal(rowWidth(budget), 143, 'la fila mide lo que siempre midió (2+18+10+18+11+18+7+12+7+40)');
+    // KODO-85: 145 y no 143 — `task_ref` pasó de 10 a 12 para no pegarse a `repo`.
+    assert.equal(rowWidth(budget), 145, 'la fila mide sus nominales (2+18+12+18+11+18+7+12+7+40)');
     for (const key of ['repo', 'phasemode', 'prog', 'task', 'next']) {
       assert.ok(budget.visible.has(key), `sin presupuesto no se cae ninguna columna (falta ${key})`);
     }
@@ -40,43 +41,59 @@ describe('KODO-77: presupuesto de ancho de la tabla (budgetColumns)', () => {
   it('con espacio de sobra: todas las columnas encendidas y `next` a su ancho nominal', () => {
     const budget = budgetColumns(200, true, true, true);
     assert.equal(budget.widths.next, 40, 'next no crece por encima de su nominal');
-    assert.equal(rowWidth(budget), 143);
+    assert.equal(rowWidth(budget), 145);
+    assert.equal(budget.widths.status, 18, 'KODO-85: sin presión status conserva su nominal');
   });
 
   it('`next` es ELÁSTICA: se queda con el sobrante en vez de desbordar la fila', () => {
-    // 103 = todas las fijas con phase/mode y prog encendidos. +25 de holgura para next.
+    // 105 = todas las fijas con phase/mode y prog encendidos. +23 de holgura para next.
     const budget = budgetColumns(128, true, true, true);
-    assert.ok(budget.visible.has('next'), 'con 25 celdas libres next sigue en pie');
-    assert.equal(budget.widths.next, 25, 'next toma exactamente el sobrante');
+    assert.ok(budget.visible.has('next'), 'con 23 celdas libres next sigue en pie');
+    assert.equal(budget.widths.next, 23, 'next toma exactamente el sobrante');
     assert.equal(rowWidth(budget), 128, 'la fila llena el ancho disponible sin pasarse');
   });
 
   it('`next` se CAE entera cuando el sobrante no llega al mínimo utilizable', () => {
-    // 103 fijas + 8 libres: por debajo de NEXT_MIN (12) la celda no informa.
-    const budget = budgetColumns(111, true, true, true);
+    // KODO-85: el suelo real son 95 fijas (status ya cedió su aire hasta 8) + NEXT_MIN(12) = 107.
+    // A 100 celdas no hay hueco para una `next` que informe.
+    const budget = budgetColumns(100, true, true, true);
     assert.ok(!budget.visible.has('next'), 'next se omite en vez de rendirse a un muñón');
-    assert.equal(rowWidth(budget), 103, 'el ancho recuperado se queda sin usar, no lo absorbe otra columna');
+    assert.equal(rowWidth(budget), 95, 'el ancho recuperado se queda sin usar, no lo absorbe otra columna');
   });
 
   it('sueltan columnas por prioridad cuando ni las fijas caben (next → prog → phase/mode → repo → task)', () => {
     const at = (width) => budgetColumns(width, true, true, true);
 
-    // 96 = 103 fijas − prog(7).
+    // 94 = 95 fijas (status al suelo) − prog(7) + 6 de holgura sin usar.
     assert.deepEqual(
-      [...at(96).visible],
+      [...at(94).visible],
       ['gutter', 'state', 'task_ref', 'repo', 'phasemode', 'status', 'task', 'age'],
       'la primera fija en caer es prog',
     );
-    // 85 = 96 − phasemode(11).
-    assert.ok(!at(85).visible.has('phasemode'), 'después cae phase/mode');
-    // 67 = 85 − repo(18).
-    assert.ok(!at(67).visible.has('repo'), 'después cae repo');
-    // 55 = 67 − task(12): quedan solo las irrenunciables.
+    // 87 = 88 − 1: ya no cabe phase/mode.
+    assert.ok(!at(87).visible.has('phasemode'), 'después cae phase/mode');
+    // 76 = 77 − 1: ya no cabe repo.
+    assert.ok(!at(76).visible.has('repo'), 'después cae repo');
+    // 58 = 59 − 1: cae task y quedan solo las irrenunciables (2+18+12+8+7 = 47).
     assert.deepEqual(
-      [...at(55).visible],
+      [...at(58).visible],
       ['gutter', 'state', 'task_ref', 'status', 'age'],
       'gutter/state/task_ref/status/age son irrenunciables',
     );
+  });
+
+  it('KODO-85: `status` cede su aire ANTES de que se suelte una columna, y nunca por debajo de su suelo', () => {
+    // 114 = terminal de 120 menos el chrome del marco. Con los nominales la fila pide 117.
+    const budget = budgetColumns(114, true, true, true);
+    assert.ok(budget.visible.has('next'), 'a 114 celdas next sobrevive: el déficit lo paga status');
+    assert.equal(budget.widths.status, 15, 'status cede solo las 3 celdas que faltaban, no su aire entero');
+
+    for (let width = 20; width <= 200; width++) {
+      const w = budgetColumns(width, true, true, true).widths;
+      // Por debajo del suelo solo puede bajar el recorte de emergencia (paso 4), que actúa cuando
+      // ni las irrenunciables caben — ahí `age` ya está a 0.
+      if (w.status < 8) assert.equal(w.age, 0, `status por debajo del suelo con age=${w.age} (ancho ${width})`);
+    }
   });
 
   it('INVARIANTE: la fila jamás supera el ancho disponible, en ningún ancho ni combinación de flags', () => {
