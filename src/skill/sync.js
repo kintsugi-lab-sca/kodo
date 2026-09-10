@@ -65,10 +65,11 @@ export function syncSkill(opts) {
   try {
     // 1. Validar source: el entrypoint DEBE existir (D-07 traducción a 'error').
     // Phase 84 (D-07): case-tolerante — `SKILL.md` (convención documentada de
-    // Claude Code) o `skill.md`. Desde KODO-87 el source usa siempre `SKILL.md`
+    // Claude Code) o `skill.md`. Desde KODO-87 el repo usa siempre `SKILL.md`
     // (`kodo-orchestrate` incluida, cuyo rename difería D-08); la minúscula se
-    // conserva por los destinos sincronizados antes de ese rename. En macOS el
-    // filesystem es case-insensitive y la discrepancia es invisible; en Linux, sin
+    // conserva porque esta validación mira el SOURCE, y un binario nuevo puede
+    // correr contra un checkout anterior al rename. En macOS el filesystem es
+    // case-insensitive y la discrepancia es invisible; en Linux, sin
     // esto, `kodo-capture/SKILL.md` pasaría el gate del handler y aquí devolvería
     // `source skill not found`. NO cambia ni la firma ni el contrato de retorno
     // de syncSkill: es una condición interna más permisiva, así que es
