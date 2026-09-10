@@ -133,7 +133,7 @@ const SHRINK_FLOOR = [['status', 8]];
  * KODO-85: ancho DERIVADO de la columna `task_ref` a partir de los refs de las filas visibles.
  * Acotado por abajo al nominal (`COLS.task_ref`, que ya incluye el gap sobre los refs de 10) y por
  * arriba a `TASK_REF_MAX`. Con la tabla vacía devuelve el nominal — nunca menos, para que la
- * cabecera `task_ref` (9 chars) no se pegue tampoco.
+ * cabecera `task_ref` (8 chars) no se pegue tampoco.
  *
  * Puro y never-throws: una fila sin `task_ref` cuenta como el placeholder `—` de `rowCells`.
  *
@@ -184,7 +184,7 @@ const DROP_ORDER = ['next', 'prog', 'phasemode', 'repo', 'task'];
  *   1. las columnas con aire declarado (`SHRINK_FLOOR`) ceden hasta su suelo — KODO-85;
  *   2. se sueltan columnas enteras por `DROP_ORDER` hasta que las restantes quepan;
  *   3. `next`, la única elástica, se queda con lo que sobre (y se cae si no llega a NEXT_MIN);
- *   4. si ni las irrenunciables caben (terminal por debajo de ~61 celdas), el déficit residual se
+ *   4. si ni las irrenunciables caben (terminal por debajo de ~47 celdas), el déficit residual se
  *      descuenta de derecha a izquierda para que la fila NUNCA supere el ancho de la terminal.
  *
  * KODO-85: el paso 1 va ANTES del 2 a propósito. Ensanchar `task_ref` sin él haría que la tabla
@@ -205,7 +205,7 @@ const DROP_ORDER = ['next', 'prog', 'phasemode', 'repo', 'task'];
  * @returns {{ widths: Record<string, number>, visible: Set<string> }}
  */
 export function budgetColumns(tableWidth, anyGsd, anyProgress, anyNext, taskRefW = COLS.task_ref) {
-  // Orden IZQUIERDA→DERECHA de la fila renderizada: es también el orden de recorte del paso 3.
+  // Orden IZQUIERDA→DERECHA de la fila renderizada: es también el orden de recorte del paso 4.
   const order = [
     'gutter',
     'state',

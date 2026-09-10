@@ -64,7 +64,7 @@ describe('KODO-77: presupuesto de ancho de la tabla (budgetColumns)', () => {
   it('sueltan columnas por prioridad cuando ni las fijas caben (next → prog → phase/mode → repo → task)', () => {
     const at = (width) => budgetColumns(width, true, true, true);
 
-    // 94 = 95 fijas (status al suelo) − prog(7) + 6 de holgura sin usar.
+    // A 94 no llegan las 95 fijas (con status ya al suelo), así que cae prog → 88, y sobran 6.
     assert.deepEqual(
       [...at(94).visible],
       ['gutter', 'state', 'task_ref', 'repo', 'phasemode', 'status', 'task', 'age'],
