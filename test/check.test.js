@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { checkPendingTasks, runCheckAndAct } from '../src/check.js';
+import { checkPendingTasks, checkStuckSessions, runCheckAndAct } from '../src/check.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHECK_SOURCE_PATH = join(__dirname, '..', 'src', 'check.js');
@@ -284,6 +284,65 @@ describe('check.js — checkPendingTasks (pure)', () => {
       /\[kodo:check\] Error checking tasks: network down/,
       'real err.message must survive fetchFreshPending (raw propagation, D-07)',
     );
+  });
+});
+
+// KODO-90: la línea Stuck leía `s.identifier`, que el HealthReport no tiene → «Stuck: ».
+describe('check.js — checkStuckSessions', () => {
+  const STUCK = [{ taskId: 'uuid-154', ref: 'ITCLIP-154', health: 'stuck', elapsed_min: 45 }];
+  const SESSIONS = { 'uuid-154': { task_id: 'uuid-154', project_id: 'proj-1', task_ref: 'ITCLIP-154' } };
+
+  /** @param {(arg: any) => Promise<string|null>} getTaskState */
+  const providerWith = (getTaskState) => ({ ...createFakeProvider(), getTaskState });
+
+  it('names the stuck session by its ref in the line and the reason', async () => {
+    const result = await checkStuckSessions({
+      config: BASE_CONFIG,
+      stuck: STUCK,
+      sessions: SESSIONS,
+      getProviderFn: () => providerWith(async () => 'in_progress'),
+    });
+
+    assert.deepEqual(result.lines, ['[kodo:check] Stuck: ITCLIP-154']);
+    assert.deepEqual(result.reasons, ['Sesiones stuck: ITCLIP-154']);
+  });
+
+  it('a session whose task is in review is not stuck: info line, no reason', async () => {
+    /** @type {any[]} */
+    const calls = [];
+    const result = await checkStuckSessions({
+      config: BASE_CONFIG,
+      stuck: STUCK,
+      sessions: SESSIONS,
+      getProviderFn: () => providerWith(async (arg) => { calls.push(arg); return 'in_review'; }),
+    });
+
+    assert.deepEqual(calls, [{ id: 'uuid-154', projectId: 'proj-1', ref: 'ITCLIP-154' }]);
+    assert.deepEqual(result.reasons, []);
+    assert.deepEqual(result.lines, ['[kodo:check] Task in review, not counted as stuck: ITCLIP-154']);
+  });
+
+  it('fail-open: unknown provider, missing getTaskState or a failing fetch keep it stuck', async () => {
+    const getProviderFns = [
+      () => { throw new Error('Unknown provider: test'); },
+      () => createFakeProvider(),
+      () => providerWith(async () => { throw new Error('network down'); }),
+    ];
+    for (const getProviderFn of getProviderFns) {
+      const result = await checkStuckSessions({ config: BASE_CONFIG, stuck: STUCK, sessions: SESSIONS, getProviderFn });
+      assert.deepEqual(result.reasons, ['Sesiones stuck: ITCLIP-154']);
+    }
+  });
+
+  it('no stuck reports → no provider call, no output', async () => {
+    const result = await checkStuckSessions({
+      config: BASE_CONFIG,
+      stuck: [],
+      sessions: SESSIONS,
+      getProviderFn: () => { throw new Error('must not be called'); },
+    });
+
+    assert.deepEqual(result, { lines: [], reasons: [] });
   });
 });
 

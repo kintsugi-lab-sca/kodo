@@ -78,6 +78,62 @@ export async function checkPendingTasks({ config, runningCount, activeSessions, 
 }
 
 /**
+ * Pure helper: turns the `stuck` health reports into the lines/reasons of runCheck().
+ *
+ * KODO-90: nombra cada sesión por `report.ref` — el HealthReport no tiene `identifier`,
+ * y leerlo imprimía «Stuck: » con la lista vacía. Además, una sesión cuya tarea ya está
+ * en revisión (`getTaskState` → `in_review`) NO cuenta como stuck: terminó su trabajo y
+ * espera a un humano, así que dispararía el orquestador en cada check sin nada que hacer.
+ * Sale como línea informativa, sin reason. Fail-open: provider sin `getTaskState`, init
+ * que lanza o fetch fallido → la sesión sigue contando como stuck (comportamiento previo).
+ *
+ * @param {{
+ *   config: { provider: string },
+ *   stuck: import('./session/health.js').HealthReport[],
+ *   sessions: Record<string, { task_id?: string, project_id?: string, task_ref?: string }>,
+ *   getProviderFn: (name: string) => any,
+ * }} params
+ * @returns {Promise<{ lines: string[], reasons: string[] }>}
+ */
+export async function checkStuckSessions({ config, stuck, sessions, getProviderFn }) {
+  const lines = [];
+  const reasons = [];
+  if (stuck.length === 0) return { lines, reasons };
+
+  let provider = null;
+  try {
+    provider = getProviderFn(config.provider);
+    await provider.init();
+  } catch {
+    provider = null;
+  }
+
+  const stillStuck = [];
+  const awaitingReview = [];
+  for (const report of stuck) {
+    const session = sessions[report.taskId];
+    let taskState = null;
+    if (session && provider && typeof provider.getTaskState === 'function') {
+      taskState = await provider
+        .getTaskState({ id: session.task_id, projectId: session.project_id, ref: session.task_ref })
+        .catch(() => null);
+    }
+    (taskState === 'in_review' ? awaitingReview : stillStuck).push(report.ref);
+  }
+
+  if (stillStuck.length > 0) {
+    const ids = stillStuck.join(', ');
+    lines.push(`[kodo:check] Stuck: ${ids}`);
+    reasons.push(`Sesiones stuck: ${ids}`);
+  }
+  if (awaitingReview.length > 0) {
+    lines.push(`[kodo:check] Task in review, not counted as stuck: ${awaitingReview.join(', ')}`);
+  }
+
+  return { lines, reasons };
+}
+
+/**
  * Run a single check cycle. Returns a summary of findings.
  * @returns {Promise<{ needsOrchestrator: boolean, reasons: string[], summary: string }>}
  */
@@ -112,11 +168,15 @@ export async function runCheck() {
     await actOnHealth(gone);
   }
 
-  if (stuck.length > 0) {
-    const ids = stuck.map((s) => s.identifier).join(', ');
-    lines.push(`[kodo:check] Stuck: ${ids}`);
-    reasons.push(`Sesiones stuck: ${ids}`);
-  }
+  await initRegistry();
+  const stuckResult = await checkStuckSessions({
+    config,
+    stuck,
+    sessions: state.sessions,
+    getProviderFn: getProvider,
+  });
+  lines.push(...stuckResult.lines);
+  reasons.push(...stuckResult.reasons);
 
   // 2. Sessions in review — need orchestrator to evaluate
   if (inReview.length > 0) {
@@ -126,7 +186,6 @@ export async function runCheck() {
   }
 
   // 3. Check for pending tasks via the configured provider
-  await initRegistry();
   const pendingResult = await checkPendingTasks({
     config,
     runningCount: occupied.length,
