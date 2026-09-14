@@ -1069,3 +1069,37 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   `labels` llega como lista de UUIDs: sin `expand`, o pidiendo `labels` en
   `fields`. Para leer las labels de UNA tarea por el MCP: `expand=labels` y sin
   `fields`. Para muchas, REST.
+- [2026-09-14] **CI de `deikka/kodo` en rojo sin ejecutar ningún paso = cuota de
+  Actions agotada, no código.** El repo es privado en cuenta gratuita (2000
+  min/mes) y la matriz lleva `macos-latest`, que factura a 10x: cada run
+  consume ~60-70 min facturables y en la primera semana del ciclo se acaba.
+  Desde el 10-sep todos los runs (main y PRs) fallan en 2-6 s con `steps: []` y
+  sin log; la anotación del check-run dice «recent account payments have failed
+  or your spending limit needs to be increased» (con límite de gasto 0 es el
+  mismo mensaje). Cómo verlo en una llamada: `gh api
+  repos/<owner>/<repo>/check-runs/<id>/annotations` (`--log-failed` devuelve
+  «log not found»). Mientras dure, la única evidencia de suite verde de un PR es
+  la del comentario de cierre de la sesión. Decisión del operador: no pagar por
+  kodo; macOS quitado de la matriz el 14-sep (`5d10f677`, queda ubuntu 22+24 a
+  1x). La cuota sigue agotada hasta el 1 de octubre: ni con ubuntu solo arranca.
+  Consumo real por repo y mes: `gh api /users/<user>/settings/billing/usage`
+  (necesita scope `user`: `gh auth refresh -h github.com -s user`; el endpoint
+  viejo `…/billing/actions` devuelve 410). Septiembre: kodo 310 min macOS
+  (3100 facturados) + 451 Linux; el resto de repos, 0.
+- [2026-09-14] **Un cierre automático que llega días después de morir la sesión
+  mueve la tarea a Review aunque no haya trabajo.** ITCLIP-138 arrancó el 10-sep,
+  quedó bloqueada esperando el acceso al chat de roman, y el reconcile del 14-sep
+  (`dead_since` 4 días después de `last_seen_alive`) disparó el «Cierre
+  automático de kodo … movida a revisión» con handoff `author=auto` y sin
+  comentario del agente. Antes de revisar una Review con ese comentario, compara
+  `branch_head`/la rama del worktree con `base_commit` en `state.json` y mira
+  `git log --all -- <ficheros del scope>`: si coinciden, no hay nada que revisar
+  y el estado correcto es Backlog (o el que tuviera), con un comentario que diga
+  por qué. El bloqueo real suele estar en el guión o en la descripción de la
+  tarea, no en el handoff.
+- [2026-09-14] **La skill vive por duplicado y las copias divergen.** El
+  orquestador lanzado con `cwd=~` carga `~/.claude/skills/kodo-orchestrate/
+  SKILL.md` (67 KB, con la lección del CI de deikka/kodo) y el hook Stop
+  committea `~/dev/klab/kodo/.claude/skills/…` (65 KB, parada el 10-sep). Escribe
+  las lecciones en la copia que has cargado y sincroniza la del repo cuando el
+  operador lo pida, no las dos a ciegas.
