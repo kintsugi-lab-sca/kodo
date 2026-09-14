@@ -166,6 +166,8 @@ export async function runDashboard(deps = {}) {
   // getHost factory para instanciar el host cmux IN-PROCESS (D-01, getHost designa "el wiring del
   // dashboard" en interface.js). Mismo patrón lazy que runFocus/runOpen — cero overhead en arranque.
   const { runAdopt } = await import('./adopt.js');
+  // KODO-89: runner never-throws de `kodo orchestrate` para la tecla `O`. Mismo patrón lazy.
+  const { runOrchestrate } = await import('./orchestrate.js');
   // KODO-76: runner de las acciones de la pantalla del inbox. Mismo patrón lazy.
   const { makeInboxActionRunner } = await import('./InboxScreen.js');
   const { getHost, resolveHostName } = await import('../../host/interface.js');
@@ -312,6 +314,10 @@ export async function runDashboard(deps = {}) {
     // node:child_process). NO lee binario de config — open.js defaultea `binary` a 'open'
     // internamente (D-06, divergencia con hostBin). runOpen es never-throws (Plan 02 contract).
     onOpen: async (url) => runOpen({ exec: execImpl, url }),
+    // KODO-89: la tecla `O` lanza el orquestador cuando no hay ninguno que enfocar. Shellea
+    // `kodo orchestrate` (misma ruta que el CLI, mismo cwd heredado) con el mismo execImpl +
+    // process.execPath + kodoBin que onAdopt; el stdout del launch queda en el hijo, fuera del frame.
+    onLaunchOrchestrator: async () => runOrchestrate({ exec: execImpl, execPath: process.execPath, kodoBin }),
     // Phase 56 D-01/D-03: discovery on-demand, typeof-gated (fail-open a [] si el host no soporta el
     // método — listAgentSurfaces NO está en HOST_METHODS). El handler `a` de App.js diffea el array
     // contra el snapshot vivo de /status (computeAdoptable, D-02) y abre el picker.

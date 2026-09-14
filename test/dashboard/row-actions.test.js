@@ -28,8 +28,22 @@ import {
   ORCH_OK,
   ORCH_NOT_RUNNING,
   ORCH_ERR,
+  ORCH_LAUNCHING,
+  ORCH_READY,
+  ORCH_LAUNCH_ERR,
 } from '../../src/cli/dashboard/RowActions.js';
 import { makeCtx, called } from '../helpers/dashboard-ctx.js';
+
+// Salida REAL de cmux 0.64.22 para `select-workspace --workspace <ref muerto>` (capturada con el
+// entorno del proceso del TUI, KODO-89): exit 1, el aviso de alias y luego el error.
+const DEAD_REF_FOCUS = {
+  ok: false,
+  code: 'NON_ZERO_EXIT',
+  detail: 1,
+  stderr:
+    "cmux: 'select-workspace' is now an alias for 'cmux workspace select'. The legacy form keeps working indefinitely; set CMUX_QUIET=1 to silence this notice.\n" +
+    'Error: invalid_params: Missing or invalid workspace_id\n',
+};
 
 /** Router de fetch por sufijo de URL. */
 function routerFetch(routes) {
@@ -71,6 +85,16 @@ describe('RowActions — Enter (focusRow)', () => {
     const c = makeCtx({ onFocus: async () => ({ ok: false, code: 'SPAWN_ERROR' }) });
     await focusRow({ alive: true, workspace_ref: 'w' }, c);
     assert.equal(c.focusError, focusErrFailed('unknown'), 'detail ausente → "unknown"');
+  });
+
+  it('KODO-89: code 1 con stderr de cmux → el motivo real en el footer, sin el aviso de alias', async () => {
+    const ctx = makeCtx({ onFocus: async () => DEAD_REF_FOCUS });
+    await focusRow({ alive: true, workspace_ref: 'workspace:74' }, ctx);
+    assert.equal(ctx.focusError, focusErrFailed(1, 'invalid_params: Missing or invalid workspace_id'));
+    assert.equal(
+      ctx.focusError,
+      '[!] cmux focus failed (code 1: invalid_params: Missing or invalid workspace_id) — press any key',
+    );
   });
 
   it('contexto degradado sin onFocus (tests sin DI) no lanza', async () => {
@@ -131,7 +155,7 @@ describe('RowActions — `O` (focusOrchestrator)', () => {
     assert.equal(ctx.footerColor, 'green');
   });
 
-  it('resuelto pero sin workspace_ref → hint accionable, NO se llama a cmux', async () => {
+  it('resuelto sin workspace_ref y SIN lanzador cableado (ctx degradado) → hint, NO se llama a cmux', async () => {
     let calls = 0;
     const ctx = makeCtx({
       fetchFn: routerFetch({ '/orchestrator': { ok: true, workspace_ref: null } }),
@@ -156,6 +180,133 @@ describe('RowActions — `O` (focusOrchestrator)', () => {
     });
     await focusOrchestrator(ctx);
     assert.equal(ctx.focusError, FOCUS_ERR_ENOENT);
+  });
+});
+
+describe('RowActions — `O` lanza el orquestador si no hay ninguno que enfocar (KODO-89)', () => {
+  /**
+   * Daemon fake: `/orchestrator` devuelve el ref de `orchestrator.json`, que el launch renueva.
+   * @param {string|null} initialRef
+   * @param {string|null} refAfterLaunch
+   */
+  function orchestratorWorld(initialRef, refAfterLaunch) {
+    const world = {
+      ref: initialRef,
+      launches: 0,
+      /** @type {string[]} */
+      focusCalls: [],
+    };
+    const ctx = makeCtx({
+      fetchFn: routerFetch({ '/orchestrator': () => ({ ok: true, workspace_ref: world.ref, existing: world.ref != null }) }),
+      onFocus: async (/** @type {string} */ ref) => {
+        world.focusCalls.push(ref);
+        return ref === refAfterLaunch && world.launches > 0 ? { ok: true } : DEAD_REF_FOCUS;
+      },
+      onLaunchOrchestrator: async () => {
+        world.launches++;
+        world.ref = refAfterLaunch;
+        return { ok: true };
+      },
+    });
+    return { world, ctx };
+  }
+
+  it('orchestrator.json apunta a un workspace cerrado (focus code 1) → lanza, re-resuelve y enfoca el nuevo', async () => {
+    const { world, ctx } = orchestratorWorld('workspace:74', 'workspace:80');
+    await focusOrchestrator(ctx);
+    assert.equal(world.launches, 1, 'un solo `kodo orchestrate`');
+    assert.deepEqual(world.focusCalls, ['workspace:74', 'workspace:80'], 'foco al muerto, luego al registrado');
+    assert.equal(ctx.focusError, ORCH_READY('workspace:80'));
+    assert.equal(ctx.footerColor, 'green');
+    // Mientras lanza, el footer dice por qué, con el motivo REAL del code 1.
+    assert.ok(
+      called(ctx, 'setFocusError').includes(ORCH_LAUNCHING('workspace:74: invalid_params: Missing or invalid workspace_id')),
+      `debe anunciar el launch con el motivo de cmux\n${JSON.stringify(ctx.calls)}`,
+    );
+    assert.ok(!called(ctx, 'setFocusError').some((m) => String(m).includes('cmux focus failed')), 'el code 1 ya no es el desenlace');
+  });
+
+  it('orquestador vivo → lo enfoca como hoy y NO lanza', async () => {
+    let launches = 0;
+    const ctx = makeCtx({
+      fetchFn: routerFetch({ '/orchestrator': { ok: true, workspace_ref: 'workspace:34', existing: true } }),
+      onFocus: async () => ({ ok: true }),
+      onLaunchOrchestrator: async () => { launches++; return { ok: true }; },
+    });
+    await focusOrchestrator(ctx);
+    assert.equal(launches, 0);
+    assert.equal(ctx.focusError, ORCH_OK);
+    assert.equal(ctx.footerColor, 'green');
+  });
+
+  it('sin ref registrado (null) → mismo camino: lanza y enfoca', async () => {
+    const { world, ctx } = orchestratorWorld(null, 'workspace:80');
+    await focusOrchestrator(ctx);
+    assert.equal(world.launches, 1);
+    assert.deepEqual(world.focusCalls, ['workspace:80'], 'sin ref no hay primer focus');
+    assert.ok(called(ctx, 'setFocusError').includes(ORCH_LAUNCHING('none registered')));
+    assert.equal(ctx.focusError, ORCH_READY('workspace:80'));
+  });
+
+  it('cmux fuera del PATH (ENOENT) → error de focus, NO lanza (el launch fallaría igual)', async () => {
+    let launches = 0;
+    const ctx = makeCtx({
+      fetchFn: routerFetch({ '/orchestrator': { ok: true, workspace_ref: 'workspace:74' } }),
+      onFocus: async () => ({ ok: false, code: 'ENOENT' }),
+      onLaunchOrchestrator: async () => { launches++; return { ok: true }; },
+    });
+    await focusOrchestrator(ctx);
+    assert.equal(launches, 0);
+    assert.equal(ctx.focusError, FOCUS_ERR_ENOENT);
+  });
+
+  it('ref muerto SIN lanzador cableado → el error de focus lleva el motivo real', async () => {
+    const ctx = makeCtx({
+      fetchFn: routerFetch({ '/orchestrator': { ok: true, workspace_ref: 'workspace:74' } }),
+      onFocus: async () => DEAD_REF_FOCUS,
+    });
+    await focusOrchestrator(ctx);
+    assert.equal(ctx.focusError, focusErrFailed(1, 'invalid_params: Missing or invalid workspace_id'));
+    assert.equal(ctx.footerColor, 'red');
+  });
+
+  it('`kodo orchestrate` sale con error → ORCH_LAUNCH_ERR con la última línea de su stderr', async () => {
+    const ctx = makeCtx({
+      fetchFn: routerFetch({ '/orchestrator': { ok: true, workspace_ref: null } }),
+      onFocus: async () => ({ ok: true }),
+      onLaunchOrchestrator: async () => ({ ok: false, code: 'NON_ZERO_EXIT', detail: 1, stderr: 'Error: cmux socket refused\n' }),
+    });
+    await focusOrchestrator(ctx);
+    assert.equal(ctx.focusError, ORCH_LAUNCH_ERR('cmux socket refused'));
+    assert.equal(ctx.footerColor, 'red');
+  });
+
+  it('el launch no pudo renovar el ref (host sin verificar) → error de focus con motivo, sin relanzar en bucle', async () => {
+    const { world, ctx } = orchestratorWorld('workspace:74', 'workspace:74');
+    // El launch "sale bien" pero deja el mismo ref, que sigue sin resolver.
+    ctx.onFocus = async (/** @type {string} */ ref) => { world.focusCalls.push(ref); return DEAD_REF_FOCUS; };
+    await focusOrchestrator(ctx);
+    assert.equal(world.launches, 1, 'un único intento de launch por pulsación');
+    assert.equal(ctx.focusError, focusErrFailed(1, 'invalid_params: Missing or invalid workspace_id'));
+    assert.equal(ctx.footerColor, 'red');
+  });
+
+  it('doble `O` mientras el launch está en curso → UN solo `kodo orchestrate`', async () => {
+    const { world, ctx } = orchestratorWorld(null, 'workspace:80');
+    /** @type {() => void} */
+    let release = () => {};
+    const gate = new Promise((r) => { release = () => r(undefined); });
+    const launch = ctx.onLaunchOrchestrator;
+    ctx.onLaunchOrchestrator = async () => { await gate; return launch(); };
+
+    const first = focusOrchestrator(ctx);
+    const second = focusOrchestrator(ctx);
+    await second; // el segundo NO espera al primero: ve el launch en curso y vuelve
+    assert.equal(ctx.focusError, ORCH_LAUNCHING('none registered'));
+    release();
+    await first;
+    assert.equal(world.launches, 1);
+    assert.equal(ctx.focusError, ORCH_READY('workspace:80'));
   });
 });
 

@@ -76,6 +76,18 @@ describe('Phase 37 Plan 01: runFocus never-throws + args ordering (TUI-13/TUI-14
     assert.equal(result.detail, 7);
   });
 
+  it('KODO-89: NON_ZERO_EXIT conserva el stderr de cmux (el motivo del exit)', async () => {
+    const exec = (cmd, args, opts, cb) => {
+      const err = Object.assign(new Error('command failed'), { code: 1 });
+      setImmediate(() => cb(err, '', 'Error: invalid_params: Missing or invalid workspace_id\n'));
+    };
+    const result = await runFocus({ exec, ref: 'workspace:74', binary: 'cmux' });
+    assert.equal(result.ok, false);
+    if (result.ok) return; // narrowing
+    assert.equal(result.detail, 1);
+    assert.equal(result.stderr, 'Error: invalid_params: Missing or invalid workspace_id\n');
+  });
+
   it('never-throws contract: exec sync-throws → { ok:false, code:"SPAWN_ERROR" }', async () => {
     const exec = () => {
       throw new Error('bad args');

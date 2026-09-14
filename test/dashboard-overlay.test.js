@@ -396,6 +396,37 @@ describe('tecla O — enfocar/lanzar el orquestador (resuelve ref vía /orchestr
     }
   });
 
+  it('KODO-89: O con ref muerto (focus code 1) lanza `kodo orchestrate` y enfoca el ref renovado', async () => {
+    const clock = makeFakeClock();
+    let ref = 'workspace:74';
+    let launches = 0;
+    /** @type {string[]} */
+    const focusCalls = [];
+    const fetchFn = makeRouter({
+      orchestrator: () => okResponse({ ok: true, workspace_ref: ref, existing: true }),
+    });
+    const props = {
+      ...injectProps(clock, fetchFn),
+      onFocus: async (/** @type {string} */ r) => {
+        focusCalls.push(r);
+        return r === 'workspace:74'
+          ? { ok: false, code: 'NON_ZERO_EXIT', detail: 1, stderr: 'Error: invalid_params: Missing or invalid workspace_id\n' }
+          : { ok: true };
+      },
+      onLaunchOrchestrator: async () => { launches++; ref = 'workspace:80'; return { ok: true }; },
+    };
+    const { lastFrame, press, unmount } = renderInk(createElement(App, props));
+    try {
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('O');
+      await waitForFrame(lastFrame, /orchestrator ready at workspace:80/, 'launch → footer ORCH_READY');
+      assert.equal(launches, 1);
+      assert.deepEqual(focusCalls, ['workspace:74', 'workspace:80'], `foco al muerto y luego al nuevo\n${lastFrame()}`);
+    } finally {
+      unmount();
+    }
+  });
+
   it('O con error del server muestra ORCH_ERR', async () => {
     const clock = makeFakeClock();
     const fetchFn = makeRouter({ orchestrator: () => serverErrorResponse() });

@@ -9,7 +9,7 @@
 //
 //   Enter → `focusRow`            (cmux select-workspace; guard alive===false)
 //   `o`   → `openRow`             (abre la task URL en el manager; guard no-URL)
-//   `O`   → `focusOrchestrator`   (resolve-only + focus; no requiere fila)
+//   `O`   → `focusOrchestrator`   (resolve + focus, o launch si no hay; no requiere fila)
 //   `d`   → `armDismiss`          (guard INVERSO alive===true; arma el double-confirm)
 //   `d`   → `handleDismissConfirmInput` (rama DISMISS del mode:'confirm')
 //
@@ -31,9 +31,41 @@ export const FOCUS_ERR_ENOENT = '[!] cmux not found in PATH — press any key';
  * Mensaje paramétrico cuando `runFocus` resuelve con NON_ZERO_EXIT o SPAWN_ERROR. `code`
  * viene de `result.detail` (number en NON_ZERO_EXIT, string/undefined en SPAWN_ERROR);
  * cuando es undefined, el handler pasa la string `'unknown'`.
+ * KODO-89: `reason` es la línea útil del stderr de cmux (p.ej. `invalid_params: Missing or invalid
+ * workspace_id` para un ref muerto). Sin ella el footer se queda en el formato de siempre.
  * @param {number|string} code
+ * @param {string} [reason]
  */
-export const focusErrFailed = (code) => `[!] cmux focus failed (code ${code}) — press any key`;
+export const focusErrFailed = (code, reason) =>
+  `[!] cmux focus failed (code ${code}${reason ? `: ${reason}` : ''}) — press any key`;
+
+// KODO-89: cmux 0.64 antepone a CADA `select-workspace` un aviso de alias por stderr, también
+// cuando sale bien. No es el motivo de nada, así que no puede acabar en el footer.
+const CMUX_ALIAS_NOTICE = /is now an alias for/;
+const REASON_MAX = 80;
+
+/**
+ * Última línea con contenido de un stderr, sin el aviso de alias de cmux ni el prefijo `Error:`,
+ * acotada para que quepa en el footer. `''` si no queda nada.
+ * @param {unknown} stderr
+ */
+function stderrReason(stderr) {
+  const lines = String(stderr ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !CMUX_ALIAS_NOTICE.test(l));
+  const last = (lines.at(-1) ?? '').replace(/^Error:\s*/, '');
+  return last.length > REASON_MAX ? `${last.slice(0, REASON_MAX - 1)}…` : last;
+}
+
+/**
+ * Copy del footer para un focus fallido (Enter y `O` comparten mapeo).
+ * @param {{ code: string, detail?: any, stderr?: string }} result
+ */
+function focusFailMessage(result) {
+  if (result.code === 'ENOENT') return FOCUS_ERR_ENOENT;
+  return focusErrFailed(result.detail ?? 'unknown', stderrReason(result.stderr));
+}
 
 // Phase 42 D-02/D-04/D-09 (DISMISS-02/03/04): copy literal-estable del flujo de dismiss.
 // EXPORTADAS para que los tests las importen y asseren equality sin duplicar strings (mismo
@@ -76,16 +108,26 @@ export const OPEN_ERR_BAD_PROTOCOL = '[!] refused non-http(s) URL — press any 
 /** @param {number|string} code */
 export const openErrFailed = (code) => `[!] open failed (code ${code}) — press any key`;
 
-// Tecla `O`: ENFOCAR el orquestador (workspace cmux `kodo-orchestrator`). Copy literal-estable,
-// mismo patrón que OPEN_* / FOCUS_*. Contrato resolve-only: el server NO lanza el orquestador
-// (el daemon no tiene TTY / cmux fiable), solo resuelve su ref. Por eso hay tres desenlaces:
-//   ORCH_OK       (verde) — ref resuelto → enfocado.
-//   ORCH_NOT_RUNNING (rojo) — el orquestador no corre → hint accionable `kodo orchestrate`.
-//   ORCH_ERR      (rojo, `[!]`) — la red/HTTP falló (reason honesto en el footer).
+// Tecla `O`: ENFOCAR el orquestador (workspace cmux `kodo-orchestrator`) y, si no hay ninguno que
+// enfocar, LANZARLO (KODO-89). Copy literal-estable, mismo patrón que OPEN_* / FOCUS_*. El server
+// sigue resolve-only (el daemon no tiene TTY / cmux fiable); quien lanza es la TUI, vía `kodo
+// orchestrate`. Desenlaces:
+//   ORCH_OK          (verde)    — ref resuelto → enfocado.
+//   ORCH_LAUNCHING   (amarillo) — sin ref, o ref que cmux no resuelve → `kodo orchestrate` en curso.
+//   ORCH_READY       (verde)    — lanzado (o encontrado vivo por el launch) → enfocado.
+//   ORCH_LAUNCH_ERR  (rojo)     — `kodo orchestrate` falló o no dejó ref que enfocar.
+//   ORCH_NOT_RUNNING (rojo)     — sin ref y sin lanzador cableado (ctx degradado) → hint.
+//   ORCH_ERR         (rojo)     — la red/HTTP falló (reason honesto en el footer).
 export const ORCH_OK = 'opening orchestrator…';
 export const ORCH_NOT_RUNNING = 'orchestrator not running — run: kodo orchestrate';
 /** @param {string} reason */
 export const ORCH_ERR = (reason) => `[!] orchestrator failed (${reason}) — press any key`;
+/** @param {string} why - por qué se lanza: `none registered` o `<ref>: <motivo de cmux>`. */
+export const ORCH_LAUNCHING = (why) => `launching orchestrator (${why})…`;
+/** @param {string} ref */
+export const ORCH_READY = (ref) => `orchestrator ready at ${ref}`;
+/** @param {string|number} reason */
+export const ORCH_LAUNCH_ERR = (reason) => `[!] orchestrator launch failed (${reason}) — press any key`;
 
 /**
  * Phase 37 D-02 + D-06: handler de Enter — guard alive===false + invocación never-throws de
@@ -110,15 +152,9 @@ export async function focusRow(row, ctx) {
   // inyectó onFocus (tests del módulo sin DI, contexto degradado).
   const result = await ctx.onFocus?.(row.workspace_ref);
   if (result && !result.ok) {
-    if (result.code === 'ENOENT') {
-      ctx.setFocusError(FOCUS_ERR_ENOENT);
-    } else {
-      // NON_ZERO_EXIT (`detail` = code numérico de exit) o SPAWN_ERROR
-      // (`detail` = string del Error.message). En ambos casos, el operador ve
-      // la pista útil (`code N` o `code unknown`) en el footer.
-      const n = result.detail ?? 'unknown';
-      ctx.setFocusError(focusErrFailed(n));
-    }
+    // ENOENT → FOCUS_ERR_ENOENT. NON_ZERO_EXIT (`detail` = code numérico de exit, + el stderr de
+    // cmux) o SPAWN_ERROR (`detail` = Error.message) → `code N[: motivo]` en el footer.
+    ctx.setFocusError(focusFailMessage(result));
   }
 }
 
@@ -164,12 +200,26 @@ export async function openRow(row, ctx) {
   }
 }
 
+// KODO-89: un `kodo orchestrate` a la vez desde esta TUI. El launch tarda varios segundos y un
+// segundo `O` impaciente arrancaría otro en paralelo: los dos verían el registro muerto y cada uno
+// crearía su workspace — el orquestador duplicado que esta tecla existe para evitar. Estado de
+// módulo porque hay una TUI por proceso; se libera en `finally`.
+let launchInFlight = false;
+
 /**
  * Tecla `O`: ENFOCAR el orquestador — NO requiere fila seleccionada (no es una sesión de tarea,
- * vive en el workspace cmux `kodo-orchestrator`). Contrato resolve-only, never-throws:
- *   1. openOrchestrator → el server RESUELVE el `workspace:N` (NO lanza: el daemon no tiene
- *      TTY/cmux fiable). workspace_ref === null ⇒ el orquestador no corre.
+ * vive en el workspace cmux `kodo-orchestrator`). never-throws:
+ *   1. openOrchestrator → el server RESUELVE el `workspace:N` persistido (NO lanza: el daemon no
+ *      tiene TTY/cmux fiable).
  *   2. onFocus(ref) → cmux select-workspace (mismo mecanismo que Enter).
+ *   3. KODO-89: sin ref, o con un ref que cmux no resuelve (exit ≠ 0: el orquestador de ayer ya
+ *      cerrado), es el MISMO caso — no hay orquestador que enfocar — y se lanza.
+ *
+ * ENOENT no lanza: sin binario de cmux el launch fallaría igual. La TUI tampoco limpia el registro
+ * antes de lanzar: `launchOrchestrator` lo revalida contra el host por UUID y solo lo limpia con
+ * evidencia positiva de muerte. Limpiarlo aquí a ciegas borraría el de un orquestador VIVO cuando
+ * `orchestrator.json` y `state.orchestrator` divergen, y el launch crearía un duplicado.
+ *
  * Feedback transitorio en el footer (clear-on-any-input, sin timer), espejo de `o`/Enter.
  *
  * @param {any} ctx
@@ -181,21 +231,70 @@ export async function focusOrchestrator(ctx) {
     ctx.setFooterColor('red');
     return;
   }
-  if (!res.workspace_ref) {
-    // Resuelto OK pero el orquestador no está corriendo: hint accionable, no es un error.
+  let why = 'none registered';
+  if (res.workspace_ref) {
+    const fr = await ctx.onFocus?.(res.workspace_ref);
+    if (!fr || fr.ok) {
+      // Éxito (o contexto degradado sin onFocus): footer verde.
+      ctx.setFocusError(ORCH_OK);
+      ctx.setFooterColor('green');
+      return;
+    }
+    if (fr.code === 'ENOENT' || !ctx.onLaunchOrchestrator) {
+      ctx.setFocusError(focusFailMessage(fr));
+      ctx.setFooterColor('red');
+      return;
+    }
+    why = `${res.workspace_ref}: ${stderrReason(fr.stderr) || `code ${fr.detail ?? 'unknown'}`}`;
+  } else if (!ctx.onLaunchOrchestrator) {
+    // Sin lanzador cableado (ctx degradado): el hint accionable de siempre.
     ctx.setFocusError(ORCH_NOT_RUNNING);
     ctx.setFooterColor('red');
     return;
   }
-  const fr = await ctx.onFocus?.(res.workspace_ref);
-  if (fr && !fr.ok) {
-    if (fr.code === 'ENOENT') ctx.setFocusError(FOCUS_ERR_ENOENT);
-    else ctx.setFocusError(focusErrFailed(fr.detail ?? 'unknown'));
-    ctx.setFooterColor('red');
-  } else {
-    // Éxito (o contexto degradado sin onFocus): footer verde.
-    ctx.setFocusError(ORCH_OK);
+  await launchAndFocusOrchestrator(ctx, why);
+}
+
+/**
+ * Lanza el orquestador con `kodo orchestrate` y enfoca el ref que deja registrado.
+ *
+ * El ref se RE-RESUELVE con POST /orchestrator en vez de leerlo del stdout del CLI: el launch
+ * renueva `orchestrator.json` tanto al crear uno nuevo como al encontrar uno vivo (gate KODO-16),
+ * así que es la misma fuente de verdad que usa el primer intento. Si el launch no pudo verificar
+ * nada (host caído, registro de otro cliente) el ref no cambia y el focus falla con su motivo.
+ *
+ * @param {any} ctx
+ * @param {string} why
+ */
+async function launchAndFocusOrchestrator(ctx, why) {
+  ctx.setFocusError(ORCH_LAUNCHING(why));
+  ctx.setFooterColor('yellow');
+  if (launchInFlight) return;
+  launchInFlight = true;
+  try {
+    const lr = await ctx.onLaunchOrchestrator();
+    if (!lr || lr.ok === false) {
+      const reason = stderrReason(lr?.stderr) || (lr?.code === 'NON_ZERO_EXIT' ? `code ${lr.detail}` : lr?.detail);
+      ctx.setFocusError(ORCH_LAUNCH_ERR(reason ?? 'unknown'));
+      ctx.setFooterColor('red');
+      return;
+    }
+    const again = await openOrchestrator(ctx.baseUrl, ctx.fetchFn);
+    if (!again.ok || !again.workspace_ref) {
+      ctx.setFocusError(ORCH_LAUNCH_ERR(again.ok ? 'no workspace registered' : again.error));
+      ctx.setFooterColor('red');
+      return;
+    }
+    const fr = await ctx.onFocus?.(again.workspace_ref);
+    if (fr && !fr.ok) {
+      ctx.setFocusError(focusFailMessage(fr));
+      ctx.setFooterColor('red');
+      return;
+    }
+    ctx.setFocusError(ORCH_READY(again.workspace_ref));
     ctx.setFooterColor('green');
+  } finally {
+    launchInFlight = false;
   }
 }
 
