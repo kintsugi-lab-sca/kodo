@@ -604,8 +604,10 @@ export async function startServer(opts = {}) {
       // que la TUI lo enfoque (tecla `O`). Bearer-gated (default-deny: NO en isOpenRoute).
       // RESOLVE-ONLY (D-decisión operador): NO lanza el orquestador. Lanzarlo requiere una
       // TTY (launchOrchestrator vía `kodo orchestrate`/`check`); el daemon detached no puede
-      // crear workspaces cmux de forma fiable. Si el orquestador no está corriendo →
-      // `workspace_ref: null` y la TUI muestra el hint "run kodo orchestrate".
+      // crear workspaces cmux de forma fiable. Si no hay ref persistido → `workspace_ref: null`.
+      // KODO-89: tampoco comprueba que el ref siga vivo. Esa sonda es el propio focus de la TUI
+      // (que sí tiene cmux): con ref null o con un focus que falla, la TUI lanza `kodo orchestrate`,
+      // cuyo gate KODO-16 revalida el registro por UUID y renueva este fichero.
       //
       // Resuelve LEYENDO el ref persistido en ~/.kodo/orchestrator.json (readOrchestratorRef),
       // NO consultando cmux en vivo: `cmux workspace list` es window-scoped (limitación P-4) y

@@ -58,7 +58,7 @@ export const FOCUS_FLAG = '--workspace';
  * Resultado discriminado de `runFocus` (D-01).
  *
  * @typedef {{ ok: true }
- *   | { ok: false, code: 'ENOENT' | 'NON_ZERO_EXIT' | 'SPAWN_ERROR', detail: any }} FocusResult
+ *   | { ok: false, code: 'ENOENT' | 'NON_ZERO_EXIT' | 'SPAWN_ERROR', detail: any, stderr?: string }} FocusResult
  */
 
 /**
@@ -90,7 +90,7 @@ export function runFocus({ exec, ref, binary, timeoutMs = 5_000 }) {
   }
   return new Promise((resolve) => {
     try {
-      exec(binary, [FOCUS_VERB, FOCUS_FLAG, ref], { timeout: timeoutMs }, (err, _stdout, _stderr) => {
+      exec(binary, [FOCUS_VERB, FOCUS_FLAG, ref], { timeout: timeoutMs }, (err, _stdout, stderr) => {
         if (!err) {
           resolve({ ok: true });
           return;
@@ -100,7 +100,9 @@ export function runFocus({ exec, ref, binary, timeoutMs = 5_000 }) {
           return;
         }
         if (typeof err.code === 'number') {
-          resolve({ ok: false, code: 'NON_ZERO_EXIT', detail: err.code });
+          // KODO-89: el stderr acompaña al código. Sin él, un ref muerto (`Error: invalid_params:
+          // Missing or invalid workspace_id`) llegaba al footer como un `code 1` mudo.
+          resolve({ ok: false, code: 'NON_ZERO_EXIT', detail: err.code, stderr: String(stderr ?? '') });
           return;
         }
         // Cualquier otra forma de err (sin code, code string no-ENOENT, etc.).

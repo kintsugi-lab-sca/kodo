@@ -207,6 +207,9 @@ export {
   ORCH_OK,
   ORCH_NOT_RUNNING,
   ORCH_ERR,
+  ORCH_LAUNCHING,
+  ORCH_READY,
+  ORCH_LAUNCH_ERR,
 } from './RowActions.js';
 
 // Phase 69 Plan 03 (NET-02, D-08): mensaje literal-estable del estado 401 "no autorizado".
@@ -257,6 +260,9 @@ const CHROME_COLS = 6;
  * porqué de cada contrato (guards, orden, fail-open, pitfalls) vive junto al código que lo aplica,
  * en el módulo indicado — aquí queda el contrato mínimo: tipo, semántica y default.
  *
+ * @param {() => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any, stderr?: string}>} [props.onLaunchOrchestrator]
+ *   KODO-89 (RowActions.js): shell never-throws de `kodo orchestrate`. La tecla `O` lo invoca cuando
+ *   no hay orquestador que enfocar. Sin él, `O` degrada al hint ORCH_NOT_RUNNING.
  * @param {() => Promise<Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>>} [props.onAdoptDiscover]
  *   → AdoptPicker.js. `host.listAgentSurfaces()` typeof-gated, never-throws (fail-open a `[]`).
  * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
@@ -302,6 +308,7 @@ export default function App({
   maxMs,
   onFocus,
   onOpen,
+  onLaunchOrchestrator,
   onAdoptDiscover,
   onAdopt,
   onDerive,
@@ -703,6 +710,7 @@ export default function App({
         // acciones de fila (RowActions.js): runners never-throws + armado del dismiss
         onFocus,
         onOpen,
+        onLaunchOrchestrator,
         armedTaskId,
         setArmedTaskId,
         armedTaskRef,
@@ -956,7 +964,8 @@ export default function App({
       }
       if (input === 'O') {
         // ENFOCAR el orquestador — NO requiere fila seleccionada (no es una sesión de tarea, vive
-        // en el workspace cmux `kodo-orchestrator`). Contrato resolve-only + focus, never-throws.
+        // en el workspace cmux `kodo-orchestrator`). Resolve + focus; si no hay orquestador que
+        // enfocar (sin ref o ref muerto), lo lanza con `kodo orchestrate` (KODO-89). never-throws.
         await focusOrchestrator(ctx);
         return;
       }

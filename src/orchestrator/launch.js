@@ -78,9 +78,9 @@ export function persistOrchestratorRef(ref) {
  * existe, es ilegible o su shape es inválida. El endpoint /orchestrator lo usa para resolver
  * el ref SIN cmux (daemon-safe, window-independiente).
  *
- * Staleness: si el workspace persistido murió (orquestador cerrado), el ref queda stale; el
- * focus downstream (cmux select-workspace) falla con el error de focus normal — aceptable
- * para una tecla de conveniencia (mismo trade-off que el ref reciclado de reconcile).
+ * Staleness: si el workspace persistido murió (orquestador cerrado), el ref queda stale y el
+ * focus downstream (cmux select-workspace) falla. KODO-89: la tecla `O` trata ese fallo como
+ * «no hay orquestador» y lanza `kodo orchestrate`, que renueva este fichero.
  *
  * @returns {string|null}
  */
