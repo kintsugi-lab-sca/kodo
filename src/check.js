@@ -127,7 +127,7 @@ export async function checkStuckSessions({ config, stuck, sessions, getProviderF
     reasons.push(`Sesiones stuck: ${ids}`);
   }
   if (awaitingReview.length > 0) {
-    lines.push(`[kodo:check] Idle, task in review: ${awaitingReview.join(', ')}`);
+    lines.push(`[kodo:check] Task in review, not counted as stuck: ${awaitingReview.join(', ')}`);
   }
 
   return { lines, reasons };

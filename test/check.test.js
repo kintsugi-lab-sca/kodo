@@ -319,7 +319,7 @@ describe('check.js — checkStuckSessions', () => {
 
     assert.deepEqual(calls, [{ id: 'uuid-154', projectId: 'proj-1', ref: 'ITCLIP-154' }]);
     assert.deepEqual(result.reasons, []);
-    assert.deepEqual(result.lines, ['[kodo:check] Idle, task in review: ITCLIP-154']);
+    assert.deepEqual(result.lines, ['[kodo:check] Task in review, not counted as stuck: ITCLIP-154']);
   });
 
   it('fail-open: unknown provider, missing getTaskState or a failing fetch keep it stuck', async () => {
