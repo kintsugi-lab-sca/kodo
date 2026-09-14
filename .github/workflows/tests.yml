@@ -22,11 +22,14 @@ jobs:
     timeout-minutes: 20
 
     strategy:
-      # Sin fail-fast: si Linux cae queremos ver TAMBIÉN el veredicto de macOS, para saber
-      # si el fallo es de plataforma o del cambio en sí.
+      # Sin fail-fast: queremos el veredicto de las dos versiones de node.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Solo ubuntu: el repo es privado en cuenta gratuita (2000 min/mes) y macos-latest
+        # factura a 10x, con lo que cada run costaba ~112 min y la cuota se agotaba en la
+        # primera semana del ciclo. La suite es Node puro; lo que depende de macOS (cmux)
+        # no corre en CI de todos modos.
+        os: [ubuntu-latest]
         # Las DOS puntas del rango que `engines` declara (>=22), no una sola (KODO-65):
         # 22 es el suelo — soportado hasta 2027-04-30, así que hay gente corriéndolo hoy —
         # y 24 es la LTS activa, lo que instala cualquiera que haga `nvm install --lts`.
