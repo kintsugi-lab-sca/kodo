@@ -1103,3 +1103,18 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   committea `~/dev/klab/kodo/.claude/skills/…` (65 KB, parada el 10-sep). Escribe
   las lecciones en la copia que has cargado y sincroniza la del repo cuando el
   operador lo pida, no las dos a ciegas.
+- [2026-09-15] **El orquestador no cambia de directorio ni hace trabajo de
+  proyecto en su propia sesión.** El `cd` del tool Bash persiste entre llamadas:
+  tras preparar una demo de clipping desde aquí, la sesión del orquestador
+  quedó con `cwd` en clipping, la statusline enseñaba esa ruta y el workspace
+  de cmux se renombró. Reglas: (1) rutas absolutas y `git -C <repo>`, nunca
+  `cd` persistente — si hace falta, subshell `(cd … && …)`; (2) todo lo que sea
+  trabajo dentro de un proyecto (levantar `make dev`, crear datos de demo,
+  editar sus ficheros) se hace en una sesión propia de ese proyecto (`kodo
+  launch` o una sesión ad-hoc en su workspace, adoptable después), no desde el
+  orquestador; (3) los procesos de larga vida (daemon, servidores) no se
+  arrancan desde esta sesión: el harness mata sus tareas en segundo plano por
+  su propia política de memoria (dos veces el 15-sep con la máquina al 45 %
+  libre) y un `nohup` los deja huérfanos sin pantalla. La statusline detecta al
+  orquestador cotejando `session_id` con `orchestrator.session_id` de
+  `state.json` y muestra sesiones, bandeja, cola y daemon en vez de la ruta.
