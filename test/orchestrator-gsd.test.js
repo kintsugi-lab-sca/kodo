@@ -372,7 +372,7 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
   // This mirrors what the agent will actually read at runtime.
   const raw = readFileSync('src/orchestrator/prompt.md', 'utf-8');
   const resolved = applyReportingGate(
-    resolvePromptTemplate(raw, { provider: 'plane' }),
+    resolvePromptTemplate(raw, { provider: 'plane', max_parallel: 3 }),
     true,
   );
 
@@ -491,7 +491,7 @@ describe('REPORT-04..08 — Sub-issue reporting block content', () => {
 describe('REPORT-03 — Sub-issue reporting block ABSENT when flag=false', () => {
   const raw = readFileSync('src/orchestrator/prompt.md', 'utf-8');
   const stripped = applyReportingGate(
-    resolvePromptTemplate(raw, { provider: 'plane' }),
+    resolvePromptTemplate(raw, { provider: 'plane', max_parallel: 3 }),
     false,
   );
 
