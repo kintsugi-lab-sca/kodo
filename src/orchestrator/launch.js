@@ -191,7 +191,8 @@ export { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js
  *   hostName?: string,
  * }} [deps]
  * @returns {Promise<{ status: 'none' }
- *   | { status: 'alive'|'dead'|'unverifiable', ref: string }
+ *   | { status: 'alive', ref: string, id: string|null, title: string|null }
+ *   | { status: 'dead'|'unverifiable', ref: string }
  *   | { status: 'foreign-host', ref: string, host: string }>}
  */
 export async function verifyRegisteredOrchestrator(deps = {}) {
@@ -219,7 +220,46 @@ export async function verifyRegisteredOrchestrator(deps = {}) {
 
   const hit = findWorkspaceInTree(tree, { id: reg.workspace_id, ref: reg.workspace_ref });
   if (!hit) return { status: 'dead', ref: reg.workspace_ref };
-  return { status: 'alive', ref: hit.ref || reg.workspace_ref };
+  // KODO-91: `id` y `title` viajan en el veredicto para que la rama `alive` del launch
+  // repare el registro y el título SIN volver a leer el árbol.
+  return { status: 'alive', ref: hit.ref || reg.workspace_ref, id: hit.id, title: hit.title };
+}
+
+/**
+ * Repara el workspace de un orquestador VIVO (KODO-91). never-throws, fail-open.
+ *
+ * El título se pierde por el branding del daemon (`brandServiceWorkspace`, server.js):
+ * `kodo up` lanzado desde un pane del workspace del orquestador lo renombra a
+ * `心動 kodo service`. El guard `shouldBrandWorkspace` lo impide solo si el registro
+ * tiene `workspace_id`, y ese UUID puede faltar (el resolve del launch devolvió null).
+ * El OSC de título de Claude Code NO es la causa: un título custom (`--name`) no lo
+ * sigue — verificado en cmux 0.64.24.
+ *
+ * Dos reparaciones, cada una SOLO con evidencia de identidad, porque cmux recicla los
+ * `workspace:N` y un match por ref puede ser la tab de otra tarea:
+ *   · backfill del UUID — registro sin `workspace_id` y la tab aún se titula
+ *     `kodo-orchestrator` (la misma evidencia con la que el gate 2 adopta).
+ *   · rename — registro CON `workspace_id` (match por UUID) y título distinto. Con un
+ *     match solo por ref se podría renombrar la tab de una tarea.
+ *
+ * @param {{ ref: string, id?: string|null, title?: string|null }} alive - veredicto `alive`.
+ */
+async function repairLiveOrchestrator(alive) {
+  const reg = getOrchestrator();
+  if (!reg) return;
+  if (!reg.workspace_id) {
+    if (alive.id && alive.title === ORCHESTRATOR_WORKSPACE_NAME) {
+      setOrchestrator({ ...reg, workspace_ref: alive.ref, workspace_id: alive.id });
+    }
+    return;
+  }
+  if (typeof alive.title !== 'string' || alive.title === ORCHESTRATOR_WORKSPACE_NAME) return;
+  try {
+    await hostLegacy().rename({ workspace: alive.ref, title: ORCHESTRATOR_WORKSPACE_NAME });
+    console.log(`[kodo] Orchestrator ${alive.ref} se titulaba '${alive.title}' — renombrado a ${ORCHESTRATOR_WORKSPACE_NAME}`);
+  } catch {
+    /* fail-open — el título es cosmético; el siguiente check reintenta */
+  }
 }
 
 // Phase 21 D-08 + Pattern C: KODO_ROOT override aditivo para test isolation
@@ -418,6 +458,7 @@ export async function launchOrchestrator(opts = {}) {
     // (cierre de sesión) vive en session-end.js vía buildStopNudgeText — ese se conserva.
     console.log('[kodo] Orchestrator workspace already exists');
     persistOrchestratorRef(verdict.ref); // refresca el ref persistido (daemon/tecla O)
+    await repairLiveOrchestrator(verdict); // KODO-91: título + UUID del registro
     return { workspace: verdict.ref, existing: true };
   }
   if (verdict.status === 'unverifiable') {

@@ -35,6 +35,7 @@ const REPO = resolve(__dirname, '..');
 
 const ORCH_UUID = 'AAAAAAAA-1111-2222-3333-444444444444';
 const NEW_UUID = 'BBBBBBBB-5555-6666-7777-888888888888';
+const OTHER_TASK_UUID = 'DDDDDDDD-9999-0000-1111-222222222222';
 // El shim responde SIEMPRE workspace:99 a `new-workspace`, así que su presencia en el
 // log de cmux es la prueba de que se creó (o no) un segundo orquestador.
 const NEW_REF = 'workspace:99';
@@ -79,13 +80,16 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
       `const LOG = ${JSON.stringify(cmuxLogPath)};`,
       `const SCENARIO = ${JSON.stringify(scenarioPath)};`,
       'const argv = process.argv.slice(2);',
-      'appendFileSync(LOG, JSON.stringify(argv.slice(0, 3)) + "\\n");',
+      // 5 args: cabe el argv completo de `workspace rename <ref> --title <t>` (KODO-91).
+      'appendFileSync(LOG, JSON.stringify(argv.slice(0, 5)) + "\\n");',
       'let s = {};',
       'try { s = JSON.parse(readFileSync(SCENARIO, "utf-8")); } catch {}',
       'const sub = argv[0];',
       'if (sub === "tree") {',
       '  if (s.treeFail) { process.stderr.write("socket unavailable\\n"); process.exit(1); }',
       '  process.stdout.write(s.treeRaw !== undefined ? s.treeRaw : JSON.stringify(s.tree || { windows: [] }));',
+      '} else if (sub === "workspace" && argv[1] === "rename" && s.renameFail) {',
+      '  process.stderr.write("rename failed\\n"); process.exit(1);',
       '} else if (sub === "workspace" && argv[1] === "list") {',
       '  process.stdout.write(s.workspaceList || "");',
       `} else if (sub === "new-workspace") { console.log("OK ${NEW_REF}"); }`,
@@ -198,6 +202,104 @@ describe('KODO-16 — reiniciar el daemon no duplica el orquestador', () => {
     // La tab está renombrada y `workspace list` responde vacío: la detección por título
     // habría fallado. Lo que salva el caso es el registro + el árbol cross-window.
     assert.ok(calls.some((c) => c[0] === 'tree'), 'debe revalidar contra el host');
+  });
+
+  // ── KODO-91: el orquestador vivo recupera su título y su UUID ────────────────────────
+  // El branding del daemon (`kodo up` desde un pane de su workspace) lo renombra a
+  // `心動 kodo service`. El check lo devuelve a `kodo-orchestrator` — pero solo con
+  // evidencia de identidad, porque cmux recicla los `workspace:N`.
+
+  /** ¿Qué renames recibió el binario cmux? argv completo desde `workspace`. */
+  function renames(calls) {
+    return calls.filter((c) => c[0] === 'workspace' && c[1] === 'rename');
+  }
+
+  it('KODO-91: vivo por UUID con el título pisado → se renombra a kodo-orchestrator', async () => {
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: ORCH_UUID,
+      session_id: 'sess-1',
+      started_at: '2026-08-10T08:00:00.000Z',
+    });
+    seedScenario({ tree: treeWithOrchestrator(), workspaceList: '' });
+
+    const { result, calls } = await runLaunch();
+
+    assert.equal(createdWorkspace(calls), false);
+    assert.equal(result.existing, true);
+    assert.deepEqual(renames(calls), [['workspace', 'rename', 'workspace:32', '--title', 'kodo-orchestrator']]);
+  });
+
+  it('KODO-91: vivo con el título correcto → cero renames', async () => {
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: ORCH_UUID,
+      session_id: 'sess-1',
+      started_at: '2026-08-10T08:00:00.000Z',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: 'workspace:32', id: ORCH_UUID, title: 'kodo-orchestrator' }] }] },
+      workspaceList: '',
+    });
+
+    const { calls } = await runLaunch();
+    assert.deepEqual(renames(calls), []);
+  });
+
+  it('KODO-91: el rename falla → fail-open, sin duplicado y sin romper el launch', async () => {
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: ORCH_UUID,
+      session_id: 'sess-1',
+      started_at: '2026-08-10T08:00:00.000Z',
+    });
+    seedScenario({ tree: treeWithOrchestrator(), workspaceList: '', renameFail: true });
+
+    const { result, calls } = await runLaunch();
+    assert.equal(renames(calls).length, 1, 'se intentó');
+    assert.equal(createdWorkspace(calls), false);
+    assert.equal(result.existing, true);
+  });
+
+  it('KODO-91: registro SIN UUID y tab aún titulada → rellena el workspace_id (guard del branding)', async () => {
+    // Sin UUID, `shouldBrandWorkspace` (server.js) no reconoce la tab del orquestador y
+    // `kodo up` desde uno de sus panes la renombra. Rellenarlo mientras el título aún
+    // identifica la tab es lo que evita el rename, no solo repararlo después.
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: null,
+      session_id: 'sess-1',
+      started_at: '2026-08-10T08:00:00.000Z',
+      host: 'cmux',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: 'workspace:32', id: ORCH_UUID, title: 'kodo-orchestrator' }] }] },
+      workspaceList: '',
+    });
+
+    const { calls } = await runLaunch();
+    const reg = readState().orchestrator;
+    assert.equal(reg.workspace_id, ORCH_UUID);
+    assert.equal(reg.session_id, 'sess-1', 'el resto del registro se conserva');
+    assert.equal(reg.host, 'cmux');
+    assert.deepEqual(renames(calls), []);
+  });
+
+  it('KODO-91: registro SIN UUID y título ajeno → ni rename ni backfill (el ref pudo reciclarse)', async () => {
+    seedState({
+      workspace_ref: 'workspace:32',
+      workspace_id: null,
+      session_id: 'sess-1',
+      started_at: '2026-08-10T08:00:00.000Z',
+    });
+    seedScenario({
+      tree: { windows: [{ ref: 'window:1', workspaces: [{ ref: 'workspace:32', id: OTHER_TASK_UUID, title: 'KODO-7: otra tarea' }] }] },
+      workspaceList: '',
+    });
+
+    const { calls } = await runLaunch();
+    assert.deepEqual(renames(calls), [], 'renombrar aquí pisaría la tab de una tarea');
+    assert.equal(readState().orchestrator.workspace_id, null, 'no se sella una identidad sin evidencia');
   });
 
   it('2. orquestador registrado pero MUERTO → relanza y re-registra la identidad nueva', async () => {
