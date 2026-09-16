@@ -132,7 +132,8 @@ describe('verifyRegisteredOrchestrator — el gate anti-duplicado', () => {
       listTreeFn: okTree,
       getOrchestratorFn: () => registration(),
     });
-    assert.deepEqual(v, { status: 'alive', ref: 'workspace:32' });
+    // KODO-91: `id` y `title` del árbol viajan en el veredicto para la reparación del launch.
+    assert.deepEqual(v, { status: 'alive', ref: 'workspace:32', id: ORCH_UUID, title: '心動 kodo service' });
   });
 
   it('alive aunque el check corra desde otro window y la tab esté renombrada', async () => {
