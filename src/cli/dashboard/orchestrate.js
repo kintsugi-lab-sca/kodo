@@ -12,8 +12,8 @@
 // ## Por qué shellea el CLI en vez de importar `launchOrchestrator`
 //
 //   1. UNA sola ruta de lanzamiento. `kodo orchestrate` es exactamente lo que el operador teclearía
-//      en esta terminal: mismo cwd (el hijo lo hereda, y `launchOrchestrator` abre el workspace en
-//      `process.cwd()`), mismos gates de KODO-16/18 (revalida el registro por UUID, limpia el
+//      en esta terminal: mismo workspace (`launchOrchestrator` lo abre en la raíz del repo kodo, sea
+//      cual sea el cwd — KODO-93), mismos gates de KODO-16/18 (revalida el registro por UUID, limpia el
 //      muerto con evidencia positiva, renueva `orchestrator.json`).
 //   2. `launchOrchestrator` escribe con `console.log`. Dentro del proceso de ink esas líneas se
 //      pintarían encima del frame en el alternate screen; en un hijo quedan capturadas.

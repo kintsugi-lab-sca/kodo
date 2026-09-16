@@ -223,8 +223,11 @@ export async function verifyRegisteredOrchestrator(deps = {}) {
 }
 
 // Phase 21 D-08 + Pattern C: KODO_ROOT override aditivo para test isolation
-// (mismo patrón que src/hooks/stop.js:20; permite spawnSync con env.KODO_ROOT=tmpRepo).
-const KODO_ROOT_FOR_SKILL = process.env.KODO_ROOT || process.cwd();
+// (mismo patrón que src/hooks/stop.js:22; permite spawnSync con env.KODO_ROOT=tmpRepo).
+// KODO-93: la raíz sale del MÓDULO, no del proceso. `process.cwd()` es el de quien lanza:
+// el daemon detached hereda el del zsh que hizo `kodo up` (p. ej. `~`), y con ese cwd el
+// orquestador ni auto-carga la skill del repo ni puede correr `kodo audit`.
+const KODO_REPO_ROOT = process.env.KODO_ROOT || join(__dirname, '..', '..');
 
 /**
  * Resolve {{placeholder}} tokens in the orchestrator prompt template.
@@ -368,11 +371,11 @@ export async function launchOrchestrator(opts = {}) {
   // la skill local del repo gana por construcción Phase 999.1 D-04, así el
   // orchestrator funciona aunque home quede stale). NUNCA prune (D-05c).
   //
-  // SKILL-03 invariante: este bloque NO toca process.cwd() ni los args de
-  // cmux.newWorkspace({ cwd: process.cwd() }) (línea ~72). La skill canonical
+  // SKILL-03 invariante: este bloque NO toca los args de
+  // cmux.newWorkspace({ cwd: KODO_REPO_ROOT }). La skill canonical
   // sigue siendo la del repo (cwd=repo Phase 999.1 D-04/D-05/D-06 intacto).
   try {
-    const skillSource = join(KODO_ROOT_FOR_SKILL, '.claude', 'skills', 'kodo-orchestrate');
+    const skillSource = join(KODO_REPO_ROOT, '.claude', 'skills', 'kodo-orchestrate');
     const skillDest = join(homedir(), '.claude', 'skills', 'kodo-orchestrate');
     const skillResult = syncSkill({ source: skillSource, dest: skillDest }); // prune NEVER true (D-05c)
     if (skillResult.status === 'error') {
@@ -387,7 +390,7 @@ export async function launchOrchestrator(opts = {}) {
     // del patrón Phase 19 cleanup D-03).
     if (log) {
       try {
-        const skillSource = join(KODO_ROOT_FOR_SKILL, '.claude', 'skills', 'kodo-orchestrate');
+        const skillSource = join(KODO_REPO_ROOT, '.claude', 'skills', 'kodo-orchestrate');
         const skillDest = join(homedir(), '.claude', 'skills', 'kodo-orchestrate');
         skillSyncAutoError(log, { source: skillSource, dest: skillDest, error: /** @type {Error} */ (err).message });
       } catch {
@@ -496,7 +499,7 @@ export async function launchOrchestrator(opts = {}) {
   // Create workspace
   const workspaceRef = await hostLegacy().newWorkspace({
     name: ORCHESTRATOR_WORKSPACE_NAME,
-    cwd: process.cwd(),
+    cwd: KODO_REPO_ROOT,
   });
 
   // Set orchestrator color (Indigo). KODO-18: en orca `setColor` es un no-op documentado
@@ -539,7 +542,7 @@ export async function launchOrchestrator(opts = {}) {
   // Phase 18 D-06: launchOrchestrator EXCLUIDO de --worktree.
   //
   // El orchestrator necesita cwd = repo kodo (línea cmux.newWorkspace
-  // arriba: `cwd: process.cwd()`) para que Claude Code auto-cargue
+  // arriba: `cwd: KODO_REPO_ROOT`) para que Claude Code auto-cargue
   // `.claude/skills/kodo-orchestrate/SKILL.md` (Phase 999.1 D-05/D-06
   // constraint registrado en PROJECT.md §Constraints).
   //
@@ -593,7 +596,7 @@ export async function launchOrchestrator(opts = {}) {
     await opts.spawnFn({
       workspaceRef,
       sessionId,
-      projectPath: process.cwd(),
+      projectPath: KODO_REPO_ROOT,
       kodoDir: kodoDir(),
       taskRef: ORCHESTRATOR_WORKSPACE_NAME,
     });
