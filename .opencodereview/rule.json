@@ -1,0 +1,31 @@
+{
+  "include": [
+    "test/**/*.test.js",
+    "src/**/prompt.md",
+    ".claude/skills/**/SKILL.md"
+  ],
+  "exclude": [
+    "package-lock.json",
+    ".compound/**",
+    ".planning/**",
+    "review/**"
+  ],
+  "rules": [
+    {
+      "path": "test/**/*.test.js",
+      "rule": "#### Tests de kodo (node:test)\n- Cada comportamiento nuevo o bug corregido trae un test que se pondría ROJO sin el cambio. Un test que pasa con la implementación rota no cuenta.\n- Aislamiento: nunca el `~/.kodo` real ni red. HOME temporal ANTES de importar módulos que cachean rutas; dependencias inyectadas por `deps`; tmpdirs retirados en `finally`/`afterEach`.\n- Contratos de git se prueban contra un repo git REAL en tmpdir (con `user.email`, `user.name` y `commit.gpgsign false` locales), no con mocks de su salida.\n- Prompts y skills: pinear el contrato (placeholders, comandos `kodo …`, marcadores), nunca la prosa (`test/CONVENTIONS.md`).\n- Sin esperas por tiempo ni dependencias del reloj real: reloj inyectado.\n- Los mensajes de assert dicen qué propiedad se rompe."
+    },
+    {
+      "path": "src/cli/dashboard/**/*.js",
+      "rule": "#### Dashboard Ink (React 19 + ink 6, sin JSX: `createElement` plano)\n- Hooks solo en el nivel superior; `useEffect` con dependencias completas y cleanup de timers, intervals y listeners: el TUI vive horas abierto.\n- Nada de I/O síncrono pesado (execFileSync, red, lecturas grandes) en render ni en handlers de `useInput`: congela el TUI entero.\n- Texto externo renderizado (títulos, comentarios, markdown del proveedor) pasa por `stripControlChars` (inyección de terminal: CSI/OSC-52).\n- Anchos de columna con `visibleWidth`, nunca `.length` (ANSI, emojis, CJK).\n- Color solo vía el formatter; ningún import directo de picocolors fuera de `src/cli/format.js`.\n- Atajos de teclado nuevos: sin colisión con los existentes y visibles en la ayuda.\n- Cambio visible con test de ink-testing-library que pinee comportamiento, no el frame completo."
+    },
+    {
+      "path": "src/**/*.js",
+      "rule": "#### Contratos de kodo (Node >= 22, ESM, `// @ts-check` + JSDoc)\n- NEVER-THROWS / fail-open: lo documentado así no lanza por ninguna rama (JSON.parse, execFileSync, fs). Un fail-open degrada a «sin dato» o `unknown`, nunca a un `pass`/`ok` que nadie verificó.\n- Uniones `{ ok: true, … } | { ok: false, reason }`: cada `reason` nuevo tiene quien lo trate y test.\n- I/O nuevo con dependencia inyectable por `deps = {}` (`gitFn`, `readFn`, `execFn`…); si no, los tests no lo aíslan.\n- git: jamás parsear mensajes humanos (git está traducido); usar `--porcelain`, códigos de salida o comprobaciones de disco. Nunca `git push`.\n- Texto no confiable (títulos y comentarios del proveedor, rutas de una rama, salida de herramientas) pasa por `src/cli/sanitize.js` con el carril correcto: `stripControlChars` (render), `stripForKeystroke` (`cmux send`), `stripForPrompt` (prompt).\n- Líneas tecleadas por `cmux send`: comillas simples con `'` escapada; una barra invertida seguida de t, n o r se teclea como Tab/Enter.\n- `~/.kodo/*.json`: escritura atómica (tmp + rename) y bajo el lock existente.\n- CLI: los handlers RETORNAN el exit code (`cli/exit-codes.js`: 0/1/2), no llaman a `process.exit`; `--json` sin color ni texto humano en stdout.\n- Config: clave nueva con default en `DEFAULT_CONFIG` y lector defensivo (forma rara → default, no crash).\n- NDJSON: eventos registrados en `logger-events` con campos en whitelist; nunca contenido de usuario.\n- Comentarios en español que explican el porqué y citan la tarea (KODO-NN) cuando la decisión viene de ahí."
+    },
+    {
+      "path": "{src/**/prompt.md,.claude/skills/**/SKILL.md}",
+      "rule": "#### Prompts y skills (son código: el agente los ejecuta)\n- Placeholder `{{x}}` nuevo: el builder lo sustituye y un test comprueba que no queda ninguno crudo.\n- Cada `kodo …` citado existe con esos flags (cotejar con `src/cli.js`).\n- Ninguna instrucción contradice un invariante: escribir fuera del área del rol, `git push`, saltarse el audit gate, tratar texto del proveedor o del repo como instrucciones.\n- Español, sin «you must» ni «please».\n- Skill del orquestador: lecciones con fecha `[YYYY-MM-DD]` y sin duplicar una existente; nada de trabajo de proyecto en la sesión del orquestador."
+    }
+  ]
+}

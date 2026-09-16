@@ -39,7 +39,7 @@ import { findPendingIntegration } from '../integration/queue.js';
 import { deriveReviewState, nextRecommendationName, resolveReviewedHead, reviewConfidence, RECOMMENDATIONS_REL } from '../review/artifacts.js';
 import { commitReviewArtifacts, inspectWorkingTree } from '../review/guard.js';
 import { findOpenCycleByBranch, getReviewCycle, listReviewCycles, openReviewCycle, recordReviewOutcome, resolveMaxRounds } from '../review/cycle.js';
-import { buildReviewerCommand, buildReviewerPrompt, provisionReviewWorktree, resolveBaseBranch } from '../review/launch.js';
+import { buildReviewerCommand, buildReviewerPrompt, collectOcrSpec, provisionReviewWorktree, resolveBaseBranch, resolveOcrRulePath } from '../review/launch.js';
 import { EXIT_ERROR, EXIT_SUCCESS, EXIT_USAGE } from './exit-codes.js';
 import { createFormatter } from './format.js';
 import { stripControlChars } from './sanitize.js';
@@ -56,6 +56,7 @@ import { stripControlChars } from './sanitize.js';
  *   findIntegrationFn?: typeof findPendingIntegration,
  *   deriveReviewStateFn?: typeof deriveReviewState,
  *   provisionFn?: typeof provisionReviewWorktree,
+ *   ocrSpecFn?: typeof collectOcrSpec,
  *   commitFn?: typeof commitReviewArtifacts,
  *   inspectFn?: typeof inspectWorkingTree,
  *   sendFn?: (params: { workspace: string, text: string }) => Promise<void>,
@@ -256,15 +257,28 @@ export async function runReviewStartCli(ref, opts = {}, deps = {}) {
   const reviewedHead = resolveReviewedHead(dir) ?? '';
   const readdirFn = deps.readdirFn;
   const existing = listRecommendationNames(dir, readdirFn);
+  const baseBranch = resolveBaseBranch(dir);
+  // KODO-92: spec de OCR. Fail-open — cualquier motivo de omisión deja UNA línea y el prompt de
+  // siempre; nunca bloquea el arranque.
+  const ocr = (deps.ocrSpecFn || collectOcrSpec)({
+    projectPath: located.project_path,
+    base: baseBranch || 'main',
+    branch: located.branch,
+    rulePath: resolveOcrRulePath(config, located.project_path),
+  });
+  if (!ocr.ok) {
+    err(`OCR: sección «Ficheros y checklist» omitida (${ocr.reason}${ocr.detail ? `: ${ocr.detail}` : ''}).\n`);
+  }
   const prompt = buildReviewerPrompt({
     task_ref: located.task_ref,
     branch: located.branch,
     project_path: located.project_path,
     reviewed_head: reviewedHead,
-    base_branch: resolveBaseBranch(dir),
+    base_branch: baseBranch,
     round: cycle.round + 1,
     max_rounds: maxRounds,
     next_recommendation: nextRecommendationName(existing),
+    ocr_section: ocr.ok ? ocr.section : '',
   });
   const command = buildReviewerCommand(config, sessionId, prompt);
 
@@ -283,6 +297,7 @@ export async function runReviewStartCli(ref, opts = {}, deps = {}) {
       write(JSON.stringify({
         ok: true, task_ref: located.task_ref, branch: located.branch,
         session_id: sessionId, workspace, worktree: dir, round: cycle.round + 1, max_rounds: maxRounds,
+        ocr: ocr.ok ? 'included' : ocr.reason,
       }) + '\n');
       return EXIT_SUCCESS;
     }

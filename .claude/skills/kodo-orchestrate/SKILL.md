@@ -532,6 +532,15 @@ ese momento, se perdía.
   tu cuenta**: propónsela al operador con su razón. `base_ok: false` significa
   que la base avanzó por debajo — ahí el `ff` no es aplicable y la heurística ya
   lo ha degradado.
+- **La revisión con checklist vive en `kodo review`, no aquí (KODO-92).** Si una
+  rama pide un segundo par de ojos, `kodo review start <ref>` lanza el reviewer
+  adversarial en su propia sesión. Con `oracle.repos[<path>].ocr_rule` en el
+  config, su prompt trae el spec de open-code-review (ficheros revisables,
+  excluidos con motivo, checklist por tipo); sin él, o sin `ocr` en PATH, sale
+  una línea `OCR: … omitida` y arranca igual. **No corras `ocr` ni el skill
+  `open-code-review:delegate-review` desde tu sesión:** revisar no es trabajo de
+  orquestador, y su «auto-fix» choca con el contrato del reviewer (solo escribe
+  en `review/`).
 
 ```
 kodo integrate                       → la cola pendiente, en bloque

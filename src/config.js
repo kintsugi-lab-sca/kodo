@@ -419,8 +419,14 @@ const DEFAULT_CONFIG = {
   //       "tests":  "npm run test:raw",
   //       "lint":   null,
   //       "schema": null,
-  //       "timeout_s": 900                    // opcional: pisa el global para este repo
+  //       "timeout_s": 900,                   // opcional: pisa el global para este repo
+  //       "ocr_rule": ".opencodereview/rule.json"  // opcional (KODO-92), ver abajo
   //   } }
+  //
+  // `ocr_rule` NO lo usa el oráculo: vive aquí porque es la misma config por repo. Es la ruta
+  // del `rule.json` de open-code-review con el que `kodo review start` inyecta la sección
+  // «Ficheros y checklist» en el prompt del reviewer (`review/launch.js`). Relativa → contra el
+  // repo; `~/` → home. Sin clave, sin fichero o sin `ocr` en PATH, la sección se omite.
   //
   // Los comandos se ejecutan por `sh -c` en un worktree DESECHABLE sobre el commit de la rama,
   // con el mismo criterio (y el mismo precedente) que `kodo integrate --test`: los escribe el
