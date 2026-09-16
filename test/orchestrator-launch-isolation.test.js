@@ -49,12 +49,19 @@ describe('orchestrator/launch.js — Phase 18 D-06 source-hygiene', () => {
     );
   });
 
-  it('preserves cwd: process.cwd() (orchestrator opens in repo)', () => {
-    const source = readFileSync(SRC, 'utf-8');
+  // KODO-93: antes exigía `cwd: process.cwd()`, que solo es el repo si quien lanza está en
+  // él; el daemon detached hereda el cwd de `kodo up`. El comportamiento lo cubre
+  // test/orchestrator-launch-cwd.test.js; aquí queda el guard de fuente.
+  it('opens the workspace at KODO_REPO_ROOT, never process.cwd() (orchestrator opens in repo)', () => {
+    const stripped = stripComments(readFileSync(SRC, 'utf-8'));
     assert.ok(
-      /cwd:\s*process\.cwd\(\)/.test(source),
-      'src/orchestrator/launch.js MUST set cwd: process.cwd() ' +
+      /cwd:\s*KODO_REPO_ROOT\b/.test(stripped),
+      'src/orchestrator/launch.js MUST set cwd: KODO_REPO_ROOT ' +
         '(Phase 999.1 D-05 — auto-load .claude/skills/kodo-orchestrate/skill.md).',
+    );
+    assert.ok(
+      !/process\.cwd\(\)/.test(stripped),
+      'src/orchestrator/launch.js MUST NOT depend on process.cwd() (KODO-93: el daemon hereda el cwd de `kodo up`).',
     );
   });
 
