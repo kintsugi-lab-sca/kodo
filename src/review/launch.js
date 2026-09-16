@@ -436,7 +436,7 @@ export function renderOcrSection({ preview, groups, rulePath }) {
   for (const g of groups) {
     const files = (Array.isArray(g?.files) ? g.files : []).map((f) => `\`${line(f)}\``).join(', ');
     const text =
-      `\n\n**Checklist \`${line(g?.pattern)}\`** (${line(g?.source)}) — aplica a: ${files}\n\n${block(g?.rule).trim()}`;
+      `\n\n**Checklist \`${line(g?.pattern)}\`** (${line(g?.source)}) — aplica a: ${files}\n\n${block(g?.rule ?? '').trim()}`;
     if (size + text.length > OCR_SECTION_MAX_CHARS) {
       omitted.push(g);
       continue;
