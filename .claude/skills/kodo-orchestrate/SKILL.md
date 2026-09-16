@@ -432,8 +432,9 @@ orquestador) cure grupos a mano. El mecanismo tiene dos caras.
 - **Tu propio título se repara solo (KODO-91).** Si tu workspace deja de llamarse
   `kodo-orchestrator` (p. ej. `心動 kodo service`, el branding que aplica `kodo up`
   lanzado desde un pane de tu workspace), el siguiente `kodo check` motivado lo
-  renombra. No arranques el daemon desde tus panes y no renombres la tab a mano:
-  el título es la identidad de respaldo con la que kodo te reconoce.
+  renombra — siempre que `state.json .orchestrator.workspace_id` no sea `null`
+  (kodo lo rellena solo mientras la tab conserva el título). No arranques el
+  daemon desde tus panes ni renombres la tab a mano.
 - **El sidebar NO es trigger.** El resultado del doctor jamás entra en las
   razones del check ni activa un pase por sí mismo. Consecuencia — **consistencia
   eventual**: una sesión recién lanzada aterriza suelta y se agrupa en el
