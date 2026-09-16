@@ -315,8 +315,18 @@ export const OCR_SECTION_MAX_CHARS = 10_000;
 /** Encabezado de la sección. Exportado para que los tests anclen en él y no en la prosa. */
 export const OCR_SECTION_HEADING = '## Ficheros y checklist (open-code-review)';
 
-/** Tope de ficheros listados por bloque (revisables / excluidos). */
-const OCR_MAX_LISTED_FILES = 80;
+/**
+ * Tope de ficheros listados por bloque (revisables / excluidos). Un diff normal cabe entero; en
+ * uno de cientos, el resto lo da `git diff --stat` y el presupuesto se queda para los checklists.
+ */
+const OCR_MAX_LISTED_FILES = 40;
+
+/**
+ * Tope de ficheros en el «aplica a» de cada checklist. Esa lista repite la de revisables, y sin
+ * tope, en un diff grande, se come el presupuesto de la sección y deja fuera los checklists
+ * — que son lo único que no está en otro sitio.
+ */
+const OCR_MAX_GROUP_FILES = 8;
 
 /** `ocr delegate` no llama a ningún LLM: tarda décimas. 20 s es un cuelgue, no un repo grande. */
 const OCR_TIMEOUT_MS = 20_000;
@@ -434,7 +444,9 @@ export function renderOcrSection({ preview, groups, rulePath }) {
   const omitted = [];
   let size = head.length;
   for (const g of groups) {
-    const files = (Array.isArray(g?.files) ? g.files : []).map((f) => `\`${line(f)}\``).join(', ');
+    const all = Array.isArray(g?.files) ? g.files : [];
+    const files = all.slice(0, OCR_MAX_GROUP_FILES).map((f) => `\`${line(f)}\``).join(', ') +
+      (all.length > OCR_MAX_GROUP_FILES ? ` y ${all.length - OCR_MAX_GROUP_FILES} más` : '');
     const text =
       `\n\n**Checklist \`${line(g?.pattern)}\`** (${line(g?.source)}) — aplica a: ${files}\n\n${block(g?.rule ?? '').trim()}`;
     if (size + text.length > OCR_SECTION_MAX_CHARS) {

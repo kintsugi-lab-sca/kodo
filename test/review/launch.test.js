@@ -388,6 +388,17 @@ describe('KODO-92 — renderOcrSection: saneo y tope', () => {
     assert.ok(s.includes("split('\\ n')"), 'se desactiva sin perder la lectura');
   });
 
+  it('en un diff grande el «aplica a» se acota y no deja fuera los checklists', () => {
+    const muchos = Array.from({ length: 60 }, (_, i) => `app/modulo_con_nombre_largo_${i}/views.py`);
+    const grupo = (/** @type {string} */ pattern, /** @type {string[]} */ files) => ({ pattern, source: 'custom', files, rule: 'x'.repeat(900) });
+    const groups = [grupo('**/*.py', muchos), grupo('**/tests/**/*.py', muchos), grupo('templates/**/*.html', ['t.html']), grupo('frontend/src/**/*.css', ['a.css'])];
+    const s = renderOcrSection({ preview: PREVIEW, groups, rulePath: '/r.json' });
+    assert.ok(s.includes('**Checklist `templates/**/*.html`**'), 'el checklist de plantillas no se pierde por las listas de .py');
+    assert.ok(s.includes('**Checklist `frontend/src/**/*.css`**'));
+    assert.ok(s.includes(' y 52 más'));
+    assert.ok(!s.includes('omitida por tamaño'));
+  });
+
   it('el checklist se corta por grupos enteros al pasar el tope, y dice cómo pedir lo omitido', () => {
     const big = (/** @type {number} */ i) => ({ pattern: `**/*.x${i}`, source: 'system', files: [`f.x${i}`], rule: 'r'.repeat(4000) });
     const s = renderOcrSection({ preview: PREVIEW, groups: [big(1), big(2), big(3), big(4)], rulePath: '/cfg/r.json' });
@@ -477,7 +488,11 @@ describe('KODO-92 — contra el ocr real', () => {
       const rulePath = join(repo, 'rule.json');
       writeFileSync(rulePath, JSON.stringify({ rules: [{ path: '**/*.py', rule: '- Regla KODO92 de Django' }] }));
 
-      const r = /** @type {any} */ (collectOcrSpec({ projectPath: repo, base: 'main', branch: 'feat/x', rulePath }));
+      // HOME aislado: OCR lee también `~/.opencodereview/rule.json`, y el veredicto no puede
+      // depender de las reglas globales de quien corre la suite.
+      const ocrFn = (/** @type {string[]} */ args) =>
+        execFileSync('ocr', args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, HOME: repo } });
+      const r = /** @type {any} */ (collectOcrSpec({ projectPath: repo, base: 'main', branch: 'feat/x', rulePath }, { ocrFn }));
       assert.equal(r.ok, true, JSON.stringify(r));
       assert.ok(r.section.includes('`app/views.py` (added, +2 −0)'), r.section);
       assert.ok(r.section.includes('`NOTAS.md` — unsupported_ext'), r.section);
