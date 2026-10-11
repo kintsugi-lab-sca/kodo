@@ -145,6 +145,30 @@ describe('reconcileTick — transiciones + debouncing 2-tick (D-07 / R-2)', () =
     assert.equal(r.events.rescued, 1);
   });
 
+  // KODO-103 — un cierre DELIBERADO no se rescata aunque el workspace siga abierto.
+  for (const endedBy of ['session-end', 'task-terminal']) {
+    it(`F3b (KODO-103): NO rescata una entry con ended_by=${endedBy} con la tab viva`, () => {
+      const entry = {
+        workspace_ref: 'workspace:5',
+        session_id: 'sess-h1',
+        task_id: 'h1',
+        task_ref: 'KL-5',
+        status: 'idle',
+        project_path: '/dev/kodo',
+        ended_at: '2026-05-29T11:00:00.000Z',
+        ended_by: endedBy,
+      };
+      const state = { schema_version: 3, sessions: {}, history: [entry] };
+      const liveRefs = [{ workspace_ref: 'workspace:5', alive: true, needs_input: false }];
+
+      const r = reconcileTick(state, liveRefs, { debounceStore: new Map(), tick: 1, now: NOW });
+
+      assert.equal(r.state.sessions.h1, undefined, 'la fila NO vuelve a sessions');
+      assert.deepEqual(r.state.history, [entry], 'la entry sigue en history intacta');
+      assert.equal(r.events.rescued, 0);
+    });
+  }
+
   // F4 — sellado a closed
   it('F4: sella a closed una session dead > 30 días y la mueve a history (D-07 step 4)', () => {
     const oldDead = NOW - 40 * DAY_MS;

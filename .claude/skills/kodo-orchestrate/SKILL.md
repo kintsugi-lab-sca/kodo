@@ -719,6 +719,40 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
+- [2026-10-09] **«kodo no lanza al mover a In Progress» no es el daemon: casi
+  siempre es que el webhook no llega.** Diagnóstico en tres pasos, en este orden:
+  (1) `grep 'Webhook received' ~/.kodo/logs/daemon.log` — si el último es de
+  hace días y todo lo lanzado desde entonces fue `kodo launch` a mano, el webhook
+  está caído; (2) `tailscale status` — Plane corre en
+  `mattermost-ubuntu-4gb-nbg1-2` (`root@178.104.51.37`, docker `plane-aio` con
+  red host) y el webhook apunta a la IP de Tailscale del Mac
+  (`http://100.112.133.33:9090/webhook`): si ese host figura *offline* o su
+  `tailscale status` dice *Logged out*, no hay ruta (`nohup tailscale up &` en
+  el servidor imprime la URL de login que Alex autoriza); (3) Plane **desactiva
+  solo** el webhook tras entregas fallidas: reactivarlo en Workspace settings →
+  Webhooks. Verificar con un comentario en cualquier tarea y el `Webhook
+  received` siguiente. Causa real del 9-oct: una semana sin webhooks sin que
+  nadie lo notara porque el orquestador lanzaba a mano.
+- [2026-10-09] **Los ids de label y de estado son por proyecto.**
+  `update_work_item` con el `kodo` de SCP (`4b0bc7f4…`) sobre una tarea de
+  ITCLIP responde 200 con `labels: []` sin avisar. Resolver siempre con
+  `list_labels` / `list_states` del proyecto destino (ITCLIP `d87f6242…`, ROMAN
+  `2f800f7d…`). `manage_work_item_label` / `manage_work_item_assignee` fallan al
+  parsear la respuesta (pydantic) aunque a veces apliquen; `update_work_item`
+  con la lista completa es lo fiable.
+- [2026-10-09] **Nunca `cmux send --force` sobre un borrador humano.** Si el
+  prompt de una sesión tiene texto de Alex sin enviar, `--force` lo concatena
+  con el tuyo y lo manda todo junto. Sin `--force`, `cmux send` falla con
+  «waiting on a question or dialog» o «holds text someone is typing»: eso es la
+  señal para esperar o pedirle a Alex que lo borre. Las teclas Escape, Ctrl+U,
+  Ctrl+C y Backspace vía `send-key` no limpian el cuadro de Claude Code.
+- [2026-10-09] **Probar una PR que genera PDF/HTML sin tocar el checkout:**
+  `git worktree add <scratchpad>/prN origin/<rama>`, copiar
+  `config/credentials/test.key` y enlazar `node_modules`, script fuera del repo y
+  `RAILS_ENV=test bin/rails runner <script>` con datos sintéticos en transacción
+  con rollback. Delegado a un agente; el orquestador solo recibe rutas y
+  resumen (receta de ROMAN-251, optiai).
+
 - [2026-08-28] **Un aviso por evento a un agente que trabaja por rondas es ruido
   por construcción, no por volumen.** Los nudges de fin de sesión y de
   lanzamiento se enviaban por el carril de teclado (`cmux send`), que Claude Code

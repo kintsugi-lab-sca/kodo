@@ -11,13 +11,19 @@ const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
  * y por el doctor (`checkHookRegistration`). El orden es determinista y fija el orden
  * del render y del payload del doctor. Añadir un cuarto hook aquí lo cubre
  * automáticamente el instalador, el uninstall y el detector de deriva sin tocar nada más.
- * @type {ReadonlyArray<{ event: string, file: string }>}
+ * @type {ReadonlyArray<{ event: string, file: string, timeout?: number }>}
  */
 export const KODO_HOOKS = [
   { event: 'SessionStart', file: 'session-start.js' },
   { event: 'Stop', file: 'stop.js' },
   // Phase 58 LIFE-03: SessionEnd hace el cleanup terminal / handoff al cierre real.
-  { event: 'SessionEnd', file: 'session-end.js' },
+  //
+  // KODO-103: `timeout` (segundos) OBLIGATORIO. Claude Code cancela un hook SessionEnd sin
+  // `timeout` propio a los 1.5 s («Hook cancelled»), y el cierre de kodo —backstop al
+  // provider, captura de la rama, cleanup del worktree— pasa de eso en cuanto hay
+  // worktree: el hook moría tras `session.end` y antes de `removeSession`, la bandeja y la
+  // cola, dejando la fila huérfana. Solo alarga la salida lo que el hook tarde de verdad.
+  { event: 'SessionEnd', file: 'session-end.js', timeout: 30 },
 ];
 
 /**
@@ -115,19 +121,22 @@ export function installHooks() {
     settings.hooks = {};
   }
 
-  let changed = false;
-
-  // Install SessionStart hook
-  changed = addHook(settings.hooks, 'SessionStart', sessionStartCmd) || changed;
-
-  // Install Stop hook
-  changed = addHook(settings.hooks, 'Stop', stopCmd) || changed;
-
-  // Install SessionEnd hook (Phase 58 LIFE-03)
-  changed = addHook(settings.hooks, 'SessionEnd', sessionEndCmd) || changed;
+  // Install SessionStart hook / Stop hook / SessionEnd hook (Phase 58 LIFE-03)
+  const results = [
+    addHook(settings.hooks, 'SessionStart', sessionStartCmd),
+    addHook(settings.hooks, 'Stop', stopCmd),
+    addHook(settings.hooks, 'SessionEnd', sessionEndCmd, timeoutFor('SessionEnd')),
+  ];
+  const changed = results.some(Boolean);
 
   if (changed) {
     writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  }
+  if (changed && !results.includes('added')) {
+    // KODO-103: solo se subió el `timeout` de entradas existentes — sus commands no se
+    // tocaron, así que listar los recién calculados mentiría sobre lo instalado.
+    console.log(`✓ Timeout del hook SessionEnd actualizado a ${timeoutFor('SessionEnd')} s en ~/.claude/settings.json`);
+  } else if (changed) {
     console.log('✓ Hooks instalados en ~/.claude/settings.json');
     console.log(`  SessionStart: ${sessionStartCmd}`);
     console.log(`  Stop: ${stopCmd}`);
@@ -176,27 +185,47 @@ export function uninstallHooks() {
 }
 
 /**
+ * @param {string} event
+ * @returns {number | undefined} timeout canónico (segundos) del hook de kodo de `event`.
+ */
+function timeoutFor(event) {
+  return KODO_HOOKS.find((h) => h.event === event)?.timeout;
+}
+
+/**
  * @param {object} hooks
  * @param {string} event
  * @param {string} command
- * @returns {boolean} true if added
+ * @param {number} [timeout] segundos; ausente → la entrada no declara `timeout`.
+ * @returns {'added' | 'upgraded' | false}
  */
-function addHook(hooks, event, command) {
+function addHook(hooks, event, command, timeout) {
   if (!Array.isArray(hooks[event])) {
     hooks[event] = [];
   }
 
   // Check if already installed
-  const exists = hooks[event].some((entry) => {
-    const h = entry.hooks || [];
-    return h.some((hook) => isKodoHookCommand(hook.command));
-  });
+  const installed = hooks[event]
+    .flatMap((entry) => entry.hooks || [])
+    .filter((hook) => isKodoHookCommand(hook.command));
 
-  if (exists) return false;
+  if (installed.length > 0) {
+    // KODO-103: una instalación previa sin `timeout` (o con uno menor) se SUBE en sitio,
+    // sin tocar su `command` — reinstalar es la vía de migración del settings existente.
+    if (timeout === undefined) return false;
+    let upgraded = false;
+    for (const hook of installed) {
+      if (!(typeof hook.timeout === 'number' && hook.timeout >= timeout)) {
+        hook.timeout = timeout;
+        upgraded = true;
+      }
+    }
+    return upgraded ? 'upgraded' : false;
+  }
 
   hooks[event].push({
-    hooks: [{ type: 'command', command }],
+    hooks: [{ type: 'command', command, ...(timeout !== undefined ? { timeout } : {}) }],
   });
 
-  return true;
+  return 'added';
 }
