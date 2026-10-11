@@ -121,19 +121,22 @@ export function installHooks() {
     settings.hooks = {};
   }
 
-  let changed = false;
-
-  // Install SessionStart hook
-  changed = addHook(settings.hooks, 'SessionStart', sessionStartCmd) || changed;
-
-  // Install Stop hook
-  changed = addHook(settings.hooks, 'Stop', stopCmd) || changed;
-
-  // Install SessionEnd hook (Phase 58 LIFE-03)
-  changed = addHook(settings.hooks, 'SessionEnd', sessionEndCmd, timeoutFor('SessionEnd')) || changed;
+  // Install SessionStart hook / Stop hook / SessionEnd hook (Phase 58 LIFE-03)
+  const results = [
+    addHook(settings.hooks, 'SessionStart', sessionStartCmd),
+    addHook(settings.hooks, 'Stop', stopCmd),
+    addHook(settings.hooks, 'SessionEnd', sessionEndCmd, timeoutFor('SessionEnd')),
+  ];
+  const changed = results.some(Boolean);
 
   if (changed) {
     writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  }
+  if (changed && !results.includes('added')) {
+    // KODO-103: solo se subió el `timeout` de entradas existentes — sus commands no se
+    // tocaron, así que listar los recién calculados mentiría sobre lo instalado.
+    console.log(`✓ Timeout del hook SessionEnd actualizado a ${timeoutFor('SessionEnd')} s en ~/.claude/settings.json`);
+  } else if (changed) {
     console.log('✓ Hooks instalados en ~/.claude/settings.json');
     console.log(`  SessionStart: ${sessionStartCmd}`);
     console.log(`  Stop: ${stopCmd}`);
@@ -194,7 +197,7 @@ function timeoutFor(event) {
  * @param {string} event
  * @param {string} command
  * @param {number} [timeout] segundos; ausente → la entrada no declara `timeout`.
- * @returns {boolean} true if added or upgraded
+ * @returns {'added' | 'upgraded' | false}
  */
 function addHook(hooks, event, command, timeout) {
   if (!Array.isArray(hooks[event])) {
@@ -217,12 +220,12 @@ function addHook(hooks, event, command, timeout) {
         upgraded = true;
       }
     }
-    return upgraded;
+    return upgraded ? 'upgraded' : false;
   }
 
   hooks[event].push({
     hooks: [{ type: 'command', command, ...(timeout !== undefined ? { timeout } : {}) }],
   });
 
-  return true;
+  return 'added';
 }
