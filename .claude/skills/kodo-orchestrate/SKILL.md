@@ -1167,3 +1167,43 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   libre) y un `nohup` los deja huérfanos sin pantalla. La statusline detecta al
   orquestador cotejando `session_id` con `orchestrator.session_id` de
   `state.json` y muestra sesiones, bandeja, cola y daemon en vez de la ruta.
+- [2026-10-11] **`kodo launch` exige label `kodo` Y asignado.** Sin asignado el
+  dispatcher responde `reason=unassigned`. Añadir ambos con un PATCH REST
+  (`labels` + `assignees`); `manage_work_item_label` del MCP falla al parsear la
+  respuesta aunque a veces aplique. Las tareas ROMAN sin módulo caen en
+  `~/dev/roman` (no git) y la sesión improvisa worktree: asignar módulo antes.
+- [2026-10-11] **Antes de lanzar varias tareas sobre un repo, adelantar su main
+  local** (`git rev-list --count main..origin/main`; `pull --ff-only`). Si el
+  main está atrasado los worktrees nacen viejos, la PR sale CONFLICTING y GitHub
+  no dispara el workflow `pull_request` (sin merge commit no hay CI). Un
+  cherry-pick a medias en el checkout principal bloquea el ff: avisar al operador.
+- [2026-10-11] **Varias PR con migración en paralelo colisionan en la versión
+  «redonda» (`YYYYMMDD100001`).** Antes de mergear la segunda:
+  `git ls-tree origin/main db/migrate | awk -F_ '{print $1}' | sort | uniq -d`.
+  Tras mergear en ráfaga, esperar el CI de main: la CI verde por rama no
+  garantiza main verde. Hotfix = renombrar fichero + versión en `schema.rb`
+  (y commitear los dos: un `git mv` no stagea el `sed`).
+- [2026-10-11] **La suite de scp-cmri tarda ~13 min en el runner y su salida
+  paralela se bufferiza:** 19 min sin un punto no es un cuelgue. El job `test`
+  tiene `timeout-minutes` (ahora 30); si se cancela, mirar la hora de
+  «# Running:» frente a la de cancelación antes de buscar un deadlock.
+- [2026-10-11] **Nudges a sesiones idle: `cmux send --force '<texto>'` deja el
+  borrador y `cmux send-key --workspace <ref> Enter` lo envía.** `\r` o `\n`
+  dentro de `send` no submiten con la sesión idle. Para `/exit`: `send-key
+  Escape`, `send '/exit'`, `send-key Enter`; el diálogo «Exiting worktree
+  session» se confirma con `send-key --force Enter`, pero ha dejado worktrees a
+  medio borrar (sin `.git`): antes de cerrar, confirmar rama empujada y mergeada;
+  después `git worktree prune` y borrar el residuo.
+- [2026-10-11] **Filas que no salen de `state.json` tras cerrar la sesión:** no
+  borrarlas con `removeSession` a mano (reconcile las «rescata» mientras exista
+  el workspace de cmux). Vía correcta: cerrar el workspace (`cmux
+  close-workspace`, nunca uno con `make dev` u otro proceso del operador) y
+  `DELETE /sessions/:id` autenticado (`await import('./src/config.js')` carga
+  `KODO_API_TOKEN`; 409 `alive` = workspace aún abierto). Causa raíz corregida
+  en KODO-103 (timeout del hook + `ended_by`); tras mergear cambios del daemon,
+  `kodo stop && kodo up`, porque el proceso vivo no recarga código.
+- [2026-10-11] **`gh` por repo:** `GH_TOKEN=$(gh auth token --user deikka)` para
+  kintsugi-lab-sca/* y deikka/*; la org Fast-Track-Roman-y-Asociados (clipping)
+  solo con la cuenta activa `a-nunez-c_rmn` (sin `GH_TOKEN`). `gh pr merge`
+  está bloqueado por un hook local («requires human approval») aunque el
+  operador autorice: el merge siempre lo hace él.
