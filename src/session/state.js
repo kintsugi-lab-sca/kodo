@@ -741,11 +741,18 @@ export function addSession(taskId, session, logger = noopLogger) {
 }
 
 /**
+ * KODO-103: `endedBy` marca la entrada de history como CIERRE DELIBERADO (el SessionEnd
+ * real, la tarea movida a un estado terminal). `reconcileTick` no rescata esas entradas:
+ * sin la marca, el workspace de cmux —que sigue abierto tras `/exit`— la revivía en el
+ * tick siguiente y la fila volvía a `sessions` como `idle`, ocupando un slot. Sin
+ * `endedBy` la entrada sigue siendo rescatable (retiradas por error, ROMAN-151/152).
+ *
  * @param {string} taskId
  * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @param {{ endedBy?: string }} [opts]
  * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
  */
-export function removeSession(taskId, logger = noopLogger) {
+export function removeSession(taskId, logger = noopLogger, opts = {}) {
   // WR-01: on lock-timeout nothing was persisted — do not emit the
   // `state.session.removed` success event; warn + propagate the fail-safe.
   const r = withStateLock((state) => {
@@ -755,6 +762,7 @@ export function removeSession(taskId, logger = noopLogger) {
       state.history.unshift({
         ...removed,
         ended_at: new Date().toISOString(),
+        ...(opts.endedBy ? { ended_by: opts.endedBy } : {}),
       });
       state.history = state.history.slice(0, 50);
     }

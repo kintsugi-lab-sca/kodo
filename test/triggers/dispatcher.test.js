@@ -1425,4 +1425,18 @@ describe('KODO-47 dispatchTrigger — limpieza en estado terminal con lock ocupa
     assert.equal(result.action, 'cleaned');
     assert.equal(result.code, undefined);
   });
+
+  it('KODO-103: la limpieza marca endedBy=task-terminal (reconcile no la rescata)', async () => {
+    const { dispatchTrigger } = await import('../../src/triggers/dispatcher.js');
+    const event = { taskRef: 'KL-42', action: 'state_change', provider: 'test', raw: {} };
+    const calls = [];
+
+    await dispatchTrigger(event, {}, baseDeps((...args) => {
+      calls.push(args);
+      return { ok: true };
+    }));
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0][2], { endedBy: 'task-terminal' });
+  });
 });

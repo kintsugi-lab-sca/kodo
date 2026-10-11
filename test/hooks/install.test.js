@@ -211,6 +211,52 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
   });
 });
 
+// ── KODO-103: timeout del SessionEnd ──────────────────────────────────────────────
+//
+// Claude Code cancela un hook SessionEnd sin `timeout` propio a los 1.5 s. El de kodo
+// moría tras `session.end` y antes de `removeSession` → filas huérfanas en state.json.
+describe('install.js — timeout del hook SessionEnd (KODO-103)', () => {
+  /** Los hooks kodo de un evento, como objetos (no solo command). */
+  const kodoHooksOf = (hooks, event) =>
+    (hooks?.[event] || []).flatMap((e) => e.hooks || []).filter((h) => isKodoHookCommand(h.command));
+
+  it('instalación nueva: SessionEnd declara timeout 30; SessionStart/Stop no', () => {
+    writeSettings({ hooks: {} });
+    installHooks();
+    const { hooks } = readSettings();
+    assert.deepEqual(kodoHooksOf(hooks, 'SessionEnd').map((h) => h.timeout), [30]);
+    assert.equal(kodoHooksOf(hooks, 'SessionStart')[0].timeout, undefined);
+    assert.equal(kodoHooksOf(hooks, 'Stop')[0].timeout, undefined);
+  });
+
+  it('upgrade: una entrada SessionEnd ya instalada SIN timeout lo recibe, conservando su command', () => {
+    const cmd = 'node "/opt/kodo-main/src/hooks/session-end.js"';
+    writeSettings({
+      hooks: {
+        SessionEnd: [
+          { hooks: [{ type: 'command', command: 'bash foreign.sh', timeout: 10 }] },
+          { hooks: [{ type: 'command', command: cmd }] },
+        ],
+      },
+    });
+    installHooks();
+    const { hooks } = readSettings();
+    const kodo = kodoHooksOf(hooks, 'SessionEnd');
+    assert.equal(kodo.length, 1, 'no duplica la entrada');
+    assert.equal(kodo[0].command, cmd, 'el command instalado no se reescribe');
+    assert.equal(kodo[0].timeout, 30);
+    const foreign = hooks.SessionEnd[0].hooks[0];
+    assert.deepEqual(foreign, { type: 'command', command: 'bash foreign.sh', timeout: 10 }, 'el ajeno intacto');
+  });
+
+  it('un timeout ya mayor que el canónico se respeta (no se baja)', () => {
+    const cmd = 'node "/opt/kodo-main/src/hooks/session-end.js"';
+    writeSettings({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command: cmd, timeout: 45 }] }] } });
+    installHooks();
+    assert.equal(kodoHooksOf(readSettings().hooks, 'SessionEnd')[0].timeout, 45);
+  });
+});
+
 // ── checkHookRegistration — checker PURO de deriva instalación↔settings (Plan 74-07) ──
 //
 // El detector de G-74-4: dado el objeto settings PARSEADO (no I/O), devuelve qué hooks
@@ -234,7 +280,7 @@ describe('install.js — checkHookRegistration (deriva instalación↔settings, 
     assert.deepEqual(KODO_HOOKS, [
       { event: 'SessionStart', file: 'session-start.js' },
       { event: 'Stop', file: 'stop.js' },
-      { event: 'SessionEnd', file: 'session-end.js' },
+      { event: 'SessionEnd', file: 'session-end.js', timeout: 30 },
     ]);
   });
 

@@ -326,7 +326,9 @@ async function dispatchTriggerImpl(event, opts = {}, deps = {}) {
         // lock, para que `dispatch.decision` no registre una limpieza inexistente. La
         // fila sigue en state.json y el próximo evento de esta tarea vuelve a entrar
         // aquí y reintenta; el `code` es lo único que faltaba para poder verlo.
-        const r = removeSessionFn(task.id);
+        // KODO-103: `endedBy` impide que reconcile la rescate de history con el workspace
+        // aún abierto — sin la marca, el «Cleaned session» se deshacía en el tick siguiente.
+        const r = removeSessionFn(task.id, undefined, { endedBy: 'task-terminal' });
         if (r && r.ok === false) {
           console.warn(
             `[kodo:dispatch] ${task.ref} — limpieza NO aplicada (${r.reason}); la sesión sigue en state.json`,

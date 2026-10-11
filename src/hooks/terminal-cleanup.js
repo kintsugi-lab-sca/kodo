@@ -161,9 +161,10 @@ export async function performTerminalCleanup({ id, session, gitFn, loggerFactory
     console.error(`[kodo:session-end] removePromptFile failed: ${/** @type {Error} */ (err).message}`);
   }
 
-  // Remoción de la fila — la sesión se archiva a history.
+  // Remoción de la fila — la sesión se archiva a history, marcada como cierre real para
+  // que reconcile no la rescate mientras su workspace siga abierto (KODO-103).
   try {
-    removeSessionFn(id);
+    removeSessionFn(id, undefined, { endedBy: 'session-end' });
     console.error(`[kodo:session-end] Session ${session.task_ref} removed from state`);
   } catch (err) {
     console.error(`[kodo:session-end] removeSession failed: ${/** @type {Error} */ (err).message}`);
