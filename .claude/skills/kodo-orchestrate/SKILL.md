@@ -1207,3 +1207,19 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   solo con la cuenta activa `a-nunez-c_rmn` (sin `GH_TOKEN`). `gh pr merge`
   está bloqueado por un hook local («requires human approval») aunque el
   operador autorice: el merge siempre lo hace él.
+
+- 2026-10-13 · **Una sesión con su PR abierta y la tarea en In Review está terminada**: ciérrala
+  (`/exit` + Keep worktree) y lanza la siguiente. Hoy SCP-136/137/139 e ITCLIP-204/218 ocuparon
+  los 5 huecos durante 9 h esperando merges del operador que no llegaron; la rama y el worktree
+  sobreviven al cierre, así que «esperar al merge para verificar» no justifica el slot.
+- 2026-10-13 · Dos sesiones Rails sobre el mismo repo comparten la BD de test y sus suites se
+  bloquean entre sí (SCP-136/137). Al lanzar la segunda, indícale que use BD aislada como hizo
+  SCP-139 (`DATABASE_URL`/`*_DATABASE_URL` con sufijo de tarea).
+- 2026-10-13 · `kodo integrate <ref> --drop` acepta el **nombre de rama** como ref: es la forma de
+  descartar una entrada concreta cuando la cola tiene dos de la misma tarea (relanzamiento).
+- 2026-10-13 · Las fechas que una sesión escribe en comentarios pueden estar mal (SCP-135 puso
+  «jueves 16-oct» siendo el 15): contrástalas con el calendario antes de copiarlas a tareas nuevas.
+- 2026-10-13 · El binario es `kodo` (en PATH), no `node bin/kodo.js`; `bin/kodo` es el único
+  fichero de `bin/`.
+- 2026-10-13 · `/kodo-catchup` existe para arrancar tras un parón: brief + propuesta de
+  lanzamiento; no lanza sin `go`.
