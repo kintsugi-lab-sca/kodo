@@ -24,7 +24,8 @@
 //   - NUNCA borra la entrada de la cola. La resuelve (`done`/`dropped`) y la deja como traza.
 //   - NUNCA corre el oráculo (KODO-69). Lo LEE de la entrada: el listado sigue siendo cero-git
 //     y cero-ejecución. Las acciones (`--ff/--merge/--pr`) pagan UN `rev-parse` (KODO-101) para
-//     comprobar que la rama sigue donde la fila dice; `--require-*` reutiliza esa misma punta. Quien ejecuta es `kodo oracle run`.
+//     comprobar que la rama sigue donde la fila dice; `--require-*` reutiliza esa misma punta.
+//     Quien ejecuta es `kodo oracle run`.
 //   - NUNCA audita (KODO-74), y aquí es imposible por construcción: el audit gate pide una
 //     segunda pasada a la SESIÓN, y cuando este comando corre esa sesión hace rato que cerró.
 //     Se LEE lo que `kodo audit` dejó escrito, igual que con el oráculo.
