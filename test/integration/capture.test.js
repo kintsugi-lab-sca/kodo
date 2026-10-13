@@ -96,6 +96,8 @@ describe('captureIntegration — qué SÍ entra en la cola', () => {
       lines_changed: 4,
       suggested: 'ff',
       audit: null,
+      // KODO-101: la punta que la fila describe, leída antes de medir.
+      head: 'deadbeef',
     });
   });
 

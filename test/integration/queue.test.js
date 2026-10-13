@@ -88,7 +88,7 @@ describe('cola de integración — store sobre state.json', () => {
 
   beforeEach(() => writeSeed());
 
-  it('encola una entrada con las 19 claves en ORDEN FIJO (byte-determinismo del --json)', () => {
+  it('encola una entrada con las 20 claves en ORDEN FIJO (byte-determinismo del --json)', () => {
     const r = enqueueIntegration(input(), undefined, { now: () => new Date('2026-08-20T10:00:00.000Z') });
     assert.equal(r.ok, true);
 
@@ -117,6 +117,9 @@ describe('cola de integración — store sobre state.json', () => {
       // KODO-74: la clave 19, detrás del oráculo. Las dos señales del trabajo de una sesión
       // viajan juntas y en este orden — primero lo que se ejecutó, después lo que se releyó.
       'audit',
+      // KODO-101: la clave 20. La punta que el resto de la fila describe; contra ella se
+      // derivan los veredictos desfasados sin tocar git en el listado.
+      'head',
     ]);
     assert.equal(entry.status, 'pending');
     assert.equal(entry.created_at, '2026-08-20T10:00:00.000Z');
