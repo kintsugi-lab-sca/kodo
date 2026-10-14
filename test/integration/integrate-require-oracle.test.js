@@ -142,10 +142,10 @@ describe('SIN --require-oracle — el default no bloquea NUNCA', () => {
     assert.equal(h.resolveCalls.length, 1);
   });
 
-  it('no se paga ni una llamada a git de más (el ancla solo se lee con la flag)', async () => {
+  it('el gate apagado no añade un `rev-parse` al único que paga la acción (KODO-101)', async () => {
     const h = harness({ found: entry({ oracle: oracle() }) });
     await runIntegrateActionCli('KODO-69', { merge: true }, h.deps);
-    assert.equal(h.gitCalls.some((c) => c.includes('worktree-abc^{commit}')), false);
+    assert.equal(h.gitCalls.filter((c) => c.includes('worktree-abc^{commit}')).length, 1);
   });
 });
 
@@ -180,7 +180,8 @@ describe('CON --require-oracle — cierra en los cinco casos que no son un pass 
   });
 
   it('veredicto `pass` DESFASADO respecto a la punta → aborta igual', async () => {
-    const h = harness({ found: entry({ oracle: oracle({ verdict: 'pass', commit: 'a'.repeat(40) }) }) });
+    // `head: HEAD`: la fila describe la punta real; el que quedó atrás es el oráculo.
+    const h = harness({ found: entry({ head: HEAD, oracle: oracle({ verdict: 'pass', commit: 'a'.repeat(40) }) }) });
     assert.equal(await runIntegrateActionCli('KODO-69', { merge: true, requireOracle: true }, h.deps), 1);
     assert.equal(h.outcome(), 'oracle-stale');
     assert.match(h.stderr(), /vuelve a correrlo/);

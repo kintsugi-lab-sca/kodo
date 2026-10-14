@@ -23,8 +23,9 @@
 //     verificar; borrarla aquí sería una segunda fuente de verdad sobre lo mismo.
 //   - NUNCA borra la entrada de la cola. La resuelve (`done`/`dropped`) y la deja como traza.
 //   - NUNCA corre el oráculo (KODO-69). Lo LEE de la entrada: el listado sigue siendo cero-git
-//     y cero-ejecución, y `--require-oracle` solo añade un `rev-parse` para comprobar que el
-//     veredicto sigue anclado a la punta de la rama. Quien ejecuta es `kodo oracle run`.
+//     y cero-ejecución. Las acciones (`--ff/--merge/--pr`) pagan UN `rev-parse` (KODO-101) para
+//     comprobar que la rama sigue donde la fila dice; `--require-*` reutiliza esa misma punta.
+//     Quien ejecuta es `kodo oracle run`.
 //   - NUNCA audita (KODO-74), y aquí es imposible por construcción: el audit gate pide una
 //     segunda pasada a la SESIÓN, y cuando este comando corre esa sesión hace rato que cerró.
 //     Se LEE lo que `kodo audit` dejó escrito, igual que con el oráculo.
@@ -34,8 +35,9 @@
 //   1  la acción falló: precondición no cumplida, git falló, o el lock de state.json expiró
 //   2  uso incorrecto: ninguna acción o más de una, o la ref no está pendiente en la cola
 
-import { findPendingIntegration, listIntegrationQueue, resolveIntegration } from '../integration/queue.js';
-import { isOracleStale } from '../integration/oracle.js';
+import { findPendingIntegration, listIntegrationQueue, resolveIntegration, sealedHead } from '../integration/queue.js';
+import { isOracleStale, revParse } from '../integration/oracle.js';
+import { refreshIfMoved } from '../integration/drift.js';
 import { integrateAction } from '../logger-events.js';
 import { createFormatter } from './format.js';
 import { stripControlChars } from './sanitize.js';
@@ -78,6 +80,14 @@ export function formatAge(iso, now) {
 }
 
 /**
+ * Marca de «veredicto sobre un HEAD anterior» — KODO-101. Se pega a `pass`/`fail`/`✓N` cuando
+ * el commit que se verificó no es el `head` que la fila describe: la rama avanzó después y esos
+ * commits nuevos no los cubre ningún veredicto. Sin `head` (entrada anterior a KODO-101) no se
+ * marca nada — no consta el desfase, y no se inventa.
+ */
+export const STALE_MARK = '↑';
+
+/**
  * Celda del oráculo en el listado. PURA — no colorea (la tabla de este comando es monocroma en
  * sus datos; el color queda para `ok`/`fail` de las acciones).
  *
@@ -85,13 +95,15 @@ export function formatAge(iso, now) {
  * por omisión: `—` significa que NADIE ha verificado esta rama, y no se parece a un `pass`.
  *
  * @param {import('../integration/oracle.js').OracleResult|null|undefined} oracle
- * @returns {'—'|'…'|'pass'|'fail'|'?'}
+ * @param {string|null} [head] `entry.head` (KODO-101). Con él, un veredicto de otro commit sale con `↑`.
+ * @returns {string}
  */
-export function oracleCell(oracle) {
+export function oracleCell(oracle, head = null) {
   if (!oracle || typeof oracle !== 'object') return '—';
   if (oracle.state === 'running') return '…';
-  if (oracle.verdict === 'pass') return 'pass';
-  if (oracle.verdict === 'fail') return 'fail';
+  const stale = isOracleStale(oracle, head) ? STALE_MARK : '';
+  if (oracle.verdict === 'pass') return `pass${stale}`;
+  if (oracle.verdict === 'fail') return `fail${stale}`;
   return '?';
 }
 
@@ -110,13 +122,20 @@ export function oracleCell(oracle) {
  * Es exactamente lo que el gate puede prometer, y por eso se pinta al lado del veredicto del
  * oráculo y nunca en su lugar: uno es evidencia ejecutada, el otro un turno de relectura.
  *
+ * KODO-101: `✓N↑` = auditado, pero sobre un HEAD anterior al que la fila describe. Es el caso
+ * de ITCLIP-169 — un `✓` limpio ahí era peor que no tener veredicto.
+ *
  * @param {import('../integration/audit.js').AuditGate|null|undefined} audit
+ * @param {string|null} [head] `entry.head` (KODO-101).
  * @returns {string}
  */
-export function auditCell(audit) {
+export function auditCell(audit, head = null) {
   if (!audit || typeof audit !== 'object') return '—';
   const n = Number.isInteger(audit.count) && audit.count > 0 ? audit.count : 1;
-  return `${audit.status === 'audited' ? '✓' : '…'}${n}`;
+  if (audit.status !== 'audited') return `…${n}`;
+  const c = audit.commit;
+  const stale = typeof c === 'string' && c !== '' && typeof head === 'string' && head !== '' && c !== head;
+  return `✓${n}${stale ? STALE_MARK : ''}`;
 }
 
 /**
@@ -126,6 +145,7 @@ export function auditCell(audit) {
  *   resolveFn?: typeof resolveIntegration,
  *   gitFn?: (cwd: string, args: string[]) => Promise<string>|string,
  *   runTestsFn?: (cmd: string, cwd: string) => Promise<{ ok: boolean, detail: string }>|{ ok: boolean, detail: string },
+ *   driftFn?: typeof refreshIfMoved,
  *   loggerFn?: () => any,
  *   writeFn?: (s: string) => void,
  *   errFn?: (s: string) => void,
@@ -180,17 +200,21 @@ export function runIntegrateListCli(opts, deps = {}) {
       // lecturas distintas de la misma rama —una heurística sobre lo que TOCA, un hecho sobre
       // lo que PASA— y el operador necesita las dos a la vez para decidir. `—` es «no ha
       // corrido», que es distinto de `unknown` («corrió y no pudo saberlo»).
-      oracleCell(e.oracle),
+      oracleCell(e.oracle, e.head ?? null),
       // KODO-74: la segunda señal de la fila, y la ortogonal a la anterior. El oráculo dice si
       // el artefacto está sano; esto dice si alguien volvió a leer lo que se pidió. Un `pass`
       // del oráculo sobre una rama `—` es código que compila y que nadie releyó.
-      auditCell(e.audit),
+      auditCell(e.audit, e.head ?? null),
       formatAge(e.created_at, now),
       e.status === 'pending' ? '' : `${e.status}${e.action ? `/${e.action}` : ''}`,
     ]);
     write(
       fmt.formatTable(rows, { header: ['ref', 'rama', 'commits', 'base', 'sugerido', 'oráculo', 'audit', 'edad', 'estado'] }) + '\n',
     );
+    // KODO-101: la leyenda solo aparece cuando hay algo que leer con ella.
+    if (rows.some((r) => r[5].endsWith(STALE_MARK) || r[6].endsWith(STALE_MARK))) {
+      write(`${fmt.dim(`${STALE_MARK} = veredicto sobre un HEAD anterior: la rama avanzó y los commits nuevos no los cubre`)}\n`);
+    }
     return 0;
   } catch (e) {
     // Cinturón de seguridad: ni un fallo del render convierte un listado en un exit distinto de 0.
@@ -283,6 +307,34 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
 
   const project = entry.project_path;
 
+  // ── Cinturón KODO-101: la rama tiene que seguir donde la fila dice. ──────────────────
+  //
+  // SIEMPRE activo (no es opt-in como los gates de abajo), porque no juzga la calidad de nada:
+  // solo comprueba que lo que el operador vio en el listado —recuento, oráculo, auditoría— es
+  // lo que se va a integrar. Si la rama avanzó (sesión reanudada a mano, commit del operador,
+  // rebase) se niega, nombra los dos SHA y re-describe la fila: el siguiente `kodo integrate`
+  // ya enseña el recuento nuevo y marca con `↑` los veredictos que se quedaron atrás, y repetir
+  // la acción es entonces una decisión tomada con eso delante.
+  //
+  // UN `rev-parse`, el único que paga la acción: los gates de abajo reutilizan esta punta.
+  // Sin punta legible o sin ancla en la fila, no se inventa un desfase (fail-open): la rama
+  // borrada la caza `--pr` o el propio merge, y los gates `--require-*` cierran por su cuenta.
+  const head = await revParse({ project, ref: entry.branch, gitFn: git });
+  const sealed = sealedHead(entry);
+  if (head && sealed && head !== sealed) {
+    const drift = deps.driftFn || refreshIfMoved;
+    const d = await drift({ entry, gitFn: git, head, logger });
+    return finish({
+      ok: false,
+      outcome: 'branch-moved',
+      message:
+        `${entry.task_ref}: la cola describe ${sealed.slice(0, 8)} y ${entry.branch} va por ${head.slice(0, 8)} — ` +
+        (d.refreshed
+          ? 'entrada actualizada; revisa `kodo integrate` (oráculo/auditoría pueden ser de un HEAD anterior) y repite'
+          : 'no se pudo actualizar la entrada; revisa la rama a mano antes de integrar'),
+    });
+  }
+
   // ── Gate OPCIONAL del oráculo (KODO-69, `--require-oracle`). ─────────────────────────
   //
   // NUNCA BLOQUEANTE POR DEFECTO, y esa no es una concesión: un gate que molesta con flakies
@@ -303,7 +355,7 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
   // entrada y deja la rama intacta). Gatear la salida de emergencia dejaría al operador sin
   // forma de sacar de la cola una rama que el oráculo no sabe verificar.
   if (opts.requireOracle === true) {
-    const gate = await evaluateOracleGate(entry, project, git);
+    const gate = evaluateOracleGate(entry, head);
     if (!gate.ok) {
       return finish({ ok: false, outcome: gate.outcome, message: gate.message });
     }
@@ -319,7 +371,7 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
   // el fallo mecánico —el que se arregla con un comando— y no el que le pide relanzar una
   // sesión.
   if (opts.requireAudit === true) {
-    const gate = await evaluateAuditGate(entry, project, git);
+    const gate = evaluateAuditGate(entry, head);
     if (!gate.ok) {
       return finish({ ok: false, outcome: gate.outcome, message: gate.message });
     }
@@ -418,18 +470,17 @@ export async function runIntegrateActionCli(ref, opts, deps = {}) {
 /**
  * Evalúa el gate del oráculo sobre UNA entrada. Never-throws.
  *
- * Hace UNA llamada a git (`rev-parse` de la rama) y solo cuando la flag está puesta: el listado
- * sigue siendo cero-git, y una acción SIN `--require-oracle` no paga nada. Si esa llamada falla,
- * el veredicto no se puede anclar a nada y el gate cierra — fail-CLOSED, al revés que el resto
+ * NO llama a git: recibe la punta que el cinturón KODO-101 ya leyó (antes hacía su propio
+ * `rev-parse`; ahora la acción paga uno solo). Si esa lectura falló (`head === null`), el
+ * veredicto no se puede anclar a nada y el gate cierra — fail-CLOSED, al revés que el resto
  * del carril del oráculo, porque aquí el operador ha pedido explícitamente que se le impida
  * integrar sin verificación.
  *
  * @param {import('../integration/queue.js').IntegrationEntry} entry
- * @param {string} project
- * @param {(cwd: string, args: string[]) => Promise<string>|string} git
- * @returns {Promise<{ ok: true } | { ok: false, outcome: string, message: string }>}
+ * @param {string|null} head Punta real de la rama, o `null` si no se pudo leer.
+ * @returns {{ ok: true } | { ok: false, outcome: string, message: string }}
  */
-async function evaluateOracleGate(entry, project, git) {
+function evaluateOracleGate(entry, head) {
   const oracle = entry.oracle;
   if (!oracle || typeof oracle !== 'object') {
     return {
@@ -463,12 +514,6 @@ async function evaluateOracleGate(entry, project, git) {
     };
   }
 
-  let head = null;
-  try {
-    head = String(await git(project, ['rev-parse', '--verify', '--quiet', `${entry.branch}^{commit}`])).trim() || null;
-  } catch {
-    head = null;
-  }
   if (!head) {
     return {
       ok: false,
@@ -500,11 +545,10 @@ async function evaluateOracleGate(entry, project, git) {
  *                          mismo razonamiento que invalida un veredicto de oráculo desfasado.
  *
  * @param {import('../integration/queue.js').IntegrationEntry} entry
- * @param {string} project
- * @param {(cwd: string, args: string[]) => Promise<string>|string} git
- * @returns {Promise<{ ok: true } | { ok: false, outcome: string, message: string }>}
+ * @param {string|null} head Punta real de la rama, o `null` si no se pudo leer.
+ * @returns {{ ok: true } | { ok: false, outcome: string, message: string }}
  */
-async function evaluateAuditGate(entry, project, git) {
+function evaluateAuditGate(entry, head) {
   const audit = entry.audit;
   if (!audit || typeof audit !== 'object') {
     return {
@@ -521,12 +565,6 @@ async function evaluateAuditGate(entry, project, git) {
     };
   }
 
-  let head = null;
-  try {
-    head = String(await git(project, ['rev-parse', '--verify', '--quiet', `${entry.branch}^{commit}`])).trim() || null;
-  } catch {
-    head = null;
-  }
   if (!head) {
     return {
       ok: false,

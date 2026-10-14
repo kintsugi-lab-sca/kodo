@@ -108,7 +108,7 @@ export const AUDITS_DIR = 'audits';
  *
  * Las 10 claves están SIEMPRE presentes y en este orden: el bloque se serializa tal cual en
  * `kodo integrate --json` y `kodo audit --json`, y la determinación byte a byte del `--json` es
- * invariante del repo (DX-06). Misma disciplina que `OracleResult` y que las 19 claves de
+ * invariante del repo (DX-06). Misma disciplina que `OracleResult` y que las 20 claves de
  * `IntegrationEntry`.
  *
  * @typedef {{

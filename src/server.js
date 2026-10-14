@@ -849,11 +849,23 @@ export async function startServer(opts = {}) {
     logger: orphanSweepLogger,
   });
 
-  // Teardown ÚNICO de ambos loops bajo la clave `stopReconcile` que run.js ya compone
+  // KODO-101: la cola se entera de que una rama avanzó fuera de un cierre de sesión. Loop
+  // propio por la misma razón que el sweep: `reconcileTick` es puro y esto es I/O de git.
+  // Mantiene el listado de `kodo integrate` en cero llamadas a git.
+  const { startDriftLoop } = await import('./integration/drift.js');
+  const stopDrift = startDriftLoop({
+    logger: createLogger({
+      sessionId: 'reconcile',
+      minLevel: /** @type {any} */ (process.env.KODO_LOG_LEVEL || 'info'),
+    }).child({ component: 'integration-drift' }),
+  });
+
+  // Teardown ÚNICO de los loops bajo la clave `stopReconcile` que run.js ya compone
   // (Point 4/D-05: un solo dueño del exit). Renombrar la clave rompería ese contrato.
   const stopLoops = () => {
     try { stopReconcile(); } catch {}
     try { stopOrphanSweep(); } catch {}
+    try { stopDrift(); } catch {}
   };
 
   // Point 4 (D-05): managed installs NO self SIGTERM/SIGINT handlers and does NOT

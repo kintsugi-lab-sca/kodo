@@ -21,6 +21,7 @@
 
 import { countUnmergedCommits } from '../hooks/worktree-cleanup.js';
 import { clearAuditGate, readAuditGate } from './audit.js';
+import { revParse } from './oracle.js';
 import { suggestTier } from './suggest.js';
 import { enqueueIntegration } from './queue.js';
 
@@ -147,6 +148,34 @@ async function readDiffSummary({ project, branch, base, gitFn }) {
 }
 
 /**
+ * Re-mide una rama YA encolada — KODO-101, para el refresco de deriva (`drift.js`).
+ *
+ * Mismos helpers y mismo orden que `captureIntegration` (gate KODO-21, `base_ok`, diff,
+ * `suggestTier`): un segundo cálculo con otras piezas podría discrepar del de la captura, y la
+ * fila acabaría diciendo cosas distintas según quién la escribió. Lo que NO hace: decidir si se
+ * encola (la entrada ya existe) ni resolver la base (se reutiliza la que la captura resolvió).
+ *
+ * Never-throws: cada helper ya degrada a `null` por su cuenta.
+ *
+ * @param {{ project: string, branch: string, base: string|null, gitFn: (cwd: string, args: string[]) => Promise<string>|string }} args
+ * @returns {Promise<{ commits_ahead: number|null, base_ok: boolean|null, files_changed: number|null, lines_changed: number|null, suggested: 'ff'|'merge'|'pr'|'review' }>}
+ */
+export async function measureBranch({ project, branch, base, gitFn }) {
+  const { count } = await countUnmergedCommits({ project, branch, gitFn });
+  const baseOk = base ? await isBaseContained({ project, branch, base, gitFn }) : null;
+  const { files, lines } = base
+    ? await readDiffSummary({ project, branch, base, gitFn })
+    : { files: null, lines: null };
+  return {
+    commits_ahead: count ?? null,
+    base_ok: baseOk,
+    files_changed: files ? files.length : null,
+    lines_changed: files ? lines : null,
+    suggested: suggestTier({ files, lines, baseOk }),
+  };
+}
+
+/**
  * Captura la necesidad de integración de la rama de una sesión que cierra.
  *
  * Secuencia (todo fail-open, ningún paso lanza):
@@ -221,6 +250,11 @@ export async function captureIntegration({
     // `count: null` (no verificable) NO es un skip: se encola con `commits_ahead: null` y la
     // heurística lo llevará a 'review'. Ante la duda, que lo mire un humano — la simetría del
     // fail-safe de KODO-21, que ante la duda conserva la rama.
+    // KODO-101: la punta que el resto de la fila va a describir. Se lee ANTES de medir: si la
+    // rama avanza durante la medición, `head` queda por detrás y el refresco de deriva lo verá,
+    // en vez de sellar como medido un commit que no lo fue. `null` (no resuelve) = sin ancla.
+    const head = await revParse({ project, ref: branch, gitFn });
+
     const { count } = await countUnmergedCommits({ project, branch, gitFn });
     if (count === 0) return { captured: false, reason: 'merged', entry: null };
 
@@ -264,6 +298,7 @@ export async function captureIntegration({
         lines_changed: files ? lines : null,
         suggested,
         audit,
+        head,
       },
       logger,
       { now },

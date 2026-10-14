@@ -534,6 +534,11 @@ ese momento, se perdía.
   mismo pase en el que ya lees las sesiones. `--all` añade las resueltas (traza).
 - **Qué trae cada entrada.** `task_ref`, `branch`, `project_path`,
   `commits_ahead`, `base_ok` y `suggested`, más la edad (`created_at`).
+- **`↑` = veredicto sobre un HEAD anterior (KODO-101).** El daemon compara cada
+  minuto la punta real de cada rama pending con `head`; si avanzó, rehace el
+  recuento y deja oráculo/auditoría marcados `pass↑` / `✓1↑`. Un `✓1↑` NO
+  cubre los commits nuevos: díselo al operador. Y `--ff/--merge/--pr` se niega
+  con `branch-moved` (nombra los dos SHA) si la rama se movió entre ticks.
 - **La sugerencia es una sugerencia.** `suggested` sale de una heurística simple
   y visible (docs/tests → `ff` · src → `merge` · migraciones/auth/billing o un
   diff grande → `pr` · sin diff inspeccionable → `review`). **No la ejecutes por
