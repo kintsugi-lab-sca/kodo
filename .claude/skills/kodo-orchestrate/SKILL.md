@@ -149,6 +149,8 @@ cuando el lanzamiento lo haces tú con `kodo launch`, avisarte era anunciarte al
 que acababas de ejecutar. Sigue entrando a la bandeja para cubrir el caso en que
 lo lanza el dashboard o el dispatcher.
 
+**Reanudada fuera de kodo (KODO-100)**: si el operador hace `claude --resume` de una sesión ya cerrada, `SessionStart` la devuelve a `sessions` (match por `session_id` exacto, nunca por cwd) y deja un evento `session-resumed`; la tarea sigue en Review en el provider — muévela a In Progress si no es un retoque. Si la tarea ya tenía otra sesión, no se reabre y el evento lo dice.
+
 Comandos:
 
 - `kodo inbox-orch` — lista lo que está sin ver (o `--json` para consumirlo).
@@ -1167,3 +1169,59 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   libre) y un `nohup` los deja huérfanos sin pantalla. La statusline detecta al
   orquestador cotejando `session_id` con `orchestrator.session_id` de
   `state.json` y muestra sesiones, bandeja, cola y daemon en vez de la ruta.
+- [2026-10-11] **`kodo launch` exige label `kodo` Y asignado.** Sin asignado el
+  dispatcher responde `reason=unassigned`. Añadir ambos con un PATCH REST
+  (`labels` + `assignees`); `manage_work_item_label` del MCP falla al parsear la
+  respuesta aunque a veces aplique. Las tareas ROMAN sin módulo caen en
+  `~/dev/roman` (no git) y la sesión improvisa worktree: asignar módulo antes.
+- [2026-10-11] **Antes de lanzar varias tareas sobre un repo, adelantar su main
+  local** (`git rev-list --count main..origin/main`; `pull --ff-only`). Si el
+  main está atrasado los worktrees nacen viejos, la PR sale CONFLICTING y GitHub
+  no dispara el workflow `pull_request` (sin merge commit no hay CI). Un
+  cherry-pick a medias en el checkout principal bloquea el ff: avisar al operador.
+- [2026-10-11] **Varias PR con migración en paralelo colisionan en la versión
+  «redonda» (`YYYYMMDD100001`).** Antes de mergear la segunda:
+  `git ls-tree origin/main db/migrate | awk -F_ '{print $1}' | sort | uniq -d`.
+  Tras mergear en ráfaga, esperar el CI de main: la CI verde por rama no
+  garantiza main verde. Hotfix = renombrar fichero + versión en `schema.rb`
+  (y commitear los dos: un `git mv` no stagea el `sed`).
+- [2026-10-11] **La suite de scp-cmri tarda ~13 min en el runner y su salida
+  paralela se bufferiza:** 19 min sin un punto no es un cuelgue. El job `test`
+  tiene `timeout-minutes` (ahora 30); si se cancela, mirar la hora de
+  «# Running:» frente a la de cancelación antes de buscar un deadlock.
+- [2026-10-11] **Nudges a sesiones idle: `cmux send --force '<texto>'` deja el
+  borrador y `cmux send-key --workspace <ref> Enter` lo envía.** `\r` o `\n`
+  dentro de `send` no submiten con la sesión idle. Para `/exit`: `send-key
+  Escape`, `send '/exit'`, `send-key Enter`; el diálogo «Exiting worktree
+  session» se confirma con `send-key --force Enter`, pero ha dejado worktrees a
+  medio borrar (sin `.git`): antes de cerrar, confirmar rama empujada y mergeada;
+  después `git worktree prune` y borrar el residuo.
+- [2026-10-11] **Filas que no salen de `state.json` tras cerrar la sesión:** no
+  borrarlas con `removeSession` a mano (reconcile las «rescata» mientras exista
+  el workspace de cmux). Vía correcta: cerrar el workspace (`cmux
+  close-workspace`, nunca uno con `make dev` u otro proceso del operador) y
+  `DELETE /sessions/:id` autenticado (`await import('./src/config.js')` carga
+  `KODO_API_TOKEN`; 409 `alive` = workspace aún abierto). Causa raíz corregida
+  en KODO-103 (timeout del hook + `ended_by`); tras mergear cambios del daemon,
+  `kodo stop && kodo up`, porque el proceso vivo no recarga código.
+- [2026-10-11] **`gh` por repo:** `GH_TOKEN=$(gh auth token --user deikka)` para
+  kintsugi-lab-sca/* y deikka/*; la org Fast-Track-Roman-y-Asociados (clipping)
+  solo con la cuenta activa `a-nunez-c_rmn` (sin `GH_TOKEN`). `gh pr merge`
+  está bloqueado por un hook local («requires human approval») aunque el
+  operador autorice: el merge siempre lo hace él.
+
+- 2026-10-13 · **Una sesión con su PR abierta y la tarea en In Review está terminada**: ciérrala
+  (`/exit` + Keep worktree) y lanza la siguiente. Hoy SCP-136/137/139 e ITCLIP-204/218 ocuparon
+  los 5 huecos durante 9 h esperando merges del operador que no llegaron; la rama y el worktree
+  sobreviven al cierre, así que «esperar al merge para verificar» no justifica el slot.
+- 2026-10-13 · Dos sesiones Rails sobre el mismo repo comparten la BD de test y sus suites se
+  bloquean entre sí (SCP-136/137). Al lanzar la segunda, indícale que use BD aislada como hizo
+  SCP-139 (`DATABASE_URL`/`*_DATABASE_URL` con sufijo de tarea).
+- 2026-10-13 · `kodo integrate <ref> --drop` acepta el **nombre de rama** como ref: es la forma de
+  descartar una entrada concreta cuando la cola tiene dos de la misma tarea (relanzamiento).
+- 2026-10-13 · Las fechas que una sesión escribe en comentarios pueden estar mal (SCP-135 puso
+  «jueves 16-oct» siendo el 15): contrástalas con el calendario antes de copiarlas a tareas nuevas.
+- 2026-10-13 · El binario es `kodo` (en PATH), no `node bin/kodo.js`; `bin/kodo` es el único
+  fichero de `bin/`.
+- 2026-10-13 · `/kodo-catchup` existe para arrancar tras un parón: brief + propuesta de
+  lanzamiento; no lanza sin `go`.
