@@ -413,7 +413,8 @@ async function main() {
     // `sessions`: Stop y SessionEnd la saltan por «ya archivada», no ocupa slot y su cierre
     // no refresca la cola. Solo con `source=resume`: un startup/clear con un id archivado
     // no es una reanudación.
-    if (result.source === 'history' && input.source === 'resume') {
+    const fromHistory = result.source === 'history';
+    if (fromHistory && input.source === 'resume') {
       result = await reopenResumedSession(result);
     }
 
@@ -423,7 +424,9 @@ async function main() {
     // que se puede: dos turnos después HEAD ya se ha movido y el dato es irrecuperable.
     // Fail-open y silencioso — el contexto de la tarea, que es lo valioso de este hook, se
     // inyecta igual si esto falla.
-    if (result.source === 'sessions') {
+    // KODO-100: una sesión reabierta desde history NO se sella aquí — su HEAD ya es el
+    // trabajo de la sesión, no su base (misma razón que el «una sola vez» de arriba).
+    if (result.source === 'sessions' && !fromHistory) {
       await sealBaseCommit(result.id, session, input.cwd);
     }
 

@@ -146,6 +146,14 @@ describe('KODO-100 — resume de una sesión cerrada', () => {
     assert.equal(st.history.length, 1);
   });
 
+  it('reabierta sin base_commit (legacy): no sella el HEAD movido como base', () => {
+    writeState({}, [{ ...session({ base_commit: undefined }), ended_at: '2026-09-17T16:32:00.000Z' }]);
+    runHook({ session_id: SID, source: 'resume', cwd: __dirname });
+    const s = readState().sessions['task-169'];
+    assert.ok(s, 'reabierta');
+    assert.equal(s.base_commit, undefined);
+  });
+
   it('la tarea ya tiene OTRA sesión en sessions: no la pisa, solo deja evento', () => {
     const live = session({ session_id: OTHER_SID, worktree_path: `${PROJECT}/.claude/worktrees/${OTHER_SID}` });
     writeState({ 'task-169': live }, [{ ...session(), ended_at: '2026-09-17T16:32:00.000Z' }]);
@@ -174,7 +182,7 @@ describe('KODO-100 — resume de una sesión cerrada', () => {
     runHook({ session_id: SID, source: 'startup', cwd: __dirname });
     const sealed = readState().sessions['task-169'].base_commit;
     assert.match(sealed, /^[0-9a-f]{40}$/);
-    // HEAD del cwd distinto para el resume: si resellara, cambiaría.
+    // Base distinta del HEAD real del cwd: si el resume resellara, cambiaría.
     const st = readState();
     st.sessions['task-169'].base_commit = BASE;
     writeFileSync(join(home, '.kodo', 'state.json'), JSON.stringify(st));
