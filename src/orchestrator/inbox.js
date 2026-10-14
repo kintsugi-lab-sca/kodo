@@ -70,7 +70,7 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  *   notified_at: string|null,   // ISO 8601 del último aviso de una línea que lo incluyó. Ancla del debounce.
  * }} OrchestratorEvent
  *
- * @typedef {'session-end'|'session-launched'|'integration'|'integration-pressure'|'recycle-suggested'|'review-requested'|'review-escalated'} OrchestratorEventKind
+ * @typedef {'session-end'|'session-launched'|'integration'|'integration-pressure'|'recycle-suggested'|'review-requested'|'review-escalated'|'session-resumed'} OrchestratorEventKind
  */
 
 /**
@@ -114,12 +114,17 @@ import { stripForKeystroke } from '../cli/sanitize.js';
  * silencio», y la bandeja es el sitio donde una escalada deja de ser silencio. Su productor
  * vive en `review/cycle.js` (`recordReviewOutcome`).
  *
+ * KODO-100 añade `'session-resumed'`: una sesión ya cerrada (en `state.history`) se ha
+ * reanudado a mano con `claude --resume`. Lo emite `hooks/session-start.js` tanto si la
+ * devuelve a `sessions` como si no puede (la tarea ya tiene otra sesión): en los dos casos
+ * hay trabajo que kodo no lanzó, y la tarea suele estar en Review con la sesión trabajando.
+ *
  * @type {ReadonlySet<OrchestratorEventKind>}
  */
 export const ORCHESTRATOR_EVENT_KINDS = Object.freeze(
   new Set(/** @type {OrchestratorEventKind[]} */ ([
     'session-end', 'session-launched', 'integration', 'integration-pressure', 'recycle-suggested',
-    'review-requested', 'review-escalated',
+    'review-requested', 'review-escalated', 'session-resumed',
   ])),
 );
 
@@ -353,6 +358,7 @@ function verbForKind(kind) {
     // puedas» y «esto está parado esperándote».
     case 'review-requested': return 'pendiente de revisión';
     case 'review-escalated': return 'revisión escalada';
+    case 'session-resumed': return 'reanudada fuera de kodo';
     default: return 'en Review';
   }
 }

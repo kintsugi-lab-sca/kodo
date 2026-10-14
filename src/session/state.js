@@ -777,6 +777,65 @@ export function removeSession(taskId, logger = noopLogger, opts = {}) {
 }
 
 /**
+ * KODO-100: devuelve a `state.sessions` la entrada de history cuyo `session_id` es
+ * EXACTAMENTE `sessionId` — la sesión que el operador reanudó a mano con
+ * `claude --resume` tras cerrarla. Sin esto kodo la daba por muerta mientras seguía
+ * commiteando: Stop y SessionEnd la saltan por «ya archivada» y no ocupa slot.
+ *
+ * Solo identidad: nunca cwd ni workspace_ref (todas las entradas archivadas de un repo
+ * comparten `project_path`; es el fallback que KODO-27 eliminó).
+ *
+ * No resucita si la tarea ya tiene OTRA fila en `sessions` (kodo la relanzó): la clave es
+ * el task_id y pisarla perdería la sesión viva. Ese caso devuelve `reopened: false` y el
+ * caller solo deja constancia en la bandeja.
+ *
+ * La fila vuelve con la forma del rescate de `reconcileTick` (D-07 step 3): `idle`,
+ * `process_alive:false` y sin reloj de muerte. El proceso reanudado lleva `--resume <id>`
+ * y no `--session-id <id>`, así que el pgrep no lo verá nunca; con el reloj a null el
+ * reconcile no lo declara muerto (KODO-15) y su estado lo deriva la tab.
+ *
+ * @param {string} sessionId
+ * @param {Partial<Session>} [overrides] p. ej. workspace_ref/workspace_id releídos del host.
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @returns {{ ok: true, value: { reopened: boolean, reason?: 'not-in-history'|'task-busy', session?: Session } } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function reopenSession(sessionId, overrides = {}, logger = noopLogger) {
+  /** @type {{ reopened: boolean, reason?: 'not-in-history'|'task-busy', session?: Session }} */
+  let out = { reopened: false, reason: 'not-in-history' };
+  const r = withStateLock((state) => {
+    const history = Array.isArray(state.history) ? state.history : [];
+    const idx = sessionId ? history.findIndex((s) => s && s.session_id === sessionId) : -1;
+    if (idx === -1) return;
+    const entry = history[idx];
+    if (state.sessions[entry.task_id]) {
+      out = { reopened: false, reason: 'task-busy', session: entry };
+      return;
+    }
+    const { ended_at, ended_by, ...rest } = /** @type {any} */ (entry);
+    const session = {
+      ...rest,
+      ...overrides,
+      status: 'running',
+      state: 'idle',
+      alive: true,
+      process_alive: false,
+      process_dead_since: null,
+      dead_since: null,
+      last_seen_alive: new Date().toISOString(),
+    };
+    state.sessions[entry.task_id] = session;
+    state.history = history.filter((_, i) => i !== idx);
+    out = { reopened: true, session };
+  });
+  if (!r.ok) {
+    logger.warn('state.session.reopen_failed', { reason: r.reason });
+    return r;
+  }
+  if (out.reopened) logger.info('state.session.reopened', { task_id: out.session?.task_id });
+  return { ok: true, value: out };
+}
+
+/**
  * Upsert the handoff pointer of a TASK into the additive top-level `state.tasks`
  * key (Phase 74, D-05/D-06 — LIVE-04).
  *

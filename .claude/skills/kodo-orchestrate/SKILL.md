@@ -149,6 +149,8 @@ cuando el lanzamiento lo haces tú con `kodo launch`, avisarte era anunciarte al
 que acababas de ejecutar. Sigue entrando a la bandeja para cubrir el caso en que
 lo lanza el dashboard o el dispatcher.
 
+**Reanudada fuera de kodo (KODO-100)**: si el operador hace `claude --resume` de una sesión ya cerrada, `SessionStart` la devuelve a `sessions` (match por `session_id` exacto, nunca por cwd) y deja un evento `session-resumed`; la tarea sigue en Review en el provider — muévela a In Progress si no es un retoque. Si la tarea ya tenía otra sesión, no se reabre y el evento lo dice.
+
 Comandos:
 
 - `kodo inbox-orch` — lista lo que está sin ver (o `--json` para consumirlo).
