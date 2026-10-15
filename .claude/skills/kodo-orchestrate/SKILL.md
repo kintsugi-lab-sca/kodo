@@ -1239,3 +1239,9 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   0 y el worktree no es el de una sesión viva. Si da > 0, se conserva y se
   dice en el handoff. Comprobar `origin` apunta al remoto bueno (en kodo,
   `origin` es el fork y `kintsugi` el real).
+- [2026-10-15] **Cinco rondas vacías seguidas paran el bucle.** Con `/loop 10m
+  ronda` activo, cuenta las rondas que acaban en `[kodo:idle]` sin ningún
+  cambio (sesiones, inbox, cola, PRs). A la quinta consecutiva: `CronDelete`
+  del job del loop, y cerrar con una línea «5 rondas vacías: paro las rondas;
+  `/loop 10m ronda` para retomar». Cualquier ronda con acción pone el contador
+  a cero. Pedido por Alex el 15-oct tras 14 rondas vacías seguidas.
