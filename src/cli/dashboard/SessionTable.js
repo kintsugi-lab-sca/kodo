@@ -554,6 +554,8 @@ function renderConfigOverlay(snapshot, fieldCursor, mode, buffer, cursor, config
       h(Box, { width: 2 }, h(Text, { bold: selected }, selected ? '› ' : '  ')),
       h(Box, { width: 24 }, h(Text, { bold: selected }, `${field.label}:`)),
       valueEl,
+      // KODO-104: hint opcional del descriptor (p.ej. qué significa el valor vacío).
+      field.hint ? h(Text, { dimColor: true }, ` ${field.hint}`) : null,
     );
   });
 

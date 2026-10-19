@@ -1380,6 +1380,7 @@ so they exit with code 1.
 kodo config --show                                  # show current configuration
 kodo config --set claude.max_parallel=5             # concurrent sessions (default 3)
 kodo config --set claude.default_model=opus         # model for work sessions
+kodo config --set claude.default_effort=xhigh       # --effort for work sessions/reviewer (low|medium|high|xhigh|max; unset = inherit claude settings)
 kodo config --set claude.orchestrator_model=fable   # orchestrator model (default fable)
 kodo config --set server.idle_threshold_min=5       # minutes before considering a session idle
 kodo config --set server.stuck_threshold_min=30     # minutes before considering a session stuck

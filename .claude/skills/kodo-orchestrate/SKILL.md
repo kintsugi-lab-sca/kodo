@@ -1230,3 +1230,18 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   fichero de `bin/`.
 - 2026-10-13 · `/kodo-catchup` existe para arrancar tras un parón: brief + propuesta de
   lanzamiento; no lanza sin `go`.
+- [2026-10-15] **Los worktrees no se limpian solos.** Nadie los borra: «Keep
+  worktree» al cerrar los deja para siempre y el 15-oct había 27 acumulados
+  (clipping 15, scp-cmri 7, kodo 5), varios con 190–280 ficheros generados
+  que parecen trabajo sucio y no lo son. Regla: cuando una tarea pasa a Done
+  con su PR mergeada, en la misma ronda `git worktree remove --force <wt>` y
+  `git branch -D <rama>`, solo si `git rev-list --count origin/main..HEAD` da
+  0 y el worktree no es el de una sesión viva. Si da > 0, se conserva y se
+  dice en el handoff. Comprobar `origin` apunta al remoto bueno (en kodo,
+  `origin` es el fork y `kintsugi` el real).
+- [2026-10-15] **Cinco rondas vacías seguidas paran el bucle.** Con `/loop 10m
+  ronda` activo, cuenta las rondas que acaban en `[kodo:idle]` sin ningún
+  cambio (sesiones, inbox, cola, PRs). A la quinta consecutiva: `CronDelete`
+  del job del loop, y cerrar con una línea «5 rondas vacías: paro las rondas;
+  `/loop 10m ronda` para retomar». Cualquier ronda con acción pone el contador
+  a cero. Pedido por Alex el 15-oct tras 14 rondas vacías seguidas.

@@ -82,6 +82,28 @@ describe('KODO-75 — buildReviewerCommand: el marcador es el rol', () => {
   });
 });
 
+describe('KODO-104 — buildReviewerCommand: effort', () => {
+  const withEffort = (effort, effortFlag = '--effort') => /** @type {any} */ ({
+    ...CONFIG,
+    claude: { ...CONFIG.claude, default_effort: effort },
+    agents: { ...CONFIG.agents, registry: { 'claude-code': { ...CONFIG.agents.registry['claude-code'], effort_flag: effortFlag } } },
+  });
+
+  it('emite --effort tras --model cuando hay default_effort', () => {
+    const cmd = buildReviewerCommand(withEffort('xhigh'), 'sid-1', 'x');
+    assert.match(cmd, /--model opus --effort xhigh --session-id sid-1/);
+  });
+
+  it('default_effort null → comando idéntico al de siempre', () => {
+    assert.equal(buildReviewerCommand(withEffort(null), 'sid-1', 'x'), buildReviewerCommand(CONFIG, 'sid-1', 'x'));
+  });
+
+  it('agente sin effort_flag → no emite el par', () => {
+    const cmd = buildReviewerCommand(withEffort('high', null), 'sid-1', 'x');
+    assert.ok(!cmd.includes('high'), cmd);
+  });
+});
+
 describe('KODO-75 — buildReviewerPrompt', () => {
   it('sustituye todos los placeholders y no deja ninguno crudo', () => {
     const p = buildReviewerPrompt({

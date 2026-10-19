@@ -19,7 +19,7 @@
  */
 
 /**
- * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'nonEmpty'|'cmuxColor'|'hostName'|'nudgeMode' }} EditableField
+ * @typedef {{ path: string, label: string, kind: 'positiveInt'|'model'|'effort'|'nonEmpty'|'cmuxColor'|'hostName'|'nudgeMode', hint?: string }} EditableField
  */
 
 // Set estricto de modelos soportados por kodo (D-07). kodo pasa este valor literal
@@ -31,6 +31,10 @@
 // VERIFICADO contra el binario: `claude --help` lo documenta como alias de `--model`
 // ("Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')").
 const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
+
+// KODO-104: niveles de `claude --effort <level>` (VERIFICADO con `claude --help`). Set
+// estricto; el vacío/null NO está porque no es un nivel, es «no pasar el flag».
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
 // Set de los 16 colores nombrados de cmux (VERIFIED contra el binario real,
 // `cmux workspace-action --help`). v1 acepta SOLO los nombrados (no hex `#RRGGBB`),
@@ -90,6 +94,24 @@ export function validateModel(raw) {
   return MODELS.has(s)
     ? { ok: true, value: s }
     : { ok: false, error: `modelo debe ser uno de: ${[...MODELS].join(', ')}` };
+}
+
+/**
+ * Valida el effort de las sesiones de trabajo (KODO-104) contra `{low, medium, high, xhigh,
+ * max}`. `null`/`undefined`/vacío → `{ ok: true, value: null }`: heredar el effort de los
+ * settings de claude del operador (no se emite `--effort`). Así el editor guarda `null`
+ * cuando el operador borra el valor.
+ *
+ * @param {any} raw
+ * @returns {ValidationResult}
+ */
+export function validateEffort(raw) {
+  if (raw == null) return { ok: true, value: null };
+  const s = String(raw).trim();
+  if (s === '') return { ok: true, value: null };
+  return EFFORTS.has(s)
+    ? { ok: true, value: s }
+    : { ok: false, error: `effort debe ser uno de: ${[...EFFORTS].join(', ')} (vacío = heredar)` };
 }
 
 /**
@@ -168,6 +190,7 @@ export function validateField(field, raw) {
   switch (field?.kind) {
     case 'positiveInt': return validatePositiveInt(raw);
     case 'model':       return validateModel(raw);
+    case 'effort':      return validateEffort(raw);
     case 'nonEmpty':    return validateNonEmpty(raw);
     case 'cmuxColor':   return validateCmuxColor(raw);
     case 'hostName':    return validateHostName(raw);
@@ -245,9 +268,13 @@ export function setByPath(obj, dotted, value) {
  * fuera: un `"max_rounds": 0` escrito a mano no debe leerse como «sin tope», que es
  * exactamente el fallo del modelo original que esta clave existe para cerrar.
  *
+ * KODO-104: 16 → 17. El +1 es `claude.default_effort`, el effort de las sesiones de
+ * trabajo. Lleva `hint` (opcional en el descriptor) porque su valor vacío tiene significado
+ * —heredar los settings de claude— y el renglón tiene que decirlo.
+ *
  * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
  *   `config.provider` y `config.host`).
- * @returns {EditableField[]} descriptores `{path,label,kind}`: 16 con cmux u orca, 15 con
+ * @returns {EditableField[]} descriptores `{path,label,kind}`: 17 con cmux u orca, 16 con
  *   bb (ese host no tiene canal de presentación por estado — ver `stateFields`).
  */
 export function getEditableFields(config) {
@@ -283,6 +310,8 @@ export function getEditableFields(config) {
   return [
     { path: 'host', label: 'Cliente (host)', kind: 'hostName' },
     { path: 'claude.default_model', label: 'Modelo por defecto', kind: 'model' },
+    // KODO-104: effort de las sesiones de trabajo; vacío = no pasar `--effort`.
+    { path: 'claude.default_effort', label: 'Effort por defecto', kind: 'effort', hint: '(vacío = hereda settings de claude)' },
     // KODO-12: modelo del ORQUESTADOR, independiente del de las sesiones de trabajo.
     { path: 'claude.orchestrator_model', label: 'Modelo del orquestador', kind: 'model' },
     { path: 'claude.max_parallel', label: 'Máximo en paralelo', kind: 'positiveInt' },
@@ -301,4 +330,4 @@ export function getEditableFields(config) {
   ];
 }
 
-export { MODELS, CMUX_COLORS, HOST_NAMES, NUDGE_MODES };
+export { MODELS, EFFORTS, CMUX_COLORS, HOST_NAMES, NUDGE_MODES };

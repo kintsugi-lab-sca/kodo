@@ -171,6 +171,12 @@ const DEFAULT_CONFIG = {
     // Clave SEPARADA a propósito: un config v0.x sin ella la recibe vía deep-merge
     // (CFG-02 zero-breaking-change) y el operador puede volver a Opus editándola.
     orchestrator_model: 'fable',
+    // KODO-104: effort (`claude --effort <level>`) de las sesiones de TRABAJO y del
+    // reviewer: low | medium | high | xhigh | max. `null` = no se pasa el flag y la sesión
+    // hereda el `effortLevel` de los settings interactivos del operador. Default `null`
+    // a propósito: un config v0.x sin la clave lanza el mismo comando byte a byte que
+    // antes (CFG-02 zero-breaking-change vía deep-merge). El orquestador NO lo usa.
+    default_effort: null,
     max_parallel: 3,
     flags: [],
   },
@@ -198,12 +204,17 @@ const DEFAULT_CONFIG = {
   //                       aislamiento queda en manos del host (orca) o no lo hay.
   //   - `process_match`:  patrón `pgrep -f` que identifica un proceso vivo de la sesión,
   //                       con `<sid>` sustituido por el session id. Ver reconcile.js.
+  //
+  // KODO-104: `effort_flag` — flag con el que el agente recibe `claude.default_effort`.
+  // `null` = el agente no lo admite y el par flag+valor se omite (mismo patrón que
+  // `session_id_flag: null`).
   agents: {
     default: 'claude-code',
     registry: {
       'claude-code': {
         binary: 'claude', // por PATH (D-15): NUNCA un path absoluto a un binario embebido
         model_flag: '--model',
+        effort_flag: '--effort',
         session_id_flag: '--session-id',
         resume: { style: 'flag', token: '--resume' },
         status_authority: 'hooks',
@@ -252,6 +263,8 @@ const DEFAULT_CONFIG = {
           fable: 'opencode/claude-fable-5-1',
         },
         session_id_flag: null,
+        // KODO-104: OpenCode no tiene `--effort` → el flag se omite del comando.
+        effort_flag: null,
         resume: { style: 'flag', token: '--session' },
         status_authority: 'process',
         prompt_style: 'flag',
