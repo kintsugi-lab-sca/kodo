@@ -268,12 +268,12 @@ export function setByPath(obj, dotted, value) {
  * fuera: un `"max_rounds": 0` escrito a mano no debe leerse como «sin tope», que es
  * exactamente el fallo del modelo original que esta clave existe para cerrar.
  *
- * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
- *   `config.provider` y `config.host`).
  * KODO-104: 16 → 17. El +1 es `claude.default_effort`, el effort de las sesiones de
  * trabajo. Lleva `hint` (opcional en el descriptor) porque su valor vacío tiene significado
  * —heredar los settings de claude— y el renglón tiene que decirlo.
  *
+ * @param {{ provider?: string, host?: string }} config - snapshot de config (solo se usan
+ *   `config.provider` y `config.host`).
  * @returns {EditableField[]} descriptores `{path,label,kind}`: 17 con cmux u orca, 16 con
  *   bb (ese host no tiene canal de presentación por estado — ver `stateFields`).
  */
