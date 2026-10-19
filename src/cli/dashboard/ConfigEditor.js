@@ -58,7 +58,7 @@ export const DEFAULT_EDITOR_CONFIG = {
   provider: 'plane',
   providers: { plane: { states: { trigger: 'In Progress', review: 'In review', done: 'Done' } } },
   cmux: { colors: { running: 'Amber', done: 'Green', error: 'Crimson', review: 'Blue' } },
-  claude: { default_model: 'opus', orchestrator_model: 'fable', max_parallel: 3 },
+  claude: { default_model: 'opus', default_effort: null, orchestrator_model: 'fable', max_parallel: 3 },
   server: { idle_threshold_min: 5, stuck_threshold_min: 30 },
 };
 

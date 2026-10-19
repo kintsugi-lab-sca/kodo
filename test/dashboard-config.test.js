@@ -309,6 +309,71 @@ describe('PERSIST-03/D-10: valor válido → guarda y muestra el aviso de reinic
   });
 });
 
+describe('KODO-104: claude.default_effort en el editor', () => {
+  it('el renglón aparece con su hint', async () => {
+    const clock = makeFakeClock();
+    const { lastFrame, press, unmount } = renderInk(createElement(App, injectProps(clock, makeRouter())));
+    try {
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await press('e');
+      const frame = await waitForFrame(lastFrame, /Effort por defecto/, 'el overlay debe listar el effort');
+      assert.match(frame, /vacío = hereda settings de claude/, `falta el hint\n${frame}`);
+    } finally {
+      unmount();
+    }
+  });
+
+  it('xhigh se guarda; un valor fuera del set da error y no escribe', async () => {
+    const clock = makeFakeClock();
+    const { spy, fn } = makeSaveSpy({ ok: true });
+    const { lastFrame, press, unmount } = renderInk(
+      createElement(App, injectProps(clock, makeRouter(), { onSaveConfig: fn })),
+    );
+    try {
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openFieldRow(press, lastFrame, 'claude.default_effort');
+      await press('\r'); // config-edit (buffer vacío: el fixture no trae la clave)
+      for (const ch of 'ultra') await press(ch);
+      await press('\r');
+      await waitForFrame(lastFrame, /effort debe ser uno de/, 'un valor inválido debe pintar el error');
+      assert.equal(spy.calls, 0, 'onSaveConfig NO debe llamarse con un valor inválido');
+      for (let i = 0; i < 5; i++) await press('\x7f');
+      for (const ch of 'xhigh') await press(ch);
+      await press('\r');
+      await waitForFrame(lastFrame, /reinicia|reiniciar/i, 'tras guardar debe verse el aviso de reinicio');
+      assert.equal(spy.calls, 1);
+      assert.equal(spy.lastConfig.claude.default_effort, 'xhigh');
+    } finally {
+      unmount();
+    }
+  });
+
+  it('vaciar el valor guarda null (heredar)', async () => {
+    const clock = makeFakeClock();
+    const { spy, fn } = makeSaveSpy({ ok: true });
+    const loadConfigFn = () => {
+      const c = structuredClone(CONFIG_FIXTURE);
+      c.claude.default_effort = 'high';
+      return c;
+    };
+    const { lastFrame, press, unmount } = renderInk(
+      createElement(App, injectProps(clock, makeRouter(), { onSaveConfig: fn, loadConfigFn })),
+    );
+    try {
+      await waitForFrame(lastFrame, /KL-1/, 'la tabla debe estar pintada antes de teclear');
+      await openFieldRow(press, lastFrame, 'claude.default_effort');
+      await press('\r'); // precarga 'high'
+      for (let i = 0; i < 4; i++) await press('\x7f');
+      await press('\r');
+      await waitForFrame(lastFrame, /reinicia|reiniciar/i, 'tras guardar debe verse el aviso de reinicio');
+      assert.equal(spy.calls, 1);
+      assert.equal(spy.lastConfig.claude.default_effort, null);
+    } finally {
+      unmount();
+    }
+  });
+});
+
 describe('UX-03/D-05: Esc en config preserva la selección por task_id', () => {
   it('Esc cierra el overlay y vuelve a la tabla con el MISMO cursor (KL-1)', async () => {
     const clock = makeFakeClock();

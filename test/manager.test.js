@@ -530,6 +530,23 @@ describe('manager — pure helpers', () => {
       );
     });
 
+    it('KODO-104: default_effort null → header byte-idéntico, sin --effort (golden-bytes QUICK-07)', () => {
+      const base = buildClaudeCommand(makeConfig(), 'abc-123', makeTask(), 'desc', null, ['gsd-quick'], null);
+      const cfg = /** @type {any} */ ({ ...makeConfig(), claude: { default_model: 'sonnet', default_effort: null } });
+      const cmd = buildClaudeCommand(cfg, 'abc-123', makeTask(), 'desc', null, ['gsd-quick'], null);
+      assert.equal(cmd, base, 'con default_effort: null el comando no cambia ni un byte');
+      assert.ok(!cmd.includes('--effort'));
+    });
+
+    it('KODO-104: default_effort xhigh → --model X --effort xhigh --session-id …', () => {
+      const cfg = /** @type {any} */ ({ ...makeConfig(), claude: { default_model: 'opus', default_effort: 'xhigh' } });
+      const cmd = buildClaudeCommand(cfg, 'abc-123', makeTask(), 'desc', null, ['gsd-quick'], null);
+      assert.match(
+        cmd,
+        /^claude --model opus --effort xhigh --session-id abc-123 --worktree abc-123 --dangerously-skip-permissions /,
+      );
+    });
+
     it('--worktree present for non-GSD sessions too (D-06b universal)', () => {
       const cmd = buildClaudeCommand(
         makeConfig(),
