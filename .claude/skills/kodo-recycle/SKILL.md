@@ -54,8 +54,9 @@ Sigue la regla global de `~/.claude/CLAUDE.md` §«Compound — Resumen de sesi�
 al pie de la letra (criterio, formato y conteos). Lo propio de aquí:
 
 - **Fuente**: las observaciones de claude-mem-lite de esta sesión, filtradas por
-  el proyecto del cwd (`klab--kodo`) (`mem_recent`, o la CLI `recent` con la ruta absoluta que
-  dan las instrucciones del servidor `mem-lite`). No lo redactes de memoria.
+  el proyecto del cwd, `klab--kodo` (`mem_recent`, o la CLI `recent` con la ruta
+  absoluta que dan las instrucciones del servidor `mem-lite`). No lo redactes de
+  memoria.
 - **Ruta**: `.compound/$(date +%Y-%m-%d-%H%M)-<slug>.md` en tu cwd, que es la
   raíz del repo de kodo. Nunca sobrescribas un fichero existente.
 - **No lo merece** (solo rondas sin incidencias, nada generalizable): no
