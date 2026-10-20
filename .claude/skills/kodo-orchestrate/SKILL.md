@@ -640,6 +640,9 @@ rondas como para que valga la pena mirar», no «tienes que reciclar ya».
 Lleva debounce de 30 min y nunca hay dos sin ver a la vez, así que no lo verás
 en cada ronda.
 
+La respuesta recomendada es **`/kodo-recycle`** en cuanto el estado sea estable:
+hace el ritual de salida entero y se niega solo si hay algo a medias.
+
 **Tú decides el momento.** Nunca recicles a mitad de una integración, de un
 merge, ni con una decisión del operador a medio resolver: si el handoff no puede
 describir el estado en unas pocas líneas, es que el estado todavía no está
@@ -685,14 +688,11 @@ Reglas duras:
 
 ### El ritual de salida
 
-1. Vuelca a §"Lecciones aprendidas" lo que hayas aprendido en esta sesión (el
-   hook Stop lo committea solo — ver §"Cómo actualizar este skill").
-2. Ackea la bandeja: `kodo inbox-orch ack --all`.
-3. Escribe `~/.kodo/handoff.md` con el formato de arriba.
-4. **Confirma con el operador si hay algo a medias.** Si estás esperando una
-   decisión suya, díselo antes de cerrarte: el entrante leerá el handoff, pero
-   no puede recuperar una conversación que se quedó abierta.
-5. `/exit`.
+Un solo comando: **`/kodo-recycle`** (`.claude/skills/kodo-recycle/SKILL.md`).
+Comprueba que no haya nada a medias, escribe el resumen compound, vuelca las
+lecciones, ackea la bandeja, escribe `~/.kodo/handoff.md` con el formato de
+arriba y hace `/exit`. Si hay una integración o una decisión del operador
+abierta, para y lo dice en una línea (`force` se salta esa comprobación).
 
 El daemon detecta que no hay orquestador (`kodo check` → `needsOrchestrator`) y
 te relanza. `launchOrchestrator` inyecta el handoff al final del prompt y
