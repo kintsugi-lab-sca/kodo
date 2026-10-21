@@ -726,6 +726,22 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
+- [2026-10-21] **El daemon lanza al instante cualquier tarea con etiqueta `kodo` +
+  asignado, también al crearla por la API REST.** No espera módulo ni «go». Si el
+  operador pide «crea pero no lances», crea la tarea SIN la etiqueta `kodo` y
+  añádela (o `kodo launch`) cuando dé el go. ITCLIP-241 se lanzó sola por esto.
+- [2026-10-21] **`kodo integrate <ref> --ff` aborta con `worktree-dirty` si el repo
+  del orquestador tiene cualquier cambio sin commitear, incluso ficheros untracked
+  (`.compound/*.md`, un fix suelto).** Salida: commitear tier 1 lo que haya
+  (`git -c commit.gpgsign=false commit`), o hacer `git merge --ff-only <rama>` a
+  mano y cerrar la entrada con `kodo integrate <ref> --drop`.
+- [2026-10-21] **Effort de las sesiones de trabajo = `claude.default_effort`
+  (KODO-104).** Se ve en la barra de estado de la sesión (`● high · /effort`) y en
+  el comando (`--effort high`). Vacío = hereda `~/.claude/settings.json`. Cambiar con
+  `kodo config --set claude.default_effort=xhigh` o desde el dashboard.
+- [2026-10-21] **`/kodo-recycle` para en el paso 1 ante cualquier pregunta tuya sin
+  responder, también ofertas tipo «¿lo commiteo?».** Antes de invocarlo, resuelve o
+  retira las preguntas; si no, el operador tendrá que usar `force`.
 - [2026-10-09] **«kodo no lanza al mover a In Progress» no es el daemon: casi
   siempre es que el webhook no llega.** Diagnóstico en tres pasos, en este orden:
   (1) `grep 'Webhook received' ~/.kodo/logs/daemon.log` — si el último es de
