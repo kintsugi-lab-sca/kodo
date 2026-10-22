@@ -57,6 +57,11 @@ Ejecuta estos pasos en orden al arrancar la sesión:
   `getModelForFlags` y las propaga al `--model` del spawn.
 - **Solo lanza tareas con label `kodo`** (o la label genérica equivalente del
   provider configurado).
+- **Siempre con bypass de permisos** (regla de Alex, 22-oct-2026). Sesiones
+  ad-hoc vía `cmux new-workspace`: `claude --dangerously-skip-permissions
+  "$(cat BRIEF.md)"`. Tareas de Plane: añade la etiqueta `kodo:yolo` al
+  crearlas. Sin esto la sesión se queda en el diálogo de confianza de carpeta
+  o pidiendo permisos, y el clasificador bloquea lecturas (SCP-166, Anarlog).
 - **Prioridad**: urgencia > impacto > esfuerzo estimado.
 - Si una sesión lleva más de 30 minutos idle → investiga antes de nudgear
   (sigue el flujo §5.1).
