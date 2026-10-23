@@ -731,6 +731,45 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
+- [2026-10-23] **`cmux send` no pulsa Enter por sí solo y el `\r` solo entra si va
+  en la MISMA llamada que el texto** (`cmux send --workspace <ref> 'texto\r'`). Un
+  texto que ya estaba en el prompt (un «/exit» o un borrador del operador) no se
+  envía ni con `'\r'` aparte ni con `--force`: déjalo al operador y dilo en la
+  ronda. Los diálogos de opciones (Keep/Remove worktree, preguntas con lista) sí
+  aceptan `cmux send --force '\r'` = opción seleccionada. Tras cada send, confirma
+  con `read-screen` que la sesión está procesando.
+- [2026-10-23] **Cerrar una sesión con «Remove worktree» borra la rama `worktree-*`
+  y la cola de integración queda apuntando a ramas inexistentes.** Integra antes de
+  cerrar (o Keep). Si ya pasó: `git fsck --unreachable --no-reflogs | awk
+  '/commit/{print $3}'`, filtra con `git show --stat` por el fichero y aplica los
+  commits con `git cherry-pick` en orden de parents (así se recuperó SCP-167). En
+  clipping, `.planning/` está gitignored y es un repo aparte
+  (`kintsugi-lab-sca/clipping-planning`): los docs se commitean allí, no por rama.
+- [2026-10-23] **`kodo launch` muere con «Workspace trust not yet accepted» en un repo
+  que nunca se abrió con Claude Code en esta máquina**, y `state.json` lo deja en
+  `running`. Antes de lanzar sobre un repo nuevo, pon
+  `projects["<ruta>"].hasTrustDialogAccepted = true` en `~/.claude.json` (backup
+  previo). Si ya murió, re-teclea el mismo comando `claude --session-id <id>
+  --worktree <id> ... "$(cat /var/folders/.../kodo-prompts/<id>.txt)"` en el
+  workspace para conservar el session-id. Lee la pantalla a los ~20 s de cada
+  launch: un prompt de shell en vez de Claude = proceso muerto.
+- [2026-10-23] **Plane MCP: `manage_work_item_assignee` devuelve error de validación
+  y NO persiste; `manage_work_item_label` da el mismo error pero sí aplica.** Para
+  dejar una tarea lanzable usa `update_work_item(assignees=[...], labels=[...])` con
+  las listas completas y después `manage_module_work_items`; verifica con
+  `retrieve_work_item_by_identifier(expand=assignees,labels)`. Las respuestas de
+  `list_work_items` sin filtro superan el límite del harness: filtra el JSON
+  volcado en `tool-results/` con `jq` por `state.name` (el PQL `openStates()` no
+  filtró).
+- [2026-10-23] **Un aviso de seguridad de runtime (Ruby, PHP…) se trabaja en dos
+  pasos: un subagente Explore audita todos los repos (versión, señales de
+  despliegue, uso real del vector) y devuelve un veredicto por repo; después una
+  tarea por repo en producción, cada una con su veredicto y su versión objetivo en
+  la descripción.** Instala la versión nueva en asdf una sola vez antes de lanzar
+  (varias sesiones compilando a la vez chocan). Las imágenes oficiales de Docker
+  salen días después que ruby-build: pide a las sesiones que lo comprueben y lo
+  marquen como bloqueo del deploy, no que cambien la imagen base. Un CI `security`
+  en rojo puede venir de `main`: compáralo antes de culpar a la PR.
 - [2026-10-23] **El clasificador de permisos de una sesión se queda «pegado» en
   «Remote Shell Writes» tras un intento de `kamal app exec` y deniega lecturas
   inocuas (Anarlog, `jq` local).** No insistas desde esa sesión: el orquestador
