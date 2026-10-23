@@ -731,13 +731,14 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
-- [2026-10-23] **`cmux send` no pulsa Enter por sí solo y el `\r` solo entra si va
-  en la MISMA llamada que el texto** (`cmux send --workspace <ref> 'texto\r'`). Un
-  texto que ya estaba en el prompt (un «/exit» o un borrador del operador) no se
-  envía ni con `'\r'` aparte ni con `--force`: déjalo al operador y dilo en la
-  ronda. Los diálogos de opciones (Keep/Remove worktree, preguntas con lista) sí
-  aceptan `cmux send --force '\r'` = opción seleccionada. Tras cada send, confirma
-  con `read-screen` que la sesión está procesando.
+- [2026-10-24] **Para que una sesión Claude Code ejecute algo desde cmux: `cmux send
+  --force --workspace <ref> '<texto>'` y después `cmux send-key --workspace <ref>
+  Enter`.** `send` solo teclea; el `\r` dentro del texto funciona a veces (si va en
+  la misma llamada) y NUNCA sobre texto que ya estaba en el prompt (un «/exit» o un
+  borrador del operador). `send-key Enter` es un evento de tecla y entra siempre:
+  borradores, diálogos de opciones (Keep/Remove worktree, preguntas con lista =
+  opción seleccionada) y prompts normales. Confirma con `read-screen` que la sesión
+  está procesando. Cuatro sesiones estuvieron horas paradas por no saber esto.
 - [2026-10-23] **Cerrar una sesión con «Remove worktree» borra la rama `worktree-*`
   y la cola de integración queda apuntando a ramas inexistentes.** Integra antes de
   cerrar (o Keep). Si ya pasó: `git fsck --unreachable --no-reflogs | awk
