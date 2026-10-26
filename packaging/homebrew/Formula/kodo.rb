@@ -17,8 +17,8 @@
 class Kodo < Formula
   desc "Automated Claude Code sessions from task-management systems"
   homepage "https://github.com/kintsugi-lab-sca/kodo"
-  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.30.0.tar.gz"
-  sha256 "74169be2de45f72ea65037ab021f58773ce5fd1c449792bb2fd9f676e46fbd03"
+  url "https://github.com/kintsugi-lab-sca/kodo/archive/refs/tags/v0.31.0.tar.gz"
+  sha256 "77d269c9d2ef84b542f5598866440cf270bb3321493ccf3de44d203226c076f1"
   license "MIT"
 
   # Node satisfies package.json's ">=22" engines. The runtime is NOT bundled: it is a
