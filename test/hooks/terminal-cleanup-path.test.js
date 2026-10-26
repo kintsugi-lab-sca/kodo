@@ -136,4 +136,17 @@ describe('KODO-21 capa B: performTerminalCleanup resuelve el worktree REAL', () 
     assert.equal(events.length, 0, 'ningún evento de worktree para sesiones legacy (D-09)');
     assert.equal(removed, true, 'la fila de la sesión se retira igualmente');
   });
+
+  it('KODO-103: retira la fila marcándola endedBy=session-end (reconcile no la rescata)', async () => {
+    const calls = [];
+    await performTerminalCleanup({
+      id: 'task-4',
+      session: { session_id: 'sess-4', task_id: 'task-4', task_ref: 'KODO-103', project_path: tmpBase },
+      removeSessionFn: (...args) => { calls.push(args); },
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'task-4');
+    assert.deepEqual(calls[0][2], { endedBy: 'session-end' });
+  });
 });

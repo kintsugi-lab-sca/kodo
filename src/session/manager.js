@@ -646,16 +646,22 @@ async function launchReservedWorkItem(identifier, opts = {}) {
       // verbos — degrada a `group_skipped` en vez de reventar con un TypeError.
       if (!host._legacy?.createWorkspaceGroup
         || !host._legacy?.addToWorkspaceGroup
+        || !host._legacy?.setWorkspaceGroupAnchor
         || !host._legacy?.listWorkspaceGroups) {
         throw new Error('host_sin_verbos_de_grupo');
       }
       const { convergeProject } = await import('../cmux/sidebar-doctor.js');
+      // KODO-106: `cwd: projectPath` es el cwd del ancla ESTABLE del grupo (el repo, no
+      // la sesión). Los verbos de reanclaje (new-workspace + set-anchor) solo los usa el
+      // guard post-creación, si cmux dejara el grupo anclado en una sesión.
       const r = await convergeProject(
-        { name: expectedName, workspaceRef },
+        { name: expectedName, workspaceRef, cwd: projectPath },
         {
           listWorkspaceGroupsRaw: () => host._legacy.listWorkspaceGroups(),
           createWorkspaceGroup: (o) => host._legacy.createWorkspaceGroup(o),
           addToWorkspaceGroup: (o) => host._legacy.addToWorkspaceGroup(o),
+          setWorkspaceGroupAnchor: (o) => host._legacy.setWorkspaceGroupAnchor(o),
+          newWorkspace: (o) => host._legacy.newWorkspace(o),
         },
       );
       // `expectedName` es el identifier del proyecto (derivado del ref), no contenido de
@@ -1083,7 +1089,7 @@ export function buildAgentCommand(config, sessionId, task, description, modelOve
   // guard se repite aquí porque esta función es exportada y se llama directa en tests.
   //
   // Orden de flags (contractual, golden-bytes QUICK-07):
-  //   --model X --session-id Y [--worktree Y] [--dangerously-skip-permissions] <prompt-ref>
+  //   --model X [--effort E] --session-id Y [--worktree Y] [--dangerously-skip-permissions] <prompt-ref>
   //
   // Las tags `[GSD quick]`/`[GSD phase N]`/`[GSD bootstrap]` viven en el PROMPT
   // (último arg) — añadir `--worktree` en el header NO muta los offsets relativos
@@ -1096,8 +1102,13 @@ export function buildAgentCommand(config, sessionId, task, description, modelOve
   // sesión (`--session <id>` continúa una existente), así que el par flag+valor
   // desaparece del header en vez de emitirse a medias.
   const sessionIdPart = agent.session_id_flag ? `${agent.session_id_flag} ${sessionId}` : '';
+  // KODO-104: `--effort <level>` va justo tras `--model X`, y SOLO si hay effort configurado
+  // y el agente admite el flag. Con `default_effort: null` (default) el par desaparece y el
+  // header queda byte-idéntico al previo (golden-bytes QUICK-07).
+  const effort = config.claude?.default_effort;
+  const effortPart = effort && agent.effort_flag ? `${agent.effort_flag} ${effort}` : '';
   const worktreeFlag = isGitRepo && agent.worktree_flag ? `${agent.worktree_flag} ${sessionId}` : '';
-  const header = `${agent.binary} ${agent.model_flag} ${model} ${sessionIdPart} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
+  const header = `${agent.binary} ${agent.model_flag} ${model} ${effortPart} ${sessionIdPart} ${worktreeFlag} ${cliFlags}`.replace(/\s+/g, ' ').trim();
 
   // El prompt NO se teclea inline. `host._legacy.send` → `cmux send` inyecta el
   // comando como PULSACIONES de teclado, e interpreta `\n`/`\r`/`\t` como

@@ -138,10 +138,11 @@ export async function listTree() {
  * el carril doctor del sidebar (`kodo sidebar doctor`); ver los passthroughs más
  * abajo. El launch path (manager.js) sigue consumiendo SOLO `list` (read-only).
  * Fuera del código quedan LOCKED: el verbo destructivo `delete` (cierra todos los
- * workspaces del grupo), `remove`, `rename` y —desde KODO-14— `set-anchor`: es el
- * verbo que roba la fila sidebar de una sesión viva (G-79-1 en su forma estrecha).
- * El guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si alguno de
- * ellos se cablea.
+ * workspaces del grupo), `remove` y `rename`. `set-anchor` vuelve en KODO-106, pero
+ * SOLO para reanclar un grupo en un workspace ESTABLE recién creado por el doctor
+ * (nunca en una sesión: anclar en una sesión le roba su fila sidebar, G-79-1). El
+ * guard source-hygiene test/sidebar-doctor-hygiene.test.js falla si se cablea un
+ * LOCKED o si `set-anchor` sale de este passthrough / del doctor.
  * @returns {Promise<string>} JSON crudo de `workspace-group list`
  */
 export async function listWorkspaceGroups() {
@@ -161,25 +162,29 @@ export async function listWorkspacesJson() {
 }
 
 // ── Allowlist NO-DESTRUCTIVO de workspace-group (D-12, re-fronterización GRP-04) ──
-// Los 3 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
+// Los 4 ÚNICOS passthroughs de mutación cmux del carril doctor. Cada uno delega en
 // `run()` (execFile, timeout 15s, sin shell) con un argv PLANO de strings: el ref del
 // grupo (`workspace_group:N` o UUID) y el del workspace (`workspace:N`) viajan como
 // elementos de array, jamás interpolados en un string — cero superficie de inyección,
 // espejo de buildNewWorkspaceArgs (:38, V5/Tampering, T-79-01). Sintaxis verificada en
-// vivo (D-10, cmux 0.64.20). NINGÚN `delete`/`remove`/`rename`/`set-anchor`: el guard lo
-// verifica.
+// vivo (D-10, cmux 0.64.20; KODO-106, cmux 0.65.2). NINGÚN `delete`/`remove`/`rename`:
+// el guard lo verifica. `set-anchor` solo desde el doctor y sobre un ancla estable.
 
 /**
- * `workspace-group create [--name <name>] [--from <ref>,<ref>...]`. Devuelve el
- * stdout crudo — el ref del grupo nuevo se obtiene por re-list en el Plan 02
+ * `workspace-group create [--name <name>] [--cwd <path>]` — SIN `--from` a propósito.
+ * cmux levanta un workspace ancla NUEVO (provenance `generated`) titulado `<name>` y
+ * con cwd `<path>`: el ancla estable del repo. `--from` NO se expone (KODO-106): en
+ * cmux 0.65.2 `create --from <ws>` REUTILIZA el primer `<ws>` como ancla (en 0.64.20
+ * creaba uno nuevo), y el `<ws>` es siempre una sesión. Los miembros entran después
+ * con `add`. Devuelve el stdout crudo — el ref del grupo nuevo se obtiene por re-list
  * (OQ1), NO se parsea aquí.
- * @param {{ name?: string, from?: string[] }} opts  `from` = refs `workspace:N`
+ * @param {{ name?: string, cwd?: string }} opts
  * @returns {Promise<string>} stdout crudo de `workspace-group create`
  */
-export async function createWorkspaceGroup({ name, from }) {
+export async function createWorkspaceGroup({ name, cwd }) {
   const args = ['workspace-group', 'create'];
   if (name) args.push('--name', name);
-  if (from && from.length) args.push('--from', from.join(','));
+  if (cwd) args.push('--cwd', cwd);
   return run(args);
 }
 
@@ -190,6 +195,18 @@ export async function createWorkspaceGroup({ name, from }) {
  */
 export async function addToWorkspaceGroup({ group, workspace }) {
   return run(['workspace-group', 'add', '--group', group, '--workspace', workspace]);
+}
+
+/**
+ * `workspace-group set-anchor --group <group> --workspace <ws>`. cmux exige que `<ws>`
+ * ya sea miembro del grupo (si no: `not_found: Group not found or workspace not a
+ * member`, verificado en 0.65.2). ÚNICO consumidor: el doctor, para mover el ancla de
+ * una sesión a un workspace estable que acaba de crear dentro del grupo (KODO-106).
+ * @param {{ group: string, workspace: string }} opts
+ * @returns {Promise<string>} stdout crudo
+ */
+export async function setWorkspaceGroupAnchor({ group, workspace }) {
+  return run(['workspace-group', 'set-anchor', '--group', group, '--workspace', workspace]);
 }
 
 /**

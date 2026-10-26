@@ -6,13 +6,13 @@
 // literal de `runGsdDoctor` (gsd-doctor.js): implementa el ritual de dos pasos
 // "doctor mira, doctor --fix arregla":
 //
-//   - Sin flags (default): dry-run. Llama `scan()` y RENDERIZA las 3 categorías
-//     del sidebar (missing_group / loose_workspace / empty_group) agrupadas con
+//   - Sin flags (default): dry-run. Llama `scan()` y RENDERIZA las 4 categorías
+//     del sidebar (missing_group / session_anchor / loose_workspace / empty_group) con
 //     la acción EXACTA por item (orden D-09) + un resumen de sesiones ya
 //     agrupadas (protected). NO muta nada.
 //   - `--fix`: ÚNICO opt-in de mutación. Llama `scan()` para el exit code, luego
 //     `execute(deps, {fix:true})` (re-detecta TOCTOU en el motor) y renderiza lo
-//     que realmente convergió (created/added/ungrouped + errores). Sin prompt.
+//     que realmente convergió (created/added/reanchored/ungrouped + errores). Sin prompt.
 //   - `--json` (SDR-06): emite el report serializado de scan() byte-determinista
 //     (idéntico TTY/no-TTY, cero ANSI), con el result de execute mergeado bajo
 //     `executed` cuando `--fix`.
@@ -96,8 +96,10 @@ export async function runSidebarDoctor(opts, deps = {}) {
  * Bajo --fix, añade lo realmente convergido.
  *
  * Mapeo por item (orden D-09):
- *   - missing_group:   `create`  — `create --from <miembros>` (KODO-14). Sin
- *                      `set-anchor`: cmux levanta su propio shell de ancla (G-79-1).
+ *   - missing_group:   `create`  — `create --name --cwd <repo>` (ancla estable propia)
+ *                      + `add` de cada sesión (KODO-106).
+ *   - session_anchor:  `reanchor` — `new-workspace --group` estable + `set-anchor`
+ *                      (KODO-106: las sesiones nunca son ancla).
  *   - loose_workspace: `add`     — acción del doctor.
  *   - empty_group:     `ungroup` — acción del doctor.
  *
@@ -114,11 +116,16 @@ export async function runSidebarDoctor(opts, deps = {}) {
 function renderHuman({ report, result, fix, write, err, fmt }) {
   write(`kodo sidebar doctor${fix ? ' --fix' : ' (dry-run)'}\n\n`);
 
-  // Acciones del doctor en orden D-09: missing → loose → empty.
+  // Acciones del doctor en orden D-09: missing → session_anchor → loose → empty.
   renderCategory(
     write, fmt, 'Grupos faltantes', report.missing_group,
     () => 'create',
     (item) => `${item.name} ← ${item.members.join(', ')}`,
+  );
+  renderCategory(
+    write, fmt, 'Grupos anclados en una sesión', report.session_anchor,
+    () => 'reanchor',
+    (item) => `${item.name} (${item.group}): ${item.anchor} → ${item.reuse ? `ancla en ${item.reuse} (miembro existente)` : `nuevo ancla en ${item.cwd}`}`,
   );
   renderCategory(
     write, fmt, 'Workspaces sueltos', report.loose_workspace,
@@ -134,7 +141,7 @@ function renderHuman({ report, result, fix, write, err, fmt }) {
   // Resumen de sesiones ya bien agrupadas (protected) — NO afecta el exit code.
   write(`\nprotected: ${report.protected.sessions.length} sesiones ya agrupadas\n`);
 
-  // Verdict de scan: las 3 categorías son auto-arreglables (KODO-14), así que
+  // Verdict de scan: las 4 categorías son auto-arreglables (KODO-14/106), así que
   // hasActions decide entre deriva y convergido.
   if (report.hasActions) {
     write(`\n${fmt.yellow('drift found')} — ${fix ? 'converged below' : 'run with --fix to converge'}\n`);
@@ -145,9 +152,10 @@ function renderHuman({ report, result, fix, write, err, fmt }) {
   // Bajo --fix: lo que realmente se ejecutó.
   if (fix && result) {
     write('\n─── executed ───\n');
-    write(`created:   ${result.created}\n`);
-    write(`added:     ${result.added}\n`);
-    write(`ungrouped: ${result.ungrouped}\n`);
+    write(`created:    ${result.created}\n`);
+    write(`added:      ${result.added}\n`);
+    write(`reanchored: ${result.reanchored}\n`);
+    write(`ungrouped:  ${result.ungrouped}\n`);
     if (result.errors.length > 0) {
       err(`\n${fmt.red('errors')} (${result.errors.length}):\n`);
       for (const e of result.errors) {

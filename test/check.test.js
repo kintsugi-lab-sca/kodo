@@ -517,14 +517,15 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     const errs = [];
     await runCheckAndAct({
       runCheckFn: async () => ({ needsOrchestrator: true, reasons: ['x'], summary: 's' }),
-      // KODO-14: `created` cuenta en `applied` — el doctor vuelve a crear grupos
-      // (`create --from`), así que omitirlo escondería una categoría entera del conteo.
-      // Los tres sumandos son DISTINTOS por diseño (1/2/3 → applied=6, failed=2) para que
-      // ningún falso verde pase por coincidencia numérica.
+      // KODO-14: `created` cuenta en `applied` — el doctor vuelve a crear grupos, así que
+      // omitirlo escondería una categoría entera del conteo (KODO-106: ídem `reanchored`).
+      // Los cuatro sumandos son DISTINTOS por diseño (1/2/3/4 → applied=10, failed=2) para
+      // que ningún falso verde pase por coincidencia numérica.
       executeFn: async () => ({
         created: 1,
         added: 2,
         ungrouped: 3,
+        reanchored: 4,
         errors: [
           { category: 'loose_workspace', target: 'workspace:2', reason: 'cmux no responde' },
           { category: 'empty_group', target: 'workspace_group:3', reason: 'cmux no responde' },
@@ -537,8 +538,8 @@ describe('check.js — runCheckAndAct sidebar doctor piggyback (ORCH-07)', () =>
     });
 
     assert.ok(
-      logs.includes('[kodo:check] Sidebar: 6 acción(es) aplicadas'),
-      `applied debe sumar created + added + ungrouped (1 + 2 + 3 = 6). logs: ${JSON.stringify(logs)}`,
+      logs.includes('[kodo:check] Sidebar: 10 acción(es) aplicadas'),
+      `applied debe sumar created + added + ungrouped + reanchored (1 + 2 + 3 + 4 = 10). logs: ${JSON.stringify(logs)}`,
     );
     assert.ok(
       errs.some((m) => m.includes('2 acción(es) fallida(s)')),

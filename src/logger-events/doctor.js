@@ -146,6 +146,7 @@ export function doctorFixError(logger, fields) {
  * @param {{
  *   mode: 'dry-run' | 'fix',
  *   missing: number,
+ *   session_anchor: number,
  *   loose: number,
  *   empty: number,
  * }} fields
@@ -155,6 +156,7 @@ export function sidebarDoctorScan(logger, fields) {
     event: EVENTS.SIDEBAR_DOCTOR_SCAN,
     mode: fields.mode,
     missing: fields.missing,
+    session_anchor: fields.session_anchor,
     loose: fields.loose,
     empty: fields.empty,
   });
@@ -162,16 +164,18 @@ export function sidebarDoctorScan(logger, fields) {
 
 /**
  * Emitido (info) al final de `execute({fix:true})` con los contadores del
- * allowlist ejecutado (grupos creados, workspaces añadidos, grupos disueltos).
+ * allowlist ejecutado (grupos creados, workspaces añadidos, grupos reanclados en un
+ * workspace estable — KODO-106 —, grupos disueltos).
  *
  * @param {Logger} logger
- * @param {{ created: number, added: number, ungrouped: number }} fields
+ * @param {{ created: number, added: number, reanchored: number, ungrouped: number }} fields
  */
 export function sidebarDoctorFix(logger, fields) {
   logger.info(EVENTS.SIDEBAR_DOCTOR_FIX, {
     event: EVENTS.SIDEBAR_DOCTOR_FIX,
     created: fields.created,
     added: fields.added,
+    reanchored: fields.reanchored,
     ungrouped: fields.ungrouped,
   });
 }

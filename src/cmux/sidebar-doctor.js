@@ -10,7 +10,8 @@
 // scan(deps)   → SidebarReport serializable (NO muta, NO hace I/O mutante).
 //                Compara las sesiones kodo VIVAS de state.json contra el sidebar
 //                real (workspace-group list --json + workspace list --json) y
-//                clasifica en missing_group / loose_workspace / empty_group.
+//                clasifica en missing_group / session_anchor / loose_workspace /
+//                empty_group.
 // execute(deps,opts) → RE-detecta (D-06 TOCTOU, NO consume el report externo) y
 //                emite el allowlist NO-destructivo en orden D-09, cada acción en
 //                su try/catch (fail-open), never-throws top-level. (Task 2.)
@@ -46,7 +47,9 @@ import {
   listWorkspacesJson,
   createWorkspaceGroup,
   addToWorkspaceGroup,
+  setWorkspaceGroupAnchor,
   ungroupWorkspaceGroup,
+  newWorkspace,
 } from './client.js';
 // LOG-12: noopLogger es el stub zero-import whitelisted — NUNCA logger.js.
 import { noopLogger } from '../logger-noop.js';
@@ -55,13 +58,15 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
 /**
  * @typedef {import('../session/state.js').Session} Session
  *
- * @typedef {{ name: string, members: string[] }} MissingGroupItem
+ * @typedef {{ name: string, cwd: string, members: string[] }} MissingGroupItem
+ * @typedef {{ group: string, name: string, anchor: string, cwd: string, reuse: string | null }} SessionAnchorItem
  * @typedef {{ group: string, workspace_ref: string, name: string }} LooseWorkspaceItem
  * @typedef {{ ref: string, name: string }} EmptyGroupItem
  * @typedef {{ ref: string, group: string, name: string }} ProtectedItem
  *
  * @typedef {{
  *   missing_group: MissingGroupItem[],
+ *   session_anchor: SessionAnchorItem[],
  *   loose_workspace: LooseWorkspaceItem[],
  *   empty_group: EmptyGroupItem[],
  *   protected: { sessions: ProtectedItem[] },
@@ -73,8 +78,10 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
  *   loadProjects?: () => Record<string, any>,
  *   listWorkspaceGroupsRaw?: () => Promise<string> | string,
  *   listWorkspacesRaw?: () => Promise<string> | string,
- *   createWorkspaceGroup?: (opts: { name?: string, from?: string[] }) => Promise<string>,
+ *   createWorkspaceGroup?: (opts: { name?: string, cwd?: string }) => Promise<string>,
  *   addToWorkspaceGroup?: (opts: { group: string, workspace: string }) => Promise<string>,
+ *   setWorkspaceGroupAnchor?: (opts: { group: string, workspace: string }) => Promise<string>,
+ *   newWorkspace?: (opts: { name: string, cwd?: string, group?: string }) => Promise<string>,
  *   ungroupWorkspaceGroup?: (opts: { group: string }) => Promise<string>,
  *   now?: () => number,
  *   logger?: { info: Function, warn: Function, error: Function },
@@ -95,6 +102,9 @@ function resolveDeps(deps = {}) {
     // Allowlist NO-destructivo (solo lo consume execute; jamás delete/remove/rename).
     createWorkspaceGroup: deps.createWorkspaceGroup || createWorkspaceGroup,
     addToWorkspaceGroup: deps.addToWorkspaceGroup || addToWorkspaceGroup,
+    // KODO-106: el par que crea el ancla estable de reemplazo y la convierte en ancla.
+    setWorkspaceGroupAnchor: deps.setWorkspaceGroupAnchor || setWorkspaceGroupAnchor,
+    newWorkspace: deps.newWorkspace || newWorkspace,
     ungroupWorkspaceGroup: deps.ungroupWorkspaceGroup || ungroupWorkspaceGroup,
     now: deps.now || (() => Date.now()),
     // logger default seguro: sidebarDoctorScan invoca logger.info; un undefined
@@ -195,6 +205,84 @@ function buildMemberIndex(groupsJson) {
   return idx;
 }
 
+/**
+ * Refs `workspace:N` de las sesiones kodo de state.json (todas salvo las `alive:
+ * false`). Es el conjunto que NUNCA puede ser ancla de un grupo (KODO-106).
+ * @param {any} state
+ * @returns {Set<string>}
+ */
+function sessionRefsOf(state) {
+  const refs = new Set();
+  for (const s of Object.values(state?.sessions || {})) {
+    if (s && s.alive !== false && typeof s.workspace_ref === 'string') refs.add(s.workspace_ref);
+  }
+  return refs;
+}
+
+/** `sessionRefsOf` sobre `d.loadState()`, fail-open: un state ilegible → conjunto vacío. */
+function loadSessionRefs(d) {
+  try {
+    return sessionRefsOf(d.loadState());
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Mueve el ancla de `group` a un workspace ESTABLE del repo (KODO-106). Si el grupo ya
+ * tiene un miembro que NO es sesión (`reuse`: el workspace del repo, o el de un intento
+ * anterior cuyo `set-anchor` falló) se ancla en él; si no, se crea DENTRO del grupo
+ * (`new-workspace --name <name> --cwd <cwd> --group <group>`). Nace ya como miembro
+ * porque `set-anchor` sobre un no-miembro responde `not_found`. Reutilizar evita que un
+ * `set-anchor` que falla en bucle deje un workspace nuevo por cada pase de `kodo check`.
+ * El ancla anterior (la sesión) sigue en el grupo como miembro normal.
+ * @param {{ group: string, name: string, cwd: string, reuse?: string | null }} target
+ * @returns {Promise<string>} ref del ancla nueva
+ */
+async function reanchorOnStableWorkspace(d, { group, name, cwd, reuse = null }) {
+  const stable = reuse || await d.newWorkspace({ name, cwd, group });
+  if (!/^workspace:\d+$/.test(String(stable))) throw new Error(`new_workspace_sin_ref: ${String(stable).slice(0, 60)}`);
+  await d.setWorkspaceGroupAnchor({ group, workspace: stable });
+  return stable;
+}
+
+/**
+ * Crea el grupo de proyecto `name` con ancla PROPIA y estable, y mete las sesiones como
+ * miembros (KODO-106). Pasos:
+ *   1. `create --name <name> --cwd <cwd>` (sin `--from`): cmux levanta el ancla.
+ *   2. re-list para resolver el ref del grupo nuevo (OQ1: no se parsea el stdout).
+ *   3. `add` de cada miembro que no esté ya dentro.
+ *   4. guard post-creación: si el ancla resultó ser una sesión (un cmux futuro que
+ *      adopte un workspace existente, o la semántica de `--from` reapareciendo), se
+ *      reancla en un workspace estable — mismo remedio que `session_anchor`.
+ * Lanza ante cualquier fallo; el caller decide (fail-open per item / skipped).
+ * @param {ReturnType<typeof resolveDeps>} d
+ * @param {{ name: string, cwd: string, members: string[], sessionRefs: Set<string> }} target
+ * @returns {Promise<{ group: string, added: number, reanchored: boolean }>}
+ */
+async function createProjectGroup(d, { name, cwd, members, sessionRefs }) {
+  await d.createWorkspaceGroup({ name, cwd });
+  const groupsJson = JSON.parse(await d.listWorkspaceGroupsRaw());
+  const group = resolveWorkspaceGroup(groupsJson, name);
+  if (!group) throw new Error('grupo_no_encontrado_tras_create');
+  const created = (groupsJson.groups || []).find((g) => g?.ref === group) || {};
+  const inside = new Set(Array.isArray(created.member_workspace_refs) ? created.member_workspace_refs : []);
+
+  let added = 0;
+  for (const ws of members) {
+    if (inside.has(ws)) continue;
+    await d.addToWorkspaceGroup({ group, workspace: ws });
+    added++;
+  }
+
+  let reanchored = false;
+  if (sessionRefs.has(created.anchor_workspace_ref)) {
+    await reanchorOnStableWorkspace(d, { group, name, cwd });
+    reanchored = true;
+  }
+  return { group, added, reanchored };
+}
+
 // ── scan() ─────────────────────────────────────────────────────────────────
 
 /**
@@ -257,13 +345,15 @@ export async function scan(deps = {}) {
   for (const [expected, sessions] of byExpected) {
     const groupRef = resolveWorkspaceGroup(groupsJson, expected);
     if (!groupRef) {
-      // grupo faltante O disuelto (D-07): mismo remedio `create --from <miembros>`.
-      // El orden oldest-first NO elige ancla (KODO-14: `create --from` jamás reutiliza
-      // un workspace existente como ancla, siempre levanta un shell nuevo) — solo hace
-      // el argv determinista y el report idempotente.
+      // grupo faltante O disuelto (D-07): mismo remedio — `create --name --cwd` (ancla
+      // estable propia) + `add` de cada sesión (KODO-106). El orden oldest-first NO elige
+      // ancla (ninguna sesión lo es nunca): solo hace el argv determinista y el report
+      // idempotente. El cwd del ancla es el `project_path` resuelto vía projects.json en
+      // el launch (todas las sesiones de un mismo grupo esperado lo comparten).
       const ordered = sortByOldest(sessions);
       missing_group.push({
         name: expected,
+        cwd: ordered[0].project_path,
         members: ordered.map((s) => s.workspace_ref),
       });
     } else {
@@ -279,6 +369,26 @@ export async function scan(deps = {}) {
     }
   }
 
+  // grupos anclados en una SESIÓN (KODO-106): la fila del grupo ES la sesión, la tarea
+  // aparece en la raíz del grupo y su cierre arrastra al grupo. Regla del operador: las
+  // sesiones nunca son ancla. Se mira TODO grupo (no solo los esperados) y el cwd del
+  // ancla estable sale de la propia sesión-ancla.
+  /** @type {Map<string, Session>} */
+  const sessionByRef = new Map();
+  for (const s of Object.values(state.sessions || {})) {
+    if (s && s.alive !== false && typeof s.workspace_ref === 'string') sessionByRef.set(s.workspace_ref, s);
+  }
+  /** @type {SessionAnchorItem[]} */
+  const session_anchor = [];
+  for (const g of groupsJson.groups || []) {
+    if (!g || typeof g.ref !== 'string' || !/^workspace_group:\d+$/.test(g.ref) || typeof g.name !== 'string') continue;
+    const s = sessionByRef.get(g.anchor_workspace_ref);
+    if (!s || typeof s.project_path !== 'string' || !s.project_path) continue;
+    const members = Array.isArray(g.member_workspace_refs) ? g.member_workspace_refs : [];
+    const reuse = members.find((m) => typeof m === 'string' && /^workspace:\d+$/.test(m) && !sessionByRef.has(m)) || null;
+    session_anchor.push({ group: g.ref, name: g.name, anchor: g.anchor_workspace_ref, cwd: s.project_path, reuse });
+  }
+
   // grupos vacíos (D-05) — defensivo; cmux disuelve al cerrar el anchor, así que
   // un grupo con member_count 0 es un estado transitorio raro (Pitfall 5).
   // WR-01: excluir los grupos que también son destino de un `add` en este mismo
@@ -292,21 +402,23 @@ export async function scan(deps = {}) {
       && !looseGroupRefs.has(g.ref))
     .map((g) => ({ ref: g.ref, name: typeof g.name === 'string' ? g.name : '' }));
 
-  // hasActions cuenta las 3 categorías: TODAS son ejecutables (KODO-14 — missing_group
-  // volvió al carril automático vía `create --from`, sin `set-anchor`). Un 2º pase --fix
-  // sobre un sidebar ya convergido da exit 0, así que el piggyback de Phase 80 no entra
-  // en bucle.
-  const hasActions = missing_group.length + loose_workspace.length + empty_group.length > 0;
+  // hasActions cuenta las 4 categorías: TODAS son ejecutables. Un 2º pase --fix sobre un
+  // sidebar ya convergido da exit 0, así que el piggyback de Phase 80 no entra en bucle
+  // (tras reanclar, el ancla es un workspace estable y session_anchor queda vacío).
+  const hasActions = missing_group.length + session_anchor.length
+    + loose_workspace.length + empty_group.length > 0;
 
   sidebarDoctorScan(/** @type {any} */ (d.logger), {
     mode: 'dry-run',
     missing: missing_group.length,
+    session_anchor: session_anchor.length,
     loose: loose_workspace.length,
     empty: empty_group.length,
   });
 
   return {
     missing_group,
+    session_anchor,
     loose_workspace,
     empty_group,
     protected: { sessions: protectedSessions },
@@ -317,12 +429,12 @@ export async function scan(deps = {}) {
 // ── execute() ────────────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ created: number, added: number, ungrouped: number, errors: Array<{ category: string, target: string, reason: string }> }} SidebarResult
+ * @typedef {{ created: number, added: number, reanchored: number, ungrouped: number, errors: Array<{ category: string, target: string, reason: string }> }} SidebarResult
  */
 
 /** @returns {SidebarResult} */
 function emptyResult() {
-  return { created: 0, added: 0, ungrouped: 0, errors: [] };
+  return { created: 0, added: 0, reanchored: 0, ungrouped: 0, errors: [] };
 }
 
 /** @param {unknown} err @returns {string} */
@@ -338,7 +450,7 @@ function pushError(result, log, category, target, reason) {
 
 /**
  * Sanea el sidebar emitiendo EXCLUSIVAMENTE el allowlist NO-destructivo
- * (create/add/ungroup) en orden D-09. RE-detecta llamando `scan(deps)`
+ * (create/set-anchor sobre ancla estable/add/ungroup) en orden D-09. RE-detecta llamando `scan(deps)`
  * FRESCO (D-06 TOCTOU — NO consume un report externo: un grupo pudo crearse o
  * disolverse entre el scan del dry-run y este pase). Cada acción va en su
  * try/catch → pushError + continúa (fail-open per item); never-throws top-level.
@@ -360,19 +472,33 @@ export async function execute(deps = {}, opts = {}) {
     // RE-detección fresca (D-06). scan es never-throws → no puede tumbar execute.
     const report = await scan(deps);
 
-    // ── missing_group: `create --name <expected> --from <miembros>` (KODO-14) ──
-    //    G-79-1 en su forma ESTRECHA: lo que roba la fila sidebar de una sesión viva es
-    //    `set-anchor` sobre ella, NO el `create`. Verificado en vivo (2026-07-31, cmux
-    //    0.64.20): `create --from workspace:22` (sesión viva) devolvió anchor=workspace:23
-    //    — un shell NUEVO — con la sesión como MIEMBRO. `create --from` nunca reutiliza un
-    //    workspace existente como ancla, así que el grupo sobrevive al cierre de la sesión.
-    //    Sin `add` posterior: `--from` ya mete a todos los miembros de una.
+    const sessionRefs = loadSessionRefs(d);
+
+    // ── missing_group: `create --name <expected> --cwd <repo>` + `add` (KODO-106) ──
+    //    G-79-1: lo que roba la fila sidebar de una sesión es que sea el ANCLA. KODO-14
+    //    confiaba en `create --from <sesiones>` porque en cmux 0.64.20 levantaba un shell
+    //    NUEVO como ancla; en cmux 0.65.2 (verificado en vivo 2026-10-26) `--from`
+    //    REUTILIZA el primer ref como ancla → la sesión quedaba de header del grupo. Por
+    //    eso el ancla nace sin `--from` (workspace estable del repo) y las sesiones entran
+    //    con `add`; el guard post-creación de createProjectGroup cubre lo que quede.
     for (const m of report.missing_group) {
       try {
-        await d.createWorkspaceGroup({ name: m.name, from: m.members });
+        const r = await createProjectGroup(d, { name: m.name, cwd: m.cwd, members: m.members, sessionRefs });
         result.created++;
+        result.added += r.added;
+        if (r.reanchored) result.reanchored++;
       } catch (e) {
         pushError(result, log, 'create', m.name, errMsg(e));
+      }
+    }
+
+    // ── session_anchor: reanclar en un workspace estable del repo (KODO-106) ──
+    for (const a of report.session_anchor) {
+      try {
+        await reanchorOnStableWorkspace(d, { group: a.group, name: a.name, cwd: a.cwd, reuse: a.reuse });
+        result.reanchored++;
+      } catch (e) {
+        pushError(result, log, 'set-anchor', a.group, errMsg(e));
       }
     }
 
@@ -396,7 +522,9 @@ export async function execute(deps = {}, opts = {}) {
       }
     }
 
-    sidebarDoctorFix(log, { created: result.created, added: result.added, ungrouped: result.ungrouped });
+    sidebarDoctorFix(log, {
+      created: result.created, added: result.added, reanchored: result.reanchored, ungrouped: result.ungrouped,
+    });
   } catch (err) {
     // never-throws top-level: retorna result parcial + error registrado.
     pushError(result, log, 'execute', 'top-level', errMsg(err));
@@ -408,7 +536,7 @@ export async function execute(deps = {}, opts = {}) {
 // ── convergeProject() ────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ action: 'created' | 'added' | 'none' | 'skipped', group: string | null, reason?: string }} ConvergeResult
+ * @typedef {{ action: 'created' | 'added' | 'none' | 'skipped', group: string | null, reanchored?: boolean, reason?: string }} ConvergeResult
  */
 
 /**
@@ -416,7 +544,7 @@ export async function execute(deps = {}, opts = {}) {
  *
  * Es la unidad de-un-workspace del par `create`/`add` que `execute()` emite en lote:
  * misma re-detección FRESCA (D-06 TOCTOU — nunca consume un report externo), mismo
- * allowlist NO-destructivo (`create --from` / `add`, jamás delete/remove/rename) y el
+ * allowlist NO-destructivo (`create` / `add`, jamás delete/remove/rename) y el
  * mismo fail-open never-throws. Lo que NO comparte con `execute()` es la fuente de
  * verdad: aquí el workspace lo acaba de crear el launch y todavía NO está en
  * `state.json`, así que el input llega por parámetro en vez de por `scan()`.
@@ -427,7 +555,8 @@ export async function execute(deps = {}, opts = {}) {
  * suelto en el sidebar hasta el siguiente arranque en frío.
  *
  * Decisión (idéntica a la que `scan()` toma para las 3 categorías):
- *   - grupo `name` NO existe                        → `create --name <name> --from <ws>`
+ *   - grupo `name` NO existe                        → `create --name <name> --cwd <cwd>`
+ *                                                     + `add <ws>` + guard de ancla (KODO-106)
  *   - existe y `ws` ya está en member_workspace_refs → no-op (`none`)
  *   - existe y `ws` está suelto                     → `add --group <ref> --workspace <ws>`
  *
@@ -435,13 +564,15 @@ export async function execute(deps = {}, opts = {}) {
  * devuelve `action: 'skipped'` con el motivo acotado. El caller decide el log; jamás se
  * aborta el lanzamiento por la sidebar.
  *
- * @param {{ name: string, workspaceRef: string }} target
+ * @param {{ name: string, workspaceRef: string, cwd: string }} target - `cwd` = path del
+ *   proyecto resuelto vía projects.json (el mismo `projectPath` del `new-workspace`): es
+ *   el cwd del ancla estable del grupo.
  * @param {SidebarDeps} [deps] - en el launch se inyectan los verbos de `host._legacy`
  *   (cmux confinado a `src/host/`); sin deps caen los defaults lazy de `client.js`.
  * @returns {Promise<ConvergeResult>}
  */
-export async function convergeProject({ name, workspaceRef } = {}, deps = {}) {
-  if (!name || !workspaceRef) {
+export async function convergeProject({ name, workspaceRef, cwd } = {}, deps = {}) {
+  if (!name || !workspaceRef || !cwd) {
     return { action: 'skipped', group: null, reason: 'target_incompleto' };
   }
   const d = resolveDeps(deps);
@@ -454,12 +585,14 @@ export async function convergeProject({ name, workspaceRef } = {}, deps = {}) {
     const groupRef = resolveWorkspaceGroup(groupsJson, name);
 
     if (!groupRef) {
-      // `create --from <ws>` NUNCA reutiliza un workspace existente como ancla (KODO-14,
-      // verificado en vivo): levanta un shell nuevo y mete `ws` como MIEMBRO, así que no
-      // roba la fila del sidebar a la sesión que se acaba de lanzar.
-      await d.createWorkspaceGroup({ name, from: [workspaceRef] });
-      sidebarDoctorFix(log, { created: 1, added: 0, ungrouped: 0 });
-      return { action: 'created', group: null };
+      // Ancla PROPIA y estable del repo, nunca la sesión recién lanzada (KODO-106): en
+      // cmux 0.65.2 `create --from <ws>` adopta `<ws>` como ancla. El workspace recién
+      // creado todavía no está en state.json, así que se suma a mano al conjunto vetado.
+      const sessionRefs = loadSessionRefs(d);
+      sessionRefs.add(workspaceRef);
+      const r = await createProjectGroup(d, { name, cwd, members: [workspaceRef], sessionRefs });
+      sidebarDoctorFix(log, { created: 1, added: r.added, reanchored: r.reanchored ? 1 : 0, ungrouped: 0 });
+      return { action: 'created', group: r.group, reanchored: r.reanchored };
     }
 
     const memberOf = buildMemberIndex(groupsJson);
@@ -468,7 +601,7 @@ export async function convergeProject({ name, workspaceRef } = {}, deps = {}) {
     }
 
     await d.addToWorkspaceGroup({ group: groupRef, workspace: workspaceRef });
-    sidebarDoctorFix(log, { created: 0, added: 1, ungrouped: 0 });
+    sidebarDoctorFix(log, { created: 0, added: 1, reanchored: 0, ungrouped: 0 });
     return { action: 'added', group: groupRef };
   } catch (err) {
     const reason = errMsg(err);

@@ -7,7 +7,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { findSession, updateSession } from '../session/state.js';
+import { findSession, updateSession, reopenSession } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { KODO_DIR } from '../config.js';
 import { getSessionMode } from '../labels.js';
@@ -262,6 +262,74 @@ async function defaultRevParse() {
   );
 }
 
+/**
+ * Relee del host el workspace de una sesión reanudada (KODO-100). Solo cmux: dentro de la
+ * tab `CMUX_WORKSPACE_ID` es la identidad estable. Si coincide con la persistida no hay
+ * nada que releer; si cambió (se reanudó en otra tab) se busca su `workspace:N` actual en
+ * el árbol. Never-throws: sin dato fiable devuelve `{}` y se conserva lo persistido.
+ *
+ * @param {{ host?: string, workspace_id?: string|null }} entry
+ * @param {{ env?: NodeJS.ProcessEnv, listTreeFn?: () => Promise<string> }} [deps]
+ * @returns {Promise<{ workspace_ref?: string, workspace_id?: string }>}
+ */
+export async function rereadWorkspace(entry, deps = {}) {
+  try {
+    const env = deps.env || process.env;
+    const id = env.CMUX_WORKSPACE_ID;
+    if (!id || (entry.host && entry.host !== 'cmux') || entry.workspace_id === id) return {};
+    const { findWorkspaceInTree } = await import('../host/workspace-id.js');
+    const listTreeFn = deps.listTreeFn || (async () => {
+      const { getHost } = await import('../host/interface.js');
+      return getHost('cmux')._legacy.listTree();
+    });
+    const hit = findWorkspaceInTree(JSON.parse(await listTreeFn()), { id });
+    return hit && hit.ref ? { workspace_ref: hit.ref, workspace_id: id } : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * KODO-100: devuelve a `state.sessions` la sesión archivada que se acaba de reanudar y deja
+ * constancia en la bandeja del orquestador. Fail-open: si no se puede reabrir (la tarea ya
+ * tiene otra sesión viva, lock ocupado) devuelve el match de history tal cual, que es el
+ * comportamiento previo — el contexto se inyecta igual.
+ *
+ * El estado del provider NO se toca: la tarea sigue en Review. Moverla a In Progress desde
+ * aquí metería red en el arranque de Claude Code, y el resume es a menudo un retoque pedido
+ * en la revisión; el backstop del próximo SessionEnd la reafirma en Review. El evento lo
+ * dice para que el orquestador decida.
+ *
+ * @param {{ id: string, session: any, source: 'sessions'|'history' }} found
+ * @returns {Promise<{ id: string, session: any, source: 'sessions'|'history' }>}
+ */
+async function reopenResumedSession(found) {
+  try {
+    const overrides = await rereadWorkspace(found.session);
+    const r = reopenSession(found.session.session_id, overrides);
+    const value = r.ok ? r.value : null;
+    const ref = found.session.task_ref;
+    const text = value?.reopened
+      ? `${ref} se ha reanudado a mano (claude --resume) después de cerrar y vuelve a estar en sesiones. ` +
+        'La tarea sigue en Review en el provider: muévela a In Progress si no es un retoque.'
+      : `${ref} se ha reanudado a mano (claude --resume) después de cerrar, pero NO vuelve a sesiones ` +
+        `(${value?.reason === 'task-busy' ? 'la tarea ya tiene otra sesión registrada' : 'no se pudo persistir'}). ` +
+        'Trabaja fuera de la supervisión de kodo.';
+    try {
+      const { enqueueOrchestratorEvent } = await import('../orchestrator/inbox.js');
+      enqueueOrchestratorEvent({ kind: 'session-resumed', task_ref: ref, session_id: found.session.session_id, text });
+    } catch {
+      // la bandeja es conveniencia; nunca bloquea el arranque
+    }
+    if (value?.reopened && value.session) {
+      return { id: value.session.task_id, session: value.session, source: 'sessions' };
+    }
+  } catch {
+    // silent — never crash Claude Code startup
+  }
+  return found;
+}
+
 async function readStdin() {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve('{}'), STDIN_TIMEOUT);
@@ -339,13 +407,26 @@ async function main() {
       process.exit(0);
     }
 
+    // KODO-100 — `claude --resume` de una sesión YA CERRADA. El match de arriba es por
+    // `session_id` exacto, así que esto es identidad, no el fallback por cwd contra history
+    // que KODO-27 eliminó. Sin reabrirla, la sesión trabaja con su contexto pero fuera de
+    // `sessions`: Stop y SessionEnd la saltan por «ya archivada», no ocupa slot y su cierre
+    // no refresca la cola. Solo con `source=resume`: un startup/clear con un id archivado
+    // no es una reanudación.
+    const fromHistory = result.source === 'history';
+    if (fromHistory && input.source === 'resume') {
+      result = await reopenResumedSession(result);
+    }
+
     const { session } = result;
 
     // KODO-74 (§2.5): sella la base del worktree AL ACEPTAR la tarea. Es el único momento en
     // que se puede: dos turnos después HEAD ya se ha movido y el dato es irrecuperable.
     // Fail-open y silencioso — el contexto de la tarea, que es lo valioso de este hook, se
     // inyecta igual si esto falla.
-    if (result.source === 'sessions') {
+    // KODO-100: una sesión reabierta desde history NO se sella aquí — su HEAD ya es el
+    // trabajo de la sesión, no su base (misma razón que el «una sola vez» de arriba).
+    if (result.source === 'sessions' && !fromHistory) {
       await sealBaseCommit(result.id, session, input.cwd);
     }
 

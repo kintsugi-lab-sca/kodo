@@ -576,7 +576,10 @@ export function reconcileTick(state, liveRefs, { debounceStore, tick, now, logge
     const endedMs = entry.ended_at ? Date.parse(entry.ended_at) : NaN;
     const recent = Number.isFinite(endedMs) && now - endedMs < RESCUE_WINDOW_MS;
     // No rescatar las que acabamos de sellar a closed en este mismo tick.
-    if (live && live.alive && recent && entry.state !== 'closed') {
+    // KODO-103: ni las de un cierre DELIBERADO (`ended_by`, ver `removeSession`). Tras
+    // `/exit` el workspace de cmux sigue abierto, así que `live.alive` no prueba que la
+    // sesión siga viva — revivirla devolvía la fila a `sessions` en el tick siguiente.
+    if (live && live.alive && recent && entry.state !== 'closed' && !entry.ended_by) {
       const rescuedState = live.needs_input ? 'needs-input' : 'idle';
       const { ended_at, ...rest } = entry;
       sessions[entry.task_id] = {

@@ -154,11 +154,11 @@ describe('SIN --require-audit — el default no bloquea NUNCA', () => {
     assert.equal(await runIntegrateActionCli('KODO-74', { merge: true }, h.deps), 0);
   });
 
-  it('no se paga ni un `rev-parse` extra por el gate apagado', async () => {
+  it('el gate apagado no añade un `rev-parse` al único que paga la acción (KODO-101)', async () => {
     const h = harness({ found: entry({ audit: null }) });
     await runIntegrateActionCli('KODO-74', { merge: true }, h.deps);
     const anchors = h.gitCalls.filter((c) => c.includes('worktree-abc^{commit}'));
-    assert.equal(anchors.length, 0);
+    assert.equal(anchors.length, 1, 'solo la lectura del cinturón de deriva');
   });
 });
 
@@ -180,7 +180,9 @@ describe('CON --require-audit — los tres estados que NO son «auditado sobre e
   });
 
   it('DESFASADO: se auditó otro commit, así que no vale aunque diga auditado', async () => {
-    const h = harness({ found: entry({ audit: audit({ commit: 'f'.repeat(40) }) }) });
+    // `head: HEAD`: la fila ya describe la punta real (el refresco de deriva corrió) y lo que
+    // quedó atrás es la auditoría. Sin `head`, el cinturón KODO-101 cerraría antes.
+    const h = harness({ found: entry({ head: HEAD, audit: audit({ commit: 'f'.repeat(40) }) }) });
     assert.equal(await runIntegrateActionCli('KODO-74', { merge: true, requireAudit: true }, h.deps), 1);
     assert.equal(h.outcome(), 'audit-stale');
     assert.match(h.stderr(), /no los ha leído nadie/);

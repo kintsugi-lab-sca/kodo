@@ -5,6 +5,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { DEFAULT_CONFIG, getAgentDef } from '../src/config.js';
+import { buildAgentCommand } from '../src/session/manager.js';
 
 describe('config.agents registry', () => {
   test('DEFAULT_CONFIG declara claude-code como agente default con mecánica completa', () => {
@@ -51,5 +52,31 @@ describe('config.agents registry', () => {
     assert.equal(def.resume.style, 'subcommand');
     // El default no se ve afectado por el registro adicional.
     assert.equal(getAgentDef(config).binary, 'claude');
+  });
+});
+
+describe('KODO-104 — effort_flag del registro', () => {
+  /** @returns {any} */
+  const cfg = (effort) => ({
+    provider: 'plane',
+    claude: { default_model: 'opus', default_effort: effort },
+    agents: DEFAULT_CONFIG.agents,
+  });
+  const task = /** @type {any} */ ({ id: 't', ref: 'KODO-104', title: 'x', projectId: 'p', projectName: 'kodo' });
+
+  test('claude-code declara --effort; opencode lo deja a null', () => {
+    assert.equal(DEFAULT_CONFIG.agents.registry['claude-code'].effort_flag, '--effort');
+    assert.equal(DEFAULT_CONFIG.agents.registry.opencode.effort_flag, null);
+  });
+
+  test('claude-code emite --effort <level> con default_effort configurado', () => {
+    const cmd = buildAgentCommand(cfg('high'), 'sid', task, 'd', null, [], null, true, 'claude-code');
+    assert.match(cmd, /^claude --model opus --effort high --session-id sid /);
+  });
+
+  test('opencode omite el par flag+valor aunque haya default_effort', () => {
+    const cmd = buildAgentCommand(cfg('xhigh'), 'sid', task, 'd', null, [], null, false, 'opencode');
+    assert.ok(!cmd.includes('--effort'), cmd);
+    assert.ok(!cmd.includes('xhigh'), cmd);
   });
 });

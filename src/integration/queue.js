@@ -30,7 +30,7 @@ import { loadState, withStateLock } from '../session/state.js';
 /**
  * One integration-queue entry.
  *
- * The 19 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
+ * The 20 keys are ALWAYS present and in THIS order, with `null` where not applicable. It is not
  * cosmetic: `kodo integrate --json` serialises the entry as-is, and the byte-determinism of
  * `--json` is a repo invariant (DX-06). A key appearing "only when there is a value"
  * would break the contract's byte-for-byte comparison.
@@ -55,8 +55,26 @@ import { loadState, withStateLock } from '../session/state.js';
  *   resolved_at: string|null,      // ISO 8601 of the resolution. null while pending.
  *   oracle: import('./oracle.js').OracleResult|null,  // KODO-69. null = the oracle has not run on this branch.
  *   audit: import('./audit.js').AuditGate|null,  // KODO-74. null = SIN AUDITAR: nobody ran the audit gate over this branch. It is NOT the same as an audit that found nothing — that one is `status: 'audited'` with `findings: 0`, a signed statement. The third honest state, same rule as the oracle's `unknown`.
+ *   head: string|null,             // KODO-101. Tip of `branch` the REST of the row describes (count, diff, suggestion), sealed at capture and on every drift refresh. `oracle.commit`/`audit.commit` ≠ `head` = verdict over an EARLIER head. null = entry predating KODO-101, or tip unreadable at capture.
  * }} IntegrationEntry
  */
+
+/**
+ * The commit the row vouches for — KODO-101. PURE.
+ *
+ * `head` when the entry carries it; for an entry predating KODO-101, the newest anchor it
+ * DOES carry (`audit.commit`, then `oracle.commit`): it is the only commit somebody stated
+ * something about. `null` = nothing to compare against, and then no drift is invented.
+ *
+ * @param {Partial<IntegrationEntry>|null|undefined} e
+ * @returns {string|null}
+ */
+export function sealedHead(e) {
+  for (const c of [e?.head, e?.audit?.commit, e?.oracle?.commit]) {
+    if (typeof c === 'string' && c !== '') return c;
+  }
+  return null;
+}
 
 /**
  * Cap of RESOLVED entries kept in state.json (FIFO, the oldest are evicted).
@@ -97,7 +115,7 @@ function queueOf(state) {
 }
 
 /**
- * Builds a COMPLETE entry (19 keys, fixed order) from the capture input.
+ * Builds a COMPLETE entry (20 keys, fixed order) from the capture input.
  * Pure — it touches neither disk nor clock beyond the injected `now`.
  *
  * @param {{
@@ -106,6 +124,7 @@ function queueOf(state) {
  *   files_changed?: number|null, lines_changed?: number|null,
  *   suggested: 'ff'|'merge'|'pr'|'review',
  *   audit?: import('./audit.js').AuditGate|null,
+ *   head?: string|null,
  * }} input
  * @param {string} ts ISO 8601
  * @returns {IntegrationEntry}
@@ -139,6 +158,9 @@ function buildEntry(input, ts) {
     // happened BEFORE it closed. By enqueue time the answer already exists — either the
     // session passed the gate or it did not. `null` = it did not run it: SIN AUDITAR.
     audit: input.audit ?? null,
+    // KODO-101. The tip the capture measured: the anchor against which the drift refresh and
+    // `kodo integrate` detect that the branch moved after this row was written.
+    head: input.head ?? null,
   };
 }
 
@@ -160,6 +182,7 @@ function buildEntry(input, ts) {
  *   files_changed?: number|null, lines_changed?: number|null,
  *   suggested: 'ff'|'merge'|'pr'|'review',
  *   audit?: import('./audit.js').AuditGate|null,
+ *   head?: string|null,
  * }} input
  * @param {import('../logger-noop.js').NoopLogger} [logger]
  * @param {{ now?: () => Date }} [deps]
@@ -207,6 +230,7 @@ export function enqueueIntegration(input, logger = noopLogger, deps = {}) {
       // the gate". Keeping the previous session's `audited` would mark as audited a branch
       // that has grown commits nobody read.
       prev.audit = input.audit ?? null;
+      prev.head = input.head ?? null; // KODO-101: the row now describes THIS tip.
       persisted = prev;
     } else {
       persisted = buildEntry(input, ts);
@@ -351,6 +375,73 @@ export function attachOracle(ref, oracle, logger = noopLogger) {
     ref,
     state: oracle?.state ?? null,
     verdict: oracle?.verdict ?? null,
+  });
+  return { ok: true, value: /** @type {IntegrationEntry} */ (persisted) };
+}
+
+/**
+ * Re-describes ONE pending entry whose branch moved outside a kodo session close — KODO-101.
+ *
+ * KODO-69's in-place refresh only fires when ANOTHER session closes over the same branch. A
+ * branch can move by any other route (a session resumed by hand, an operator commit, a
+ * rebase) and then the row kept showing the count and the verdicts of a head that no longer
+ * exists. This is the writer for that case; the git reading lives in `drift.js`.
+ *
+ * Optimistic by construction: the measurement was taken OUTSIDE the lock (git is slow), so
+ * the patch only lands if the row still vouches for `expectedSealed`. If a session close
+ * refreshed it in between, that capture is fresher than this measurement and wins.
+ *
+ * `oracle` and `audit` are KEPT, unlike KODO-69's refresh, on purpose: their `commit` anchors
+ * now differ from `head`, and that difference IS the «verdict over an earlier head» signal
+ * the listing paints. Nulling them would show `—` («nobody looked»), which is false too —
+ * somebody looked, at something else. Every strict consumer already rejects a stale anchor
+ * (`--require-oracle`, `--require-audit`).
+ *
+ * @param {{ project_path: string, branch: string }} key Identity of the entry (entryKey).
+ * @param {string|null} expectedSealed `sealedHead(entry)` as read before measuring.
+ * @param {{
+ *   head: string, commits_ahead: number|null, base_ok: boolean|null,
+ *   files_changed: number|null, lines_changed: number|null,
+ *   suggested: 'ff'|'merge'|'pr'|'review',
+ * }} patch
+ * @param {import('../logger-noop.js').NoopLogger} [logger]
+ * @param {{ now?: () => Date }} [deps]
+ * @returns {{ ok: true, value: IntegrationEntry } | { ok: false, reason: 'lock-timeout'|'not-found'|'superseded' }}
+ */
+export function refreshBranchHead(key, expectedSealed, patch, logger = noopLogger, deps = {}) {
+  const ts = (deps.now ? deps.now() : new Date()).toISOString();
+  /** @type {IntegrationEntry|undefined} */
+  let persisted;
+  /** @type {'not-found'|'superseded'|null} */
+  let miss = null;
+
+  const r = withStateLock((state) => {
+    const k = entryKey(key);
+    const hit = queueOf(state).find((e) => e.status === 'pending' && entryKey(e) === k);
+    if (!hit) { miss = 'not-found'; return; }
+    if (sealedHead(hit) !== expectedSealed) { miss = 'superseded'; return; }
+    hit.head = patch.head;
+    hit.commits_ahead = patch.commits_ahead;
+    hit.base_ok = patch.base_ok;
+    hit.files_changed = patch.files_changed;
+    hit.lines_changed = patch.lines_changed;
+    hit.suggested = patch.suggested;
+    // The NEED changed (the branch grew), so `updated_at` moves — the opposite of
+    // `attachOracle`, where only a verification finished.
+    hit.updated_at = ts;
+    persisted = hit;
+  });
+
+  if (!r.ok) {
+    logger.warn('integration.queue.drift_failed', { branch: key.branch, reason: r.reason });
+    return r;
+  }
+  if (miss) return { ok: false, reason: miss };
+  logger.info('integration.queue.drift_refreshed', {
+    branch: key.branch,
+    from: expectedSealed,
+    to: patch.head,
+    commits_ahead: patch.commits_ahead,
   });
   return { ok: true, value: /** @type {IntegrationEntry} */ (persisted) };
 }

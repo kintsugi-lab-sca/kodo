@@ -37,6 +37,7 @@ function nocolorFormatter() {
 function cleanReport() {
   return {
     missing_group: [],
+    session_anchor: [],
     loose_workspace: [],
     empty_group: [],
     protected: { sessions: [] },
@@ -44,11 +45,14 @@ function cleanReport() {
   };
 }
 
-/** Report con deriva en las 3 categorías. */
+/** Report con deriva en las 4 categorías. */
 function driftReport() {
   return {
     missing_group: [
-      { name: 'ACME/Auth', members: ['workspace:1', 'workspace:2'] },
+      { name: 'ACME/Auth', cwd: '/repo/acme', members: ['workspace:1', 'workspace:2'] },
+    ],
+    session_anchor: [
+      { group: 'workspace_group:6', name: 'ACME', anchor: 'workspace:8', cwd: '/repo/acme', reuse: null },
     ],
     loose_workspace: [
       { group: 'workspace_group:5', workspace_ref: 'workspace:3', name: 'ACME/Api' },
@@ -57,13 +61,13 @@ function driftReport() {
       { ref: 'workspace_group:9', name: 'ACME/Old' },
     ],
     protected: { sessions: [{ ref: 'workspace:7', group: 'workspace_group:2', name: 'ACME/Web' }] },
-    hasActions: true, // las 3 categorías son acciones del doctor (KODO-14)
+    hasActions: true, // las 4 categorías son acciones del doctor (KODO-14/106)
   };
 }
 
 /** Result de execute por defecto (nada ejecutado). */
 function emptyResult() {
-  return { created: 0, added: 0, ungrouped: 0, errors: [] };
+  return { created: 0, added: 0, reanchored: 0, ungrouped: 0, errors: [] };
 }
 
 describe('runSidebarDoctor — exit code (espejo D-09)', () => {
@@ -90,8 +94,9 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     assert.equal(code, 1);
     const out = stdout.get();
     assert.match(out, /Grupos faltantes \(1\)/, 'missing_group category header');
-    assert.match(out, /create — ACME\/Auth ← workspace:1, workspace:2/, 'exact missing action per item (create --from)');
-    assert.doesNotMatch(out, /set-anchor/, 'el render nunca ofrece set-anchor (G-79-1)');
+    assert.match(out, /create — ACME\/Auth ← workspace:1, workspace:2/, 'exact missing action per item (create + add)');
+    assert.match(out, /Grupos anclados en una sesión \(1\)/, 'session_anchor category header (KODO-106)');
+    assert.match(out, /reanchor — ACME \(workspace_group:6\): workspace:8 → nuevo ancla en \/repo\/acme/, 'exact reanchor action per item');
     assert.match(out, /Workspaces sueltos \(1\)/, 'loose_workspace category header');
     assert.match(out, /add — workspace:3/, 'exact loose action per item');
     assert.match(out, /Grupos vacíos \(1\)/, 'empty_group category header');
@@ -118,12 +123,13 @@ describe('runSidebarDoctor — exit code (espejo D-09)', () => {
     const stdout = makeStdoutStub();
     const report = {
       missing_group: [
-        { name: 'ACME/Auth', members: ['workspace:1', 'workspace:2'] },
+        { name: 'ACME/Auth', cwd: '/repo/acme', members: ['workspace:1', 'workspace:2'] },
       ],
+      session_anchor: [],
       loose_workspace: [],
       empty_group: [],
       protected: { sessions: [] },
-      hasActions: true,   // el grupo faltante es auto-arreglable con create --from
+      hasActions: true,   // el grupo faltante es auto-arreglable con create + add
     };
     const code = await runSidebarDoctor({}, {
       scanFn: () => report,

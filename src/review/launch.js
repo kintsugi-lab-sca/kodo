@@ -252,10 +252,14 @@ export function buildReviewerPrompt(ctx, deps = {}) {
 export function buildReviewerCommand(config, sessionId, prompt) {
   const escaped = String(prompt).replace(/'/g, "'\\''");
   const agent = getAgentDef(config);
+  // KODO-104: mismo effort que las sesiones de trabajo; sin effort o sin flag, no se emite.
+  const effort = config.claude?.default_effort;
+  const effortPart = effort && agent.effort_flag ? [agent.effort_flag, effort] : [];
   return [
     'KODO_REVIEWER=1',
     agent.binary,
     agent.model_flag, config.claude.default_model,
+    ...effortPart,
     agent.session_id_flag, sessionId,
     `'${escaped}'`,
   ]

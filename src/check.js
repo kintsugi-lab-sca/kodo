@@ -250,10 +250,10 @@ export async function runCheckAndAct({
       if (hostNameFn() === 'cmux') {
         const deps = {}; // defaults de producción → noopLogger (LOG-12); NO inyectar logger real.
         // Sin `scan` previo (KODO-14): su ÚNICO consumidor era la línea de advisories, y
-        // `missing_group` ya es auto-arreglable (`create --from`). `execute` re-detecta por
+        // `missing_group` ya es auto-arreglable (`create --cwd` + `add`). `execute` re-detecta por
         // dentro (D-06 TOCTOU), así que un scan aquí solo duplicaría dos execFile a cmux.
         const r = await executeFn(deps, { fix: true });
-        const applied = (r.created || 0) + (r.added || 0) + (r.ungrouped || 0);
+        const applied = (r.created || 0) + (r.added || 0) + (r.reanchored || 0) + (r.ungrouped || 0);
         logFn(`[kodo:check] Sidebar: ${applied} acción(es) aplicadas`);
         // Phase 85 D-07 (WR-01 de 80-REVIEW): sin esta línea, `0 acción(es) aplicadas`
         // significa a la vez «no había nada que arreglar» y «cmux caído, N acciones

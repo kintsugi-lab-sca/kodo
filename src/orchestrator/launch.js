@@ -551,7 +551,12 @@ export async function launchOrchestrator(opts = {}) {
   // Set orchestrator color (Indigo). KODO-18: en orca `setColor` es un no-op documentado
   // (no hay color por workspace) y la tarjeta se identifica por su nombre — el orquestador
   // no es una tarea, así que NO se le asigna una columna del tablero.
-  await hostLegacy().setColor({ workspace: workspaceRef, color: 'Indigo' });
+  // Fail-open: el color es cosmético y la tab YA existe. Si cmux rechaza el ref recién
+  // creado ("Workspace ref not found", cmux 0.65) abortar aquí deja una tab huérfana sin
+  // registrar ni comando enviado — mismo criterio que server.js con su setColor.
+  await hostLegacy().setColor({ workspace: workspaceRef, color: 'Indigo' }).catch((err) => {
+    console.warn(`[kodo] No se pudo colorear ${workspaceRef} (${err.message}); se sigue con el launch`);
+  });
 
   // Build Claude command with orchestrator prompt + context
   const sessionId = randomUUID();
