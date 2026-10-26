@@ -646,16 +646,22 @@ async function launchReservedWorkItem(identifier, opts = {}) {
       // verbos — degrada a `group_skipped` en vez de reventar con un TypeError.
       if (!host._legacy?.createWorkspaceGroup
         || !host._legacy?.addToWorkspaceGroup
+        || !host._legacy?.setWorkspaceGroupAnchor
         || !host._legacy?.listWorkspaceGroups) {
         throw new Error('host_sin_verbos_de_grupo');
       }
       const { convergeProject } = await import('../cmux/sidebar-doctor.js');
+      // KODO-106: `cwd: projectPath` es el cwd del ancla ESTABLE del grupo (el repo, no
+      // la sesión). Los verbos de reanclaje (new-workspace + set-anchor) solo los usa el
+      // guard post-creación, si cmux dejara el grupo anclado en una sesión.
       const r = await convergeProject(
-        { name: expectedName, workspaceRef },
+        { name: expectedName, workspaceRef, cwd: projectPath },
         {
           listWorkspaceGroupsRaw: () => host._legacy.listWorkspaceGroups(),
           createWorkspaceGroup: (o) => host._legacy.createWorkspaceGroup(o),
           addToWorkspaceGroup: (o) => host._legacy.addToWorkspaceGroup(o),
+          setWorkspaceGroupAnchor: (o) => host._legacy.setWorkspaceGroupAnchor(o),
+          newWorkspace: (o) => host._legacy.newWorkspace(o),
         },
       );
       // `expectedName` es el identifier del proyecto (derivado del ref), no contenido de

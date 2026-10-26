@@ -451,14 +451,17 @@ orquestador) cure grupos a mano. El mecanismo tiene dos caras.
   la herramienta para **inspeccionar sin mutar**: lista qué haría el carril. Es
   read-only; úsala cuando quieras ver el estado sin esperar al próximo pase.
 - **Allowlist no-destructivo.** Las únicas acciones auto-arreglables son
-  `missing → create`, `loose → add` y `empty → ungroup`. `workspace-group delete`
+  `missing → create`, `session_anchor → reanchor`, `loose → add` y
+  `empty → ungroup`. `workspace-group delete`
   **no se cablea** (cerraría todos los workspaces del grupo): no existe como
   acción del doctor.
-- **`missing_group` se auto-arregla, pero el doctor NUNCA ancla.** El grupo se
-  crea con `workspace-group create --from <miembros>`, que levanta su **propio
-  workspace-shell** como ancla y deja las sesiones como miembros. `set-anchor`
-  no se cablea: anclar en una sesión viva le robaría su fila sidebar (el header
-  del grupo ES la fila del ancla) y el grupo se disolvería al cerrarla.
+- **Las sesiones NUNCA son ancla (KODO-106).** El grupo se crea con
+  `workspace-group create --name <PROJ> --cwd <repo>` (sin `--from`): cmux
+  levanta un ancla estable del repo y las sesiones entran con `add`. Un grupo
+  ya anclado en una sesión (`session_anchor`) se reancla: `new-workspace --name
+  <PROJ> --cwd <repo> --group <g>` + `set-anchor` hacia ese workspace nuevo.
+  `set-anchor` solo apunta a ese workspace estable, jamás a una sesión: anclar en
+  una sesión le roba su fila sidebar (el header del grupo ES la fila del ancla).
 - **El launch path queda byte-idéntico.** La gestión de grupos vive
   exclusivamente en el carril doctor; `launchOrchestrator` no cambia. La
   agrupación de workspaces al lanzar (`--group`, Phase 77) solo aplica el grupo
@@ -901,6 +904,9 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   una sesión de tarea, se disuelve al cerrarse esa tarea (ocurrió con LIKEN-*).
   Verifica el resultado con `workspace-group list --json` y comprueba que
   `anchor_workspace_ref` no es el ref de la sesión.
+  **Superado (2026-10-26, KODO-106):** en cmux 0.65.2 `create --from <ws>`
+  REUTILIZA el primer `<ws>` como ancla (LIKEN-133 y PCHAT-13 quedaron de header
+  de su grupo). No uses `--from`: `create --name <PROJ> --cwd <repo>` + `add`.
 - [2026-08-10] **Transición al registro de orquestador (KODO-16): el primer
   check post-fix con un orquestador vivo pre-fix lanza un duplicado una única
   vez.** El orquestador pre-fix nunca fue registrado en `state.json`

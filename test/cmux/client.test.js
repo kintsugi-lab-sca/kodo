@@ -210,23 +210,29 @@ describe('cmux client — allowlist NO-DESTRUCTIVO de workspace-group', () => {
     assert.deepEqual(host.argv(), ['workspace-group', 'create', '--name', 'Grupo 1']);
   });
 
-  test('createWorkspaceGroup con `from`: los refs van en UN arg separado por comas', async () => {
+  test('KODO-106: createWorkspaceGroup con `cwd` → `--cwd` (ancla estable del repo)', async () => {
     host.setResponse({ stdout: '' });
-    await cmux.createWorkspaceGroup({ name: 'G', from: ['workspace:1', 'workspace:2'] });
+    await cmux.createWorkspaceGroup({ name: 'G', cwd: '/repo/g' });
 
-    const argv = host.argv();
-    assert.deepEqual(argv, [
-      'workspace-group', 'create', '--name', 'G', '--from', 'workspace:1,workspace:2',
-    ]);
-    // La lista es UN solo elemento de array: el `join(',')` es del CLI, no del shell.
-    assert.equal(argv.filter((a) => a.startsWith('workspace:')).length, 1);
+    assert.deepEqual(host.argv(), ['workspace-group', 'create', '--name', 'G', '--cwd', '/repo/g']);
   });
 
-  test('createWorkspaceGroup con `from: []` → sin `--from` (lista vacía es no-op)', async () => {
+  test('KODO-106: createWorkspaceGroup JAMÁS emite `--from` (cmux 0.65.2 adopta el 1er ref como ancla)', async () => {
     host.setResponse({ stdout: '' });
-    await cmux.createWorkspaceGroup({ name: 'G', from: [] });
+    // Un caller viejo que aún pase `from` no debe colar la sesión como ancla.
+    await cmux.createWorkspaceGroup(/** @type {any} */ ({ name: 'G', cwd: '/repo/g', from: ['workspace:1'] }));
 
     assert.ok(!host.argv().includes('--from'));
+    assert.ok(!host.argv().includes('workspace:1'));
+  });
+
+  test('KODO-106: setWorkspaceGroupAnchor: `set-anchor --group <g> --workspace <ws>` con flags', async () => {
+    host.setResponse({ stdout: 'OK' });
+    await cmux.setWorkspaceGroupAnchor({ group: 'workspace_group:1', workspace: 'workspace:9' });
+
+    assert.deepEqual(host.argv(), [
+      'workspace-group', 'set-anchor', '--group', 'workspace_group:1', '--workspace', 'workspace:9',
+    ]);
   });
 
   test('addToWorkspaceGroup: `--group` y `--workspace` con flags, no posicionales', async () => {
@@ -247,13 +253,14 @@ describe('cmux client — allowlist NO-DESTRUCTIVO de workspace-group', () => {
     assert.ok(!argv.includes('--group'));
   });
 
-  test('ningún passthrough emite un verbo DESTRUCTIVO (delete/remove/rename/set-anchor)', async () => {
+  test('ningún passthrough emite un verbo DESTRUCTIVO (delete/remove/rename)', async () => {
     // Espejo en runtime del guard source-hygiene (test/sidebar-doctor-hygiene.test.js):
     // aquel mira el fuente, este mira el argv que de verdad sale hacia el binario.
-    const prohibidos = new Set(['delete', 'remove', 'rename', 'set-anchor']);
+    const prohibidos = new Set(['delete', 'remove', 'rename']);
     /** @type {Array<() => Promise<unknown>>} */
     const calls = [
-      () => cmux.createWorkspaceGroup({ name: 'G', from: ['workspace:1'] }),
+      () => cmux.createWorkspaceGroup({ name: 'G', cwd: '/repo/g' }),
+      () => cmux.setWorkspaceGroupAnchor({ group: 'workspace_group:1', workspace: 'workspace:9' }),
       () => cmux.addToWorkspaceGroup({ group: 'workspace_group:1', workspace: 'workspace:5' }),
       () => cmux.ungroupWorkspaceGroup({ group: 'workspace_group:1' }),
       () => cmux.listWorkspaceGroups(),

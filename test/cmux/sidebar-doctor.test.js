@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { scan, execute, taskLikeFrom } from '../../src/cmux/sidebar-doctor.js';
+import { fakeCmuxGroups } from '../helpers/fake-cmux-groups.js';
 
 const MODULE_PATH = fileURLToPath(new URL('../../src/cmux/sidebar-doctor.js', import.meta.url));
 
@@ -55,11 +56,12 @@ describe('sidebar-doctor scan()', () => {
     }));
     assert.equal(report.missing_group.length, 1);
     const g = report.missing_group[0];
-    assert.deepEqual(g, { name: 'KODO', members: ['workspace:3', 'workspace:4'] });
-    // El item NO lleva `anchor`: el doctor jamás elige ancla (`create --from` levanta la
-    // suya). Un `anchor` reaparecido sería la señal de que G-79-1 se está re-abriendo.
+    assert.deepEqual(g, { name: 'KODO', cwd: '/repo/kodo', members: ['workspace:3', 'workspace:4'] });
+    // El item NO lleva `anchor`: el doctor jamás elige una sesión como ancla (`create
+    // --cwd` levanta la suya). Un `anchor` reaparecido sería la señal de que G-79-1 se
+    // está re-abriendo.
     assert.equal('anchor' in g, false, 'MissingGroupItem no debe reintroducir `anchor` (G-79-1)');
-    // KODO-14: missing_group vuelve a ser una acción del doctor (create --from).
+    // KODO-14: missing_group es una acción del doctor (KODO-106: create --cwd + add).
     assert.equal(report.hasActions, true);
   });
 
@@ -183,11 +185,9 @@ describe('sidebar-doctor scan()', () => {
 });
 
 /**
- * Deps mutantes con spy de argv sobre los 3 verbos del allowlist (create/add/ungroup).
- *
- * `setGroupAnchor` se sigue inyectando A PROPÓSITO aunque el motor ya no lo resuelva:
- * es el canario de G-79-1. Si alguien re-cablea el anclaje, el spy lo registra y los
- * asserts `!verbs.includes('set-anchor')` pasan de trivialmente verdes a rojos.
+ * Deps mutantes con spy de argv sobre los verbos del allowlist (create/add/set-anchor/
+ * ungroup + new-workspace). El sidebar es ESTÁTICO (`groupsState`): sirve para el orden
+ * y el fail-open; la semántica real de create/set-anchor se prueba con fakeCmuxGroups.
  */
 function spyDeps({ state, projects, groupsState, workspaces, throwOn } = {}) {
   const calls = [];
@@ -199,7 +199,8 @@ function spyDeps({ state, projects, groupsState, workspaces, throwOn } = {}) {
     listWorkspacesRaw: () => JSON.stringify(workspaces ?? { workspaces: [] }),
     createWorkspaceGroup: async (o) => { calls.push(['create', o]); if (throwOn === 'create') throw new Error('cmux rejected create'); return 'OK'; },
     addToWorkspaceGroup: async (o) => { calls.push(['add', o]); if (throwOn === 'add') throw new Error('cmux rejected add'); return 'OK'; },
-    setGroupAnchor: async (o) => { calls.push(['set-anchor', o]); if (throwOn === 'set-anchor') throw new Error('cmux rejected set-anchor'); return 'OK'; },
+    setWorkspaceGroupAnchor: async (o) => { calls.push(['set-anchor', o]); if (throwOn === 'set-anchor') throw new Error('cmux rejected set-anchor'); return 'OK'; },
+    newWorkspace: async (o) => { calls.push(['new-workspace', o]); return 'workspace:77'; },
     ungroupWorkspaceGroup: async (o) => { calls.push(['ungroup', o]); if (throwOn === 'ungroup') throw new Error('cmux rejected ungroup'); return 'OK'; },
     logger: { info() {}, warn() {}, error: (_ev, f) => errors.push(f) },
   };
@@ -216,32 +217,114 @@ describe('sidebar-doctor execute()', () => {
       workspaces: { workspaces: [{ ref: 'workspace:3' }] },
     });
     const result = await execute(deps, { fix: false });
-    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
+    assert.deepEqual(result, { created: 0, added: 0, reanchored: 0, ungrouped: 0, errors: [] });
     assert.equal(calls.length, 0);
   });
 
-  test('KODO-14 (G-79-1 estrecho): missing_group (2 members) → execute emite create --from con TODOS los miembros y JAMÁS set-anchor', async () => {
-    const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
-    const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
-    const { deps, calls } = spyDeps({
-      state: { sessions: { a: sA, b: sB } },
+  for (const version of /** @type {const} */ (['0.64.20', '0.65.2'])) {
+    test(`KODO-106 · cmux ${version}: missing_group (2 members) → create --cwd sin --from + add de cada sesión; ancla ≠ sesión`, async () => {
+      const sA = session({ session_id: 'a', workspace_ref: 'workspace:4', started_at: '2026-07-23T08:00:00Z' });
+      const sB = session({ session_id: 'b', workspace_ref: 'workspace:3', started_at: '2026-07-23T07:00:00Z' });
+      const cmux = fakeCmuxGroups({
+        version,
+        workspaces: [{ ref: 'workspace:3', cwd: '/repo/kodo' }, { ref: 'workspace:4', cwd: '/repo/kodo' }],
+      });
+      const deps = {
+        ...cmux.deps,
+        loadState: () => ({ sessions: { a: sA, b: sB } }),
+        loadProjects: () => ({ P1: '/repo/kodo' }),
+      };
+
+      const result = await execute(deps, { fix: true });
+
+      assert.deepEqual(cmux.calls[0], ['create', { name: 'KODO', cwd: '/repo/kodo' }], 'create sin --from');
+      assert.equal(result.created, 1);
+      assert.equal(result.added, 2);
+      assert.equal(result.reanchored, 0, 'el ancla ya nace estable');
+      const g = cmux.group('KODO');
+      assert.ok(!['workspace:3', 'workspace:4'].includes(g.anchor), 'ninguna sesión es ancla (G-79-1)');
+      assert.deepEqual(cmux.workspace(g.anchor), { name: 'KODO', cwd: '/repo/kodo' });
+      assert.ok(g.members.includes('workspace:3') && g.members.includes('workspace:4'));
+      for (const [verb] of cmux.calls) assert.ok(!DESTRUCTIVE.has(verb), `verbo destructivo emitido: ${verb}`);
+      // Convergido: un 2º scan ya no encuentra nada que hacer.
+      assert.equal((await scan(deps)).hasActions, false);
+    });
+  }
+
+  test('KODO-106 guard: cmux que adopta una sesión como ancla al crear → execute reancla en un workspace estable', async () => {
+    const s = session({ session_id: 'a', workspace_ref: 'workspace:3' });
+    const cmux = fakeCmuxGroups({ version: 'adopt-cwd', workspaces: [{ ref: 'workspace:3', cwd: '/repo/kodo' }] });
+    const deps = { ...cmux.deps, loadState: () => ({ sessions: { a: s } }), loadProjects: () => ({ P1: '/repo/kodo' }) };
+
+    const result = await execute(deps, { fix: true });
+
+    assert.equal(result.created, 1);
+    assert.equal(result.reanchored, 1);
+    const g = cmux.group('KODO');
+    assert.notEqual(g.anchor, 'workspace:3');
+    assert.ok(g.members.includes('workspace:3'), 'la sesión sigue como miembro');
+    assert.equal((await scan(deps)).hasActions, false);
+  });
+
+  test('KODO-106 (LIKEN-133): grupo existente anclado en una sesión → scan lo marca session_anchor y --fix lo reancla', async () => {
+    const s = session({ session_id: 'a', task_ref: 'LIKEN-133', project_path: '/repo/liken', workspace_ref: 'workspace:3' });
+    const cmux = fakeCmuxGroups({
+      workspaces: [{ ref: 'workspace:3', name: 'LIKEN-133', cwd: '/repo/liken' }],
+      groups: [{ ref: 'workspace_group:16', name: 'LIKEN', anchor: 'workspace:3', members: ['workspace:3'] }],
+    });
+    const deps = { ...cmux.deps, loadState: () => ({ sessions: { a: s } }), loadProjects: () => ({ P1: '/repo/liken' }) };
+
+    const report = await scan(deps);
+    assert.deepEqual(report.session_anchor, [
+      { group: 'workspace_group:16', name: 'LIKEN', anchor: 'workspace:3', cwd: '/repo/liken' },
+    ]);
+    assert.equal(report.hasActions, true);
+
+    const result = await execute(deps, { fix: true });
+    assert.equal(result.reanchored, 1);
+    assert.deepEqual(result.errors, []);
+    const g = cmux.group('LIKEN');
+    assert.notEqual(g.anchor, 'workspace:3', 'el ancla ya no es la sesión');
+    assert.deepEqual(cmux.workspace(g.anchor), { name: 'LIKEN', cwd: '/repo/liken' });
+    assert.ok(g.members.includes('workspace:3'), 'la sesión sigue en el grupo como miembro');
+    assert.equal((await scan(deps)).hasActions, false, '2º pase convergido (sin bucle)');
+  });
+
+  test('KODO-106: grupo anclado en un workspace NO-sesión → sin session_anchor (cero mutación)', async () => {
+    const s = session({ session_id: 'a', workspace_ref: 'workspace:4' });
+    const report = await scan(readDeps({
+      state: { sessions: { a: s } },
       projects: { P1: '/repo/kodo' },
-      groupsState: { groups: [] }, // grupo inexistente → missing_group auto-arreglable
+      groups: { groups: [{ name: 'Kodo', ref: 'workspace_group:1', anchor_workspace_ref: 'workspace:3', member_count: 2, member_workspace_refs: ['workspace:3', 'workspace:4'] }] },
       workspaces: { workspaces: [{ ref: 'workspace:3' }, { ref: 'workspace:4' }] },
+    }));
+    assert.deepEqual(report.session_anchor, []);
+    assert.equal(report.hasActions, false);
+  });
+
+  test('KODO-106: set-anchor que rechaza → error categoría set-anchor, fail-open (el pase sigue)', async () => {
+    const s = session({ session_id: 'a', workspace_ref: 'workspace:3' });
+    const { deps, calls, errors } = spyDeps({
+      state: { sessions: { a: s } },
+      projects: { P1: '/repo/kodo' },
+      groupsState: {
+        groups: [
+          { name: 'Kodo', ref: 'workspace_group:1', anchor_workspace_ref: 'workspace:3', member_count: 1, member_workspace_refs: ['workspace:3'] },
+          { name: 'Vacio', ref: 'workspace_group:9', member_count: 0, member_workspace_refs: [] },
+        ],
+      },
+      workspaces: { workspaces: [{ ref: 'workspace:3' }] },
+      throwOn: 'set-anchor',
     });
 
     const result = await execute(deps, { fix: true });
 
-    const verbs = calls.map((c) => c[0]);
-    // El create SÍ: es inocuo (cmux levanta su propio shell de ancla con `--from`).
-    assert.deepEqual(calls, [['create', { name: 'KODO', from: ['workspace:3', 'workspace:4'] }]]);
-    assert.equal(result.created, 1);
-    // El set-anchor NUNCA: es el verbo que roba la fila sidebar de una sesión viva.
-    // Regresión de G-79-1: ninguna sesión de tarea puede acabar como ancla/header.
-    assert.ok(!verbs.includes('set-anchor'), 'execute JAMÁS debe emitir set-anchor (G-79-1)');
-    // Sin `add` redundante: `--from` ya deja dentro a los dos miembros.
-    assert.ok(!verbs.includes('add'), 'create --from ya mete a los miembros: no hace falta add');
-    for (const [verb] of calls) assert.ok(!DESTRUCTIVE.has(verb), `verbo destructivo emitido: ${verb}`);
+    assert.deepEqual(calls.map((c) => c[0]), ['new-workspace', 'set-anchor', 'ungroup']);
+    assert.deepEqual(calls[0][1], { name: 'Kodo', cwd: '/repo/kodo', group: 'workspace_group:1' }, 'el ancla nueva nace dentro del grupo');
+    assert.equal(result.reanchored, 0);
+    assert.equal(result.ungrouped, 1);
+    assert.deepEqual(result.errors, [{ category: 'set-anchor', target: 'workspace_group:1', reason: 'cmux rejected set-anchor' }]);
+    assert.ok(errors.length >= 1);
   });
 
   test('KODO-14: create que rechaza → error registrado (categoría create) y el pase sigue con add/ungroup (fail-open per item)', async () => {
@@ -288,7 +371,7 @@ describe('sidebar-doctor execute()', () => {
     });
     const result = await execute(deps, { fix: true });
     assert.equal(calls.length, 0);
-    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
+    assert.deepEqual(result, { created: 0, added: 0, reanchored: 0, ungrouped: 0, errors: [] });
   });
 
   test('fail-open per item: un add que rechaza no aborta el pase (ungroup del empty sí corre) + emite fix.error', async () => {
@@ -337,7 +420,7 @@ describe('sidebar-doctor execute()', () => {
     deps.loadState = () => { throw new Error('state ilegible'); };
     const result = await execute(deps, { fix: true });
     // scan es never-throws (fallback sessions:{}) → 0 acciones, sin throw
-    assert.deepEqual(result, { created: 0, added: 0, ungrouped: 0, errors: [] });
+    assert.deepEqual(result, { created: 0, added: 0, reanchored: 0, ungrouped: 0, errors: [] });
   });
 });
 

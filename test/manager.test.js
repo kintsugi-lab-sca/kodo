@@ -1207,7 +1207,8 @@ describe('manager.js source hygiene', () => {
       'manager.js NO debe construir argv `workspace-group <verbo>` (el argv vive en cmux/client.js)',
     );
     // KODO-54 abre GRP-04 de forma ESTRECHA: el launch converge el grupo del proyecto
-    // nuevo, así que `createWorkspaceGroup`/`addToWorkspaceGroup` pasan a ser admisibles.
+    // nuevo, así que `createWorkspaceGroup`/`addToWorkspaceGroup` pasan a ser admisibles
+    // (KODO-106 suma `setWorkspaceGroupAnchor`, solo para el guard de ancla estable).
     // Los DESTRUCTIVOS siguen fuera — disolver/renombrar/borrar grupos jamás es del launch.
     assert.ok(
       !/\b(renameWorkspaceGroup|deleteWorkspaceGroup|ungroupWorkspaceGroup|ungroupWorkspace)\b/.test(source),
@@ -1215,7 +1216,7 @@ describe('manager.js source hygiene', () => {
     );
     // Y los dos admisibles SOLO pueden llegar por el passthrough del host: un uso suelto
     // (import de cmux/client.js, execFile propio) reabriría el leak que cierra el walker.
-    for (const verb of ['createWorkspaceGroup', 'addToWorkspaceGroup']) {
+    for (const verb of ['createWorkspaceGroup', 'addToWorkspaceGroup', 'setWorkspaceGroupAnchor']) {
       const uses = source.match(new RegExp(verb, 'g')) || [];
       const viaHost = source.match(new RegExp('host\\._legacy\\??\\.' + verb, 'g')) || [];
       // La otra forma admisible es la CLAVE del objeto de deps que se le pasa a
