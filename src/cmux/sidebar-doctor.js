@@ -59,7 +59,7 @@ import { sidebarDoctorScan, sidebarDoctorFix, sidebarDoctorFixError } from '../l
  * @typedef {import('../session/state.js').Session} Session
  *
  * @typedef {{ name: string, cwd: string, members: string[] }} MissingGroupItem
- * @typedef {{ group: string, name: string, anchor: string, cwd: string }} SessionAnchorItem
+ * @typedef {{ group: string, name: string, anchor: string, cwd: string, reuse: string | null }} SessionAnchorItem
  * @typedef {{ group: string, workspace_ref: string, name: string }} LooseWorkspaceItem
  * @typedef {{ ref: string, name: string }} EmptyGroupItem
  * @typedef {{ ref: string, group: string, name: string }} ProtectedItem
@@ -229,14 +229,18 @@ function loadSessionRefs(d) {
 }
 
 /**
- * Mueve el ancla de `group` a un workspace ESTABLE del repo (KODO-106): lo crea DENTRO
- * del grupo (`new-workspace --name <name> --cwd <cwd> --group <group>`) y lo ancla.
- * Nace ya como miembro porque `set-anchor` sobre un no-miembro responde `not_found`.
+ * Mueve el ancla de `group` a un workspace ESTABLE del repo (KODO-106). Si el grupo ya
+ * tiene un miembro que NO es sesión (`reuse`: el workspace del repo, o el de un intento
+ * anterior cuyo `set-anchor` falló) se ancla en él; si no, se crea DENTRO del grupo
+ * (`new-workspace --name <name> --cwd <cwd> --group <group>`). Nace ya como miembro
+ * porque `set-anchor` sobre un no-miembro responde `not_found`. Reutilizar evita que un
+ * `set-anchor` que falla en bucle deje un workspace nuevo por cada pase de `kodo check`.
  * El ancla anterior (la sesión) sigue en el grupo como miembro normal.
+ * @param {{ group: string, name: string, cwd: string, reuse?: string | null }} target
  * @returns {Promise<string>} ref del ancla nueva
  */
-async function reanchorOnStableWorkspace(d, { group, name, cwd }) {
-  const stable = await d.newWorkspace({ name, cwd, group });
+async function reanchorOnStableWorkspace(d, { group, name, cwd, reuse = null }) {
+  const stable = reuse || await d.newWorkspace({ name, cwd, group });
   if (!/^workspace:\d+$/.test(String(stable))) throw new Error(`new_workspace_sin_ref: ${String(stable).slice(0, 60)}`);
   await d.setWorkspaceGroupAnchor({ group, workspace: stable });
   return stable;
@@ -380,7 +384,9 @@ export async function scan(deps = {}) {
     if (!g || typeof g.ref !== 'string' || !/^workspace_group:\d+$/.test(g.ref) || typeof g.name !== 'string') continue;
     const s = sessionByRef.get(g.anchor_workspace_ref);
     if (!s || typeof s.project_path !== 'string' || !s.project_path) continue;
-    session_anchor.push({ group: g.ref, name: g.name, anchor: g.anchor_workspace_ref, cwd: s.project_path });
+    const members = Array.isArray(g.member_workspace_refs) ? g.member_workspace_refs : [];
+    const reuse = members.find((m) => typeof m === 'string' && /^workspace:\d+$/.test(m) && !sessionByRef.has(m)) || null;
+    session_anchor.push({ group: g.ref, name: g.name, anchor: g.anchor_workspace_ref, cwd: s.project_path, reuse });
   }
 
   // grupos vacíos (D-05) — defensivo; cmux disuelve al cerrar el anchor, así que
@@ -489,7 +495,7 @@ export async function execute(deps = {}, opts = {}) {
     // ── session_anchor: reanclar en un workspace estable del repo (KODO-106) ──
     for (const a of report.session_anchor) {
       try {
-        await reanchorOnStableWorkspace(d, { group: a.group, name: a.name, cwd: a.cwd });
+        await reanchorOnStableWorkspace(d, { group: a.group, name: a.name, cwd: a.cwd, reuse: a.reuse });
         result.reanchored++;
       } catch (e) {
         pushError(result, log, 'set-anchor', a.group, errMsg(e));

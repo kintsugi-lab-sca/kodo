@@ -276,7 +276,7 @@ describe('sidebar-doctor execute()', () => {
 
     const report = await scan(deps);
     assert.deepEqual(report.session_anchor, [
-      { group: 'workspace_group:16', name: 'LIKEN', anchor: 'workspace:3', cwd: '/repo/liken' },
+      { group: 'workspace_group:16', name: 'LIKEN', anchor: 'workspace:3', cwd: '/repo/liken', reuse: null },
     ]);
     assert.equal(report.hasActions, true);
 
@@ -288,6 +288,24 @@ describe('sidebar-doctor execute()', () => {
     assert.deepEqual(cmux.workspace(g.anchor), { name: 'LIKEN', cwd: '/repo/liken' });
     assert.ok(g.members.includes('workspace:3'), 'la sesión sigue en el grupo como miembro');
     assert.equal((await scan(deps)).hasActions, false, '2º pase convergido (sin bucle)');
+  });
+
+  test('KODO-106: grupo anclado en una sesión con un miembro NO-sesión → se reancla en él, sin crear workspace', async () => {
+    // Caso del `set-anchor` que falló en un pase anterior: el workspace estable ya existe
+    // dentro del grupo. Crear otro en cada pase de `kodo check` los acumularía.
+    const s = session({ session_id: 'a', task_ref: 'LIKEN-133', project_path: '/repo/liken', workspace_ref: 'workspace:3' });
+    const cmux = fakeCmuxGroups({
+      workspaces: [{ ref: 'workspace:3', cwd: '/repo/liken' }, { ref: 'workspace:5', name: 'LIKEN', cwd: '/repo/liken' }],
+      groups: [{ ref: 'workspace_group:16', name: 'LIKEN', anchor: 'workspace:3', members: ['workspace:3', 'workspace:5'] }],
+    });
+    const deps = { ...cmux.deps, loadState: () => ({ sessions: { a: s } }), loadProjects: () => ({ P1: '/repo/liken' }) };
+
+    assert.equal((await scan(deps)).session_anchor[0].reuse, 'workspace:5');
+    const result = await execute(deps, { fix: true });
+
+    assert.equal(result.reanchored, 1);
+    assert.equal(cmux.group('LIKEN').anchor, 'workspace:5');
+    assert.ok(!cmux.calls.some((c) => c[0] === 'new-workspace'), 'reutiliza el miembro estable existente');
   });
 
   test('KODO-106: grupo anclado en un workspace NO-sesión → sin session_anchor (cero mutación)', async () => {

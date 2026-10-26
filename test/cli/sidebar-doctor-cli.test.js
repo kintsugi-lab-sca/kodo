@@ -52,7 +52,7 @@ function driftReport() {
       { name: 'ACME/Auth', cwd: '/repo/acme', members: ['workspace:1', 'workspace:2'] },
     ],
     session_anchor: [
-      { group: 'workspace_group:6', name: 'ACME', anchor: 'workspace:8', cwd: '/repo/acme' },
+      { group: 'workspace_group:6', name: 'ACME', anchor: 'workspace:8', cwd: '/repo/acme', reuse: null },
     ],
     loose_workspace: [
       { group: 'workspace_group:5', workspace_ref: 'workspace:3', name: 'ACME/Api' },

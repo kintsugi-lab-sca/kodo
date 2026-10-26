@@ -163,13 +163,13 @@ describe('SDR-02 — guard source-hygiene: el verbo destructivo de workspace-gro
     );
   });
 
-  it('KODO-106: en sidebar-doctor.js `setWorkspaceGroupAnchor` se invoca UNA vez, con el ref que devuelve `newWorkspace`', () => {
+  it('KODO-106: en sidebar-doctor.js `setWorkspaceGroupAnchor` se invoca UNA vez, con un miembro no-sesión o el ref que devuelve `newWorkspace`', () => {
     const src = stripComments(readFileSync(join(SRC, 'cmux', 'sidebar-doctor.js'), 'utf-8'));
     const calls = src.match(/d\.setWorkspaceGroupAnchor\(/g) || [];
     assert.equal(calls.length, 1, 'un único punto de reanclaje (reanchorOnStableWorkspace)');
     assert.match(
       src,
-      /const stable = await d\.newWorkspace\(\{ name, cwd, group \}\);[\s\S]{0,200}d\.setWorkspaceGroupAnchor\(\{ group, workspace: stable \}\)/,
+      /const stable = reuse \|\| await d\.newWorkspace\(\{ name, cwd, group \}\);[\s\S]{0,200}d\.setWorkspaceGroupAnchor\(\{ group, workspace: stable \}\)/,
       'el ancla nueva debe ser el workspace estable recién creado dentro del grupo',
     );
   });

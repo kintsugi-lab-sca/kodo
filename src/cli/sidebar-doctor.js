@@ -125,7 +125,7 @@ function renderHuman({ report, result, fix, write, err, fmt }) {
   renderCategory(
     write, fmt, 'Grupos anclados en una sesión', report.session_anchor,
     () => 'reanchor',
-    (item) => `${item.name} (${item.group}): ${item.anchor} → nuevo ancla en ${item.cwd}`,
+    (item) => `${item.name} (${item.group}): ${item.anchor} → ${item.reuse ? `ancla en ${item.reuse} (miembro existente)` : `nuevo ancla en ${item.cwd}`}`,
   );
   renderCategory(
     write, fmt, 'Workspaces sueltos', report.loose_workspace,
