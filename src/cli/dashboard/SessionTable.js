@@ -22,7 +22,7 @@
 
 import { Box, Text } from 'ink';
 import { createElement as h } from 'react';
-import { rowCells, statusColor, stateBadge, countsLabel, NO_GSD_LABEL } from './format.js';
+import { rowCells, questionCell, statusColor, stateBadge, countsLabel, NO_GSD_LABEL } from './format.js';
 import { renderMarkdownLines } from './markdown.js';
 import {
   OVERLAY_COMMENTS_EMPTY,
@@ -1277,9 +1277,11 @@ export default function SessionTable({
     const selected = i === selectedIndex;
     const cells = rowCells(session);
     const sc = statusColor(session.status ?? '', session.alive, session.state);
-    return h(
+    const key = session.task_id ?? `row-${i}`;
+    const question = questionCell(session);
+    const row = h(
       Box,
-      { key: session.task_id ?? `row-${i}`, flexDirection: 'row' },
+      { key, flexDirection: 'row' },
       // Gutter: `› ` cuando seleccionada (también en bold), 2 espacios si no. El glifo `›` es la
       // pista posicional inequívoca (sobrevive NO_COLOR sin bold); el bold sobre el row añade peso
       // sin crear bloques inversos (patrón fzf/vim — decisión UAT-pulido post-Phase 36).
@@ -1352,6 +1354,21 @@ export default function SessionTable({
       ...(visible.has('next')
         ? [cell({ width: widths.next, text: cells.next, bold: selected, truncate: true })]
         : []),
+    );
+    // KODO-108: la pregunta pendiente (`kodo ask`) va en una SEGUNDA línea bajo la fila, alineada
+    // con `task_ref`, y no en una columna: ninguna columna tiene ancho para una pregunta legible y
+    // el presupuesto de KODO-77 ya va justo. Sin pregunta se devuelve la fila tal cual — byte a
+    // byte el render de antes. Texto plano sin color propio (D-12); truncado a una línea.
+    if (!question) return row;
+    return h(
+      Box,
+      { key, flexDirection: 'column' },
+      row,
+      h(
+        Box,
+        { paddingLeft: widths.gutter + widths.state },
+        h(Text, { bold: selected, wrap: 'truncate-end' }, `↳ ${question}`),
+      ),
     );
   });
 

@@ -58,6 +58,10 @@ export function buildSessionContext(session, config) {
     '',
     '**2. Durante el trabajo** — comenta hitos importantes: features completadas, bugs encontrados, decisiones técnicas tomadas, blockers detectados.',
     '',
+    // KODO-108: sin esto el dashboard solo dice «needs input» y el humano tiene que abrir el
+    // workspace para saber qué se le pregunta.
+    'Cuando necesites una respuesta del humano, además de preguntarlo en el chat ejecuta `kodo ask "<pregunta>"`: la deja visible en el dashboard y en el sidebar hasta que te respondan.',
+    '',
     // KODO-62: el camino MCP no pasa por `addComment`, así que el backstop de kodo
     // (providers/plane/normalize.js toCommentHtml) no puede rescatarlo — la única
     // corrección posible es que la sesión escriba bien el `comment_html`. Solo para

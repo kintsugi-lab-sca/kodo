@@ -17,7 +17,7 @@ function idFormatter() {
   return { ok: id, fail: id, yellow: id, red: id, cyan: id, dim: id, green: id, gray: id, info: id, warn: id, error: id, bold: id };
 }
 
-// Settings sintético con los 3 hooks kodo registrados bajo su evento correcto. Se
+// Settings sintético con los 4 hooks kodo registrados bajo su evento correcto. Se
 // inyecta por defecto en makeSink() para que TODOS los tests existentes queden
 // HERMÉTICOS (dejan de leer el ~/.claude/settings.json real, que hoy tiene SessionEnd
 // ausente — el bug G-74-4 — y viraría sus exit codes a 1).
@@ -27,6 +27,7 @@ const CLEAN_SETTINGS = {
     SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
     Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
     SessionEnd: [{ hooks: [{ type: 'command', command: kodoCmd('session-end.js') }] }],
+    UserPromptSubmit: [{ hooks: [{ type: 'command', command: kodoCmd('user-prompt.js') }] }],
   },
 };
 
@@ -164,10 +165,11 @@ describe('runDoctor: sección hooks (deriva instalación↔settings, G-74-4)', (
       SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
       Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
       SessionEnd: [{ hooks: [{ type: 'command', command: 'python codeisland-state.py' }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: kodoCmd('user-prompt.js') }] }],
     },
   };
 
-  it('los 3 hooks limpios + config alineada → exit 0 y render nombra los hooks limpios', async () => {
+  it('los hooks limpios + config alineada → exit 0 y render nombra los hooks limpios', async () => {
     const sink = makeSink(); // readSettingsFn → CLEAN_SETTINGS
     const code = await runDoctor({}, {
       loadRawConfigFn: () => ALIGNED_CONFIG,

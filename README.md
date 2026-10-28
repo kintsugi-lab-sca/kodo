@@ -265,7 +265,7 @@ Do not use this outside your local machine: set `KODO_WEBHOOK_SECRET_<PROVIDER>`
 ### 5. Install Claude Code hooks
 
 ```bash
-kodo install   # registers SessionStart and Stop hooks in ~/.claude/settings.json
+kodo install   # registers the SessionStart, Stop, SessionEnd and UserPromptSubmit hooks in ~/.claude/settings.json
 ```
 
 ### 6. Start it
@@ -363,6 +363,7 @@ kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
 kodo oracle              # mechanical oracle: what kodo itself verified on each branch (run <REF>)
 kodo audit               # audit gate: the second pass a session owes before its work is queued
+kodo ask "<question>"    # from inside a session: leaves the question for the human (dashboard + sidebar)
 kodo review              # adversarial review cycles (--all, --json; start <REF>, commit)
 kodo config              # configuration wizard / --show / --set key=value
 kodo launch <REF>        # launches a task manually (e.g. KL-42)
@@ -895,6 +896,28 @@ NDJSON line with a greppable `outcome` (`audit-missing`, `audit-pending`, `audit
 
 With both flags on, the oracle is evaluated first: you get the mechanical failure — the one a
 command fixes — before the one that asks you to relaunch a session.
+
+### `kodo ask` — the question a session leaves for the human
+
+```bash
+kodo ask "Delete the old branch or keep it for the PR?"   # from inside the session's worktree
+```
+
+The host only exposes a "needs input" boolean, so the dashboard could say *that* a session was
+waiting but not *what for*. A session that needs an answer runs `kodo ask` besides asking in the
+chat (the session prompt tells it to): the question is stored on the session in `state.json`
+(`pending_question: { text, at }`), shown on a second line under the session's row in the
+dashboard, and mirrored in the sidebar description (cmux/orca; a no-op on BB).
+
+- **The answer still goes in the chat.** There is no reply box in the dashboard.
+- **Cleared when the human answers**, by the `UserPromptSubmit` hook — not by `Stop`, which fires
+  at the end of the very turn that ran `kodo ask`. Clearing restores the sidebar description
+  `⬢ <REF> · <title>`. Existing installs need `kodo install` again to register that hook
+  (`kodo doctor` reports it missing until then).
+- The session is resolved the same way `kodo audit` resolves it. Outside a kodo session it exits
+  with 1 and says so; an empty question exits with 2.
+- **Fail-open.** A host that fails only loses the sidebar line (exit 0, warned on stderr); a state
+  write that fails exits 1 with the reason. Neither ever breaks the session.
 
 ### `kodo review` — the adversarial reviewer
 
@@ -1586,7 +1609,7 @@ Everything is documented in Plane as comments, without opening cmux:
 | `src/providers/` | Plane and GitHub clients (REST, normalisation, states) |
 | `src/cmux/` + `src/host/` | cmux CLI wrapper: workspaces, screens, colours |
 | `src/session/` | Session manager, state store (`~/.kodo/state.json`), reconciliation loop, orphan-session sweep, auto-dismiss of dead rows |
-| `src/hooks/` | SessionStart (injects task context), Stop (lightweight per-turn state: idle + lock released) and SessionEnd (backstop "In Review" + terminal cleanup + colour/notify/event to the orchestrator inbox on real close) |
+| `src/hooks/` | SessionStart (injects task context), Stop (lightweight per-turn state: idle + lock released), SessionEnd (backstop "In Review" + terminal cleanup + colour/notify/event to the orchestrator inbox on real close) and UserPromptSubmit (clears the `kodo ask` question when the human answers) |
 | `src/integration/` | Integration queue: capture on session close, tier heuristic and store over `state.json` |
 | `src/orchestrator/` | Orchestrator launch + its prompt |
 | `src/cli/dashboard/` | TUI dashboard (Ink/React) |

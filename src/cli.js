@@ -635,6 +635,20 @@ program
     return mod.runAuditCli(ref, { json: opts.json || false });
   }));
 
+// --- kodo ask --- (KODO-108: la pregunta que la sesión deja al humano)
+//
+// Se invoca DESDE la sesión, como `kodo audit`, y resuelve la sesión con su mismo mecanismo.
+// Variádico para que `kodo ask ¿seguimos con X?` sin comillas no pierda palabras.
+//
+// NO `ensureConfig()`: estado local + `setDescription` del host, ningún provider.
+program
+  .command('ask <question...>')
+  .description('Dejar al humano la pregunta que esta sesión necesita responder (visible en dashboard y sidebar)')
+  .action(setExitCode(async (question) => {
+    const mod = await import('./cli/ask.js');
+    return mod.runAskCli(question);
+  }));
+
 // --- kodo oracle [run] --- (KODO-69: el oráculo mecánico)
 //
 // SUBCOMANDO para la acción y no una flag, con el mismo criterio que `review` y a diferencia de

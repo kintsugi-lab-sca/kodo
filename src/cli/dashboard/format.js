@@ -272,6 +272,20 @@ export function nextCell(session) {
 }
 
 /**
+ * KODO-108: texto de la pregunta pendiente (`kodo ask`) para la línea bajo la fila, o '' si no
+ * hay. Mismo colapso de layout que `nextCell` — un `\n` embebido partiría la línea. Never-throws:
+ * cualquier forma inesperada de `pending_question` colapsa a ''.
+ *
+ * @param {Partial<EnrichedSession>} session
+ * @returns {string}
+ */
+export function questionCell(session) {
+  const text = session.pending_question?.text;
+  if (typeof text !== 'string') return '';
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Proyecta una sesión enriquecida a las celdas de columna de la tabla (D-03). La celda
  * `status` usa `outcomeCell`: solo el outcome auto-reportado (error/done/review), en blanco
  * para los valores de lifecycle (que son del eje `state`), evitando la divergencia state/status.
