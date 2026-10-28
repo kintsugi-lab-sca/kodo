@@ -69,6 +69,10 @@ function enrichRow(rawRow, tasks, lastGood) {
     ...rawRow,
     ...(rawRow.task_ref != null ? { task_ref: stripControlChars(rawRow.task_ref) } : {}),
     ...(rawRow.summary != null ? { summary: stripControlChars(rawRow.summary) } : {}),
+    // KODO-108: la pregunta de `kodo ask` es contenido LLM — mismo saneo que el NEXT:.
+    ...(typeof rawRow.pending_question?.text === 'string'
+      ? { pending_question: { ...rawRow.pending_question, text: stripControlChars(rawRow.pending_question.text) } }
+      : {}),
     next,
   };
   const projectPath = row.project_path;

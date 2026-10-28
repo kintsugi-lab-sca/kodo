@@ -24,6 +24,9 @@ export const KODO_HOOKS = [
   // worktree: el hook moría tras `session.end` y antes de `removeSession`, la bandeja y la
   // cola, dejando la fila huérfana. Solo alarga la salida lo que el hook tarde de verdad.
   { event: 'SessionEnd', file: 'session-end.js', timeout: 30 },
+  // KODO-108: borra la pregunta pendiente (`kodo ask`) cuando el humano responde. Va en su
+  // propio evento porque Stop dispara al final del MISMO turno del `ask`.
+  { event: 'UserPromptSubmit', file: 'user-prompt.js' },
 ];
 
 /**
@@ -108,6 +111,7 @@ export function installHooks() {
   const stopCmd = `node "${join(kodoRoot, 'src', 'hooks', 'stop.js')}"`;
   // Phase 58 LIFE-03: SessionEnd hace el cleanup terminal al cierre real (`/exit`).
   const sessionEndCmd = `node "${join(kodoRoot, 'src', 'hooks', 'session-end.js')}"`;
+  const userPromptCmd = `node "${join(kodoRoot, 'src', 'hooks', 'user-prompt.js')}"`;
 
   let settings;
   try {
@@ -126,6 +130,7 @@ export function installHooks() {
     addHook(settings.hooks, 'SessionStart', sessionStartCmd),
     addHook(settings.hooks, 'Stop', stopCmd),
     addHook(settings.hooks, 'SessionEnd', sessionEndCmd, timeoutFor('SessionEnd')),
+    addHook(settings.hooks, 'UserPromptSubmit', userPromptCmd),
   ];
   const changed = results.some(Boolean);
 
@@ -141,6 +146,7 @@ export function installHooks() {
     console.log(`  SessionStart: ${sessionStartCmd}`);
     console.log(`  Stop: ${stopCmd}`);
     console.log(`  SessionEnd: ${sessionEndCmd}`);
+    console.log(`  UserPromptSubmit: ${userPromptCmd}`);
   } else {
     console.log('✓ Hooks ya estaban instalados');
   }
@@ -164,7 +170,7 @@ export function uninstallHooks() {
 
   let changed = false;
 
-  for (const event of ['SessionStart', 'Stop', 'SessionEnd']) {
+  for (const event of ['SessionStart', 'Stop', 'SessionEnd', 'UserPromptSubmit']) {
     if (!Array.isArray(settings.hooks[event])) continue;
     const before = settings.hooks[event].length;
     settings.hooks[event] = settings.hooks[event].filter((entry) => {

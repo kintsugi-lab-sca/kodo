@@ -118,6 +118,15 @@ describe('install.js — registro de SessionStart/Stop (Phase 50.1, DG-08)', () 
     assert.ok(after.includes('foreign-session-end'), 'uninstall preserva el SessionEnd ajeno');
   });
 
+  it('KODO-108: install registra UserPromptSubmit (sin duplicar) y uninstall lo quita', () => {
+    installHooks();
+    installHooks();
+    const mine = (h) => commandsOf(h, 'UserPromptSubmit').filter((c) => c.includes('user-prompt.js'));
+    assert.equal(mine(readSettings().hooks).length, 1);
+    uninstallHooks();
+    assert.equal(mine(readSettings().hooks).length, 0);
+  });
+
   it('Test 2: idempotente — dos installHooks no duplican', () => {
     installHooks();
     installHooks();
@@ -267,27 +276,29 @@ describe('install.js — timeout del hook SessionEnd (KODO-103)', () => {
 describe('install.js — checkHookRegistration (deriva instalación↔settings, G-74-4)', () => {
   /** Command canónico de kodo para un file de hook (ruta POSIX). */
   const kodoCmd = (file) => `node "/Users/alex/dev/klab/kodo/src/hooks/${file}"`;
-  /** Un settings con los 3 hooks kodo bajo su evento correcto. */
+  /** Un settings con los 4 hooks kodo bajo su evento correcto. */
   const cleanSettings = () => ({
     hooks: {
       SessionStart: [{ hooks: [{ type: 'command', command: kodoCmd('session-start.js') }] }],
       Stop: [{ hooks: [{ type: 'command', command: kodoCmd('stop.js') }] }],
       SessionEnd: [{ hooks: [{ type: 'command', command: kodoCmd('session-end.js') }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: kodoCmd('user-prompt.js') }] }],
     },
   });
 
-  it('KODO_HOOKS expone los 3 hooks canónicos en orden determinista', () => {
+  it('KODO_HOOKS expone los 4 hooks canónicos en orden determinista', () => {
     assert.deepEqual(KODO_HOOKS, [
       { event: 'SessionStart', file: 'session-start.js' },
       { event: 'Stop', file: 'stop.js' },
       { event: 'SessionEnd', file: 'session-end.js', timeout: 30 },
+      { event: 'UserPromptSubmit', file: 'user-prompt.js' },
     ]);
   });
 
-  it('Los 3 hooks registrados → missing vacío, registered de longitud 3', () => {
+  it('Los 4 hooks registrados → missing vacío, registered de longitud 4', () => {
     const { registered, missing } = checkHookRegistration(cleanSettings());
     assert.equal(missing.length, 0);
-    assert.equal(registered.length, 3);
+    assert.equal(registered.length, 4);
   });
 
   it('Falta SessionEnd (solo SessionStart+Stop) → missing = solo SessionEnd (caso G-74-4)', () => {
@@ -295,7 +306,14 @@ describe('install.js — checkHookRegistration (deriva instalación↔settings, 
     delete s.hooks.SessionEnd;
     const { registered, missing } = checkHookRegistration(s);
     assert.deepEqual(missing, [{ event: 'SessionEnd', file: 'session-end.js' }]);
-    assert.equal(registered.length, 2);
+    assert.equal(registered.length, 3);
+  });
+
+  it('KODO-108: una instalación previa sin UserPromptSubmit lo reporta como ausente', () => {
+    const s = cleanSettings();
+    delete s.hooks.UserPromptSubmit;
+    const { missing } = checkHookRegistration(s);
+    assert.deepEqual(missing, [{ event: 'UserPromptSubmit', file: 'user-prompt.js' }]);
   });
 
   it('SessionEnd presente pero con command AJENO → SessionEnd sigue en missing', () => {
@@ -334,7 +352,7 @@ describe('install.js — checkHookRegistration (deriva instalación↔settings, 
     assert.ok(missing.some((m) => m.event === 'SessionEnd'), 'el comando ajeno con "kodo" no registra SessionEnd');
   });
 
-  it('Never-throws sobre settings malformado → los 3 en missing sin lanzar', () => {
+  it('Never-throws sobre settings malformado → todos en missing sin lanzar', () => {
     const malformed = [
       null,
       undefined,
@@ -349,7 +367,7 @@ describe('install.js — checkHookRegistration (deriva instalación↔settings, 
     for (const settings of malformed) {
       let result;
       assert.doesNotThrow(() => { result = checkHookRegistration(settings); });
-      assert.equal(result.missing.length, 3, `los 3 en missing para ${JSON.stringify(settings)}`);
+      assert.equal(result.missing.length, KODO_HOOKS.length, `todos en missing para ${JSON.stringify(settings)}`);
       assert.equal(result.registered.length, 0);
     }
   });
