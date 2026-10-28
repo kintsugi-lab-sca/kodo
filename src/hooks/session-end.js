@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import * as nodeFs from 'node:fs';
-import { findSession, removeSession, upsertTaskHandoff } from '../session/state.js';
+import { findSession, removeSession, upsertTaskHandoff, hasTaskSendBack } from '../session/state.js';
 // KODO-36: el marcador que convierte el fail-open del comentario de cierre en un
 // reintento. Hoja fina sobre `withStateLock` — ver el docblock del módulo.
 import { markPendingComment } from '../session/pending-comment.js';
@@ -372,6 +372,8 @@ export async function runSessionEndHook(input, deps = {}) {
         handoff: { next: handoffNext, planPath: handoffPlanPath },
         // KODO-36: seam del marcador de comentario pendiente (default real dentro).
         markPendingCommentFn: deps.markPendingCommentFn,
+        // KODO-109: seam de la lectura del `send_back` pendiente (default real dentro).
+        hasSendBackFn: deps.hasSendBackFn,
       });
     } catch (err) {
       console.error(`[kodo:session-end] Review backstop error: ${/** @type {Error} */ (err).message}`);
@@ -905,6 +907,7 @@ export function buildBackstopComment(handoff) {
  *   log: any,
  *   handoff?: { next?: string|null, planPath?: string|null },
  *   markPendingCommentFn?: typeof markPendingComment,
+ *   hasSendBackFn?: (taskId: string) => boolean,
  * }} args
  *   `handoff` (KODO-11, opcional): el resultado de `writeHandoff` de esta misma
  *   sesión. Solo alimenta el TEXTO del comentario; su ausencia no cambia ninguna
@@ -913,9 +916,11 @@ export function buildBackstopComment(handoff) {
  *   comentario pendiente. Sin él, el default es el `markPendingComment` real — que
  *   escribe en el `~/.kodo/state.json` del operador, así que la suite DEBE inyectarlo
  *   (misma fuga que cerraron `stateWriterFn` y `getOrchestratorFn`, T-74-15).
+ *   `hasSendBackFn` (KODO-109, opcional): ¿tiene la tarea un `send_back` pendiente? Default
+ *   `hasTaskSendBack` (lectura de `state.json`, sin escritura).
  * @returns {Promise<void>}
  */
-export async function runReviewBackstop({ session, input, provider, config, log, handoff, markPendingCommentFn }) {
+export async function runReviewBackstop({ session, input, provider, config, log, handoff, markPendingCommentFn, hasSendBackFn = hasTaskSendBack }) {
   // 1. Capability gate (D-13): guard null-first para que el `typeof` no lance;
   //    un provider sin los 3 métodos degrada a no-op silencioso. (GitHub SÍ los
   //    implementa: su no-op proviene del gate de estado no-terminal en el paso 5b.)
@@ -958,6 +963,22 @@ export async function runReviewBackstop({ session, input, provider, config, log,
     return;
   }
   if (state !== 'in_progress') return;
+
+  // 4b. KODO-109: una tarea DEVUELTA desde revisión también lee `in_progress`, pero no es trabajo
+  //     que esta sesión deje a medias — el humano la sacó de review con feedback para la siguiente
+  //     sesión. Pasa cuando se devuelve una sesión que seguía viva: su /exit posterior la volvería
+  //     a mover a review y el feedback se quedaría esperando a una sesión que nadie lanza. Mientras
+  //     el `send_back` siga pendiente, la devolución manda. Fail-open hacia el comportamiento previo.
+  let sentBack = false;
+  try {
+    sentBack = hasSendBackFn(session.task_id);
+  } catch {
+    sentBack = false;
+  }
+  if (sentBack) {
+    log.info('session.backstop.skipped_send_back', { session_id: session.session_id, task_id: session.task_id });
+    return;
+  }
 
   // 5. Resolver reviewState con el patrón de verify.js:258-262 (Pitfall #1): bajo
   //    config.providers[provider].states.review, NO top-level; default 'In review'.

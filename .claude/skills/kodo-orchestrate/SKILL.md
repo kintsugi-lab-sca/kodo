@@ -67,6 +67,15 @@ Ejecuta estos pasos en orden al arrancar la sesión:
   (sigue el flujo §5.1).
 - **No dupliques el gate manual de `verify`** en comentarios al provider — el
   CLI `kodo gsd verify` es la única fuente para mover una sesión full a Review.
+- **Al cerrar o reportar una sesión terminada, entrega las conclusiones AQUÍ**
+  (regla de Alex, 26-oct-2026). Que la sesión haya dejado un comentario en la
+  tarea del provider no basta: en el mensaje del orquestador al operador tiene
+  que ir el acceso directo a lo entregado, sin que tenga que abrir Plane ni la
+  pantalla de la sesión: ruta absoluta de los ficheros de análisis o informes,
+  URL de la PR, URL o comando para probar (app local, página concreta, Stripe
+  test), ruta de capturas o evidencias, y el resumen de 3–5 líneas de la
+  conclusión o del go/no-go. Si la sesión escribió un borrador para el operador
+  (respuesta a un hilo, texto para un cliente), indica el fichero y la sección.
 
 ## Mapeo de proyectos
 

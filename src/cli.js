@@ -216,6 +216,18 @@ program
     return runCommentCli({ ref, body: opts.body, json: opts.json || false });
   }));
 
+// --- kodo send-back --- (KODO-109)
+program
+  .command('send-back <ref>')
+  .description('Send a task in review back: comment "Devuelto:", move it to the trigger state and hand the feedback to its next session')
+  .requiredOption('--text <feedback>', 'Review feedback the next session must address first')
+  .option('--json', 'Emit the result as JSON (scriptable)')
+  .action(exitWithCode(async (ref, opts) => {
+    await ensureConfig();
+    const { runSendBackCli } = await import('./cli/send-back.js');
+    return runSendBackCli({ ref, text: opts.text, json: opts.json || false });
+  }));
+
 // --- kodo status --- (Phase 66 / UP-05 / D-04 LOCKED)
 // DAEMON-FIRST: reporta el estado del daemon 'kodo' (running/stopped) vía
 // runStatusUnified, con `--json` byte-determinista ({status,pid}).
