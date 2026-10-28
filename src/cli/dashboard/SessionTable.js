@@ -71,6 +71,8 @@ import {
   PROJECTS_DISPATCH_TAG,
   PROJECTS_MAPPED_ONLY_TAG,
 } from './App.js';
+// KODO-109: copy de la devolución directa de su módulo, por la misma razón que el inbox de abajo.
+import { SEND_BACK_PROMPT, SEND_BACK_EDIT_HINT, SEND_BACK_CONFIRM } from './RowActions.js';
 // KODO-76: el render de la pantalla del inbox se importa DIRECTO de su módulo, no vía el
 // re-export de App.js. Ese re-export existe para las CONSTANTES de copy que este fichero ya
 // consumía cuando vivían en App.js; una función de render nueva no tiene esa deuda, y pasar por
@@ -1227,13 +1229,38 @@ export default function SessionTable({
         : h(Box, { marginTop: 1 }, h(Text, { color: 'cyan' }, DISMISS_CONFIRM(armedTaskRef ?? '')))
       : null;
 
+  // KODO-109: prompt PERSISTENTE de la devolución (`b`), derivado del modo como confirmLine — el
+  // clear-on-any-input no puede consumirlo. En edición pinta el text-input con cursor `inverse`
+  // (molde renderConfigOverlay); en confirmación, el texto final y la pregunta.
+  const sendBackLine =
+    mode === 'send-back' || mode === 'send-back-confirm'
+      ? h(
+          Box,
+          { marginTop: 1, flexDirection: 'column' },
+          mode === 'send-back'
+            ? h(
+                Text,
+                { key: 'input' },
+                SEND_BACK_PROMPT(armedTaskRef ?? '', buffer.slice(0, cursor)),
+                h(Text, { inverse: true }, buffer[cursor] ?? ' '),
+                buffer.slice(cursor + 1),
+              )
+            : h(Text, { key: 'input' }, SEND_BACK_PROMPT(armedTaskRef ?? '', buffer)),
+          h(
+            Text,
+            { key: 'hint', color: 'cyan' },
+            mode === 'send-back' ? SEND_BACK_EDIT_HINT : SEND_BACK_CONFIRM(armedTaskRef ?? ''),
+          ),
+        )
+      : null;
+
   // (2) Precedencia de estados vacíos (D-12, Pitfall 5):
   //   - waiting/stale (never had good O degradado) gana SIEMPRE → solo el indicador, sin tabla.
   //   - connected + 0 filas + query activa → `no sessions match` (Plan 03).
   //   - connected + 0 filas sin query      → `no active sessions`.
   // La línea de filtro se anexa al pie en TODAS las ramas (el operador ve su query aunque oculte todo).
   if (!connected && lastGoodAt == null) {
-    return h(Box, { flexDirection: 'column' }, header, (derivingLine ?? confirmLine ?? errorLine ?? filterLine));
+    return h(Box, { flexDirection: 'column' }, header, (derivingLine ?? confirmLine ?? sendBackLine ?? errorLine ?? filterLine));
   }
   if (rows.length === 0) {
     const emptyCopy = hasQuery ? 'no sessions match' : 'no active sessions';
@@ -1242,7 +1269,7 @@ export default function SessionTable({
       { flexDirection: 'column' },
       header,
       h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, emptyCopy)),
-      (derivingLine ?? confirmLine ?? errorLine ?? filterLine),
+      (derivingLine ?? confirmLine ?? sendBackLine ?? errorLine ?? filterLine),
     );
   }
 
@@ -1360,6 +1387,6 @@ export default function SessionTable({
     { flexDirection: 'column' },
     header,
     h(Box, { marginTop: 1, flexDirection: 'column' }, columnHeader, ...dataRows),
-    (derivingLine ?? confirmLine ?? errorLine ?? filterLine),
+    (derivingLine ?? confirmLine ?? sendBackLine ?? errorLine ?? filterLine),
   );
 }

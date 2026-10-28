@@ -25,6 +25,7 @@ import {
   reserveSessionSlot,
   releaseSessionSlot,
   LAUNCHING_STATUS,
+  takeTaskSendBack,
 } from './state.js';
 // KODO-53: el aviso de lanzamiento ya no se TECLEA — se encola en la bandeja del
 // orquestador. Por eso este módulo dejó de importar `orchestrator/target.js`
@@ -1061,7 +1062,8 @@ export function buildAgentCommand(config, sessionId, task, description, modelOve
   // lanza con el prompt pelado. Peor prompt es recuperable; no lanzar, no.
   if (session && agent.status_authority !== 'hooks') {
     try {
-      prompt = `${buildSessionContext(session, config)}\n\n---\n\n${prompt}`;
+      // KODO-109: sin hook SessionStart, el feedback de una devolución se consume aquí.
+      prompt = `${buildSessionContext(session, config, { sendBack: takeTaskSendBack(session.task_id) })}\n\n---\n\n${prompt}`;
     } catch { /* prompt pelado — el lanzamiento nunca cae por el contexto */ }
   }
 

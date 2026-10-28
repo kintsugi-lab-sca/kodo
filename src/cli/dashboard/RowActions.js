@@ -129,6 +129,116 @@ export const ORCH_READY = (ref) => `orchestrator ready at ${ref}`;
 /** @param {string|number} reason */
 export const ORCH_LAUNCH_ERR = (reason) => `[!] orchestrator launch failed (${reason}) — press any key`;
 
+// KODO-109: copy literal-estable de la devolución (`b`). Mismo patrón que DISMISS_*: el prompt de
+// edición y el de confirmación son PERSISTENTES (se derivan del modo en SessionTable, no de
+// focusError); el resto son mensajes transitorios del footer.
+export const SEND_BACK_GUARD = '[!] only tasks in review can be sent back';
+/** @param {string} taskRef @param {string} text */
+export const SEND_BACK_PROMPT = (taskRef, text) => `send back ${taskRef} — feedback: ${text}`;
+export const SEND_BACK_EDIT_HINT = 'Enter next · Esc cancel';
+/** @param {string} taskRef */
+export const SEND_BACK_CONFIRM = (taskRef) => `send ${taskRef} back to its next session with this feedback? Enter send · Esc edit`;
+/** @param {string} taskRef */
+export const SEND_BACK_RUNNING = (taskRef) => `sending back ${taskRef}…`;
+/** @param {string} taskRef */
+export const SEND_BACK_OK = (taskRef) => `sent back ${taskRef}`;
+/** @param {string|number} reason */
+export const SEND_BACK_ERR = (reason) => `[!] send back failed (${reason}) — press any key`;
+
+/**
+ * KODO-109: primera `b`. Guard de UX sobre el snapshot de /status: solo filas cuya tarea está en
+ * revisión en el provider. El guard autoritativo lo repite el CLI contra el provider en vivo.
+ *
+ * @param {any} row
+ * @param {any} ctx
+ */
+export function armSendBack(row, ctx) {
+  if (row.provider_state !== 'in_review') {
+    ctx.setFocusError(SEND_BACK_GUARD);
+    ctx.setFooterColor('red');
+    return;
+  }
+  ctx.setArmedTaskId(row.task_id);
+  ctx.setArmedTaskRef(row.task_ref ?? row.task_id);
+  ctx.resetTextInput();
+  ctx.setMode('send-back');
+}
+
+/** @param {any} ctx */
+function cancelSendBack(ctx) {
+  ctx.resetTextInput();
+  ctx.setArmedTaskId(null);
+  ctx.setArmedTaskRef(null);
+  ctx.setMode('list');
+}
+
+/**
+ * KODO-109: mode:'send-back' — text-input del feedback. Enter pasa a confirmar (con texto), Esc
+ * cancela y descarta lo tecleado.
+ *
+ * @param {string} input
+ * @param {any} key
+ * @param {any} ctx
+ */
+export function handleSendBackInput(input, key, ctx) {
+  if (key.escape) {
+    cancelSendBack(ctx);
+    return;
+  }
+  if (key.return) {
+    if (ctx.buffer.trim() !== '') ctx.setMode('send-back-confirm');
+    return;
+  }
+  if (key.leftArrow) {
+    ctx.moveCursor(-1);
+    return;
+  }
+  if (key.rightArrow) {
+    ctx.moveCursor(1);
+    return;
+  }
+  if (key.backspace || key.delete) {
+    ctx.deleteBeforeCursor();
+    return;
+  }
+  if (input && !key.ctrl && !key.meta) ctx.insertAtCursor(input);
+}
+
+/**
+ * KODO-109: mode:'send-back-confirm'. Enter ejecuta `kodo send-back`; Esc vuelve a la edición SIN
+ * perder el texto; cualquier otra tecla se ignora (un feedback largo no se tira por una tecla suelta).
+ *
+ * @param {string} _input
+ * @param {any} key
+ * @param {any} ctx
+ */
+export async function handleSendBackConfirmInput(_input, key, ctx) {
+  if (key.escape) {
+    ctx.setMode('send-back');
+    return;
+  }
+  if (!key.return) return;
+  const ref = ctx.armedTaskRef ?? ctx.armedTaskId ?? '';
+  const text = ctx.buffer;
+  ctx.setMode('list');
+  ctx.setFocusError(SEND_BACK_RUNNING(ref));
+  ctx.setFooterColor('yellow');
+  const res = await ctx.onSendBack({ ref, text });
+  if (res && res.ok) {
+    ctx.setFocusError(SEND_BACK_OK(ref));
+    ctx.setFooterColor('green');
+    cancelSendBack(ctx);
+    ctx.refreshNow?.();
+    return;
+  }
+  // El texto se descarta también en el fallo: el CLI no persiste nada que no haya movido la tarea,
+  // y el error del footer dice qué pasó (el comentario puede haberse publicado ya en MOVE_FAILED).
+  const reason = stderrReason(res?.stderr) || (res?.code === 'NON_ZERO_EXIT' ? `code ${res.detail}` : res?.detail);
+  ctx.setFocusError(SEND_BACK_ERR(reason ?? 'unknown'));
+  ctx.setFooterColor('red');
+  cancelSendBack(ctx);
+}
+
 /**
  * Phase 37 D-02 + D-06: handler de Enter — guard alive===false + invocación never-throws de
  * onFocus + mapeo del discriminated union a los mensajes literal-estables D-05.

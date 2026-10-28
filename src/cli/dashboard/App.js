@@ -110,6 +110,9 @@ import {
   focusOrchestrator,
   armDismiss,
   handleDismissConfirmInput,
+  armSendBack,
+  handleSendBackInput,
+  handleSendBackConfirmInput,
 } from './RowActions.js';
 import SessionTable from './SessionTable.js';
 
@@ -210,6 +213,13 @@ export {
   ORCH_LAUNCHING,
   ORCH_READY,
   ORCH_LAUNCH_ERR,
+  SEND_BACK_GUARD,
+  SEND_BACK_PROMPT,
+  SEND_BACK_EDIT_HINT,
+  SEND_BACK_CONFIRM,
+  SEND_BACK_RUNNING,
+  SEND_BACK_OK,
+  SEND_BACK_ERR,
 } from './RowActions.js';
 
 // Phase 69 Plan 03 (NET-02, D-08): mensaje literal-estable del estado 401 "no autorizado".
@@ -263,6 +273,8 @@ const CHROME_COLS = 6;
  * @param {() => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any, stderr?: string}>} [props.onLaunchOrchestrator]
  *   KODO-89 (RowActions.js): shell never-throws de `kodo orchestrate`. La tecla `O` lo invoca cuando
  *   no hay orquestador que enfocar. Sin él, `O` degrada al hint ORCH_NOT_RUNNING.
+ * @param {(args: { ref: string, text: string }) => Promise<{ok: true, stdout: string} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any, stderr?: string}>} [props.onSendBack]
+ *   KODO-109 (RowActions.js): shell never-throws de `kodo send-back <ref> --text`. La tecla `b`.
  * @param {() => Promise<Array<{ workspaceRef: string, cwd: string, sessionId: string, kind: string }>>} [props.onAdoptDiscover]
  *   → AdoptPicker.js. `host.listAgentSurfaces()` typeof-gated, never-throws (fail-open a `[]`).
  * @param {(args: { workspaceRef: string, cwd: string, sessionId: string, projectId: string, title?: string, description?: string }) => Promise<{ok: true} | {ok: false, code: 'ENOENT'|'NON_ZERO_EXIT'|'SPAWN_ERROR', detail?: any}>} [props.onAdopt]
@@ -309,6 +321,7 @@ export default function App({
   onFocus,
   onOpen,
   onLaunchOrchestrator,
+  onSendBack = async () => ({ ok: false, code: 'SPAWN_ERROR', detail: 'no wiring' }),
   onAdoptDiscover,
   onAdopt,
   onDerive,
@@ -436,7 +449,7 @@ export default function App({
   // `query` es el filtro EN VIVO (alimenta parseFilter/applyFilter cada render, D-13). El índice
   // posicional previo se guarda en un ref (no provoca re-render) para el clamp de D-06: cuando la
   // fila seleccionada desaparece, resolveSelection cae al vecino del MISMO índice previo.
-  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup' | 'inbox' | 'inbox-project'} */ (setup ? 'setup' : 'list'));
+  const [mode, setMode] = useState(/** @type {'list' | 'filter' | 'overlay' | 'confirm' | 'deriving' | 'config' | 'config-edit' | 'projects' | 'projects-loading' | 'projects-edit' | 'projects-error' | 'projects-modules-loading' | 'projects-modules' | 'projects-modules-edit' | 'setup' | 'inbox' | 'inbox-project' | 'send-back' | 'send-back-confirm'} */ (setup ? 'setup' : 'list'));
   // KODO-76: estado de la pantalla del inbox. `inboxSnapshot` es el snapshot CONGELADO de las
   // capturas (molde de overlaySnapshot: el poll sigue corriendo por debajo sin repintar la
   // pantalla); `inboxCursor` es el índice seleccionado, compartido por la lista y por el picker de
@@ -711,6 +724,7 @@ export default function App({
         onFocus,
         onOpen,
         onLaunchOrchestrator,
+        onSendBack,
         armedTaskId,
         setArmedTaskId,
         armedTaskRef,
@@ -853,6 +867,15 @@ export default function App({
         await handleInboxProjectInput(input, key, ctx);
         return;
       }
+      // KODO-109: devolución de una tarea en revisión (`b`): text-input del feedback y confirmación.
+      if (mode === 'send-back') {
+        handleSendBackInput(input, key, ctx);
+        return;
+      }
+      if (mode === 'send-back-confirm') {
+        await handleSendBackConfirmInput(input, key, ctx);
+        return;
+      }
       if (mode === 'filter') {
         // Contexto MODAL (D-15): Esc cancela (limpia query), Enter confirma (mantiene filtro),
         // Backspace en query vacía sale, char imprimible se concatena en vivo (D-13).
@@ -952,6 +975,14 @@ export default function App({
         const row = sel.index >= 0 ? filtered[sel.index] : null;
         if (!row) return;
         armDismiss(row, ctx);
+        return;
+      }
+      if (input === 'b') {
+        // KODO-109: devolver la tarea en revisión con feedback para su siguiente sesión. `b` está
+        // LIBRE en mode:'list' (tomadas: q / e m i c l L p d o O a + flechas y Enter).
+        const row = sel.index >= 0 ? filtered[sel.index] : null;
+        if (!row) return;
+        armSendBack(row, ctx);
         return;
       }
       if (input === 'o') {
@@ -1073,6 +1104,6 @@ export default function App({
         inboxMessage, // KODO-76: mensaje transitorio de la pantalla (estado dedicado, no focusError)
       }),
     ),
-    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · o open · O orch · a adopt · i inbox · e config · m projects · q quit'),
+    createElement(Text, { dimColor: true }, '↑↓ move · c comments · l logs · L log-all · p plan · / filter (ps:state) · d dismiss · b send back · o open · O orch · a adopt · i inbox · e config · m projects · q quit'),
   );
 }

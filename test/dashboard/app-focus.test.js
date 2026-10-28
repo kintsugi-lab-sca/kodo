@@ -198,7 +198,8 @@ describe('Phase 37 Plan 02: Enter handler + alive guard + clear-on-any-input', (
       // inequívoca de que el footer normal volvió.
       assert.match(
         lastFrame(),
-        /↑↓ move · c comments · l logs · L log-all · p plan · \/ filter \(ps:state\) · d dismiss · o open/,
+        // KODO-109 insertó `b send back` tras `d dismiss`; a este ancho el wrap cae dentro de él.
+        /↑↓ move · c comments · l logs · L log-all · p plan · \/ filter \(ps:state\) · d dismiss · b send/,
         `footer normal debe restaurarse al limpiar focusError.\nframe:\n${lastFrame()}`,
       );
       // Colapsa bordes de caja (│) + whitespace para tolerar el wrap de ink a este ancho.

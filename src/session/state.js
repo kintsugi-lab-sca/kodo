@@ -77,7 +77,13 @@ let stateLockDepth = 0;
  *   plan_path: string,      // Ruta al fichero de plan de la tarea (`~/.kodo/plans/<task_id>.md`).
  *   next: string|null,      // El `NEXT:` de una línea extraído del bloque de handoff, truncado a 200 (D-02). null cuando el bloque no lo trae — caso válido y esperado del bloque mecánico (D-03). El merge de este campo es un contrato de TRES ESTADOS discriminado por la PRESENCIA del campo en el entry entrante, NO por truthiness (DEBT-01; tabla canónica en el docblock de `upsertTaskHandoff`, `:405-410`, que es la fuente de verdad): string no vacío → OVERWRITE (pisa el previo) · `null` explícito → CLEAR (borra el previo; cierre LLM sin `NEXT:`) · campo AUSENTE del entry → PRESERVE (conserva el previo; backstop mecánico). Los tres estados están congelados en test/state/handoff-state.test.js:265 (CLEAR), :288 (PRESERVE), :307 (OVERWRITE). null aquí significa «ninguna sesión de esta tarea ha dejado nunca un NEXT:», no «el último cierre no lo traía».
  *   updated_at: string,     // ISO 8601 del cierre que escribió la entrada. Fecha la ÚLTIMA escritura del puntero — no necesariamente el cierre que produjo el `next` de arriba.
+ *   send_back?: SendBack,   // KODO-109: feedback de una devolución desde revisión (`kodo send-back`), a la espera de que la SIGUIENTE sesión de la tarea lo reciba en su contexto de arranque. Lo escribe `setTaskSendBack` y lo CONSUME (borra) `takeTaskSendBack` al inyectarlo: una segunda sesión ya no lo recibe. Vive aquí, junto al puntero de handoff, por la misma razón que él — es dato de la TAREA y tiene que sobrevivir a la sesión revisada. `upsertTaskHandoff` lo conserva. AUSENTE = nada pendiente. Aditivo opcional, sin bump de schema_version.
  * }} TaskHandoff
+ *
+ * @typedef {{
+ *   text: string,  // El feedback tal cual lo escribió el humano (no confiable para el render, pero va al prompt de la sesión, que es su destino).
+ *   at: string,    // ISO 8601 de la devolución.
+ * }} SendBack
  *
  * @typedef {{
  *   workspace_ref: string,        // `workspace:N` del orquestador. RECICLABLE: cmux reusa los refs al cerrar/crear tabs, así que NO es la identidad — es una pista de conveniencia (focus, logs). La identidad es workspace_id.
@@ -932,6 +938,10 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
       // not a merge with the previous entry.
       updated_at: entry.updated_at ?? new Date().toISOString(),
     };
+    // KODO-109: un `send_back` pendiente NO es de este cierre — lo escribió una devolución y lo
+    // consume la siguiente sesión. Reconstruir la entrada sin él borraría el feedback si la sesión
+    // revisada cierra DESPUÉS de que el humano la devuelva.
+    if (prev && prev.send_back) persisted.send_back = prev.send_back;
     state.tasks[taskId] = persisted;
   });
   if (!r.ok) {
@@ -942,6 +952,68 @@ export function upsertTaskHandoff(taskId, entry, logger = noopLogger) {
   // (precedente T-71-18, mitiga T-75-06). El `next` viaja SOLO por el return.
   logger.info('state.task.handoff_saved', { task_id: taskId });
   return { ok: true, value: persisted };
+}
+
+/**
+ * Escribe (o borra, con `null`) el `send_back` de una tarea en `state.tasks` — KODO-109.
+ *
+ * Toca SOLO `send_back`: el puntero de handoff de la misma entrada se conserva. Si la tarea no
+ * tenía entrada se crea con solo este campo, y si al borrarlo la entrada queda vacía se elimina.
+ *
+ * @param {string} taskId
+ * @param {SendBack|null} sendBack
+ * @returns {{ ok: true, value: void } | { ok: false, reason: 'lock-timeout' }}
+ */
+export function setTaskSendBack(taskId, sendBack) {
+  return withStateLock((state) => {
+    if (!state.tasks) state.tasks = {};
+    const prev = state.tasks[taskId];
+    if (sendBack) {
+      state.tasks[taskId] = /** @type {any} */ ({ ...(prev || {}), send_back: sendBack });
+      return;
+    }
+    if (!prev) return;
+    const { send_back: _drop, ...rest } = prev;
+    if (Object.keys(rest).length === 0) delete state.tasks[taskId];
+    else state.tasks[taskId] = /** @type {any} */ (rest);
+  });
+}
+
+/**
+ * Lee y CONSUME el `send_back` de una tarea en una sola sección crítica — KODO-109. Leer y borrar
+ * bajo el mismo lock es lo que garantiza que dos arranques concurrentes no reciban ambos el mismo
+ * feedback.
+ *
+ * @param {string} taskId
+ * @returns {SendBack|null} El feedback pendiente, o `null` si no había o el lock no se obtuvo.
+ */
+export function takeTaskSendBack(taskId) {
+  // Lectura previa SIN lock: el caso común (nada pendiente) no debe tomar el lock ni reescribir
+  // state.json en cada arranque de sesión. La decisión real se repite dentro del lock.
+  if (!hasTaskSendBack(taskId)) return null;
+  /** @type {SendBack|null} */
+  let taken = null;
+  const r = withStateLock((state) => {
+    const prev = state.tasks && state.tasks[taskId];
+    if (!prev || !prev.send_back) return;
+    taken = prev.send_back;
+    const { send_back: _drop, ...rest } = prev;
+    if (Object.keys(rest).length === 0) delete state.tasks[taskId];
+    else state.tasks[taskId] = /** @type {any} */ (rest);
+  });
+  return r.ok ? taken : null;
+}
+
+/**
+ * ¿Tiene la tarea un `send_back` pendiente? Lectura sin lock (KODO-109): la usa el backstop de
+ * SessionEnd para no deshacer una devolución.
+ *
+ * @param {string} taskId
+ * @returns {boolean}
+ */
+export function hasTaskSendBack(taskId) {
+  const state = loadState();
+  return Boolean(state.tasks && state.tasks[taskId] && state.tasks[taskId].send_back);
 }
 
 /** @returns {Array<Session & { ended_at: string }>} */
