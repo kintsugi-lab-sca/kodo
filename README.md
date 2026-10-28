@@ -312,7 +312,7 @@ kodo orchestrate    # launches the supervising session
 kodo dashboard   # live TUI (also opened by kodo up)
 ```
 
-Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `i` inbox · `e` config · `m` projects · `q` quit
+Keys: `↑↓` move · `c` comments · `l` session logs · `L` general daemon log · `p` plan · `/` filter · `d` dismiss dead session · `b` send a task in review back with feedback · `o` open task in the browser · `O` focus the orchestrator · `a` adopt ad-hoc session · `i` inbox · `e` config · `m` projects · `q` quit
 
 #### `i` — the inbox screen
 
@@ -370,6 +370,7 @@ kodo check               # watchdog: reviews state and launches the orchestrator
 kodo orchestrate         # launches the orchestrating session (spends tokens)
 kodo adopt               # adopts an ad-hoc cmux session as a tracked task
 kodo comment <REF>       # posts a summary comment on an existing task
+kodo send-back <REF> --text <feedback>  # sends a task in review back: comments, moves it to the trigger state, and its next session gets the feedback
 kodo logs [session-id]   # inspects session logs (dump, tail, filter)
 kodo doctor              # diagnoses config.json ↔ projects.json alignment (--states, --identifiers, --operator, --json)
 kodo install / uninstall # registers/removes Claude Code hooks
