@@ -51,13 +51,16 @@ async function defaultGit(cwd, args) {
 
 /**
  * `setDescription` del host ACTIVO. Import perezoso: el host arrastra su cliente y config, y el
- * camino de error (fuera de sesión) no debe pagarlo.
+ * camino de error (fuera de sesión) no debe pagarlo. Un host sin el verbo (NullHost) no tiene
+ * sidebar que actualizar: es no-op, no un fallo que avisar.
  *
  * @param {{ workspace: string, description: string }} opts
  */
 async function defaultSetDescription(opts) {
   const { getHost, resolveHostName } = await import('../host/interface.js');
-  return getHost(resolveHostName())._legacy.setDescription(opts);
+  const legacy = getHost(resolveHostName())._legacy;
+  if (typeof legacy?.setDescription !== 'function') return null;
+  return legacy.setDescription(opts);
 }
 
 /**

@@ -37,13 +37,16 @@ async function readStdin() {
 }
 
 /**
- * `setDescription` del host ACTIVO, importado solo cuando hay algo que restaurar.
+ * `setDescription` del host ACTIVO, importado solo cuando hay algo que restaurar. Un host sin
+ * el verbo (NullHost) no tiene sidebar: no-op.
  *
  * @param {{ workspace: string, description: string }} opts
  */
 async function defaultSetDescription(opts) {
   const { getHost, resolveHostName } = await import('../host/interface.js');
-  return getHost(resolveHostName())._legacy.setDescription(opts);
+  const legacy = getHost(resolveHostName())._legacy;
+  if (typeof legacy?.setDescription !== 'function') return null;
+  return legacy.setDescription(opts);
 }
 
 /**
