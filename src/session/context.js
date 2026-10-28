@@ -21,6 +21,29 @@ import { join } from 'node:path';
 import { KODO_DIR } from '../config.js';
 
 /**
+ * Sección del feedback de una devolución desde revisión (KODO-109). Devuelve las líneas listas
+ * para intercalar, o `[]` sin feedback — así el contexto sin devolución queda byte-idéntico.
+ *
+ * Va justo después de la cabecera de la tarea y ANTES del flujo: es lo primero que la sesión
+ * tiene que atender, y un feedback enterrado al final del bloque se lee como un apéndice.
+ * El texto se cita línea a línea para que no pueda abrir secciones propias del contexto.
+ *
+ * @param {{ text: string, at: string } | null | undefined} sendBack
+ * @returns {string[]}
+ */
+export function buildSendBackSection(sendBack) {
+  if (!sendBack || typeof sendBack.text !== 'string' || sendBack.text.trim() === '') return [];
+  return [
+    '## Feedback de la revisión: atiéndelo antes que nada',
+    '',
+    `La tarea volvió de revisión (${sendBack.at}) con este feedback del humano. Resuélvelo antes de seguir con cualquier otra cosa del plan:`,
+    '',
+    ...sendBack.text.trim().split('\n').map((line) => `> ${line}`),
+    '',
+  ];
+}
+
+/**
  * Build the additional context block injected into kodo sessions.
  * Pure: no I/O, no globals — fully testable.
  *
@@ -30,9 +53,10 @@ import { KODO_DIR } from '../config.js';
  *
  * @param {import('./state.js').Session} session
  * @param {{ provider: string, providers: Record<string, any> }} config
+ * @param {{ sendBack?: { text: string, at: string } | null }} [opts] - KODO-109: feedback pendiente de una devolución.
  * @returns {string}
  */
-export function buildSessionContext(session, config) {
+export function buildSessionContext(session, config, opts = {}) {
   const providerName = session.provider || config.provider;
   const providerCfg = (config.providers && config.providers[providerName]) || {};
   const mcpHint = providerCfg.mcp_hint || `MCP de ${providerName}`;
@@ -48,6 +72,7 @@ export function buildSessionContext(session, config) {
     `- Session ID: ${session.session_id}`,
     `- Work item ID: ${session.task_id} | Project ID: ${session.project_id}`,
     '',
+    ...buildSendBackSection(opts.sendBack),
     '## Tu responsabilidad',
     '',
     `Tú gestionas el ciclo completo de esta tarea: trabajar → documentar → mover a "${reviewState}" → cerrar sesión. Usa ${mcpHint} para todas las interacciones con ${providerName}.`,

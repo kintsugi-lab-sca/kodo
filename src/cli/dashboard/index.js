@@ -170,6 +170,8 @@ export async function runDashboard(deps = {}) {
   const { runOrchestrate } = await import('./orchestrate.js');
   // KODO-76: runner de las acciones de la pantalla del inbox. Mismo patrón lazy.
   const { makeInboxActionRunner } = await import('./InboxScreen.js');
+  // KODO-109: runner de la devolución (`b`). Mismo patrón lazy.
+  const { runSendBack } = await import('./send-back.js');
   const { getHost, resolveHostName } = await import('../../host/interface.js');
 
   // Phase 62 (ORCH-02): deriveAdoptionMeta (derivador LLM one-shot never-throws, Plan 01) +
@@ -343,6 +345,9 @@ export async function runDashboard(deps = {}) {
     // argv literal injection-inerte. Es el ÚNICO camino de la pantalla del inbox al proveedor: así
     // el TUI no importa el provider ni la config, y la promoción tiene un solo juego de exit codes.
     onInboxAction: makeInboxActionRunner({ exec: execImpl, execPath: process.execPath, kodoBin }),
+    // KODO-109: shell never-throws de `kodo send-back` — mismo carril que onInboxAction, así el TUI
+    // tampoco importa el provider para devolver una tarea.
+    onSendBack: async ({ ref, text }) => runSendBack({ exec: execImpl, execPath: process.execPath, kodoBin, ref, text }),
     // Phase 56 D-05: mapa para el reverse-lookup cwd→projectId (resolveProjectId en App.js).
     projects,
     // Phase 63 D-09 (PERSIST-02): cableado DI del editor de ajustes, espejo de onAdopt/onDerive.

@@ -7,7 +7,7 @@
 
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { findSession, updateSession, reopenSession } from '../session/state.js';
+import { findSession, updateSession, reopenSession, takeTaskSendBack } from '../session/state.js';
 import { loadConfig } from '../config.js';
 import { KODO_DIR } from '../config.js';
 import { getSessionMode } from '../labels.js';
@@ -24,7 +24,7 @@ const STDIN_TIMEOUT = 3000;
 // Se importa Y se re-exporta, no solo se re-exporta: un `export { x } from '…'` NO crea
 // el binding local, así que `main()` se quedaría sin la función y el try/catch exterior
 // se tragaría el ReferenceError en silencio (el hook saldría con 0 y sin contexto).
-import { buildSessionContext } from '../session/context.js';
+import { buildSessionContext, buildSendBackSection } from '../session/context.js';
 export { buildSessionContext };
 
 /**
@@ -37,7 +37,7 @@ export { buildSessionContext };
  * command. Phase 8 behavior unchanged for sessions that already have phase_id.
  *
  * @param {import('../session/state.js').Session} session
- * @param {{ brief?: string }} [opts] - Phase 9: bootstrap brief to render before commands (D-11 order).
+ * @param {{ brief?: string, sendBack?: { text: string, at: string } | null }} [opts] - Phase 9: bootstrap brief to render before commands (D-11 order). KODO-109: `sendBack`, feedback pendiente de una devolución (misma sección que la rama no-GSD).
  * @returns {string}
  */
 export function buildGsdContext(session, opts = {}) {
@@ -49,6 +49,7 @@ export function buildGsdContext(session, opts = {}) {
     `- Session ID: ${session.session_id}`,
     `- Work item ID: ${session.task_id} | Project ID: ${session.project_id}`,
     '',
+    ...buildSendBackSection(opts.sendBack),
     '## GSD Workflow',
     '',
   ];
@@ -432,9 +433,19 @@ async function main() {
 
     // Phase 9: thread session.brief into buildGsdContext — it was persisted by
     // the dispatcher via buildSessionFromTask when resolver returned 'bootstrap'.
+    // KODO-109: el feedback de una devolución desde revisión se CONSUME aquí — leer y borrar bajo
+    // el mismo lock, así que solo la primera sesión que arranca lo recibe. Fail-open: sin él (o
+    // con el lock ocupado) el contexto se inyecta igual, sin la sección.
+    let sendBack = null;
+    try {
+      sendBack = takeTaskSendBack(session.task_id);
+    } catch {
+      // never crash Claude Code startup
+    }
+
     const context = session.gsd
-      ? buildGsdContext(session, { brief: session.brief })
-      : buildSessionContext(session, loadConfig());
+      ? buildGsdContext(session, { brief: session.brief, sendBack })
+      : buildSessionContext(session, loadConfig(), { sendBack });
 
     // Emit typed session.start event (best-effort; silent on failure so we
     // never crash Claude Code startup — outer try/catch still catches but
