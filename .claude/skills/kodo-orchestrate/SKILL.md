@@ -67,6 +67,16 @@ Ejecuta estos pasos en orden al arrancar la sesión:
   (sigue el flujo §5.1).
 - **No dupliques el gate manual de `verify`** en comentarios al provider — el
   CLI `kodo gsd verify` es la única fuente para mover una sesión full a Review.
+- **Ningún entregable de documentación se queda solo en una rama o en un
+  worktree** (regla de Alex, 30-oct-2026: «me cierras la sesión sin llevar a main y
+  lo pierdo de vista»). Antes de cerrar una sesión que ha producido informes
+  (`.planning/*.md`, PDF), asegúrate de que el operador puede abrirlos desde el
+  checkout principal: si la PR es solo docs, pídele el merge o mergéala si el
+  hook lo permite (`gh pr merge` está bloqueado para el orquestador: lo hace el
+  operador) y haz `pull --ff-only`; mientras no esté mergeada, copia los ficheros
+  a `<repo>/.planning/entregas/` (añadido a `.git/info/exclude`, nunca
+  commiteado) y da esa ruta absoluta en el mensaje. Los worktrees se borran al
+  cerrar: la rama en origin es la copia de seguridad, no el worktree.
 - **Al cerrar o reportar una sesión terminada, entrega las conclusiones AQUÍ**
   (regla de Alex, 26-oct-2026). Que la sesión haya dejado un comentario en la
   tarea del provider no basta: en el mensaje del orquestador al operador tiene
