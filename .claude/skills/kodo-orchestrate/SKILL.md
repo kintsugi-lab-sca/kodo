@@ -772,6 +772,43 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
+- [2026-10-30] **Todo es la cola de kodo.** Tres tareas de Liken creadas en Todo con
+  label `kodo` + assignee «sin lanzar» se despacharon en el acto (una tocaba
+  Stripe). Crear en Backlog; lanzar con `kodo launch`. La lección de 09-09 sobre
+  `inactive_state` ya no describe el daemon actual.
+- [2026-10-30] **Un informe en rama no es una entrega.** Los worktrees se borran al
+  cerrar y `gh pr merge` está bloqueado por hook para el orquestador («merging
+  requires human approval»). Copia los ficheros con `git show origin/<rama>:<path>`
+  a `<repo>/.planning/entregas/` (en `.git/info/exclude`) y da la ruta absoluta.
+- [2026-10-30] **Pair test en Chrome antes de cerrar** sesiones con funcionalidad
+  visible: la sesión deja el servidor arriba y no hace `/exit`; el orquestador abre
+  Chrome en la URL y pasa un guion con usuario `qa-`. `/try-pr-local` si ya se cerró.
+- [2026-10-30] **Spark no siempre descarga adjuntos** (`attachment --stream` →
+  `RSMMessagesModelErrorDomain error 11`, y `--download-attachments` no lo arregla).
+  Pide al operador que guarde el fichero a mano y sigue sin él.
+- [2026-10-30] **`kodo ask` solo funciona dentro de una sesión de kodo**; desde el
+  orquestador las preguntas pendientes se leen en los comentarios de Plane
+  (`list_work_item_comments`), no en `state.json`.
+- [2026-10-29] **Las sesiones abren subtareas y se lanzan solas** (LIKEN-134 → 135–138,
+  KODO-107 → 108–109): crean en Plane con `kodo:yolo` + assignee y el daemon
+  despacha. Vigílalo en la ronda siguiente: aparecen sesiones que no lanzaste y
+  pueden chocar en `package.json`/`yarn.lock` o en el mismo fichero.
+- [2026-10-28] **Reinicio de cmux a mitad de jornada**: renumera todos los
+  `workspace:N` y `workspace_group:N`, restaura las sesiones vivas con `claude
+  --resume` (kodo las devuelve a `sessions`, KODO-100) y puede dejar una sesión
+  reanudada en el cwd equivocado sin worktree (PCHAT-15 apareció en sindicadas):
+  ciérrala. Los `--group` guardados en el prompt anterior quedan inválidos
+  (`invalid_params: Missing or invalid group_id`): relee `workspace-group list`.
+- [2026-10-28] **El daemon ejecuta el código con el que arrancó.** Tras un `git pull`
+  del repo de kodo (o un release), `kodo stop && kodo up`; si no, los fixes (p. ej.
+  el anclado de grupos de 0.31.0) no aplican y `kodo --version` miente.
+- [2026-10-28] **TablePro no estaba configurado para liken**: la sesión usó el binario
+  `tablepro-mcp` con aprobación por consulta. Y dejó el perfil default de Stripe
+  CLI autenticado con una clave live restringida: avisa al operador (`stripe
+  logout`).
+- [2026-10-27] **`cmux workspace-group set-anchor` exige que el workspace ya sea
+  miembro** (`not_found` si no): `new-workspace --cwd` → `add` → `set-anchor`.
+
 - [2026-10-24] **Para que una sesión Claude Code ejecute algo desde cmux: `cmux send
   --force --workspace <ref> '<texto>'` y después `cmux send-key --workspace <ref>
   Enter`.** `send` solo teclea; el `\r` dentro del texto funciona a veces (si va en
