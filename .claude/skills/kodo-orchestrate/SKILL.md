@@ -67,6 +67,17 @@ Ejecuta estos pasos en orden al arrancar la sesión:
   (sigue el flujo §5.1).
 - **No dupliques el gate manual de `verify`** en comentarios al provider — el
   CLI `kodo gsd verify` es la única fuente para mover una sesión full a Review.
+- **Pair test en Chrome antes de cerrar una sesión que entrega funcionalidad
+  visible** (regla de Alex, 30-oct-2026: «montar la PR y hacer push sin más es
+  muy atrevido»). Una por cada cosa desplegable. Flujo: la sesión deja su servidor
+  local levantado (puerto propio, Stripe/servicios en test) y NO hace `/exit`; el
+  orquestador abre una pestaña de Chrome (claude-in-chrome) en la URL de la
+  funcionalidad, pega al operador un guion de prueba de 3–6 pasos con la URL y las
+  credenciales `qa-`, y espera el OK; solo entonces la sesión cierra. Si la sesión
+  ya se cerró, se levanta el servidor con `/try-pr-local` (checkout temporal de la
+  PR, migraciones y dependencias) y se abre Chrome igual. Las PRs sin interfaz
+  (scripts, docs) no lo necesitan, pero sí una ejecución `--dry-run` enseñada al
+  operador.
 - **Las tareas nuevas se crean en Backlog, nunca en Todo** (regla de Alex,
   30-oct-2026: «TODO es la cola de la que tira kodo»). Con el daemon actual, una
   tarea en Todo con label `kodo` y assignee se lanza en el acto al crearla o al
