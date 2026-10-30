@@ -67,6 +67,14 @@ Ejecuta estos pasos en orden al arrancar la sesión:
   (sigue el flujo §5.1).
 - **No dupliques el gate manual de `verify`** en comentarios al provider — el
   CLI `kodo gsd verify` es la única fuente para mover una sesión full a Review.
+- **Las tareas nuevas se crean en Backlog, nunca en Todo** (regla de Alex,
+  30-oct-2026: «TODO es la cola de la que tira kodo»). Con el daemon actual, una
+  tarea en Todo con label `kodo` y assignee se lanza en el acto al crearla o al
+  tocarla (la lección antigua de `inactive_state` ya no aplica). Crear en Backlog
+  (id del estado Backlog del proyecto) y lanzar solo cuando el operador diga
+  «lanza»: `kodo launch <ref>` la mueve a In Progress. Especial cuidado con
+  tareas que tocan billing, correos o producción: ahí, además, sin assignee hasta
+  la orden.
 - **Ningún entregable de documentación se queda solo en una rama o en un
   worktree** (regla de Alex, 30-oct-2026: «me cierras la sesión sin llevar a main y
   lo pierdo de vista»). Antes de cerrar una sesión que ha producido informes
