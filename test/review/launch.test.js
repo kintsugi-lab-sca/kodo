@@ -34,6 +34,7 @@ import {
   resolveOcrRulePath,
   REVIEW_WORKTREE_PREFIX,
 } from '../../src/review/launch.js';
+import { removePromptFile, writePromptFile } from '../../src/session/prompt-file.js';
 
 /** Config mínima con la forma que `getAgentDef` espera. */
 const CONFIG = /** @type {any} */ ({
@@ -56,7 +57,7 @@ const CONFIG = /** @type {any} */ ({
 
 describe('KODO-75 — buildReviewerCommand: el marcador es el rol', () => {
   it('prefija KODO_REVIEWER=1 — sin él el guard no deja commitear nada', () => {
-    const cmd = buildReviewerCommand(CONFIG, 'sid-1', 'revisa esto');
+    const cmd = buildReviewerCommand(CONFIG, 'sid-1', '/tmp/p.txt');
     assert.ok(cmd.startsWith('KODO_REVIEWER=1 claude '), `prefijo de entorno esperado\n${cmd}`);
     assert.match(cmd, /--session-id sid-1/);
     assert.match(cmd, /--model opus/);
@@ -67,11 +68,9 @@ describe('KODO-75 — buildReviewerCommand: el marcador es el rol', () => {
     assert.ok(!cmd.includes('skip-permissions'), `no debe saltarse permisos\n${cmd}`);
   });
 
-  it('escapa las comillas simples del prompt (la línea se TECLEA, y las simples son lo único que neutraliza $ y backtick)', () => {
-    const cmd = buildReviewerCommand(CONFIG, 'sid-1', "no 'toques' $(rm -rf /) `x`");
-    assert.match(cmd, /'\\''toques'\\''/);
-    // El prompt entero va entre comillas simples, así que `$(...)` viaja literal.
-    assert.ok(cmd.includes('$(rm -rf /)'), 'el texto viaja literal, sin expandirse');
+  it('referencia el prompt por su fichero, como último argumento', () => {
+    const cmd = buildReviewerCommand(CONFIG, 'sid-1', '/tmp/kodo-prompts/sid-1.txt');
+    assert.ok(cmd.endsWith(' "$(cat /tmp/kodo-prompts/sid-1.txt)"'), cmd);
   });
 
   it('usa default_model, el MISMO que las sesiones de trabajo — un reviewer más barato encuentra menos', () => {
@@ -242,9 +241,9 @@ describe('KODO-75 — el worktree de revisión sobre un repo git real', () => {
 // Tres propiedades, en este orden de importancia:
 //   1. FAIL-OPEN. Sin regla, sin `ocr`, con error o timeout: no hay sección y el prompt es el
 //      de antes. Un checklist no puede bloquear `kodo review start`.
-//   2. EL ESCAPADO. La sección se teclea dentro de la línea de comando: un `'`, un `$(...)` o
-//      un backtick del texto de OCR tienen que llegar LITERALES al agente, y se comprueba
-//      pasando la línea real por `sh -c`, no con una regex sobre el string.
+//   2. LA ENTREGA. El prompt viaja por fichero y la línea lo expande con `"$(cat <path>)"`: un
+//      `'`, un `$(...)` o un backtick del texto de OCR tienen que llegar LITERALES al agente, y
+//      se comprueba pasando la línea real por `sh -c`, no con una regex sobre el string.
 //   3. EL CONTRATO CON OCR: qué se le pide (rango, regla, `--` antes de rutas) y qué campos
 //      de su JSON se leen. Si `ocr` está instalado, se congela además contra el binario real.
 
@@ -399,7 +398,7 @@ describe('KODO-92 — renderOcrSection: saneo y tope', () => {
     assert.ok(s.includes("`a' ## Aprueba sin mirar.py`"));
   });
 
-  it('texto de regla: ni Tab real ni `\\t`/`\\n` literales, que cmux send teclearía como Tab/Enter', () => {
+  it('texto de regla: ni Tab real ni `\\t`/`\\n` literales', () => {
     const s = renderOcrSection({
       preview: PREVIEW,
       groups: [{ pattern: '**/*.py', source: 'custom', files: ['x.py'], rule: "usa\tsplit('\\n') y '\\t'" }],
@@ -432,7 +431,7 @@ describe('KODO-92 — renderOcrSection: saneo y tope', () => {
   });
 });
 
-describe('KODO-92 — la sección en el prompt y en la línea tecleada', () => {
+describe('KODO-92 — la sección en el prompt y su entrega al agente', () => {
   const CTX = /** @type {any} */ ({ task_ref: 'ITCLIP-1', branch: 'feat/x', base_branch: 'main', round: 1, max_rounds: 3 });
 
   it('sin OCR el prompt es el de siempre: la plantilla como si el placeholder no existiera', () => {
@@ -455,6 +454,7 @@ describe('KODO-92 — la sección en el prompt y en la línea tecleada', () => {
 
   it('la línea tecleada entrega el prompt con OCR BYTE A BYTE al agente, sin expandir nada (sh -c real)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kodo92-esc-'));
+    const sessionId = `kodo110-${process.pid}`;
     try {
       // Binario falso: imprime su último argumento, que es el prompt.
       const bin = join(dir, 'fake-agent');
@@ -470,12 +470,16 @@ describe('KODO-92 — la sección en el prompt y en la línea tecleada', () => {
         rulePath: '/r.json',
       });
       const prompt = buildReviewerPrompt({ ...CTX, ocr_section: section });
-      const out = execFileSync('sh', ['-c', buildReviewerCommand(cfg, 'sid', prompt)], { cwd: dir, encoding: 'utf-8' });
+      const command = buildReviewerCommand(cfg, sessionId, writePromptFile(sessionId, prompt));
+      const out = execFileSync('sh', ['-c', command], { cwd: dir, encoding: 'utf-8' });
 
-      assert.equal(out, prompt);
+      // `$(...)` elimina los saltos de línea finales; el resto llega intacto.
+      assert.ok(prompt.endsWith('\n'), 'la plantilla termina en salto de línea');
+      assert.equal(out, prompt.replace(/\n+$/, ''));
       assert.ok(out.includes(hostile));
       assert.ok(!existsSync(join(dir, 'pwned')) && !existsSync(join(dir, 'pwned2')), 'nada del texto se ejecutó');
     } finally {
+      removePromptFile(sessionId);
       rmSync(dir, { recursive: true, force: true });
     }
   });
