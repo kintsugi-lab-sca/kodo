@@ -12,6 +12,7 @@ import { listSessions, getOrchestrator, setOrchestrator, clearOrchestrator, isLi
 import { getHost, resolveHostName } from '../host/interface.js';
 import { findWorkspaceInTree, resolveWorkspaceId } from '../host/workspace-id.js';
 import { getSessionMode } from '../labels.js';
+import { writePromptFile } from '../session/prompt-file.js';
 import { stripForPrompt } from '../cli/sanitize.js';
 import { appendHandoff, consumeHandoff, readHandoff } from './handoff.js';
 import { syncSkill } from '../skill/sync.js';
@@ -328,17 +329,18 @@ export function applyReportingGate(prompt, enabled) {
  * de trabajo sí traducían: el ORCH era el único carril que se saltaba el `model_map`.
  * Para 'claude-code' (sin mapa) el passthrough deja el comando byte a byte como estaba.
  *
- * El prompt se recibe CRUDO y se envuelve en comillas simples tras escapar las que
- * contenga (`'` → `'\''`): el comando se teclea por `cmux.send`, así que las simples son
- * las únicas que neutralizan `$`, backtick y `$(...)` del texto del prompt.
+ * El prompt NO viaja en la línea: se referencia con `"$(cat <path>)"`, igual que en
+ * `buildAgentCommand`. Con cmux 0.65.2, un `cmux send` de ≥ 4 KB falla de forma
+ * intermitente con «Socket closed before reply» (medido: 3,5 KB 0/30, 4 KB 16/30), y el
+ * prompt del orquestador ronda los 20 KB. El shell lo expande al ejecutar, así que `$`,
+ * backtick y comillas del prompt llegan al agente sin interpretar.
  *
  * @param {ReturnType<import('../config.js').loadConfig>} config
  * @param {string} sessionId
- * @param {string} prompt - prompt del orquestador SIN escapar.
+ * @param {string} promptPath - fichero con el prompt (`writePromptFile`).
  * @returns {string} línea de comando lista para `cmux.send`.
  */
-export function buildOrchestratorCommand(config, sessionId, prompt) {
-  const escapedPrompt = String(prompt).replace(/'/g, "'\\''");
+export function buildOrchestratorCommand(config, sessionId, promptPath) {
   const agent = getAgentDef(config);
   return [
     // HYG-01 (D-07): prefijo de entorno del shell que marca esta sesión como la
@@ -354,7 +356,7 @@ export function buildOrchestratorCommand(config, sessionId, prompt) {
     mapAgentModel(config.claude.orchestrator_model ?? config.claude.default_model, agent),
     agent.session_id_flag, sessionId,
     ...(config.claude.flags ?? []),
-    `'${escapedPrompt}'`,
+    `"$(cat ${promptPath})"`,
   ].join(' ');
 }
 
@@ -608,7 +610,7 @@ export async function launchOrchestrator(opts = {}) {
   // Las sesiones de TRABAJO (launchWorkItem) sí van con --worktree (Plan 02
   // WT-01 + D-06b universal). Solo el orchestrator queda exento.
   // ─────────────────────────────────────────────────────────────────────
-  const claudeCmd = buildOrchestratorCommand(config, sessionId, prompt);
+  const claudeCmd = buildOrchestratorCommand(config, sessionId, writePromptFile(sessionId, prompt));
 
   await hostLegacy().send({ workspace: workspaceRef, text: claudeCmd + '\\n' });
 

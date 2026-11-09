@@ -12,8 +12,8 @@
 // evalúa `KODO_DIR` en module-load y un invoke in-process leería el `~/.kodo` real).
 //
 // El shim de aquí diverge del de aquel fichero en una cosa: vuelca el argv ENTERO del
-// `send` a un fichero aparte, porque el prompt viaja en `argv[3]` y aquel shim solo
-// registraba los tres primeros tokens.
+// `send` a un fichero aparte, porque la línea tecleada viaja en `argv[3]` y aquel shim solo
+// registraba los tres primeros tokens. El prompt se lee del fichero que esa línea referencia.
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -126,8 +126,15 @@ describe('KODO-67 — el handoff entra en el prompt del orquestador y se consume
     }
     const lines = readFileSync(sendLogPath, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.ok(lines.length >= 1, `esperaba al menos un send; stderr: ${child.stderr}`);
-    // `cmux send --workspace <ws> <texto>` → el comando de claude, con el prompt dentro.
-    return lines[0][3];
+    // `cmux send --workspace <ws> <texto>` → el comando de claude, que referencia el prompt.
+    const typed = lines[0][3];
+    // Regresión: a partir de 4 KB, `cmux send` falla con «Socket closed before reply».
+    assert.ok(Buffer.byteLength(typed) < 3500, `línea tecleada demasiado larga: ${Buffer.byteLength(typed)} bytes`);
+    const promptPath = typed.match(/"\$\(cat (.+?)\)"/)?.[1];
+    assert.ok(promptPath, `la línea no referencia un fichero de prompt\n${typed}`);
+    const prompt = readFileSync(promptPath, 'utf-8');
+    rmSync(promptPath, { force: true });
+    return prompt;
   }
 
   /** Ficheros `handoff-consumed-*.md` que quedaron en el sandbox. */
