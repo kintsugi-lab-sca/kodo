@@ -59,13 +59,13 @@ describe('KODO-12 — buildOrchestratorCommand', () => {
     assert.match(cmd, /--dangerously-skip-permissions/);
   });
 
-  it('el prompt va entre comillas simples y las simples internas se escapan', () => {
+  it('el prompt se referencia por fichero, no viaja en la línea tecleada', () => {
     const cmd = buildOrchestratorCommand(
       makeConfig({ orchestrator_model: 'fable' }),
       'sess-5',
-      "no 'toques' $(whoami)",
+      '/tmp/kodo-prompts/sess-5.txt',
     );
-    assert.ok(cmd.endsWith("'no '\\''toques'\\'' $(whoami)'"), `escape de comillas simples\n${cmd}`);
+    assert.ok(cmd.endsWith('"$(cat /tmp/kodo-prompts/sess-5.txt)"'), `referencia al fichero\n${cmd}`);
   });
 });
 
