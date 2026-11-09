@@ -1331,7 +1331,9 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
   ronda en que una tarea pasa a Done, `python3 -I .claude/skills/worktree-cleanup/sessions.py`
   (simulación) y, si lo que marca BORRABLE cuadra, el mismo comando con `--apply`; borra solo
   si tarea Done/Cancelled + 0 commits sobre la main de algún remoto + árbol limpio + sin sesión
-  viva, y lo que conserva va al handoff con su motivo.
+  viva, y lo que conserva va al handoff con su motivo. Antes de cerrar una sesión, su
+  `.compound/*.md` tiene que ir commiteado en su rama: si se queda sin seguimiento, bloquea el
+  borrado para siempre.
 - [2026-10-15] **Cinco rondas vacías seguidas paran el bucle.** Con `/loop 10m
   ronda` activo, cuenta las rondas que acaban en `[kodo:idle]` sin ningún
   cambio (sesiones, inbox, cola, PRs). A la quinta consecutiva: `CronDelete`
