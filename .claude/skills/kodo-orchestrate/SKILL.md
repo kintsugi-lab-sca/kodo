@@ -772,6 +772,44 @@ manualmente; solo edita el archivo y deja que el hook haga el resto.
 
 ## Lecciones aprendidas
 
+- [2026-11-09] **En una sesión donde el operador está dentro, pregunta antes de
+  ordenar.** En ITCLIP-256 mandé una «opción 4» que la sesión ya había resuelto
+  de otra forma con el operador el día anterior; se interrumpió dos veces. Si el
+  prompt tiene borrador humano o el handoff dice que el operador trabaja ahí:
+  primero `cmux send` con una pregunta («¿qué estado tiene X?»), después la orden.
+- [2026-11-09] **Reinicio de cmux = `workspace_ref` caducados en `state.json`.**
+  Pasó dos veces (28-oct y 6-nov): `read-screen` devuelve «Workspace ref not
+  found» para sesiones vivas. `cmux list-workspaces` lista los refs nuevos con el
+  ref de tarea en el título; usa ese mapa hasta que el daemon reconcilie, y no des
+  una sesión por muerta por eso.
+- [2026-11-09] **Actualizar claude-mem-lite rompe los hooks de las sesiones
+  abiertas.** La 6.30.15 borró `cache/.../6.30.8` y todas las sesiones lanzadas
+  antes (orquestador incluido) fallan en PreToolUse/Stop y no graban memoria.
+  Ruido, no bloqueo; pero el compound del reciclaje se queda sin fuente. Tras un
+  `/plugin` update, reciclar el orquestador pronto.
+- [2026-11-09] **`kodo launch` rechaza tareas sin label `kodo` o sin assignee aunque
+  el operador diga «lanza»**: añade ambos con `update_work_item` (labels completas,
+  no solo la nueva) y lanza. Visto con ITCLIP-248/249/262.
+- [2026-11-09] **Tope de 10 sesiones: cerrar primero las terminadas que piden
+  `/exit` ellas mismas.** `/exit` + Enter abre el diálogo Keep/Remove worktree; el
+  primer Enter a veces solo cierra el menú de comandos, hace falta un segundo. Elegir
+  Keep (por defecto) si la rama está en origin; el worktree no molesta.
+- [2026-11-09] **Mensajes entre sesiones (`SendMessage`) quedan retenidos si la otra
+  sesión corre en otro modo de permisos**, y caducan sin entregarse. Cuando otra
+  sesión pida opinión, escribe la respuesta también en un fichero del repo de la
+  tarea y díselo al operador; el fichero llegó, el mensaje no.
+- [2026-11-09] **`gh` en el repo de clipping falla con la cuenta activa (deikka).**
+  El remoto `origin` es `github-roman` (cuenta a-nunez-c_rmn). Sin `gh auth switch`
+  (prohibido, #37299): usa `git ls-remote`/`for-each-ref` para ramas y la cuenta
+  klab (`kintsugi-lab-sca/clipping`) solo para las PRs de Edanray.
+- [2026-11-09] **Recordatorios de macOS por AppleScript tardan más de 45 s** (sync de
+  iCloud) y el primer intento pide permiso de automatización: lánzalo en segundo
+  plano y comprueba después con `name of every reminder`. `spark event` exige Spark
+  Desktop abierto.
+- [2026-11-09] **Antes de `kodo inbox-orch ack --all`, lee la bandeja.** Ackeé 19
+  eventos sin mirarlos (entre ellos un cierre masivo del 4-nov a las 23:35 y diez
+  `session-resumed` del 6-nov). El ack es idempotente pero el entrante ya no los ve
+  como nuevos.
 - [2026-10-30] **Todo es la cola de kodo.** Tres tareas de Liken creadas en Todo con
   label `kodo` + assignee «sin lanzar» se despacharon en el acto (una tocaba
   Stripe). Crear en Backlog; lanzar con `kodo launch`. La lección de 09-09 sobre
