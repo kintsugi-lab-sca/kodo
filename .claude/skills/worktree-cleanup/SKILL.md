@@ -1,6 +1,6 @@
 ---
 name: worktree-cleanup
-description: Audita y limpia worktrees acumulados en este repo (por defecto los del patrón `agent-*` bajo `.claude/worktrees/`, creados por el tool Agent de Claude Code con `isolation: "worktree"`). Verifica que cada rama esté mergeada en la rama principal, respeta worktrees `locked`, rechaza los que tengan cambios sin commit, y elimina los seguros junto con su rama local. Úsalo cuando el usuario pida limpiar worktrees, cuando se acumulen tras varias sesiones de agentes, o cuando aparezcan worktrees huérfanos en `git worktree list`.
+description: Audita y limpia worktrees acumulados en este repo (por defecto los del patrón `agent-*` bajo `.claude/worktrees/`, creados por el tool Agent de Claude Code con `isolation: "worktree"`). Verifica que cada rama esté mergeada en la rama principal, respeta worktrees `locked`, rechaza los que tengan cambios sin commit, y elimina los seguros junto con su rama local. Para los worktrees de sesión de kodo (`.claude/worktrees/<session-id>`) usa el script `sessions.py` de esta skill, que exige además tarea Done en Plane y ninguna sesión viva. Úsalo cuando el usuario pida limpiar worktrees, cuando se acumulen tras varias sesiones de agentes, o cuando aparezcan worktrees huérfanos en `git worktree list`.
 ---
 
 # Worktree Cleanup
@@ -22,10 +22,37 @@ Este repo (`kodo`) tiene dos lugares distintos donde aparecen worktrees:
 |---|---|---|---|
 | `<repo>/.bg-shell/<sessionId>` | `kodo` mismo (ver `computeWorktreePath` en `src/session/state.js:69`) | UUID | **NO**, los gestiona el propio kodo. Saltar siempre. |
 | `<repo>/.claude/worktrees/agent-*` | Tool `Agent` de Claude Code con `isolation: "worktree"` | `agent-<hash>` | **SÍ**, son la diana habitual del skill. |
+| `<repo>/.claude/worktrees/<session-id>` | Sesiones de kodo (`cleanupWorktree` renombra las sucias a `<session-id>.dirty`) | UUID | **SÍ, pero solo con `sessions.py`** (ver abajo). |
 | `<repo>/.claude/worktrees/<otro>` | Orca, GSD, compound-engineering, etc. | varía (p. ej. `zesty-tickling-pine`) | Solo si el usuario lo pide explícitamente. |
 | `/Users/alex/orca/workspaces/<repo>/...` | Orca | varía | NUNCA desde este skill. Pertenece a Orca. |
 
 Cuando el usuario diga "limpia los worktrees" sin más, asume **solo** `.claude/worktrees/agent-*`.
+
+## Worktrees de sesión de kodo: `sessions.py`
+
+Para `.claude/worktrees/<session-id>` no sigas el procedimiento manual de abajo: ejecuta el
+script, que recorre todos los repos de `~/.kodo/projects.json` (o los `--repo` que le pases):
+
+```bash
+python3 -I .claude/skills/worktree-cleanup/sessions.py            # simulación, no borra
+python3 -I .claude/skills/worktree-cleanup/sessions.py --apply    # borra los BORRABLE
+```
+
+Borra worktree + rama local solo si se cumplen las cuatro condiciones:
+
+1. **Tarea** Done o Cancelled en Plane. La tarea sale del nombre del directorio
+   (= session_id) buscado en `sessions`/`history` de `~/.kodo/state.json` y, si ya no está,
+   en el `session.start` de `~/.kodo/logs/<session_id>.ndjson`.
+2. **Sin commits propios**: `git rev-list --count <remoto>/<main>..HEAD` es 0 tras
+   `git fetch` de cada remoto; basta con que esté contenida en la main de **uno** de ellos.
+   Una rama integrada por squash cuenta como con commits propios y se conserva.
+3. **Árbol limpio**: nada modificado ni sin seguimiento; los ignorados cuentan salvo
+   los regenerables (`node_modules`, `tmp`, `log`, `.venv`, `.ruby-lsp`…, lista en el script).
+4. **Sin sesión viva**: ni fila en `sessions`, ni `locked`, ni proceso con el cwd dentro (`lsof`).
+
+Si algo no se puede comprobar (tarea sin identificar, Plane caído, remoto inaccesible),
+se conserva. La salida da, por worktree: directorio, rama, tarea, veredicto y las
+condiciones que fallan. Test: `test/skill-worktree-cleanup-sessions.test.js`.
 
 ## Procedimiento
 
