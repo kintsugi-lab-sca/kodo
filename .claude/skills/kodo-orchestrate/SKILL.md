@@ -579,12 +579,14 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
   el workspace y `DELETE http://127.0.0.1:9090/sessions/<task_id>` con
   `Authorization: Bearer $KODO_API_TOKEN` (`await import('./src/config.js')` lo
   carga; 409 `alive` = workspace aún abierto).
-- [2026-10-15] **Los worktrees con ficheros sin commitear (generados,
-  `.compound/`) no se limpian solos.** Cuando una tarea pasa a
-  Done con la PR mergeada, en la misma ronda `git worktree remove --force <wt>`
-  y `git branch -D <rama>`, solo si `git rev-list --count origin/main..HEAD` da
-  0 y no es de una sesión viva. Si da > 0, se conserva y va al handoff.
-  Comprueba el remoto (en kodo, `origin` es el fork y `kintsugi` el real).
+- [2026-11-09] **Worktrees de sesión: se limpian con un comando, no a mano.**
+  En la ronda en que una tarea pasa a Done, `python3 -I
+  .claude/skills/worktree-cleanup/sessions.py` (simulación) y, si lo BORRABLE
+  cuadra, con `--apply`. Borra solo con tarea Done/Cancelled + 0 commits sobre
+  la main de algún remoto + árbol limpio + sin sesión viva; lo que conserva va
+  al handoff con su motivo. Antes de cerrar una sesión, su `.compound/*.md`
+  tiene que ir commiteado en su rama: sin seguimiento bloquea el borrado para
+  siempre. (En kodo, `origin` es el fork y `kintsugi` el remoto real.)
 
 ### Integrar y mergear
 
