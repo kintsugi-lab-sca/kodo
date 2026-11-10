@@ -40,6 +40,7 @@ import { deriveReviewState, nextRecommendationName, resolveReviewedHead, reviewC
 import { commitReviewArtifacts, inspectWorkingTree } from '../review/guard.js';
 import { findOpenCycleByBranch, getReviewCycle, listReviewCycles, openReviewCycle, recordReviewOutcome, resolveMaxRounds } from '../review/cycle.js';
 import { buildReviewerCommand, buildReviewerPrompt, collectOcrSpec, provisionReviewWorktree, resolveBaseBranch, resolveOcrRulePath } from '../review/launch.js';
+import { writePromptFile } from '../session/prompt-file.js';
 import { EXIT_ERROR, EXIT_SUCCESS, EXIT_USAGE } from './exit-codes.js';
 import { createFormatter } from './format.js';
 import { stripControlChars } from './sanitize.js';
@@ -196,7 +197,8 @@ export function describeReviewState(rs, fmt) {
  *   2. Provisionar el worktree sobre la rama EXISTENTE (nunca crear una nueva).
  *   3. Abrir/refrescar el ciclo en `state.review_cycles` ANTES de lanzar: si el spawn falla,
  *      el ciclo queda visible en vez de perderse.
- *   4. Crear el workspace del host y teclear la línea con `KODO_REVIEWER=1`.
+ *   4. Escribir el prompt a su fichero, crear el workspace del host y teclear la línea con
+ *      `KODO_REVIEWER=1`.
  *
  * @param {string} ref
  * @param {{ json?: boolean, maxRounds?: number }} opts
@@ -280,9 +282,11 @@ export async function runReviewStartCli(ref, opts = {}, deps = {}) {
     next_recommendation: nextRecommendationName(existing),
     ocr_section: ocr.ok ? ocr.section : '',
   });
-  const command = buildReviewerCommand(config, sessionId, prompt);
 
   try {
+    // Dentro del try y antes del workspace: si el fichero no se puede escribir, sale con
+    // EXIT_ERROR y sin dejar un workspace vacío.
+    const command = buildReviewerCommand(config, sessionId, writePromptFile(sessionId, prompt));
     const { getHost, resolveHostName } = await import('../host/interface.js');
     const host = getHost(resolveHostName());
     const newWorkspaceFn = deps.newWorkspaceFn || host._legacy.newWorkspace;

@@ -231,9 +231,10 @@ export function buildReviewerPrompt(ctx, deps = {}) {
  *
  *   - prefijo `KODO_REVIEWER=1` → el shell del workspace lo exporta al agente y a sus hijos,
  *     que es lo que abre el gate de `review/guard.js` para `kodo review commit`;
- *   - el prompt va entre comillas SIMPLES con las suyas escapadas (`'` → `'\''`): el comando
- *     se TECLEA por `send`, así que las simples son las únicas que neutralizan `$`, backtick
- *     y `$(...)` del texto;
+ *   - el prompt NO viaja en la línea: se referencia con `"$(cat <path>)"`. Con cmux 0.65.2, un
+ *     `cmux send` de ≥ 4 KB falla de forma intermitente con «Socket closed before reply»
+ *     (medido: 3,5 KB 0/30, 4 KB 16/30), y solo la plantilla pesa 4,9 KB. El shell lo expande
+ *     al ejecutar, así que `$`, backtick y comillas del prompt llegan al agente sin interpretar;
  *   - `--dangerously-skip-permissions` NO se emite. El reviewer no necesita saltarse permisos
  *     —no ejecuta slash commands autónomos— y dárselo ampliaría gratis la superficie del rol
  *     cuya razón de ser es tenerla estrecha.
@@ -246,11 +247,10 @@ export function buildReviewerPrompt(ctx, deps = {}) {
  *
  * @param {ReturnType<import('../config.js').loadConfig>} config
  * @param {string} sessionId
- * @param {string} prompt Prompt del reviewer SIN escapar.
+ * @param {string} promptPath Fichero con el prompt (`writePromptFile`).
  * @returns {string}
  */
-export function buildReviewerCommand(config, sessionId, prompt) {
-  const escaped = String(prompt).replace(/'/g, "'\\''");
+export function buildReviewerCommand(config, sessionId, promptPath) {
   const agent = getAgentDef(config);
   // KODO-104: mismo effort que las sesiones de trabajo; sin effort o sin flag, no se emite.
   const effort = config.claude?.default_effort;
@@ -261,7 +261,7 @@ export function buildReviewerCommand(config, sessionId, prompt) {
     agent.model_flag, config.claude.default_model,
     ...effortPart,
     agent.session_id_flag, sessionId,
-    `'${escaped}'`,
+    `"$(cat ${promptPath})"`,
   ]
     .filter(Boolean)
     .join(' ');
@@ -309,10 +309,9 @@ export function resolveBaseBranch(dir, deps = {}) {
 // se omite y `kodo review start` sigue. Un checklist es ayuda, no una precondición.
 
 /**
- * Tope de la sección OCR, en caracteres. El prompt entero se TECLEA por `cmux send`: el del
- * orquestador (~15 KB) es el precedente que se sabe que funciona, y el del reviewer ya ronda
- * 5 KB. Los checklists de sistema de OCR pesan ~3 KB por lenguaje, así que un diff políglota
- * sin tope se iría de las manos.
+ * Tope de la sección OCR, en caracteres. El prompt ya no se teclea, así que `cmux send` no lo
+ * limita: el tope acota el contexto que consume el reviewer. Los checklists de sistema de OCR
+ * pesan ~3 KB por lenguaje, así que un diff políglota sin tope se iría de las manos.
  */
 export const OCR_SECTION_MAX_CHARS = 10_000;
 
@@ -404,18 +403,20 @@ export function collectOcrSpec(params, deps = {}) {
 /**
  * Renderiza la sección «Ficheros y checklist». PURA.
  *
- * TODO lo que sale de OCR se sanea para el carril por el que viaja el prompt: se TECLEA con
- * `cmux send`, que convierte `\t`/`\n`/`\r` LITERALES en Tab/Enter — y un Tab dentro de la
- * línea dispara el autocompletado del shell a mitad del prompt. Las rutas vienen de la rama
- * revisada (las elige quien la escribió), así que además se aplanan a una línea y pierden
- * los backticks: no pueden salirse de su code span ni fingir una sección del prompt.
+ * TODO lo que sale de OCR se sanea. Las rutas vienen de la rama revisada (las elige quien la
+ * escribió), así que se aplanan a una línea y pierden los backticks: no pueden salirse de su
+ * code span ni fingir una sección del prompt. Los bytes de control tampoco llegan al agente.
+ *
+ * El texto de las reglas se conserva tal cual: Tab y `\t`/`\n`/`\r` literales incluidos, que en
+ * una checklist suelen ser código (`split('\n')`). La sección solo llega al agente dentro del
+ * fichero de prompt; `cmux send` teclea `"$(cat <path>)"`, nunca este texto.
  *
  * @param {{ preview: any, groups: any[], rulePath: string }} params
  * @returns {string} Termina en `\n\n` para encajar entre dos secciones de prompt.md.
  */
 export function renderOcrSection({ preview, groups, rulePath }) {
   const line = (/** @type {unknown} */ s) => stripForKeystroke(s).replace(/`/g, "'");
-  const block = (/** @type {unknown} */ s) => stripControlChars(s).replace(/\t/g, '  ').replace(/\\([nrt])/g, '\\ $1');
+  const block = (/** @type {unknown} */ s) => stripControlChars(s);
   const reviewable = Array.isArray(preview?.reviewable_files) ? preview.reviewable_files : [];
   const excluded = Array.isArray(preview?.excluded_files) ? preview.excluded_files : [];
 
