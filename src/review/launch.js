@@ -407,16 +407,16 @@ export function collectOcrSpec(params, deps = {}) {
  * escribió), así que se aplanan a una línea y pierden los backticks: no pueden salirse de su
  * code span ni fingir una sección del prompt. Los bytes de control tampoco llegan al agente.
  *
- * La sustitución de Tab y de `\t`/`\n`/`\r` LITERALES en el texto de las reglas viene de cuando
- * el prompt se tecleaba por `cmux send`, que los convierte en Tab/Enter. Desde que viaja por
- * fichero, el transporte ya no la necesita.
+ * El texto de las reglas se conserva tal cual: Tab y `\t`/`\n`/`\r` literales incluidos, que en
+ * una checklist suelen ser código (`split('\n')`). La sección solo llega al agente dentro del
+ * fichero de prompt; `cmux send` teclea `"$(cat <path>)"`, nunca este texto.
  *
  * @param {{ preview: any, groups: any[], rulePath: string }} params
  * @returns {string} Termina en `\n\n` para encajar entre dos secciones de prompt.md.
  */
 export function renderOcrSection({ preview, groups, rulePath }) {
   const line = (/** @type {unknown} */ s) => stripForKeystroke(s).replace(/`/g, "'");
-  const block = (/** @type {unknown} */ s) => stripControlChars(s).replace(/\t/g, '  ').replace(/\\([nrt])/g, '\\ $1');
+  const block = (/** @type {unknown} */ s) => stripControlChars(s);
   const reviewable = Array.isArray(preview?.reviewable_files) ? preview.reviewable_files : [];
   const excluded = Array.isArray(preview?.excluded_files) ? preview.excluded_files : [];
 
