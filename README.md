@@ -360,6 +360,7 @@ kodo dashboard           # TUI of active sessions
 kodo capture "<text>"    # captures an idea into the global inbox (~/.kodo/inbox.md)
 kodo inbox               # inbox triage (--all, --json, --full; route|discard|retag|promote <id>)
 kodo inbox-orch          # orchestrator inbox: unseen events (--all, --json, ack --all)
+kodo portfolio           # per-project status cards in ~/.kodo/portfolio/ (--all, --json; show|set|step <slug>)
 kodo integrate           # integration queue: which branches await ff/merge/PR (--all, --json)
 kodo oracle              # mechanical oracle: what kodo itself verified on each branch (run <REF>)
 kodo audit               # audit gate: the second pass a session owes before its work is queued

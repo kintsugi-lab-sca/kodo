@@ -586,6 +586,79 @@ inboxOrch
     return runInboxOrchAckCli(ids || [], { all });
   }));
 
+// --- kodo portfolio --- (situación de cada proyecto en marcha; la lee MyTasks)
+//
+// Misma forma que `inbox`: el padre lista y los subcomandos escriben. Los flags del padre
+// (`--all`, `--json`) NO se repiten en ningún subcomando — ver la colisión de `inbox-orch ack`.
+//
+// NO `ensureConfig()`: el portafolio es filesystem local (`~/.kodo/portfolio/`) y no toca
+// ningún provider. Mismo precedente que `capture` e `inbox`.
+const collect = (/** @type {string} */ value, /** @type {string[]} */ acc) => [...acc, value];
+
+const portfolio = program
+  .command('portfolio')
+  .description('Portafolio: situación de cada proyecto en marcha (~/.kodo/portfolio/)')
+  .option('--all', 'Incluir también los proyectos archivados')
+  .option('--json', 'Emitir el listado como JSON')
+  .action(setExitCode(async (opts) => {
+    const { runPortfolioListCli } = await import('./cli/portfolio.js');
+    return runPortfolioListCli({ all: opts.all || false, json: opts.json || false });
+  }));
+
+portfolio
+  .command('show <slug>')
+  .description('Volcar la ficha de un proyecto como JSON')
+  .action(setExitCode(async (slug) => {
+    const { runPortfolioShowCli } = await import('./cli/portfolio.js');
+    return runPortfolioShowCli(slug);
+  }));
+
+portfolio
+  .command('set <slug>')
+  .description(
+    'Crear la ficha (requiere --name y --plane-project) o actualizar solo los campos indicados. ' +
+      'Una cadena vacía borra el campo',
+  )
+  .option('--name <nombre>', 'Nombre visible del proyecto')
+  .option('--plane-project <id>', 'UUID del proyecto de Plane')
+  .option('--module <nombre>', 'Módulo de Plane (por nombre) si el proyecto es un módulo')
+  .option('--status <estado>', 'on_track | at_risk | blocked | waiting | paused | done')
+  .option('--headline <texto>', 'Situación actual en una línea')
+  .option('--next <texto>', 'Siguiente paso')
+  .option('--waiting-on <texto>', 'A quién o a qué se está esperando')
+  .option('--blocker <texto>', 'Bloqueo (repetible; REEMPLAZA la lista)', collect, [])
+  .option('--clear-blockers', 'Vaciar la lista de bloqueos')
+  .option('--date <YYYY-MM-DD=etiqueta>', 'Hito externo (repetible; REEMPLAZA la lista)', collect, [])
+  .option('--clear-dates', 'Vaciar la lista de hitos')
+  .option('--archive', 'Archivar el proyecto')
+  .option('--unarchive', 'Recuperar un proyecto archivado')
+  .option('--source <ref>', 'Quién actualiza: sesión, tarea…')
+  .action(setExitCode(async (slug, opts) => {
+    const { runPortfolioSetCli } = await import('./cli/portfolio.js');
+    return runPortfolioSetCli(slug, {
+      name: opts.name,
+      planeProject: opts.planeProject,
+      module: opts.module,
+      status: opts.status,
+      headline: opts.headline,
+      nextStep: opts.next,
+      waitingOn: opts.waitingOn,
+      blockers: opts.clearBlockers ? [] : opts.blocker.length ? opts.blocker : undefined,
+      dates: opts.clearDates ? [] : opts.date.length ? opts.date : undefined,
+      archived: opts.archive ? true : opts.unarchive ? false : undefined,
+      source: opts.source,
+    });
+  }));
+
+portfolio
+  .command('step <slug> <text>')
+  .description('Añadir un paso a la cronología del proyecto (se conservan los 30 más recientes)')
+  .option('--source <ref>', 'Quién lo registra: sesión, tarea…')
+  .action(setExitCode(async (slug, text, opts) => {
+    const { runPortfolioStepCli } = await import('./cli/portfolio.js');
+    return runPortfolioStepCli(slug, text, { source: opts.source });
+  }));
+
 // --- kodo integrate --- (KODO-26: cola de integración)
 //
 // MISMA forma que `inbox` y por la MISMA razón: el padre lista, y la acción sobre una entrada
