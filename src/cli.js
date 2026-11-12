@@ -659,6 +659,27 @@ portfolio
     return runPortfolioStepCli(slug, text, { source: opts.source });
   }));
 
+portfolio
+  .command('event <slug>')
+  .description('Registrar una reunión o un correo relevante del proyecto (se conservan los 20 más recientes)')
+  .requiredOption('--kind <tipo>', 'meeting | email')
+  .requiredOption('--date <YYYY-MM-DD>', 'Fecha de la reunión o del correo')
+  .requiredOption('--title <texto>', 'Título de la reunión o asunto del correo')
+  .option('--summary <texto>', 'Qué se decidió o qué pide, en una o dos frases')
+  .option('--ref <id>', 'Id de origen (reunión de Anarlog, hilo de correo): repetirlo reemplaza, no duplica')
+  .option('--source <ref>', 'Quién lo registra: sesión, tarea…')
+  .action(setExitCode(async (slug, opts) => {
+    const { runPortfolioEventCli } = await import('./cli/portfolio.js');
+    return runPortfolioEventCli(slug, {
+      kind: opts.kind,
+      date: opts.date,
+      title: opts.title,
+      summary: opts.summary,
+      ref: opts.ref,
+      source: opts.source,
+    });
+  }));
+
 // --- kodo integrate --- (KODO-26: cola de integración)
 //
 // MISMA forma que `inbox` y por la MISMA razón: el padre lista, y la acción sobre una entrada
