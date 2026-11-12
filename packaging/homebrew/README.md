@@ -22,11 +22,13 @@ Every time you want a change to reach `brew` users, perform the full ritual:
 
 1. **Version bump** in `package.json` (`kodo --version` reads it via commander, and the
    formula's `test do` asserts `kodo --version` == the tag's version).
-2. **Commit + tag + push** to the public source repo:
+2. **Commit + tag + push** to the public source repo (`origin` = `kintsugi-lab-sca/kodo`),
+   then mirror to the private copy (`deikka` = `deikka/kodo`) so both stay in sync:
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z <summary>"
-   git push kintsugi main
-   git push kintsugi vX.Y.Z          # GitHub generates the tarball at /archive/refs/tags/vX.Y.Z.tar.gz
+   git push origin main
+   git push origin vX.Y.Z            # GitHub generates the tarball at /archive/refs/tags/vX.Y.Z.tar.gz
+   git push deikka main vX.Y.Z
    ```
 3. **sha256** of the tarball (requires the source repo to be PUBLIC):
    ```bash
