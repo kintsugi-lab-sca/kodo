@@ -38,8 +38,9 @@
 // alias siguen siendo el default: no obligan a tocar kodo con cada versión nueva.
 const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
 
-// KODO-112: id completo de modelo (`claude-fable-5-2`, `claude-haiku-4-5`). Regex anclada
-// y sin cuantificadores anidados sobre un input acotado por longitud (anti-ReDoS T-63-05).
+// KODO-112: id completo de modelo (`claude-fable-5-2`, `claude-haiku-4-5`). Regex anclada;
+// el grupo repetido empieza por un guion literal, así que cada carácter casa de una sola
+// forma (sin backtracking exponencial), y el input va acotado por longitud (anti-ReDoS T-63-05).
 const MODEL_ID = /^claude-[a-z0-9]+(-[a-z0-9]+)*$/;
 const MODEL_ID_MAX_LEN = 64;
 
