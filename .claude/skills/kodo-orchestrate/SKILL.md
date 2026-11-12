@@ -358,6 +358,42 @@ kodo integrate <ref> --merge --test 'npm test'
 - **Nunca escribas `integration_queue` a mano.** Las entradas no se borran:
   quedan como traza, y cada acción en `~/.kodo/logs/integrate.ndjson`.
 
+## Portafolio (situación de cada proyecto)
+
+`~/.kodo/portfolio/<slug>.json` es lo que el operador mira en MyTasks para
+saber en qué punto está cada proyecto **sin preguntarte**. Lo mantienes tú: si
+no escribes, queda rancio (MyTasks lo marca a los 7 días).
+
+**Cuándo.** En la ronda, por cada cierre de sesión de la bandeja (antes del
+ack) y cada tarea que pase a Done. También cuando el operador te dé un dato de
+situación: una fecha, un bloqueo, una espera a cliente.
+
+**Qué ficha.** `kodo portfolio --json` → la que tenga `plane.project_id` igual
+al proyecto de la tarea y `plane.module` igual a su módulo (`null` = proyecto
+entero). Si ninguna coincide no la crees por tu cuenta: propónsela al operador
+(`kodo portfolio set <slug> --name '…' --plane-project '<id>' [--module '…']`).
+
+**Qué escribir.**
+
+1. Un paso por tarea cerrada, como **resultado** y no como proceso:
+   `kodo portfolio step <slug> 'Formulario de contacto en producción' --source 'ROMAN-254'`
+   (no «sesión terminada»).
+2. Solo si cambia: `kodo portfolio set <slug> --headline '…' --next '…'
+   --status <on_track|at_risk|blocked|waiting|paused|done> --source '<REF>'`.
+   `--waiting-on '…'` cuando la pelota está en otro tejado (`''` al volver).
+   `--blocker` y `--date 'YYYY-MM-DD=etiqueta'` **reemplazan** la lista:
+   repite los vigentes (`--clear-blockers`, `--clear-dates` vacían).
+
+**Reglas.**
+
+- Solo hechos que te consten: handoff, `NEXT:`, comentarios del provider, lo
+  que diga el operador. Un campo vacío es mejor que uno inventado.
+- No copies contadores de tareas ni sus fechas límite: MyTasks los lee del
+  provider. `--date` es para hitos que no son tareas (reunión, entrega pactada).
+- Texto libre entre comillas SIMPLES, misma regla que en §Adopción asistida; si
+  el texto trae un `'`, reformúlalo.
+- Archivar una ficha es decisión del operador.
+
 ## Estado vivo de la tarea (novedades v0.17)
 
 - **Handoff acumulativo + `NEXT:`.** Al cerrar, el plan
