@@ -43,6 +43,16 @@ describe('KODO-12 — buildOrchestratorCommand', () => {
     assert.match(cmd, /--model fable/);
   });
 
+  // KODO-112: un id completo fijado en la config llega tal cual a `--model`.
+  it('un id completo fijado (claude-fable-5-2) llega verbatim a --model', () => {
+    const cmd = buildOrchestratorCommand(
+      makeConfig({ orchestrator_model: 'claude-fable-5-2' }),
+      'sess-pin',
+      'hola',
+    );
+    assert.match(cmd, /^KODO_ORCHESTRATOR=1 claude --model claude-fable-5-2 --session-id sess-pin /);
+  });
+
   it('cae a default_model si un config parcial no trae orchestrator_model', () => {
     const cmd = buildOrchestratorCommand(makeConfig({ default_model: 'sonnet' }), 'sess-3', 'hola');
     assert.match(cmd, /--model sonnet/);
@@ -69,16 +79,16 @@ describe('KODO-12 — buildOrchestratorCommand', () => {
   });
 });
 
-// KODO-82 — el ORCH debe correr en Fable 5.1 en TODOS los carriles. En Claude Code lo
-// consigue el alias `fable` (VERIFICADO contra el binario v2.1.258: `claude -p --model
-// fable --output-format json` devuelve `modelUsage.canonicalModel = claude-fable-5-1`).
+// KODO-82 — el ORCH debe correr en la última Fable en TODOS los carriles. En Claude Code lo
+// consigue el alias `fable` (KODO-112: VERIFICADO contra el binario v2.1.322, `claude -p
+// --model fable --output-format json` devuelve `modelUsage` con `claude-fable-5-2`).
 // En OpenCode no hay alias: el id exacto lo pone `model_map`, y el orquestador tiene que
 // aplicarlo igual que el carril de trabajo.
-describe('KODO-82 — el ORCH resuelve a Fable 5.1 en ambos carriles', () => {
-  it('el mapa de opencode apunta a Fable 5.1, no a 5.0', () => {
+describe('KODO-82/KODO-112 — el ORCH resuelve a Fable 5.2 en ambos carriles', () => {
+  it('el mapa de opencode apunta a Fable 5.2, no a 5.1 ni 5.0', () => {
     assert.equal(
       DEFAULT_CONFIG.agents.registry.opencode.model_map.fable,
-      'opencode/claude-fable-5-1',
+      'opencode/claude-fable-5-2',
     );
   });
 
@@ -88,7 +98,7 @@ describe('KODO-82 — el ORCH resuelve a Fable 5.1 en ambos carriles', () => {
       agents: { default: 'opencode', registry: DEFAULT_CONFIG.agents.registry },
     });
     const cmd = buildOrchestratorCommand(config, 'sess-oc', 'hola');
-    assert.match(cmd, /--model opencode\/claude-fable-5-1/);
+    assert.match(cmd, /--model opencode\/claude-fable-5-2/);
     assert.doesNotMatch(cmd, /--model fable/, 'el alias suelto no lo entiende OpenCode');
   });
 

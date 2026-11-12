@@ -1532,11 +1532,16 @@ job is to supervise and dispatch, not to implement. Change it with
 `kodo config --set claude.orchestrator_model=opus` or from the dashboard's
 editor (`e` → "Modelo del orquestador").
 
-`fable` is the alias `claude --model` documents for "the latest Fable", which today
-resolves to **Fable 5.1** (`claude-fable-5-1`). kodo keeps the alias rather than pinning
-the version, so the orchestrator follows the newest Fable without a config edit. On
+`fable` is the alias `claude --model` documents for "the latest Fable". The `claude`
+binary installed **when the orchestrator is launched** resolves it: Claude Code 2.1.322
+gives **Fable 5.2** (`claude-fable-5-2`), 2.1.319 gave 5.1. A running orchestrator keeps
+the model it started with (also across a cmux resume), so updating Claude Code only
+takes effect on the next launch. kodo keeps the alias rather than pinning the version,
+so the orchestrator follows the newest Fable without a config edit. To pin a version,
+set a full model id instead of an alias (`claude-fable-5-2`); the dashboard editor shows
+the exact value passed to `--model` and whether it is an alias or a pinned version. On
 OpenCode, which takes `provider/model` identifiers and has no such alias, the pin is
-explicit in `agents.registry.opencode.model_map` (`opencode/claude-fable-5-1`); the
+explicit in `agents.registry.opencode.model_map` (`opencode/claude-fable-5-2`); the
 orchestrator applies that map exactly like work sessions do.
 
 Its skill (`.claude/skills/kodo-orchestrate/`) accumulates knowledge across

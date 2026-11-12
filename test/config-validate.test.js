@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   validatePositiveInt,
   validateModel,
+  describeModelArg,
   validateEffort,
   validateNonEmpty,
   validateCmuxColor,
@@ -62,7 +63,7 @@ describe('CFG-01/CFG-03 — validatePositiveInt (entero positivo, never-throws)'
   });
 });
 
-describe('CFG-01 — validateModel (set estricto {fable,opus,sonnet,haiku})', () => {
+describe('CFG-01 — validateModel (alias {fable,opus,sonnet,haiku} o id claude-*)', () => {
   it('acepta fable/opus/sonnet/haiku', () => {
     assert.deepEqual(validateModel('fable'), { ok: true, value: 'fable' });
     assert.deepEqual(validateModel('opus'), { ok: true, value: 'opus' });
@@ -78,8 +79,21 @@ describe('CFG-01 — validateModel (set estricto {fable,opus,sonnet,haiku})', ()
     assert.equal(validateModel('gpt').ok, false);
   });
 
-  it('rechaza un id completo claude-* (límite del set estricto, Pitfall 6)', () => {
-    assert.equal(validateModel('claude-opus-4').ok, false);
+  // KODO-112: un id completo fija la versión; el alias la deja en manos del binario.
+  it('acepta un id completo claude-* para fijar la versión', () => {
+    assert.deepEqual(validateModel('claude-fable-5-2'), { ok: true, value: 'claude-fable-5-2' });
+    assert.deepEqual(validateModel(' claude-haiku-4-5 '), { ok: true, value: 'claude-haiku-4-5' });
+  });
+
+  it('rechaza ids mal formados o de otro proveedor', () => {
+    for (const bad of ['claude-', 'claude', 'Claude-Fable-5-2', 'claude-fable--5', 'claude-fable 5',
+      'opencode/claude-fable-5-2', 'gpt-5', `claude-${'a'.repeat(64)}`]) {
+      assert.equal(validateModel(bad).ok, false, `debería rechazar ${bad}`);
+    }
+  });
+
+  it('el error menciona los alias y los ids claude-*', () => {
+    assert.match(validateModel('gpt').error, /fable, opus, sonnet, haiku, o un id claude-\*/);
   });
 
   it('rechaza el string vacío', () => {
@@ -495,5 +509,32 @@ describe('KODO-18 — getEditableFields resuelve la presentación contra el host
     for (const f of getEditableFields({ provider: 'plane', host: 'orca' })) {
       assert.notEqual(getByPath(DEFAULT_CONFIG, f.path), undefined, `path sin valor: ${f.path}`);
     }
+  });
+});
+
+describe('KODO-112 — describeModelArg (hint del modelo del orquestador)', () => {
+  it('alias: muestra el id que llega a --model y avisa de que lo resuelve el binario', () => {
+    const hint = describeModelArg({}, 'fable');
+    assert.match(hint, /^→ --model fable /);
+    assert.match(hint, /alias/);
+  });
+
+  it('id completo: lo marca como versión fijada', () => {
+    assert.equal(describeModelArg({}, 'claude-fable-5-2'), '→ --model claude-fable-5-2 (versión fijada)');
+  });
+
+  it('aplica el model_map del agente por defecto (opencode)', () => {
+    const config = { agents: { default: 'opencode', registry: DEFAULT_CONFIG.agents.registry } };
+    assert.match(describeModelArg(config, 'fable'), /^→ --model opencode\/claude-fable-5-2 /);
+  });
+
+  it('getEditableFields cuelga el hint en claude.orchestrator_model', () => {
+    const fields = getEditableFields({ ...DEFAULT_CONFIG, claude: { ...DEFAULT_CONFIG.claude, orchestrator_model: 'claude-fable-5-2' } });
+    const f = fields.find((x) => x.path === 'claude.orchestrator_model');
+    assert.equal(f?.hint, '→ --model claude-fable-5-2 (versión fijada)');
+  });
+
+  it('never-throws con config vacío o modelo ausente', () => {
+    assert.doesNotThrow(() => describeModelArg(undefined, undefined));
   });
 });

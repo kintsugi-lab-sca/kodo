@@ -256,11 +256,11 @@ const DEFAULT_CONFIG = {
           opus: 'opencode/claude-opus-5',
           sonnet: 'opencode/claude-sonnet-5',
           haiku: 'opencode/claude-haiku-4-5',
-          // KODO-82: el ORQUESTADOR va en Fable 5.1 (`claude.orchestrator_model`), y
-          // aquí no hay alias flotante que lo resuelva — OpenCode exige el id exacto.
-          // `opencode/claude-fable-5` es Fable 5.0: dejarlo degradaría al ORCH una
-          // versión entera en el carril OpenCode. VERIFICADO con `opencode models`.
-          fable: 'opencode/claude-fable-5-1',
+          // KODO-82: el ORQUESTADOR va en Fable (`claude.orchestrator_model`), y aquí no
+          // hay alias flotante que lo resuelva — OpenCode exige el id exacto, así que este
+          // mapeo hay que subirlo a mano con cada versión. KODO-112: 5.1 → 5.2, la última
+          // que lista `opencode models` (12-nov).
+          fable: 'opencode/claude-fable-5-2',
         },
         session_id_flag: null,
         // KODO-104: OpenCode no tiene `--effort` → el flag se omite del comando.

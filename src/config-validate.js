@@ -30,7 +30,19 @@
 // KODO-12: `fable` entra al set porque es el default de `claude.orchestrator_model`.
 // VERIFICADO contra el binario: `claude --help` lo documenta como alias de `--model`
 // ("Provide an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet')").
+//
+// KODO-112: un alias lo resuelve el binario `claude` presente AL LANZAR — con 2.1.319
+// `fable` daba `claude-fable-5-1`; con 2.1.322, `claude-fable-5-2` (verificado con
+// `claude -p --model fable --output-format json` → `modelUsage`). Para poder FIJAR una
+// versión, además del set se admite un id completo `claude-*` (ver `MODEL_ID`). Los
+// alias siguen siendo el default: no obligan a tocar kodo con cada versión nueva.
 const MODELS = new Set(['fable', 'opus', 'sonnet', 'haiku']);
+
+// KODO-112: id completo de modelo (`claude-fable-5-2`, `claude-haiku-4-5`). Regex anclada;
+// el grupo repetido empieza por un guion literal, así que cada carácter casa de una sola
+// forma (sin backtracking exponencial), y el input va acotado por longitud (anti-ReDoS T-63-05).
+const MODEL_ID = /^claude-[a-z0-9]+(-[a-z0-9]+)*$/;
+const MODEL_ID_MAX_LEN = 64;
 
 // KODO-104: niveles de `claude --effort <level>` (VERIFICADO con `claude --help`). Set
 // estricto; el vacío/null NO está porque no es un nivel, es «no pasar el flag».
@@ -80,20 +92,37 @@ export function validatePositiveInt(raw) {
 }
 
 /**
- * Valida que el modelo pertenezca al set estricto `{fable, opus, sonnet, haiku}` (CFG-01, D-07).
- *
- * LÍMITE CONOCIDO (Pitfall 6/A2): un id completo `claude-*` válido para el binario
- * `claude --model` se rechaza en v1. Es una decisión de diseño aceptada por simetría
- * con CONTEXT D-07, no un bug.
+ * Valida un modelo: un alias del set `{fable, opus, sonnet, haiku}` (CFG-01, D-07) o, desde
+ * KODO-112, un id completo `claude-*` (p. ej. `claude-fable-5-2`) para fijar una versión.
+ * No se comprueba que el id exista: eso solo lo sabe el binario `claude` al lanzar.
  *
  * @param {any} raw
  * @returns {ValidationResult}
  */
 export function validateModel(raw) {
   const s = String(raw).trim();
-  return MODELS.has(s)
+  return MODELS.has(s) || (s.length <= MODEL_ID_MAX_LEN && MODEL_ID.test(s))
     ? { ok: true, value: s }
-    : { ok: false, error: `modelo debe ser uno de: ${[...MODELS].join(', ')}` };
+    : { ok: false, error: `modelo debe ser uno de: ${[...MODELS].join(', ')}, o un id claude-*` };
+}
+
+/**
+ * KODO-112: describe qué recibe `--model` para un modelo de la config, para el hint del
+ * editor. Aplica el `model_map` del agente por defecto (espejo de `mapAgentModel` en
+ * config.js, que no se importa para mantener este módulo con 0 imports) y dice si la
+ * versión queda fijada o la decide el binario al lanzar.
+ *
+ * @param {any} config - snapshot de config.
+ * @param {any} model - valor del campo (`claude.orchestrator_model`).
+ * @returns {string}
+ */
+export function describeModelArg(config, model) {
+  const m = String(model ?? '');
+  const agent = config?.agents?.registry?.[config?.agents?.default ?? 'claude-code'];
+  const arg = agent?.model_map?.[m] || m;
+  return MODELS.has(m)
+    ? `→ --model ${arg} (alias: la versión la decide el claude instalado al lanzar)`
+    : `→ --model ${arg} (versión fijada)`;
 }
 
 /**
@@ -313,7 +342,8 @@ export function getEditableFields(config) {
     // KODO-104: effort de las sesiones de trabajo; vacío = no pasar `--effort`.
     { path: 'claude.default_effort', label: 'Effort por defecto', kind: 'effort', hint: '(vacío = hereda settings de claude)' },
     // KODO-12: modelo del ORQUESTADOR, independiente del de las sesiones de trabajo.
-    { path: 'claude.orchestrator_model', label: 'Modelo del orquestador', kind: 'model' },
+    // KODO-112: el hint dice qué id llega a `--model` y si es alias o versión fijada.
+    { path: 'claude.orchestrator_model', label: 'Modelo del orquestador', kind: 'model', hint: describeModelArg(config, config?.claude?.orchestrator_model) },
     { path: 'claude.max_parallel', label: 'Máximo en paralelo', kind: 'positiveInt' },
     { path: `providers.${provider}.states.trigger`, label: 'Estado: trigger', kind: 'nonEmpty' },
     { path: `providers.${provider}.states.review`, label: 'Estado: review', kind: 'nonEmpty' },
