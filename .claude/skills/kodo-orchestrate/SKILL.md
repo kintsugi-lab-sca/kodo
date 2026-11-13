@@ -566,16 +566,18 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
 - [2026-11-09] **Si el operador trabaja dentro de una sesión, pregunta antes
   de ordenar** (borrador humano en el prompt, o lo dice el handoff): primero
   «¿qué estado tiene X?», después la orden.
-- [2026-11-09] **Reinicio de cmux**: renumera `workspace:N` y
-  `workspace_group:N`; el `workspace_id` (UUID) sobrevive. `read-screen` da
-  «Workspace ref not found» en sesiones vivas y el reconcile las deja `dead`
-  (zombies fuera de `max_parallel`). No las des por muertas: `cmux
-  list-workspaces` trae los refs nuevos con el ref de tarea en el título, y
-  `workspace-group list` los grupos. Rescate: cruza `cmux workspace list
-  --json` por `id` y `updateSession(taskId, {...})` de `src/session/state.js`
-  con el ref nuevo y `state:'idle'`, `alive/tab_alive:true`, `dead_since` y
-  `process_dead_since` a null (backup de `state.json` antes). Una sesión
-  reanudada en cwd equivocado sin worktree se cierra.
+- [2026-11-12] **Reinicio de cmux**: renumera `workspace:N`; el `workspace_id`
+  (UUID) sobrevive. El reconcile deja las sesiones `dead` y el auto-dismiss las
+  archiva en `state.history` aunque sigan vivas. Rescate (backup de `state.json`
+  antes): cruza `cmux workspace list --json` por `id` y `reopenSession(sessionId,
+  {workspace_ref, tab_alive:true})` + `updateSession(taskId, {status:'idle'})` de
+  `src/session/state.js`; `setOrchestrator` con tu ref nuevo.
+- [2026-11-12] **Cuenta las sesiones de `state.json`, nunca del handoff ni
+  sumando sobre tu último recuento.** Si el dashboard y tú no coincidís, manda
+  el dashboard: relee el estado antes de decir «N de 15».
+- [2026-11-12] **`read-screen` con «No focused surface»**: el pane enfocado es
+  un navegador. `cmux list-pane-surfaces --workspace <ref> --pane <pane>` da la
+  superficie del terminal; léela con `--surface`.
 - [2026-10-23] **Clasificador de permisos «pegado» en «Remote Shell Writes»**
   tras un `kamal app exec`: deniega lecturas inocuas en esa sesión. Haz tú la
   lectura (prod: `kamal app exec --reuse "bin/rails runner
@@ -688,6 +690,10 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
 
 ### Plane (MCP y REST)
 
+- [2026-11-12] **Tarea de ROMAN: asígnale el módulo antes de lanzar**, o kodo
+  no resuelve la ruta: `POST projects/{pid}/modules/{mid}/module-issues/` con
+  `{"issues":[id]}`. Las carpetas sin git (aparcago, pascual) se lanzan sin
+  worktree.
 - [2026-10-23] **Mutar: `update_work_item` con listas completas**
   (`assignees`, `labels`) o PATCH REST (skill `plane-api`,
   `projects/{pid}/work-items/{wid}/`). `manage_work_item_assignee` y
@@ -765,6 +771,10 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
 
 ### Entorno y herramientas
 
+- [2026-11-12] **«nodename nor servname» solo en algunos dominios** (Plane,
+  Basecamp) con `dig` resolviendo bien: es el DNS del sistema, no el servicio.
+  `scutil --dns` y `networksetup -getdnsservers Wi-Fi` dicen cuál; cambiarlo es
+  del operador. Mientras, `curl --resolve host:443:<ip>` o parchear el lookup.
 - [2026-10-23] **`get_meeting_transcript` de Anarlog** devuelve ~125 KB por
   página y el harness lo vuelca a `tool-results/*.txt`: `jq -r '.text'` y
   concatena (`pagination.total`). Sin hablante.
