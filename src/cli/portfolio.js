@@ -1,6 +1,6 @@
 // @ts-check
 //
-// src/cli/portfolio.js — Action handlers de `kodo portfolio` (list · show · set · step).
+// src/cli/portfolio.js — Action handlers de `kodo portfolio` (list · show · set · step · event).
 //
 // THIN handlers: argv → store → render. La forma del fichero y sus reglas viven en
 // `src/portfolio/store.js`. Cada handler RETORNA el exit code; nunca termina el proceso.
@@ -13,6 +13,7 @@
 
 import {
   PortfolioUsageError,
+  addEvent,
   addStep,
   applyPatch,
   defaultPortfolioDir,
@@ -136,6 +137,25 @@ export function runPortfolioStepCli(slug, text, opts, deps = {}) {
     if (!entry) throw new PortfolioUsageError(`no existe «${slug}» en el portafolio`);
     writeEntry(dir, addStep(entry, text, opts.source, now));
     write(`Paso registrado en ${slug}\n`);
+    return EXIT_SUCCESS;
+  });
+}
+
+/**
+ * `kodo portfolio event <slug> …` — registra una reunión o un correo relevante.
+ *
+ * @param {string} slug
+ * @param {{ kind?: string, date?: string, title?: string, summary?: string, ref?: string, source?: string }} event
+ * @param {PortfolioDeps} [deps]
+ * @returns {number}
+ */
+export function runPortfolioEventCli(slug, event, deps = {}) {
+  const { dir, write, err, now } = resolve(deps);
+  return guarded(err, () => {
+    const entry = readEntry(dir, slug);
+    if (!entry) throw new PortfolioUsageError(`no existe «${slug}» en el portafolio`);
+    writeEntry(dir, addEvent(entry, event, now));
+    write(`Evento registrado en ${slug}\n`);
     return EXIT_SUCCESS;
   });
 }

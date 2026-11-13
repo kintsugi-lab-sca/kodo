@@ -3,8 +3,9 @@
 // src/portfolio/store.js — Portafolio: la «situación» de cada proyecto en marcha.
 //
 // Un fichero JSON por proyecto en `~/.kodo/portfolio/<slug>.json`. Lo ESCRIBE el orquestador
-// (vía `kodo portfolio set|step`) y lo LEE MyTasks, que vigila el directorio y repinta. El
-// fichero es el contrato entre ambos: cualquier cambio de forma sube `SCHEMA_VERSION`.
+// (vía `kodo portfolio set|step|event`) y lo LEE MyTasks, que vigila el directorio y repinta.
+// El fichero es el contrato entre ambos: un cambio INCOMPATIBLE de forma sube `SCHEMA_VERSION`;
+// un campo nuevo opcional (como `events`) no, y el lector lo trata como ausente = vacío.
 //
 // Qué guarda y qué NO: solo la narrativa que no se puede derivar (titular, siguiente paso, a
 // quién se espera, bloqueos, hitos externos, últimos pasos). Los contadores de tareas y las
@@ -31,6 +32,12 @@ export const STATUSES = ['on_track', 'at_risk', 'blocked', 'waiting', 'paused', 
 /** Tope de la cronología: se conservan los pasos más recientes. */
 export const MAX_STEPS = 30;
 
+/** Tope de reuniones y correos: se conservan los más recientes. */
+export const MAX_EVENTS = 20;
+
+/** Tipos de evento externo que admite una ficha. */
+export const EVENT_KINDS = ['meeting', 'email'];
+
 /** Tope de longitud de cualquier texto libre. */
 export const MAX_TEXT_LEN = 500;
 
@@ -40,6 +47,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * @typedef {{ date: string, label: string }} PortfolioDate
  * @typedef {{ at: string, text: string, source: string | null }} PortfolioStep
+ * @typedef {{ kind: string, date: string, title: string, summary: string | null, ref: string | null }} PortfolioEvent
  * @typedef {{
  *   schema_version: number,
  *   slug: string,
@@ -53,6 +61,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  *   blockers: string[],
  *   dates: PortfolioDate[],
  *   steps: PortfolioStep[],
+ *   events?: PortfolioEvent[],
  *   updated_at: string,
  *   updated_by: string | null,
  * }} PortfolioEntry
@@ -163,6 +172,13 @@ export function writeEntry(dir, entry) {
   renameSync(tmp, path); // swap atómico intra-fs
 }
 
+/** @param {string} date @returns {boolean} `YYYY-MM-DD` que existe en el calendario. */
+function isValidDate(date) {
+  if (!DATE_RE.test(date)) return false;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+}
+
 /**
  * `YYYY-MM-DD=etiqueta` → hito. La fecha debe existir en el calendario.
  *
@@ -173,8 +189,7 @@ function parseDate(raw) {
   const eq = raw.indexOf('=');
   const date = eq === -1 ? raw : raw.slice(0, eq);
   const label = eq === -1 ? '' : cleanText(raw.slice(eq + 1));
-  const valid = DATE_RE.test(date) && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date;
-  if (!valid || label === '') {
+  if (!isValidDate(date) || label === '') {
     throw new PortfolioUsageError(`fecha inválida «${raw}»: se espera YYYY-MM-DD=etiqueta`);
   }
   return { date, label };
@@ -269,4 +284,33 @@ export function addStep(entry, text, source, now) {
     updated_at: now,
     updated_by: by,
   };
+}
+
+/**
+ * Registra una reunión o un correo relevante (el más reciente primero) y recorta a
+ * `MAX_EVENTS`. Con `ref`, un evento del mismo tipo y la misma `ref` se REEMPLAZA: repetir
+ * el barrido no duplica. Puro.
+ *
+ * @param {PortfolioEntry} entry
+ * @param {{ kind?: string, date?: string, title?: string, summary?: string, ref?: string, source?: string }} event
+ * @param {string} now
+ * @returns {PortfolioEntry}
+ */
+export function addEvent(entry, event, now) {
+  const kind = String(event.kind ?? '');
+  if (!EVENT_KINDS.includes(kind)) {
+    throw new PortfolioUsageError(`tipo inválido «${kind}»: ${EVENT_KINDS.join(' | ')}`);
+  }
+  const date = String(event.date ?? '');
+  if (!isValidDate(date)) {
+    throw new PortfolioUsageError(`fecha inválida «${date}»: se espera YYYY-MM-DD`);
+  }
+  const title = cleanText(event.title);
+  if (title === '') throw new PortfolioUsageError('el título del evento está vacío');
+  const ref = optionalText(event.ref) ?? null;
+  const rest = (entry.events || []).filter((e) => !(ref !== null && e.kind === kind && e.ref === ref));
+  const events = [{ kind, date, title, summary: optionalText(event.summary) ?? null, ref }, ...rest]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, MAX_EVENTS);
+  return { ...entry, events, updated_at: now, updated_by: optionalText(event.source) ?? null };
 }

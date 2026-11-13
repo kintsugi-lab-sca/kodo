@@ -11,14 +11,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  MAX_EVENTS,
   MAX_STEPS,
   PortfolioUsageError,
+  addEvent,
   addStep,
   applyPatch,
   listEntries,
   readEntry,
 } from '../src/portfolio/store.js';
 import {
+  runPortfolioEventCli,
   runPortfolioListCli,
   runPortfolioSetCli,
   runPortfolioShowCli,
@@ -103,6 +106,45 @@ describe('portfolio store: addStep', () => {
   });
 });
 
+describe('portfolio store: addEvent', () => {
+  const MEETING = { kind: 'meeting', date: '2026-11-12', title: 'aparca&go web', summary: 'Se valida el diseño', ref: 'm-1' };
+
+  it('añade a una ficha sin `events` y ordena del más reciente al más antiguo', () => {
+    let e = applyPatch(null, 'x', BASE, NOW);
+    delete e.events;
+    e = addEvent(e, MEETING, NOW);
+    e = addEvent(e, { kind: 'email', date: '2026-11-13', title: 'Re: GA4' }, NOW);
+    e = addEvent(e, { kind: 'meeting', date: '2026-11-01', title: 'Status' }, NOW);
+    assert.deepEqual(e.events?.map((ev) => ev.date), ['2026-11-13', '2026-11-12', '2026-11-01']);
+    assert.deepEqual(e.events?.[0], { kind: 'email', date: '2026-11-13', title: 'Re: GA4', summary: null, ref: null });
+  });
+
+  it('la misma ref del mismo tipo reemplaza; de otro tipo, no', () => {
+    let e = addEvent(applyPatch(null, 'x', BASE, NOW), MEETING, NOW);
+    e = addEvent(e, { ...MEETING, summary: 'Resumen corregido' }, NOW);
+    e = addEvent(e, { ...MEETING, kind: 'email' }, NOW);
+    assert.equal(e.events?.length, 2);
+    assert.equal(e.events?.find((ev) => ev.kind === 'meeting')?.summary, 'Resumen corregido');
+  });
+
+  it('recorta a los más recientes', () => {
+    let e = applyPatch(null, 'x', BASE, NOW);
+    for (let i = 1; i <= MAX_EVENTS + 3; i++) {
+      e = addEvent(e, { kind: 'email', date: `2026-10-${String(i).padStart(2, '0')}`, title: `c${i}` }, NOW);
+    }
+    assert.equal(e.events?.length, MAX_EVENTS);
+    assert.equal(e.events?.[0].title, `c${MAX_EVENTS + 3}`);
+  });
+
+  it('rechaza tipo, fecha y título inválidos', () => {
+    const e = applyPatch(null, 'x', BASE, NOW);
+    assert.throws(() => addEvent(e, { ...MEETING, kind: 'llamada' }, NOW), PortfolioUsageError);
+    assert.throws(() => addEvent(e, { ...MEETING, date: '12-11-2026' }, NOW), PortfolioUsageError);
+    assert.throws(() => addEvent(e, { ...MEETING, date: '2026-13-45' }, NOW), PortfolioUsageError);
+    assert.throws(() => addEvent(e, { ...MEETING, title: ' ' }, NOW), PortfolioUsageError);
+  });
+});
+
 describe('portfolio CLI', () => {
   /** @type {string} */ let dir;
   /** @type {string[]} */ let out;
@@ -134,6 +176,15 @@ describe('portfolio CLI', () => {
     runPortfolioSetCli('aparcago', BASE, deps);
     assert.equal(runPortfolioStepCli('aparcago', 'Desplegado en producción', { source: 'ROMAN-9' }, deps), 0);
     assert.equal(readEntry(dir, 'aparcago')?.steps[0].text, 'Desplegado en producción');
+  });
+
+  it('event exige que la ficha exista y persiste el evento', () => {
+    const ev = { kind: 'meeting', date: '2026-11-12', title: 'Status', ref: 'm-1' };
+    assert.equal(runPortfolioEventCli('nada', ev, deps), 2);
+    runPortfolioSetCli('aparcago', BASE, deps);
+    assert.equal(runPortfolioEventCli('aparcago', ev, deps), 0);
+    assert.equal(runPortfolioEventCli('aparcago', { ...ev, kind: 'x' }, deps), 2);
+    assert.equal(readEntry(dir, 'aparcago')?.events?.length, 1);
   });
 
   it('show vuelca JSON y sale con 2 si no existe', () => {
