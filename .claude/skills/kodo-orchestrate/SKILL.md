@@ -507,6 +507,14 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
 
 ### Lanzar
 
+- [2026-11-15] **`dispatch.skipped reason=blocked_by_open`** (el mensaje final
+  dice «no kodo label», engañoso): la tarea tiene relaciones «bloqueada por»
+  abiertas en Plane. Si su trabajo ya está en main, `kodo launch <ref> --force`
+  y dilo al operador; no cierres las bloqueantes por tu cuenta.
+- [2026-11-15] **Dos tareas que tocan la misma plantilla y con fecha encima van
+  en UNA sesión**, en la misma rama y con commits separados: lanza la primera y
+  añade a su descripción «después, <REF-2> en la misma rama». Una sola PR.
+
 - [2026-11-09] **`kodo launch` exige label `kodo` y assignee** (`Ignored — no
   kodo label`, `reason=unassigned`). Añade ambos con `update_work_item` o PATCH
   REST con las listas completas, y lanza. «already dispatching (cross-process)»
@@ -555,10 +563,18 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
   «waiting on a question or dialog» es la señal para esperar o pedir a Alex que
   lo borre. `send-key ctrl+u` limpió el prompt en ago–sep; el 9-oct ni Escape,
   Ctrl+U, Ctrl+C ni Backspace lo limpiaban: no cuentes con ello.
-- [2026-09-02] **El texto «sin enviar» del prompt puede ser la sugerencia de
+- [2026-11-15] **El texto «sin enviar» del prompt puede ser la sugerencia de
   next-prompt de Claude Code**, indistinguible en `read-screen`. No lo
-  atribuyas al operador ni lo creas («cherry-pick hecho» apareció sin hacer):
-  verifica contra git/Plane.
+  atribuyas al operador ni lo creas («mergea la PR» con la PR ya mergeada):
+  verifica contra git/Plane. Un `cmux send` sin `--force` la reemplaza sin
+  queja; si fuera un borrador humano, cmux se niega.
+- [2026-11-15] **Diálogo de preguntas de una sesión (pestañas «☐ A ☐ B ✔
+  Submit»)**: es decisión del operador; con su respuesta, `send-key --force
+  Enter` por pestaña (lee la opción marcada antes) y otro en «Submit answers».
+- [2026-11-15] **Sesiones que prueban con claude-in-chrome**: el SSO lo abre el
+  operador en la pestaña del grupo de Claude; la sesión para y espera
+  «dentro». Si dice que la extensión no conecta, compruébalo tú con
+  `list_connected_browsers` antes de molestar al operador.
 - [2026-09-09] **Un texto largo queda como «[Pasted text #1]» sin enviarse.**
   Escríbelo en un fichero del scratchpad y `cmux send --workspace X "$(cat
   fichero)"` + `send-key Enter`. Tu `cmux send` no puede contener rutas de
@@ -638,6 +654,15 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
 
 ### Integrar y mergear
 
+- [2026-11-13] **Antes de dar un orden de merge de varias PRs del mismo repo,
+  comprueba que no chocan entre ellas**, no solo que están al día con main:
+  `git merge-tree --write-tree --name-only origin/main origin/<rama>` y busca
+  ficheros que añadan dos ramas a la vez (Liken: tres PRs con `sunset.rake`).
+- [2026-11-13] **GitHub rechaza el merge («Merge already in progress», «server
+  unable»)** con la PR limpia: si el operador ya lo intentó él, `git merge
+  --no-ff origin/<rama>` en el main local con el mensaje de la PR y `push`;
+  GitHub la marca MERGED. Verifica con `gh pr view --json state`.
+
 - [2026-09-03] **El PR lo mergea el humano.** `gh pr merge` está bloqueado por
   un wrapper (`~/.local/bin/gh`: «merging requires human approval») aunque el
   operador autorice. No lo rodees: dale el comando listo (`/opt/homebrew/bin/gh
@@ -670,6 +695,12 @@ Escribe en la del repo, o copia home → repo antes de cerrar.
   Delégalo a un agente.
 
 ### GitHub y CI
+
+- [2026-11-13] **Las PRs de Clipping van al repo de Roman (`origin`), nunca a
+  `kintsugi-lab-sca/clipping`** (espejo atrasado). Dilo en la descripción de
+  cada tarea. Para saber si una PR mal puesta ya está en Roman: `git rev-list
+  --count origin/main..<head>` = 0 → se cierra con comentario; si no, la sesión
+  mergea `origin/main`, sube la rama a `origin` y abre la PR allí.
 
 - [2026-11-09] **`gh` por repo, sin `gh auth switch` (#37299).**
   `GH_TOKEN=$(gh auth token --user deikka)` para `kintsugi-lab-sca/*` y
