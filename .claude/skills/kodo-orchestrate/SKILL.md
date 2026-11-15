@@ -389,6 +389,11 @@ entero). Si ninguna coincide no la crees por tu cuenta: propónsela al operador
 `kodo-sweep` (`.claude/skills/kodo-sweep/SKILL.md`): ahí vive el procedimiento.
 El operador también puede lanzarla a mano con `/kodo-sweep [slug] [días]`.
 
+**Ficha sin titular o atrasada.** Para una ficha que sale «Sin situación
+registrada», antigua o con «entregas sin reflejar» en MyTasks, sigue la skill
+`kodo-brief` (`/kodo-brief [slug | all]`): propone titular, estado y siguiente
+paso, y escribe solo con el OK del operador.
+
 **Reglas.**
 
 - Solo hechos que te consten: handoff, `NEXT:`, comentarios del provider, lo
