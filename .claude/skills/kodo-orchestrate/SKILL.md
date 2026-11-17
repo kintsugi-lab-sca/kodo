@@ -384,8 +384,9 @@ entero). Si ninguna coincide no la crees por tu cuenta: propónsela al operador
    `--blocker` y `--date 'YYYY-MM-DD=etiqueta'` **reemplazan** la lista:
    repite los vigentes (`--clear-blockers`, `--clear-dates` vacían).
 
-**Barrido diario de reuniones y correo.** En la primera ronda de cada día, si
-`cat ~/.kodo/portfolio/.last-sweep` no es la fecha de hoy, sigue la skill
+**Barrido diario de reuniones y correo.** En cada ronda (paso 5d del loop):
+`cat ~/.kodo/portfolio/.last-sweep; date +%F`. Si no existe o no es la fecha de
+hoy, sigue la skill
 `kodo-sweep` (`.claude/skills/kodo-sweep/SKILL.md`): ahí vive el procedimiento.
 El operador también puede lanzarla a mano con `/kodo-sweep [slug] [días]`.
 
