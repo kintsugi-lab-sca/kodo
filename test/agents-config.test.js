@@ -77,7 +77,7 @@ describe('KODO-104 — effort_flag del registro', () => {
 
   test('claude-code emite --effort <level> con default_effort configurado', () => {
     const cmd = buildAgentCommand(cfg('high'), SID, task, 'd', null, [], null, true, 'claude-code');
-    assert.match(cmd, /^claude --model opus --effort high --session-id sid /);
+    assert.ok(cmd.startsWith(`claude --model opus --effort high --session-id ${SID} `), cmd);
   });
 
   test('opencode omite el par flag+valor aunque haya default_effort', () => {
