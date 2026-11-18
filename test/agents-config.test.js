@@ -63,6 +63,12 @@ describe('KODO-104 — effort_flag del registro', () => {
     agents: DEFAULT_CONFIG.agents,
   });
   const task = /** @type {any} */ ({ id: 't', ref: 'KODO-104', title: 'x', projectId: 'p', projectName: 'kodo' });
+  // Id de sesión PROPIO de este fichero. `buildAgentCommand` escribe el prompt en
+  // `tmpdir()/kodo-prompts/<sessionId>`, y `node --test` corre cada fichero en su propio
+  // proceso, en paralelo: con el `'sid'` que también usa test/agent-selection.test.js los
+  // dos procesos escribían el MISMO fichero, y el de allí leía una mezcla de ambos prompts
+  // («Trabaja en: x. Descripción: domo opción. Descripción: desc»). Rojo intermitente en CI.
+  const SID = 'sid-agents-config';
 
   test('claude-code declara --effort; opencode lo deja a null', () => {
     assert.equal(DEFAULT_CONFIG.agents.registry['claude-code'].effort_flag, '--effort');
@@ -70,12 +76,12 @@ describe('KODO-104 — effort_flag del registro', () => {
   });
 
   test('claude-code emite --effort <level> con default_effort configurado', () => {
-    const cmd = buildAgentCommand(cfg('high'), 'sid', task, 'd', null, [], null, true, 'claude-code');
-    assert.match(cmd, /^claude --model opus --effort high --session-id sid /);
+    const cmd = buildAgentCommand(cfg('high'), SID, task, 'd', null, [], null, true, 'claude-code');
+    assert.ok(cmd.startsWith(`claude --model opus --effort high --session-id ${SID} `), cmd);
   });
 
   test('opencode omite el par flag+valor aunque haya default_effort', () => {
-    const cmd = buildAgentCommand(cfg('xhigh'), 'sid', task, 'd', null, [], null, false, 'opencode');
+    const cmd = buildAgentCommand(cfg('xhigh'), SID, task, 'd', null, [], null, false, 'opencode');
     assert.ok(!cmd.includes('--effort'), cmd);
     assert.ok(!cmd.includes('xhigh'), cmd);
   });
