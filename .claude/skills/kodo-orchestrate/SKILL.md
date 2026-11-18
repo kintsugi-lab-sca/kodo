@@ -383,6 +383,9 @@ entero). Si ninguna coincide no la crees por tu cuenta: propónsela al operador
    `--waiting-on '…'` cuando la pelota está en otro tejado (`''` al volver).
    `--blocker` y `--date 'YYYY-MM-DD=etiqueta'` **reemplazan** la lista:
    repite los vigentes (`--clear-blockers`, `--clear-dates` vacían).
+   Hito cumplido: `--done-date 'YYYY-MM-DD'` (`--undone-date` lo revierte). No
+   lo quites de la lista: cumplido se queda como historia, y repetirlo en
+   `--date` conserva la marca. El operador también los marca desde MyTasks.
 
 **Barrido diario de reuniones y correo.** En cada ronda (paso 5d del loop):
 `cat ~/.kodo/portfolio/.last-sweep; date +%F`. Si no existe o no es la fecha de

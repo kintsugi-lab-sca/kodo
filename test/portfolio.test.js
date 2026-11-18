@@ -79,6 +79,27 @@ describe('portfolio store: applyPatch', () => {
     assert.deepEqual(applyPatch(a, 'aparcago', { blockers: [] }, NOW).blockers, []);
   });
 
+  it('marca hitos como cumplidos y la marca sobrevive a reescribir la lista', () => {
+    const a = applyPatch(null, 'x', { ...BASE, dates: ['2026-11-18=Preview', '2026-11-23=Web visible'] }, NOW);
+    const LATER = '2026-11-18T12:00:00.000Z';
+    const b = applyPatch(a, 'x', { doneDates: ['2026-11-18'] }, LATER);
+    assert.deepEqual(b.dates, [
+      { date: '2026-11-18', label: 'Preview', done_at: LATER },
+      { date: '2026-11-23', label: 'Web visible' },
+    ]);
+    // `--date` reemplaza la lista: el que se repite igual conserva su marca; el que
+    // cambia de etiqueta es otro hito y nace sin ella.
+    const c = applyPatch(b, 'x', { dates: ['2026-11-18=Preview', '2026-11-23=Web publicada'] }, NOW);
+    assert.equal(c.dates[0].done_at, LATER);
+    assert.equal(c.dates[1].done_at, undefined);
+    // Reemplazo y marca en la misma llamada; volver a marcar no mueve la fecha de cumplido.
+    const d = applyPatch(c, 'x', { dates: ['2026-11-18=Preview', '2026-12-01=Tickets'], doneDates: ['2026-11-18'] }, NOW);
+    assert.equal(d.dates[0].done_at, LATER);
+    const e = applyPatch(d, 'x', { undoneDates: ['2026-11-18'] }, NOW);
+    assert.deepEqual(e.dates[0], { date: '2026-11-18', label: 'Preview' });
+    assert.throws(() => applyPatch(a, 'x', { doneDates: ['2026-11-19'] }, NOW), PortfolioUsageError);
+  });
+
   it('rechaza slug, estado y fecha inválidos', () => {
     assert.throws(() => applyPatch(null, 'Aparca Go', BASE, NOW), PortfolioUsageError);
     assert.throws(() => applyPatch(null, '../x', BASE, NOW), PortfolioUsageError);

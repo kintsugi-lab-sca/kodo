@@ -45,7 +45,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * @typedef {{ date: string, label: string }} PortfolioDate
+ * @typedef {{ date: string, label: string, done_at?: string }} PortfolioDate
  * @typedef {{ at: string, text: string, source: string | null }} PortfolioStep
  * @typedef {{ kind: string, date: string, title: string, summary: string | null, ref: string | null }} PortfolioEvent
  * @typedef {{
@@ -79,6 +79,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  *   waitingOn?: string,
  *   blockers?: string[],
  *   dates?: string[],
+ *   doneDates?: string[],
+ *   undoneDates?: string[],
  *   archived?: boolean,
  *   source?: string,
  * }} PortfolioPatch
@@ -250,7 +252,33 @@ export function applyPatch(current, slug, patch, now) {
   if (waitingOn !== undefined) entry.waiting_on = waitingOn;
   if (patch.blockers !== undefined) entry.blockers = patch.blockers.map(cleanText).filter(Boolean);
   if (patch.dates !== undefined) {
-    entry.dates = patch.dates.map(parseDate).sort((a, b) => a.date.localeCompare(b.date));
+    // `--date` reemplaza la lista, pero un hito que se repite (misma fecha y etiqueta)
+    // conserva su marca de cumplido: reescribir los vigentes no debe «des-cumplirlos».
+    const previous = entry.dates || [];
+    entry.dates = patch.dates
+      .map(parseDate)
+      .map((d) => {
+        const same = previous.find((p) => p.date === d.date && p.label === d.label);
+        return same && same.done_at ? { ...d, done_at: same.done_at } : d;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  // Marcar / desmarcar como cumplidos los hitos de una fecha. Va DESPUÉS del reemplazo
+  // para que `--date … --done-date …` en la misma llamada funcione.
+  for (const [dates, done] of /** @type {[string[] | undefined, boolean][]} */ ([
+    [patch.doneDates, true],
+    [patch.undoneDates, false],
+  ])) {
+    for (const date of dates || []) {
+      if (!(entry.dates || []).some((d) => d.date === date)) {
+        throw new PortfolioUsageError(`no hay ningún hito con fecha «${date}» en «${slug}»`);
+      }
+      entry.dates = entry.dates.map((d) => {
+        if (d.date !== date) return d;
+        const { done_at: _doneAt, ...rest } = d;
+        return done ? { ...rest, done_at: d.done_at || now } : rest;
+      });
+    }
   }
   if (patch.archived !== undefined) entry.archived = patch.archived;
 

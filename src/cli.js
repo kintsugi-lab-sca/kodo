@@ -630,6 +630,8 @@ portfolio
   .option('--clear-blockers', 'Vaciar la lista de bloqueos')
   .option('--date <YYYY-MM-DD=etiqueta>', 'Hito externo (repetible; REEMPLAZA la lista)', collect, [])
   .option('--clear-dates', 'Vaciar la lista de hitos')
+  .option('--done-date <YYYY-MM-DD>', 'Marcar como cumplidos los hitos de esa fecha (repetible)', collect, [])
+  .option('--undone-date <YYYY-MM-DD>', 'Quitar la marca de cumplido a los hitos de esa fecha (repetible)', collect, [])
   .option('--archive', 'Archivar el proyecto')
   .option('--unarchive', 'Recuperar un proyecto archivado')
   .option('--source <ref>', 'Quién actualiza: sesión, tarea…')
@@ -645,6 +647,8 @@ portfolio
       waitingOn: opts.waitingOn,
       blockers: opts.clearBlockers ? [] : opts.blocker.length ? opts.blocker : undefined,
       dates: opts.clearDates ? [] : opts.date.length ? opts.date : undefined,
+      doneDates: opts.doneDate.length ? opts.doneDate : undefined,
+      undoneDates: opts.undoneDate.length ? opts.undoneDate : undefined,
       archived: opts.archive ? true : opts.unarchive ? false : undefined,
       source: opts.source,
     });
